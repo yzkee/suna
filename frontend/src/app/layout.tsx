@@ -15,6 +15,7 @@ import { I18nProvider } from '@/components/i18n-provider';
 import { featureFlags } from '@/lib/feature-flags';
 
 // Lazy load non-critical analytics and global components
+// Note: Analytics scripts will be automatically blocked by cookie consent service until consent is given
 const Analytics = lazy(() => import('@vercel/analytics/react').then(mod => ({ default: mod.Analytics })));
 const SpeedInsights = lazy(() => import('@vercel/speed-insights/next').then(mod => ({ default: mod.SpeedInsights })));
 const GoogleAnalytics = lazy(() => import('@next/third-parties/google').then(mod => ({ default: mod.GoogleAnalytics })));
@@ -140,7 +141,8 @@ export default function RootLayout({
           <meta name="apple-itunes-app" content="app-id=6754448524, app-argument=kortix://" />
         ) : null}
 
-        <Script id="facebook-pixel" strategy="lazyOnload">
+        {/* Facebook Pixel - Will be blocked by cookie consent service until marketing consent is given */}
+        <Script id="facebook-pixel" strategy="lazyOnload" data-cookieconsent="marketing">
           {`
             !function(f,b,e,v,n,t,s)
             {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
