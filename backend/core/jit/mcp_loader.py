@@ -115,7 +115,14 @@ class MCPJITLoader:
         if enabled_tools:
             for tool_name in enabled_tools:
                 if tool_name in self.tool_map:
-                    continue
+                    previous_profile_id = (self.tool_map[tool_name].mcp_config.get('config', {}) or {}).get('profile_id')
+                    next_profile_id = (mcp_config.get('config', {}) or {}).get('profile_id')
+                    logger.info(
+                        "⚡ [MCP JIT] Overriding duplicate tool mapping for %s (old profile=%s, new profile=%s)",
+                        tool_name,
+                        previous_profile_id,
+                        next_profile_id,
+                    )
                 
                 self.tool_map[tool_name] = MCPToolInfo(
                     tool_name=tool_name,
@@ -134,7 +141,14 @@ class MCPJITLoader:
         
         for tool_name in available_tools:
             if tool_name in self.tool_map:
-                continue
+                previous_profile_id = (self.tool_map[tool_name].mcp_config.get('config', {}) or {}).get('profile_id')
+                next_profile_id = (mcp_config.get('config', {}) or {}).get('profile_id')
+                logger.info(
+                    "⚡ [MCP JIT] Overriding duplicate discovered tool mapping for %s (old profile=%s, new profile=%s)",
+                    tool_name,
+                    previous_profile_id,
+                    next_profile_id,
+                )
             
             self.tool_map[tool_name] = MCPToolInfo(
                 tool_name=tool_name,
@@ -437,8 +451,9 @@ class MCPJITLoader:
             
             db = DBConnection()
             profile_service = ComposioProfileService(db)
-            mcp_url = await profile_service.get_mcp_url_for_runtime(profile_id)
-            
+            account_id = self.agent_config.get('account_id')
+            mcp_url = await profile_service.get_mcp_url_for_runtime(profile_id, account_id=account_id)
+
             logger.debug(f"⚡ [MCP JIT] Resolved Composio profile {profile_id} to MCP URL for {tool_name}")
             
             async with streamablehttp_client(mcp_url) as (read_stream, write_stream, _):

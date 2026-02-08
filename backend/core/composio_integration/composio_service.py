@@ -49,7 +49,7 @@ class ComposioIntegrationService:
             logger.debug(f"Starting Composio integration for toolkit: {toolkit_slug}")
             logger.debug(f"Initiation fields: {initiation_fields}")
             logger.debug(f"Custom auth: {use_custom_auth}, Custom auth config: {bool(custom_auth_config)}")
-            
+
             toolkit = await self.toolkit_service.get_toolkit_by_slug(toolkit_slug)
             if not toolkit:
                 raise ValueError(f"Toolkit '{toolkit_slug}' not found")
@@ -107,9 +107,22 @@ class ComposioIntegrationService:
                 connected_account_ids=[connected_account.id],
                 user_ids=[user_id]
             )
+            
+            
+            
+            
             logger.debug(f"Step 5 complete: Generated MCP URLs")
             
-            final_mcp_url = mcp_url_response.user_ids_url[0] if mcp_url_response.user_ids_url else mcp_url_response.mcp_url
+            # Prefer connected_account URL (pins to exact OAuth credentials) over user_id URL (ambiguous if user has multiple accounts)
+            if mcp_url_response.connected_account_urls:
+                final_mcp_url = mcp_url_response.connected_account_urls[0]
+                logger.info(f"Using connected_account-specific MCP URL for {toolkit_slug} (connected_account_id={connected_account.id})")
+            elif mcp_url_response.user_ids_url:
+                final_mcp_url = mcp_url_response.user_ids_url[0]
+                logger.warning(f"Falling back to user_id-based MCP URL for {toolkit_slug} — connected_account URL not available")
+            else:
+                final_mcp_url = mcp_url_response.mcp_url
+                logger.warning(f"Using base MCP URL for {toolkit_slug} — no user/account-specific URL available")
             
             profile_id = None
             if save_as_profile and self.profile_service:

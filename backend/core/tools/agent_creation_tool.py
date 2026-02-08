@@ -325,9 +325,9 @@ Call `configure_profile_for_agent` with the `profile_id` and array of selected t
 1. **MCP SERVER SEARCH LIMIT**: NEVER search for more than 5 MCP servers. Always use `limit=5` parameter.
 2. **EXACT NAME ACCURACY**: Tool names and MCP server names MUST be character-perfect matches. Even minor spelling errors will cause complete system failure.
 3. **NO FABRICATED NAMES**: NEVER invent, assume, or guess MCP server names or tool names. Only use names explicitly returned from tool calls.
-4. **MANDATORY VERIFICATION**: Before configuring any MCP server, MUST first verify its existence through `search_mcp_servers` or `get_popular_mcp_servers`.
+4. **MANDATORY VERIFICATION**: Before configuring any MCP server, MUST first verify its existence through `search_mcp_servers_for_agent` or `get_popular_mcp_servers`.
 5. **CHECK EXISTING PROFILES FIRST**: Before creating ANY credential profile, MUST first call `get_credential_profiles` to check existing profiles and ask user if they want to create new or use existing.
-6. **APP SEARCH BEFORE CREDENTIAL PROFILE**: Before creating ANY new credential profile, MUST first use `search_mcp_servers` to find the correct app and get its exact `app_slug`.
+6. **APP SEARCH BEFORE CREDENTIAL PROFILE**: Before creating ANY new credential profile, MUST first use `search_mcp_servers_for_agent` to find the correct app and get its exact `toolkit_slug`.
 7. **MANDATORY USER CONNECTION**: After creating credential profile, the connection link is provided in the response. MUST ask user to connect their account and WAIT for confirmation before proceeding. Do NOT continue until user confirms connection.
 8. **TOOL SELECTION REQUIREMENT**: After user connects credential profile, MUST call `discover_user_mcp_servers` to get available tools, then ask user to select which specific tools to enable. This is CRITICAL - never skip tool selection.
 9. **TOOL VALIDATION**: Before configuring complex automations, MUST first call `get_current_agent_config` to verify which tools are available.
@@ -565,7 +565,7 @@ class AgentCreationTool(Tool):
         "type": "function",
         "function": {
             "name": "search_mcp_servers_for_agent",
-            "description": "Search for available MCP servers/integrations that can be added to a newly created agent. Use this to find integrations for services like Gmail, Slack, GitHub, etc.",
+            "description": "Search MCP integrations and return exact toolkit slugs for agent setup. This must be the first tool call before any create_credential_profile_for_agent call.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -690,13 +690,13 @@ class AgentCreationTool(Tool):
         "type": "function",
         "function": {
             "name": "create_credential_profile_for_agent",
-            "description": "Create a credential profile for external service integration with a newly created agent. This generates an authentication link that the user must complete.",
+            "description": "Create a credential profile for external service integration with a newly created agent. Call this ONLY after search_mcp_servers_for_agent in the same request flow, even if the slug seems obvious. Pass an exact toolkit_slug from search results and never generic values like 'google'.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "toolkit_slug": {
                         "type": "string",
-                        "description": "The toolkit/app slug (e.g., 'github', 'gmail', 'slack', 'linear')"
+                        "description": "Exact toolkit slug from search results (e.g., 'gmail', 'googlecalendar', 'googledrive', 'github', 'linear'). Do not use generic names like 'google'."
                     },
                     "profile_name": {
                         "type": "string",
@@ -718,10 +718,10 @@ class AgentCreationTool(Tool):
                 return self.fail_response("Unable to determine current account ID")
             
             from core.composio_integration.composio_service import get_integration_service
+            integration_service = get_integration_service(db_connection=self.db)
             
             integration_user_id = str(uuid4())
 
-            integration_service = get_integration_service(db_connection=self.db)
             result = await integration_service.integrate_toolkit(
                 toolkit_slug=toolkit_slug,
                 account_id=account_id,
@@ -762,8 +762,8 @@ class AgentCreationTool(Tool):
             })
             
         except Exception as e:
-            logger.error(f"Failed to create credential profile: {e}")
-            return self.fail_response("Failed to create credential profile")
+            logger.error(f"Failed to create credential profile for '{toolkit_slug}': {e}", exc_info=True)
+            return self.fail_response(f"Failed to create credential profile: {str(e)}")
 
     @openapi_schema({
         "type": "function",
@@ -864,7 +864,7 @@ class AgentCreationTool(Tool):
                 "properties": {
                     "agent_id": {
                         "type": "string",
-                        "description": "The ID of the agent to add the integration to"
+                        "description": "Optional. Agent ID to add the integration to. Use 'default' (or omit) to target the account's default agent."
                     },
                     "profile_name": {
                         "type": "string",
@@ -880,24 +880,25 @@ class AgentCreationTool(Tool):
                         "description": "Optional custom display name for this integration"
                     }
                 },
-                "required": ["agent_id", "profile_name", "enabled_tools"]
+                "required": ["profile_name", "enabled_tools"]
             }
         }
     })
     async def configure_agent_integration(
         self,
-        agent_id: str,
         profile_name: str,
         enabled_tools: List[str],
+        agent_id: Optional[str] = "default",
         display_name: Optional[str] = None
     ) -> ToolResult:
         try:
             account_id = self.account_id
             if not account_id:
                 return self.fail_response("Unable to determine current account ID")
-            
-            actual_agent_id = agent_id
-            if agent_id == "default":
+
+            requested_agent_id = (agent_id.strip() or "default") if isinstance(agent_id, str) else "default"
+            actual_agent_id = requested_agent_id
+            if requested_agent_id == "default":
                 from core.agents import repo as agents_repo
                 actual_agent_id = await agents_repo.get_default_agent_id(account_id)
                 if not actual_agent_id:
@@ -1005,7 +1006,10 @@ class AgentCreationTool(Tool):
                     'customType': 'composio'
                 }
                 
-                mcp_wrapper_instance = MCPToolWrapper(mcp_configs=[mcp_config_for_wrapper])
+                mcp_wrapper_instance = MCPToolWrapper(
+                    mcp_configs=[mcp_config_for_wrapper],
+                    account_id=account_id,
+                )
                 await mcp_wrapper_instance.initialize_and_register_tools()
                 
             except Exception as e:
@@ -1024,7 +1028,7 @@ class AgentCreationTool(Tool):
             
             return self.success_response({
                 "message": success_message,
-                "agent_id": agent_id,
+                "agent_id": actual_agent_id,
                 "profile_name": profile_name,
                 "integration_name": profile.toolkit_name,
                 "enabled_tools": enabled_tools,
@@ -1062,6 +1066,10 @@ class AgentCreationTool(Tool):
                     "agent_prompt": {
                         "type": "string",
                         "description": "Prompt to send to the agent when triggered"
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "Model to use for scheduled runs. Defaults to 'kortix/basic'."
                     }
                 },
                 "required": ["agent_id", "name", "cron_expression", "agent_prompt"]
@@ -1074,7 +1082,8 @@ class AgentCreationTool(Tool):
         name: str,
         cron_expression: str,
         agent_prompt: str,
-        description: Optional[str] = None
+        description: Optional[str] = None,
+        model: Optional[str] = None
     ) -> ToolResult:
         try:
             account_id = self.account_id
@@ -1090,10 +1099,13 @@ class AgentCreationTool(Tool):
             if not agent_prompt:
                 return self.fail_response("agent_prompt is required")
             
+            selected_model = model or "kortix/basic"
+
             trigger_config = {
                 "cron_expression": cron_expression,
                 "provider_id": "schedule",
-                "agent_prompt": agent_prompt
+                "agent_prompt": agent_prompt,
+                "model": selected_model
             }
             
             from core.triggers import get_trigger_service
@@ -1112,6 +1124,7 @@ class AgentCreationTool(Tool):
                 success_message += f"**Trigger Details:**\n"
                 success_message += f"- Name: {name}\n"
                 success_message += f"- Schedule: `{cron_expression}`\n"
+                success_message += f"- Model: {selected_model}\n"
                 success_message += f"- Type: Worker execution\n"
                 success_message += f"- Prompt: {agent_prompt[:50]}{'...' if len(agent_prompt) > 50 else ''}\n"
                 success_message += f"- Status: **Active**\n\n"
@@ -1125,6 +1138,7 @@ class AgentCreationTool(Tool):
                         "name": trigger.name,
                         "description": trigger.description,
                         "cron_expression": cron_expression,
+                        "model": selected_model,
                         "is_active": trigger.is_active,
                         "created_at": trigger.created_at.isoformat()
                     }

@@ -32,9 +32,11 @@ class ExecutionService:
         
         Reuses the core agent start infrastructure from agent_runs.py.
         """
+        if not config.ACTIVATE_MCPS_TRIG:
+            logger.warning("Trigger execution blocked: ACTIVATE_MCPS_TRIG is disabled")
+            return {"success": False, "error": "Trigger functionality is disabled"}
+
         try:
-            logger.debug(f"Executing trigger for agent {agent_id}")
-            
             client = await self._db.client
             agent_result = await client.table('agents').select('account_id').eq('agent_id', agent_id).single().execute()
             if not agent_result.data:
@@ -74,7 +76,7 @@ class ExecutionService:
             
             from core.agents.api import start_agent_run
             
-            model_name = trigger_result.model if hasattr(trigger_result, 'model') and trigger_result.model else None
+            model_name = trigger_result.model if hasattr(trigger_result, 'model') and trigger_result.model else "kortix/basic"
             
             result = await start_agent_run(
                 account_id=account_id,
@@ -144,9 +146,14 @@ class ExecutionService:
             # Append full context for reference
             if ctx:
                 context_json = _to_json(ctx)
-                rendered = f"{rendered}\n\n---\nContext\n{context_json}"
+                rendered = f"""{rendered}\n\n---\nContext: 
                 
-        except Exception as e:
+                **Important Trigger task execution Reminder:** \n
+                For those tasks whose instructions given by the user aren't clear enough, and you decide to use ask() tool to further clarify any question/aspect before proceeding, send those questions in plain text via email to the personal gmail of the user.
+                
+                \n \n\n{context_json}"""
+                
+        except Exception as e:  
             logger.warning(f"Failed to render prompt variables: {e}")
             # Return original prompt on error
             

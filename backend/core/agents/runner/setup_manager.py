@@ -159,15 +159,17 @@ async def prewarm_user_context(account_id: str) -> None:
             if sub['name'] in ('free', 'none'):
                 tier_info += "Tier type: Free\n"
                 tier_info += "Custom workers: 0 (upgrade to Plus or higher)\n"
-                tier_info += "Scheduled triggers: 0 (upgrade to Plus or higher)\n"
-                tier_info += "App triggers: 0 (upgrade to Plus or higher)\n"
+                if config.ACTIVATE_MCPS_TRIG:
+                    tier_info += "Scheduled triggers: 0 (upgrade to Plus or higher)\n"
+                    tier_info += "App triggers: 0 (upgrade to Plus or higher)\n"
                 tier_info += "Concurrent runs: 1\n"
                 tier_info += "Credit purchases: Not available (upgrade to Ultra)\n"
             else:
                 tier_info += "Tier type: Paid\n"
                 tier_info += f"Custom workers limit: {sub['custom_workers_limit']}\n"
-                tier_info += f"Scheduled triggers limit: {sub['scheduled_triggers_limit']}\n"
-                tier_info += f"App triggers limit: {sub['app_triggers_limit']}\n"
+                if config.ACTIVATE_MCPS_TRIG:
+                    tier_info += f"Scheduled triggers limit: {sub['scheduled_triggers_limit']}\n"
+                    tier_info += f"App triggers limit: {sub['app_triggers_limit']}\n"
                 tier_info += f"Concurrent runs: {sub['concurrent_runs']}\n"
                 tier_info += f"Credit purchases: {'Available' if sub['can_purchase_credits'] else 'Not available (Ultra only)'}\n"
             tier_info += "</user_subscription>"
@@ -329,6 +331,7 @@ async def check_concurrent_runs_limit(
 async def notify_setup_error(
     agent_run_id: str,
     error: Exception,
+    account_id: Optional[str] = None,
 ) -> None:
     stream_key = f"agent_run:{agent_run_id}:stream"
     
@@ -350,7 +353,7 @@ async def notify_setup_error(
         pass
     
     try:
-        from core.agents import repo as agents_repo
-        await agents_repo.update_agent_run_status(agent_run_id, "failed")
+        from core.agents.runner import update_agent_run_status
+        await update_agent_run_status(agent_run_id, "failed", account_id=account_id)
     except Exception:
         pass

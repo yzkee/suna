@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from uuid import uuid4
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 import os
 
 from core.services.supabase import DBConnection
@@ -174,15 +174,16 @@ class ComposioProfileService:
             logger.error(f"Failed to create Composio profile: {e}", exc_info=True)
             raise
 
-    async def get_mcp_config_for_agent(self, profile_id: str) -> Dict[str, Any]:
+    async def get_mcp_config_for_agent(self, profile_id: str, account_id: str) -> Dict[str, Any]:
         try:
             client = await self.db.client
-            result = await client.table('user_mcp_credential_profiles').select('*').eq(
+            query = client.table('user_mcp_credential_profiles').select('*').eq(
                 'profile_id', profile_id
-            ).execute()
-            
+            ).eq('account_id', account_id)
+            result = await query.execute()
+
             if not result.data:
-                raise ValueError(f"Profile {profile_id} not found")
+                raise ValueError(f"Profile {profile_id} not found or does not belong to account {account_id}")
             
             profile_data = result.data[0]
 
@@ -206,48 +207,82 @@ class ComposioProfileService:
             logger.error(f"Failed to get MCP config for profile {profile_id}: {e}", exc_info=True)
             raise
     
-    async def get_mcp_url_for_runtime(self, profile_id: str) -> str:
+    async def get_mcp_url_for_runtime(self, profile_id: str, account_id: str) -> str:
         try:
+            if not account_id:
+                raise ValueError("account_id is required to load Composio runtime profile")
+
             client = await self.db.client
-            
-            result = await client.table('user_mcp_credential_profiles').select('*').eq(
+
+            query = client.table('user_mcp_credential_profiles').select('*').eq(
                 'profile_id', profile_id
-            ).execute()
-            
+            ).eq('account_id', account_id)
+
+            result = await query.execute()
+
             if not result.data:
-                raise ValueError(f"Profile {profile_id} not found")
-            
+                raise ValueError(f"Profile {profile_id} not found or does not belong to account {account_id}")
+
             profile_data = result.data[0]
-            
+
             config = self._decrypt_config(profile_data['encrypted_config'])
-            
+
             if config.get('type') != 'composio':
                 raise ValueError(f"Profile {profile_id} is not a Composio profile")
-            
+
             mcp_url = config.get('mcp_url')
             if not mcp_url:
                 raise ValueError(f"Profile {profile_id} has no MCP URL")
-            
-            logger.debug(f"Retrieved MCP URL for profile {profile_id}")
+
+            connected_account_id = config.get('connected_account_id')
+
+            # Always pin runtime routing to connected_account_id when available.
+            # This avoids ambiguous/default entity resolution and removes legacy user_id routing.
+            if connected_account_id:
+                from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
+                parsed = urlparse(mcp_url)
+                query_params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+                current_connected_account_id = query_params.get('connected_account_id')
+                has_user_id = 'user_id' in query_params
+
+                if current_connected_account_id != connected_account_id or has_user_id:
+                    query_params.pop('user_id', None)
+                    query_params['connected_account_id'] = connected_account_id
+                    upgraded_query = urlencode(query_params)
+                    upgraded_url = urlunparse((
+                        parsed.scheme,
+                        parsed.netloc,
+                        parsed.path,
+                        parsed.params,
+                        upgraded_query,
+                        parsed.fragment,
+                    ))
+                    logger.info(f"[MCP URL] Pinned connected_account_id for profile {profile_id}: {upgraded_url}")
+                    return upgraded_url
+
+            logger.info(f"[MCP URL] Using stored URL for profile {profile_id}: {mcp_url}")
             return mcp_url
-            
+
         except Exception as e:
             logger.error(f"Failed to get MCP URL for profile {profile_id}: {e}", exc_info=True)
             raise
 
-    async def get_profile_config(self, profile_id: str) -> Dict[str, Any]:
+    async def get_profile_config(self, profile_id: str, account_id: str) -> Dict[str, Any]:
         try:
             client = await self.db.client
-            
-            result = await client.table('user_mcp_credential_profiles').select('encrypted_config').eq(
+
+            query = client.table('user_mcp_credential_profiles').select('encrypted_config').eq(
                 'profile_id', profile_id
-            ).execute()
-            
+            ).eq('account_id', account_id)
+
+            result = await query.execute()
+
             if not result.data:
-                raise ValueError(f"Profile {profile_id} not found")
-            
+                raise ValueError(f"Profile {profile_id} not found or does not belong to account {account_id}")
+
             return self._decrypt_config(result.data[0]['encrypted_config'])
-            
+
         except Exception as e:
             logger.error(f"Failed to get config for profile {profile_id}: {e}", exc_info=True)
             raise
@@ -267,7 +302,23 @@ class ComposioProfileService:
             
             profiles = []
             for row in result.data:
-                config = self._decrypt_config(row['encrypted_config'])
+                try:
+                    config = self._decrypt_config(row['encrypted_config'])
+                except InvalidToken:
+                    logger.warning(
+                        "Skipping undecryptable Composio profile %s for account %s (encryption key mismatch)",
+                        row.get('profile_id'),
+                        account_id,
+                    )
+                    continue
+                except Exception as decrypt_error:
+                    logger.warning(
+                        "Skipping invalid Composio profile %s for account %s: %s",
+                        row.get('profile_id'),
+                        account_id,
+                        decrypt_error,
+                    )
+                    continue
                 
                 profile = ComposioProfile(
                     profile_id=row['profile_id'],

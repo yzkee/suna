@@ -23,6 +23,7 @@ export interface ThreadAnalytics {
   project_id?: string | null;
   project_name?: string | null;
   project_category?: string | null;
+  project_categories?: string[] | null;
   account_id: string;
   user_email?: string | null;
   message_count: number;
@@ -42,6 +43,40 @@ export interface RetentionData {
   total_threads: number;
   weeks_active: number;
   is_recurring: boolean;
+}
+
+export interface CohortRetentionRow {
+  cohort_week_start: string;
+  cohort_week_end: string;
+  cohort_size: number;
+  week_1_pct: number | null;
+  week_2_pct: number | null;
+  week_3_pct: number | null;
+  week_4_pct: number | null;
+  week_5_pct: number | null;
+  week_6_pct: number | null;
+  week_7_pct: number | null;
+  week_8_pct: number | null;
+  week_9_pct: number | null;
+  week_10_pct: number | null;
+  week_11_pct: number | null;
+  week_12_pct: number | null;
+}
+
+export interface CohortRetentionResponse {
+  cohorts_back: number;
+  weeks_to_measure: number;
+  rows: CohortRetentionRow[];
+}
+
+export interface DailyTopUserData {
+  user_id: string;
+  email?: string | null;
+  first_activity: string;
+  last_activity: string;
+  threads_in_range: number;
+  agent_runs_in_range: number;
+  active_days: number;
 }
 
 export interface MessageDistribution {
@@ -159,6 +194,42 @@ export interface RetentionParams {
   min_weeks_active?: number;
 }
 
+export interface RetentionCohortsParams {
+  cohorts_back?: number;
+  weeks_to_measure?: number;
+}
+
+export interface DailyTopUsersParams {
+  page?: number;
+  page_size?: number;
+  timezone?: string;
+  date_from?: string;
+  date_to?: string;
+}
+
+function buildThreadBrowseSearchParams(params: ThreadBrowseParams = {}): URLSearchParams {
+  const searchParams = new URLSearchParams();
+
+  if (params.page) searchParams.append('page', params.page.toString());
+  if (params.page_size) searchParams.append('page_size', params.page_size.toString());
+  if (params.min_messages !== undefined) searchParams.append('min_messages', params.min_messages.toString());
+  if (params.max_messages !== undefined) searchParams.append('max_messages', params.max_messages.toString());
+  if (params.search_email) searchParams.append('search_email', params.search_email);
+  if (params.category) searchParams.append('category', params.category);
+  if (params.tier) searchParams.append('tier', params.tier);
+  if (params.date_from) searchParams.append('date_from', params.date_from);
+  if (params.date_to) searchParams.append('date_to', params.date_to);
+  if (params.sort_by) searchParams.append('sort_by', params.sort_by);
+  if (params.sort_order) searchParams.append('sort_order', params.sort_order);
+
+  return searchParams;
+}
+
+export interface ThreadExportResult {
+  blob: Blob;
+  file_name: string;
+}
+
 // ============================================================================
 // HOOKS
 // ============================================================================
@@ -181,20 +252,7 @@ export function useThreadBrowser(params: ThreadBrowseParams = {}) {
   return useQuery({
     queryKey: ['admin', 'analytics', 'threads', params],
     queryFn: async (): Promise<PaginatedResponse<ThreadAnalytics>> => {
-      const searchParams = new URLSearchParams();
-      
-      if (params.page) searchParams.append('page', params.page.toString());
-      if (params.page_size) searchParams.append('page_size', params.page_size.toString());
-      if (params.min_messages !== undefined) searchParams.append('min_messages', params.min_messages.toString());
-      if (params.max_messages !== undefined) searchParams.append('max_messages', params.max_messages.toString());
-      if (params.search_email) searchParams.append('search_email', params.search_email);
-      if (params.category) searchParams.append('category', params.category);
-      if (params.tier) searchParams.append('tier', params.tier);
-      if (params.date_from) searchParams.append('date_from', params.date_from);
-      if (params.date_to) searchParams.append('date_to', params.date_to);
-      if (params.sort_by) searchParams.append('sort_by', params.sort_by);
-      if (params.sort_order) searchParams.append('sort_order', params.sort_order);
-      
+      const searchParams = buildThreadBrowseSearchParams(params);
       const response = await backendApi.get(`/admin/analytics/threads/browse?${searchParams.toString()}`);
       if (response.error) {
         throw new Error(response.error.message);
@@ -202,6 +260,29 @@ export function useThreadBrowser(params: ThreadBrowseParams = {}) {
       return response.data;
     },
     staleTime: 30000, // 30 seconds
+  });
+}
+
+export function useExportThreadsExcel() {
+  return useMutation({
+    mutationFn: async (params: ThreadBrowseParams = {}): Promise<ThreadExportResult> => {
+      const searchParams = buildThreadBrowseSearchParams(params);
+      const shareOrigin = typeof window !== 'undefined' ? window.location.origin : undefined;
+      if (shareOrigin) {
+        searchParams.append('share_origin', shareOrigin);
+      }
+      const response = await backendApi.get(`/admin/analytics/threads/export?${searchParams.toString()}`, {
+        timeout: 300000,
+      });
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      return {
+        blob: response.data as Blob,
+        file_name: `threads-export-${timestamp}.xlsx`,
+      };
+    },
   });
 }
 
@@ -356,7 +437,7 @@ export function useUserFunnel(dateFrom?: string, dateTo?: string) {
   });
 }
 
-export function useRetentionData(params: RetentionParams = {}) {
+export function useRetentionData(params: RetentionParams = {}, enabled: boolean = true) {
   return useQuery({
     queryKey: ['admin', 'analytics', 'retention', params],
     queryFn: async (): Promise<PaginatedResponse<RetentionData>> => {
@@ -374,6 +455,84 @@ export function useRetentionData(params: RetentionParams = {}) {
       return response.data;
     },
     staleTime: 300000, // 5 minutes
+    enabled,
+  });
+}
+
+export function useRetentionCohorts(params: RetentionCohortsParams = {}, enabled: boolean = true) {
+  return useQuery({
+    queryKey: ['admin', 'analytics', 'retention-cohorts', params],
+    queryFn: async (): Promise<CohortRetentionResponse> => {
+      const searchParams = new URLSearchParams();
+
+      if (params.cohorts_back) searchParams.append('cohorts_back', params.cohorts_back.toString());
+      if (params.weeks_to_measure) searchParams.append('weeks_to_measure', params.weeks_to_measure.toString());
+
+      const response = await backendApi.get(`/admin/analytics/retention/cohorts?${searchParams.toString()}`);
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+      return response.data;
+    },
+    staleTime: 300000, // 5 minutes
+    enabled,
+  });
+}
+
+export function useDailyTopUsers(params: DailyTopUsersParams = {}, enabled: boolean = true) {
+  return useQuery({
+    queryKey: ['admin', 'analytics', 'daily-top-users', params],
+    queryFn: async (): Promise<PaginatedResponse<DailyTopUserData>> => {
+      const parseMetric = (value: unknown): number => {
+        if (typeof value === 'number') return value;
+        if (typeof value === 'string') {
+          const parsed = Number(value);
+          return Number.isFinite(parsed) ? parsed : Number.NaN;
+        }
+        return Number.NaN;
+      };
+
+      const searchParams = new URLSearchParams();
+
+      if (params.page) searchParams.append('page', params.page.toString());
+      if (params.page_size) searchParams.append('page_size', params.page_size.toString());
+      if (params.timezone) searchParams.append('timezone', params.timezone);
+      if (params.date_from) searchParams.append('date_from', params.date_from);
+      if (params.date_to) searchParams.append('date_to', params.date_to);
+
+      const response = await backendApi.get(`/admin/analytics/daily-top-users?${searchParams.toString()}`);
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+      const payload = response.data as PaginatedResponse<DailyTopUserData>;
+
+      const normalizedData = (payload.data || []).map((item) => {
+        const raw = item as unknown as Record<string, unknown>;
+        const threadsInRange =
+          Number.isFinite(parseMetric(item.threads_in_range))
+            ? parseMetric(item.threads_in_range)
+            : parseMetric(raw.total_threads);
+        const agentRunsInRange =
+          Number.isFinite(parseMetric(item.agent_runs_in_range))
+            ? parseMetric(item.agent_runs_in_range)
+            : (Number.isFinite(parseMetric(raw.total_agent_runs))
+              ? parseMetric(raw.total_agent_runs)
+              : parseMetric(raw.agent_runs));
+
+        return {
+          ...item,
+          threads_in_range: threadsInRange,
+          agent_runs_in_range: agentRunsInRange,
+        };
+      });
+
+      return {
+        ...payload,
+        data: normalizedData,
+      };
+    },
+    staleTime: 300000, // 5 minutes
+    enabled,
   });
 }
 

@@ -106,6 +106,16 @@ ALL responses to users MUST use message tools:
 
 **CRITICAL:** Never output raw text AND use ask/complete with the same content. This causes duplication for users.
 
+**ARCHIVED DATA RETRIEVAL — OVERRIDES ALL OTHER RULES:**
+When "[ARCHIVED CONTEXT]" appears in your messages, older conversation history has been compressed. The summary is a HIGH-LEVEL OVERVIEW only — specific data (URLs, links, numbers, exact findings, code snippets) is NOT in the summary. It is ONLY in the archived files on disk.
+- **When the user asks for specific details from earlier work, your FIRST tool call MUST be read_file or grep on the archived files. Do NOT call ask or complete first. Do NOT say "I don't have access". Do NOT offer to retrieve the data. Just retrieve it.**
+- The archived files are in YOUR sandbox at /workspace/.kortix/context/. You have full access.
+- Each batch directory has: **links.md** (all URLs from tool outputs), **index.md** (file listing by role)
+- **For links/URLs:** read_file /workspace/.kortix/context/messages/batch_NNN/links.md
+- **For specific data:** execute_command: grep -ri "keyword" /workspace/.kortix/context/messages/
+- **To see all files:** read_file /workspace/.kortix/context/messages/batch_NNN/index.md
+- Do NOT use cat. Do NOT guess filenames. Read links.md or index.md first.
+
 **Attachment Protocol:**
 - ALL results, deliverables, and outputs MUST be attached via the `attachments` parameter
 - NEVER describe results without attaching the actual files
@@ -115,36 +125,12 @@ ALL responses to users MUST use message tools:
 - Every `ask` call SHOULD include `follow_up_answers` with 2-4 actionable options
 - For clarification questions: specific options the user can click
 - For informational responses: suggest what they can do NEXT with the information
-
-# Archived Context
-
-When you see "[ARCHIVED CONTEXT]" in your messages, older conversation history has been saved to workspace files. The summary contains what was discussed and retrieval hints.
-
-**If you need specific details from archived context:**
-1. Use the grep command shown in the archive summary to search for keywords
-2. Or use `read_file` to view the full archive file
-
-Example workflow:
-- User asks about a database schema decision from earlier
-- You see the archive summary mentions "database" as a topic
-- Run: `execute_command("grep -i 'database|schema' /workspace/.kortix/context/archives/batch_001.md")`
-- The grep output shows the relevant conversation snippets
-- Use that information to answer the user's question
-
-The archive files are grep-friendly markdown with clear message markers (MSG-001, MSG-002, etc.) and topic headers.
 """
 from typing import Optional
 
 
-_STATIC_CORE_PROMPT: Optional[str] = None
-
 def get_core_system_prompt() -> str:
-    global _STATIC_CORE_PROMPT
-    if _STATIC_CORE_PROMPT:
-        return _STATIC_CORE_PROMPT
-    
-    _STATIC_CORE_PROMPT = CORE_SYSTEM_PROMPT
-    return _STATIC_CORE_PROMPT
+    return CORE_SYSTEM_PROMPT
 
 
 def get_dynamic_system_prompt(minimal_tool_index: str) -> str:

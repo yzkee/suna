@@ -8,20 +8,26 @@ Provides analytics data for the admin dashboard including:
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi.responses import Response
 from typing import Optional, List, Dict, Any, Literal
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 from pydantic import BaseModel
 import asyncio
+import io
 import httpx
 import json
 import os
+import time
+from urllib.parse import quote
 from core.auth import require_admin, require_super_admin
 from core.services.supabase import DBConnection
 from core.utils.logger import logger
 from core.utils.pagination import PaginationService, PaginationParams, PaginatedResponse
 from core.utils.config import config
 from core.utils.query_utils import batch_query_in
+from openpyxl import Workbook
+from openpyxl.styles import Font
 import openai
 import stripe
 
@@ -42,8 +48,8 @@ except ImportError:
     GA_AVAILABLE = False
     logger.warning("Google Analytics SDK not installed. Install with: pip install google-analytics-data")
 
-# Berlin timezone for consistent date handling (UTC+1 / UTC+2 with DST)
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
+UTC_TZ = ZoneInfo("UTC")
 
 router = APIRouter(prefix="/admin/analytics", tags=["admin-analytics"])
 
@@ -76,6 +82,40 @@ class RetentionData(BaseModel):
     total_threads: int
     weeks_active: int
     is_recurring: bool
+
+
+class CohortRetentionRow(BaseModel):
+    cohort_week_start: date
+    cohort_week_end: date
+    cohort_size: int
+    week_1_pct: Optional[int] = None
+    week_2_pct: Optional[int] = None
+    week_3_pct: Optional[int] = None
+    week_4_pct: Optional[int] = None
+    week_5_pct: Optional[int] = None
+    week_6_pct: Optional[int] = None
+    week_7_pct: Optional[int] = None
+    week_8_pct: Optional[int] = None
+    week_9_pct: Optional[int] = None
+    week_10_pct: Optional[int] = None
+    week_11_pct: Optional[int] = None
+    week_12_pct: Optional[int] = None
+
+
+class CohortRetentionResponse(BaseModel):
+    cohorts_back: int
+    weeks_to_measure: int
+    rows: List[CohortRetentionRow]
+
+
+class DailyTopUserData(BaseModel):
+    user_id: str
+    email: Optional[str] = None
+    first_activity: datetime
+    last_activity: datetime
+    threads_in_range: int
+    agent_runs_in_range: int
+    active_days: int
 
 
 class AnalyticsSummary(BaseModel):
@@ -152,7 +192,8 @@ class UserFunnelStats(BaseModel):
 def parse_date_range(
     date: Optional[str],
     date_from: Optional[str],
-    date_to: Optional[str]
+    date_to: Optional[str],
+    tz: ZoneInfo = BERLIN_TZ,
 ) -> tuple[datetime, datetime]:
     """
     Parse date range parameters with backwards compatibility.
@@ -163,10 +204,10 @@ def parse_date_range(
         date_to: End date in YYYY-MM-DD format
 
     Returns:
-        Tuple of (start_date, end_date) as datetime objects with Berlin timezone
+        Tuple of (start_date, end_date) as timezone-aware datetime objects
 
     If only 'date' is provided, uses it for both start and end (single day).
-    If no dates provided, defaults to today.
+    If no dates provided, defaults to today in the provided timezone.
     """
     # Backwards compatibility: if 'date' is provided without date_from/date_to
     if date and not date_from:
@@ -176,16 +217,16 @@ def parse_date_range(
     # Parse start date or default to today
     if date_from:
         try:
-            start_date = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=BERLIN_TZ)
+            start_date = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=tz)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date_from format. Use YYYY-MM-DD")
     else:
-        start_date = datetime.now(BERLIN_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+        start_date = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
 
     # Parse end date or use start date (single day)
     if date_to:
         try:
-            end_date = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=BERLIN_TZ)
+            end_date = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=tz)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date_to format. Use YYYY-MM-DD")
     else:
@@ -498,39 +539,189 @@ async def browse_threads(
     try:
         db = DBConnection()
         client = await db.client
-        
         pagination_params = PaginationParams(page=page, page_size=page_size)
-        has_message_filter = min_messages is not None or max_messages is not None
-        has_category_filter = category is not None
-        has_tier_filter = tier is not None
-        
-        # EMAIL SEARCH PATH: Query threads directly by account_id (no limit)
-        # This must come first to avoid the 1000 thread limit in filtered path
-        if search_email:
-            return await _browse_threads_by_email(
-                client, pagination_params, search_email,
-                min_messages, max_messages, date_from, date_to, sort_by, sort_order
-            )
-        
-        # If filtering by message count, category, or tier without date range, default to last 7 days
-        if (has_message_filter or has_category_filter or has_tier_filter) and not date_from:
-            date_from = (datetime.now(BERLIN_TZ) - timedelta(days=7)).strftime('%Y-%m-%d')
-        
-        # SIMPLE PATH: No message/email/category/tier filter - paginate directly from DB
-        if not has_message_filter and not has_category_filter and not has_tier_filter:
-            return await _browse_threads_simple(
-                client, pagination_params, date_from, date_to, sort_by, sort_order
-            )
-        
-        # FILTERED PATH: Need to check message counts, category, or tier
-        return await _browse_threads_filtered(
-            client, pagination_params, min_messages, max_messages,
-            None, category, tier, date_from, date_to, sort_by, sort_order  # search_email already handled above
+        return await _browse_threads_paginated(
+            client=client,
+            pagination_params=pagination_params,
+            min_messages=min_messages,
+            max_messages=max_messages,
+            search_email=search_email,
+            category=category,
+            tier=tier,
+            date_from=date_from,
+            date_to=date_to,
+            sort_by=sort_by,
+            sort_order=sort_order,
         )
         
     except Exception as e:
         logger.error(f"Failed to browse threads: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to retrieve threads")
+
+
+@router.get("/threads/export")
+async def export_threads(
+    min_messages: Optional[int] = Query(None, description="Minimum user messages"),
+    max_messages: Optional[int] = Query(None, description="Maximum user messages"),
+    search_email: Optional[str] = Query(None, description="Filter by user email"),
+    category: Optional[str] = Query(None, description="Filter by project category"),
+    tier: Optional[str] = Query(None, description="Filter by subscription tier"),
+    date_from: Optional[str] = Query(None, description="Filter from date (YYYY-MM-DD)"),
+    date_to: Optional[str] = Query(None, description="Filter to date (YYYY-MM-DD)"),
+    sort_by: str = Query("created_at", description="Sort field"),
+    sort_order: str = Query("desc", description="Sort order: asc, desc"),
+    share_origin: Optional[str] = Query(None, description="Frontend origin used to build share links"),
+    admin: dict = Depends(require_admin),
+):
+    """Export all matching threads to Excel with a frozen, bold header row."""
+    try:
+        db = DBConnection()
+        client = await db.client
+
+        page = 1
+        all_threads: List[ThreadAnalytics] = []
+        export_page_size = 100
+
+        while True:
+            page_result = await _browse_threads_paginated(
+                client=client,
+                pagination_params=PaginationParams(page=page, page_size=export_page_size),
+                min_messages=min_messages,
+                max_messages=max_messages,
+                search_email=search_email,
+                category=category,
+                tier=tier,
+                date_from=date_from,
+                date_to=date_to,
+                sort_by=sort_by,
+                sort_order=sort_order,
+            )
+
+            if page_result.data:
+                all_threads.extend(page_result.data)
+
+            if not page_result.pagination.has_next:
+                break
+            page += 1
+
+        resolved_origin = _resolve_share_origin(share_origin)
+        workbook_bytes = _build_threads_export_workbook(all_threads, resolved_origin)
+        filename = f"threads-export-{datetime.now(BERLIN_TZ).strftime('%Y%m%d-%H%M%S')}.xlsx"
+        encoded_filename = quote(filename)
+
+        return Response(
+            content=workbook_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+                "X-Thread-Count": str(len(all_threads)),
+            },
+        )
+    except Exception as e:
+        logger.error(f"Failed to export threads: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to export threads")
+
+
+async def _browse_threads_paginated(
+    client,
+    pagination_params: PaginationParams,
+    min_messages: Optional[int],
+    max_messages: Optional[int],
+    search_email: Optional[str],
+    category: Optional[str],
+    tier: Optional[str],
+    date_from: Optional[str],
+    date_to: Optional[str],
+    sort_by: str,
+    sort_order: str,
+) -> PaginatedResponse[ThreadAnalytics]:
+    """Shared browse logic for paginated API and export."""
+    has_message_filter = min_messages is not None or max_messages is not None
+    has_category_filter = category is not None
+    has_tier_filter = tier is not None
+
+    # EMAIL SEARCH PATH: Query threads directly by account_id (no limit)
+    # This must come first to avoid the 1000 thread limit in filtered path
+    if search_email:
+        return await _browse_threads_by_email(
+            client, pagination_params, search_email,
+            min_messages, max_messages, date_from, date_to, sort_by, sort_order
+        )
+
+    # If filtering by message count, category, or tier without date range, default to last 7 days
+    if (has_message_filter or has_category_filter or has_tier_filter) and not date_from:
+        date_from = (datetime.now(BERLIN_TZ) - timedelta(days=7)).strftime('%Y-%m-%d')
+
+    # SIMPLE PATH: No message/email/category/tier filter - paginate directly from DB
+    if not has_message_filter and not has_category_filter and not has_tier_filter:
+        return await _browse_threads_simple(
+            client, pagination_params, date_from, date_to, sort_by, sort_order
+        )
+
+    # FILTERED PATH: Need to check message counts, category, or tier
+    return await _browse_threads_filtered(
+        client, pagination_params, min_messages, max_messages,
+        None, category, tier, date_from, date_to, sort_by, sort_order
+    )
+
+
+def _resolve_share_origin(share_origin: Optional[str]) -> str:
+    origin = (share_origin or config.FRONTEND_URL or "").strip()
+    if not origin.startswith(("http://", "https://")):
+        origin = config.FRONTEND_URL
+    return origin.rstrip("/")
+
+
+def _build_threads_export_workbook(threads: List[ThreadAnalytics], share_origin: str) -> bytes:
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Threads"
+    worksheet.freeze_panes = "A2"
+
+    headers = [
+        "Thread ID",
+        "Project ID",
+        "Project Name",
+        "Project Categories",
+        "Account ID",
+        "User Email",
+        "User Message Count",
+        "Total Message Count",
+        "First Prompt",
+        "Created At",
+        "Updated At",
+        "Is Public",
+        "Share URL",
+    ]
+
+    worksheet.append(headers)
+    bold_font = Font(bold=True)
+    for col_idx in range(1, len(headers) + 1):
+        worksheet.cell(row=1, column=col_idx).font = bold_font
+
+    for thread in threads:
+        project_categories = " | ".join(thread.project_categories or [])
+        share_url = f"{share_origin}/share/{thread.thread_id}"
+        worksheet.append([
+            thread.thread_id,
+            thread.project_id or "",
+            thread.project_name or "",
+            project_categories,
+            thread.account_id or "",
+            thread.user_email or "",
+            thread.user_message_count,
+            thread.message_count,
+            thread.first_user_message or "",
+            thread.created_at.isoformat(),
+            thread.updated_at.isoformat(),
+            "true" if thread.is_public else "false",
+            share_url,
+        ])
+
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return output.getvalue()
 
 
 async def _browse_threads_by_email(
@@ -561,11 +752,17 @@ async def _browse_threads_by_email(
             items=[], total_count=0, params=params
         )
     
+    # Expand bare date strings to full-day UTC range
+    if date_from and 'T' not in date_from:
+        date_from = f"{date_from}T00:00:00+00:00"
+    if date_to and 'T' not in date_to:
+        date_to = f"{date_to}T23:59:59.999999+00:00"
+
     # Build query for threads by this account (no arbitrary limit!)
     base_query = client.from_('threads').select(
         'thread_id, project_id, account_id, is_public, created_at, updated_at, user_message_count, total_message_count'
     ).eq('account_id', target_account_id)
-    
+
     if date_from:
         base_query = base_query.gte('created_at', date_from)
     if date_to:
@@ -623,16 +820,14 @@ async def _browse_threads_simple(
 ) -> PaginatedResponse[ThreadAnalytics]:
     """Fast path: paginate threads directly from DB, then enrich only the page."""
 
-    # Convert date parameters to Berlin timezone (same as _browse_threads_filtered)
+    # Expand bare date strings to full-day UTC range
     date_from_param = None
     date_to_param = None
 
     if date_from:
-        from_dt = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=BERLIN_TZ) if 'T' not in date_from else datetime.fromisoformat(date_from)
-        date_from_param = from_dt.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        date_from_param = f"{date_from}T00:00:00+00:00" if 'T' not in date_from else date_from
     if date_to:
-        to_dt = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=BERLIN_TZ) if 'T' not in date_to else datetime.fromisoformat(date_to)
-        date_to_param = to_dt.replace(hour=23, minute=59, second=59, microsecond=999999).isoformat()
+        date_to_param = f"{date_to}T23:59:59.999999+00:00" if 'T' not in date_to else date_to
 
     # Get total count for pagination
     count_query = client.from_('threads').select('thread_id', count='exact')
@@ -685,16 +880,14 @@ async def _browse_threads_filtered(
 ) -> PaginatedResponse[ThreadAnalytics]:
     """Filtered path: fetch threads with optional category/tier/date filtering using JOINs."""
     
-    # Build date parameters for RPC using Berlin timezone
+    # Expand bare date strings to full-day UTC range
     date_from_param = None
     date_to_param = None
-    
+
     if date_from:
-        from_dt = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=BERLIN_TZ) if 'T' not in date_from else datetime.fromisoformat(date_from)
-        date_from_param = from_dt.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        date_from_param = f"{date_from}T00:00:00+00:00" if 'T' not in date_from else date_from
     if date_to:
-        to_dt = datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=BERLIN_TZ) if 'T' not in date_to else datetime.fromisoformat(date_to)
-        date_to_param = to_dt.replace(hour=23, minute=59, second=59, microsecond=999999).isoformat()
+        date_to_param = f"{date_to}T23:59:59.999999+00:00" if 'T' not in date_to else date_to
     
     # Calculate offset for pagination
     offset = (params.page - 1) * params.page_size
@@ -969,6 +1162,120 @@ async def get_retention_data(
     except Exception as e:
         logger.error(f"Failed to get retention data: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to retrieve retention data")
+
+
+@router.get("/retention/cohorts")
+async def get_retention_cohorts(
+    cohorts_back: int = Query(8, ge=1, le=24, description="Number of cohort rows to return"),
+    weeks_to_measure: int = Query(4, ge=1, le=12, description="Number of retention weeks to show"),
+    admin: dict = Depends(require_admin)
+) -> CohortRetentionResponse:
+    """Get weekly cohort retention matrix."""
+    try:
+        db = DBConnection()
+        client = await db.client
+
+        rpc_result = await client.rpc('get_retention_cohorts', {
+            'p_cohorts_back': cohorts_back,
+            'p_weeks_to_measure': weeks_to_measure
+        }).execute()
+
+        rows = rpc_result.data or []
+
+        def _parse_date(value: Any) -> date:
+            if isinstance(value, datetime):
+                return value.date()
+            if isinstance(value, date):
+                return value
+            return date.fromisoformat(str(value))
+
+        def _parse_optional_int(value: Any) -> Optional[int]:
+            return int(value) if value is not None else None
+
+        result_rows = [
+            CohortRetentionRow(
+                cohort_week_start=_parse_date(row['cohort_week_start']),
+                cohort_week_end=_parse_date(row['cohort_week_end']),
+                cohort_size=int(row['cohort_size']),
+                week_1_pct=_parse_optional_int(row.get('week_1_pct')),
+                week_2_pct=_parse_optional_int(row.get('week_2_pct')),
+                week_3_pct=_parse_optional_int(row.get('week_3_pct')),
+                week_4_pct=_parse_optional_int(row.get('week_4_pct')),
+                week_5_pct=_parse_optional_int(row.get('week_5_pct')),
+                week_6_pct=_parse_optional_int(row.get('week_6_pct')),
+                week_7_pct=_parse_optional_int(row.get('week_7_pct')),
+                week_8_pct=_parse_optional_int(row.get('week_8_pct')),
+                week_9_pct=_parse_optional_int(row.get('week_9_pct')),
+                week_10_pct=_parse_optional_int(row.get('week_10_pct')),
+                week_11_pct=_parse_optional_int(row.get('week_11_pct')),
+                week_12_pct=_parse_optional_int(row.get('week_12_pct')),
+            )
+            for row in rows
+        ]
+
+        return CohortRetentionResponse(
+            cohorts_back=cohorts_back,
+            weeks_to_measure=weeks_to_measure,
+            rows=result_rows
+        )
+    except Exception as e:
+        logger.error(f"Failed to get retention cohorts: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve retention cohorts")
+
+
+@router.get("/daily-top-users")
+async def get_daily_top_users(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    timezone: str = Query("UTC", description="IANA timezone for day boundaries"),
+    date_from: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    date_to: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    admin: dict = Depends(require_admin)
+) -> PaginatedResponse[DailyTopUserData]:
+    """Get top users by thread + agent run volume in range, excluding trigger-originated activity."""
+    try:
+        db = DBConnection()
+        client = await db.client
+
+        pagination_params = PaginationParams(page=page, page_size=page_size)
+
+        start_date, end_date = parse_date_range(None, date_from, date_to, tz=UTC_TZ)
+        start_of_range = start_date.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        end_of_range = end_date.replace(hour=23, minute=59, second=59, microsecond=999999).isoformat()
+
+        rpc_result = await client.rpc('get_daily_top_users', {
+            'p_date_from': start_of_range,
+            'p_date_to': end_of_range,
+            'p_page': page,
+            'p_page_size': page_size,
+            'p_timezone': timezone
+        }).execute()
+
+        rows = rpc_result.data or []
+        total_count = rows[0]['total_count'] if rows else 0
+
+        result = [
+            DailyTopUserData(
+                user_id=row['user_id'],
+                email=row['email'],
+                first_activity=datetime.fromisoformat(row['first_activity'].replace('Z', '+00:00')),
+                last_activity=datetime.fromisoformat(row['last_activity'].replace('Z', '+00:00')),
+                threads_in_range=row['threads_in_range'],
+                agent_runs_in_range=row['agent_runs_in_range'],
+                active_days=row['active_days'],
+            )
+            for row in rows
+        ]
+
+        return await PaginationService.paginate_with_total_count(
+            items=result,
+            total_count=total_count,
+            params=pagination_params
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to get daily top users: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve daily top users")
 
 
 @router.post("/translate")
@@ -3018,55 +3325,110 @@ def _infer_tier_from_amount(amount_cents: int) -> str:
 
 
 # Semaphore to limit concurrent Stripe API calls (avoid rate limiting)
-_stripe_semaphore = asyncio.Semaphore(10)
+_stripe_semaphore = asyncio.Semaphore(15)
+
+# Short-lived cache to avoid duplicate Stripe calls for identical ranges
+_STRIPE_REVENUE_CACHE_TTL_SECONDS = 120
+_STRIPE_REVENUE_MAX_CACHE_ENTRIES = 64
+_stripe_revenue_cache: Dict[tuple[int, int], Dict[str, Any]] = {}
+_stripe_revenue_inflight: Dict[tuple[int, int], asyncio.Task] = {}
 
 
-async def _fetch_stripe_revenue_for_day(day_start_ts: int, day_end_ts: int) -> Dict[str, Any]:
+def _new_stripe_revenue_results() -> Dict[str, Any]:
+    return {
+        'total_revenue': 0.0,
+        'payment_count': 0,
+        'by_tier': {},
+        'user_revenue': {},
+        'user_tiers': {},
+        'user_emails': {},  # customer_id -> email
+    }
+
+
+def _merge_stripe_revenue_results(target: Dict[str, Any], source: Dict[str, Any]) -> None:
+    target['total_revenue'] += source['total_revenue']
+    target['payment_count'] += source['payment_count']
+
+    for tier, data in source['by_tier'].items():
+        if tier not in target['by_tier']:
+            target['by_tier'][tier] = {'revenue': 0.0, 'count': 0, 'users': set()}
+        target['by_tier'][tier]['revenue'] += data['revenue']
+        target['by_tier'][tier]['count'] += data['count']
+        target['by_tier'][tier]['users'].update(data['users'])
+
+    for customer_id, revenue in source['user_revenue'].items():
+        target['user_revenue'][customer_id] = target['user_revenue'].get(customer_id, 0) + revenue
+
+    target['user_tiers'].update(source['user_tiers'])
+    target['user_emails'].update(source.get('user_emails', {}))
+
+
+def _prune_stripe_revenue_cache(now: float) -> None:
+    expired_keys = [
+        key for key, entry in _stripe_revenue_cache.items()
+        if entry.get('expires_at', 0) <= now
+    ]
+    for key in expired_keys:
+        _stripe_revenue_cache.pop(key, None)
+
+    if len(_stripe_revenue_cache) <= _STRIPE_REVENUE_MAX_CACHE_ENTRIES:
+        return
+
+    keys_by_expiry = sorted(
+        _stripe_revenue_cache.keys(),
+        key=lambda key: _stripe_revenue_cache[key].get('expires_at', 0),
+    )
+    excess = len(_stripe_revenue_cache) - _STRIPE_REVENUE_MAX_CACHE_ENTRIES
+    for key in keys_by_expiry[:excess]:
+        _stripe_revenue_cache.pop(key, None)
+
+
+async def _fetch_stripe_revenue_for_window(window_start_ts: int, window_end_ts: int) -> Dict[str, Any]:
     """
-    Fetch Stripe charges for a single day.
-    Helper function for parallel fetching.
+    Fetch Stripe charges for one time window.
+    Uses only fields available from the list response (with expansions) to avoid
+    expensive per-charge follow-up API calls.
     """
+    window_started = time.perf_counter()
+
     async with _stripe_semaphore:
-        day_results: Dict[str, Any] = {
-            'total_revenue': 0.0,
-            'payment_count': 0,
-            'by_tier': {},
-            'user_revenue': {},
-            'user_tiers': {},
-            'user_emails': {},  # customer_id -> email
-        }
+        window_results = _new_stripe_revenue_results()
+        fetched_charges = 0
+        processed_payments = 0
+        metadata_tier_hits = 0
+        subscription_tier_hits = 0
+        inferred_tier_hits = 0
+        unknown_tier_hits = 0
 
         try:
-            # Fetch charges for this day - single API call with limit
-            # Most days won't have more than 100 charges
-            # expand customer to get email, invoice.subscription to get tier metadata
+            # Expand customer to get email and invoice.subscription to infer tiers.
             charges = await stripe.Charge.list_async(
-                created={'gte': day_start_ts, 'lt': day_end_ts},
+                created={'gte': window_start_ts, 'lt': window_end_ts},
                 limit=100,
                 expand=['data.customer', 'data.invoice.subscription'],
             )
 
-            # Process all charges from the response
             all_charges = list(charges.data)
 
-            # If there's more data, fetch additional pages (rare for single day)
-            while charges.has_more and len(all_charges) < 500:
+            while charges.has_more:
                 charges = await stripe.Charge.list_async(
-                    created={'gte': day_start_ts, 'lt': day_end_ts},
+                    created={'gte': window_start_ts, 'lt': window_end_ts},
                     limit=100,
                     starting_after=all_charges[-1].id,
                     expand=['data.customer', 'data.invoice.subscription'],
                 )
                 all_charges.extend(charges.data)
 
-            # Helper to get tier from subscription via price_id
+            fetched_charges = len(all_charges)
+
             def _get_tier_from_subscription(subscription) -> tuple[str, bool]:
                 """Returns (tier_name, is_yearly) from subscription price_id."""
                 from core.billing.shared.config import get_tier_by_price_id, get_price_type
-                if not subscription:
+
+                if not subscription or isinstance(subscription, str):
                     return ('unknown', False)
+
                 try:
-                    # Use dict-style access for Stripe objects (subscription['items'] not subscription.items)
                     items = subscription['items'] if 'items' in subscription else None
                     if items:
                         items_data = items.get('data', []) if hasattr(items, 'get') else items['data']
@@ -3088,19 +3450,27 @@ async def _fetch_stripe_revenue_for_day(day_start_ts: int, day_end_ts: int) -> D
                 if not charge.paid or charge.refunded or charge.amount <= 0:
                     continue
 
+                processed_payments += 1
+
                 amount = charge.amount / 100
                 customer = charge.customer
-                customer_id = 'unknown'
+                customer_id = f"charge:{getattr(charge, 'id', 'unknown')}"
                 customer_email = None
 
                 if customer:
                     if hasattr(customer, 'id'):
-                        # Expanded customer object
                         customer_id = customer.id
                         customer_email = getattr(customer, 'email', None)
                     else:
-                        # Just the customer ID string
                         customer_id = customer
+
+                if not customer_email:
+                    billing_details = getattr(charge, 'billing_details', None)
+                    if billing_details:
+                        if hasattr(billing_details, 'get'):
+                            customer_email = billing_details.get('email')
+                        else:
+                            customer_email = getattr(billing_details, 'email', None)
 
                 tier = 'unknown'
                 is_yearly = False
@@ -3108,75 +3478,71 @@ async def _fetch_stripe_revenue_for_day(day_start_ts: int, day_end_ts: int) -> D
 
                 if metadata.get('type') == 'credit_purchase':
                     tier = 'credit_purchase'
+                    metadata_tier_hits += 1
                 else:
                     tier = metadata.get('tier', 'unknown')
+                    if tier != 'unknown':
+                        metadata_tier_hits += 1
 
-                    # Try to get tier from subscription via invoice (if expanded)
                     if tier == 'unknown':
                         invoice = getattr(charge, 'invoice', None)
+                        subscription = None
                         if invoice and hasattr(invoice, 'subscription'):
                             subscription = invoice.subscription
+                        elif invoice and hasattr(invoice, 'get'):
+                            subscription = invoice.get('subscription')
+
+                        if subscription:
                             tier, is_yearly = _get_tier_from_subscription(subscription)
+                            if tier != 'unknown':
+                                subscription_tier_hits += 1
 
-                    # If still unknown, try via checkout session lookup
-                    if tier == 'unknown':
-                        payment_intent_id = getattr(charge, 'payment_intent', None)
-                        if payment_intent_id:
-                            try:
-                                sessions = await stripe.checkout.Session.list_async(
-                                    payment_intent=payment_intent_id, limit=1
-                                )
-                                if sessions.data:
-                                    session = sessions.data[0]
-                                    sub_id = getattr(session, 'subscription', None)
-                                    if sub_id:
-                                        subscription = await stripe.Subscription.retrieve_async(sub_id)
-                                        tier, is_yearly = _get_tier_from_subscription(subscription)
-                            except Exception as e:
-                                logger.debug(f"Error looking up checkout session: {e}")
-
-                    # If still unknown and we have an invoice ID, fetch it directly
-                    if tier == 'unknown':
-                        invoice = getattr(charge, 'invoice', None)
-                        if invoice and isinstance(invoice, str):
-                            try:
-                                invoice_obj = await stripe.Invoice.retrieve_async(invoice, expand=['subscription'])
-                                if invoice_obj.subscription:
-                                    tier, is_yearly = _get_tier_from_subscription(invoice_obj.subscription)
-                            except Exception as e:
-                                logger.debug(f"Error fetching invoice: {e}")
-
-                    # Append _yearly if determined
                     if tier != 'unknown' and is_yearly and not tier.endswith('_yearly'):
                         tier = tier + '_yearly'
 
-                    # Fallback to amount inference
                     if tier == 'unknown':
                         tier = _infer_tier_from_amount(charge.amount)
+                        if tier != 'unknown':
+                            inferred_tier_hits += 1
+                        else:
+                            unknown_tier_hits += 1
 
                 if tier == 'free':
                     continue
 
-                day_results['total_revenue'] += amount
-                day_results['payment_count'] += 1
+                window_results['total_revenue'] += amount
+                window_results['payment_count'] += 1
 
-                if tier not in day_results['by_tier']:
-                    day_results['by_tier'][tier] = {'revenue': 0.0, 'count': 0, 'users': set()}
-                day_results['by_tier'][tier]['revenue'] += amount
-                day_results['by_tier'][tier]['count'] += 1
-                day_results['by_tier'][tier]['users'].add(customer_id)
+                if tier not in window_results['by_tier']:
+                    window_results['by_tier'][tier] = {'revenue': 0.0, 'count': 0, 'users': set()}
+                window_results['by_tier'][tier]['revenue'] += amount
+                window_results['by_tier'][tier]['count'] += 1
+                window_results['by_tier'][tier]['users'].add(customer_id)
 
-                day_results['user_revenue'][customer_id] = day_results['user_revenue'].get(customer_id, 0) + amount
-                day_results['user_tiers'][customer_id] = tier
+                window_results['user_revenue'][customer_id] = window_results['user_revenue'].get(customer_id, 0) + amount
+                window_results['user_tiers'][customer_id] = tier
                 if customer_email:
-                    day_results['user_emails'][customer_id] = customer_email
+                    window_results['user_emails'][customer_id] = customer_email
 
         except stripe.StripeError as e:
-            logger.error(f"Stripe API error fetching revenue for day (ts {day_start_ts}-{day_end_ts}): {e}")
-            # Re-raise so asyncio.gather can track it as a failure
+            logger.error(f"Stripe API error fetching revenue for window (ts {window_start_ts}-{window_end_ts}): {e}")
             raise
 
-        return day_results
+        duration = time.perf_counter() - window_started
+        logger.info(
+            "Stripe window %s-%s fetched=%s processed=%s metadata=%s subscription=%s inferred=%s unknown=%s duration=%.2fs",
+            window_start_ts,
+            window_end_ts,
+            fetched_charges,
+            processed_payments,
+            metadata_tier_hits,
+            subscription_tier_hits,
+            inferred_tier_hits,
+            unknown_tier_hits,
+            duration,
+        )
+
+        return window_results
 
 
 async def _fetch_stripe_revenue(start_ts: int, end_ts: int) -> Dict[str, Any]:
@@ -3185,98 +3551,128 @@ async def _fetch_stripe_revenue(start_ts: int, end_ts: int) -> Dict[str, Any]:
     Uses Charges (not Invoices) because they represent actual money collected after coupons/discounts.
     Returns revenue by tier with customer mapping.
 
-    Optimized: Fetches daily chunks in parallel for faster performance on large date ranges.
+    Uses short windows for parallel Stripe listing and deduplicates concurrent requests
+    for the same date range with a short in-memory cache.
     """
     stripe.api_key = config.STRIPE_SECRET_KEY
 
-    results: Dict[str, Any] = {
-        'total_revenue': 0.0,
-        'payment_count': 0,
-        'by_tier': {},
-        'user_revenue': {},
-        'user_tiers': {},
-        'user_emails': {},  # customer_id -> email
-    }
+    if end_ts <= start_ts:
+        return _new_stripe_revenue_results()
 
-    # Split into daily chunks for parallel fetching
-    day_seconds = 86400  # 24 * 60 * 60
-    daily_tasks = []
-    day_timestamps = []  # Track timestamps for logging
-    current_ts = start_ts
+    cache_key = (start_ts, end_ts)
+    now = time.monotonic()
 
-    while current_ts < end_ts:
-        day_end = min(current_ts + day_seconds, end_ts)
-        daily_tasks.append(_fetch_stripe_revenue_for_day(current_ts, day_end))
-        day_timestamps.append((current_ts, day_end))
-        current_ts = day_end
+    cache_entry = _stripe_revenue_cache.get(cache_key)
+    if cache_entry and cache_entry.get('expires_at', 0) > now:
+        logger.info(f"Stripe revenue cache hit for range {start_ts}-{end_ts}")
+        return cache_entry['result']
 
-    logger.info(f"Stripe revenue: fetching {len(daily_tasks)} days in parallel (ts range: {start_ts} to {end_ts})")
+    if cache_entry:
+        _stripe_revenue_cache.pop(cache_key, None)
 
-    # Fetch all days in parallel
-    if daily_tasks:
-        day_results_list = await asyncio.gather(*daily_tasks, return_exceptions=True)
+    inflight_task = _stripe_revenue_inflight.get(cache_key)
+    if inflight_task:
+        logger.info(f"Stripe revenue awaiting in-flight request for range {start_ts}-{end_ts}")
+        return await inflight_task
 
-        # Retry failed days (up to 2 retries each)
-        failed_indices = []
-        for idx, day_results in enumerate(day_results_list):
-            if isinstance(day_results, Exception):
-                failed_indices.append(idx)
+    async def _compute_revenue() -> Dict[str, Any]:
+        started = time.perf_counter()
+        results = _new_stripe_revenue_results()
+
+        day_seconds = 86400
+        total_days = max(1, (end_ts - start_ts + day_seconds - 1) // day_seconds)
+        window_days = 1
+        window_seconds = window_days * day_seconds
+
+        window_tasks = []
+        window_ranges: List[tuple[int, int]] = []
+        current_ts = start_ts
+        while current_ts < end_ts:
+            window_end = min(current_ts + window_seconds, end_ts)
+            window_tasks.append(_fetch_stripe_revenue_for_window(current_ts, window_end))
+            window_ranges.append((current_ts, window_end))
+            current_ts = window_end
+
+        logger.info(
+            "Stripe revenue: fetching %s windows (window_days=%s, ts range=%s-%s)",
+            len(window_tasks),
+            window_days,
+            start_ts,
+            end_ts,
+        )
+
+        if not window_tasks:
+            return results
+
+        window_results_list = await asyncio.gather(*window_tasks, return_exceptions=True)
+
+        failed_indices = [
+            idx for idx, window_results in enumerate(window_results_list)
+            if isinstance(window_results, Exception)
+        ]
 
         if failed_indices:
-            logger.warning(f"Stripe revenue: {len(failed_indices)} days failed, retrying...")
-            for retry in range(2):  # Up to 2 retries
+            logger.warning(f"Stripe revenue: {len(failed_indices)} windows failed, retrying...")
+            for retry in range(2):
                 if not failed_indices:
                     break
-                retry_tasks = [_fetch_stripe_revenue_for_day(*day_timestamps[idx]) for idx in failed_indices]
+
+                retry_tasks = [
+                    _fetch_stripe_revenue_for_window(*window_ranges[idx])
+                    for idx in failed_indices
+                ]
                 retry_results = await asyncio.gather(*retry_tasks, return_exceptions=True)
 
                 still_failed = []
-                for i, (idx, result) in enumerate(zip(failed_indices, retry_results)):
+                for idx, result in zip(failed_indices, retry_results):
                     if isinstance(result, Exception):
                         still_failed.append(idx)
                     else:
-                        day_results_list[idx] = result
-                        logger.info(f"Stripe revenue: day {idx} succeeded on retry {retry + 1}")
+                        window_results_list[idx] = result
+                        logger.info(f"Stripe revenue: window {idx} succeeded on retry {retry + 1}")
 
                 failed_indices = still_failed
                 if failed_indices:
-                    await asyncio.sleep(1)  # Brief pause before next retry
+                    await asyncio.sleep(1)
 
-        # Merge results from all days
-        successful_days = 0
-        failed_days = 0
-        for idx, day_results in enumerate(day_results_list):
-            if isinstance(day_results, Exception):
-                failed_days += 1
-                ts_start, ts_end = day_timestamps[idx] if idx < len(day_timestamps) else (0, 0)
-                logger.error(f"Error fetching day {idx} revenue (ts {ts_start}-{ts_end}): {day_results}")
+        successful_windows = 0
+        failed_windows = 0
+        for idx, window_results in enumerate(window_results_list):
+            if isinstance(window_results, Exception):
+                failed_windows += 1
+                ts_start, ts_end = window_ranges[idx] if idx < len(window_ranges) else (0, 0)
+                logger.error(f"Error fetching Stripe window {idx} (ts {ts_start}-{ts_end}): {window_results}")
                 continue
 
-            successful_days += 1
-            results['total_revenue'] += day_results['total_revenue']
-            results['payment_count'] += day_results['payment_count']
+            successful_windows += 1
+            _merge_stripe_revenue_results(results, window_results)
 
-            # Merge by_tier
-            for tier, data in day_results['by_tier'].items():
-                if tier not in results['by_tier']:
-                    results['by_tier'][tier] = {'revenue': 0.0, 'count': 0, 'users': set()}
-                results['by_tier'][tier]['revenue'] += data['revenue']
-                results['by_tier'][tier]['count'] += data['count']
-                results['by_tier'][tier]['users'].update(data['users'])
+        duration = time.perf_counter() - started
+        logger.info(
+            "Stripe revenue fetch complete: windows_ok=%s windows_failed=%s payments=%s total=$%.2f duration=%.2fs",
+            successful_windows,
+            failed_windows,
+            results['payment_count'],
+            results['total_revenue'],
+            duration,
+        )
 
-            # Merge user_revenue
-            for customer_id, revenue in day_results['user_revenue'].items():
-                results['user_revenue'][customer_id] = results['user_revenue'].get(customer_id, 0) + revenue
+        return results
 
-            # Merge user_tiers (last tier wins for a user across days)
-            results['user_tiers'].update(day_results['user_tiers'])
+    task = asyncio.create_task(_compute_revenue())
+    _stripe_revenue_inflight[cache_key] = task
 
-            # Merge user_emails
-            results['user_emails'].update(day_results.get('user_emails', {}))
-
-        logger.info(f"Stripe revenue fetch complete: {successful_days} days succeeded, {failed_days} days failed, total=${results['total_revenue']:.2f}")
-
-    return results
+    try:
+        results = await task
+        cache_now = time.monotonic()
+        _stripe_revenue_cache[cache_key] = {
+            'expires_at': cache_now + _STRIPE_REVENUE_CACHE_TTL_SECONDS,
+            'result': results,
+        }
+        _prune_stripe_revenue_cache(cache_now)
+        return results
+    finally:
+        _stripe_revenue_inflight.pop(cache_key, None)
 
 
 async def _fetch_revenuecat_active_subscriptions() -> int:

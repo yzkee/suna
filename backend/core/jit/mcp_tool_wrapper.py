@@ -5,11 +5,12 @@ from core.utils.logger import logger
 
 class MCPToolExecutor:
 
-    def __init__(self, mcp_config: Dict[str, Any]):
+    def __init__(self, mcp_config: Dict[str, Any], account_id: str = None):
         self.mcp_config = mcp_config
+        self.account_id = account_id
         custom_type = mcp_config.get("customType", mcp_config.get("type", "standard"))
         self.server_type = custom_type
-        
+
         self.tool_info = {
             'custom_type': custom_type,
             'custom_config': mcp_config.get('config', {}),
@@ -41,20 +42,18 @@ class MCPToolExecutor:
         from mcp.client.streamable_http import streamablehttp_client
         from mcp import ClientSession
         from core.agentpress.tool import ToolResult
-        
+
         custom_config = self.tool_info['custom_config']
         profile_id = custom_config.get('profile_id')
-        
+
         if not profile_id:
             raise ValueError("Missing profile_id for Composio tool")
-        
+
         try:
             db = DBConnection()
             profile_service = ComposioProfileService(db)
-            mcp_url = await profile_service.get_mcp_url_for_runtime(profile_id)
-            
-            logger.debug(f"⚡ [MCP EXEC] Executing {tool_name} via Composio")
-            
+            mcp_url = await profile_service.get_mcp_url_for_runtime(profile_id, account_id=self.account_id)
+
             async with streamablehttp_client(mcp_url) as (read, write, _):
                 async with ClientSession(read, write) as session:
                     await session.initialize()

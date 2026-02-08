@@ -130,10 +130,11 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to cleanup orphaned agent runs on startup: {e}")
         
-        triggers_api.initialize(db)
-        credentials_api.initialize(db)
+        if config.ACTIVATE_MCPS_TRIG:
+            triggers_api.initialize(db)
+            credentials_api.initialize(db)
+            composio_api.initialize(db)
         template_api.initialize(db)
-        composio_api.initialize(db)
         
         # Start CloudWatch worker metrics publisher (production only)
         if config.ENV_MODE == EnvMode.PRODUCTION:
@@ -175,6 +176,7 @@ async def lifespan(app: FastAPI):
         # ===== CRITICAL: Stop all running agent runs on this instance =====
         from core.agents.api import _cancellation_events
         from core.agents.runner import update_agent_run_status
+        from core.agents import repo as agents_repo
         
         active_run_ids = list(_cancellation_events.keys())
         if active_run_ids:
@@ -196,11 +198,20 @@ async def lifespan(app: FastAPI):
             # Force update DB status for any runs that didn't clean up
             for agent_run_id in active_run_ids:
                 try:
+                    account_id = None
+                    try:
+                        run_data = await agents_repo.get_agent_run_with_thread(agent_run_id)
+                        if run_data:
+                            account_id = run_data.get('thread_account_id')
+                    except Exception as lookup_err:
+                        logger.warning(f"Failed to lookup account for {agent_run_id} during shutdown: {lookup_err}")
+
                     # Update status to stopped with shutdown message
                     await update_agent_run_status(
                         agent_run_id,
                         "stopped",
-                        error=f"Instance shutdown: {instance_id}"
+                        error=f"Instance shutdown: {instance_id}",
+                        account_id=account_id,
                     )
                     logger.info(f"✅ Marked agent run {agent_run_id} as stopped (instance shutdown)")
                     
@@ -380,8 +391,9 @@ from core.credentials import api as credentials_api
 from core.templates import api as template_api
 from core.templates import presentations_api
 
-api_router.include_router(mcp_api.router)
-api_router.include_router(credentials_api.router, prefix="/secure-mcp")
+if config.ACTIVATE_MCPS_TRIG:
+    api_router.include_router(mcp_api.router)
+    api_router.include_router(credentials_api.router, prefix="/secure-mcp")
 api_router.include_router(template_api.router, prefix="/templates")
 api_router.include_router(presentations_api.router, prefix="/presentation-templates")
 
@@ -393,7 +405,8 @@ api_router.include_router(voice_api.router)
 from core.knowledge_base import api as knowledge_base_api
 api_router.include_router(knowledge_base_api.router)
 
-api_router.include_router(triggers_api.router)
+if config.ACTIVATE_MCPS_TRIG:
+    api_router.include_router(triggers_api.router)
 
 api_router.include_router(notifications_api.router)
 
@@ -401,7 +414,8 @@ from core.notifications import presence_api
 api_router.include_router(presence_api.router)
 
 from core.composio_integration import api as composio_api
-api_router.include_router(composio_api.router)
+if config.ACTIVATE_MCPS_TRIG:
+    api_router.include_router(composio_api.router)
 
 from core.google.google_slides_api import router as google_slides_router
 api_router.include_router(google_slides_router)

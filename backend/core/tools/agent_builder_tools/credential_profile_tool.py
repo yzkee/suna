@@ -1,10 +1,11 @@
 from typing import Optional, List
-from uuid import uuid4
+from uuid import UUID, uuid4
 from core.agentpress.tool import ToolResult, openapi_schema, tool_metadata
 from core.agentpress.thread_manager import ThreadManager
 from .base_tool import AgentBuilderBaseTool
 from core.composio_integration.composio_service import get_integration_service
 from core.composio_integration.composio_profile_service import ComposioProfileService
+from core.credentials.profile_service import get_profile_service
 from core.mcp_module.mcp_service import mcp_service
 from .mcp_search_tool import MCPSearchTool
 from core.utils.logger import logger
@@ -26,11 +27,13 @@ from core.utils.logger import logger
 - Configure profiles for agents
 
 **CRITICAL AUTHENTICATION PROTOCOL:**
-1. create_credential_profile() - Generates auth link
-2. **SEND LINK TO USER IMMEDIATELY** - Authentication is MANDATORY
-3. **WAIT FOR USER CONFIRMATION** - "Have you completed authentication?"
-4. discover_mcp_tools - Get actual available tools after auth
-5. configure_profile_for_agent() - Add to agent
+1. search_mcp_servers() - First action for any integration request, even if you think you already know the slug
+2. Use exact toolkit_slug from search results (never guess generic values like 'google')
+3. create_credential_profile() - Generates auth link
+4. **SEND LINK TO USER IMMEDIATELY** - Authentication is MANDATORY
+5. **WAIT FOR USER CONFIRMATION** - "Have you completed authentication?"
+6. discover_mcp_tools - Get actual available tools after auth
+7. configure_profile_for_agent() - Add to agent
 
 **AUTHENTICATION IS NON-NEGOTIABLE:**
 - Without authentication, integration is COMPLETELY INVALID
@@ -42,6 +45,13 @@ class CredentialProfileTool(AgentBuilderBaseTool):
     def __init__(self, thread_manager: ThreadManager, db_connection, agent_id: str):
         super().__init__(thread_manager, db_connection, agent_id)
         self.composio_search = MCPSearchTool(thread_manager, db_connection, agent_id)
+
+    @staticmethod
+    def _normalize_profile_id(profile_id: str) -> Optional[str]:
+        try:
+            return str(UUID(str(profile_id).strip()))
+        except (ValueError, AttributeError, TypeError):
+            return None
 
     @openapi_schema({
         "type": "function",
@@ -93,13 +103,13 @@ class CredentialProfileTool(AgentBuilderBaseTool):
         "type": "function",
         "function": {
             "name": "create_credential_profile",
-            "description": "Create a new Composio credential profile for a specific toolkit. This will create the integration and return an authentication link that the user needs to visit to connect their account.",
+            "description": "Create a new Composio credential profile for a specific toolkit. Call this ONLY after search_mcp_servers in the same request flow, even when the slug seems obvious. Always pass an exact toolkit_slug from search results and never generic values like 'google'.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "toolkit_slug": {
                         "type": "string",
-                        "description": "The toolkit slug to create the profile for (e.g., 'github', 'linear', 'slack')"
+                        "description": "Exact toolkit slug from search results (e.g., 'gmail', 'googlecalendar', 'googledrive', 'github', 'linear'). Do not use generic names like 'google'."
                     },
                     "profile_name": {
                         "type": "string",
@@ -122,10 +132,10 @@ class CredentialProfileTool(AgentBuilderBaseTool):
     ) -> ToolResult:
         try:
             account_id = await self._get_current_account_id()
+            integration_service = get_integration_service(db_connection=self.db)
             integration_user_id = str(uuid4())
             logger.debug(f"Generated integration user_id: {integration_user_id} for account: {account_id}")
 
-            integration_service = get_integration_service(db_connection=self.db)
             result = await integration_service.integrate_toolkit(
                 toolkit_slug=toolkit_slug,
                 account_id=account_id,
@@ -137,7 +147,9 @@ class CredentialProfileTool(AgentBuilderBaseTool):
 
             response_data = {
                 "message": f"Successfully created credential profile '{profile_name}' for {result.toolkit.name}",
+                "profile_id": result.profile_id,
                 "profile": {
+                    "profile_id": result.profile_id,
                     "profile_name": profile_name,
                     "display_name": display_name or profile_name,
                     "toolkit_slug": toolkit_slug,
@@ -157,6 +169,8 @@ Please authenticate your {result.toolkit.name} account by clicking the link belo
 
 [toolkit:{toolkit_slug}:{result.toolkit.name}] Authentication: {result.connected_account.redirect_url}
 
+Use this exact profile_id when configuring the worker: {result.profile_id}
+
 After connecting, you'll be able to use {result.toolkit.name} tools in your agent."""
             else:
                 response_data["instructions"] = f"This {result.toolkit.name} profile has been created and is ready to use."
@@ -164,7 +178,8 @@ After connecting, you'll be able to use {result.toolkit.name} tools in your agen
             return self.success_response(response_data)
             
         except Exception as e:
-            return self.fail_response("Error creating credential profile")
+            logger.error(f"Error creating credential profile for '{toolkit_slug}': {e}", exc_info=True)
+            return self.fail_response(f"Error creating credential profile: {str(e)}")
 
     @openapi_schema({
         "type": "function",
@@ -176,7 +191,7 @@ After connecting, you'll be able to use {result.toolkit.name} tools in your agen
                 "properties": {
                     "profile_id": {
                         "type": "string",
-                        "description": "The ID of the connected credential profile"
+                        "description": "Exact UUID of the connected credential profile (from get_credential_profiles)"
                     },
                     "enabled_tools": {
                         "type": "array",
@@ -202,12 +217,19 @@ After connecting, you'll be able to use {result.toolkit.name} tools in your agen
             account_id = await self._get_current_account_id()
             client = await self.db.client
 
+            normalized_profile_id = self._normalize_profile_id(profile_id)
+            if not normalized_profile_id:
+                return self.fail_response(
+                    "Invalid profile_id format. Expected UUID. "
+                    "Use get_credential_profiles to copy the exact profile_id."
+                )
+
             profile_service = ComposioProfileService(self.db)
             profiles = await profile_service.get_profiles(account_id)
             
             profile = None
             for p in profiles:
-                if p.profile_id == profile_id:
+                if p.profile_id == normalized_profile_id:
                     profile = p
                     break
             
@@ -240,7 +262,7 @@ After connecting, you'll be able to use {result.toolkit.name} tools in your agen
                 'toolkit_slug': profile.toolkit_slug,
                 'mcp_qualified_name': profile.mcp_qualified_name,
                 'config': {
-                    'profile_id': profile_id,
+                    'profile_id': normalized_profile_id,
                     'toolkit_slug': profile.toolkit_slug,
                     'mcp_qualified_name': profile.mcp_qualified_name
                 },
@@ -248,7 +270,7 @@ After connecting, you'll be able to use {result.toolkit.name} tools in your agen
             }
             
             updated_mcps = [mcp for mcp in current_custom_mcps 
-                          if mcp.get('config', {}).get('profile_id') != profile_id]
+                          if mcp.get('config', {}).get('profile_id') != normalized_profile_id]
             
             updated_mcps.append(new_mcp_config)
             
@@ -275,7 +297,7 @@ After connecting, you'll be able to use {result.toolkit.name} tools in your agen
                     'name': profile.toolkit_name,
                     'qualifiedName': f"composio.{profile.toolkit_slug}",
                     'config': {
-                        'profile_id': profile_id,
+                        'profile_id': normalized_profile_id,
                         'toolkit_slug': profile.toolkit_slug,
                         'mcp_qualified_name': profile.mcp_qualified_name
                     },
@@ -285,22 +307,29 @@ After connecting, you'll be able to use {result.toolkit.name} tools in your agen
                     'customType': 'composio'
                 }
                 
-                mcp_wrapper_instance = MCPToolWrapper(mcp_configs=[mcp_config_for_wrapper])
+                mcp_wrapper_instance = MCPToolWrapper(
+                    mcp_configs=[mcp_config_for_wrapper],
+                    account_id=account_id,
+                )
                 await mcp_wrapper_instance.initialize_and_register_tools()
                 updated_schemas = mcp_wrapper_instance.get_schemas()
-                
-                for method_name, schema_list in updated_schemas.items():
-                    for schema in schema_list:
-                        self.thread_manager.tool_registry.tools[method_name] = {
-                            "instance": mcp_wrapper_instance,
-                            "schema": schema
-                        }
+
+                tool_registry = getattr(self.thread_manager, "tool_registry", None)
+                tools_map = getattr(tool_registry, "tools", None) if tool_registry is not None else None
+                if isinstance(tools_map, dict):
+                    for method_name, schema_list in updated_schemas.items():
+                        for schema in schema_list:
+                            tools_map[method_name] = {
+                                "instance": mcp_wrapper_instance,
+                                "schema": schema
+                            }
                 
             except Exception as e:
                 logger.warning(f"Could not dynamically register MCP tools in current runtime: {str(e)}. Tools will be available on next agent run.")
 
             return self.success_response({
                 "message": f"Profile '{profile.profile_name}' configured with {len(enabled_tools)} tools and registered in current runtime",
+                "profile_id": normalized_profile_id,
                 "enabled_tools": enabled_tools,
                 "total_tools": len(enabled_tools),
                 "runtime_registration": "success"
@@ -320,7 +349,7 @@ After connecting, you'll be able to use {result.toolkit.name} tools in your agen
                 "properties": {
                     "profile_id": {
                         "type": "string",
-                        "description": "The ID of the credential profile to delete"
+                        "description": "Exact UUID of the credential profile to delete"
                     }
                 },
                 "required": ["profile_id"]
@@ -331,13 +360,20 @@ After connecting, you'll be able to use {result.toolkit.name} tools in your agen
         try:
             account_id = await self._get_current_account_id()
             client = await self.db.client
+
+            normalized_profile_id = self._normalize_profile_id(profile_id)
+            if not normalized_profile_id:
+                return self.fail_response(
+                    "Invalid profile_id format. Expected UUID. "
+                    "Use get_credential_profiles to copy the exact profile_id."
+                )
             
             profile_service = ComposioProfileService(self.db)
             profiles = await profile_service.get_profiles(account_id)
             
             profile = None
             for p in profiles:
-                if p.profile_id == profile_id:
+                if p.profile_id == normalized_profile_id:
                     profile = p
                     break
             
@@ -358,7 +394,7 @@ After connecting, you'll be able to use {result.toolkit.name} tools in your agen
                     current_tools = current_config.get('tools', {})
                     current_custom_mcps = current_tools.get('custom_mcp', [])
                     
-                    updated_mcps = [mcp for mcp in current_custom_mcps if mcp.get('config', {}).get('profile_id') != profile_id]
+                    updated_mcps = [mcp for mcp in current_custom_mcps if mcp.get('config', {}).get('profile_id') != normalized_profile_id]
                     
                     if len(updated_mcps) != len(current_custom_mcps):
                         from core.versioning.version_service import get_version_service
@@ -380,7 +416,10 @@ After connecting, you'll be able to use {result.toolkit.name} tools in your agen
                             return self.fail_response("Failed to update agent config")
             
             # Delete the profile
-            await profile_service.delete_profile(profile_id)
+            generic_profile_service = get_profile_service(self.db)
+            deleted = await generic_profile_service.delete_profile(account_id, normalized_profile_id)
+            if not deleted:
+                return self.fail_response("Credential profile not found")
             
             return self.success_response({
                 "message": f"Successfully deleted credential profile '{profile.display_name}' for {profile.toolkit_name}",
