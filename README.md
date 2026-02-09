@@ -14,21 +14,14 @@ This directory contains the Kortix Computer frontend application, built with Nex
 From the project root (`kortix/suna/`), install all workspace dependencies:
 
 ```bash
-cd /Users/ivanbagaric/Documents/MyWorkspace/opencode-kortix/kortix/suna
 pnpm install
 ```
 
 This will install dependencies for all workspace packages, including the frontend.
 
-### 2. Run the Development Server
+### 2. Run the Development Frontend
 
-From the project root, start the development server:
-
-```bash
-pnpm --filter Kortix-Computer-Frontend dev
-```
-
-Or use the convenient script from the root:
+From the project root, start the development frontend:
 
 ```bash
 pnpm dev:computer-frontend
