@@ -11,6 +11,7 @@ import {
   abortOpenCodeSession,
   getOpenCodeAgents,
   getOpenCodeAgent,
+  updateOpenCodeAgent,
   getOpenCodeToolIds,
   getOpenCodeProjects,
   getOpenCodeCurrentProject,
@@ -23,6 +24,7 @@ import {
   type OpenCodePromptPart,
   type SendOpenCodeMessageOptions,
   type OpenCodeAgent,
+  type UpdateOpenCodeAgentInput,
   type OpenCodeProject,
   type OpenCodeCommand,
   type OpenCodeProviderListResponse,
@@ -126,6 +128,18 @@ export function useOpenCodeAgent(agentName: string) {
     queryFn: () => getOpenCodeAgent(agentName),
     enabled: !!agentName,
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useUpdateOpenCodeAgent() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ name, patch }: { name: string; patch: UpdateOpenCodeAgentInput }) =>
+      updateOpenCodeAgent(name, patch),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: opencodeKeys.agents() });
+    },
   });
 }
 

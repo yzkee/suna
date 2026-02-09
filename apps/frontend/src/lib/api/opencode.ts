@@ -248,6 +248,38 @@ export async function getOpenCodeAgent(agentName: string): Promise<OpenCodeAgent
   return agents.find((a) => a.name === agentName);
 }
 
+export interface UpdateOpenCodeAgentInput {
+  description?: string;
+  mode?: 'subagent' | 'primary' | 'all';
+  temperature?: number;
+  topP?: number;
+  color?: string;
+  prompt?: string;
+  model?: { modelID: string; providerID: string };
+  steps?: number;
+  hidden?: boolean;
+  permission?: Record<string, unknown>;
+  options?: Record<string, unknown>;
+}
+
+export async function updateOpenCodeAgent(
+  name: string,
+  patch: UpdateOpenCodeAgentInput,
+): Promise<OpenCodeAgent> {
+  const response = await fetch(`${getOpenCodeUrl()}/agent/${encodeURIComponent(name)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => 'Unknown error');
+    throw new Error(`Failed to update agent: ${errorText}`);
+  }
+
+  return response.json();
+}
+
 // --- Project Types & API ---
 
 export interface OpenCodeProject {
