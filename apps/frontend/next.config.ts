@@ -7,16 +7,16 @@ const getBackendUrl = (): string => {
   if (explicitUrl && explicitUrl.trim() !== '') {
     return explicitUrl;
   }
-  
+
   // Vercel environment detection
   const vercelEnv = process.env.VERCEL_ENV; // 'production', 'preview', or 'development'
   const gitRef = process.env.VERCEL_GIT_COMMIT_REF || ''; // Branch name
-  
+
   // Production environment
   if (vercelEnv === 'production') {
     return 'https://api.kortix.com/v1';
   }
-  
+
   // Preview deployments (non-main branches)
   if (vercelEnv === 'preview' && gitRef && gitRef !== 'main') {
     // Sanitize branch name for URL
@@ -29,26 +29,26 @@ const getBackendUrl = (): string => {
   }
 
   // Main branch / staging (default)
-  return 'https://staging-api.kortix.com/v1';
+  return 'https://dev-api.kortix.com/v1';
 };
 
 const nextConfig = (): NextConfig => ({
   output: (process.env.NEXT_OUTPUT as 'standalone') || undefined,
-  
+
   // Transpile shared package
   transpilePackages: ['@agentpress/shared'],
-  
+
   // Set environment variables
   env: {
     NEXT_PUBLIC_BACKEND_URL: getBackendUrl(),
   },
-  
+
   // Webpack configuration to make Konva work with Next.js
   webpack: (config) => {
     config.externals = [...config.externals, { canvas: 'canvas' }]; // required to make Konva & react-konva work
     return config;
   },
-  
+
   // Turbopack configuration
   turbopack: {
     // Handle Node.js modules that shouldn't be bundled for browser builds
@@ -59,7 +59,7 @@ const nextConfig = (): NextConfig => ({
       },
     },
   },
-  
+
   // Performance optimizations
   experimental: {
     // Optimize package imports for faster builds and smaller bundles
@@ -73,10 +73,10 @@ const nextConfig = (): NextConfig => ({
       'react-icons',
     ],
   },
-  
+
   // Enable compression
   compress: true,
-  
+
   // Optimize images
   images: {
     formats: ['image/avif', 'image/webp'],
@@ -84,7 +84,7 @@ const nextConfig = (): NextConfig => ({
     imageSizes: [16, 32, 48, 64, 96, 128, 256],
     qualities: [75, 100],
   },
-  
+
   async rewrites() {
     return [
       {
@@ -101,7 +101,7 @@ const nextConfig = (): NextConfig => ({
       },
     ];
   },
-  
+
   // HTTP headers for caching and performance
   async headers() {
     return [
@@ -125,7 +125,7 @@ const nextConfig = (): NextConfig => ({
       },
     ];
   },
-  
+
   skipTrailingSlashRedirect: true,
 });
 

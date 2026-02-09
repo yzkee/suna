@@ -15,7 +15,6 @@ import { ApifyApprovalInline } from '@/components/thread/content/ApifyApprovalIn
 import { MediaGenerationInline } from '@/components/thread/content/MediaGenerationInline';
 import { constructHtmlPreviewUrl } from '@/lib/utils/url';
 import { InlineCheckout, extractInlineCheckout } from '@/components/thread/content/InlineCheckout';
-import { UpgradeButtonCTA, extractUpgradeButton } from '@/components/thread/content/UpgradeButtonCTA';
 
 export interface AssistantMessageRendererProps {
   message: UnifiedMessage;
@@ -52,9 +51,7 @@ function renderAskToolCall(
   const followUpAnswers = normalizeArrayValue(toolCall.arguments?.follow_up_answers);
 
   // Extract inline checkout if present
-  const { cleanContent: contentAfterCheckout, hasCheckout, options: checkoutOptions } = extractInlineCheckout(askText);
-  // Extract upgrade button if present
-  const { cleanContent, hasUpgradeButton } = extractUpgradeButton(contentAfterCheckout);
+  const { cleanContent, hasCheckout, options: checkoutOptions } = extractInlineCheckout(askText);
 
   return (
     <div key={`ask-${index}`} className="space-y-3 my-1.5">
@@ -62,7 +59,6 @@ function renderAskToolCall(
         content={cleanContent}
         className="text-sm prose prose-sm dark:prose-invert chat-markdown max-w-none break-words [&>:first-child]:mt-0 prose-headings:mt-3"
       />
-      {hasUpgradeButton && <UpgradeButtonCTA />}
       {hasCheckout && <InlineCheckout options={checkoutOptions} />}
       {attachments.length > 0 && (
         <div className="mt-3">
@@ -112,9 +108,7 @@ function renderCompleteToolCall(
   const followUpPrompts = normalizeArrayValue(toolCall.arguments?.follow_up_prompts);
 
   // Extract inline checkout if present
-  const { cleanContent: contentAfterCheckout, hasCheckout, options: checkoutOptions } = extractInlineCheckout(completeText);
-  // Extract upgrade button if present
-  const { cleanContent, hasUpgradeButton } = extractUpgradeButton(contentAfterCheckout);
+  const { cleanContent, hasCheckout, options: checkoutOptions } = extractInlineCheckout(completeText);
 
   return (
     <div key={`complete-${index}`} className="space-y-3 my-1.5">
@@ -123,7 +117,6 @@ function renderCompleteToolCall(
         content={cleanContent}
         className="text-sm prose prose-sm dark:prose-invert chat-markdown max-w-none break-words [&>:first-child]:mt-0 prose-headings:mt-3"
       />
-      {hasUpgradeButton && <UpgradeButtonCTA />}
       {hasCheckout && <InlineCheckout options={checkoutOptions} />}
 
       {/* Attachments underneath the text */}
@@ -589,65 +582,9 @@ export function renderAssistantMessage(props: AssistantMessageRendererProps): Re
   const metadata = safeJsonParse<ParsedMetadata>(message.metadata, {});
 
   const toolCalls = metadata.tool_calls || [];
-
-  // Ensure textContent is a displayable string.
-  // Some providers/legacy migrations may store text_content as structured blocks (arrays/objects),
-  // and coercing via String() yields "[object Object]".
-  const normalizeTextContent = (value: unknown): string => {
-    if (value == null) return '';
-    if (typeof value === 'string') return value;
-    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
-      return String(value);
-    }
-
-    // Handle array of content blocks (e.g., [{type:'text', text:'...'}])
-    if (Array.isArray(value)) {
-      const parts = value
-        .map((item) => {
-          if (item == null) return '';
-          if (typeof item === 'string') return item;
-          if (typeof item === 'number' || typeof item === 'boolean' || typeof item === 'bigint') return String(item);
-          if (typeof item === 'object') {
-            const obj = item as Record<string, unknown>;
-            const textLike =
-              (typeof obj.text === 'string' && obj.text) ||
-              (typeof obj.content === 'string' && obj.content) ||
-              (typeof obj.value === 'string' && obj.value) ||
-              '';
-            if (textLike) return textLike;
-            try {
-              return JSON.stringify(obj);
-            } catch {
-              return '';
-            }
-          }
-          return '';
-        })
-        .filter(Boolean);
-      return parts.join('');
-    }
-
-    // Handle single object content block
-    if (typeof value === 'object') {
-      const obj = value as Record<string, unknown>;
-      const textLike =
-        (typeof obj.text === 'string' && obj.text) ||
-        (typeof obj.content === 'string' && obj.content) ||
-        (typeof obj.value === 'string' && obj.value) ||
-        '';
-      if (textLike) return textLike;
-      try {
-        return JSON.stringify(obj);
-      } catch {
-        return '';
-      }
-    }
-
-    return '';
-  };
-
+  // Ensure textContent is a string to prevent React error #301
   const rawTextContent = metadata.text_content;
-  const textContent = normalizeTextContent(rawTextContent);
+  const textContent = typeof rawTextContent === 'string' ? rawTextContent : (rawTextContent ? String(rawTextContent) : '');
 
   const contentParts: React.ReactNode[] = [];
 
@@ -677,9 +614,7 @@ export function renderAssistantMessage(props: AssistantMessageRendererProps): Re
 
   if (shouldRenderTextContent) {
     // Extract inline checkout if present
-    const { cleanContent: contentAfterCheckout, hasCheckout, options: checkoutOptions } = extractInlineCheckout(textContent);
-    // Extract upgrade button if present
-    const { cleanContent, hasUpgradeButton } = extractUpgradeButton(contentAfterCheckout);
+    const { cleanContent, hasCheckout, options: checkoutOptions } = extractInlineCheckout(textContent);
 
     contentParts.push(
       <div key="text-content" className="my-1.5">
@@ -687,7 +622,6 @@ export function renderAssistantMessage(props: AssistantMessageRendererProps): Re
           content={cleanContent}
           className="text-sm prose prose-sm dark:prose-invert chat-markdown max-w-none break-words"
         />
-        {hasUpgradeButton && <UpgradeButtonCTA />}
         {hasCheckout && <InlineCheckout options={checkoutOptions} />}
       </div>
     );

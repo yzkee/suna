@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,9 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Pagination } from '@/components/agents/pagination';
 import { DataTable, DataTableColumn } from '@/components/ui/data-table';
 import { toast } from '@/lib/toast';
-import { Download, ExternalLink, Languages, Loader2, Search } from 'lucide-react';
+import { ExternalLink, Languages, Search } from 'lucide-react';
 import {
-  useExportThreadsExcel,
   useThreadBrowser,
   useTranslate,
   type ThreadAnalytics,
@@ -68,7 +67,6 @@ export function ThreadBrowser({
   };
 
   const { data: threadsData, isLoading } = useThreadBrowser(queryParams);
-  const exportMutation = useExportThreadsExcel();
   const translateMutation = useTranslate();
 
   const handleFilterChange = (filter: string) => {
@@ -100,36 +98,13 @@ export function ThreadBrowser({
     setParams({ ...params, search_email: emailSearch || undefined, page: 1 });
   };
 
-  const handleTranslate = useCallback(async (threadId: string, text: string) => {
+  const handleTranslate = async (threadId: string, text: string) => {
     try {
       const result = await translateMutation.mutateAsync({ text });
       setTranslations(prev => ({ ...prev, [threadId]: result.translated }));
       toast.success('Translated');
     } catch (error: any) {
       toast.error(error.message || 'Failed to translate');
-    }
-  }, [translateMutation]);
-
-  const handleExport = async () => {
-    const loadingToast = toast.loading('Preparing Excel export...');
-
-    try {
-      const result = await exportMutation.mutateAsync(queryParams);
-      const url = URL.createObjectURL(result.blob);
-
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = result.file_name;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
-      toast.dismiss(loadingToast);
-      toast.info('Downloaded thread export');
-    } catch (error: any) {
-      toast.dismiss(loadingToast);
-      toast.warning(error?.message || 'Failed to export threads');
     }
   };
 
@@ -241,7 +216,7 @@ export function ThreadBrowser({
       ),
       width: 'w-10',
     },
-  ], [translations, translateMutation.isPending, onUserClick, handleTranslate]);
+  ], [translations, translateMutation.isPending, onUserClick]);
 
   return (
     <div className="space-y-4">
@@ -272,26 +247,6 @@ export function ThreadBrowser({
               <SelectItem value="5+">5+ messages</SelectItem>
             </SelectContent>
           </Select>
-
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9"
-            onClick={handleExport}
-            disabled={exportMutation.isPending}
-          >
-            {exportMutation.isPending ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                Exporting...
-              </>
-            ) : (
-              <>
-                <Download className="h-3.5 w-3.5 mr-1.5" />
-                Export Excel
-              </>
-            )}
-          </Button>
 
           {(categoryFilter || tierFilter) && (
             <div className="flex items-center gap-2">

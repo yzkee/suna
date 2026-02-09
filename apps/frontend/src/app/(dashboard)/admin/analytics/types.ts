@@ -55,12 +55,6 @@ export interface RetentionTabProps {
   onUserClick: (email: string) => void;
 }
 
-export interface TopUsersTabProps {
-  onUserClick: (email: string) => void;
-  filterDateFrom?: string | null;
-  filterDateTo?: string | null;
-}
-
 export interface ARRSimulatorProps {
   analyticsSource: AnalyticsSource;
 }

@@ -19,6 +19,12 @@ import { AppProviders } from '@/components/layout/app-providers';
 import { backendApi } from '@/lib/api-client';
 import { AnnouncementDialog } from '../announcements/announcement-dialog';
 import { NovuInboxProvider } from '../notifications/novu-inbox-provider';
+import { useOpenCodeEventStream } from '@/hooks/opencode/use-opencode-events';
+
+function OpenCodeEventStreamProvider() {
+  useOpenCodeEventStream();
+  return null;
+}
 
 // Lazy load heavy components that aren't needed for initial render
 const FloatingMobileMenuButton = lazy(() => 
@@ -218,6 +224,7 @@ export default function DashboardLayoutContent({
         </Suspense>
       }
     >
+      <OpenCodeEventStreamProvider />
       <div className="relative h-full">
         {technicalIssue?.enabled && technicalIssue.message && (
           <Suspense fallback={null}>

@@ -198,13 +198,6 @@ export interface ErrorEvent {
   timestamp: string;
 }
 
-export interface SummarizingEvent {
-  status: 'started' | 'completed' | 'failed';
-  tokens_before?: number;
-  tokens_after?: number;
-  timestamp: string;
-}
-
 export type StreamEventType = 
   | 'text_chunk'
   | 'reasoning_chunk'

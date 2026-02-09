@@ -1,7 +1,6 @@
 import React from 'react';
 import { ComposioUrlDetector } from './composio-url-detector';
 import { InlineCheckout, extractInlineCheckout } from './InlineCheckout';
-import { UpgradeButtonCTA, extractUpgradeButton } from './UpgradeButtonCTA';
 
 export interface StreamingTextProps {
   content: string;
@@ -13,14 +12,11 @@ export const StreamingText: React.FC<StreamingTextProps> = ({
   isStreaming = false,
 }) => {
   // Extract inline checkout if present
-  const { cleanContent: contentAfterCheckout, hasCheckout, options } = extractInlineCheckout(content);
-  // Extract upgrade button if present
-  const { cleanContent, hasUpgradeButton } = extractUpgradeButton(contentAfterCheckout);
+  const { cleanContent, hasCheckout, options } = extractInlineCheckout(content);
 
   return (
     <>
       <ComposioUrlDetector content={cleanContent} isStreaming={isStreaming} />
-      {hasUpgradeButton && !isStreaming && <UpgradeButtonCTA />}
       {hasCheckout && !isStreaming && <InlineCheckout options={options} />}
     </>
   );

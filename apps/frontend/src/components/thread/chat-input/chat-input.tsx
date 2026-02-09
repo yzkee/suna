@@ -840,18 +840,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
     
     // File state
     const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
-    // Track if files were explicitly cleared to prevent ref restoration race condition
-    const filesExplicitlyClearedRef = useRef(false);
     const uploadedFilesRef = useRef(uploadedFiles);
-    // Only sync ref from state if files weren't explicitly cleared
-    // This prevents race condition where cleared ref gets restored before state updates
-    if (!filesExplicitlyClearedRef.current) {
-      uploadedFilesRef.current = uploadedFiles;
-    }
-    // Reset the cleared flag once state catches up (uploadedFiles becomes empty)
-    if (filesExplicitlyClearedRef.current && uploadedFiles.length === 0) {
-      filesExplicitlyClearedRef.current = false;
-    }
+    uploadedFilesRef.current = uploadedFiles;
     
     const [pendingFiles, setPendingFiles] = useState<File[]>([]);
     const [isUploading, setIsUploading] = useState(false);
@@ -1025,14 +1015,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
         .map((f) => f.fileId!),
       getUploadedFiles: () => uploadedFiles,
       clearPendingFiles: () => setPendingFiles([]),
-      clearUploadedFiles: () => {
-        // Clear ref IMMEDIATELY to prevent race conditions where a quick
-        // subsequent submission reads stale file data before React re-renders
-        uploadedFilesRef.current = [];
-        // Mark as explicitly cleared to prevent ref restoration before state updates
-        filesExplicitlyClearedRef.current = true;
-        setUploadedFiles([]);
-      },
+      clearUploadedFiles: () => setUploadedFiles([]),
       setValue: (newValue: string) => {
         const textarea = textareaRef.current as any;
         if (textarea?.clearValue) {

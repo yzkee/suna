@@ -15,8 +15,6 @@ import {
   safeJsonParse,
   HIDE_STREAMING_XML_TAGS,
   extractUserMessageText,
-  extractUserMessageTextForDedup,
-  extractAttachmentFingerprint,
 } from "@/components/thread/utils";
 import { KortixLogo } from "@/components/sidebar/kortix-logo";
 import { AgentLoader } from "./loader";
@@ -54,7 +52,6 @@ export function renderAttachments(
       sandboxId={sandboxId}
       project={project}
       localPreviewUrls={localPreviewUrls}
-      hideHeader={true}
     />
   );
 }
@@ -108,101 +105,17 @@ const UserMessageRow = memo(function UserMessageRow({
   localPreviewUrls?: Record<string, string>;
 }) {
   const messageContent = useMemo(() => {
-    const normalizeTextContent = (value: unknown): string => {
-      if (value == null) return "";
-      if (typeof value === "string") return value;
-      if (
-        typeof value === "number" ||
-        typeof value === "boolean" ||
-        typeof value === "bigint"
-      ) {
-        return String(value);
-      }
-
-      // Common case for multimodal/structured content: array of blocks like
-      // [{ type: "text", text: "..." }, { type: "image_url", image_url: { url: "..." } }, ...]
-      //
-      // We only render human-readable text. Image blocks are rendered via attachments/previews elsewhere.
-      if (Array.isArray(value)) {
-        const parts = value
-          .map((item) => {
-            if (item == null) return "";
-            if (typeof item === "string") return item;
-            if (
-              typeof item === "number" ||
-              typeof item === "boolean" ||
-              typeof item === "bigint"
-            ) {
-              return String(item);
-            }
-            if (typeof item === "object") {
-              const obj = item as Record<string, unknown>;
-              // Ignore image_url blocks so we don't dump raw JSON/URLs into the chat bubble.
-              if (obj.type === "image_url" || obj.type === "input_image") return "";
-              const textLike =
-                (typeof obj.text === "string" && obj.text) ||
-                (typeof obj.content === "string" && obj.content) ||
-                (typeof obj.value === "string" && obj.value) ||
-                "";
-              if (textLike) return textLike;
-              try {
-                return JSON.stringify(obj);
-              } catch {
-                return "";
-              }
-            }
-            return "";
-          })
-          .filter(Boolean);
-        return parts.join("");
-      }
-
-      if (typeof value === "object") {
-        const obj = value as Record<string, unknown>;
-        if (obj.type === "image_url" || obj.type === "input_image") return "";
-        const textLike =
-          (typeof obj.text === "string" && obj.text) ||
-          (typeof obj.content === "string" && obj.content) ||
-          (typeof obj.value === "string" && obj.value) ||
-          "";
-        if (textLike) return textLike;
-        try {
-          return JSON.stringify(obj);
-        } catch {
-          return "";
-        }
-      }
-
-      return "";
-    };
-
-    // Most user messages are JSON strings like {"content":"..."}.
-    // If content is structured (array/object), normalize it instead of String(...) -> "[object Object]".
-    const parsedAny = safeJsonParse<any>(message.content, {
-      content: message.content,
-    });
-    // Support 3 shapes:
-    // 1) { content: "..." } (normal)
-    // 2) [{type:"text",...},{type:"image_url",...}] (multimodal blocks)
-    // 3) plain string
-    const rawContent =
-      Array.isArray(parsedAny)
-        ? parsedAny
-        : (parsedAny as any)?.content ?? message.content;
-
-    // Prefer existing helper for legacy/JSON-wrapped formats, but still normalize
-    // to handle arrays of blocks.
-    if (!Array.isArray(rawContent)) {
-      const extracted = extractUserMessageText(rawContent);
-      if (extracted) return extracted;
+    try {
+      const parsed = safeJsonParse<ParsedContent>(message.content, {
+        content: message.content,
+      });
+      const content = parsed.content || message.content;
+      return typeof content === "string" ? content : String(content || "");
+    } catch {
+      return typeof message.content === "string"
+        ? message.content
+        : String(message.content || "");
     }
-
-    const normalized = normalizeTextContent(rawContent);
-    // If message is purely an image payload with no text, don't show raw JSON.
-    if (!normalized.trim() && Array.isArray(rawContent)) {
-      return "Image attached";
-    }
-    return normalized;
   }, [message.content]);
 
   const { cleanContent, attachments } = useMemo(() => {
@@ -1371,86 +1284,40 @@ export const ThreadContent: React.FC<ThreadContentProps> = memo(
       const groups: MessageGroup[] = [];
       let currentGroup: MessageGroup | null = null;
       let assistantGroupCounter = 0;
+      // Track processed message IDs to prevent duplicate bubbles
       const processedMessageIds = new Set<string>();
+      // Track temp user message content to detect duplicate temp messages (race conditions)
       const processedTempUserContents = new Set<string>();
-      
-      const isInternalImageContextUserMessage = (msg: UnifiedMessage): boolean => {
-        if (msg.type !== "user") return false;
-        const raw = (msg as any).content;
-        
-        let parsed: any = raw;
-        if (typeof raw === "string") {
-          parsed = safeJsonParse<any>(raw, raw);
-        }
-        
-        const inner = parsed && typeof parsed === "object" && "content" in parsed ? parsed.content : parsed;
-        const blocks = Array.isArray(inner) ? inner : null;
-        if (!blocks) return false;
-        
-        let hasImageUrl = false;
-        const textBlocks: string[] = [];
-        
-        for (const b of blocks) {
-          if (!b || typeof b !== "object") continue;
-          const type = (b as any).type;
-          if (type === "image_url" || type === "input_image") {
-            hasImageUrl = true;
-            continue;
-          }
-          if (type === "text" && typeof (b as any).text === "string") {
-            textBlocks.push((b as any).text);
-          }
-        }
-        
-        if (!hasImageUrl) return false;
-        if (textBlocks.length !== 1) return false;
-        const t = textBlocks[0].trim();
-        return /^\[(Image loaded from|Image:)\s/.test(t);
-      };
 
+      // Build message groups
       displayMessages.forEach((message, index) => {
         const messageType = message.type;
         const key = message.message_id || `msg-${index}`;
 
-        if (isInternalImageContextUserMessage(message)) {
-          return;
-        }
-
+        // Skip duplicate messages (same message_id already processed)
         if (message.message_id && processedMessageIds.has(message.message_id)) {
           return;
         }
 
+        // For user messages, perform content-based deduplication ONLY for temp messages
+        // Server-confirmed messages (with real UUIDs) are NEVER deduplicated - they represent
+        // intentional user actions and should always be displayed
         if (messageType === 'user') {
           const isTemp = message.message_id?.startsWith('temp-');
 
+          // Only deduplicate temp messages - server-confirmed messages are always kept
           if (isTemp) {
-            // Use extractUserMessageTextForDedup to strip attachment markers that may have different paths
-            const strippedContent = extractUserMessageTextForDedup(message.content).toLowerCase();
-            const fullContent = extractUserMessageText(message.content).trim().toLowerCase();
-            const isAttachmentOnly = !strippedContent && fullContent;
-            const attachmentFingerprint = isAttachmentOnly ? extractAttachmentFingerprint(message.content) : '';
+            const contentKey = extractUserMessageText(message.content).trim().toLowerCase();
 
-            if (strippedContent || isAttachmentOnly) {
+            if (contentKey) {
               const tempCreatedAt = message.created_at ? new Date(message.created_at).getTime() : Date.now();
 
+              // Skip temp message if server already confirmed a message with same content
+              // Uses timestamp-aware deduplication: only skip if server message was created within 30 seconds
               const hasMatchingServerVersion = displayMessages.some((existing) => {
                 if (existing.type !== 'user') return false;
                 if (existing.message_id?.startsWith('temp-')) return false;
-
-                // For attachment-only messages, compare normalized attachment paths
-                if (isAttachmentOnly) {
-                  const existingStripped = extractUserMessageTextForDedup(existing.content).toLowerCase();
-                  const existingIsAttachmentOnly = !existingStripped && extractUserMessageText(existing.content).trim();
-                  if (!existingIsAttachmentOnly) return false;
-
-                  const existingFingerprint = extractAttachmentFingerprint(existing.content);
-                  if (attachmentFingerprint !== existingFingerprint) return false;
-
-                  const serverCreatedAt = existing.created_at ? new Date(existing.created_at).getTime() : 0;
-                  return Math.abs(serverCreatedAt - tempCreatedAt) < 30000;
-                }
-
-                if (extractUserMessageTextForDedup(existing.content).toLowerCase() !== strippedContent) return false;
+                if (extractUserMessageText(existing.content).trim().toLowerCase() !== contentKey) return false;
 
                 const serverCreatedAt = existing.created_at ? new Date(existing.created_at).getTime() : 0;
                 return Math.abs(serverCreatedAt - tempCreatedAt) < 30000;
@@ -1458,9 +1325,9 @@ export const ThreadContent: React.FC<ThreadContentProps> = memo(
 
               if (hasMatchingServerVersion) return;
 
-              const trackingKey = isAttachmentOnly ? `attachments:${attachmentFingerprint}` : strippedContent;
-              if (processedTempUserContents.has(trackingKey)) return;
-              processedTempUserContents.add(trackingKey);
+              // Also skip if we already have another temp message with same content (race condition)
+              if (processedTempUserContents.has(contentKey)) return;
+              processedTempUserContents.add(contentKey);
             }
           }
         }

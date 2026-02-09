@@ -438,19 +438,7 @@ export function useAgentStream(
           callbacksRef.current.onUXError?.(processed.uxError);
         }
         break;
-
-      case 'ux_summarizing':
-        if (processed.uxSummarizing) {
-          import('@/stores/context-usage-store').then(({ useContextUsageStore }) => {
-            useContextUsageStore.getState().setSummarizing(threadId, {
-              status: processed.uxSummarizing!.status,
-              tokens_before: processed.uxSummarizing!.tokens_before,
-              tokens_after: processed.uxSummarizing!.tokens_after,
-            });
-          });
-        }
-        break;
-
+      
       case 'ping':
       case 'ignore':
         break;

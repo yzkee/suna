@@ -11,155 +11,144 @@ Build, manage, and train sophisticated AI agents for any use case. Create powerf
 [![GitHub Repo stars](https://img.shields.io/github/stars/kortix-ai/suna)](https://github.com/kortix-ai/suna)
 [![Issues](https://img.shields.io/github/issues/kortix-ai/suna)](https://github.com/kortix-ai/suna/labels/bug)
 
-<!-- Keep these links. Translations will automatically update with the README. -->
-[Deutsch](https://www.readme-i18n.com/kortix-ai/suna?lang=de) | 
-[Español](https://www.readme-i18n.com/kortix-ai/suna?lang=es) | 
-[français](https://www.readme-i18n.com/kortix-ai/suna?lang=fr) | 
-[日本語](https://www.readme-i18n.com/kortix-ai/suna?lang=ja) | 
-[한국어](https://www.readme-i18n.com/kortix-ai/suna?lang=ko) | 
-[Português](https://www.readme-i18n.com/kortix-ai/suna?lang=pt) | 
-[Русский](https://www.readme-i18n.com/kortix-ai/suna?lang=ru) | 
+[Deutsch](https://www.readme-i18n.com/kortix-ai/suna?lang=de) |
+[Español](https://www.readme-i18n.com/kortix-ai/suna?lang=es) |
+[français](https://www.readme-i18n.com/kortix-ai/suna?lang=fr) |
+[日本語](https://www.readme-i18n.com/kortix-ai/suna?lang=ja) |
+[한국어](https://www.readme-i18n.com/kortix-ai/suna?lang=ko) |
+[Português](https://www.readme-i18n.com/kortix-ai/suna?lang=pt) |
+[Русский](https://www.readme-i18n.com/kortix-ai/suna?lang=ru) |
 [中文](https://www.readme-i18n.com/kortix-ai/suna?lang=zh)
 
 ![Kortix Screenshot](apps/frontend/public/banner.png)
 </div>
 
+## What Makes Kortix Special
 
+### Kortix Super Worker — Flagship Generalist AI Worker
+Meet Kortix Super Worker, our showcase agent that demonstrates the full power of the Kortix platform. Through natural conversation, Kortix Super Worker handles research, data analysis, browser automation, file management, and complex workflows — showing you what's possible when you build with Kortix.
 
-
-## 🌟 What Makes Kortix Special
-
-### 🤖 Includes Kortix Super Worker – Flagship Generalist AI Worker
-Meet Kortix Super Worker, our showcase agent that demonstrates the full power of the Kortix platform. Through natural conversation, Kortix Super Worker handles research, data analysis, browser automation, file management, and complex workflows – showing you what's possible when you build with Kortix.
-
-### 🔧 Build Custom Kortix Super Worker-Type Agents
+### Build Custom Agents
 Create your own specialized agents tailored to specific domains, workflows, or business needs. Whether you need agents for customer service, data processing, content creation, or industry-specific tasks, Kortix provides the infrastructure and tools to build, deploy, and scale them.
 
-### 🚀 Complete Platform Capabilities
-- **Browser Automation**: Navigate websites, extract data, fill forms, automate web workflows
-- **File Management**: Create, edit, and organize documents, spreadsheets, presentations, code
-- **Web Intelligence**: Crawling, search capabilities, data extraction and synthesis
-- **System Operations**: Command-line execution, system administration, DevOps tasks
-- **API Integrations**: Connect with external services and automate cross-platform workflows
-- **Agent Builder**: Visual tools to configure, customize, and deploy agents
+### Platform Capabilities
+- **Browser Automation** — Navigate websites, extract data, fill forms, automate web workflows
+- **File Management** — Create, edit, and organize documents, spreadsheets, presentations, code
+- **Web Intelligence** — Crawling, search, data extraction and synthesis
+- **System Operations** — Command-line execution, system administration, DevOps tasks
+- **API Integrations** — Connect with external services and automate cross-platform workflows via Composio (100+ integrations)
+- **Agent Builder** — Configure, customize, and deploy agents with custom tools, knowledge bases, and triggers
 
-## 📋 Table of Contents
+## Table of Contents
 
-- [🌟 What Makes Kortix Special](#-what-makes-kortix-special)
-- [🎯 Agent Examples & Use Cases](#-agent-examples--use-cases)
-- [🏗️ Platform Architecture](#️-platform-architecture)
-- [🚀 Quick Start](#-quick-start)
-- [🏠 Self-Hosting](#-self-hosting)
-- [🤝 Contributing](#-contributing)
-- [📄 License](LICENSE)
+- [What Makes Kortix Special](#what-makes-kortix-special)
+- [Agent Examples & Use Cases](#agent-examples--use-cases)
+- [Architecture](#architecture)
+- [Monorepo Structure](#monorepo-structure)
+- [Quick Start](#quick-start)
+- [Contributing](#contributing)
+- [License](LICENSE)
 
-## 🎯 Agent Examples & Use Cases
+## Agent Examples & Use Cases
 
-### Kortix Super Worker - Your Generalist AI Worker
+### Kortix Super Worker
 
-Kortix Super Worker demonstrates the full capabilities of the Kortix platform as a versatile AI worker that can:
+**Research & Analysis** — Web research across multiple sources, document analysis, market intelligence, synthesized summaries
 
-**🔍 Research & Analysis**
-- Conduct comprehensive web research across multiple sources
-- Analyze documents, reports, and datasets
-- Synthesize information and create detailed summaries
-- Market research and competitive intelligence
+**Browser Automation** — Navigate complex sites, extract data from multiple pages, fill forms, automate repetitive web workflows
 
-**🌐 Browser Automation**
-- Navigate complex websites and web applications
-- Extract data from multiple pages automatically
-- Fill forms and submit information
-- Automate repetitive web-based workflows
+**File & Document Management** — Create and edit documents, spreadsheets, and presentations; organize file systems; generate reports
 
-**📁 File & Document Management**
-- Create and edit documents, spreadsheets, presentations
-- Organize and structure file systems
-- Convert between different file formats
-- Generate reports and documentation
+**Data Processing** — Clean and transform datasets, statistical analysis, visualizations, KPI monitoring, multi-API data integration
 
-**📊 Data Processing & Analysis**
-- Clean and transform datasets from various sources
-- Perform statistical analysis and create visualizations
-- Monitor KPIs and generate insights
-- Integrate data from multiple APIs and databases
+**System Administration** — Command-line operations, system configuration, DevOps automation, health monitoring
 
-**⚙️ System Administration**
-- Execute command-line operations safely
-- Manage system configurations and deployments
-- Automate DevOps workflows
-- Monitor system health and performance
+### Build Your Own Agents
 
-### Build Your Own Specialized Agents
+**Customer Service** — Support tickets, FAQ responses, user onboarding, satisfaction tracking
 
-The Kortix platform enables you to create agents tailored to specific needs:
+**Content Creation** — Marketing copy, technical documentation, educational content, publishing schedules
 
-**🎧 Customer Service Agents**
-- Handle support tickets and FAQ responses
-- Manage user onboarding and training
-- Escalate complex issues to human agents
-- Track customer satisfaction and feedback
+**Sales & Marketing** — Lead qualification, CRM management, personalized outreach, sales forecasting
 
-**✍️ Content Creation Agents**
-- Generate marketing copy and social media posts
-- Create technical documentation and tutorials
-- Develop educational content and training materials
-- Maintain content calendars and publishing schedules
+**Research & Development** — Academic research, trend monitoring, patent analysis, research reports
 
-**📈 Sales & Marketing Agents**
-- Qualify leads and manage CRM systems
-- Schedule meetings and follow up with prospects
-- Create personalized outreach campaigns
-- Generate sales reports and forecasts
+**Industry-Specific** — Healthcare (patient data, scheduling), Finance (risk, compliance), Legal (document review, case research), Education (curriculum, assessment)
 
-**🔬 Research & Development Agents**
-- Conduct academic and scientific research
-- Monitor industry trends and innovations
-- Analyze patents and competitive landscapes
-- Generate research reports and recommendations
+Each agent can be configured with custom tools, workflows, knowledge bases, and integrations.
 
-**🏭 Industry-Specific Agents**
-- Healthcare: Patient data analysis, appointment scheduling
-- Finance: Risk assessment, compliance monitoring
-- Legal: Document review, case research
-- Education: Curriculum development, student assessment
-
-Each agent can be configured with custom tools, workflows, knowledge bases, and integrations specific to your requirements.
-
-## 🏗️ Platform Architecture
+## Architecture
 
 ![Architecture Diagram](docs/images/diagram.png)
 
-Kortix consists of four main components that work together to provide a complete AI agent development platform:
+Kortix is a monorepo powered by **pnpm workspaces** and **Nx** for task orchestration. It spans four main layers:
 
-### 🔧 Backend API
-Python/FastAPI service that powers the agent platform with REST endpoints, thread management, agent orchestration, and LLM integration with Anthropic, OpenAI, and others via LiteLLM. Includes agent builder tools, workflow management, and extensible tool system.
+| Layer | Tech | Purpose |
+|-------|------|---------|
+| **Backend API** | Python, FastAPI, LiteLLM | Agent orchestration, REST API, thread management, LLM integration (Anthropic, OpenAI, Google, xAI) |
+| **Frontend Apps** | Next.js, React Native, Electron | Web dashboard, iOS/Android mobile app, desktop client |
+| **Services** | Bun, Hono, TypeScript | Auth/billing microservice (Stripe), AI search/LLM routing gateway |
+| **Database & Storage** | Supabase (PostgreSQL), Redis | Auth, user management, agent configs, conversation history, file storage, real-time subscriptions |
 
-### 🖥️ Frontend Dashboard
-Next.js/React application providing a comprehensive agent management interface with chat interfaces, agent configuration dashboards, workflow builders, monitoring tools, and deployment controls.
+## Monorepo Structure
 
-### 🐳 Agent Runtime
-Isolated Docker execution environments for each agent instance featuring browser automation, code interpreter, file system access, tool integration, security sandboxing, and scalable agent deployment.
+```
+kortix/
+├── apps/
+│   ├── frontend/          # Next.js 15 web dashboard
+│   ├── mobile/            # React Native + Expo 54 (iOS/Android)
+│   └── desktop/           # Electron 33 desktop client
+├── backend/               # FastAPI backend (Python)
+├── services/
+│   ├── kortix-auth/       # Bun/Hono — accounts, API keys, Stripe webhooks
+│   └── kortix-router/     # Bun/Hono — web/image search, LLM routing
+├── packages/
+│   └── shared/            # @agentpress/shared — types, streaming, tools, utils
+├── infra/                 # Pulumi IaC (AWS)
+├── sandbox/               # Containerized code execution environments
+├── docker-compose.yaml
+├── setup.py               # Interactive setup wizard
+├── start.py               # Service manager (start/stop/status)
+├── nx.json                # Nx task orchestration config
+└── pnpm-workspace.yaml    # Workspace definition
+```
 
-### 🗄️ Database & Storage
-Supabase-powered data layer handling authentication, user management, agent configurations, conversation history, file storage, workflow state, analytics, and real-time subscriptions for live agent monitoring.
+### Apps
 
-## 🚀 Quick Start
+| App | Stack | Description |
+|-----|-------|-------------|
+| **frontend** | Next.js 15, React 18, Tailwind 4, Radix UI, TipTap, CodeMirror | Full-featured agent dashboard with chat, file browser, admin analytics, billing, agent config UI |
+| **mobile** | Expo 54, React Native 0.81, NativeWind | Native iOS/Android app with chat, agent management, quick actions, voice, triggers |
+| **desktop** | Electron 33 | Native macOS/Windows/Linux wrapper with deep linking (`kortix://`) and OAuth handling |
 
-Get your Kortix platform running in minutes with our automated setup wizard:
+### Services
 
-### 1️⃣ Clone the Repository
+| Service | Stack | Description |
+|---------|-------|-------------|
+| **kortix-auth** | Bun, Hono, Stripe, Supabase | API key management, account operations, Stripe webhook handling |
+| **kortix-router** | Bun, Hono, Vercel AI SDK | Web/image search (Tavily, Serper), multi-provider LLM routing (Anthropic, OpenAI, Google, xAI, Groq) |
+
+### Packages
+
+| Package | Description |
+|---------|-------------|
+| **@agentpress/shared** | Shared TypeScript library — message types, streaming utilities, tool helpers, animations, constants |
+
+## Quick Start
+
+### 1. Clone the Repository
 ```bash
 git clone https://github.com/kortix-ai/suna.git
 cd suna
 ```
 
-### 2️⃣ Run the Setup Wizard
+### 2. Run the Setup Wizard
 ```bash
 python setup.py
 ```
-The wizard will guide you through configuring all required services with progress saving, so you can resume if interrupted.
+The wizard guides you through configuring all required services with progress saving — resume if interrupted.
 
-### 3️⃣ Manage the Platform
+### 3. Manage the Platform
 ```bash
 python start.py          # Interactive start/stop
 python start.py start    # Start all services
@@ -168,44 +157,70 @@ python start.py status   # Show service status
 python start.py restart  # Restart all services
 ```
 
-The service manager automatically detects your setup method (Docker or Manual) and manages services accordingly.
-
-### 📋 Viewing Realtime Logs
-
-**Manual Setup (native processes):**
+### 4. Development (Nx commands)
 ```bash
-# View both backend and frontend logs
-tail -f backend.log frontend.log
-
-# View backend only
-tail -f backend.log
-
-# View frontend only
-tail -f frontend.log
+pnpm install             # Install all workspace dependencies
+pnpm dev                 # Start frontend + router in parallel
+pnpm dev:frontend        # Start frontend only
+pnpm dev:mobile          # Start mobile dev server
+pnpm dev:router          # Start router service
+pnpm dev:auth            # Start auth service
+pnpm build               # Build all projects
+pnpm typecheck           # Typecheck all projects
+pnpm graph               # Visualize project dependency graph
 ```
 
-**Docker Setup:**
-```bash
-# View all service logs
-docker compose logs -f
+### Viewing Logs
 
-# View specific service
+**Manual setup:**
+```bash
+tail -f backend.log frontend.log
+```
+
+**Docker setup:**
+```bash
+docker compose logs -f
 docker compose logs -f backend
 docker compose logs -f frontend
 ```
 
-### 4️⃣ Add More API Keys (Optional)
-After initial setup, you can run `python setup.py` again to:
-- **Add/Update API Keys** - Configure additional LLM providers (Anthropic, OpenAI, Groq, etc.), search APIs (Tavily, Firecrawl, etc.), and other integrations
-- **Clear setup and start fresh** - Remove all configuration and start over
+### 5. Add More API Keys (Optional)
+Run `python setup.py` again to add/update LLM provider keys, search API keys, or other integrations.
 
-That's it! Your Kortix platform will be running with Kortix Super Worker ready to assist you. Ty mate
+## Tech Stack
+
+| Area | Technologies |
+|------|-------------|
+| **Frontend** | Next.js 15, React 18, TypeScript, Tailwind 4, Radix UI, TipTap, CodeMirror, Recharts |
+| **Mobile** | React Native 0.81, Expo 54, NativeWind, RevenueCat |
+| **Desktop** | Electron 33 |
+| **Services** | Bun, Hono, Vercel AI SDK, Stripe |
+| **Backend** | FastAPI, Python, SQLAlchemy, LiteLLM, MCP |
+| **Database** | Supabase (PostgreSQL), Redis |
+| **AI/LLM** | Anthropic, OpenAI, Google, xAI, Groq (via LiteLLM) |
+| **Infra** | Docker, Pulumi, AWS, GitHub Actions |
+| **Observability** | Prometheus, Langfuse, Structlog |
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide. The short version:
+
+1. Fork the repo
+2. Create a feature branch
+3. `python setup.py` to configure your environment
+4. Make your changes
+5. Open a Pull Request
+
+## License
+
+[Kortix Public Source License (KPSL) v1.0](LICENSE)
+
 ---
 
 <div align="center">
 
-**Ready to build your first AI agent?** 
+**Ready to build your first AI agent?**
 
-[Get Started](./docs/SELF-HOSTING.md) • [Join Discord](https://discord.com/invite/RvFhXUdZ9H) • [Follow on Twitter](https://x.com/kortix)
+[Get Started](#quick-start) | [Join Discord](https://discord.com/invite/RvFhXUdZ9H) | [Follow on Twitter](https://x.com/kortix)
 
 </div>

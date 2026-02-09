@@ -1,7 +1,11 @@
 'use client';
 
-import { SidebarThreadList } from './sidebar-thread-list';
+import { OpenCodeSessionList } from './opencode-session-list';
 
-export function NavAgents() {
-  return <SidebarThreadList mode="chats" />;
+interface NavAgentsProps {
+  projectId?: string | null;
+}
+
+export function NavAgents({ projectId }: NavAgentsProps = {}) {
+  return <OpenCodeSessionList projectId={projectId} />;
 }

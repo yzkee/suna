@@ -9,11 +9,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { useState, useContext } from "react"
+import { useState } from "react"
 import { useIsMobile } from "@/hooks/utils"
 import { SharePopover } from "@/components/sidebar/share-modal"
 import { ModeIndicator } from "@/components/thread/mode-indicator"
-import { SidebarContext } from "@/components/ui/sidebar"
+import { useSidebar } from "@/components/ui/sidebar"
 
 interface ThreadSiteHeaderProps {
   threadId?: string;
@@ -40,9 +40,7 @@ export function SiteHeader({
 }: ThreadSiteHeaderProps) {
   const [copied, setCopied] = useState(false);
   const isMobile = useIsMobile() || isMobileView;
-  const sidebarContext = useContext(SidebarContext);
-  const setSidebarOpen = sidebarContext?.setOpen;
-  const setOpenMobile = sidebarContext?.setOpenMobile;
+  const { setOpen: setSidebarOpen, setOpenMobile } = useSidebar();
 
   const copyShareLink = async () => {
     try {
@@ -56,8 +54,8 @@ export function SiteHeader({
   };
 
   const handleOpenMenu = () => {
-    setSidebarOpen?.(true);
-    setOpenMobile?.(true);
+    setSidebarOpen(true);
+    setOpenMobile(true);
   };
 
   return (

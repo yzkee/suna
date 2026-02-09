@@ -2,12 +2,12 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { Library, Menu, Plus, Zap, MessageCircle, PanelLeftOpen, PanelLeftClose, Search, Users, FolderOpen } from 'lucide-react';
+import { Library, Menu, Plus, Zap, MessageCircle, PanelLeftOpen, PanelLeftClose, Search, Users, FolderOpen, FolderGit2, Bot, Wrench } from 'lucide-react';
 
 import { NavAgents } from '@/components/sidebar/nav-agents';
-import { NavWorkers } from '@/components/sidebar/nav-workers';
-import { NavGlobalConfig } from '@/components/sidebar/nav-global-config';
-import { NavTriggerRuns } from '@/components/sidebar/nav-trigger-runs';
+import { OpenCodeAgentsList } from '@/components/sidebar/opencode-agents-list';
+import { OpenCodeToolsList } from '@/components/sidebar/opencode-tools-list';
+import { OpenCodeProjectSelector } from '@/components/sidebar/opencode-project-selector';
 import { NavUserWithTeams } from '@/components/sidebar/nav-user-with-teams';
 import { KortixLogo } from '@/components/sidebar/kortix-logo';
 import { siteConfig } from '@/lib/site-config';
@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/sidebar';
 import { NewAgentDialog } from '@/components/agents/new-agent-dialog';
 import { ThreadSearchModal } from '@/components/sidebar/thread-search-modal';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useTheme } from 'next-themes';
 import { useRouter } from 'next/navigation';
@@ -43,6 +43,7 @@ import { getPlanIcon } from '@/components/billing/plan-utils';
 import { Kbd } from '../ui/kbd';
 import { useTranslations } from 'next-intl';
 import { KbdGroup } from '../ui/kbd';
+import { useCreateOpenCodeSession } from '@/hooks/opencode/use-opencode-sessions';
 
 
 function UserProfileSection({ user }: { user: any }) {
@@ -101,7 +102,8 @@ export function SidebarLeft({
   const isMobile = useIsMobile();
   const { theme, setTheme } = useTheme();
   const router = useRouter();
-  const [activeView, setActiveView] = useState<'chats' | 'workers' | 'starred'>('chats');
+  const [activeView, setActiveView] = useState<'sessions' | 'agents' | 'tools'>('sessions');
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [showEnterpriseCard, setShowEnterpriseCard] = useState(true);
   const [user, setUser] = useState<{
     name: string;
@@ -141,18 +143,35 @@ export function SidebarLeft({
 
   // Update active view based on pathname (Files is independent, not a view)
   useEffect(() => {
-    if (pathname?.includes('/triggers') || pathname?.includes('/knowledge')) {
-      setActiveView('starred');
-    } else if (isOnThread) {
-      setActiveView('chats');
+    if (isOnThread || pathname?.includes('/sessions')) {
+      setActiveView('sessions');
     }
     // Note: isOnLibrary (/files page) does NOT change activeView - it's independent
   }, [pathname, isOnThread]);
 
   // Handle view switching (Files is independent - just a link, not part of this)
-  const handleViewChange = (view: 'chats' | 'workers' | 'starred') => {
+  const handleViewChange = (view: 'sessions' | 'agents' | 'tools') => {
     setActiveView(view);
   };
+
+  const handleProjectChange = useCallback((projectId: string | null) => {
+    setSelectedProjectId(projectId);
+  }, []);
+
+  const createSession = useCreateOpenCodeSession();
+
+  const handleNewSession = useCallback(async () => {
+    posthog.capture('new_task_clicked', { source: 'new_session_button' });
+    try {
+      const session = await createSession.mutateAsync();
+      router.push(`/sessions/${session.id}`);
+      if (isMobile) setOpenMobile(false);
+    } catch {
+      // If API fails, fall back to dashboard
+      router.push('/dashboard');
+      if (isMobile) setOpenMobile(false);
+    }
+  }, [createSession, router, isMobile, setOpenMobile]);
 
   // Logout handler
   const handleLogout = async () => {
@@ -223,20 +242,16 @@ export function SidebarLeft({
         setShowSearchModal(true);
       }
 
-      // CMD+J to open new chat
+      // CMD+J to create new session
       if ((event.metaKey || event.ctrlKey) && event.key === 'j') {
         event.preventDefault();
-        posthog.capture('new_task_clicked', { source: 'keyboard_shortcut' });
-        router.push('/dashboard');
-        if (isMobile) {
-          setOpenMobile(false);
-        }
+        handleNewSession();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [state, setOpen, isDocumentModalOpen, router, isMobile, setOpenMobile]);
+  }, [state, setOpen, isDocumentModalOpen, handleNewSession]);
 
 
 
@@ -330,17 +345,10 @@ export function SidebarLeft({
               variant="outline"
               size="icon"
               className="h-10 w-10 p-0 shadow-none"
-              asChild
+              onClick={handleNewSession}
+              disabled={createSession.isPending}
             >
-              <Link
-                href="/dashboard"
-                onClick={() => {
-                  posthog.capture('new_task_clicked');
-                  if (isMobile) setOpenMobile(false);
-                }}
-              >
-                <Plus className="h-4 w-4" />
-              </Link>
+              <Plus className="h-4 w-4" />
             </Button>
             
             {/* Files button */}
@@ -365,10 +373,9 @@ export function SidebarLeft({
           </div>
           <div className="w-full flex flex-col items-center space-y-3">
             {[
-              { view: 'chats' as const, icon: MessageCircle },
-              // { view: 'library' as const, icon: Library },
-              { view: 'workers' as const, icon: Users },
-              { view: 'starred' as const, icon: Zap },
+              { view: 'sessions' as const, icon: MessageCircle },
+              { view: 'agents' as const, icon: Bot },
+              { view: 'tools' as const, icon: Wrench },
             ].map(({ view, icon: Icon }) => (
               <Button
                 key={view}
@@ -405,26 +412,19 @@ export function SidebarLeft({
                 variant="outline"
                 size="sm"
                 className="w-full shadow-none justify-between h-10 px-3 group/new-chat"
-                asChild
+                onClick={handleNewSession}
+                disabled={createSession.isPending}
               >
-                <Link
-                  href="/dashboard"
-                  onClick={() => {
-                    posthog.capture('new_task_clicked');
-                    if (isMobile) setOpenMobile(false);
-                  }}
-                >
-                  <div className="flex items-center gap-2">
-                    <Plus className="h-4 w-4" />
-                    {t('newChat')}
-                  </div>
-                  <div className="flex items-center gap-1 opacity-0 group-hover/new-chat:opacity-100 transition-opacity">
+                <div className="flex items-center gap-2">
+                  <Plus className="h-4 w-4" />
+                  {createSession.isPending ? 'Creating...' : 'New Session'}
+                </div>
+                <div className="flex items-center gap-1 opacity-0 group-hover/new-chat:opacity-100 transition-opacity">
                   <KbdGroup>
                     <Kbd>⌘</Kbd>
                     <Kbd>J</Kbd>
                   </KbdGroup>
-                  </div>
-                </Link>
+                </div>
               </Button>
             </div>
 
@@ -455,13 +455,18 @@ export function SidebarLeft({
               </Button>
             </div>
 
+            {/* Project Selector */}
+            <OpenCodeProjectSelector
+              selectedProjectId={selectedProjectId}
+              onProjectChange={handleProjectChange}
+            />
+
             {/* State buttons horizontally */}
             <div className="flex justify-between items-center gap-2">
               {[
-                { view: 'chats' as const, icon: MessageCircle, label: t('chats') },
-                // { view: 'library' as const, icon: Library, label: t('library') },
-                { view: 'workers' as const, icon: Users, label: 'Workers' },
-                { view: 'starred' as const, icon: Zap, label: t('triggers') }
+                { view: 'sessions' as const, icon: MessageCircle, label: 'Sessions' },
+                { view: 'agents' as const, icon: Bot, label: 'Agents' },
+                { view: 'tools' as const, icon: Wrench, label: 'Tools' },
               ].map(({ view, icon: Icon, label }) => (
                 <button
                   key={view}
@@ -483,14 +488,9 @@ export function SidebarLeft({
 
           {/* Content area */}
           <div className="px-6 flex-1 overflow-hidden">
-            {activeView === 'chats' && <NavAgents />}
-            {activeView === 'workers' && <NavWorkers />}
-            {activeView === 'starred' && (
-              <>
-                <NavGlobalConfig />
-                <NavTriggerRuns />
-              </>
-            )}
+            {activeView === 'sessions' && <NavAgents projectId={selectedProjectId} />}
+            {activeView === 'agents' && <OpenCodeAgentsList />}
+            {activeView === 'tools' && <OpenCodeToolsList />}
           </div>
         </div>
       </SidebarContent>

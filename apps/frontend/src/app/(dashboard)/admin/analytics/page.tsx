@@ -20,7 +20,6 @@ import {
   BarChart3,
   UserCheck,
   Zap,
-  Brain,
 } from 'lucide-react';
 import { KortixLoader } from '@/components/ui/kortix-loader';
 import { Calendar } from '@/components/ui/calendar';
@@ -34,8 +33,6 @@ import {
   useCategoryDistribution,
   useTierDistribution,
   useConversionFunnel,
-  useActivationStats,
-  useUserFunnel,
   useEngagementSummary,
   useTaskPerformance,
   useProfitability,
@@ -45,7 +42,7 @@ import { AdminUserTable } from '@/components/admin/admin-user-table';
 import { AdminUserDetailsDialog } from '@/components/admin/admin-user-details-dialog';
 import { useAdminUserList, useRefreshUserData, type UserSummary } from '@/hooks/admin/use-admin-users';
 
-import { UserEmailLink, MetricCard, ThreadBrowser, TopUsersTab, RetentionTab, ARRSimulator, ConversationInsightsTab } from './components';
+import { UserEmailLink, MetricCard, ThreadBrowser, RetentionTab, ARRSimulator } from './components';
 
 // Get current date in Berlin timezone
 function getBerlinToday(): Date {
@@ -129,8 +126,6 @@ export default function AdminAnalyticsPage() {
   const { data: categoryDistribution, isFetching: categoryFetching } = useCategoryDistribution(dateFromString, dateToString, tierFilter, isOverviewOrThreads);
   const { data: tierDistribution } = useTierDistribution(dateFromString, dateToString, isThreadsTab);
   const { data: conversionFunnel, isLoading: funnelLoading } = useConversionFunnel(dateFromString, dateToString, 'vercel');
-  const { data: activationStats, isLoading: activationLoading } = useActivationStats(dateFromString, dateToString);
-  const { data: userFunnel, isLoading: userFunnelLoading } = useUserFunnel(dateFromString, dateToString);
   const { data: engagementSummary, isLoading: engagementLoading, isFetching: engagementFetching } = useEngagementSummary(dateFromString, dateToString);
   const { data: taskPerformance, isLoading: taskLoading, isFetching: taskFetching } = useTaskPerformance(dateFromString, dateToString);
   const { data: profitability, isLoading: profitabilityLoading, isFetching: profitabilityFetching } = useProfitability(dateFromString, dateToString);
@@ -289,10 +284,6 @@ export default function AdminAnalyticsPage() {
                 <Users className="h-3.5 w-3.5" />
                 Users
               </TabsTrigger>
-              <TabsTrigger value="top-users" className="gap-1.5">
-                <Activity className="h-3.5 w-3.5" />
-                Top Users
-              </TabsTrigger>
               <TabsTrigger value="retention" className="gap-1.5">
                 <UserCheck className="h-3.5 w-3.5" />
                 Retention
@@ -300,10 +291,6 @@ export default function AdminAnalyticsPage() {
               <TabsTrigger value="simulator" className="gap-1.5">
                 <TrendingUp className="h-3.5 w-3.5" />
                 ARR
-              </TabsTrigger>
-              <TabsTrigger value="conversations" className="gap-1.5">
-                <Brain className="h-3.5 w-3.5" />
-                Conversations
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -492,7 +479,7 @@ export default function AdminAnalyticsPage() {
                 </div>
 
                 <div className="p-5">
-                  {(funnelLoading || activationLoading) ? (
+                  {funnelLoading ? (
                     <Skeleton className="h-24" />
                   ) : conversionFunnel ? (
                     <div className="flex items-stretch">
@@ -522,7 +509,7 @@ export default function AdminAnalyticsPage() {
                         <p className="text-xs text-muted-foreground">{conversionFunnel.visitor_to_signup_rate}% of visitors</p>
                       </div>
 
-                      {/* Arrow: Signups -> Paid */}
+                      {/* Arrow */}
                       <div className="flex items-center justify-center px-2 bg-muted/30">
                         <div className="text-center">
                           <ArrowRight className="h-4 w-4 text-muted-foreground mx-auto" />
@@ -592,147 +579,6 @@ export default function AdminAnalyticsPage() {
                   ) : (
                     <p className="text-sm text-muted-foreground text-center py-4">
                       Analytics not configured
-                    </p>
-                  )}
-                </div>
-
-                {/* Signup Task Distribution */}
-                {activationStats?.distribution && (
-                  <div className="p-5 pt-0">
-                    <p className="text-xs font-medium text-muted-foreground mb-1">Tasks Run by Free Signups</p>
-                    <p className="text-[10px] text-muted-foreground mb-3">How many tasks each free user ran</p>
-                    <div className="flex items-end gap-2 h-24">
-                      {Object.entries(activationStats.distribution).map(([bucket, count]) => {
-                        const maxCount = Math.max(...Object.values(activationStats.distribution));
-                        const height = maxCount > 0 ? (count / maxCount) * 100 : 0;
-                        const total = activationStats.total_signups || 1;
-                        const percent = ((count / total) * 100).toFixed(0);
-                        const label = bucket === "0" ? "0 tasks" : bucket === "1" ? "1 task" : `${bucket} tasks`;
-                        return (
-                          <div key={bucket} className="flex-1 flex flex-col items-center gap-1">
-                            <span className="text-[10px] text-muted-foreground">{count.toLocaleString()} users</span>
-                            <div
-                              className={cn(
-                                "w-full rounded-t transition-all",
-                                bucket === "0" ? "bg-muted-foreground/30" : "bg-blue-500/70"
-                              )}
-                              style={{ height: `${Math.max(height, 4)}%` }}
-                            />
-                            <span className="text-[10px] font-medium">{label}</span>
-                            <span className="text-[9px] text-muted-foreground">{percent}%</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </section>
-
-              {/* SECTION 3.5: User Funnel (DB-based) */}
-              <section className="rounded-xl border bg-card">
-                <div className="flex items-center justify-between p-5 pb-4 border-b">
-                  <h2 className="text-sm font-medium flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                    User Funnel
-                  </h2>
-                  <span className="text-xs text-muted-foreground">Signup → Tried → Viewed Pricing → Clicked Checkout → Converted</span>
-                </div>
-
-                <div className="p-5">
-                  {userFunnelLoading ? (
-                    <Skeleton className="h-24" />
-                  ) : userFunnel ? (
-                    <div className="flex items-stretch">
-                      {/* Signups */}
-                      <div className="flex-1 text-center p-4 rounded-l-lg bg-muted/30 border-r border-background">
-                        <p className="text-3xl font-bold tracking-tight">
-                          {userFunnel.total_signups.toLocaleString()}
-                        </p>
-                        <p className="text-sm font-medium mt-1">Signups</p>
-                        <p className="text-xs text-muted-foreground">100%</p>
-                      </div>
-
-                      {/* Arrow */}
-                      <div className="flex items-center justify-center px-2 bg-muted/30">
-                        <div className="text-center">
-                          <ArrowRight className="h-4 w-4 text-muted-foreground mx-auto" />
-                          <span className="text-xs font-medium text-muted-foreground">{userFunnel.tried_task_rate}%</span>
-                        </div>
-                      </div>
-
-                      {/* Tried Task */}
-                      <div className="flex-1 text-center p-4 bg-muted/30 border-r border-background">
-                        <p className="text-3xl font-bold tracking-tight">
-                          {userFunnel.tried_task.toLocaleString()}
-                        </p>
-                        <p className="text-sm font-medium mt-1">Tried Task</p>
-                        <p className="text-xs text-muted-foreground">{userFunnel.tried_task_rate}% of signups</p>
-                      </div>
-
-                      {/* Arrow */}
-                      <div className="flex items-center justify-center px-2 bg-muted/30">
-                        <div className="text-center">
-                          <ArrowRight className="h-4 w-4 text-muted-foreground mx-auto" />
-                          <span className="text-xs font-medium text-muted-foreground">{userFunnel.tried_then_viewed_rate}%</span>
-                        </div>
-                      </div>
-
-                      {/* Viewed Pricing */}
-                      <div className="flex-1 text-center p-4 bg-muted/30 border-r border-background">
-                        <p className="text-3xl font-bold tracking-tight">
-                          {userFunnel.tried_and_viewed.toLocaleString()}
-                        </p>
-                        <p className="text-sm font-medium mt-1">Tried & Viewed Pricing</p>
-                        <p className="text-xs text-muted-foreground">{userFunnel.tried_and_viewed_rate}% of signups</p>
-                      </div>
-
-                      {/* Arrow */}
-                      <div className="flex items-center justify-center px-2 bg-muted/30">
-                        <div className="text-center">
-                          <ArrowRight className="h-4 w-4 text-muted-foreground mx-auto" />
-                          <span className="text-xs font-medium text-muted-foreground">{userFunnel.viewed_then_clicked_rate}%</span>
-                        </div>
-                      </div>
-
-                      {/* Clicked Checkout */}
-                      <div className="flex-1 text-center p-4 bg-muted/30 border-r border-background">
-                        <p className="text-3xl font-bold tracking-tight">
-                          {userFunnel.clicked_checkout.toLocaleString()}
-                          {userFunnel.other_clicked_checkout > 0 && (
-                            <span className="text-sm font-normal text-muted-foreground ml-1">
-                              (+{userFunnel.other_clicked_checkout})
-                            </span>
-                          )}
-                        </p>
-                        <p className="text-sm font-medium mt-1">Clicked Checkout</p>
-                        <p className="text-xs text-muted-foreground">{userFunnel.clicked_checkout_rate}% of signups</p>
-                        {userFunnel.other_clicked_checkout > 0 && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            +{userFunnel.other_clicked_checkout} signed up earlier, clicked today
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Arrow */}
-                      <div className="flex items-center justify-center px-2 bg-muted/30">
-                        <div className="text-center">
-                          <ArrowRight className="h-4 w-4 text-muted-foreground mx-auto" />
-                          <span className="text-xs font-medium text-muted-foreground">{userFunnel.clicked_then_converted_rate}%</span>
-                        </div>
-                      </div>
-
-                      {/* Converted */}
-                      <div className="flex-1 text-center p-4 rounded-r-lg bg-emerald-500/10">
-                        <p className="text-3xl font-bold tracking-tight text-emerald-600">
-                          {userFunnel.converted.toLocaleString()}
-                        </p>
-                        <p className="text-sm font-medium mt-1">Converted</p>
-                        <p className="text-xs text-muted-foreground">{userFunnel.conversion_rate}% of signups</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      No data available
                     </p>
                   )}
                 </div>
@@ -1093,15 +939,6 @@ export default function AdminAnalyticsPage() {
             </div>
           </TabsContent>
 
-          {/* Top Users Tab */}
-          <TabsContent value="top-users" className="mt-0">
-            <TopUsersTab
-              filterDateFrom={dateFromString}
-              filterDateTo={dateToString}
-              onUserClick={handleUserEmailClick}
-            />
-          </TabsContent>
-
           {/* Retention Tab */}
           <TabsContent value="retention" className="mt-0">
             <RetentionTab onUserClick={handleUserEmailClick} />
@@ -1110,11 +947,6 @@ export default function AdminAnalyticsPage() {
           {/* ARR Simulator Tab */}
           <TabsContent value="simulator" className="mt-0">
             <ARRSimulator analyticsSource="vercel" />
-          </TabsContent>
-
-          {/* Conversation Analytics Tab */}
-          <TabsContent value="conversations" className="mt-0">
-            <ConversationInsightsTab dateFrom={dateFromString} dateTo={dateToString} onUserClick={handleUserEmailClick} />
           </TabsContent>
         </Tabs>
 
