@@ -9,6 +9,7 @@ import { authMiddleware } from './middleware/auth';
 import { webSearch } from './routes/web-search';
 import { imageSearch } from './routes/image-search';
 import { llm } from './routes/llm';
+import { proxy } from './routes/proxy';
 import type { AppContext } from './types';
 
 const app = new Hono<{ Variables: AppContext }>();
@@ -28,7 +29,7 @@ app.use(
         ? ['http://localhost:3000', 'http://127.0.0.1:3000']
         : []),
     ],
-    allowMethods: ['GET', 'POST', 'OPTIONS'],
+    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   })
@@ -64,6 +65,10 @@ app.use('/v1/*', authMiddleware);
 app.route('/web-search', webSearch);
 app.route('/image-search', imageSearch);
 app.route('/v1', llm);
+
+// === Proxy Routes (auth handled internally — dual mode) ===
+
+app.route('/', proxy);
 
 // === Error Handling ===
 
@@ -123,6 +128,13 @@ console.log(`
 ║    OpenAI:     ${config.OPENAI_API_KEY ? '✓ Configured'.padEnd(41) : '✗ NOT SET'.padEnd(41)}║
 ║    xAI:        ${config.XAI_API_KEY ? '✓ Configured'.padEnd(41) : '✗ NOT SET'.padEnd(41)}║
 ║    Groq:       ${config.GROQ_API_KEY ? '✓ Configured'.padEnd(41) : '✗ NOT SET'.padEnd(41)}║
+╠═══════════════════════════════════════════════════════════╣
+║  Proxy Services:                                          ║
+║    Tavily:     ${config.TAVILY_API_KEY ? '✓ Configured'.padEnd(41) : '✗ NOT SET'.padEnd(41)}║
+║    Serper:     ${config.SERPER_API_KEY ? '✓ Configured'.padEnd(41) : '✗ NOT SET'.padEnd(41)}║
+║    Firecrawl:  ${config.FIRECRAWL_API_KEY ? '✓ Configured'.padEnd(41) : '✗ NOT SET'.padEnd(41)}║
+║    Replicate:  ${config.REPLICATE_API_TOKEN ? '✓ Configured'.padEnd(41) : '✗ NOT SET'.padEnd(41)}║
+║    Context7:   ${config.CONTEXT7_API_KEY ? '✓ Configured'.padEnd(41) : '✗ NOT SET'.padEnd(41)}║
 ╚═══════════════════════════════════════════════════════════╝
 `);
 

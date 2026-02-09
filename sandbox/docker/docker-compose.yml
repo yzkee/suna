@@ -10,6 +10,8 @@ services:
       - KORTIX_TOKEN=${KORTIX_TOKEN:-}
       - SANDBOX_ID=${SANDBOX_ID:-local}
       - PROJECT_ID=${PROJECT_ID:-local}
+      - ENV_MODE=${ENV_MODE:-local}
+      - KORTIX_ROUTER_URL=${KORTIX_ROUTER_URL:-}
     volumes:
       - ./workspace:/workspace
       - secrets_data:/app/secrets

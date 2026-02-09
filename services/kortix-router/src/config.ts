@@ -17,12 +17,13 @@ export const config = {
   FIRECRAWL_API_KEY: process.env.FIRECRAWL_API_KEY || '',
 
   // AI/ML Provider URLs
-  REPLICATE_API_URL: process.env.REPLICATE_API_URL || 'https://api.replicate.com/v1',
+  REPLICATE_API_URL: process.env.REPLICATE_API_URL || 'https://api.replicate.com',
 
   // AI/ML Provider API Keys
   REPLICATE_API_TOKEN: process.env.REPLICATE_API_TOKEN || '',
 
-  // Context Provider (if applicable)
+  // Context Provider
+  CONTEXT7_API_URL: process.env.CONTEXT7_API_URL || 'https://context7.com',
   CONTEXT7_API_KEY: process.env.CONTEXT7_API_KEY || '',
 
   // LLM Provider URLs (agnostic - can be swapped)
@@ -84,6 +85,33 @@ export const TOOL_PRICING: Record<string, ToolPricing> = {
     baseCost: 0.001,
     perResultCost: 0,
     markupMultiplier: 2.0,
+  },
+
+  // Proxy passthrough pricing
+  proxy_tavily: {
+    baseCost: 0.005,
+    perResultCost: 0,
+    markupMultiplier: 1.5,
+  },
+  proxy_serper: {
+    baseCost: 0.001,
+    perResultCost: 0,
+    markupMultiplier: 1.5,
+  },
+  proxy_firecrawl: {
+    baseCost: 0.01,
+    perResultCost: 0,
+    markupMultiplier: 1.5,
+  },
+  proxy_replicate: {
+    baseCost: 0.005,
+    perResultCost: 0,
+    markupMultiplier: 1.5,
+  },
+  proxy_context7: {
+    baseCost: 0.001,
+    perResultCost: 0,
+    markupMultiplier: 1.5,
   },
 };
 
