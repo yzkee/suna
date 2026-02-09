@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   ArrowUp,
   ChevronRight,
@@ -992,6 +993,42 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   const executeCommand = useExecuteOpenCodeCommand();
   const summarizeSession = useSummarizeOpenCodeSession();
 
+  // --- Auto-send pending prompt for new sessions ---
+  const searchParams = useSearchParams();
+  const isNewSession = searchParams.get('new') === 'true';
+  const pendingPromptHandled = useRef(false);
+
+  // Read pending prompt from sessionStorage (for optimistic display)
+  const [optimisticPrompt, setOptimisticPrompt] = useState<string | null>(() => {
+    if (typeof window !== 'undefined' && isNewSession) {
+      return sessionStorage.getItem('opencode_pending_prompt');
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (!isNewSession || pendingPromptHandled.current) return;
+    const pendingPrompt = sessionStorage.getItem('opencode_pending_prompt');
+    if (pendingPrompt) {
+      pendingPromptHandled.current = true;
+      sessionStorage.removeItem('opencode_pending_prompt');
+      // Send the message
+      sendMessage.mutate({
+        sessionId,
+        parts: [{ type: 'text', text: pendingPrompt }],
+      });
+      // Clean URL
+      window.history.replaceState({}, '', `/sessions/${sessionId}`);
+    }
+  }, [isNewSession, sessionId, sendMessage]);
+
+  // Clear optimistic prompt once real messages arrive
+  useEffect(() => {
+    if (optimisticPrompt && messages && messages.length > 0) {
+      setOptimisticPrompt(null);
+    }
+  }, [optimisticPrompt, messages]);
+
   // Filter agents: exclude subagents and hidden, like OpenCode does
   const visibleAgents = useMemo(
     () => (agents || []).filter((a) => a.mode !== 'subagent' && !a.hidden),
@@ -1070,7 +1107,8 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     [sessionId, executeCommand, summarizeSession],
   );
 
-  if (sessionLoading || messagesLoading) {
+  // Don't show loading spinner if we have an optimistic prompt to show
+  if ((sessionLoading || messagesLoading) && !optimisticPrompt) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <KortixLoader size="small" />
@@ -1078,7 +1116,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     );
   }
 
-  if (!session) {
+  if (!session && !optimisticPrompt) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
         Session not found
@@ -1087,6 +1125,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   }
 
   const hasMessages = messages && messages.length > 0;
+  const showOptimistic = !!optimisticPrompt && !hasMessages;
 
   // Determine if last assistant message is still streaming
   const lastMessage = messages?.[messages.length - 1];
@@ -1095,8 +1134,8 @@ export function SessionChat({ sessionId }: SessionChatProps) {
 
   return (
     <div className="flex flex-col h-dvh bg-background">
-      {/* Messages or Empty State */}
-      {hasMessages ? (
+      {/* Messages, Optimistic Prompt, or Empty State */}
+      {hasMessages || showOptimistic ? (
         <div className="relative flex-1 min-h-0">
           <div
             ref={scrollRef}
@@ -1105,7 +1144,38 @@ export function SessionChat({ sessionId }: SessionChatProps) {
           >
             <div className="mx-auto max-w-3xl min-w-0 w-full px-3 sm:px-6">
               <div className="space-y-6 min-w-0">
-                {messages.map((msg, i) => {
+                {/* Optimistic user message when real messages haven't loaded yet */}
+                {showOptimistic && (
+                  <>
+                    <div className="flex justify-end">
+                      <div className="flex max-w-[90%] rounded-3xl rounded-br-lg bg-card border px-4 py-3 break-words overflow-hidden">
+                        <div className="space-y-2 min-w-0 flex-1">
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                            {optimisticPrompt}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    {/* Loading indicator */}
+                    <div className="w-full rounded mt-6">
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-3">
+                          <img
+                            src="/kortix-logomark-white.svg"
+                            alt="Kortix"
+                            className="dark:invert-0 invert flex-shrink-0 animate-pulse"
+                            style={{ height: '14px', width: 'auto' }}
+                          />
+                          <div className="flex items-center gap-1.5 py-1">
+                            <KortixLoader size="small" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {hasMessages && messages.map((msg, i) => {
                   if (msg.info.role === 'user') {
                     return <UserMessageRow key={msg.info.id} message={msg} />;
                   }
@@ -1119,7 +1189,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                 })}
 
                 {/* Busy indicator when waiting for first assistant chunk */}
-                {isBusy && lastMessage?.info.role === 'user' && (
+                {!showOptimistic && isBusy && lastMessage?.info.role === 'user' && (
                   <div className="w-full rounded mt-6">
                     <div className="flex flex-col gap-2">
                       <div className="flex items-center gap-3">

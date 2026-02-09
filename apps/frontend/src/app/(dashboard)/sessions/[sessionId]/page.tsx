@@ -1,7 +1,8 @@
 'use client';
 
-import { use } from 'react';
+import { use, Suspense } from 'react';
 import { SessionChat } from '@/components/session/session-chat';
+import { KortixLoader } from '@/components/ui/kortix-loader';
 
 export default function SessionPage({
   params,
@@ -10,5 +11,15 @@ export default function SessionPage({
 }) {
   const { sessionId } = use(params);
 
-  return <SessionChat sessionId={sessionId} />;
+  return (
+    <Suspense
+      fallback={
+        <div className="flex-1 flex items-center justify-center">
+          <KortixLoader size="small" />
+        </div>
+      }
+    >
+      <SessionChat sessionId={sessionId} />
+    </Suspense>
+  );
 }
