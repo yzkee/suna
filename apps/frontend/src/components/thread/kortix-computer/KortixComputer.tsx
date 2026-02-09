@@ -32,8 +32,6 @@ import { LoadingState } from './components/LoadingState';
 import { AppDock } from './components/Dock';
 import { SandboxDesktop } from './components/Desktop';
 import { getToolNumber } from '@/hooks/messages/tool-tracking';
-import { useSandboxStatusWithAutoStart, isSandboxUsable } from '@/hooks/files/use-sandbox-details';
-import { SandboxStatusView } from './components/SandboxStatusView';
 
 export interface ToolCallInput {
   toolCall: ToolCallData;
@@ -131,13 +129,6 @@ export const KortixComputer = memo(function KortixComputer({
   
   const pendingToolNavIndex = useKortixComputerPendingToolNavIndex();
   const clearPendingToolNav = useKortixComputerClearPendingToolNav();
-
-  // Fetch unified sandbox status (combines Daytona state + service health)
-  // Auto-starts OFFLINE sandboxes when detected
-  const { data: sandboxStatus } = useSandboxStatusWithAutoStart(projectId);
-  
-  // Check if sandbox is usable (LIVE status)
-  const isSandboxLive = sandboxStatus ? isSandboxUsable(sandboxStatus.status) : false;
 
   const currentViewRef = useRef(activeView);
 
@@ -620,11 +611,6 @@ export const KortixComputer = memo(function KortixComputer({
   };
 
   const renderFilesView = () => {
-    // Show status view if sandbox is not LIVE
-    if (!isSandboxLive) {
-      return <SandboxStatusView projectId={projectId} />;
-    }
-
     if (filesSubView === 'viewer' && selectedFilePath) {
       return (
         <FileViewerView
@@ -647,11 +633,6 @@ export const KortixComputer = memo(function KortixComputer({
   };
 
   const renderFilesViewMaximized = () => {
-    // Show status view if sandbox is not LIVE
-    if (!isSandboxLive) {
-      return <SandboxStatusView projectId={projectId} />;
-    }
-
     if (filesSubView === 'viewer' && selectedFilePath) {
       return (
         <FileViewerView
@@ -663,7 +644,6 @@ export const KortixComputer = memo(function KortixComputer({
       );
     }
 
-    // Use same FileBrowserView as inline view for consistency
     return (
       <FileBrowserView
         sandboxId={effectiveSandboxId}
@@ -728,7 +708,6 @@ export const KortixComputer = memo(function KortixComputer({
             showFilesTab={true}
             isMaximized={isMaximized}
             isSuiteMode={isSuiteMode}
-            sandboxStatus={sandboxStatus?.status}
             onToggleSuiteMode={() => {
               if (isSuiteMode) {
                 // Exit suite mode - restore previous size
@@ -788,7 +767,6 @@ export const KortixComputer = memo(function KortixComputer({
             currentView={activeView}
             onViewChange={setActiveView}
             showFilesTab={true}
-            sandboxStatus={sandboxStatus?.status}
           />
 
           <div className="flex-1 flex flex-col overflow-hidden max-w-full min-w-0 min-h-0" style={{ contain: 'strict' }}>

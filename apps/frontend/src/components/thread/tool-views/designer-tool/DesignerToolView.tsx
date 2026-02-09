@@ -31,7 +31,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { Toggle } from '@/components/ui/toggle';
-import { useImageContent } from '@/hooks/files';
+import { useFileContent } from '@/features/files';
 import { useDownloadRestriction } from '@/hooks/billing';
 
 interface DesignElement {
@@ -64,13 +64,21 @@ function DesignElementImage({
   const [imageError, setImageError] = useState(false);
   
   // If we have a direct URL, use it; otherwise load via hook
-  const { data: imageUrl, isLoading, error } = useImageContent(
-    element.sandboxId,
-    element.filePath,
-    { 
-      enabled: !element.directUrl && !imageError
-    }
+  const { data: fileContentData, isLoading, error } = useFileContent(
+    (!element.directUrl && !imageError) ? element.filePath : null,
+    { enabled: !element.directUrl && !imageError }
   );
+  const imageUrl = React.useMemo(() => {
+    if (!fileContentData?.content) return null;
+    if (fileContentData.encoding === 'base64') {
+      const binary = atob(fileContentData.content);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: fileContentData.mimeType || 'image/png' });
+      return URL.createObjectURL(blob);
+    }
+    return null;
+  }, [fileContentData]);
 
   const finalUrl = element.directUrl || imageUrl;
 

@@ -17,7 +17,7 @@ const SpreadsheetViewer = dynamic(
   { ssr: false, loading: () => <div className="p-4 text-muted-foreground">Loading spreadsheet...</div> }
 );
 import { useAuth } from '@/components/AuthProvider';
-import { fetchFileContent } from '@/hooks/files/use-file-queries';
+import { readFile } from '@/features/files';
 import { useDownloadRestriction } from '@/hooks/billing';
 
 function getFileUrl(sandboxId: string | undefined, path: string): string {
@@ -129,12 +129,22 @@ export function SheetsToolView({
     }
     try {
       if (!filePath) return;
-      if (!sandboxId || !session?.access_token) {
+      if (!sandboxId) {
         const url = getFileUrl(sandboxId, filePath);
         window.open(url, '_blank');
         return;
       }
-      const blob = (await fetchFileContent(sandboxId, filePath, 'blob', session.access_token)) as Blob;
+      // Use OpenCode readFile API
+      const result = await readFile(filePath);
+      let blob: Blob;
+      if (result.encoding === 'base64') {
+        const binary = atob(result.content);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        blob = new Blob([bytes], { type: result.mimeType || 'application/octet-stream' });
+      } else {
+        blob = new Blob([result.content], { type: result.mimeType || 'text/plain' });
+      }
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -147,7 +157,7 @@ export function SheetsToolView({
     } catch (e) {
       console.error('Download failed:', e);
     }
-  }, [sandboxId, session?.access_token, isDownloadRestricted, openUpgradeModal]);
+  }, [sandboxId, isDownloadRestricted, openUpgradeModal]);
 
   // Defensive check - ensure toolCall is defined (after all hooks)
   if (!toolCall) {
@@ -275,4 +285,4 @@ export function SheetsToolView({
       </CardContent>
     </Card>
   );
-} 
+}

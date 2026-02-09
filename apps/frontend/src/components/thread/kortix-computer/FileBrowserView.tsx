@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Folder,
@@ -43,17 +43,19 @@ import {
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
-  listSandboxFiles,
-  type FileInfo,
-} from '@/lib/api/sandbox';
+  listFiles,
+  readFile,
+  uploadFile,
+  useFileList,
+  useFileContent,
+  fileListKeys,
+  type FileNode,
+  type FileContent as FileContentType,
+} from '@/features/files';
 import { Project } from '@/lib/api/threads';
 import { toast } from '@/lib/toast';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/components/AuthProvider';
-import {
-  useDirectoryQuery,
-  FileCache
-} from '@/hooks/files';
 import { useDownloadRestriction } from '@/hooks/billing';
 import JSZip from 'jszip';
 import { normalizeFilenameToNFC } from '@agentpress/shared';
@@ -63,12 +65,19 @@ import { usePresentationViewerStore } from '@/stores/presentation-viewer-store';
 import { Badge } from '@/components/ui/badge';
 import { VersionBanner } from './VersionBanner';
 import { KortixComputerHeader } from './KortixComputerHeader';
-import { useFileData } from '@/hooks/use-file-data';
 import { PresentationSlidePreview } from '../tool-views/presentation-tools/PresentationSlidePreview';
 import { PresentationSlideSkeleton } from '../tool-views/presentation-tools/PresentationSlideSkeleton';
 import { PdfRenderer } from '@/components/file-renderers/pdf-renderer';
 import { UnifiedMarkdown } from '@/components/markdown/unified-markdown';
-import { useSandboxStatusWithAutoStart, isSandboxUsable } from '@/hooks/files/use-sandbox-details';
+
+// Inline helpers replacing FileCache static methods
+const isImageFile = (p: string) => /\.(png|jpe?g|gif|svg|webp|bmp|ico|avif|tiff)$/i.test(p);
+const isPdfFile = (p: string) => /\.pdf$/i.test(p);
+const getContentTypeFromPath = (p: string): 'blob' | 'json' | 'text' => {
+  if (isImageFile(p) || isPdfFile(p) || /\.(mp4|webm|mov|avi|mkv|mp3|wav|ogg|flac|m4a|aac|xlsx|xls|docx|pptx|ppt|zip|tar|gz|rar|7z|woff2?|ttf|otf|eot)$/i.test(p)) return 'blob';
+  if (/\.json$/i.test(p)) return 'json';
+  return 'text';
+};
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || '';
 
@@ -99,14 +108,14 @@ function isPresentationSlideFile(filePath: string): boolean {
 }
 
 // Check if a file is a main output (something the user generated/requested)
-function isMainOutput(file: FileInfo, isPresentationFolder: (f: FileInfo) => boolean): boolean {
+function isMainOutput(file: FileNode, isPresentationFolder: (f: FileNode) => boolean): boolean {
   // Presentation folders are main outputs
-  if (file.is_dir && isPresentationFolder(file)) {
+  if (file.type === 'directory' && isPresentationFolder(file)) {
     return true;
   }
   
   // Hide other folders (downloads, assets, etc.)
-  if (file.is_dir) {
+  if (file.type === 'directory') {
     const folderName = file.name.toLowerCase();
     // Hide known internal folders
     if (HIDDEN_FOLDERS.includes(folderName)) {
@@ -197,17 +206,26 @@ function XlsxThumbnail({
     let cancelled = false;
     
     async function loadXlsx() {
-      if (!sandboxId || !filePath) return;
+      if (!filePath) return;
       
       try {
         setIsLoading(true);
-        const { fetchFileContent } = await import('@/hooks/files/use-file-queries');
-        const blob = await fetchFileContent(sandboxId, filePath, 'blob', session?.access_token || '');
+        const fileContent = await readFile(filePath);
         
         if (cancelled) return;
         
+        // Convert base64 to ArrayBuffer
+        if (!fileContent.content || fileContent.encoding !== 'base64') {
+          setData([]);
+          return;
+        }
+        
+        const binary = atob(fileContent.content);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const arrayBuffer = bytes.buffer;
+        
         const XLSX = await import('xlsx');
-        const arrayBuffer = await (blob as Blob).arrayBuffer();
         const workbook = XLSX.read(arrayBuffer, { type: 'array', cellText: false, cellDates: true });
         
         if (cancelled) return;
@@ -243,7 +261,7 @@ function XlsxThumbnail({
     
     loadXlsx();
     return () => { cancelled = true; };
-  }, [sandboxId, filePath, session?.access_token]);
+  }, [filePath]);
   
   return <SpreadsheetThumbnail data={data || []} isLoading={isLoading} />;
 }
@@ -451,7 +469,7 @@ function ThumbnailPreview({
   slideInfo,
   fallbackIcon
 }: { 
-  file: FileInfo; 
+  file: FileNode; 
   sandboxId: string; 
   project?: Project;
   isPresentationFolder: boolean;
@@ -471,22 +489,35 @@ function ThumbnailPreview({
   const needsBlobContent = isImage || isPdf || isVideo;
   const needsTextContent = isMarkdown || isText || isCsv;
   
-  // For images/PDFs, use blob content
-  const { data: blobUrl, isLoading: blobLoading, error: blobError } = useFileData(
-    needsBlobContent ? sandboxId : undefined,
-    needsBlobContent ? file.path : undefined,
-    { enabled: needsBlobContent, showPreview: true }
+  // Use useFileContent for all file data
+  const { data: fileContent, isLoading: contentLoading, error: contentError } = useFileContent(
+    (needsBlobContent || needsTextContent) ? file.path : null,
+    { enabled: needsBlobContent || needsTextContent }
   );
   
-  // For text files (including CSV), use text content  
-  const { data: textContent, isLoading: textLoading, error: textError } = useFileData(
-    needsTextContent ? sandboxId : undefined,
-    needsTextContent ? file.path : undefined,
-    { enabled: needsTextContent, showPreview: true }
-  );
+  // Derive blob URL from base64 content for images/PDFs/videos
+  const blobUrl = useMemo(() => {
+    if (!fileContent?.content || !needsBlobContent) return null;
+    if (fileContent.encoding === 'base64') {
+      try {
+        const binary = atob(fileContent.content);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        return URL.createObjectURL(new Blob([bytes], { type: fileContent.mimeType || 'application/octet-stream' }));
+      } catch { return null; }
+    }
+    return null;
+  }, [fileContent, needsBlobContent]);
   
-  const isLoading = blobLoading || textLoading;
-  const hasError = blobError || textError;
+  // Derive text content
+  const textContent = useMemo(() => {
+    if (!fileContent?.content || !needsTextContent) return null;
+    if (fileContent.encoding !== 'base64') return fileContent.content;
+    return null;
+  }, [fileContent, needsTextContent]);
+  
+  const isLoading = contentLoading;
+  const hasError = !!contentError;
   
   // For presentation slide files (slide_XX.html), show the slide preview
   if (slideInfo?.isSlide && slideInfo.presentationName && slideInfo.slideNumber) {
@@ -581,7 +612,7 @@ function ThumbnailPreview({
   }
   
   // For XLSX, show static spreadsheet thumbnail
-  if (isXlsx && sandboxId) {
+  if (isXlsx) {
     return <XlsxThumbnail sandboxId={sandboxId} filePath={file.path} />;
   }
   
@@ -681,22 +712,15 @@ export function FileBrowserView({
     featureName: 'files',
   });
 
-  // Get unified sandbox status with auto-start - this tells us if sandbox is actually ready
-  // Auto-starts OFFLINE sandboxes automatically
-  const { data: sandboxStatusData, isAutoStarting } = useSandboxStatusWithAutoStart(projectId);
-  const sandboxStatus = sandboxStatusData?.status;
-  const isSandboxReady = sandboxStatus ? isSandboxUsable(sandboxStatus) : false;
-
-  // Use React Query for directory listing - only fetch when sandbox is LIVE
+  // Use React Query for directory listing via OpenCode server
   const {
     data: files = [],
     isLoading: isLoadingFiles,
     error: filesError,
     refetch: refetchFiles,
     failureCount: dirRetryAttempt,
-  } = useDirectoryQuery(sandboxId || '', currentPath, {
-    enabled: !!sandboxId && sandboxId.trim() !== '' && !!currentPath && isSandboxReady,
-    staleTime: 0,
+  } = useFileList(currentPath, {
+    enabled: !!currentPath,
   });
 
   // Utility state
@@ -712,7 +736,7 @@ export function FileBrowserView({
   // Workspace version history state
   const [workspaceVersions, setWorkspaceVersions] = useState<Array<{ commit: string; author_name: string; author_email: string; date: string; message: string }>>([]);
   const [isLoadingVersions, setIsLoadingVersions] = useState(false);
-  const [versionFiles, setVersionFiles] = useState<FileInfo[]>([]);
+  const [versionFiles, setVersionFiles] = useState<FileNode[]>([]);
   const [isLoadingVersionFiles, setIsLoadingVersionFiles] = useState(false);
 
   // Revert modal state
@@ -720,11 +744,6 @@ export function FileBrowserView({
   const [revertCommitInfo, setRevertCommitInfo] = useState<any | null>(null);
   const [revertLoadingInfo, setRevertLoadingInfo] = useState(false);
   const [revertInProgress, setRevertInProgress] = useState(false);
-
-  // Check computer status - use unified status for accurate state
-  const hasSandbox = !!(project?.sandbox?.id || sandboxId);
-  // Use sandbox status for accurate "started" check instead of just URL existence
-  const isComputerStarted = isSandboxReady;
 
   // Function to ensure a path starts with /workspace
   const normalizePath = useCallback((path: unknown): string => {
@@ -790,8 +809,8 @@ export function FileBrowserView({
   }, []);
 
   // Check if a file is a presentation slide (slide_XX.html pattern)
-  const isPresentationSlide = useCallback((file: FileInfo): { isSlide: boolean; presentationName: string | null; slideNumber: number | null } => {
-    if (file.is_dir) return { isSlide: false, presentationName: null, slideNumber: null };
+  const isPresentationSlide = useCallback((file: FileNode): { isSlide: boolean; presentationName: string | null; slideNumber: number | null } => {
+    if (file.type === 'directory') return { isSlide: false, presentationName: null, slideNumber: null };
     
     // Match slide_XX.html pattern
     const slideMatch = file.path.match(/\/presentations\/([^\/]+)\/slide_(\d+)\.html$/i);
@@ -806,14 +825,14 @@ export function FileBrowserView({
   }, []);
 
   // No longer treat folders as presentations - just show them as regular folders
-  const isPresentationFolder = useCallback((_file: FileInfo): boolean => {
+  const isPresentationFolder = useCallback((_file: FileNode): boolean => {
     return false;
   }, []);
 
   // Handle file or folder click
   const handleItemClick = useCallback(
-    (file: FileInfo) => {
-      if (file.is_dir) {
+    (file: FileNode) => {
+      if (file.type === 'directory') {
         // Check if it's a potential presentation folder (direct child of /presentations/)
         // Use structural check here - FileViewerView will validate metadata.json
         if (isDirectChildOfPresentations(file.path)) {
@@ -847,8 +866,8 @@ export function FileBrowserView({
   // Recursive function to discover all files from the current path
   const discoverAllFiles = useCallback(async (
     startPath: string = currentPath
-  ): Promise<{ files: FileInfo[], totalSize: number }> => {
-    const allFiles: FileInfo[] = [];
+  ): Promise<{ files: FileNode[], totalSize: number }> => {
+    const allFiles: FileNode[] = [];
     let totalSize = 0;
     const visited = new Set<string>();
 
@@ -857,14 +876,15 @@ export function FileBrowserView({
       visited.add(dirPath);
 
       try {
-        const files = await listSandboxFiles(sandboxId, dirPath);
+        const dirFiles = await listFiles(dirPath);
 
-        for (const file of files) {
-          if (file.is_dir) {
+        for (const file of dirFiles) {
+          if (file.type === 'directory') {
             await exploreDirectory(file.path);
           } else {
             allFiles.push(file);
-            totalSize += file.size || 0;
+            // FileNode doesn't have size, set 0
+            totalSize += 0;
           }
         }
       } catch (error) {
@@ -875,7 +895,7 @@ export function FileBrowserView({
     await exploreDirectory(startPath);
 
     return { files: allFiles, totalSize };
-  }, [sandboxId, currentPath]);
+  }, [currentPath]);
 
   // Function to download all files as a zip from current directory
   const handleDownloadFolder = useCallback(async () => {
@@ -916,64 +936,36 @@ export function FileBrowserView({
         });
 
         try {
-          const contentType = FileCache.getContentTypeFromPath(file.path);
-          const cacheKey = `${sandboxId}:${file.path}:${contentType}`;
-          let content = FileCache.get(cacheKey);
+          const contentType = getContentTypeFromPath(file.path);
 
-          if (!content) {
-            if (!sandboxId || sandboxId.trim() === '') {
-              continue;
+          if (!sandboxId || sandboxId.trim() === '') {
+            continue;
+          }
+          const response = await fetch(
+            `${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/files/content?path=${encodeURIComponent(file.path)}`,
+            {
+              headers: { 'Authorization': `Bearer ${session.access_token}` }
             }
-            const response = await fetch(
-              `${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/files/content?path=${encodeURIComponent(file.path)}`,
-              {
-                headers: { 'Authorization': `Bearer ${session.access_token}` }
-              }
-            );
+          );
 
-            if (!response.ok) {
-              continue;
-            }
+          if (!response.ok) {
+            continue;
+          }
 
-            if (contentType === 'blob') {
-              content = await response.blob();
-            } else if (contentType === 'json') {
-              content = JSON.stringify(await response.json(), null, 2);
-            } else {
-              content = await response.text();
-            }
-
-            FileCache.set(cacheKey, content);
+          let content: Blob | string;
+          if (contentType === 'blob') {
+            content = await response.blob();
+          } else if (contentType === 'json') {
+            content = JSON.stringify(await response.json(), null, 2);
+          } else {
+            content = await response.text();
           }
 
           if (content instanceof Blob) {
             zip.file(relativePath, content);
           } else if (typeof content === 'string') {
-            if (content.startsWith('blob:')) {
-              try {
-                const blobResponse = await fetch(content);
-                const blobContent = await blobResponse.blob();
-                zip.file(relativePath, blobContent);
-              } catch (blobError) {
-                if (!sandboxId || sandboxId.trim() === '') {
-                  continue;
-                }
-                const fallbackResponse = await fetch(
-                  `${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/files/content?path=${encodeURIComponent(file.path)}`,
-                  { headers: { 'Authorization': `Bearer ${session.access_token}` } }
-                );
-                if (fallbackResponse.ok) {
-                  const fallbackBlob = await fallbackResponse.blob();
-                  zip.file(relativePath, fallbackBlob);
-                }
-              }
-            } else {
-              zip.file(relativePath, content);
-            }
-          } else {
-            zip.file(relativePath, JSON.stringify(content, null, 2));
+            zip.file(relativePath, content);
           }
-
         } catch (fileError) {
           // Continue with other files
         }
@@ -1067,7 +1059,7 @@ export function FileBrowserView({
     }
   }, []);
 
-  // Process uploaded file
+  // Process uploaded file — uses OpenCode /file/upload endpoint
   const processUpload = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       if (!event.target.files || event.target.files.length === 0) return;
@@ -1077,54 +1069,18 @@ export function FileBrowserView({
 
       try {
         const normalizedName = normalizeFilenameToNFC(file.name);
-        const uploadPath = `/workspace/uploads/${normalizedName}`;
+        const targetPath = '/workspace/uploads';
 
-        const formData = new FormData();
-        formData.append('file', file, normalizedName);
-        formData.append('path', uploadPath);
+        // Rename the file with normalized name if needed
+        const uploadBlob = new window.File([file], normalizedName, { type: file.type });
 
-        const supabase = createClient();
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-
-        if (!session?.access_token) {
-          throw new Error('No access token available');
-        }
-
-        if (!sandboxId || sandboxId.trim() === '') {
-          toast.error('Computer is not started yet. Please wait for it to be ready.');
-          setIsUploading(false);
-          return;
-        }
-
-        const response = await fetch(
-          `${API_URL}/sandboxes/${sandboxId}/files`,
-          {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${session.access_token}`,
-            },
-            body: formData,
-          },
-        );
-
-        if (!response.ok) {
-          const error = await response.text();
-          throw new Error(error || 'Upload failed');
-        }
-
-        const responseData = await response.json();
-        const finalFilename = responseData.final_filename || normalizedName;
-        const wasRenamed = responseData.renamed || false;
+        const results = await uploadFile(uploadBlob, targetPath);
+        const finalFilename = results?.[0]?.path
+          ? results[0].path.split('/').pop() || normalizedName
+          : normalizedName;
 
         await refetchFiles();
-
-        if (wasRenamed) {
-          toast.success(`Uploaded as: ${finalFilename} (renamed to avoid conflict)`);
-        } else {
-          toast.success(`Uploaded: ${finalFilename}`);
-        }
+        toast.success(`Uploaded: ${finalFilename}`);
       } catch (error) {
         toast.error(
           `Upload failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -1134,20 +1090,20 @@ export function FileBrowserView({
         if (event.target) event.target.value = '';
       }
     },
-    [sandboxId, refetchFiles],
+    [refetchFiles],
   );
 
   // Get file icon - supports 'default', 'large', 'header', 'small', and 'medium' variants
   // 'header' variant returns a gray, small icon (for card headers in library view)
   // 'small' variant returns tiny icons for compact cards (h-3 w-3)
   // 'medium' variant returns medium-small icons for compact cards (h-5 w-5)
-  const getFileIcon = useCallback((file: FileInfo, variant: 'default' | 'large' | 'header' | 'small' | 'medium' = 'default') => {
+  const getFileIcon = useCallback((file: FileNode, variant: 'default' | 'large' | 'header' | 'small' | 'medium' = 'default') => {
     // Small and medium variants: tiny gray icons for compact cards
     if (variant === 'small' || variant === 'medium') {
       const iconClass = variant === 'small' ? "h-3 w-3 text-muted-foreground" : "h-5 w-5 text-muted-foreground";
       const extension = file.name.split('.').pop()?.toLowerCase() || '';
       
-      if (file.is_dir) {
+      if (file.type === 'directory') {
         if (isPresentationFolder(file)) {
           return <Presentation className={iconClass} />;
         }
@@ -1157,7 +1113,7 @@ export function FileBrowserView({
       if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'ico', 'bmp', 'tiff'].includes(extension)) {
         return <Image className={iconClass} />;
       }
-      if (['mp4', 'webm', 'mov', 'avi', 'mkv', 'flv', 'wmv'].includes(extension)) {
+      if (['mp4', 'webm', 'mov', 'avi', 'mkv', 'm4v'].includes(extension)) {
         return <Film className={iconClass} />;
       }
       if (['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'wma'].includes(extension)) {
@@ -1185,7 +1141,7 @@ export function FileBrowserView({
       const iconClass = "h-4 w-4 text-muted-foreground";
       const extension = file.name.split('.').pop()?.toLowerCase() || '';
       
-      if (file.is_dir) {
+      if (file.type === 'directory') {
         if (isPresentationFolder(file)) {
           return <Presentation className={iconClass} />;
         }
@@ -1223,7 +1179,7 @@ export function FileBrowserView({
     const sizeClass = large ? "h-12 w-12" : "h-8 w-8";
     const largeSizeClass = large ? "h-14 w-14" : "h-9 w-9";
     
-    if (file.is_dir) {
+    if (file.type === 'directory') {
       if (isPresentationFolder(file)) {
         return <Presentation className={`${largeSizeClass} text-zinc-500 dark:text-zinc-400`} />;
       }
@@ -1808,13 +1764,9 @@ export function FileBrowserView({
                   <Folder className="h-6 w-6 text-muted-foreground" />
                 </div>
                 <div className="space-y-1.5">
-                  <h3 className="text-lg font-semibold">
-                    {!hasSandbox ? 'Nothing here yet' : !isComputerStarted ? 'Waking up...' : 'No files yet'}
-                  </h3>
+                  <h3 className="text-lg font-semibold">No files yet</h3>
                   <p className="text-sm text-muted-foreground">
-                    {!hasSandbox ? 'Your files will appear here once you start a conversation.' : 
-                     !isComputerStarted ? 'Just a moment while things get ready.' :
-                     'Start a conversation to create files.'}
+                    Start a conversation to create files.
                   </p>
                 </div>
                 {onNavigateToThread && (
@@ -1865,9 +1817,9 @@ export function FileBrowserView({
                               <DropdownMenuContent align="end">
                                 <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleItemClick(file); }}>
                                   <Eye className="mr-2 h-4 w-4" />
-                                  {file.is_dir ? 'Open folder' : 'Open file'}
+                                  {file.type === 'directory' ? 'Open folder' : 'Open file'}
                                 </DropdownMenuItem>
-                                {!file.is_dir && (
+                                {file.type !== 'directory' && (
                                   <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDownloadFile(file.path); }}>
                                     <Download className="mr-2 h-4 w-4" />
                                     Download
@@ -1998,28 +1950,7 @@ export function FileBrowserView({
 
       {/* File Explorer */}
       <div className="flex-1 overflow-hidden max-w-full min-w-0">
-        {/* Show sandbox status when not ready */}
-        {hasSandbox && !isSandboxReady && sandboxStatus ? (
-          <div className="h-full w-full flex flex-col items-center justify-center p-8 bg-zinc-50 dark:bg-zinc-900/50">
-            <div className="flex flex-col items-center space-y-4 max-w-sm text-center">
-              <KortixLoader size="medium" />
-              <div className="space-y-2">
-                <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-                  {sandboxStatus === 'STARTING' && (isAutoStarting ? 'Waking up computer...' : 'Computer starting...')}
-                  {sandboxStatus === 'OFFLINE' && 'Computer offline'}
-                  {sandboxStatus === 'FAILED' && 'Computer unavailable'}
-                  {sandboxStatus === 'UNKNOWN' && 'Initializing...'}
-                </h3>
-                <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                  {sandboxStatus === 'STARTING' && 'Files will appear once the computer is ready.'}
-                  {sandboxStatus === 'OFFLINE' && 'The computer is currently stopped. Attempting to start...'}
-                  {sandboxStatus === 'FAILED' && 'There was an issue starting the computer.'}
-                  {sandboxStatus === 'UNKNOWN' && 'Setting up your workspace...'}
-                </p>
-              </div>
-            </div>
-          </div>
-        ) : (isLoadingFiles || isLoadingVersionFiles) ? (
+        {(isLoadingFiles || isLoadingVersionFiles) ? (
           <div className="h-full w-full max-w-full flex flex-col items-center justify-center gap-2 min-w-0">
             <KortixLoader size="medium" />
             <p className="text-xs text-muted-foreground">
@@ -2038,29 +1969,14 @@ export function FileBrowserView({
                 <Folder className="h-8 w-8 text-zinc-400 dark:text-zinc-500" />
               </div>
               <div className="space-y-2">
-                {!hasSandbox ? (
-                  <>
-                    <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-                      {isInlineLibrary ? 'Nothing here yet' : 'Files not available'}
-                    </h3>
-                    <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                      {isInlineLibrary
-                        ? 'Your files will appear here once you start a conversation.'
-                        : 'A computer will be created when you start working on this task. Files will appear here once ready.'}
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-                      {isInlineLibrary ? 'No files yet' : 'Directory is empty'}
-                    </h3>
-                    <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                      {isInlineLibrary
-                        ? 'Start a conversation to create files.'
-                        : 'This folder doesn\'t contain any files yet.'}
-                    </p>
-                  </>
-                )}
+                <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                  {isInlineLibrary ? 'No files yet' : 'Directory is empty'}
+                </h3>
+                <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                  {isInlineLibrary
+                    ? 'Start a conversation to create files.'
+                    : 'This folder doesn\'t contain any files yet.'}
+                </p>
               </div>
             </div>
           </div>
@@ -2069,118 +1985,92 @@ export function FileBrowserView({
           <ScrollArea className="h-full w-full max-w-full min-w-0">
             <div className="p-4 max-w-full min-w-0">
               {/* Main outputs - large cards */}
-              {mainPanelFiles.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-full min-w-0">
-                  {mainPanelFiles.map((file) => {
-                    const isPresentation = isPresentationFolder(file);
-                    const slideInfo = isPresentationSlide(file);
-                    return (
-                      <div
-                        key={file.path}
-                        className="bg-card rounded-2xl border border-border overflow-hidden cursor-pointer group hover:border-border/80 transition-colors"
-                        onClick={() => handleItemClick(file)}
-                      >
-                        {/* Header with icon, title and action buttons */}
-                        <div className="flex items-center gap-2.5 p-3 border-b border-border/50">
-                          <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-card border border-border flex-shrink-0">
-                            {getFileIcon(file, 'header')}
-                          </div>
-                          <span className="flex-1 font-medium truncate text-sm">{file.name}</span>
-                          {(isPresentation || slideInfo.isSlide) && (
-                            <Badge 
-                              variant="secondary" 
-                              className="text-[10px] px-1.5 py-0 bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
-                            >
-                              {slideInfo.isSlide ? `Slide ${slideInfo.slideNumber}` : 'Slides'}
-                            </Badge>
-                          )}
-                          
-                          {/* Action buttons - visible on hover */}
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            {/* Open button */}
-                            <button
-                              className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                              onClick={(e) => { e.stopPropagation(); handleItemClick(file); }}
-                              title={file.is_dir ? 'Open folder' : 'Open file'}
-                            >
-                              <Eye className="h-3.5 w-3.5" />
-                            </button>
-                            
-                            {/* Download button (for files only) */}
-                            {!file.is_dir && (
-                              <button
-                                className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                                onClick={(e) => { e.stopPropagation(); handleDownloadFile(file.path); }}
-                                title="Download"
-                              >
-                                <Download className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                            
-                            {/* More options dropdown */}
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <button 
-                                  className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <MoreHorizontal className="h-3.5 w-3.5" />
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleItemClick(file); }}>
-                                  <Eye className="mr-2 h-4 w-4" />
-                                  {file.is_dir ? 'Open folder' : 'Open file'}
-                                </DropdownMenuItem>
-                                {!file.is_dir && (
-                                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDownloadFile(file.path); }}>
-                                    <Download className="mr-2 h-4 w-4" />
-                                    Download
-                                  </DropdownMenuItem>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                        </div>
-                        
-                        {/* Thumbnail preview */}
-                        <div className="w-full aspect-[16/10] relative overflow-hidden">
-                          <ThumbnailPreview
-                            file={file}
-                            sandboxId={sandboxId}
-                            project={project}
-                            isPresentationFolder={isPresentation}
-                            slideInfo={slideInfo}
-                            fallbackIcon={getFileIcon(file, 'large')}
-                          />
-                        </div>
+              {mainPanelFiles.map((file) => {
+                const isPresentation = isPresentationFolder(file);
+                const slideInfo = isPresentationSlide(file);
+                return (
+                  <div
+                    key={file.path}
+                    className="bg-card rounded-2xl border border-border overflow-hidden cursor-pointer group hover:border-border/80 transition-colors"
+                    onClick={() => handleItemClick(file)}
+                  >
+                    {/* Header with icon, title and action buttons */}
+                    <div className="flex items-center gap-2.5 p-3 border-b border-border/50">
+                      <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-card border border-border flex-shrink-0">
+                        {getFileIcon(file, 'header')}
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Folders & Files */}
-              {otherPanelFiles.length > 0 && (
-                <div className={cn("mt-6", mainPanelFiles.length === 0 && "mt-0")}>
-                  <div className="grid grid-cols-2 gap-0.5">
-                    {otherPanelFiles.map((file) => (
-                      <button
-                        key={file.path}
-                        className="flex items-center gap-3 p-2.5 rounded-2xl hover:bg-muted/50 transition-colors text-left group min-w-0"
-                        onClick={() => handleItemClick(file)}
-                      >
-                        <div className="flex items-center justify-center w-10 h-10 rounded-2xl bg-card border-[1.5px] border-border flex-shrink-0">
-                          {getFileIcon(file, 'header')}
-                        </div>
-                        <span className="flex-1 text-sm text-muted-foreground group-hover:text-foreground truncate min-w-0">
-                          {file.name}
-                        </span>
-                      </button>
-                    ))}
+                      <span className="flex-1 font-medium truncate text-sm">{file.name}</span>
+                      {(isPresentation || slideInfo.isSlide) && (
+                        <Badge 
+                          variant="secondary" 
+                          className="text-[10px] px-1.5 py-0 bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
+                        >
+                          {slideInfo.isSlide ? `Slide ${slideInfo.slideNumber}` : 'Slides'}
+                        </Badge>
+                      )}
+                      
+                      {/* Action buttons - visible on hover */}
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {/* Open button */}
+                        <button
+                          className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                          onClick={(e) => { e.stopPropagation(); handleItemClick(file); }}
+                          title={file.type === 'directory' ? 'Open folder' : 'Open file'}
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                        </button>
+                        
+                        {/* Download button (for files only) */}
+                        {file.type !== 'directory' && (
+                          <button
+                            className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                            onClick={(e) => { e.stopPropagation(); handleDownloadFile(file.path); }}
+                            title="Download"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        
+                        {/* More options dropdown */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button 
+                              className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <MoreHorizontal className="h-3.5 w-3.5" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleItemClick(file); }}>
+                              <Eye className="mr-2 h-4 w-4" />
+                              {file.type === 'directory' ? 'Open folder' : 'Open file'}
+                            </DropdownMenuItem>
+                            {file.type !== 'directory' && (
+                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDownloadFile(file.path); }}>
+                                <Download className="mr-2 h-4 w-4" />
+                                Download
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </div>
+                    
+                    {/* Thumbnail preview */}
+                    <div className="w-full aspect-[16/10] relative overflow-hidden">
+                      <ThumbnailPreview
+                        file={file}
+                        sandboxId={sandboxId}
+                        project={project}
+                        isPresentationFolder={isPresentation}
+                        slideInfo={slideInfo}
+                        fallbackIcon={getFileIcon(file, 'large')}
+                      />
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })}
             </div>
           </ScrollArea>
         ) : (
@@ -2198,7 +2088,7 @@ export function FileBrowserView({
                   {/* Presentation badge */}
                   {isPresentationFolder(file) && (
                     <Badge 
-                      variant="secondary" 
+                      variant="outline" 
                       className="absolute top-1 right-1 text-[10px] px-1.5 py-0 bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
                     >
                       Presentation
@@ -2257,7 +2147,7 @@ export function FileBrowserView({
                 {revertCommitInfo.date && new Date(revertCommitInfo.date).toLocaleDateString('en-US', {
                   month: 'short',
                   day: 'numeric',
-                  year: 'numeric'
+                  year: new Date(revertCommitInfo.date).getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
                 })}
               </div>
 

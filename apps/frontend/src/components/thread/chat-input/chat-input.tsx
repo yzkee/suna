@@ -15,6 +15,7 @@ import { useAgentSelection } from '@/stores/agent-selection-store';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { handleFiles, FileUploadHandler } from './file-upload-handler';
+import { deleteFile } from '@/features/files';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -26,7 +27,7 @@ import { useTranslations } from 'next-intl';
 import { AttachmentGroup } from '../file-attachment';
 import { cn } from '@/lib/utils';
 import { useModelSelection } from '@/hooks/agents';
-import { useFileDelete } from '@/hooks/files';
+
 import { useQueryClient } from '@tanstack/react-query';
 import { ToolCallInput } from './floating-tool-preview';
 import { ChatSnack } from './chat-snack';
@@ -887,7 +888,6 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
     } = useModelSelection();
 
     const { data: accountState, isLoading: isAccountStateLoading } = useAccountState({ enabled: isLoggedIn });
-    const deleteFileMutation = useFileDelete();
     const queryClient = useQueryClient();
     
     const subscriptionData = accountState?.subscription ? (() => {
@@ -1287,20 +1287,13 @@ export const ChatInput = memo(forwardRef<ChatInputHandles, ChatInputProps>(
         return content.includes(`[Uploaded File: ${fileToRemove.path}]`);
       });
 
-      // Only delete from server if file is not referenced in chat history
-      if (sandboxId && fileToRemove.path && !isFileUsedInChat) {
-        deleteFileMutation.mutate({
-          sandboxId,
-          filePath: fileToRemove.path,
-        }, {
-          onError: (error) => {
-            console.error('Failed to delete file from server:', error);
-          }
+      // Delete from server if file is not referenced in chat history
+      if (fileToRemove.path && !isFileUsedInChat) {
+        deleteFile(fileToRemove.path).catch((err) => {
+          console.warn('[files] Failed to delete from server:', err.message);
         });
-      } else {
-        // File exists in chat history, don't delete from server
       }
-    }, [uploadedFiles, sandboxId, pendingFiles, messages, deleteFileMutation]);
+    }, [uploadedFiles, sandboxId, pendingFiles, messages]);
 
     const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault();

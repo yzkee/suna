@@ -27,8 +27,8 @@ import { Project } from '@/lib/api/threads';
 import { toast } from '@/lib/toast';
 import { useAuth } from '@/components/AuthProvider';
 import {
-  useFileContentQuery,
-  FileCache
+  useFileContent,
+  uploadFile,
 } from '@/hooks/files';
 import { useDownloadRestriction } from '@/hooks/billing';
 import { cn } from '@/lib/utils';
@@ -61,10 +61,8 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { useQueryClient } from '@tanstack/react-query';
-import { fileQueryKeys } from '@/hooks/files/use-file-queries';
 import { VersionBanner } from './VersionBanner';
 import { FileDownloadButton } from '../tool-views/shared/FileDownloadButton';
-import { useSandboxStatusWithAutoStart, isSandboxUsable } from '@/hooks/files/use-sandbox-details';
 
 
 
@@ -148,11 +146,6 @@ export function FileViewerView({
 }: FileViewerViewProps) {
   const { session } = useAuth();
 
-  // Get unified sandbox status with auto-start
-  const { data: sandboxStatusData, isAutoStarting } = useSandboxStatusWithAutoStart(projectId);
-  const sandboxStatus = sandboxStatusData?.status;
-  const isSandboxReady = sandboxStatus ? isSandboxUsable(sandboxStatus) : false;
-
   // Kortix Computer Store
   const {
     filePathList,
@@ -228,18 +221,17 @@ export function FileViewerView({
   const [revertMode, setRevertMode] = useState<'commit' | 'single'>('single');
   const [revertSelectedPaths, setRevertSelectedPaths] = useState<string[]>([]);
 
-  // Use the React Query hook for the selected file - only fetch when sandbox is ready
+  // Use the React Query hook for the selected file
   const {
     data: cachedFileContent,
     isLoading: isCachedFileLoading,
     error: cachedFileError,
     failureCount: fileRetryAttempt,
     refetch: refetchFile,
-  } = useFileContentQuery(
-    sandboxId,
+  } = useFileContent(
     filePath,
     {
-      enabled: !!filePath && !!sandboxId && !selectedVersion && isSandboxReady, // Disable when viewing a specific version or sandbox not ready
+      enabled: !!filePath && !selectedVersion,
       staleTime: 5 * 60 * 1000,
     }
   );
@@ -406,24 +398,16 @@ export function FileViewerView({
     setIsLoadingVersionContent(true);
     setContentError(null);
     try {
-      // Normalize path for cache operations and clear legacy cache for this file
-      const normalizedPath = normalizeWorkspacePath(filePath);
-      ['text', 'blob', 'json'].forEach(contentType => {
-        const cacheKey = `${sandboxId}:${normalizedPath}:${contentType}`;
-        FileCache.delete(cacheKey);
-        console.log('[FileViewerView] Deleted cache key:', cacheKey);
-      });
-
       const blob = await fetchFileByHash(sandboxId, filePath, commit, session?.access_token);
 
       console.log('[FileViewerView] Fetched blob:', { size: blob.size, type: blob.type });
 
       // Convert blob to text or keep as blob depending on file type
-      const isImageFile = FileCache.isImageFile(filePath);
-      const isPdfFile = FileCache.isPdfFile(filePath);
+      const isImage = _isImageFile(filePath);
+      const isPdf = _isPdfFile(filePath);
       const extension = filePath.split('.').pop()?.toLowerCase();
       const isOfficeFile = ['xlsx', 'xls', 'docx', 'pptx', 'ppt'].includes(extension || '');
-      const isBinaryFile = isImageFile || isPdfFile || isOfficeFile;
+      const isBinaryFile = isImage || isPdf || isOfficeFile;
 
       setRawContent(blob);
 
@@ -436,10 +420,9 @@ export function FileViewerView({
         const text = await blob.text();
         setTextContentForRenderer(text);
         setBlobUrlForRenderer(null);
-        console.log('[FileViewerView] Set text content, length:', text.length, 'preview:', text.substring(0, 100));
+        console.log('[FileViewerView] Set text content, length:', text.length);
       }
 
-      const versionDate = fileVersions.find(v => v.commit === commit)?.date;
       if (versionDate) {
         toast.success(`Loaded version from ${new Date(versionDate).toLocaleDateString()}`);
       }
@@ -528,24 +511,6 @@ export function FileViewerView({
       // Clear any unsaved content
       clearUnsavedContent(filePath);
 
-      // Always clear caches and refetch after restore
-      const normalizedPath = normalizeWorkspacePath(filePath);
-
-      console.log('[FileViewerView] Clearing caches for path:', normalizedPath);
-
-      // Clear legacy FileCache
-      ['text', 'blob', 'json'].forEach(contentType => {
-        const cacheKey = `${sandboxId}:${normalizedPath}:${contentType}`;
-        FileCache.delete(cacheKey);
-      });
-
-      // Invalidate React Query cache
-      ['text', 'blob', 'json'].forEach(contentType => {
-        queryClient.invalidateQueries({
-          queryKey: fileQueryKeys.content(sandboxId, normalizedPath, contentType),
-        });
-      });
-
       // Refetch the file to get the reverted content
       console.log('[FileViewerView] Refetching file after restore');
       await refetchFile();
@@ -557,7 +522,7 @@ export function FileViewerView({
     } finally {
       setRevertInProgress(false);
     }
-  }, [revertCommitInfo, revertMode, revertCurrentRelativePath, sandboxId, filePath, session?.access_token, refetchFile, queryClient, clearUnsavedContent, clearGlobalSelectedVersion]);
+  }, [revertCommitInfo, revertMode, revertCurrentRelativePath, sandboxId, filePath, session?.access_token, refetchFile, clearUnsavedContent, clearGlobalSelectedVersion]);
 
   // Track the last loaded version+path combo to prevent re-loading
   const lastLoadedRef = useRef<{ version: string | null, path: string | null }>({ version: null, path: null });
@@ -583,22 +548,14 @@ export function FileViewerView({
     }
   }, [selectedVersion, filePath, sandboxId, loadFileByVersion]);
 
-  // Effect to handle cached file content updates
+  // Effect to handle cached file content updates (from useFileContent — returns FileContent object)
   useEffect(() => {
     if (!filePath) return;
 
     // Skip this effect if we're viewing a specific version (handled by loadFileByVersion)
     if (selectedVersion) {
-      console.log('[FileViewerView] Skipping effect - viewing version:', selectedVersion);
       return;
     }
-
-    console.log('[FileViewerView] Effect running for current version:', {
-      filePath,
-      isCachedFileLoading,
-      hasContent: cachedFileContent !== null,
-      contentType: typeof cachedFileContent
-    });
 
     // Handle errors
     if (cachedFileError && !isCachedFileLoading && fileRetryAttempt >= 15) {
@@ -611,8 +568,6 @@ export function FileViewerView({
     // Check for unsaved content first - if it exists, use it instead of cached content
     const unsavedContent = getUnsavedContent(filePath);
     if (unsavedContent !== undefined && canEdit) {
-      console.log('[FileViewerView] Using unsaved content');
-      // Use unsaved content if available
       setTextContentForRenderer(unsavedContent);
       setRawContent(unsavedContent);
       setBlobUrlForRenderer(null);
@@ -620,45 +575,33 @@ export function FileViewerView({
     }
 
     // Handle successful content from cache/server
-    if (cachedFileContent !== null && !isCachedFileLoading) {
-      console.log('[FileViewerView] Setting content from cache/server:', {
-        contentType: typeof cachedFileContent,
-        isString: typeof cachedFileContent === 'string',
-        isBlob: cachedFileContent instanceof Blob,
-        preview: typeof cachedFileContent === 'string' ? cachedFileContent.substring(0, 100) : 'N/A'
-      });
-      const isImageFile = FileCache.isImageFile(filePath);
-      const isPdfFile = FileCache.isPdfFile(filePath);
+    // cachedFileContent is now a FileContent object: { type, content, encoding?, mimeType? }
+    if (cachedFileContent && !isCachedFileLoading) {
+      const isImage = _isImageFile(filePath);
+      const isPdf = _isPdfFile(filePath);
       const extension = filePath.split('.').pop()?.toLowerCase();
       const isOfficeFile = ['xlsx', 'xls', 'docx', 'pptx', 'ppt'].includes(extension || '');
-      const isBinaryFile = isImageFile || isPdfFile || isOfficeFile;
+      const isBinaryFile = isImage || isPdf || isOfficeFile;
 
-      setRawContent(cachedFileContent);
-
-      if (typeof cachedFileContent === 'string') {
-        if (cachedFileContent.startsWith('blob:')) {
+      if (cachedFileContent.encoding === 'base64' || isBinaryFile) {
+        // Binary content: convert base64 to blob URL
+        try {
+          const binary = atob(cachedFileContent.content);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          const blob = new Blob([bytes], { type: cachedFileContent.mimeType || _getMimeTypeFromPath(filePath) });
+          const url = URL.createObjectURL(blob);
+          setBlobUrlForRenderer(url);
           setTextContentForRenderer(null);
-          setBlobUrlForRenderer(cachedFileContent);
-        } else if (isBinaryFile) {
-          setTextContentForRenderer(null);
-          setBlobUrlForRenderer(null);
-          setContentError('Binary file received in incorrect format. Please try refreshing.');
-        } else {
-          setTextContentForRenderer(cachedFileContent);
-          setBlobUrlForRenderer(null);
+          setRawContent(blob);
+        } catch {
+          setContentError('Failed to decode binary content.');
         }
-      } else if (cachedFileContent instanceof Blob) {
-        const url = URL.createObjectURL(cachedFileContent);
-        setBlobUrlForRenderer(url);
-        setTextContentForRenderer(null);
-      } else if (typeof cachedFileContent === 'object') {
-        const jsonString = JSON.stringify(cachedFileContent, null, 2);
-        setTextContentForRenderer(jsonString);
-        setBlobUrlForRenderer(null);
       } else {
-        setTextContentForRenderer(null);
+        // Text content
+        setTextContentForRenderer(cachedFileContent.content);
         setBlobUrlForRenderer(null);
-        setContentError('Unknown content type received.');
+        setRawContent(cachedFileContent.content);
       }
     }
   }, [filePath, cachedFileContent, isCachedFileLoading, cachedFileError, fileRetryAttempt, getUnsavedContent, canEdit, selectedVersion]);
@@ -697,50 +640,22 @@ export function FileViewerView({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [hasMultipleFiles, navigatePrevious, navigateNext]);
 
-  // Handle file save
+  // Handle file save — uploads content via OpenCode /file/upload
   const handleSaveFile = useCallback(async (newContent: string) => {
-    if (!filePath || !sandboxId) {
-      throw new Error('Missing file path or sandbox ID');
+    if (!filePath) {
+      throw new Error('Missing file path');
     }
 
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/files`,
-        {
-          method: 'PUT',
-          headers: {
-            'Authorization': `Bearer ${session?.access_token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            path: filePath,
-            content: newContent,
-          }),
-        }
-      );
+      const fileName = filePath.split('/').pop() || 'file.txt';
+      const parentDir = filePath.substring(0, filePath.lastIndexOf('/'));
+      const blob = new Blob([newContent], { type: 'text/plain' });
+      const file = new window.File([blob], fileName, { type: 'text/plain' });
 
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(error || 'Failed to save file');
-      }
-
-      // Normalize path for cache operations
-      const normalizedPath = normalizeWorkspacePath(filePath);
+      await uploadFile(file, parentDir);
 
       // Clear unsaved content from store
       clearUnsavedContent(filePath);
-
-      // Invalidate React Query cache for all content types
-      ['text', 'blob', 'json'].forEach(contentType => {
-        queryClient.invalidateQueries({
-          queryKey: fileQueryKeys.content(sandboxId, normalizedPath, contentType),
-        });
-      });
-
-      // Also invalidate legacy FileCache
-      const contentType = FileCache.getContentTypeFromPath(normalizedPath);
-      const cacheKey = `${sandboxId}:${normalizedPath}:${contentType}`;
-      FileCache.delete(cacheKey);
 
       // Refetch file to ensure fresh data
       await refetchFile();
@@ -755,7 +670,7 @@ export function FileViewerView({
       toast.error(`Failed to save: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw error;
     }
-  }, [filePath, sandboxId, session?.access_token, clearUnsavedContent, queryClient, refetchFile]);
+  }, [filePath, clearUnsavedContent, refetchFile]);
 
   // Handle file download
   const handleDownload = async () => {
@@ -768,27 +683,13 @@ export function FileViewerView({
     try {
       setIsDownloading(true);
 
-      const mimeType = FileCache.getMimeTypeFromPath?.(filePath) || 'application/octet-stream';
+      const mimeType = _getMimeTypeFromPath(filePath);
 
       if (rawContent) {
         let blob: Blob;
 
         if (typeof rawContent === 'string') {
-          if (rawContent.startsWith('blob:')) {
-            if (!sandboxId || sandboxId.trim() === '') {
-              toast.error('Computer is not started yet.');
-              return;
-            }
-            const response = await fetch(
-              `${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/files/content?path=${encodeURIComponent(filePath)}`,
-              { headers: { 'Authorization': `Bearer ${session?.access_token}` } }
-            );
-
-            if (!response.ok) throw new Error(`Server error: ${response.status}`);
-            blob = await response.blob();
-          } else {
-            blob = new Blob([rawContent], { type: mimeType });
-          }
+          blob = new Blob([rawContent], { type: mimeType });
         } else if (rawContent instanceof Blob) {
           blob = rawContent;
         } else {
@@ -1139,13 +1040,6 @@ export function FileViewerView({
                           setIsLoadingVersionContent(true);
                           clearUnsavedContent(filePath);
 
-                          const normalizedPath = normalizeWorkspacePath(filePath);
-
-                          ['text', 'blob', 'json'].forEach(contentType => {
-                            const cacheKey = `${sandboxId}:${normalizedPath}:${contentType}`;
-                            FileCache.delete(cacheKey);
-                          });
-
                           refetchFile().finally(() => setIsLoadingVersionContent(false));
                         } else {
                           loadFileByVersion(version.commit);
@@ -1246,13 +1140,6 @@ export function FileViewerView({
             setIsLoadingVersionContent(true);
             clearUnsavedContent(filePath);
 
-            const normalizedPath = normalizeWorkspacePath(filePath);
-
-            ['text', 'blob', 'json'].forEach(contentType => {
-              const cacheKey = `${sandboxId}:${normalizedPath}:${contentType}`;
-              FileCache.delete(cacheKey);
-            });
-
             refetchFile().finally(() => setIsLoadingVersionContent(false));
           }}
         />
@@ -1264,27 +1151,6 @@ export function FileViewerView({
           // Check if we're still retrying - show loading state instead of error
           const isStillRetrying = fileRetryAttempt < 15;
           const hasError = !!(contentError || cachedFileError);
-
-          // Show sandbox status when not ready
-          if (!isSandboxReady && sandboxStatus) {
-            return (
-              <div className="h-full w-full max-w-full flex flex-col items-center justify-center min-w-0">
-                <KortixLoader size="medium" className="mb-3" />
-                <p className="text-sm text-muted-foreground">
-                  {sandboxStatus === 'STARTING' && (isAutoStarting ? 'Waking up computer...' : 'Computer starting...')}
-                  {sandboxStatus === 'OFFLINE' && 'Computer offline'}
-                  {sandboxStatus === 'FAILED' && 'Computer unavailable'}
-                  {sandboxStatus === 'UNKNOWN' && 'Initializing...'}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {sandboxStatus === 'STARTING' && 'File will load once the computer is ready.'}
-                  {sandboxStatus === 'OFFLINE' && 'Attempting to start the computer...'}
-                  {sandboxStatus === 'FAILED' && 'There was an issue starting the computer.'}
-                  {sandboxStatus === 'UNKNOWN' && 'Setting up your workspace...'}
-                </p>
-              </div>
-            );
-          }
 
           return (isCachedFileLoading || isLoadingVersionContent || (hasError && isStillRetrying)) ? (
           <div className="h-full w-full max-w-full flex flex-col items-center justify-center min-w-0">
@@ -1312,11 +1178,6 @@ export function FileViewerView({
                 <Button
                   onClick={() => {
                     setContentError(null);
-                    // Trigger refetch by clearing cache
-                    const normalizedPath = normalizeWorkspacePath(filePath);
-                    const contentType = FileCache.getContentTypeFromPath(normalizedPath);
-                    const cacheKey = `${sandboxId}:${normalizedPath}:${contentType}`;
-                    FileCache.delete(cacheKey);
                     refetchFile();
                   }}
                 >
@@ -1331,25 +1192,25 @@ export function FileViewerView({
           ) : (
           <div className="h-full w-full max-w-full overflow-hidden min-w-0" style={{ contain: 'strict' }}>
             {(() => {
-              const isImageFile = FileCache.isImageFile(filePath);
-              const isPdfFile = FileCache.isPdfFile(filePath);
+              const isImage = _isImageFile(filePath);
+              const isPdf = _isPdfFile(filePath);
               const extension = filePath.split('.').pop()?.toLowerCase();
               const isOfficeFile = ['xlsx', 'xls', 'docx', 'pptx', 'ppt'].includes(extension || '');
-              const isBinaryFile = isImageFile || isPdfFile || isOfficeFile;
+              const isBinaryFile = isImage || isPdf || isOfficeFile;
 
               if (isBinaryFile && !blobUrlForRenderer) {
                 return (
                   <div className="h-full w-full flex items-center justify-center">
                     <div className="text-sm text-muted-foreground">
-                      Loading {isPdfFile ? 'PDF' : isImageFile ? 'image' : 'file'}...
+                      Loading {isPdf ? 'PDF' : isImage ? 'image' : 'file'}...
                     </div>
                   </div>
                 );
               }
 
-              // Get original content - must be a plain text string (not blob URL, not Blob object)
-              const originalTextContent = typeof cachedFileContent === 'string' && !cachedFileContent.startsWith('blob:')
-                ? cachedFileContent
+              // Get original content — must be a plain text string
+              const originalTextContent = cachedFileContent && !cachedFileContent.encoding
+                ? cachedFileContent.content
                 : undefined;
 
               return (
@@ -1529,4 +1390,29 @@ export function FileViewerView({
     </div>
   );
 }
+
+// Inline helpers replacing legacy FileCache static methods
+const _isImageFile = (p: string) => /\.(png|jpe?g|gif|svg|webp|bmp|ico|avif|tiff)$/i.test(p);
+const _isPdfFile = (p: string) => /\.pdf$/i.test(p);
+const _getContentTypeFromPath = (p: string): 'blob' | 'json' | 'text' => {
+  if (_isImageFile(p) || _isPdfFile(p) || /\.(mp4|webm|mov|avi|mkv|mp3|wav|ogg|flac|m4a|aac|xlsx|xls|docx|pptx|ppt|zip|tar|gz|rar|7z|woff2?|ttf|otf|eot)$/i.test(p)) return 'blob';
+  if (/\.json$/i.test(p)) return 'json';
+  return 'text';
+};
+const _getMimeTypeFromPath = (p: string): string => {
+  const ext = p.split('.').pop()?.toLowerCase() || '';
+  const mimeMap: Record<string, string> = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp', bmp: 'image/bmp', ico: 'image/x-icon', avif: 'image/avif', tiff: 'image/tiff',
+    pdf: 'application/pdf', json: 'application/json',
+    mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', avi: 'video/x-msvideo', mkv: 'video/x-matroska',
+    mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac', m4a: 'audio/mp4', aac: 'audio/aac',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', xls: 'application/vnd.ms-excel',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    html: 'text/html', htm: 'text/html', css: 'text/css', js: 'text/javascript', ts: 'text/typescript',
+    md: 'text/markdown', txt: 'text/plain', csv: 'text/csv', xml: 'text/xml', yaml: 'text/yaml', yml: 'text/yaml',
+    zip: 'application/zip', tar: 'application/x-tar', gz: 'application/gzip',
+  };
+  return mimeMap[ext] || 'application/octet-stream';
+};
 

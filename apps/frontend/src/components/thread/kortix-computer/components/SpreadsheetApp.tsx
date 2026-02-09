@@ -18,8 +18,7 @@ import {
 } from 'lucide-react';
 import { KortixLoader } from '@/components/ui/kortix-loader';
 import { cn } from '@/lib/utils';
-import { useDirectoryQuery } from '@/hooks/files/use-file-queries';
-import { backendApi } from '@/lib/api-client';
+import { useFileList, uploadFile, mkdirFile } from '@/features/files';
 import { useQueryClient } from '@tanstack/react-query';
 import JSZip from 'jszip';
 import { useSpreadsheetSync } from '../../tool-views/spreadsheet/useSpreadsheetSync';
@@ -256,12 +255,12 @@ export const SpreadsheetApp = memo(function SpreadsheetApp({
   const [isCreating, setIsCreating] = useState(false);
   const [activeEditorHandle, setActiveEditorHandle] = useState<SpreadsheetEditorHandle | null>(null);
 
-  const { data: workspaceFiles = [] } = useDirectoryQuery(sandboxId, '/workspace/spreadsheets', {
+  const { data: workspaceFiles = [] } = useFileList('/workspace/spreadsheets', {
     enabled: !!sandboxId,
   });
 
   const spreadsheetFiles = workspaceFiles.filter(f => 
-    !f.is_dir && (f.name.endsWith('.xlsx') || f.name.endsWith('.xls') || f.name.endsWith('.csv'))
+    f.type !== 'directory' && (f.name.endsWith('.xlsx') || f.name.endsWith('.xls') || f.name.endsWith('.csv'))
   );
 
   const filteredFiles = spreadsheetFiles.filter(f =>
@@ -399,33 +398,28 @@ export const SpreadsheetApp = memo(function SpreadsheetApp({
   }, []);
 
   const createNewSpreadsheet = useCallback(async () => {
-    if (!sandboxId) return;
-    
     setIsCreating(true);
     
     try {
       const newFileName = generateUniqueFileName();
-      const newFilePath = `/workspace/spreadsheets/${newFileName}`;
+      
+      // Ensure the spreadsheets directory exists
+      await mkdirFile('/workspace/spreadsheets');
       
       const blob = await createEmptyXlsx();
+      const file = new window.File([blob], newFileName, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       
-      const uploadFormData = new FormData();
-      uploadFormData.append('path', newFilePath);
-      uploadFormData.append('file', blob, newFileName);
-      
-      await backendApi.uploadPut(`/sandboxes/${sandboxId}/files/binary`, uploadFormData, {
-        showErrors: true,
-      });
+      await uploadFile(file, '/workspace/spreadsheets');
       
       invalidateDirectory();
-      openFileInTab(newFilePath);
+      openFileInTab(`/workspace/spreadsheets/${newFileName}`);
       
     } catch (error) {
       console.error('Failed to create spreadsheet:', error);
     } finally {
       setIsCreating(false);
     }
-  }, [sandboxId, generateUniqueFileName, invalidateDirectory, createEmptyXlsx, openFileInTab]);
+  }, [generateUniqueFileName, invalidateDirectory, createEmptyXlsx, openFileInTab]);
 
   const handleTabUnsavedChange = useCallback((tabId: string, hasChanges: boolean) => {
     setTabs(prev => prev.map(t => 
