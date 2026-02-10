@@ -11,14 +11,12 @@ export {
   // Types
   type FileNode,
   type FileContent,
-  type FileStatus,
   type FindMatch,
   type OpenCodeProjectInfo,
   type ServerHealth,
   // API
   listFiles,
   readFile,
-  getFileStatus,
   findFiles,
   findText,
   getCurrentProject,
@@ -31,9 +29,6 @@ export {
   useFileContent,
   useInvalidateFileContent,
   fileContentKeys,
-  useFileStatus,
-  useFileStatusMap,
-  fileStatusKeys,
   useFileSearch,
   useTextSearch,
   fileSearchKeys,
@@ -45,6 +40,9 @@ export {
   useFileDelete,
   useFileMkdir,
   useFileRename,
+  // API — binary helpers
+  readFileAsBlob,
+  downloadFile,
   // API — write
   uploadFile,
   deleteFile,

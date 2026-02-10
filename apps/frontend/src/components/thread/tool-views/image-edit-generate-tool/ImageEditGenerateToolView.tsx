@@ -57,7 +57,7 @@ function ShimmerBox({ aspectVideo = false }: { aspectVideo?: boolean }) {
   );
 }
 
-function ImageDisplay({ filePath, sandboxId }: { filePath: string; sandboxId?: string }) {
+function ImageDisplay({ filePath }: { filePath: string }) {
   const { data: fileContent, isLoading } = useFileContent(filePath, {
     enabled: !!filePath,
   });
@@ -87,7 +87,7 @@ function ImageDisplay({ filePath, sandboxId }: { filePath: string; sandboxId?: s
   );
 }
 
-function VideoDisplay({ filePath, sandboxId }: { filePath: string; sandboxId?: string }) {
+function VideoDisplay({ filePath }: { filePath: string }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isVideoLoading, setIsVideoLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
@@ -187,7 +187,7 @@ function VideoDisplay({ filePath, sandboxId }: { filePath: string; sandboxId?: s
 
 // Full featured video renderer component for tool view (Computer)
 // Uses the full VideoRenderer with all controls (slider, volume, etc.)
-function VideoRendererFull({ filePath, sandboxId }: { filePath: string; sandboxId?: string }) {
+function VideoRendererFull({ filePath }: { filePath: string }) {
   const [hasVideoError, setHasVideoError] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
@@ -312,7 +312,6 @@ export function ImageEditGenerateToolView({
     return extractImageEditGenerateData(toolCall, toolResult, true);
   }, [toolCall, toolResult]);
 
-  const sandboxId = project?.sandbox?.id;
   const imagePath = generatedImagePaths[0];
   const videoPath = generatedVideoPaths[0];
   const hasMedia = imagePath || videoPath;
@@ -420,10 +419,10 @@ export function ImageEditGenerateToolView({
           </div>
         ) : videoPath ? (
           /* Success State - Show FULL video player */
-          <VideoRendererFull filePath={videoPath} sandboxId={sandboxId} />
+          <VideoRendererFull filePath={videoPath} />
         ) : imagePath ? (
           /* Success State - Show image */
-          <ImageDisplay filePath={imagePath} sandboxId={sandboxId} />
+          <ImageDisplay filePath={imagePath} />
         ) : (
           /* Fallback shimmer if no media yet */
           <ShimmerBox aspectVideo={isVideoMode} />

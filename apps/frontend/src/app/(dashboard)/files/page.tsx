@@ -21,7 +21,7 @@ export default function FilesPage() {
     project?.name || project?.worktree?.split('/').pop() || 'Project';
 
   return (
-    <div className="h-[100dvh] bg-background flex flex-col">
+    <div className="h-full bg-background flex flex-col">
       {/* Header */}
       <div className="px-4 py-3 border-b flex items-center justify-between flex-shrink-0">
         <h1 className="text-lg font-semibold">Files</h1>

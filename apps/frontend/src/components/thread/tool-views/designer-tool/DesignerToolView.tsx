@@ -395,26 +395,36 @@ export function DesignerToolView({
     setCanvasOffset({ x: 0, y: 0 });
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (isDownloadRestricted) {
       openUpgradeModal();
       return;
     }
     const element = elements.find(el => el.id === selectedElement);
-    if (element?.directUrl || element?.filePath) {
+    if (!element) return;
+    if (element.directUrl) {
+      // Direct URL — let browser handle it
       const link = document.createElement('a');
-      link.href = element.directUrl || `/api/sandboxes/${element.sandboxId}/files?path=${encodeURIComponent(element.filePath)}`;
+      link.href = element.directUrl;
       link.download = element.name;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+    } else if (element.filePath) {
+      const { downloadFile } = await import('@/features/files/api/opencode-files');
+      await downloadFile(element.filePath, element.name);
     }
   };
 
-  const handleOpenInNewTab = () => {
+  const handleOpenInNewTab = async () => {
     const element = elements.find(el => el.id === selectedElement);
-    if (element?.directUrl || element?.filePath) {
-      const url = element.directUrl || `/api/sandboxes/${element.sandboxId}/files?path=${encodeURIComponent(element.filePath)}`;
+    if (!element) return;
+    if (element.directUrl) {
+      window.open(element.directUrl, '_blank');
+    } else if (element.filePath) {
+      const { readFileAsBlob } = await import('@/features/files/api/opencode-files');
+      const blob = await readFileAsBlob(element.filePath);
+      const url = URL.createObjectURL(blob);
       window.open(url, '_blank');
     }
   };

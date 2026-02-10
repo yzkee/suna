@@ -16,13 +16,6 @@ export {
   fileContentKeys,
 } from './use-file-content';
 
-// Git status
-export {
-  useFileStatus,
-  useFileStatusMap,
-  fileStatusKeys,
-} from './use-file-status';
-
 // File/text search
 export {
   useFileSearch,

@@ -10,15 +10,27 @@ import {
   FileType,
   File as FileIcon,
   ChevronRight,
+  Download,
+  Pencil,
+  Trash2,
+  Copy,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { FileNode, FileStatus } from '../types';
-import { FileStatusBadge } from './file-status-badge';
+import type { FileNode } from '../types';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 
 interface FileTreeItemProps {
   node: FileNode;
-  status?: FileStatus;
   onClick: () => void;
+  onDownload?: (node: FileNode) => void;
+  onRename?: (node: FileNode) => void;
+  onDelete?: (node: FileNode) => void;
 }
 
 /** File extension to icon mapping */
@@ -60,8 +72,10 @@ function getNodeIcon(node: FileNode) {
   return <FileIcon className="h-4 w-4 text-muted-foreground shrink-0" />;
 }
 
-export function FileTreeItem({ node, status, onClick }: FileTreeItemProps) {
-  return (
+export function FileTreeItem({ node, onClick, onDownload, onRename, onDelete }: FileTreeItemProps) {
+  const hasContextMenu = onDownload || onRename || onDelete;
+
+  const content = (
     <button
       onClick={onClick}
       className={cn(
@@ -72,10 +86,66 @@ export function FileTreeItem({ node, status, onClick }: FileTreeItemProps) {
     >
       {getNodeIcon(node)}
       <span className="truncate flex-1">{node.name}</span>
-      {status && <FileStatusBadge status={status.status} />}
       {node.type === 'directory' && (
         <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
       )}
     </button>
+  );
+
+  if (!hasContextMenu) {
+    return content;
+  }
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        {content}
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-48">
+        <ContextMenuItem onClick={onClick}>
+          <ChevronRight className="mr-2 h-4 w-4" />
+          {node.type === 'directory' ? 'Open folder' : 'Open file'}
+        </ContextMenuItem>
+
+        {node.type === 'file' && onDownload && (
+          <ContextMenuItem onClick={() => onDownload(node)}>
+            <Download className="mr-2 h-4 w-4" />
+            Download
+          </ContextMenuItem>
+        )}
+
+        <ContextMenuItem
+          onClick={() => {
+            navigator.clipboard.writeText(node.path);
+          }}
+        >
+          <Copy className="mr-2 h-4 w-4" />
+          Copy path
+        </ContextMenuItem>
+
+        {onRename && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={() => onRename(node)}>
+              <Pencil className="mr-2 h-4 w-4" />
+              Rename
+            </ContextMenuItem>
+          </>
+        )}
+
+        {onDelete && (
+          <>
+            {!onRename && <ContextMenuSeparator />}
+            <ContextMenuItem
+              onClick={() => onDelete(node)}
+              className="text-destructive focus:text-destructive"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete
+            </ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }

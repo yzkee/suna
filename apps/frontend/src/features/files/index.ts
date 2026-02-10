@@ -9,7 +9,6 @@
 export type {
   FileNode,
   FileContent,
-  FileStatus,
   FilePatch,
   FilePatchHunk,
   FindMatch,
@@ -21,12 +20,14 @@ export type {
 export {
   listFiles,
   readFile,
-  getFileStatus,
   findFiles,
   findText,
   getCurrentProject,
   getServerHealth,
   isServerReachable,
+  // binary helpers
+  readFileAsBlob,
+  downloadFile,
   // write
   uploadFile,
   deleteFile,
@@ -41,8 +42,6 @@ export {
   useInvalidateFileList,
   useFileContent,
   useInvalidateFileContent,
-  useFileStatus,
-  useFileStatusMap,
   useFileSearch,
   useTextSearch,
   useServerHealth,
@@ -54,7 +53,6 @@ export {
   useFileRename,
   fileListKeys,
   fileContentKeys,
-  fileStatusKeys,
   fileSearchKeys,
 } from './hooks';
 
@@ -68,5 +66,4 @@ export {
   FileSearch,
   FileBreadcrumbs,
   FileTreeItem,
-  FileStatusBadge,
 } from './components';

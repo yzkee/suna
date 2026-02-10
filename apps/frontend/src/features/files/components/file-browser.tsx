@@ -1,17 +1,27 @@
 'use client';
 
-import { useMemo, useCallback } from 'react';
-import { Search, RefreshCw, FolderUp, ServerOff } from 'lucide-react';
+import { useMemo, useCallback, useState, useRef } from 'react';
+import {
+  Search,
+  RefreshCw,
+  FolderUp,
+  ServerOff,
+  Upload,
+  FolderPlus,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useFilesStore } from '../store/files-store';
-import { useFileList, useFileStatusMap, useServerHealth } from '../hooks';
+import { useFileList, useServerHealth } from '../hooks';
+import { useFileUpload, useFileDelete, useFileMkdir, useFileRename } from '../hooks/use-file-mutations';
+import { downloadFile } from '../api/opencode-files';
 import { useServerStore } from '@/stores/server-store';
 import type { FileNode } from '../types';
 import { FileBreadcrumbs } from './file-breadcrumbs';
 import { FileTreeItem } from './file-tree-item';
 import { FileSearch } from './file-search';
 import { cn } from '@/lib/utils';
+import { toast } from '@/lib/toast';
 
 export function FileBrowser() {
   const currentPath = useFilesStore((s) => s.currentPath);
@@ -31,7 +41,17 @@ export function FileBrowser() {
   } = useFileList(currentPath, {
     enabled: health?.healthy === true,
   });
-  const statusMap = useFileStatusMap();
+
+  // Mutations
+  const uploadMutation = useFileUpload();
+  const deleteMutation = useFileDelete();
+  const mkdirMutation = useFileMkdir();
+  const renameMutation = useFileRename();
+
+  // Upload state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
 
   // Separate dirs and files, sorted
   const { dirs, fileItems } = useMemo(() => {
@@ -66,6 +86,101 @@ export function FileBrowser() {
     parts.pop();
     navigateToPath(parts.length > 0 ? parts.join('/') : '.');
   }, [currentPath, navigateToPath]);
+
+  // Download a file
+  const handleDownload = useCallback(async (node: FileNode) => {
+    try {
+      await downloadFile(node.path, node.name);
+      toast.success(`Downloaded ${node.name}`);
+    } catch (err) {
+      toast.error(`Failed to download ${node.name}`);
+    }
+  }, []);
+
+  // Rename a file/folder
+  const handleRename = useCallback(
+    async (node: FileNode) => {
+      const newName = window.prompt('New name:', node.name);
+      if (!newName || newName === node.name) return;
+
+      const parentPath = node.path.substring(0, node.path.lastIndexOf('/'));
+      const newPath = parentPath ? `${parentPath}/${newName}` : newName;
+
+      try {
+        await renameMutation.mutateAsync({ from: node.path, to: newPath });
+        toast.success(`Renamed to ${newName}`);
+      } catch (err) {
+        toast.error(`Failed to rename: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      }
+    },
+    [renameMutation],
+  );
+
+  // Delete a file/folder
+  const handleDelete = useCallback(
+    async (node: FileNode) => {
+      const confirmed = window.confirm(
+        `Delete ${node.type === 'directory' ? 'folder' : 'file'} "${node.name}"?`,
+      );
+      if (!confirmed) return;
+
+      try {
+        await deleteMutation.mutateAsync({ filePath: node.path });
+        toast.success(`Deleted ${node.name}`);
+      } catch (err) {
+        toast.error(`Failed to delete: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      }
+    },
+    [deleteMutation],
+  );
+
+  // Upload file
+  const handleUpload = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileInputChange = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      if (!event.target.files || event.target.files.length === 0) return;
+
+      const file = event.target.files[0];
+      try {
+        await uploadMutation.mutateAsync({
+          file,
+          targetPath: currentPath === '.' ? undefined : currentPath,
+        });
+        toast.success(`Uploaded ${file.name}`);
+      } catch (err) {
+        toast.error(`Upload failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      } finally {
+        event.target.value = '';
+      }
+    },
+    [uploadMutation, currentPath],
+  );
+
+  // Create folder
+  const handleCreateFolder = useCallback(async () => {
+    if (!newFolderName.trim()) {
+      setIsCreatingFolder(false);
+      return;
+    }
+
+    const folderPath =
+      currentPath === '.' || currentPath === ''
+        ? newFolderName.trim()
+        : `${currentPath}/${newFolderName.trim()}`;
+
+    try {
+      await mkdirMutation.mutateAsync({ dirPath: folderPath });
+      toast.success(`Created folder: ${newFolderName.trim()}`);
+    } catch (err) {
+      toast.error(`Failed to create folder: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setIsCreatingFolder(false);
+      setNewFolderName('');
+    }
+  }, [mkdirMutation, currentPath, newFolderName]);
 
   // Server not reachable
   if (!isHealthLoading && !health?.healthy) {
@@ -103,6 +218,29 @@ export function FileBrowser() {
             variant="ghost"
             size="icon"
             className="h-7 w-7"
+            onClick={handleUpload}
+            disabled={uploadMutation.isPending}
+            title="Upload file"
+          >
+            <Upload className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => {
+              setIsCreatingFolder(true);
+              setNewFolderName('New Folder');
+            }}
+            disabled={mkdirMutation.isPending}
+            title="New folder"
+          >
+            <FolderPlus className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
             onClick={toggleSearch}
             title="Search files (Ctrl+P)"
           >
@@ -119,6 +257,14 @@ export function FileBrowser() {
           </Button>
         </div>
       </div>
+
+      {/* Hidden file input for uploads */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        className="hidden"
+        onChange={handleFileInputChange}
+      />
 
       {/* Search overlay */}
       {isSearchOpen && <FileSearch />}
@@ -166,13 +312,36 @@ export function FileBrowser() {
               </button>
             )}
 
+            {/* New folder inline input */}
+            {isCreatingFolder && (
+              <div className="flex items-center gap-2 px-3 py-1.5">
+                <FolderPlus className="h-4 w-4 text-blue-400 shrink-0" />
+                <input
+                  type="text"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleCreateFolder();
+                    if (e.key === 'Escape') {
+                      setIsCreatingFolder(false);
+                      setNewFolderName('');
+                    }
+                  }}
+                  onBlur={handleCreateFolder}
+                  autoFocus
+                  className="flex-1 text-sm bg-transparent border border-primary rounded px-1.5 py-0.5 outline-none"
+                />
+              </div>
+            )}
+
             {/* Directories first */}
             {dirs.map((node) => (
               <FileTreeItem
                 key={node.path}
                 node={node}
-                status={statusMap.get(node.path)}
                 onClick={() => handleFileClick(node)}
+                onRename={handleRename}
+                onDelete={handleDelete}
               />
             ))}
 
@@ -181,13 +350,15 @@ export function FileBrowser() {
               <FileTreeItem
                 key={node.path}
                 node={node}
-                status={statusMap.get(node.path)}
                 onClick={() => handleFileClick(node)}
+                onDownload={handleDownload}
+                onRename={handleRename}
+                onDelete={handleDelete}
               />
             ))}
 
             {/* Empty directory */}
-            {files.length === 0 && (
+            {files.length === 0 && !isCreatingFolder && (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <p className="text-sm text-muted-foreground">
                   Empty directory

@@ -153,33 +153,15 @@ const SpreadsheetEditor = memo(function SpreadsheetEditor({
       return;
     }
     
-    if (!sandboxId || !filePath || !session?.access_token) {
+    if (!filePath) {
       toast.error('Unable to download file');
       return;
     }
 
     setIsDownloading(true);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/files/content?path=${encodeURIComponent(filePath)}`, {
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`Download failed: ${response.status}`);
-      }
-
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      
+      const { downloadFile } = await import('@/features/files/api/opencode-files');
+      await downloadFile(filePath, fileName);
       toast.success('File downloaded successfully');
     } catch (error) {
       console.error('Download error:', error);
@@ -187,7 +169,7 @@ const SpreadsheetEditor = memo(function SpreadsheetEditor({
     } finally {
       setIsDownloading(false);
     }
-  }, [sandboxId, filePath, fileName, session, isDownloadRestricted, openUpgradeModal]);
+  }, [filePath, fileName, isDownloadRestricted, openUpgradeModal]);
 
   if (!isActive) return null;
 

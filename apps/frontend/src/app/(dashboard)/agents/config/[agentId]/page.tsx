@@ -28,7 +28,7 @@ import {
   useOpenCodeProviders,
 } from '@/hooks/opencode/use-opencode-sessions';
 import { CodeEditor } from '@/components/file-editors/code-editor';
-import type { OpenCodeAgent, OpenCodePermissionRule } from '@/lib/api/opencode';
+import type { Agent, PermissionRule } from '@/hooks/opencode/use-opencode-sessions';
 
 type ConfigView = 'overview' | 'prompt' | 'permissions';
 
@@ -190,7 +190,7 @@ function OverviewSection({
   draft,
   onDraft,
 }: {
-  agent: OpenCodeAgent;
+  agent: Agent;
   draft: Record<string, unknown>;
   onDraft: (key: string, value: unknown) => void;
 }) {
@@ -207,7 +207,7 @@ function OverviewSection({
     );
   }, [providers]);
 
-  const model = (draft.model as OpenCodeAgent['model']) ?? agent.model;
+  const model = (draft.model as Agent['model']) ?? agent.model;
   const modelLabel = model ? `${model.providerID}/${model.modelID}` : '';
 
   return (
@@ -357,7 +357,7 @@ function PromptSection({
   draftPrompt,
   onDraft,
 }: {
-  agent: OpenCodeAgent;
+  agent: Agent;
   draftPrompt: string | undefined;
   onDraft: (key: string, value: unknown) => void;
 }) {
@@ -391,11 +391,11 @@ function PromptSection({
 
 // --- Permissions Section ---
 
-function PermissionsSection({ agent }: { agent: OpenCodeAgent }) {
+function PermissionsSection({ agent }: { agent: Agent }) {
   const rules = agent.permission || [];
 
   const grouped = useMemo(() => {
-    const map: Record<string, OpenCodePermissionRule[]> = {};
+    const map: Record<string, PermissionRule[]> = {};
     for (const rule of rules) {
       (map[rule.permission] ??= []).push(rule);
     }
@@ -478,7 +478,7 @@ export default function AgentConfigPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-[100dvh]">
+      <div className="flex items-center justify-center h-full">
         <KortixLoader size="large" />
       </div>
     );
@@ -486,7 +486,7 @@ export default function AgentConfigPage() {
 
   if (!agent) {
     return (
-      <div className="flex items-center justify-center h-[100dvh]">
+      <div className="flex items-center justify-center h-full">
         <p className="text-muted-foreground">Agent not found</p>
       </div>
     );
@@ -499,7 +499,7 @@ export default function AgentConfigPage() {
   ];
 
   return (
-    <div className="h-[100dvh] flex flex-col md:flex-row overflow-hidden bg-background px-3 sm:px-4 md:px-7 pt-4 md:pt-7">
+    <div className="h-full flex flex-col md:flex-row overflow-hidden bg-background px-3 sm:px-4 md:px-7 pt-4 md:pt-7">
       {/* Left nav */}
       <div className="bg-background flex w-full md:w-44 md:flex-col md:pr-4 pt-14 sm:pt-16 md:pt-0 gap-2">
         <Button

@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Paperclip } from 'lucide-react';
 import { KortixLoader } from '@/components/ui/kortix-loader';
 import { toast } from '@/lib/toast';
-// createClient no longer needed — uploads go through OpenCode server
 import { useQueryClient } from '@tanstack/react-query';
 import { fileListKeys, fileContentKeys, uploadFile } from '@/features/files';
 import {
@@ -15,7 +14,6 @@ import {
 } from '@/components/ui/tooltip';
 import { UploadedFile } from './chat-input';
 import { normalizeFilenameToNFC, normalizeMimeType } from '@agentpress/shared';
-// backendApi no longer needed — uploads go through OpenCode server
 import JSZip from 'jszip';
 import {
   UPLOAD_LIMITS,
@@ -24,8 +22,6 @@ import {
   isExtractableArchive,
   formatFileSize,
 } from '@/lib/constants/upload-limits';
-
-// API_URL no longer needed — uploads go through OpenCode server
 
 const ALLOWED_EXTENSIONS_STRING = ALLOWED_EXTENSIONS.join(',');
 

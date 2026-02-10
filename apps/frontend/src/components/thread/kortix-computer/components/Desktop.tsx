@@ -13,13 +13,11 @@ import { Project } from '@/lib/api/threads';
 import { ApiMessageType } from '@/components/thread/types';
 import { ViewType } from '@/stores/kortix-computer-store';
 import { cn } from '@/lib/utils';
-import { useFileList, readFile, fileListKeys, useFileUpload, useFileMkdir, useFileDelete, useFileRename } from '@/features/files';
+import { useFileList, readFile, fileListKeys, useFileUpload, useFileMkdir, useFileDelete, useFileRename, useFilesStore, FileBrowser, FileViewer } from '@/features/files';
 import { DesktopContextMenu } from './DesktopContextMenu';
 import { QuickLaunch } from './QuickLaunch';
 import { DesktopIcons } from './DesktopIcons';
 import { SSHTerminal } from './SSHTerminal';
-import { FileViewerView } from '../FileViewerView';
-import { FileBrowserView } from '../FileBrowserView';
 import { getFileIconByName } from './Icons';
 import { SystemInfoContent } from './SystemInfoContent';
 import { FileInfoContent, FileInfo } from './FileInfoContent';
@@ -68,6 +66,30 @@ interface FolderWindowProps {
   onMinimize: () => void;
 }
 
+/**
+ * Wrapper that sets files store state before rendering the unified FileViewer.
+ * Used for Desktop individual file windows.
+ */
+const DesktopFileViewer = memo(function DesktopFileViewer({ filePath }: { filePath: string }) {
+  const openFile = useFilesStore((s) => s.openFile);
+  useEffect(() => {
+    openFile(filePath);
+  }, [filePath, openFile]);
+  return <FileViewer />;
+});
+
+/**
+ * Wrapper that sets files store state before rendering the unified FileBrowser.
+ * Used for Desktop folder windows.
+ */
+const DesktopFolderBrowser = memo(function DesktopFolderBrowser({ folderPath }: { folderPath?: string }) {
+  const navigateToPath = useFilesStore((s) => s.navigateToPath);
+  useEffect(() => {
+    navigateToPath(folderPath || '.');
+  }, [folderPath, navigateToPath]);
+  return <FileBrowser />;
+});
+
 const FolderWindow = memo(function FolderWindow({
   window,
   sandboxId,
@@ -96,10 +118,7 @@ const FolderWindow = memo(function FolderWindow({
       onMinimize={onMinimize}
       zIndex={window.zIndex}
     >
-      <FileBrowserView
-        sandboxId={sandboxId}
-        variant="default"
-      />
+      <DesktopFolderBrowser folderPath={window.filePath} />
     </AppWindow>
   );
 });
@@ -847,12 +866,7 @@ export const SandboxDesktop = memo(function SandboxDesktop({
                     onMinimize={() => minimizeWindow(window.id)}
                     zIndex={window.zIndex}
                   >
-                    <FileViewerView
-                      sandboxId={sandboxId}
-                      filePath={window.filePath}
-                      project={project}
-                      projectId={project_id}
-                    />
+                    <DesktopFileViewer filePath={window.filePath} />
                   </AppWindow>
                 );
               }

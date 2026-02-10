@@ -15,6 +15,10 @@ interface FilesStoreState {
   currentFileIndex: number;
   /** Whether the search overlay is open */
   isSearchOpen: boolean;
+  /** Unsaved file content persistence (keyed by filePath) */
+  unsavedFileContent: Record<string, string>;
+  /** Unsaved state tracking (has user made edits?) */
+  unsavedFileState: Record<string, boolean>;
 }
 
 interface FilesStoreActions {
@@ -34,6 +38,16 @@ interface FilesStoreActions {
   toggleSearch: () => void;
   /** Close search overlay */
   closeSearch: () => void;
+  /** Set unsaved content for a file */
+  setUnsavedContent: (filePath: string, content: string) => void;
+  /** Get unsaved content for a file */
+  getUnsavedContent: (filePath: string) => string | undefined;
+  /** Clear unsaved content for a file */
+  clearUnsavedContent: (filePath: string) => void;
+  /** Set unsaved state (has user made edits?) */
+  setUnsavedState: (filePath: string, hasUnsaved: boolean) => void;
+  /** Get unsaved state for a file */
+  getUnsavedState: (filePath: string) => boolean;
   /** Reset all state */
   reset: () => void;
 }
@@ -47,6 +61,8 @@ const initialState: FilesStoreState = {
   filePathList: [],
   currentFileIndex: 0,
   isSearchOpen: false,
+  unsavedFileContent: {},
+  unsavedFileState: {},
 };
 
 export const useFilesStore = create<FilesStore>()((set, get) => ({
@@ -115,6 +131,43 @@ export const useFilesStore = create<FilesStore>()((set, get) => ({
 
   closeSearch: () => {
     set({ isSearchOpen: false });
+  },
+
+  setUnsavedContent: (filePath: string, content: string) => {
+    set((state) => ({
+      unsavedFileContent: {
+        ...state.unsavedFileContent,
+        [filePath]: content,
+      },
+    }));
+  },
+
+  getUnsavedContent: (filePath: string) => {
+    return get().unsavedFileContent[filePath];
+  },
+
+  clearUnsavedContent: (filePath: string) => {
+    set((state) => {
+      const { [filePath]: _, ...restContent } = state.unsavedFileContent;
+      const { [filePath]: __, ...restState } = state.unsavedFileState;
+      return {
+        unsavedFileContent: restContent,
+        unsavedFileState: restState,
+      };
+    });
+  },
+
+  setUnsavedState: (filePath: string, hasUnsaved: boolean) => {
+    set((state) => ({
+      unsavedFileState: {
+        ...state.unsavedFileState,
+        [filePath]: hasUnsaved,
+      },
+    }));
+  },
+
+  getUnsavedState: (filePath: string) => {
+    return get().unsavedFileState[filePath] ?? false;
   },
 
   reset: () => {

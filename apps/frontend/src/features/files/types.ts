@@ -16,7 +16,6 @@ export interface FileNode {
 export interface FileContent {
   type: 'text' | 'binary';
   content: string;
-  diff?: string;
   patch?: FilePatch;
   encoding?: 'base64'; // present when content is base64-encoded (images, binaries)
   mimeType?: string;
@@ -37,14 +36,6 @@ export interface FilePatchHunk {
   newStart: number;
   newLines: number;
   lines: string[];
-}
-
-/** GET /file/status response item (git diff info) */
-export interface FileStatus {
-  path: string;
-  added: number;
-  removed: number;
-  status: 'added' | 'deleted' | 'modified';
 }
 
 /** GET /find?pattern=<pat> response item */

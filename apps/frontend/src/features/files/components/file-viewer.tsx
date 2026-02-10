@@ -1,21 +1,22 @@
 'use client';
 
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState } from 'react';
 import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
   Download,
   FileWarning,
-  Loader2,
   GitBranch,
+  Loader2,
+  Save,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { useFilesStore } from '../store/files-store';
-import { useFileContent, useFileStatusMap } from '../hooks';
-import { FileStatusBadge } from './file-status-badge';
+import { useFileContent } from '../hooks';
+import { downloadFile, uploadFile } from '../api/opencode-files';
 import { cn } from '@/lib/utils';
+import { toast } from '@/lib/toast';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -54,10 +55,10 @@ export function FileViewer() {
   const nextFile = useFilesStore((s) => s.nextFile);
   const prevFile = useFilesStore((s) => s.prevFile);
 
-  const statusMap = useFileStatusMap();
-  const fileStatus = selectedFilePath ? statusMap.get(selectedFilePath) : undefined;
+  const { data: fileContent, isLoading, error, refetch } = useFileContent(selectedFilePath);
 
-  const { data: fileContent, isLoading, error } = useFileContent(selectedFilePath);
+  const [editedContent, setEditedContent] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const fileName = selectedFilePath?.split('/').pop() || '';
   const language = getLanguageFromExt(fileName);
@@ -65,27 +66,45 @@ export function FileViewer() {
   const hasNext = currentFileIndex < filePathList.length - 1;
   const hasPrev = currentFileIndex > 0;
 
+  // Track if content has been edited
+  const hasUnsavedChanges = editedContent !== null;
+  const displayContent = editedContent ?? fileContent?.content ?? '';
+
+  // Reset edited content when file changes
+  const prevFilePathRef = useMemo(() => ({ current: selectedFilePath }), [selectedFilePath]);
+  if (prevFilePathRef.current !== selectedFilePath && editedContent !== null) {
+    setEditedContent(null);
+  }
+
   // Download handler
-  const handleDownload = useCallback(() => {
-    if (!fileContent || !fileName) return;
-
-    let blob: Blob;
-    if (fileContent.encoding === 'base64') {
-      const binary = atob(fileContent.content);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      blob = new Blob([bytes], { type: fileContent.mimeType || 'application/octet-stream' });
-    } else {
-      blob = new Blob([fileContent.content], { type: 'text/plain;charset=utf-8' });
+  const handleDownload = useCallback(async () => {
+    if (!selectedFilePath || !fileName) return;
+    try {
+      await downloadFile(selectedFilePath, fileName);
+    } catch {
+      toast.error(`Failed to download ${fileName}`);
     }
+  }, [selectedFilePath, fileName]);
 
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [fileContent, fileName]);
+  // Save handler
+  const handleSave = useCallback(async () => {
+    if (!selectedFilePath || editedContent === null) return;
+    setIsSaving(true);
+    try {
+      const blob = new Blob([editedContent], { type: 'text/plain;charset=utf-8' });
+      const file = new File([blob], fileName, { type: 'text/plain' });
+      // Upload to the same path (overwrite)
+      const parentPath = selectedFilePath.substring(0, selectedFilePath.lastIndexOf('/'));
+      await uploadFile(file, parentPath || undefined);
+      setEditedContent(null);
+      await refetch();
+      toast.success('File saved');
+    } catch (err) {
+      toast.error(`Failed to save: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [selectedFilePath, editedContent, fileName, refetch]);
 
   // Image rendering
   const imageDataUrl = useMemo(() => {
@@ -114,12 +133,8 @@ export function FileViewer() {
 
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <span className="font-medium text-sm truncate">{fileName}</span>
-          {fileStatus && <FileStatusBadge status={fileStatus.status} />}
-          {fileContent?.diff && (
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1 shrink-0">
-              <GitBranch className="h-3 w-3" />
-              changed
-            </Badge>
+          {hasUnsavedChanges && (
+            <span className="text-xs text-yellow-500 font-medium shrink-0">modified</span>
           )}
         </div>
 
@@ -149,6 +164,24 @@ export function FileViewer() {
                 <ChevronRight className="h-3.5 w-3.5" />
               </Button>
             </div>
+          )}
+
+          {/* Save button (only for text files with changes) */}
+          {hasUnsavedChanges && fileContent?.type === 'text' && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-yellow-500 hover:text-yellow-600"
+              onClick={handleSave}
+              disabled={isSaving}
+              title="Save (Ctrl+S)"
+            >
+              {isSaving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+            </Button>
           )}
 
           <Button
@@ -206,7 +239,7 @@ export function FileViewer() {
             <div className="flex flex-col items-center justify-center h-full gap-3 p-8 text-center">
               <FileWarning className="h-8 w-8 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
-                Binary file — cannot display preview
+                Binary file -- cannot display preview
               </p>
               <Button variant="outline" size="sm" onClick={handleDownload}>
                 <Download className="h-3.5 w-3.5 mr-1.5" />
@@ -215,13 +248,13 @@ export function FileViewer() {
             </div>
           )}
 
-        {/* Text content */}
+        {/* Text content (editable) */}
         {!isLoading &&
           !error &&
           fileContent &&
           fileContent.type === 'text' &&
           !imageDataUrl && (
-            <div className="relative">
+            <div className="relative h-full">
               {/* Diff indicator */}
               {fileContent.patch && fileContent.patch.hunks.length > 0 && (
                 <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-1.5 bg-yellow-500/5 border-b border-yellow-500/20 text-xs text-yellow-600 dark:text-yellow-400">
@@ -229,15 +262,23 @@ export function FileViewer() {
                   File has uncommitted changes
                 </div>
               )}
-              <pre
+              <textarea
+                value={displayContent}
+                onChange={(e) => setEditedContent(e.target.value)}
+                onKeyDown={(e) => {
+                  // Ctrl+S / Cmd+S to save
+                  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                    e.preventDefault();
+                    if (hasUnsavedChanges) handleSave();
+                  }
+                }}
                 className={cn(
-                  'text-sm leading-relaxed p-4 font-mono',
-                  'overflow-x-auto whitespace-pre',
+                  'w-full h-full text-sm leading-relaxed p-4 font-mono',
+                  'bg-transparent resize-none outline-none',
                   'selection:bg-primary/20',
                 )}
-              >
-                <code>{fileContent.content}</code>
-              </pre>
+                spellCheck={false}
+              />
             </div>
           )}
       </div>

@@ -14,7 +14,7 @@ import {
 } from '@/hooks/opencode/use-opencode-sessions';
 import { SessionChatInput, flattenModels } from '@/components/session/session-chat-input';
 import { toast } from '@/lib/toast';
-import type { OpenCodeCommand } from '@/lib/api/opencode';
+import type { Command } from '@/hooks/opencode/use-opencode-sessions';
 
 // Mobile users are redirected at the edge by middleware (hyper-fast)
 // This page only renders for desktop users
@@ -86,7 +86,7 @@ export default function MilanoPage() {
     [isSubmitting, user, isLoading, createSession, router, selectedAgent, selectedModel, selectedVariant],
   );
 
-  const handleCommand = useCallback((_cmd: OpenCodeCommand) => {
+  const handleCommand = useCallback((_cmd: Command) => {
     // On landing pages, slash commands are a no-op
   }, []);
 

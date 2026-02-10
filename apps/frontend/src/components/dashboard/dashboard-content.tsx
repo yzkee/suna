@@ -14,7 +14,7 @@ import {
 import { SessionWelcome } from '@/components/session/session-welcome';
 import { SessionChatInput, flattenModels } from '@/components/session/session-chat-input';
 import { Menu } from 'lucide-react';
-import type { OpenCodeCommand } from '@/lib/api/opencode';
+import type { Command } from '@/hooks/opencode/use-opencode-sessions';
 
 export function DashboardContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -79,7 +79,7 @@ export function DashboardContent() {
   );
 
   const handleCommand = useCallback(
-    (cmd: OpenCodeCommand) => {
+    (cmd: Command) => {
       // On dashboard, slash commands just pre-fill - no session to execute against yet
       // Could store for later, but for now just ignore
     },
@@ -87,7 +87,7 @@ export function DashboardContent() {
   );
 
   return (
-    <div className="flex flex-col h-screen w-full overflow-hidden relative">
+    <div className="flex flex-col h-full w-full overflow-hidden relative">
       {/* Mobile menu button */}
       {isMobile && (
         <div className="absolute left-3 top-1.5 z-10">

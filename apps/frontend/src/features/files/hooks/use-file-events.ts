@@ -6,7 +6,6 @@ import { useServerStore } from '@/stores/server-store';
 import { getActiveOpenCodeUrl } from '@/stores/server-store';
 import { fileListKeys } from './use-file-list';
 import { fileContentKeys } from './use-file-content';
-import { fileStatusKeys } from './use-file-status';
 
 /**
  * Listen for OpenCode SSE events and invalidate file queries when
@@ -44,11 +43,6 @@ export function useFileEventInvalidation() {
               // Invalidate all file list queries to refresh directory contents
               queryClient.invalidateQueries({
                 queryKey: fileListKeys.all,
-              });
-
-              // Invalidate file status (git changes)
-              queryClient.invalidateQueries({
-                queryKey: fileStatusKeys.all,
               });
 
               // If a specific file was edited, invalidate its content query

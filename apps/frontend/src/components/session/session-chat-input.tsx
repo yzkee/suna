@@ -16,6 +16,7 @@ import {
   File,
   Archive,
   Database,
+  PanelRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -27,12 +28,11 @@ import {
 } from '@/components/ui/tooltip';
 import { VoiceRecorder } from '@/components/thread/chat-input/voice-recorder';
 import type {
-  OpenCodeMessageWithParts,
-  OpenCodeAgent,
-  OpenCodeCommand,
-  OpenCodeProviderListResponse,
-  OpenCodeModel,
-} from '@/lib/api/opencode';
+  MessageWithParts,
+  Agent,
+  Command,
+  ProviderListResponse,
+} from '@/hooks/opencode/use-opencode-sessions';
 
 // ============================================================================
 // Flat model list helper
@@ -46,7 +46,7 @@ export interface FlatModel {
   variants?: Record<string, Record<string, unknown>>;
 }
 
-export function flattenModels(providers: OpenCodeProviderListResponse | undefined): FlatModel[] {
+export function flattenModels(providers: ProviderListResponse | undefined): FlatModel[] {
   if (!providers) return [];
   const result: FlatModel[] = [];
   for (const p of providers.all) {
@@ -73,7 +73,7 @@ function AgentSelector({
   selectedAgent,
   onSelect,
 }: {
-  agents: OpenCodeAgent[];
+  agents: Agent[];
   selectedAgent: string | null;
   onSelect: (agentName: string | null) => void;
 }) {
@@ -260,7 +260,7 @@ function VariantSelector({
 // Token Progress Circle
 // ============================================================================
 
-function TokenProgress({ messages }: { messages: OpenCodeMessageWithParts[] | undefined }) {
+function TokenProgress({ messages }: { messages: MessageWithParts[] | undefined }) {
   const totalTokens = useMemo(() => {
     if (!messages) return { input: 0, output: 0 };
     let input = 0;
@@ -433,17 +433,16 @@ function SlashCommandPopover({
   selectedIndex,
   onSelect,
 }: {
-  commands: OpenCodeCommand[];
+  commands: Command[];
   filter: string;
   selectedIndex: number;
-  onSelect: (command: OpenCodeCommand) => void;
+  onSelect: (command: Command) => void;
 }) {
   const filtered = useMemo(() => {
     const q = filter.toLowerCase();
     return commands.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
-        (c.title && c.title.toLowerCase().includes(q)) ||
         (c.description && c.description.toLowerCase().includes(q)),
     );
   }, [commands, filter]);
@@ -466,7 +465,7 @@ function SlashCommandPopover({
             )}
           >
             <span className="font-mono text-muted-foreground">/{cmd.name}</span>
-            <span className="text-muted-foreground/70 truncate">{cmd.description || cmd.title || ''}</span>
+            <span className="text-muted-foreground/70 truncate">{cmd.description || ''}</span>
           </button>
         ))}
       </div>
@@ -482,23 +481,29 @@ export interface SessionChatInputProps {
   onSend: (text: string) => void;
   isBusy?: boolean;
   onStop?: () => void;
-  agents?: OpenCodeAgent[];
+  agents?: Agent[];
   selectedAgent?: string | null;
   onAgentChange?: (agentName: string | null) => void;
-  commands?: OpenCodeCommand[];
-  onCommand?: (command: OpenCodeCommand) => void;
+  commands?: Command[];
+  onCommand?: (command: Command) => void;
   models?: FlatModel[];
   selectedModel?: { providerID: string; modelID: string } | null;
   onModelChange?: (model: { providerID: string; modelID: string } | null) => void;
   variants?: string[];
   selectedVariant?: string | null;
   onVariantChange?: (variant: string | null) => void;
-  messages?: OpenCodeMessageWithParts[];
+  messages?: MessageWithParts[];
   /** If true, disables the input (e.g. during session creation redirect) */
   disabled?: boolean;
   /** Auto-focus the textarea on mount (default: true on desktop) */
   autoFocus?: boolean;
   placeholder?: string;
+  /** Toggle the Kortix Computer side panel */
+  onTogglePanel?: () => void;
+  /** Whether the panel is currently open */
+  isPanelOpen?: boolean;
+  /** Whether there are tool calls available to show in the panel */
+  hasToolCalls?: boolean;
 }
 
 export function SessionChatInput({
@@ -520,6 +525,9 @@ export function SessionChatInput({
   disabled = false,
   autoFocus,
   placeholder = 'Ask anything...',
+  onTogglePanel,
+  isPanelOpen = false,
+  hasToolCalls = false,
 }: SessionChatInputProps) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -527,6 +535,11 @@ export function SessionChatInput({
   const [slashFilter, setSlashFilter] = useState<string | null>(null);
   const [slashIndex, setSlashIndex] = useState(0);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+
+  // Prompt history (Up/Down arrow)
+  const historyRef = useRef<string[]>([]);
+  const historyIndexRef = useRef(-1);
+  const draftRef = useRef('');
 
   // Default autoFocus: true on desktop, false on mobile
   const shouldAutoFocus = autoFocus ?? (typeof window !== 'undefined' && window.innerWidth >= 640);
@@ -557,7 +570,6 @@ export function SessionChatInput({
     return commands.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
-        (c.title && c.title.toLowerCase().includes(q)) ||
         (c.description && c.description.toLowerCase().includes(q)),
     );
   }, [commands, slashFilter]);
@@ -565,6 +577,10 @@ export function SessionChatInput({
   const handleSubmit = useCallback(() => {
     const trimmed = text.trim();
     if (!trimmed || isBusy || disabled) return;
+    // Push to prompt history
+    historyRef.current.push(trimmed);
+    historyIndexRef.current = -1;
+    draftRef.current = '';
     onSend(trimmed);
     setText('');
     setSlashFilter(null);
@@ -575,7 +591,7 @@ export function SessionChatInput({
     }
   }, [text, isBusy, disabled, onSend, attachedFiles]);
 
-  function handleSelectCommand(cmd: OpenCodeCommand) {
+  function handleSelectCommand(cmd: Command) {
     onCommand?.(cmd);
     setText('');
     setSlashFilter(null);
@@ -602,6 +618,40 @@ export function SessionChatInput({
       if (e.key === 'Escape') {
         e.preventDefault();
         setSlashFilter(null);
+        return;
+      }
+    }
+
+    // Prompt history: Up arrow at the start of input
+    if (e.key === 'ArrowUp' && slashFilter === null) {
+      const ta = e.currentTarget;
+      const atStart = ta.selectionStart === 0 && ta.selectionEnd === 0;
+      if (atStart && historyRef.current.length > 0) {
+        e.preventDefault();
+        if (historyIndexRef.current === -1) {
+          draftRef.current = text;
+          historyIndexRef.current = historyRef.current.length - 1;
+        } else if (historyIndexRef.current > 0) {
+          historyIndexRef.current--;
+        }
+        setText(historyRef.current[historyIndexRef.current]);
+        return;
+      }
+    }
+
+    // Prompt history: Down arrow
+    if (e.key === 'ArrowDown' && slashFilter === null && historyIndexRef.current >= 0) {
+      const ta = e.currentTarget;
+      const atEnd = ta.selectionStart === ta.value.length;
+      if (atEnd) {
+        e.preventDefault();
+        if (historyIndexRef.current < historyRef.current.length - 1) {
+          historyIndexRef.current++;
+          setText(historyRef.current[historyIndexRef.current]);
+        } else {
+          historyIndexRef.current = -1;
+          setText(draftRef.current);
+        }
         return;
       }
     }
@@ -717,8 +767,30 @@ export function SessionChatInput({
                   )}
                 </div>
 
-                {/* RIGHT: TokenProgress + Voice + Submit/Stop */}
+                {/* RIGHT: Panel toggle + TokenProgress + Voice + Submit/Stop */}
                 <div className="flex items-center gap-1.5 shrink-0">
+                  {hasToolCalls && onTogglePanel && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={onTogglePanel}
+                          className={cn(
+                            'inline-flex items-center justify-center h-10 w-10 p-0 bg-transparent border-[1.5px] rounded-2xl transition-colors cursor-pointer',
+                            isPanelOpen
+                              ? 'border-primary/50 text-primary bg-primary/10 hover:bg-primary/15'
+                              : 'border-border text-muted-foreground hover:text-foreground hover:bg-accent/50',
+                          )}
+                        >
+                          <PanelRight className="h-4 w-4" strokeWidth={2} />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        <p>{isPanelOpen ? 'Close panel' : 'Open panel'}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+
                   <TokenProgress messages={messages} />
 
                   <VoiceRecorder
