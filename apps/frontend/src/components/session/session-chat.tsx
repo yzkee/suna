@@ -1,0 +1,1418 @@
+'use client';
+
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import {
+  ChevronDown,
+  ChevronRight,
+  ArrowDown,
+  ArrowLeft,
+  Loader2,
+  Copy,
+  Check,
+  AlertTriangle,
+  Bug,
+  FileText,
+  Image as ImageIcon,
+  Bot,
+  Info,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { KortixLoader } from '@/components/ui/kortix-loader';
+import { UnifiedMarkdown } from '@/components/markdown/unified-markdown';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
+  useOpenCodeSession,
+  useOpenCodeMessages,
+  useSendOpenCodeMessage,
+  useAbortOpenCodeSession,
+  useOpenCodeAgents,
+  useOpenCodeCommands,
+  useExecuteOpenCodeCommand,
+  useSummarizeOpenCodeSession,
+  useOpenCodeProviders,
+  replyToPermission,
+  replyToQuestion,
+  rejectQuestion,
+  findOpenCodeFiles,
+} from '@/hooks/opencode/use-opencode-sessions';
+import { useOpenCodeSessionStatusStore } from '@/stores/opencode-session-status-store';
+import { useOpenCodePendingStore } from '@/stores/opencode-pending-store';
+import { useKortixComputerStore } from '@/stores/kortix-computer-store';
+import { useTabStore } from '@/stores/tab-store';
+import { useAutoScroll } from '@/hooks/use-auto-scroll';
+import { useThrottledValue } from '@/hooks/use-throttled-value';
+
+// Shared UI primitives (framework-agnostic, reusable on mobile)
+import {
+  type MessageWithParts,
+  type Turn,
+  type Command,
+  type Part,
+  type TextPart,
+  type ToolPart,
+  type FilePart,
+  type AgentPart,
+  type PermissionRequest,
+  type QuestionRequest,
+  type RetryInfo,
+  type TurnCostInfo,
+  type PartWithMessage,
+  isTextPart,
+  isToolPart,
+  isReasoningPart,
+  isFilePart,
+  isAgentPart,
+  isAttachment,
+  splitUserParts,
+  groupMessagesIntoTurns,
+  collectTurnParts,
+  findLastTextPart,
+  turnHasSteps,
+  isShellMode,
+  getShellModePart,
+  isLastUserMessage,
+  getWorkingState,
+  shouldHideResponsePart,
+  getHiddenToolParts,
+  isToolPartHidden,
+  getAnsweredQuestionParts,
+  unwrapError,
+  getTurnStatus,
+  getTurnError,
+  getTurnCost,
+  getRetryInfo,
+  getPermissionForTool,
+  getQuestionForTool,
+  formatDuration,
+  formatCost,
+  formatTokens,
+  shouldShowToolPart,
+  hasDiffs,
+} from '@/ui';
+
+import { SessionChatInput, flattenModels } from '@/components/session/session-chat-input';
+import { SessionWelcome } from '@/components/session/session-welcome';
+import { ToolPartRenderer } from '@/components/session/tool-renderers';
+import { QuestionPrompt } from '@/components/session/question-prompt';
+import { ImagePreview } from '@/components/session/image-preview';
+
+// ============================================================================
+// Sub-Session Breadcrumb
+// ============================================================================
+
+function SubSessionBreadcrumb({ sessionId, parentID }: { sessionId: string; parentID: string }) {
+  const { data: parentSession } = useOpenCodeSession(parentID);
+  const { data: grandparentSession } = useOpenCodeSession(
+    parentSession?.parentID || '',
+  );
+  const tabStore = useTabStore();
+  const router = useRouter();
+
+  const navigateToSession = useCallback(
+    (targetId: string, title: string, parentId?: string) => {
+      tabStore.openTab({
+        id: targetId,
+        title,
+        type: 'session',
+        href: `/sessions/${targetId}`,
+        parentSessionId: parentId,
+      });
+      router.push(`/sessions/${targetId}`);
+    },
+    [tabStore, router],
+  );
+
+  const handleBackToParent = useCallback(() => {
+    if (parentSession) {
+      navigateToSession(
+        parentSession.id,
+        parentSession.title || 'Session',
+        parentSession.parentID,
+      );
+    }
+  }, [parentSession, navigateToSession]);
+
+  return (
+    <div className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2 border-b border-border/40 bg-muted/30 text-xs text-muted-foreground min-h-[36px]">
+      {/* Back arrow */}
+      <button
+        onClick={handleBackToParent}
+        className="flex items-center justify-center h-6 w-6 rounded-md hover:bg-muted hover:text-foreground transition-colors cursor-pointer flex-shrink-0"
+        title="Back to parent session"
+      >
+        <ArrowLeft className="size-3.5" />
+      </button>
+
+      {/* Breadcrumb trail */}
+      <div className="flex items-center gap-1 min-w-0 overflow-hidden">
+        {/* Grandparent (if exists) */}
+        {grandparentSession?.id && (
+          <>
+            <button
+              onClick={() =>
+                navigateToSession(
+                  grandparentSession.id,
+                  grandparentSession.title || 'Session',
+                  grandparentSession.parentID,
+                )
+              }
+              className="truncate max-w-[100px] hover:text-foreground hover:underline transition-colors cursor-pointer"
+            >
+              {grandparentSession.title || 'Session'}
+            </button>
+            <ChevronRight className="size-3 flex-shrink-0 text-muted-foreground/50" />
+          </>
+        )}
+
+        {/* Parent */}
+        <button
+          onClick={handleBackToParent}
+          className="truncate max-w-[180px] hover:text-foreground hover:underline transition-colors cursor-pointer"
+        >
+          {parentSession?.title || 'Parent session'}
+        </button>
+        <ChevronRight className="size-3 flex-shrink-0 text-muted-foreground/50" />
+
+        {/* Current (not clickable) */}
+        <span className="truncate max-w-[180px] text-foreground font-medium flex items-center gap-1">
+          <Bot className="size-3 flex-shrink-0" />
+          Sub-session
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Sub-Session Input Banner
+// ============================================================================
+
+function SubSessionBanner() {
+  return (
+    <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] text-muted-foreground bg-muted/20 border-t border-border/30">
+      <Info className="size-3 flex-shrink-0" />
+      <span>This session is managed by a parent agent. You can still send messages to intervene.</span>
+    </div>
+  );
+}
+
+// ============================================================================
+// Debug JSON View
+// ============================================================================
+
+function DebugView({ messages }: { messages: MessageWithParts[] | undefined }) {
+  if (!messages) return <p className="text-xs text-muted-foreground p-4">No messages loaded.</p>;
+
+  return (
+    <div className="flex-1 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed bg-black/5 dark:bg-white/5">
+      {messages.map((msg) => (
+        <details key={msg.info.id} className="mb-3 border border-border/40 rounded-lg overflow-hidden">
+          <summary className="px-3 py-2 bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors flex items-center gap-2">
+            <span className={cn(
+              'px-1.5 py-0.5 rounded text-[10px] font-bold uppercase',
+              msg.info.role === 'user' ? 'bg-blue-500/20 text-blue-500' : 'bg-emerald-500/20 text-emerald-500',
+            )}>
+              {msg.info.role}
+            </span>
+            <span className="text-muted-foreground truncate">{msg.info.id}</span>
+            <span className="ml-auto text-muted-foreground/60">{msg.parts.length} parts</span>
+          </summary>
+          <div className="px-3 py-2 space-y-2">
+            {/* Message info */}
+            <details className="group">
+              <summary className="text-muted-foreground cursor-pointer hover:text-foreground">info</summary>
+              <pre className="mt-1 p-2 rounded bg-muted/40 overflow-x-auto whitespace-pre-wrap break-all">
+                {JSON.stringify(msg.info, null, 2)}
+              </pre>
+            </details>
+            {/* Parts */}
+            {msg.parts.map((part) => (
+              <details key={part.id} className="group">
+                <summary className="cursor-pointer hover:text-foreground flex items-center gap-2">
+                  <span className={cn(
+                    'px-1 py-0.5 rounded text-[9px] font-bold uppercase',
+                    part.type === 'text' ? 'bg-violet-500/20 text-violet-500' :
+                    part.type === 'tool' ? 'bg-orange-500/20 text-orange-500' :
+                    part.type === 'reasoning' ? 'bg-pink-500/20 text-pink-500' :
+                    'bg-gray-500/20 text-gray-500',
+                  )}>
+                    {part.type}
+                  </span>
+                  <span className="text-muted-foreground truncate">
+                    {part.type === 'tool' ? (part as ToolPart).tool : ''}
+                    {part.type === 'text' ? ((part as TextPart).text?.slice(0, 60) + '...') : ''}
+                  </span>
+                  <span className="ml-auto text-muted-foreground/50">{part.id}</span>
+                </summary>
+                <pre className="mt-1 p-2 rounded bg-muted/40 overflow-x-auto whitespace-pre-wrap break-all">
+                  {JSON.stringify(part, null, 2)}
+                </pre>
+              </details>
+            ))}
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
+
+// ============================================================================
+// Highlight @mentions in plain text (for optimistic & user messages)
+// ============================================================================
+
+function HighlightMentions({ text, agentNames, onFileClick }: { text: string; agentNames?: string[]; onFileClick?: (path: string) => void }) {
+  const segments = useMemo(() => {
+    if (!text) return [{ text, type: undefined as 'file' | 'agent' | undefined }];
+    const agentSet = new Set(agentNames || []);
+    const mentionRegex = /@(\S+)/g;
+    const detected: { start: number; end: number; type: 'file' | 'agent' }[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = mentionRegex.exec(text)) !== null) {
+      const name = match[1];
+      const type = agentSet.has(name) ? 'agent' as const : 'file' as const;
+      detected.push({ start: match.index, end: match.index + match[0].length, type });
+    }
+    if (detected.length === 0) return [{ text, type: undefined as 'file' | 'agent' | undefined }];
+    const result: { text: string; type?: 'file' | 'agent' }[] = [];
+    let lastIndex = 0;
+    for (const ref of detected) {
+      if (ref.start < lastIndex) continue;
+      if (ref.start > lastIndex) result.push({ text: text.slice(lastIndex, ref.start) });
+      result.push({ text: text.slice(ref.start, ref.end), type: ref.type });
+      lastIndex = ref.end;
+    }
+    if (lastIndex < text.length) result.push({ text: text.slice(lastIndex) });
+    return result;
+  }, [text, agentNames]);
+
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.type === 'file' && onFileClick ? (
+          <span
+            key={i}
+            className="text-blue-500 font-medium cursor-pointer hover:underline"
+            onClick={(e) => { e.stopPropagation(); onFileClick(seg.text.replace(/^@/, '')); }}
+          >
+            {seg.text}
+          </span>
+        ) : (
+          <span
+            key={i}
+            className={cn(
+              seg.type === 'file' && 'text-blue-500 font-medium',
+              seg.type === 'agent' && 'text-purple-500 font-medium',
+            )}
+          >
+            {seg.text}
+          </span>
+        ),
+      )}
+    </>
+  );
+}
+
+// ============================================================================
+// User Message Row
+// ============================================================================
+
+function UserMessageRow({ message, agentNames }: { message: MessageWithParts; agentNames?: string[] }) {
+  const openFileInComputer = useKortixComputerStore((s) => s.openFileInComputer);
+  const { attachments, stickyParts } = useMemo(
+    () => splitUserParts(message.parts),
+    [message.parts],
+  );
+
+  // Extract text from sticky parts
+  const textParts = stickyParts.filter(isTextPart).filter((p) => (p as TextPart).text?.trim() && !(p as TextPart).synthetic);
+  const text = textParts.map((p) => (p as TextPart).text).join('\n');
+
+  // Inline file references
+  const inlineFiles = stickyParts.filter(isFilePart) as FilePart[];
+  const filesWithSource = inlineFiles.filter(
+    (f) => f.source?.text?.start !== undefined && f.source?.text?.end !== undefined,
+  );
+
+  // Agent mentions
+  const agentParts = stickyParts.filter(isAgentPart) as AgentPart[];
+
+  const [expanded, setExpanded] = useState(false);
+  const [canExpand, setCanExpand] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const textRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = textRef.current;
+    if (!el || expanded) return;
+    setCanExpand(el.scrollHeight > el.clientHeight + 2);
+  }, [text, expanded]);
+
+  const handleCopy = async () => {
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Build highlighted text segments
+  const segments = useMemo(() => {
+    if (!text) return [];
+    const refs = [
+      ...filesWithSource.map((f) => ({
+        start: f.source!.text!.start,
+        end: f.source!.text!.end,
+        type: 'file' as const,
+      })),
+      ...agentParts
+        .filter((a) => a.source?.start !== undefined && a.source?.end !== undefined)
+        .map((a) => ({
+          start: a.source!.start,
+          end: a.source!.end,
+          type: 'agent' as const,
+        })),
+    ].sort((a, b) => a.start - b.start);
+
+    // If server provided source-based refs, use them
+    if (refs.length > 0) {
+      const result: { text: string; type?: 'file' | 'agent' }[] = [];
+      let lastIndex = 0;
+      for (const ref of refs) {
+        if (ref.start < lastIndex) continue;
+        if (ref.start > lastIndex) result.push({ text: text.slice(lastIndex, ref.start) });
+        result.push({ text: text.slice(ref.start, ref.end), type: ref.type });
+        lastIndex = ref.end;
+      }
+      if (lastIndex < text.length) result.push({ text: text.slice(lastIndex) });
+      return result;
+    }
+
+    // Fallback: detect @mentions from text using regex
+    const agentSet = new Set(agentNames || []);
+    const mentionRegex = /@(\S+)/g;
+    const detected: { start: number; end: number; type: 'file' | 'agent' }[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = mentionRegex.exec(text)) !== null) {
+      const name = match[1];
+      const type = agentSet.has(name) ? 'agent' as const : 'file' as const;
+      detected.push({ start: match.index, end: match.index + match[0].length, type });
+    }
+
+    if (detected.length === 0) return [{ text, type: undefined }];
+
+    // Sort by start, prefer longer match on tie
+    detected.sort((a, b) => a.start - b.start || b.end - a.end);
+    const result: { text: string; type?: 'file' | 'agent' }[] = [];
+    let lastIndex = 0;
+    for (const ref of detected) {
+      if (ref.start < lastIndex) continue;
+      if (ref.start > lastIndex) result.push({ text: text.slice(lastIndex, ref.start) });
+      result.push({ text: text.slice(ref.start, ref.end), type: ref.type });
+      lastIndex = ref.end;
+    }
+    if (lastIndex < text.length) result.push({ text: text.slice(lastIndex) });
+    return result;
+  }, [text, filesWithSource, agentParts, agentNames]);
+
+  return (
+    <div className="flex justify-end">
+      <div className="flex flex-col max-w-[90%] rounded-3xl rounded-br-lg bg-card border overflow-hidden">
+        {/* Attachment thumbnails (images/PDFs) */}
+        {attachments.length > 0 && (
+          <div className="flex gap-2 p-3 pb-0 flex-wrap">
+            {attachments.map((file) => (
+              <div key={file.id} className="rounded-lg overflow-hidden border border-border/50">
+                {file.mime?.startsWith('image/') && file.url ? (
+                  <ImagePreview src={file.url} alt={file.filename ?? 'Attachment'}>
+                    <img
+                      src={file.url}
+                      alt={file.filename ?? 'Attachment'}
+                      className="max-h-32 max-w-48 object-cover"
+                    />
+                  </ImagePreview>
+                ) : file.mime === 'application/pdf' ? (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-muted/30">
+                    <FileText className="size-4 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">{file.filename || 'PDF'}</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-muted/30">
+                    <ImageIcon className="size-4 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">{file.filename || 'File'}</span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Text content */}
+        {text && (
+          <div className="relative group px-4 py-3">
+            <div
+              ref={textRef}
+              className={cn(
+                'text-sm leading-relaxed whitespace-pre-wrap break-words min-w-0',
+                !expanded && 'max-h-[80px] overflow-hidden',
+              )}
+              onClick={() => canExpand && setExpanded(!expanded)}
+            >
+              {segments.length > 0 ? (
+                segments.map((seg, i) =>
+                  seg.type === 'file' ? (
+                    <span
+                      key={i}
+                      className="text-blue-500 font-medium cursor-pointer hover:underline"
+                      onClick={(e) => { e.stopPropagation(); openFileInComputer(seg.text.replace(/^@/, '')); }}
+                    >
+                      {seg.text}
+                    </span>
+                  ) : (
+                    <span
+                      key={i}
+                      className={cn(
+                        seg.type === 'agent' && 'text-purple-500 font-medium',
+                      )}
+                    >
+                      {seg.text}
+                    </span>
+                  ),
+                )
+              ) : (
+                <span>{text}</span>
+              )}
+            </div>
+
+            {/* Gradient fade overlay for collapsed long messages */}
+            {canExpand && !expanded && (
+              <div className="absolute inset-x-0 bottom-3 h-10 bg-gradient-to-t from-card to-transparent pointer-events-none" />
+            )}
+
+            {/* Expand/collapse button */}
+            {canExpand && (
+              <button
+                onClick={() => setExpanded(!expanded)}
+                className="absolute bottom-3 right-4 p-1 rounded-md bg-card/80 backdrop-blur-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer z-10"
+              >
+                <ChevronDown className={cn('size-3.5 transition-transform', expanded && 'rotate-180')} />
+              </button>
+            )}
+
+            {/* Copy button (top-right, visible on hover) */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={handleCopy}
+                  className="absolute top-3 right-4 p-1 rounded-md opacity-0 group-hover:opacity-100 bg-card/80 backdrop-blur-sm text-muted-foreground hover:text-foreground transition-all cursor-pointer"
+                >
+                  {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="left">{copied ? 'Copied!' : 'Copy'}</TooltipContent>
+            </Tooltip>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Throttled Markdown — limits re-renders during streaming (100ms)
+// ============================================================================
+
+function ThrottledMarkdown({ content, isStreaming }: { content: string; isStreaming: boolean }) {
+  const throttled = useThrottledValue(content, 100);
+  return <UnifiedMarkdown content={isStreaming ? throttled : content} isStreaming={isStreaming} />;
+}
+
+// ============================================================================
+// Session Turn — core turn component
+// ============================================================================
+
+interface SessionTurnProps {
+  turn: Turn;
+  allMessages: MessageWithParts[];
+  sessionId: string;
+  sessionStatus: import('@/ui').SessionStatus | undefined;
+  permissions: PermissionRequest[];
+  questions: QuestionRequest[];
+  stepsExpanded: boolean;
+  onToggleSteps: () => void;
+  onPermissionReply: (requestId: string, reply: 'once' | 'always' | 'reject') => Promise<void>;
+  onQuestionReply: (requestId: string, answers: string[][]) => Promise<void>;
+  onQuestionReject: (requestId: string) => Promise<void>;
+  agentNames?: string[];
+}
+
+function SessionTurn({
+  turn,
+  allMessages,
+  sessionId,
+  sessionStatus,
+  permissions,
+  questions,
+  stepsExpanded,
+  onToggleSteps,
+  onPermissionReply,
+  onQuestionReply,
+  onQuestionReject,
+  agentNames,
+}: SessionTurnProps) {
+  const [copied, setCopied] = useState(false);
+
+  // Derived state from shared helpers
+  const allParts = useMemo(() => collectTurnParts(turn), [turn]);
+  const isLast = useMemo(
+    () => isLastUserMessage(turn.userMessage.info.id, allMessages),
+    [turn.userMessage.info.id, allMessages],
+  );
+  const working = useMemo(
+    () => getWorkingState(sessionStatus, isLast),
+    [sessionStatus, isLast],
+  );
+  const hasSteps = useMemo(() => turnHasSteps(allParts), [allParts]);
+  const lastTodoWriteId = useMemo(() => {
+    for (let i = allParts.length - 1; i >= 0; i--) {
+      const p = allParts[i].part;
+      if (isToolPart(p) && p.tool === 'todowrite') return p.id;
+    }
+    return undefined;
+  }, [allParts]);
+  const lastTextPart = useMemo(() => findLastTextPart(allParts), [allParts]);
+  const responsePartId = lastTextPart?.id;
+  const response = lastTextPart?.text?.trim();
+  const hideResponse = useMemo(
+    () => shouldHideResponsePart(working, responsePartId),
+    [working, responsePartId],
+  );
+
+  // Retry info (only on last turn)
+  const retryInfo = useMemo(
+    () => (isLast ? getRetryInfo(sessionStatus) : undefined),
+    [sessionStatus, isLast],
+  );
+
+  // Cost info (only when not working)
+  const costInfo = useMemo(
+    () => (!working ? getTurnCost(allParts) : undefined),
+    [allParts, working],
+  );
+
+  // Turn error
+  const turnError = useMemo(() => getTurnError(turn), [turn]);
+
+  // Shell mode detection
+  const shellModePart = useMemo(() => getShellModePart(turn), [turn]);
+
+  // Permission/question matching for this session
+  const nextPermission = useMemo(
+    () => permissions.filter((p) => p.sessionID === sessionId)[0],
+    [permissions, sessionId],
+  );
+  const nextQuestion = useMemo(
+    () => questions.filter((q) => q.sessionID === sessionId)[0],
+    [questions, sessionId],
+  );
+
+  // Hidden tool parts (when permission/question is active)
+  const hidden = useMemo(
+    () => getHiddenToolParts(nextPermission, nextQuestion),
+    [nextPermission, nextQuestion],
+  );
+
+  // Answered question parts (shown outside collapsed steps)
+  const answeredQuestionParts = useMemo(
+    () => getAnsweredQuestionParts(turn, stepsExpanded, !!nextQuestion),
+    [turn, stepsExpanded, nextQuestion],
+  );
+
+  // ---- Status throttling (2.5s) ----
+  const lastStatusChangeRef = useRef(Date.now());
+  const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const childMessages = undefined as MessageWithParts[] | undefined; // placeholder for child session delegation
+  const rawStatus = useMemo(() => getTurnStatus(allParts, childMessages), [allParts]);
+  const [throttledStatus, setThrottledStatus] = useState('');
+
+  useEffect(() => {
+    const newStatus = rawStatus;
+    if (newStatus === throttledStatus || !newStatus) return;
+    const elapsed = Date.now() - lastStatusChangeRef.current;
+    if (elapsed >= 2500) {
+      setThrottledStatus(newStatus);
+      lastStatusChangeRef.current = Date.now();
+    } else {
+      clearTimeout(statusTimeoutRef.current);
+      statusTimeoutRef.current = setTimeout(() => {
+        setThrottledStatus(getTurnStatus(allParts, childMessages));
+        lastStatusChangeRef.current = Date.now();
+      }, 2500 - elapsed);
+    }
+    return () => clearTimeout(statusTimeoutRef.current);
+  }, [allParts, rawStatus, throttledStatus]);
+
+  // ---- Retry countdown ----
+  const [retrySecondsLeft, setRetrySecondsLeft] = useState(0);
+  useEffect(() => {
+    if (!retryInfo) { setRetrySecondsLeft(0); return; }
+    const update = () => setRetrySecondsLeft(Math.max(0, Math.round((retryInfo.next - Date.now()) / 1000)));
+    update();
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, [retryInfo]);
+
+  // ---- Duration ticking ----
+  const [duration, setDuration] = useState('');
+  useEffect(() => {
+    if (!working) {
+      const startTime = turn.userMessage.info.time.created;
+      const lastMsg = turn.assistantMessages[turn.assistantMessages.length - 1];
+      const endTime = (lastMsg?.info as any)?.time?.completed || (lastMsg?.info as any)?.time?.created || startTime;
+      setDuration(formatDuration(endTime - startTime));
+      return;
+    }
+    const startTime = turn.userMessage.info.time.created;
+    const update = () => setDuration(formatDuration(Date.now() - startTime));
+    update();
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, [working, turn]);
+
+  // ---- Copy response ----
+  const handleCopy = async () => {
+    if (!response) return;
+    await navigator.clipboard.writeText(response);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Attachment images from user message
+  const { attachments } = useMemo(
+    () => splitUserParts(turn.userMessage.parts),
+    [turn.userMessage.parts],
+  );
+
+  // ============================================================================
+  // Shell mode — short-circuit rendering
+  // ============================================================================
+
+  if (shellModePart) {
+    return (
+      <div className="space-y-1">
+         <ToolPartRenderer
+          part={shellModePart}
+          sessionId={sessionId}
+          permission={nextPermission?.tool ? nextPermission : undefined}
+          question={nextQuestion?.tool ? nextQuestion : undefined}
+          onPermissionReply={onPermissionReply}
+          onQuestionReply={onQuestionReply}
+          onQuestionReject={onQuestionReject}
+          defaultOpen
+        />
+        {turnError && (
+          <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-destructive/5 border border-destructive/20 text-xs">
+            <AlertTriangle className="size-3.5 text-destructive flex-shrink-0 mt-0.5" />
+            <span className="text-destructive/90 break-all">{turnError}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ============================================================================
+  // Normal mode rendering
+  // ============================================================================
+
+  return (
+    <div className="space-y-3">
+      <div>
+        {/* User message */}
+        <UserMessageRow message={turn.userMessage} agentNames={agentNames} />
+
+        {/* Steps trigger button */}
+        {(working || hasSteps) && (
+          <button
+            onClick={onToggleSteps}
+            aria-expanded={stepsExpanded}
+            className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors py-1 mt-3 cursor-pointer"
+          >
+            {/* Indicator icon */}
+            <ChevronRight
+              className={cn(
+                'size-3 transition-transform flex-shrink-0 text-muted-foreground',
+                stepsExpanded && 'rotate-90',
+              )}
+            />
+            {working && (
+              <Loader2 className="size-3 animate-spin flex-shrink-0" />
+            )}
+
+            {/* Status text / retry info / show-hide label */}
+            <span>
+              {retryInfo
+                ? retryInfo.message.length > 60
+                  ? retryInfo.message.slice(0, 60) + '...'
+                  : retryInfo.message
+                : working
+                  ? throttledStatus
+                  : stepsExpanded
+                    ? 'Hide steps'
+                    : 'Show steps'}
+            </span>
+
+            {/* Retry countdown + attempt */}
+            {retryInfo && (
+              <>
+                <span className="text-muted-foreground/50">·</span>
+                <span className="text-amber-500">
+                  Retrying{retrySecondsLeft > 0 ? ` in ${retrySecondsLeft}s` : ''}
+                </span>
+                <span className="text-muted-foreground/50">(#{retryInfo.attempt})</span>
+              </>
+            )}
+
+            {/* Duration */}
+            <span className="text-muted-foreground/50">·</span>
+            <span className="text-muted-foreground/70">{duration}</span>
+
+            {/* Cost & tokens (when done) */}
+            {costInfo && !working && (
+              <>
+                <span className="text-muted-foreground/50">·</span>
+                <span className="text-muted-foreground/70">{formatCost(costInfo.cost)}</span>
+                <span className="text-muted-foreground/50">·</span>
+                <span className="text-muted-foreground/70">
+                  {formatTokens(costInfo.tokens.input + costInfo.tokens.output)}t
+                </span>
+              </>
+            )}
+          </button>
+        )}
+      </div>
+
+      {/* Expanded steps content (outside sticky container) */}
+      {(working || hasSteps) && stepsExpanded && turn.assistantMessages.length > 0 && (
+        <div className="space-y-1.5 pl-0.5">
+          {allParts.map(({ part, message }) => {
+            // Skip the response text part (shown separately below)
+            if (hideResponse && part.id === responsePartId) return null;
+
+            // Reasoning — hidden when turn is done
+            if (isReasoningPart(part)) {
+              if (!working) return null;
+              if (!part.text?.trim()) return null;
+              return (
+                <div key={part.id} className="text-sm text-muted-foreground italic">
+                  <ThrottledMarkdown content={part.text} isStreaming={true} />
+                </div>
+              );
+            }
+
+            // Text parts — render as markdown
+            if (isTextPart(part) && part.text?.trim()) {
+              const isStreamingText = working && part.id === lastTextPart?.id;
+              return (
+                <div key={part.id} className="text-sm">
+                  {isStreamingText ? (
+                    <ThrottledMarkdown content={part.text} isStreaming={true} />
+                  ) : (
+                    <UnifiedMarkdown content={part.text} isStreaming={false} />
+                  )}
+                </div>
+              );
+            }
+
+            // Tool parts
+            if (isToolPart(part)) {
+              if (!shouldShowToolPart(part)) return null;
+              // Only show the last todowrite (it contains the latest state)
+              if (part.tool === 'todowrite' && part.id !== lastTodoWriteId) return null;
+              // Hide tool parts that have active permission/question
+              if (isToolPartHidden(part, message.info.id, hidden)) return null;
+
+              const perm = getPermissionForTool(permissions, part.callID);
+              const question = getQuestionForTool(questions, part.callID);
+
+              return (
+                <ToolPartRenderer
+                  key={part.id}
+                  part={part}
+                  sessionId={sessionId}
+                  permission={perm}
+                  question={question}
+                  onPermissionReply={onPermissionReply}
+                  onQuestionReply={onQuestionReply}
+                  onQuestionReject={onQuestionReject}
+                />
+              );
+            }
+
+            return null;
+          })}
+
+          {/* Error at bottom of steps */}
+          {turnError && (
+            <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-destructive/5 border border-destructive/20 text-xs">
+              <AlertTriangle className="size-3.5 text-destructive flex-shrink-0 mt-0.5" />
+              <span className="text-destructive/90 break-all">{turnError}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Answered question parts (shown when steps collapsed + no active question) */}
+      {(working || hasSteps) && !stepsExpanded && answeredQuestionParts.length > 0 && (
+        <div className="space-y-1.5">
+          {answeredQuestionParts.map(({ part }) => (
+            <ToolPartRenderer
+              key={part.id}
+              part={part as ToolPart}
+              sessionId={sessionId}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Busy indicator when no assistant messages yet */}
+      {working && turn.assistantMessages.length === 0 && (
+        <div className="flex items-center gap-3 mt-3">
+          <img
+            src="/kortix-logomark-white.svg"
+            alt="Kortix"
+            className="dark:invert-0 invert flex-shrink-0 animate-pulse"
+            style={{ height: '14px', width: 'auto' }}
+          />
+          <KortixLoader size="small" />
+        </div>
+      )}
+
+      {/* Response section (final text, shown when done) */}
+      {!working && response && (
+        <div className="mt-3">
+          <div className="flex items-center gap-2 mb-2">
+            <img
+              src="/kortix-logomark-white.svg"
+              alt="Kortix"
+              className="dark:invert-0 invert flex-shrink-0"
+              style={{ height: '12px', width: 'auto' }}
+            />
+            <span className="text-xs font-medium text-muted-foreground">Response</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={handleCopy}
+                  className="ml-auto p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                >
+                  {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{copied ? 'Copied!' : 'Copy'}</TooltipContent>
+            </Tooltip>
+          </div>
+          <div className="text-sm">
+            <UnifiedMarkdown content={response} isStreaming={false} />
+          </div>
+          <div className="sr-only" aria-live="polite">
+            {response}
+          </div>
+        </div>
+      )}
+
+      {/* Streaming text when working and steps not expanded */}
+      {working && !stepsExpanded && lastTextPart?.text?.trim() && (
+        <div className="mt-3">
+          <div className="flex items-center gap-2 mb-2">
+            <img
+              src="/kortix-logomark-white.svg"
+              alt="Kortix"
+              className="dark:invert-0 invert flex-shrink-0 animate-pulse"
+              style={{ height: '12px', width: 'auto' }}
+            />
+          </div>
+          <div className="text-sm">
+            <ThrottledMarkdown content={lastTextPart.text} isStreaming={true} />
+          </div>
+        </div>
+      )}
+
+
+      {/* Error shown outside steps when collapsed */}
+      {turnError && !stepsExpanded && (
+        <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-destructive/5 border border-destructive/20 text-xs">
+          <AlertTriangle className="size-3.5 text-destructive flex-shrink-0 mt-0.5" />
+          <span className="text-destructive/90 break-all">{turnError}</span>
+        </div>
+      )}
+
+      {/* Standalone permission (no tool ref) */}
+      {nextPermission && !nextPermission.tool && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-500/5">
+          <span className="text-xs text-foreground flex-1">
+            Permission required: <span className="font-medium">{nextPermission.permission}</span>
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => onPermissionReply(nextPermission.id, 'reject')}
+              className="px-2 py-1 text-[11px] rounded-md text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
+            >
+              Deny
+            </button>
+            <button
+              onClick={() => onPermissionReply(nextPermission.id, 'always')}
+              className="px-2 py-1 text-[11px] rounded-md text-foreground hover:bg-muted transition-colors cursor-pointer border border-border"
+            >
+              Allow always
+            </button>
+            <button
+              onClick={() => onPermissionReply(nextPermission.id, 'once')}
+              className="px-2 py-1 text-[11px] rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer"
+            >
+              Allow once
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Standalone question (no tool ref) */}
+      {nextQuestion && !nextQuestion.tool && (
+        <QuestionPrompt
+          request={nextQuestion}
+          onReply={onQuestionReply}
+          onReject={onQuestionReject}
+        />
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Main SessionChat Component
+// ============================================================================
+
+interface SessionChatProps {
+  sessionId: string;
+}
+
+export function SessionChat({ sessionId }: SessionChatProps) {
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<{ providerID: string; modelID: string } | null>(null);
+  const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
+  const [debugMode, setDebugMode] = useState(false);
+
+  // ---- KortixComputer side panel ----
+  const { isSidePanelOpen, setIsSidePanelOpen, openFileInComputer } = useKortixComputerStore();
+  const handleTogglePanel = useCallback(() => {
+    setIsSidePanelOpen(!isSidePanelOpen);
+  }, [isSidePanelOpen, setIsSidePanelOpen]);
+
+  // ---- Hooks ----
+  const { data: session, isLoading: sessionLoading } = useOpenCodeSession(sessionId);
+  const { data: messages, isLoading: messagesLoading } = useOpenCodeMessages(sessionId);
+  const { data: agents } = useOpenCodeAgents();
+  const { data: commands } = useOpenCodeCommands();
+  const { data: providers } = useOpenCodeProviders();
+  const sendMessage = useSendOpenCodeMessage();
+  const abortSession = useAbortOpenCodeSession();
+  const executeCommand = useExecuteOpenCodeCommand();
+  const summarizeSession = useSummarizeOpenCodeSession();
+
+  // ---- URL params ----
+  const searchParams = useSearchParams();
+  const isNewSession = searchParams.get('new') === 'true';
+  const isDebugEnabled = searchParams.has('debug');
+  const pendingPromptHandled = useRef(false);
+
+  // ---- Optimistic prompt ----
+  const [optimisticPrompt, setOptimisticPrompt] = useState<string | null>(() => {
+    if (typeof window !== 'undefined' && isNewSession) {
+      return sessionStorage.getItem('opencode_pending_prompt');
+    }
+    return null;
+  });
+
+  // Auto-send pending prompt for new sessions
+  useEffect(() => {
+    if (!isNewSession || pendingPromptHandled.current) return;
+    const pendingPrompt = sessionStorage.getItem('opencode_pending_prompt');
+    if (pendingPrompt) {
+      pendingPromptHandled.current = true;
+      sessionStorage.removeItem('opencode_pending_prompt');
+
+      let pendingOptions: Record<string, unknown> | undefined;
+      try {
+        const raw = sessionStorage.getItem('opencode_pending_options');
+        if (raw) {
+          pendingOptions = JSON.parse(raw);
+          sessionStorage.removeItem('opencode_pending_options');
+          if (pendingOptions?.agent) setSelectedAgent(pendingOptions.agent as string);
+          if (pendingOptions?.model) setSelectedModel(pendingOptions.model as { providerID: string; modelID: string });
+          if (pendingOptions?.variant) setSelectedVariant(pendingOptions.variant as string);
+        }
+      } catch {
+        // ignore
+      }
+
+      sendMessage.mutate({
+        sessionId,
+        parts: [{ type: 'text', text: pendingPrompt }],
+        options: pendingOptions && Object.keys(pendingOptions).length > 0 ? pendingOptions as any : undefined,
+      });
+      window.history.replaceState({}, '', `/sessions/${sessionId}`);
+    }
+  }, [isNewSession, sessionId, sendMessage]);
+
+  // Clear optimistic prompt once real messages arrive
+  useEffect(() => {
+    if (optimisticPrompt && messages && messages.length > 0) {
+      setOptimisticPrompt(null);
+    }
+  }, [optimisticPrompt, messages]);
+
+  // ---- Filter agents: exclude subagents and hidden ----
+  const visibleAgents = useMemo(
+    () => (agents || []).filter((a) => a.mode !== 'subagent' && !a.hidden),
+    [agents],
+  );
+
+  const agentNames = useMemo(
+    () => visibleAgents.map((a) => a.name),
+    [visibleAgents],
+  );
+
+  // ---- Flatten models from providers ----
+  const flatModels = useMemo(() => flattenModels(providers), [providers]);
+
+  // ---- Check if any messages have tool calls ----
+  const hasToolCalls = useMemo(() => {
+    if (!messages) return false;
+    return messages.some((msg) =>
+      msg.parts?.some((p) => p.type === 'tool'),
+    );
+  }, [messages]);
+
+  // ---- Compute variants for selected model ----
+  const currentVariants = useMemo(() => {
+    if (!selectedModel) {
+      const first = flatModels[0];
+      return first?.variants ? Object.keys(first.variants) : [];
+    }
+    const model = flatModels.find(
+      (m) => m.providerID === selectedModel.providerID && m.modelID === selectedModel.modelID,
+    );
+    return model?.variants ? Object.keys(model.variants) : [];
+  }, [selectedModel, flatModels]);
+
+  // ---- Session status ----
+  const sessionStatus = useOpenCodeSessionStatusStore(
+    (s) => s.statuses[sessionId],
+  );
+  const isBusy = sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry';
+
+  // ---- Auto-scroll (replaces inline scroll logic) ----
+  const { scrollRef, contentRef, showScrollButton, scrollToBottom } = useAutoScroll({
+    working: isBusy,
+  });
+
+  // ---- Pending permissions & questions ----
+  const allPermissions = useOpenCodePendingStore((s) => s.permissions);
+  const allQuestions = useOpenCodePendingStore((s) => s.questions);
+  const pendingPermissions = useMemo(
+    () => Object.values(allPermissions).filter((p) => p.sessionID === sessionId),
+    [allPermissions, sessionId],
+  );
+  const pendingQuestions = useMemo(
+    () => Object.values(allQuestions).filter((q) => q.sessionID === sessionId),
+    [allQuestions, sessionId],
+  );
+
+  // ---- Permission/question reply handlers ----
+  const removePermission = useOpenCodePendingStore((s) => s.removePermission);
+  const removeQuestion = useOpenCodePendingStore((s) => s.removeQuestion);
+
+  const handlePermissionReply = useCallback(
+    async (requestId: string, reply: 'once' | 'always' | 'reject') => {
+      try {
+        await replyToPermission(requestId, reply);
+        removePermission(requestId);
+      } catch {
+        // ignore
+      }
+    },
+    [removePermission],
+  );
+
+  const handleQuestionReply = useCallback(
+    async (requestId: string, answers: string[][]) => {
+      try {
+        await replyToQuestion(requestId, answers);
+        removeQuestion(requestId);
+      } catch {
+        // ignore
+      }
+    },
+    [removeQuestion],
+  );
+
+  const handleQuestionReject = useCallback(
+    async (requestId: string) => {
+      try {
+        await rejectQuestion(requestId);
+        removeQuestion(requestId);
+      } catch {
+        // ignore
+      }
+    },
+    [removeQuestion],
+  );
+
+  // ---- Group messages into turns ----
+  const turns = useMemo(
+    () => (messages ? groupMessagesIntoTurns(messages) : []),
+    [messages],
+  );
+
+  // ============================================================================
+  // Expanded state management (keyed by user message ID)
+  // ============================================================================
+
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  // Auto-expand last turn when session is busy
+  useEffect(() => {
+    if (!messages || messages.length === 0) return;
+    const lastUserId = [...messages].reverse().find((m) => m.info.role === 'user')?.info.id;
+    if (lastUserId && sessionStatus?.type !== 'idle') {
+      setExpanded((prev) => ({ ...prev, [lastUserId]: true }));
+    }
+  }, [sessionStatus, messages]);
+
+  // Reset on session change
+  useEffect(() => {
+    setExpanded({});
+  }, [sessionId]);
+
+  const toggleExpanded = useCallback((id: string) => {
+    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  }, []);
+
+  // ============================================================================
+  // Send / Stop / Command handlers
+  // ============================================================================
+
+  const handleSend = useCallback(
+    (text: string) => {
+      const options: Record<string, unknown> = {};
+      if (selectedAgent) options.agent = selectedAgent;
+      if (selectedModel) options.model = selectedModel;
+      if (selectedVariant) options.variant = selectedVariant;
+      sendMessage.mutate({
+        sessionId,
+        parts: [{ type: 'text', text }],
+        options: Object.keys(options).length > 0 ? options as any : undefined,
+      });
+    },
+    [sessionId, sendMessage, selectedAgent, selectedModel, selectedVariant],
+  );
+
+  const handleStop = useCallback(() => {
+    abortSession.mutate(sessionId);
+  }, [sessionId, abortSession]);
+
+  const handleCommand = useCallback(
+    (cmd: Command) => {
+      if (cmd.name === 'compact') {
+        summarizeSession.mutate(sessionId);
+      } else {
+        executeCommand.mutate({ sessionId, command: cmd.name });
+      }
+    },
+    [sessionId, executeCommand, summarizeSession],
+  );
+
+  const handleFileSearch = useCallback(async (query: string): Promise<string[]> => {
+    try {
+      return await findOpenCodeFiles(query);
+    } catch {
+      return [];
+    }
+  }, []);
+
+  // ============================================================================
+  // Loading / Not-found states
+  // ============================================================================
+
+  if ((sessionLoading || messagesLoading) && !optimisticPrompt) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <KortixLoader size="small" />
+      </div>
+    );
+  }
+
+  if (!session && !optimisticPrompt) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
+        Session not found
+      </div>
+    );
+  }
+
+  const hasMessages = messages && messages.length > 0;
+  const showOptimistic = !!optimisticPrompt && !hasMessages;
+
+  // ============================================================================
+  // Render
+  // ============================================================================
+
+  return (
+    <div className="relative flex flex-col h-full bg-background">
+      {/* Sub-session breadcrumb */}
+      {session?.parentID && (
+        <SubSessionBreadcrumb sessionId={sessionId} parentID={session.parentID} />
+      )}
+
+      {/* Debug mode toggle — floating, only visible when ?debug is in URL */}
+      {isDebugEnabled && hasMessages && (
+        <button
+          onClick={() => setDebugMode(!debugMode)}
+          className={cn(
+            'absolute bottom-20 right-4 z-50 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-medium shadow-lg border transition-colors cursor-pointer backdrop-blur-sm',
+            debugMode
+              ? 'bg-orange-500/15 text-orange-500 border-orange-500/30 hover:bg-orange-500/25'
+              : 'bg-background/80 text-muted-foreground/60 border-border/50 hover:text-muted-foreground hover:bg-muted/60',
+          )}
+        >
+          <Bug className="size-3" />
+          {debugMode ? 'Debug ON' : 'Debug'}
+        </button>
+      )}
+
+      {/* Debug view */}
+      {isDebugEnabled && debugMode && hasMessages ? (
+        <DebugView messages={messages} />
+      ) : (hasMessages || showOptimistic) ? (
+        <div className="relative flex-1 min-h-0">
+          <div
+            ref={scrollRef}
+            className="flex-1 overflow-y-auto scrollbar-hide px-4 py-4 pb-6 bg-background h-full"
+          >
+            <div
+              ref={contentRef}
+              role="log"
+              className="mx-auto max-w-3xl min-w-0 w-full px-3 sm:px-6"
+            >
+              <div className="flex flex-col gap-12 min-w-0">
+                {/* Optimistic user message */}
+                {showOptimistic && (
+                  <>
+                    <div className="flex justify-end">
+                      <div className="flex max-w-[90%] rounded-3xl rounded-br-lg bg-card border px-4 py-3 break-words overflow-hidden">
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                          <HighlightMentions text={optimisticPrompt || ''} agentNames={agentNames} onFileClick={openFileInComputer} />
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <img
+                        src="/kortix-logomark-white.svg"
+                        alt="Kortix"
+                        className="dark:invert-0 invert flex-shrink-0 animate-pulse"
+                        style={{ height: '14px', width: 'auto' }}
+                      />
+                      <KortixLoader size="small" />
+                    </div>
+                  </>
+                )}
+
+                {/* Turn-based message rendering */}
+                {turns.map((turn) => (
+                  <SessionTurn
+                    key={turn.userMessage.info.id}
+                    turn={turn}
+                    allMessages={messages!}
+                    sessionId={sessionId}
+                    sessionStatus={sessionStatus}
+                    permissions={pendingPermissions}
+                    questions={pendingQuestions}
+                    stepsExpanded={!!expanded[turn.userMessage.info.id]}
+                    onToggleSteps={() => toggleExpanded(turn.userMessage.info.id)}
+                    onPermissionReply={handlePermissionReply}
+                    onQuestionReply={handleQuestionReply}
+                    onQuestionReject={handleQuestionReject}
+                    agentNames={agentNames}
+                  />
+                ))}
+
+                {/* Busy indicator when no turns yet but session is busy */}
+                {!showOptimistic && isBusy && turns.length === 0 && (
+                  <div className="flex items-center gap-3">
+                    <img
+                      src="/kortix-logomark-white.svg"
+                      alt="Kortix"
+                      className="dark:invert-0 invert flex-shrink-0 animate-pulse"
+                      style={{ height: '14px', width: 'auto' }}
+                    />
+                    <KortixLoader size="small" />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Scroll to bottom FAB */}
+          <div
+            className={cn(
+              'absolute bottom-4 left-1/2 -translate-x-1/2 transition-all',
+              showScrollButton
+                ? 'opacity-100 translate-y-0'
+                : 'opacity-0 translate-y-2 pointer-events-none',
+            )}
+          >
+            <Button
+              variant="secondary"
+              size="sm"
+              className="rounded-full shadow-md h-7 text-xs"
+              onClick={scrollToBottom}
+            >
+              <ArrowDown className="size-3 mr-1" />
+              Scroll to bottom
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <SessionWelcome showPrompts onPromptSelect={handleSend} />
+      )}
+
+      {/* Sub-session banner */}
+      {session?.parentID && <SubSessionBanner />}
+
+      {/* Input */}
+      <SessionChatInput
+        onSend={handleSend}
+        isBusy={isBusy}
+        onStop={handleStop}
+        agents={visibleAgents}
+        selectedAgent={selectedAgent}
+        onAgentChange={setSelectedAgent}
+        commands={commands || []}
+        onCommand={handleCommand}
+        models={flatModels}
+        selectedModel={selectedModel}
+        onModelChange={setSelectedModel}
+        variants={currentVariants}
+        selectedVariant={selectedVariant}
+        onVariantChange={setSelectedVariant}
+        messages={messages}
+        onTogglePanel={handleTogglePanel}
+        isPanelOpen={isSidePanelOpen}
+        hasToolCalls={hasToolCalls}
+        onFileSearch={handleFileSearch}
+      />
+    </div>
+  );
+}
