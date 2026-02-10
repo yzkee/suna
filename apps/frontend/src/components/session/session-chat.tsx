@@ -263,10 +263,56 @@ function DebugView({ messages }: { messages: MessageWithParts[] | undefined }) {
 }
 
 // ============================================================================
+// Highlight @mentions in plain text (for optimistic & user messages)
+// ============================================================================
+
+function HighlightMentions({ text, agentNames }: { text: string; agentNames?: string[] }) {
+  const segments = useMemo(() => {
+    if (!text) return [{ text, type: undefined as 'file' | 'agent' | undefined }];
+    const agentSet = new Set(agentNames || []);
+    const mentionRegex = /@(\S+)/g;
+    const detected: { start: number; end: number; type: 'file' | 'agent' }[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = mentionRegex.exec(text)) !== null) {
+      const name = match[1];
+      const type = agentSet.has(name) ? 'agent' as const : 'file' as const;
+      detected.push({ start: match.index, end: match.index + match[0].length, type });
+    }
+    if (detected.length === 0) return [{ text, type: undefined as 'file' | 'agent' | undefined }];
+    const result: { text: string; type?: 'file' | 'agent' }[] = [];
+    let lastIndex = 0;
+    for (const ref of detected) {
+      if (ref.start < lastIndex) continue;
+      if (ref.start > lastIndex) result.push({ text: text.slice(lastIndex, ref.start) });
+      result.push({ text: text.slice(ref.start, ref.end), type: ref.type });
+      lastIndex = ref.end;
+    }
+    if (lastIndex < text.length) result.push({ text: text.slice(lastIndex) });
+    return result;
+  }, [text, agentNames]);
+
+  return (
+    <>
+      {segments.map((seg, i) => (
+        <span
+          key={i}
+          className={cn(
+            seg.type === 'file' && 'text-blue-500 font-medium',
+            seg.type === 'agent' && 'text-purple-500 font-medium',
+          )}
+        >
+          {seg.text}
+        </span>
+      ))}
+    </>
+  );
+}
+
+// ============================================================================
 // User Message Row
 // ============================================================================
 
-function UserMessageRow({ message }: { message: MessageWithParts }) {
+function UserMessageRow({ message, agentNames }: { message: MessageWithParts; agentNames?: string[] }) {
   const { attachments, stickyParts } = useMemo(
     () => splitUserParts(message.parts),
     [message.parts],
@@ -321,11 +367,38 @@ function UserMessageRow({ message }: { message: MessageWithParts }) {
         })),
     ].sort((a, b) => a.start - b.start);
 
-    if (refs.length === 0) return [{ text, type: undefined }];
+    // If server provided source-based refs, use them
+    if (refs.length > 0) {
+      const result: { text: string; type?: 'file' | 'agent' }[] = [];
+      let lastIndex = 0;
+      for (const ref of refs) {
+        if (ref.start < lastIndex) continue;
+        if (ref.start > lastIndex) result.push({ text: text.slice(lastIndex, ref.start) });
+        result.push({ text: text.slice(ref.start, ref.end), type: ref.type });
+        lastIndex = ref.end;
+      }
+      if (lastIndex < text.length) result.push({ text: text.slice(lastIndex) });
+      return result;
+    }
 
+    // Fallback: detect @mentions from text using regex
+    const agentSet = new Set(agentNames || []);
+    const mentionRegex = /@(\S+)/g;
+    const detected: { start: number; end: number; type: 'file' | 'agent' }[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = mentionRegex.exec(text)) !== null) {
+      const name = match[1];
+      const type = agentSet.has(name) ? 'agent' as const : 'file' as const;
+      detected.push({ start: match.index, end: match.index + match[0].length, type });
+    }
+
+    if (detected.length === 0) return [{ text, type: undefined }];
+
+    // Sort by start, prefer longer match on tie
+    detected.sort((a, b) => a.start - b.start || b.end - a.end);
     const result: { text: string; type?: 'file' | 'agent' }[] = [];
     let lastIndex = 0;
-    for (const ref of refs) {
+    for (const ref of detected) {
       if (ref.start < lastIndex) continue;
       if (ref.start > lastIndex) result.push({ text: text.slice(lastIndex, ref.start) });
       result.push({ text: text.slice(ref.start, ref.end), type: ref.type });
@@ -333,7 +406,7 @@ function UserMessageRow({ message }: { message: MessageWithParts }) {
     }
     if (lastIndex < text.length) result.push({ text: text.slice(lastIndex) });
     return result;
-  }, [text, filesWithSource, agentParts]);
+  }, [text, filesWithSource, agentParts, agentNames]);
 
   return (
     <div className="flex justify-end">
@@ -454,6 +527,7 @@ interface SessionTurnProps {
   onPermissionReply: (requestId: string, reply: 'once' | 'always' | 'reject') => Promise<void>;
   onQuestionReply: (requestId: string, answers: string[][]) => Promise<void>;
   onQuestionReject: (requestId: string) => Promise<void>;
+  agentNames?: string[];
 }
 
 function SessionTurn({
@@ -468,6 +542,7 @@ function SessionTurn({
   onPermissionReply,
   onQuestionReply,
   onQuestionReject,
+  agentNames,
 }: SessionTurnProps) {
   const [copied, setCopied] = useState(false);
 
@@ -637,7 +712,7 @@ function SessionTurn({
     <div className="space-y-3">
       <div>
         {/* User message */}
-        <UserMessageRow message={turn.userMessage} />
+        <UserMessageRow message={turn.userMessage} agentNames={agentNames} />
 
         {/* Steps trigger button */}
         {(working || hasSteps) && (
@@ -984,6 +1059,11 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     [agents],
   );
 
+  const agentNames = useMemo(
+    () => visibleAgents.map((a) => a.name),
+    [visibleAgents],
+  );
+
   // ---- Flatten models from providers ----
   const flatModels = useMemo(() => flattenModels(providers), [providers]);
 
@@ -1213,7 +1293,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                     <div className="flex justify-end">
                       <div className="flex max-w-[90%] rounded-3xl rounded-br-lg bg-card border px-4 py-3 break-words overflow-hidden">
                         <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                          {optimisticPrompt}
+                          <HighlightMentions text={optimisticPrompt || ''} agentNames={agentNames} />
                         </p>
                       </div>
                     </div>
@@ -1244,6 +1324,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                     onPermissionReply={handlePermissionReply}
                     onQuestionReply={handleQuestionReply}
                     onQuestionReject={handleQuestionReject}
+                    agentNames={agentNames}
                   />
                 ))}
 

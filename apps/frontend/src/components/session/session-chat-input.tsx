@@ -627,6 +627,7 @@ export function SessionChatInput({
 }: SessionChatInputProps) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const highlightRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [slashFilter, setSlashFilter] = useState<string | null>(null);
   const [slashIndex, setSlashIndex] = useState(0);
@@ -765,7 +766,11 @@ export function SessionChatInput({
         ta.selectionStart = cursorPos;
         ta.selectionEnd = cursorPos;
         ta.style.height = 'auto';
-        ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
+        const newHeight = Math.min(ta.scrollHeight, 200) + 'px';
+        ta.style.height = newHeight;
+        if (highlightRef.current) {
+          highlightRef.current.style.height = newHeight;
+        }
       }
     });
   }
@@ -902,12 +907,44 @@ export function SessionChatInput({
 
     const ta = e.target;
     ta.style.height = 'auto';
-    ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
+    const newHeight = Math.min(ta.scrollHeight, 200) + 'px';
+    ta.style.height = newHeight;
+    // Sync overlay height
+    if (highlightRef.current) {
+      highlightRef.current.style.height = newHeight;
+    }
   }
 
   const handleTranscription = useCallback((transcribedText: string) => {
     setText((prev) => (prev ? `${prev} ${transcribedText}` : transcribedText));
   }, []);
+
+  // Build highlighted segments for the overlay behind the textarea
+  const highlightSegments = useMemo(() => {
+    if (mentions.length === 0 || !text) return null;
+    // Collect all mention ranges sorted by position
+    const ranges: { start: number; end: number; kind: 'file' | 'agent' }[] = [];
+    for (const m of mentions) {
+      const needle = `@${m.label}`;
+      const idx = text.indexOf(needle);
+      if (idx !== -1) {
+        ranges.push({ start: idx, end: idx + needle.length, kind: m.kind });
+      }
+    }
+    if (ranges.length === 0) return null;
+    ranges.sort((a, b) => a.start - b.start || b.end - a.end);
+
+    const segs: { text: string; kind?: 'file' | 'agent' }[] = [];
+    let last = 0;
+    for (const r of ranges) {
+      if (r.start < last) continue;
+      if (r.start > last) segs.push({ text: text.slice(last, r.start) });
+      segs.push({ text: text.slice(r.start, r.end), kind: r.kind });
+      last = r.end;
+    }
+    if (last < text.length) segs.push({ text: text.slice(last) });
+    return segs;
+  }, [text, mentions]);
 
   return (
     <div className="mx-auto w-full max-w-4xl relative shrink-0">
@@ -938,17 +975,49 @@ export function SessionChatInput({
               <AttachmentPreview files={attachedFiles} onRemove={removeAttachedFile} />
 
               <div className="flex flex-col gap-1 px-2">
-                <textarea
-                  ref={textareaRef}
-                  value={text}
-                  onChange={handleInput}
-                  onKeyDown={handleKeyDown}
-                  placeholder={placeholder}
-                  rows={1}
-                  disabled={disabled}
-                  className="w-full bg-transparent border-none shadow-none focus-visible:ring-0 px-0.5 pb-6 pt-4 min-h-[72px] max-h-[200px] overflow-y-auto resize-none rounded-[24px] text-[16px] sm:text-[15px] outline-none placeholder:text-muted-foreground/50 disabled:opacity-50"
-                  autoFocus={shouldAutoFocus}
-                />
+                <div className="relative w-full">
+                  {/* Highlight overlay — mirrors textarea text with colored mention spans */}
+                  {highlightSegments && (
+                    <div
+                      ref={highlightRef}
+                      aria-hidden
+                      className="absolute inset-0 pointer-events-none px-0.5 pb-6 pt-4 min-h-[72px] max-h-[200px] overflow-y-auto text-[16px] sm:text-[15px] whitespace-pre-wrap break-words text-foreground"
+                      style={{ wordBreak: 'break-word', lineHeight: 'normal' }}
+                    >
+                      {highlightSegments.map((seg, i) => (
+                        <span
+                          key={i}
+                          className={cn(
+                            seg.kind === 'file' && 'text-blue-500 font-medium',
+                            seg.kind === 'agent' && 'text-purple-500 font-medium',
+                          )}
+                        >
+                          {seg.text}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <textarea
+                    ref={textareaRef}
+                    value={text}
+                    onChange={handleInput}
+                    onKeyDown={handleKeyDown}
+                    onScroll={() => {
+                      // Sync highlight overlay scroll with textarea scroll
+                      if (highlightRef.current && textareaRef.current) {
+                        highlightRef.current.scrollTop = textareaRef.current.scrollTop;
+                      }
+                    }}
+                    placeholder={placeholder}
+                    rows={1}
+                    disabled={disabled}
+                    className={cn(
+                      'relative w-full bg-transparent border-none shadow-none focus-visible:ring-0 px-0.5 pb-6 pt-4 min-h-[72px] max-h-[200px] overflow-y-auto resize-none rounded-[24px] text-[16px] sm:text-[15px] outline-none placeholder:text-muted-foreground/50 disabled:opacity-50',
+                      highlightSegments && 'caret-foreground text-transparent',
+                    )}
+                    autoFocus={shouldAutoFocus}
+                  />
+                </div>
               </div>
 
               {/* Bottom toolbar */}
