@@ -474,6 +474,99 @@ function SlashCommandPopover({
 }
 
 // ============================================================================
+// @ Mention Types & Popover
+// ============================================================================
+
+export interface MentionItem {
+  kind: 'file' | 'agent';
+  label: string;
+  value: string;
+  description?: string;
+}
+
+interface TrackedMention {
+  kind: 'file' | 'agent';
+  label: string;
+}
+
+function MentionPopover({
+  items,
+  selectedIndex,
+  onSelect,
+}: {
+  items: MentionItem[];
+  selectedIndex: number;
+  onSelect: (item: MentionItem) => void;
+}) {
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // Scroll selected item into view
+  useEffect(() => {
+    const el = listRef.current?.querySelector(`[data-mention-index="${selectedIndex}"]`) as HTMLElement | null;
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [selectedIndex]);
+
+  if (items.length === 0) return null;
+
+  const agents = items.filter((i) => i.kind === 'agent');
+  const files = items.filter((i) => i.kind === 'file');
+
+  let globalIndex = 0;
+
+  return (
+    <div className="absolute bottom-full left-0 right-0 mb-1 z-50 bg-popover border border-border rounded-xl shadow-lg overflow-hidden">
+      <div ref={listRef} className="max-h-64 overflow-y-auto py-1">
+        {agents.length > 0 && (
+          <>
+            <div className="px-3 py-1 text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">Modes</div>
+            {agents.map((item) => {
+              const idx = globalIndex++;
+              return (
+                <button
+                  key={`agent-${item.value}`}
+                  data-mention-index={idx}
+                  onMouseDown={(e) => { e.preventDefault(); onSelect(item); }}
+                  className={cn(
+                    'w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors cursor-pointer',
+                    idx === selectedIndex ? 'bg-muted/60' : 'hover:bg-muted/40',
+                  )}
+                >
+                  <span className="size-4 rounded flex items-center justify-center bg-purple-500/15 text-purple-500 text-[10px] font-bold shrink-0">@</span>
+                  <span className="truncate capitalize">{item.label}</span>
+                  {item.description && <span className="text-muted-foreground/60 truncate text-xs">{item.description}</span>}
+                </button>
+              );
+            })}
+          </>
+        )}
+        {files.length > 0 && (
+          <>
+            <div className="px-3 py-1 text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">Files</div>
+            {files.map((item) => {
+              const idx = globalIndex++;
+              return (
+                <button
+                  key={`file-${item.value}`}
+                  data-mention-index={idx}
+                  onMouseDown={(e) => { e.preventDefault(); onSelect(item); }}
+                  className={cn(
+                    'w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors cursor-pointer',
+                    idx === selectedIndex ? 'bg-muted/60' : 'hover:bg-muted/40',
+                  )}
+                >
+                  <FileCode className="size-3.5 text-blue-500 shrink-0" />
+                  <span className="truncate font-mono text-xs">{item.label}</span>
+                </button>
+              );
+            })}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // SessionChatInput - The unified chat input
 // ============================================================================
 
@@ -504,6 +597,8 @@ export interface SessionChatInputProps {
   isPanelOpen?: boolean;
   /** Whether there are tool calls available to show in the panel */
   hasToolCalls?: boolean;
+  /** Callback to search files via SDK for @ mentions */
+  onFileSearch?: (query: string) => Promise<string[]>;
 }
 
 export function SessionChatInput({
@@ -528,6 +623,7 @@ export function SessionChatInput({
   onTogglePanel,
   isPanelOpen = false,
   hasToolCalls = false,
+  onFileSearch,
 }: SessionChatInputProps) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -535,6 +631,13 @@ export function SessionChatInput({
   const [slashFilter, setSlashFilter] = useState<string | null>(null);
   const [slashIndex, setSlashIndex] = useState(0);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+
+  // @ mention state
+  const [mentionQuery, setMentionQuery] = useState<{ query: string; triggerPos: number } | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentions, setMentions] = useState<TrackedMention[]>([]);
+  const [fileResults, setFileResults] = useState<string[]>([]);
+  const fileSearchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Prompt history (Up/Down arrow)
   const historyRef = useRef<string[]>([]);
@@ -574,6 +677,43 @@ export function SessionChatInput({
     );
   }, [commands, slashFilter]);
 
+  // Debounced file search for @ mentions
+  useEffect(() => {
+    clearTimeout(fileSearchTimer.current);
+    if (!mentionQuery || !onFileSearch) {
+      setFileResults([]);
+      return;
+    }
+    if (mentionQuery.query.length === 0) {
+      setFileResults([]);
+      return;
+    }
+    fileSearchTimer.current = setTimeout(async () => {
+      try {
+        const results = await onFileSearch(mentionQuery.query);
+        setFileResults(results);
+      } catch {
+        setFileResults([]);
+      }
+    }, 200);
+    return () => clearTimeout(fileSearchTimer.current);
+  }, [mentionQuery?.query, onFileSearch]);
+
+  // Build mention popover items: agents (sync) + files (async)
+  const mentionItems = useMemo((): MentionItem[] => {
+    if (!mentionQuery) return [];
+    const q = mentionQuery.query.toLowerCase();
+    const agentItems: MentionItem[] = agents
+      .filter((a) => a.name.toLowerCase().includes(q))
+      .map((a) => ({ kind: 'agent' as const, label: a.name, value: a.name }));
+    const fileItems: MentionItem[] = fileResults.map((f) => ({
+      kind: 'file' as const,
+      label: f,
+      value: f,
+    }));
+    return [...agentItems, ...fileItems];
+  }, [mentionQuery, agents, fileResults]);
+
   const handleSubmit = useCallback(() => {
     const trimmed = text.trim();
     if (!trimmed || isBusy || disabled) return;
@@ -581,9 +721,16 @@ export function SessionChatInput({
     historyRef.current.push(trimmed);
     historyIndexRef.current = -1;
     draftRef.current = '';
+
+    // Send as text — the server parses @mentions from the text content
+    // and creates the appropriate FilePart/AgentPart objects with source positions.
+    // Sending non-text parts via promptAsync causes the server to silently drop the message.
     onSend(trimmed);
+
     setText('');
     setSlashFilter(null);
+    setMentionQuery(null);
+    setMentions([]);
     for (const af of attachedFiles) URL.revokeObjectURL(af.localUrl);
     setAttachedFiles([]);
     if (textareaRef.current) {
@@ -598,7 +745,56 @@ export function SessionChatInput({
     setSlashIndex(0);
   }
 
+  function handleSelectMention(item: MentionItem) {
+    if (!mentionQuery) return;
+    const before = text.slice(0, mentionQuery.triggerPos);
+    const after = text.slice(mentionQuery.triggerPos + 1 + mentionQuery.query.length); // +1 for '@'
+    const inserted = `@${item.label} `;
+    const newText = before + inserted + after;
+    setText(newText);
+    setMentions((prev) => [...prev, { kind: item.kind, label: item.label }]);
+    setMentionQuery(null);
+    setMentionIndex(0);
+    setFileResults([]);
+    // Refocus and position cursor after inserted mention
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (ta) {
+        ta.focus();
+        const cursorPos = before.length + inserted.length;
+        ta.selectionStart = cursorPos;
+        ta.selectionEnd = cursorPos;
+        ta.style.height = 'auto';
+        ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
+      }
+    });
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // @ mention popover keyboard navigation
+    if (mentionQuery !== null && mentionItems.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionIndex((i) => (i + 1) % mentionItems.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionIndex((i) => (i - 1 + mentionItems.length) % mentionItems.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        handleSelectMention(mentionItems[mentionIndex]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMentionQuery(null);
+        return;
+      }
+    }
+
     if (slashFilter !== null && filteredCommands.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -666,6 +862,7 @@ export function SessionChatInput({
     const val = e.target.value;
     setText(val);
 
+    // Slash command detection
     const match = val.match(/^\/(\S*)$/);
     if (match) {
       setSlashFilter(match[1]);
@@ -673,6 +870,35 @@ export function SessionChatInput({
     } else {
       setSlashFilter(null);
     }
+
+    // @ mention detection: walk backwards from cursor to find @
+    const cursorPos = e.target.selectionStart ?? val.length;
+    let mentionDetected = false;
+    for (let i = cursorPos - 1; i >= 0; i--) {
+      const ch = val[i];
+      if (ch === ' ' || ch === '\n') break; // stop at whitespace
+      if (ch === '@') {
+        // Must be at start of input or preceded by whitespace (not email-like)
+        const charBefore = i > 0 ? val[i - 1] : ' ';
+        if (charBefore === ' ' || charBefore === '\n' || i === 0) {
+          const query = val.slice(i + 1, cursorPos);
+          // Don't re-trigger popover for already-tracked mentions
+          const isAlreadyTracked = mentions.some((m) => m.label === query);
+          if (!isAlreadyTracked) {
+            setMentionQuery({ query, triggerPos: i });
+            setMentionIndex(0);
+            mentionDetected = true;
+          }
+        }
+        break;
+      }
+    }
+    if (!mentionDetected) {
+      setMentionQuery(null);
+    }
+
+    // Prune tracked mentions whose @label text was deleted
+    setMentions((prev) => prev.filter((m) => val.includes(`@${m.label}`)));
 
     const ta = e.target;
     ta.style.height = 'auto';
@@ -696,6 +922,15 @@ export function SessionChatInput({
                   filter={slashFilter}
                   selectedIndex={slashIndex}
                   onSelect={handleSelectCommand}
+                />
+              )}
+
+              {/* @ Mention popover */}
+              {mentionQuery !== null && mentionItems.length > 0 && (
+                <MentionPopover
+                  items={mentionItems}
+                  selectedIndex={mentionIndex}
+                  onSelect={handleSelectMention}
                 />
               )}
 

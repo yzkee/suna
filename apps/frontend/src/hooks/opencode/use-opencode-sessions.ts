@@ -39,12 +39,12 @@ export type ProviderListResponse = SdkProviderListResponse;
 
 /**
  * Prompt part (input to send message).
+ * Supports text, file references, and agent/mode mentions.
  */
-export interface PromptPart {
-  type: 'text';
-  text: string;
-  id?: string;
-}
+export type PromptPart =
+  | { type: 'text'; text: string; id?: string }
+  | { type: 'file'; mime: string; url: string; filename?: string; source?: { text: { value: string; start: number; end: number }; type: 'file'; path: string } }
+  | { type: 'agent'; name: string; source?: { value: string; start: number; end: number } };
 
 export interface SendMessageOptions {
   model?: { providerID: string; modelID: string };
@@ -247,7 +247,11 @@ export function useSendOpenCodeMessage() {
       const client = getClient();
       const result = await client.session.promptAsync({
         sessionID: sessionId,
-        parts: parts.map((p) => ({ type: 'text' as const, text: p.text })),
+        parts: parts.map((p) => {
+          if (p.type === 'file') return { type: 'file' as const, mime: p.mime, url: p.url, filename: p.filename, source: p.source };
+          if (p.type === 'agent') return { type: 'agent' as const, name: p.name, source: p.source };
+          return { type: 'text' as const, text: p.text };
+        }),
         ...(options?.model && { model: options.model }),
         ...(options?.agent && { agent: options.agent }),
         ...(options?.variant && { variant: options.variant }),
@@ -463,6 +467,16 @@ export function useOpenCodeProviders() {
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
   });
+}
+
+// ============================================================================
+// File Search (direct SDK call, not a hook)
+// ============================================================================
+
+export async function findOpenCodeFiles(query: string): Promise<string[]> {
+  const client = getClient();
+  const result = await client.find.files({ query, limit: 20 });
+  return unwrap(result);
 }
 
 // ============================================================================

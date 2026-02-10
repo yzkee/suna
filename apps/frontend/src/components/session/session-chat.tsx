@@ -39,6 +39,7 @@ import {
   replyToPermission,
   replyToQuestion,
   rejectQuestion,
+  findOpenCodeFiles,
 } from '@/hooks/opencode/use-opencode-sessions';
 import { useOpenCodeSessionStatusStore } from '@/stores/opencode-session-status-store';
 import { useOpenCodePendingStore } from '@/stores/opencode-pending-store';
@@ -1133,6 +1134,14 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     [sessionId, executeCommand, summarizeSession],
   );
 
+  const handleFileSearch = useCallback(async (query: string): Promise<string[]> => {
+    try {
+      return await findOpenCodeFiles(query);
+    } catch {
+      return [];
+    }
+  }, []);
+
   // ============================================================================
   // Loading / Not-found states
   // ============================================================================
@@ -1301,6 +1310,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
         onTogglePanel={handleTogglePanel}
         isPanelOpen={isSidePanelOpen}
         hasToolCalls={hasToolCalls}
+        onFileSearch={handleFileSearch}
       />
     </div>
   );
