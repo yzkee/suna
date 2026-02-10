@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useCallback, useState } from 'react';
+import { useMemo, useCallback, useState, useEffect } from 'react';
 import {
   ArrowLeft,
   ChevronLeft,
@@ -11,6 +11,8 @@ import {
   Loader2,
   Save,
 } from 'lucide-react';
+import { codeToHtml } from 'shiki';
+import { useTheme } from 'next-themes';
 import { Button } from '@/components/ui/button';
 import { useFilesStore } from '../store/files-store';
 import { useFileContent } from '../hooks';
@@ -62,6 +64,9 @@ export function FileViewer() {
 
   const fileName = selectedFilePath?.split('/').pop() || '';
   const language = getLanguageFromExt(fileName);
+  const [isEditing, setIsEditing] = useState(false);
+  const [highlightedHtml, setHighlightedHtml] = useState<string>('');
+  const { resolvedTheme } = useTheme();
 
   const hasNext = currentFileIndex < filePathList.length - 1;
   const hasPrev = currentFileIndex > 0;
@@ -75,6 +80,36 @@ export function FileViewer() {
   if (prevFilePathRef.current !== selectedFilePath && editedContent !== null) {
     setEditedContent(null);
   }
+
+  // Reset editing mode when file changes
+  useEffect(() => {
+    setIsEditing(false);
+    setHighlightedHtml('');
+  }, [selectedFilePath]);
+
+  // Syntax highlight with Shiki
+  const shikiTheme = resolvedTheme === 'dark' ? 'github-dark' : 'github-light';
+  useEffect(() => {
+    if (isEditing || !displayContent || language === 'plaintext') {
+      return;
+    }
+    let cancelled = false;
+    codeToHtml(displayContent, {
+      lang: language,
+      theme: shikiTheme,
+      transformers: [{
+        pre(node) {
+          if (node.properties.style) {
+            node.properties.style = (node.properties.style as string)
+              .replace(/background-color:[^;]+;?/g, '');
+          }
+        },
+      }],
+    })
+      .then((html) => { if (!cancelled) setHighlightedHtml(html); })
+      .catch(() => { if (!cancelled) setHighlightedHtml(''); });
+    return () => { cancelled = true; };
+  }, [displayContent, language, shikiTheme, isEditing]);
 
   // Download handler
   const handleDownload = useCallback(async () => {
@@ -248,7 +283,7 @@ export function FileViewer() {
             </div>
           )}
 
-        {/* Text content (editable) */}
+        {/* Text content */}
         {!isLoading &&
           !error &&
           fileContent &&
@@ -262,23 +297,48 @@ export function FileViewer() {
                   File has uncommitted changes
                 </div>
               )}
-              <textarea
-                value={displayContent}
-                onChange={(e) => setEditedContent(e.target.value)}
-                onKeyDown={(e) => {
-                  // Ctrl+S / Cmd+S to save
-                  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                    e.preventDefault();
-                    if (hasUnsavedChanges) handleSave();
-                  }
-                }}
-                className={cn(
-                  'w-full h-full text-sm leading-relaxed p-4 font-mono',
-                  'bg-transparent resize-none outline-none',
-                  'selection:bg-primary/20',
-                )}
-                spellCheck={false}
-              />
+              {isEditing ? (
+                <textarea
+                  autoFocus
+                  value={displayContent}
+                  onChange={(e) => setEditedContent(e.target.value)}
+                  onKeyDown={(e) => {
+                    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                      e.preventDefault();
+                      if (hasUnsavedChanges) handleSave();
+                    }
+                    if (e.key === 'Escape') {
+                      setIsEditing(false);
+                    }
+                  }}
+                  className={cn(
+                    'w-full h-full text-sm leading-relaxed p-4 font-mono',
+                    'bg-transparent resize-none outline-none',
+                    'selection:bg-primary/20',
+                  )}
+                  spellCheck={false}
+                />
+              ) : (
+                <div
+                  className="w-full h-full overflow-auto cursor-text"
+                  onDoubleClick={() => setIsEditing(true)}
+                >
+                  {highlightedHtml ? (
+                    <div
+                      className={cn(
+                        'p-4 font-mono text-sm leading-relaxed min-h-full',
+                        '[&_pre]:!bg-transparent [&_pre]:!m-0 [&_pre]:!p-0 [&_pre]:!overflow-visible',
+                        '[&_code]:!bg-transparent',
+                      )}
+                      dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+                    />
+                  ) : (
+                    <pre className="p-4 font-mono text-sm leading-relaxed text-foreground whitespace-pre min-h-full">
+                      {displayContent}
+                    </pre>
+                  )}
+                </div>
+              )}
             </div>
           )}
       </div>
