@@ -143,7 +143,7 @@ function SubSessionBreadcrumb({ sessionId, parentID }: { sessionId: string; pare
       {/* Back arrow */}
       <button
         onClick={handleBackToParent}
-        className="flex items-center justify-center h-6 w-6 rounded-md hover:bg-muted hover:text-foreground transition-colors flex-shrink-0"
+        className="flex items-center justify-center h-6 w-6 rounded-md hover:bg-muted hover:text-foreground transition-colors cursor-pointer flex-shrink-0"
         title="Back to parent session"
       >
         <ArrowLeft className="size-3.5" />
@@ -162,7 +162,7 @@ function SubSessionBreadcrumb({ sessionId, parentID }: { sessionId: string; pare
                   grandparentSession.parentID,
                 )
               }
-              className="truncate max-w-[100px] hover:text-foreground hover:underline transition-colors"
+              className="truncate max-w-[100px] hover:text-foreground hover:underline transition-colors cursor-pointer"
             >
               {grandparentSession.title || 'Session'}
             </button>
@@ -173,7 +173,7 @@ function SubSessionBreadcrumb({ sessionId, parentID }: { sessionId: string; pare
         {/* Parent */}
         <button
           onClick={handleBackToParent}
-          className="truncate max-w-[180px] hover:text-foreground hover:underline transition-colors"
+          className="truncate max-w-[180px] hover:text-foreground hover:underline transition-colors cursor-pointer"
         >
           {parentSession?.title || 'Parent session'}
         </button>
@@ -266,7 +266,7 @@ function DebugView({ messages }: { messages: MessageWithParts[] | undefined }) {
 // Highlight @mentions in plain text (for optimistic & user messages)
 // ============================================================================
 
-function HighlightMentions({ text, agentNames }: { text: string; agentNames?: string[] }) {
+function HighlightMentions({ text, agentNames, onFileClick }: { text: string; agentNames?: string[]; onFileClick?: (path: string) => void }) {
   const segments = useMemo(() => {
     if (!text) return [{ text, type: undefined as 'file' | 'agent' | undefined }];
     const agentSet = new Set(agentNames || []);
@@ -293,17 +293,27 @@ function HighlightMentions({ text, agentNames }: { text: string; agentNames?: st
 
   return (
     <>
-      {segments.map((seg, i) => (
-        <span
-          key={i}
-          className={cn(
-            seg.type === 'file' && 'text-blue-500 font-medium',
-            seg.type === 'agent' && 'text-purple-500 font-medium',
-          )}
-        >
-          {seg.text}
-        </span>
-      ))}
+      {segments.map((seg, i) =>
+        seg.type === 'file' && onFileClick ? (
+          <span
+            key={i}
+            className="text-blue-500 font-medium cursor-pointer hover:underline"
+            onClick={(e) => { e.stopPropagation(); onFileClick(seg.text.replace(/^@/, '')); }}
+          >
+            {seg.text}
+          </span>
+        ) : (
+          <span
+            key={i}
+            className={cn(
+              seg.type === 'file' && 'text-blue-500 font-medium',
+              seg.type === 'agent' && 'text-purple-500 font-medium',
+            )}
+          >
+            {seg.text}
+          </span>
+        ),
+      )}
     </>
   );
 }
@@ -313,6 +323,7 @@ function HighlightMentions({ text, agentNames }: { text: string; agentNames?: st
 // ============================================================================
 
 function UserMessageRow({ message, agentNames }: { message: MessageWithParts; agentNames?: string[] }) {
+  const openFileInComputer = useKortixComputerStore((s) => s.openFileInComputer);
   const { attachments, stickyParts } = useMemo(
     () => splitUserParts(message.parts),
     [message.parts],
@@ -452,17 +463,26 @@ function UserMessageRow({ message, agentNames }: { message: MessageWithParts; ag
               onClick={() => canExpand && setExpanded(!expanded)}
             >
               {segments.length > 0 ? (
-                segments.map((seg, i) => (
-                  <span
-                    key={i}
-                    className={cn(
-                      seg.type === 'file' && 'text-blue-500 font-medium',
-                      seg.type === 'agent' && 'text-purple-500 font-medium',
-                    )}
-                  >
-                    {seg.text}
-                  </span>
-                ))
+                segments.map((seg, i) =>
+                  seg.type === 'file' ? (
+                    <span
+                      key={i}
+                      className="text-blue-500 font-medium cursor-pointer hover:underline"
+                      onClick={(e) => { e.stopPropagation(); openFileInComputer(seg.text.replace(/^@/, '')); }}
+                    >
+                      {seg.text}
+                    </span>
+                  ) : (
+                    <span
+                      key={i}
+                      className={cn(
+                        seg.type === 'agent' && 'text-purple-500 font-medium',
+                      )}
+                    >
+                      {seg.text}
+                    </span>
+                  ),
+                )
               ) : (
                 <span>{text}</span>
               )}
@@ -477,7 +497,7 @@ function UserMessageRow({ message, agentNames }: { message: MessageWithParts; ag
             {canExpand && (
               <button
                 onClick={() => setExpanded(!expanded)}
-                className="absolute bottom-3 right-4 p-1 rounded-md bg-card/80 backdrop-blur-sm text-muted-foreground hover:text-foreground transition-colors z-10"
+                className="absolute bottom-3 right-4 p-1 rounded-md bg-card/80 backdrop-blur-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer z-10"
               >
                 <ChevronDown className={cn('size-3.5 transition-transform', expanded && 'rotate-180')} />
               </button>
@@ -488,7 +508,7 @@ function UserMessageRow({ message, agentNames }: { message: MessageWithParts; ag
               <TooltipTrigger asChild>
                 <button
                   onClick={handleCopy}
-                  className="absolute top-3 right-4 p-1 rounded-md opacity-0 group-hover:opacity-100 bg-card/80 backdrop-blur-sm text-muted-foreground hover:text-foreground transition-all"
+                  className="absolute top-3 right-4 p-1 rounded-md opacity-0 group-hover:opacity-100 bg-card/80 backdrop-blur-sm text-muted-foreground hover:text-foreground transition-all cursor-pointer"
                 >
                   {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
                 </button>
@@ -886,7 +906,7 @@ function SessionTurn({
               <TooltipTrigger asChild>
                 <button
                   onClick={handleCopy}
-                  className="ml-auto p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  className="ml-auto p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
                 >
                   {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
                 </button>
@@ -938,19 +958,19 @@ function SessionTurn({
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => onPermissionReply(nextPermission.id, 'reject')}
-              className="px-2 py-1 text-[11px] rounded-md text-destructive hover:bg-destructive/10 transition-colors"
+              className="px-2 py-1 text-[11px] rounded-md text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
             >
               Deny
             </button>
             <button
               onClick={() => onPermissionReply(nextPermission.id, 'always')}
-              className="px-2 py-1 text-[11px] rounded-md text-foreground hover:bg-muted transition-colors border border-border"
+              className="px-2 py-1 text-[11px] rounded-md text-foreground hover:bg-muted transition-colors cursor-pointer border border-border"
             >
               Allow always
             </button>
             <button
               onClick={() => onPermissionReply(nextPermission.id, 'once')}
-              className="px-2 py-1 text-[11px] rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+              className="px-2 py-1 text-[11px] rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer"
             >
               Allow once
             </button>
@@ -985,7 +1005,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   const [debugMode, setDebugMode] = useState(false);
 
   // ---- KortixComputer side panel ----
-  const { isSidePanelOpen, setIsSidePanelOpen } = useKortixComputerStore();
+  const { isSidePanelOpen, setIsSidePanelOpen, openFileInComputer } = useKortixComputerStore();
   const handleTogglePanel = useCallback(() => {
     setIsSidePanelOpen(!isSidePanelOpen);
   }, [isSidePanelOpen, setIsSidePanelOpen]);
@@ -1261,7 +1281,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
         <button
           onClick={() => setDebugMode(!debugMode)}
           className={cn(
-            'absolute bottom-20 right-4 z-50 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-medium shadow-lg border transition-colors backdrop-blur-sm',
+            'absolute bottom-20 right-4 z-50 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-medium shadow-lg border transition-colors cursor-pointer backdrop-blur-sm',
             debugMode
               ? 'bg-orange-500/15 text-orange-500 border-orange-500/30 hover:bg-orange-500/25'
               : 'bg-background/80 text-muted-foreground/60 border-border/50 hover:text-muted-foreground hover:bg-muted/60',
@@ -1293,7 +1313,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                     <div className="flex justify-end">
                       <div className="flex max-w-[90%] rounded-3xl rounded-br-lg bg-card border px-4 py-3 break-words overflow-hidden">
                         <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                          <HighlightMentions text={optimisticPrompt || ''} agentNames={agentNames} />
+                          <HighlightMentions text={optimisticPrompt || ''} agentNames={agentNames} onFileClick={openFileInComputer} />
                         </p>
                       </div>
                     </div>

@@ -79,7 +79,7 @@ export function FileTreeItem({ node, onClick, onDownload, onRename, onDelete }: 
     <button
       onClick={onClick}
       className={cn(
-        'flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left rounded-md transition-colors',
+        'flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left rounded-md transition-colors cursor-pointer',
         'hover:bg-muted/80',
         node.ignored && 'opacity-50',
       )}

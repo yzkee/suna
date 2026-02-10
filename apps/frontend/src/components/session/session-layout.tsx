@@ -236,7 +236,7 @@ export const SessionLayout = memo(function SessionLayout({
               <span className="text-xs font-medium text-muted-foreground">Desktop</span>
               <button
                 onClick={handleSidePanelClose}
-                className="p-1.5 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-colors"
+                className="p-1.5 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -336,7 +336,7 @@ export const SessionLayout = memo(function SessionLayout({
                       />
                       <button
                         onClick={handleSidePanelClose}
-                        className="p-1.5 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-colors"
+                        className="p-1.5 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -390,7 +390,7 @@ export const SessionLayout = memo(function SessionLayout({
                         />
                         <button
                           onClick={handleSidePanelClose}
-                          className="p-1.5 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-colors"
+                          className="p-1.5 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>

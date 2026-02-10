@@ -50,7 +50,7 @@ export function SidebarPanelTabs({ active, onChange }: SidebarPanelTabsProps) {
       <button
         onClick={() => onChange('sessions')}
         className={cn(
-          'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+          'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer',
           active === 'sessions'
             ? 'bg-muted text-foreground'
             : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
@@ -62,7 +62,7 @@ export function SidebarPanelTabs({ active, onChange }: SidebarPanelTabsProps) {
       <button
         onClick={() => onChange('files')}
         className={cn(
-          'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+          'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer',
           active === 'files'
             ? 'bg-muted text-foreground'
             : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
@@ -293,7 +293,7 @@ export function SidebarFileBrowser() {
             {currentPath !== '.' && currentPath !== '' && (
               <button
                 onClick={handleNavigateUp}
-                className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left rounded-md transition-colors hover:bg-muted/80 text-muted-foreground"
+                className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left rounded-md transition-colors cursor-pointer hover:bg-muted/80 text-muted-foreground"
               >
                 <FolderUp className="h-4 w-4 shrink-0" />
                 <span>..</span>

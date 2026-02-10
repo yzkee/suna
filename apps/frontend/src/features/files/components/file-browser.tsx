@@ -303,7 +303,7 @@ export function FileBrowser() {
               <button
                 onClick={handleNavigateUp}
                 className={cn(
-                  'flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left rounded-md transition-colors',
+                  'flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left rounded-md transition-colors cursor-pointer',
                   'hover:bg-muted/80 text-muted-foreground',
                 )}
               >
