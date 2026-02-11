@@ -56,8 +56,8 @@ ENV AGENT_BROWSER_USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWeb
 COPY sandbox/assets/browser-viewer/ /opt/agent-browser-viewer/
 
 # ── OpenCode CLI ────────────────────────────────────────────────────────────
-# Install via npm (simplest, works for all users out of the box)
-RUN npm install -g opencode-ai
+# Install Kortix fork (includes Project.scan() for auto git repo discovery)
+RUN npm install -g @kortix/opencode-ai@0.2.0
 
 # ── OpenCode (agents, tools, skills) ────────────────────────────────────────
 COPY sandbox/opencode/ /opt/opencode/
@@ -87,7 +87,8 @@ RUN mkdir -p /workspace/.kortix /workspace/.agent-browser /workspace/.browser-pr
     /workspace/.XDG /workspace/.config /workspace/ssl \
     && chown -R 1000:1000 /workspace \
     && rm -rf /config \
-    && ln -s /workspace /config
+    && ln -s /workspace /config \
+    && git config --system --add safe.directory '*'
 WORKDIR /workspace
 ENV KORTIX_WORKSPACE=/workspace
 
