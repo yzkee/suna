@@ -241,7 +241,7 @@ agent-browser highlight <sel>         # Highlight element visually
 
 | Session | Name | Profile | Stream Port | Human Visible | Use For |
 |---------|------|---------|-------------|---------------|---------|
-| Primary | `kortix` | Persistent (`/config/.browser-profile`) | 9223 | Yes (viewer) | Authenticated work, human-shared browsing |
+| Primary | `kortix` | Persistent (`/workspace/.browser-profile`) | 9223 | Yes (viewer) | Authenticated work, human-shared browsing |
 | Ephemeral | Any other name | None (fresh) | Auto-assigned | Yes (viewer tabs) | Parallel scraping, testing, throwaway tasks |
 
 ```bash
@@ -306,10 +306,10 @@ Ephemeral sessions don't have the persistent profile, but you can copy auth stat
 
 ```bash
 # Save auth state from primary session
-agent-browser --session kortix state save /config/.browser-auth.json
+agent-browser --session kortix state save /workspace/.browser-auth.json
 
 # Load it into an ephemeral session
-agent-browser --session worker-$(date +%s) state load /config/.browser-auth.json
+agent-browser --session worker-$(date +%s) state load /workspace/.browser-auth.json
 agent-browser --session worker-1234 open https://app.example.com/dashboard
 ```
 
@@ -455,7 +455,7 @@ Always include the `?session=` parameter when telling the human to check the vie
 
 **WebSocket protocol** (for programmatic access):
 - Default session stream: `ws://localhost:9223`
-- Named session streams: auto-assigned ports (check `/config/.agent-browser/<session>.stream`)
+- Named session streams: auto-assigned ports (check `/workspace/.agent-browser/<session>.stream`)
 - Frame format: `{"type": "frame", "data": "<base64-jpeg>", "metadata": {...}}`
 - Input format: `{"type": "input_mouse", "eventType": "mousePressed", "x": 100, "y": 200, ...}`
 

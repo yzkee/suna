@@ -98,10 +98,10 @@ glob("workspace/.kortix/memory/*.md")
 **Semantic search (lss) — for fuzzy/conceptual queries:**
 ```bash
 # Search all memory semantically (finds related concepts, not just exact words)
-lss "what are the user's deployment preferences" -p /config/workspace/.kortix/ --json -k 5
+lss "what are the user's deployment preferences" -p /workspace/.kortix/ --json -k 5
 
 # Search everything (Desktop files + memory)
-lss "database migration strategy" -p /config/Desktop --json -k 10
+lss "database migration strategy" -p /workspace --json -k 10
 ```
 
 Use semantic search when:

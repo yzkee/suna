@@ -3,7 +3,7 @@
  *
  * Simulates the exact Docker sandbox scenario:
  *   - _context.worktree = "/"  (no git repo)
- *   - _context.directory = process.cwd()  (e.g. /config/Desktop)
+ *   - _context.directory = process.cwd()  (e.g. /workspace)
  *   - NO output_dir provided
  *
  * Verifies that slides are created under cwd, not under "/presentations".

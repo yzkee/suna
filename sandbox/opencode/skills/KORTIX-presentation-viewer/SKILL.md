@@ -21,7 +21,7 @@ An HTTP server on `localhost` eliminates all of this. Iframes load cleanly, imag
 
 **The viewer is already running as a service inside the sandbox container.** It starts automatically on boot via s6-overlay and listens on **port 3210**.
 
-- The service watches `/config/workspace/presentations/` for any presentation with a `metadata.json`
+- The service watches `/workspace/presentations/` for any presentation with a `metadata.json`
 - It serves the most recently created/updated presentation at `http://localhost:3210`
 - Port 3210 is exposed in docker-compose and mapped to the host
 
@@ -30,7 +30,7 @@ An HTTP server on `localhost` eliminates all of this. Iframes load cleanly, imag
 If the service is not running for some reason (e.g. no presentations exist yet), it will auto-start once the first presentation's `metadata.json` appears. The agent can also restart it manually:
 
 ```bash
-bun run /opt/KORTIX-presentation-viewer/serve.ts /config/workspace/presentations/<name>
+bun run /opt/KORTIX-presentation-viewer/serve.ts /workspace/presentations/<name>
 ```
 
 ### Container details
@@ -40,7 +40,7 @@ bun run /opt/KORTIX-presentation-viewer/serve.ts /config/workspace/presentations
 | Service location | `/etc/services.d/KORTIX-presentation-viewer/run` |
 | Viewer files | `/opt/KORTIX-presentation-viewer/` |
 | Port | `3210` (mapped to host) |
-| Presentations dir | `/config/workspace/presentations/` |
+| Presentations dir | `/workspace/presentations/` |
 | Managed by | s6-overlay (auto-restart on crash) |
 
 ## Local development (outside container)

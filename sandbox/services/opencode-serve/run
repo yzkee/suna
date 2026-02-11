@@ -7,12 +7,12 @@
 # Wait a moment for filesystem to settle
 sleep 3
 
-cd /config/Desktop
+cd /workspace
 
 echo "[opencode-serve] Starting OpenCode API server on port 4096"
 
 exec s6-setuidgid abc \
-  env HOME=/config \
+  env HOME=/workspace \
       OPENCODE_CONFIG_DIR=/opt/opencode \
       PATH="/opt/bun/bin:/usr/local/bin:/usr/bin:/bin" \
   opencode serve --port 4096 --hostname 0.0.0.0

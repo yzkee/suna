@@ -6,9 +6,10 @@ import {
   existsSync,
   appendFileSync,
 } from "fs";
-import { resolve, dirname } from "path";
+import { resolve, dirname, join } from "path";
+import { homedir } from "os";
 
-const SHOW_DIR = "/config/.show-user";
+const SHOW_DIR = join(process.env.HOME || homedir(), ".show-user");
 const QUEUE_FILE = `${SHOW_DIR}/queue.jsonl`;
 
 interface ShowEntry {
@@ -96,7 +97,7 @@ export default tool({
       .optional()
       .describe(
         "Absolute path to a file on disk. Required when type is 'file' or 'image'. " +
-          "E.g. '/config/workspace/output/logo.png'",
+          "E.g. '/workspace/output/logo.png'",
       ),
     url: tool.schema
       .string()

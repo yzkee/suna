@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-pip python3-venv curl unzip nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install bun to /opt/bun (NOT /config which is a volume mount at runtime)
+# Install bun to /opt/bun (NOT /workspace which is a volume mount at runtime)
 ENV BUN_INSTALL=/opt/bun
 RUN for i in 1 2 3; do curl -fsSL https://bun.sh/install | bash && break || sleep 5; done \
     && test -x /opt/bun/bin/bun \
@@ -45,8 +45,8 @@ ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 # matches AGENT_BROWSER_PRIMARY_SESSION (checked in our patches).
 ENV AGENT_BROWSER_PRIMARY_SESSION=kortix
 ENV AGENT_BROWSER_STREAM_PORT=9223
-ENV AGENT_BROWSER_PROFILE=/config/.browser-profile
-ENV AGENT_BROWSER_SOCKET_DIR=/config/.agent-browser
+ENV AGENT_BROWSER_PROFILE=/workspace/.browser-profile
+ENV AGENT_BROWSER_SOCKET_DIR=/workspace/.agent-browser
 # Browser args: required flags + stealth flags to reduce bot fingerprinting
 ENV AGENT_BROWSER_ARGS="--no-sandbox,--disable-setuid-sandbox,--disable-gpu,--disable-dev-shm-usage,--disable-blink-features=AutomationControlled,--disable-features=VizDisplayCompositor,--window-size=1920,1080"
 # Default User-Agent — looks like a real desktop Chrome on Windows
@@ -78,12 +78,18 @@ COPY sandbox/kortix-master/ /opt/kortix-master/
 RUN mkdir -p /app/secrets && chmod 700 /app/secrets
 
 # ── Workspace ───────────────────────────────────────────────────────────────
-# Give abc (UID 1000) full ownership of /config so opencode can create any
-# directories it needs (presentations, output, etc.) without permission errors.
-RUN mkdir -p /config/workspace /config/Desktop /config/.agent-browser /config/.browser-profile \
-    /config/.lss \
-    && chown -R 1000:1000 /config
-WORKDIR /config/Desktop
+# /workspace is the single root for all user/agent data.
+# /config is a backward-compat symlink for the linuxserver/webtop base image
+# which expects HOME=/config for its s6-overlay init scripts.
+RUN mkdir -p /workspace/.kortix /workspace/.agent-browser /workspace/.browser-profile \
+    /workspace/.lss /workspace/presentations \
+    /workspace/.local/share/opencode /workspace/.local/share/konsole \
+    /workspace/.XDG /workspace/.config /workspace/ssl \
+    && chown -R 1000:1000 /workspace \
+    && rm -rf /config \
+    && ln -s /workspace /config
+WORKDIR /workspace
+ENV KORTIX_WORKSPACE=/workspace
 
 # ── Services (s6-overlay) ───────────────────────────────────────────────────
 # All background services: opencode-web, opencode-serve, kortix-master,

@@ -56,7 +56,7 @@ Gather all information needed to make design decisions. This phase is **read-onl
    - Research: "What's the best practice for Z? What libraries exist?"
 2. **Read critical files** directly — don't delegate when you need deep understanding of specific files.
 3. **Search the web** if the task involves unfamiliar tech, APIs, or patterns.
-4. **Semantic search** for related past work: `lss "relevant query" -p /config/workspace/.kortix/ --json -k 5`
+4. **Semantic search** for related past work: `lss "relevant query" -p /workspace/.kortix/ --json -k 5`
 5. **Document findings** — note key discoveries as you go. These feed into the design phase.
 6. **Update todos** — mark Phase 2 complete, note any blockers or open questions discovered.
 

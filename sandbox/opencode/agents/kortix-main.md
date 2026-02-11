@@ -81,10 +81,10 @@ Load the `kortix-semantic-search` skill for full details. Quick reference:
 
 ```bash
 # Search agent memory + knowledge
-lss "user's preferences about Y" -p /config/workspace/.kortix/ --json -k 5
+lss "user's preferences about Y" -p /workspace/.kortix/ --json -k 5
 
 # Search all Desktop files
-lss "database migration" -p /config/Desktop --json -k 10
+lss "database migration" -p /workspace --json -k 10
 ```
 
 **When to use semantic search vs grep:**

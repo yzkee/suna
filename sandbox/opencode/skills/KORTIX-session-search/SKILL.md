@@ -12,7 +12,7 @@ You have **full access** to OpenCode's session data — both through the REST AP
 OpenCode stores all session data as **individual JSON files** in a structured directory tree under:
 
 ```
-/config/.local/share/opencode/storage/
+/workspace/.local/share/opencode/storage/
 ```
 
 The REST API at `http://localhost:3111` provides higher-level access to the same data. Both methods have tradeoffs — the API is simpler for basic CRUD, but direct file access lets you do powerful queries (grep, jq, date filters, regex) that the API can't.
@@ -22,7 +22,7 @@ The REST API at `http://localhost:3111` provides higher-level access to the same
 ## 1. On-Disk Storage Layout
 
 ```
-/config/.local/share/opencode/storage/
+/workspace/.local/share/opencode/storage/
 ├── migration                          # Version marker (currently "2")
 ├── project/
 │   └── global.json                    # Project metadata
@@ -46,11 +46,11 @@ The REST API at `http://localhost:3111` provides higher-level access to the same
 
 | Path | Contents |
 |------|----------|
-| `/config/.local/share/opencode/tool-output/tool_{id}` | Large tool outputs (plain text, 60-230KB each) |
-| `/config/.local/share/opencode/log/` | Timestamped structured logs |
-| `/config/.local/share/opencode/snapshot/global/` | Bare git repo for file snapshots |
-| `/config/.local/share/opencode/bin/rg` | Bundled ripgrep binary |
-| `/config/.local/state/opencode/prompt-history.jsonl` | JSONL of all prompts ever entered |
+| `/workspace/.local/share/opencode/tool-output/tool_{id}` | Large tool outputs (plain text, 60-230KB each) |
+| `/workspace/.local/share/opencode/log/` | Timestamped structured logs |
+| `/workspace/.local/share/opencode/snapshot/global/` | Bare git repo for file snapshots |
+| `/workspace/.local/share/opencode/bin/rg` | Bundled ripgrep binary |
+| `/workspace/.local/state/opencode/prompt-history.jsonl` | JSONL of all prompts ever entered |
 
 ### ID Format
 
@@ -77,7 +77,7 @@ The hex portion encodes a creation timestamp — IDs sort chronologically.
   "slug": "witty-engine",
   "version": "1.1.53",
   "projectID": "global",
-  "directory": "/config/Desktop",
+  "directory": "/workspace",
   "title": "Voice Proxy",
   "parentID": "ses_...",              // OPTIONAL — present for subagent sessions
   "permission": [                     // OPTIONAL — permission overrides for subagents
@@ -122,7 +122,7 @@ The hex portion encodes a creation timestamp — IDs sort chronologically.
   "providerID": "openai",
   "mode": "kortix-proxy",
   "agent": "kortix-proxy",
-  "path": { "cwd": "/config/Desktop", "root": "/" },
+  "path": { "cwd": "/workspace", "root": "/" },
   "cost": 0.00323715,               // USD cost
   "tokens": {
     "input": 93,
@@ -259,22 +259,22 @@ The `sessionID` can appear in 3 places depending on event type:
 
 ```bash
 # Find all sessions with "research" in the title
-rg -l '"title".*research' /config/.local/share/opencode/storage/session/global/ -i
+rg -l '"title".*research' /workspace/.local/share/opencode/storage/session/global/ -i
 
 # Find sessions by exact title
-rg '"title":"Voice Proxy"' /config/.local/share/opencode/storage/session/global/
+rg '"title":"Voice Proxy"' /workspace/.local/share/opencode/storage/session/global/
 
 # Find sessions by agent/mode
-rg '"agent":"kortix-research"' /config/.local/share/opencode/storage/message/ -r -l
+rg '"agent":"kortix-research"' /workspace/.local/share/opencode/storage/message/ -r -l
 
 # Find sessions that used a specific tool
-rg '"tool":"web-search"' /config/.local/share/opencode/storage/part/ -r -l
+rg '"tool":"web-search"' /workspace/.local/share/opencode/storage/part/ -r -l
 
 # Find sessions with subagents (have parentID)
-rg '"parentID"' /config/.local/share/opencode/storage/session/global/
+rg '"parentID"' /workspace/.local/share/opencode/storage/session/global/
 
 # Find child sessions of a specific parent
-rg '"parentID":"ses_PARENT_ID_HERE"' /config/.local/share/opencode/storage/session/global/
+rg '"parentID":"ses_PARENT_ID_HERE"' /workspace/.local/share/opencode/storage/session/global/
 ```
 
 ### 4b. Find Sessions by Date
@@ -287,7 +287,7 @@ date +%s000
 
 # Sessions created today (compare time.created)
 TODAY_START=$(date -d "today 00:00:00" +%s000 2>/dev/null || date -j -f "%Y-%m-%d" "$(date +%Y-%m-%d)" +%s000)
-for f in /config/.local/share/opencode/storage/session/global/ses_*.json; do
+for f in /workspace/.local/share/opencode/storage/session/global/ses_*.json; do
   created=$(cat "$f" | python3 -c "import json,sys; print(json.load(sys.stdin)['time']['created'])" 2>/dev/null)
   if [ "$created" -gt "$TODAY_START" ] 2>/dev/null; then
     echo "$f: created=$created"
@@ -300,7 +300,7 @@ python3 -c "
 import json, glob, time, sys
 hours = int(sys.argv[1]) if len(sys.argv) > 1 else 24
 cutoff = (time.time() - hours * 3600) * 1000
-for f in sorted(glob.glob('/config/.local/share/opencode/storage/session/global/ses_*.json')):
+for f in sorted(glob.glob('/workspace/.local/share/opencode/storage/session/global/ses_*.json')):
     with open(f) as fh:
         d = json.load(fh)
     if d['time']['created'] > cutoff:
@@ -312,7 +312,7 @@ for f in sorted(glob.glob('/config/.local/share/opencode/storage/session/global/
 python3 -c "
 import json, glob, time
 cutoff = (time.time() - 3600) * 1000
-for f in sorted(glob.glob('/config/.local/share/opencode/storage/session/global/ses_*.json')):
+for f in sorted(glob.glob('/workspace/.local/share/opencode/storage/session/global/ses_*.json')):
     with open(f) as fh:
         d = json.load(fh)
     if d['time']['updated'] > cutoff:
@@ -328,7 +328,7 @@ python3 -c "
 import json, glob, sys
 session_id = sys.argv[1]
 total = 0
-for f in glob.glob(f'/config/.local/share/opencode/storage/message/{session_id}/msg_*.json'):
+for f in glob.glob(f'/workspace/.local/share/opencode/storage/message/{session_id}/msg_*.json'):
     with open(f) as fh:
         d = json.load(fh)
     total += d.get('cost', 0)
@@ -339,7 +339,7 @@ print(f'Total cost for {session_id}: \${total:.4f}')
 python3 -c "
 import json, glob, os
 sessions = {}
-for f in glob.glob('/config/.local/share/opencode/storage/message/ses_*/msg_*.json'):
+for f in glob.glob('/workspace/.local/share/opencode/storage/message/ses_*/msg_*.json'):
     with open(f) as fh:
         d = json.load(fh)
     sid = d.get('sessionID', '')
@@ -347,7 +347,7 @@ for f in glob.glob('/config/.local/share/opencode/storage/message/ses_*/msg_*.js
 
 # Get titles
 for sid in sessions:
-    sf = f'/config/.local/share/opencode/storage/session/global/{sid}.json'
+    sf = f'/workspace/.local/share/opencode/storage/session/global/{sid}.json'
     if os.path.exists(sf):
         with open(sf) as fh:
             sessions[sid] = (sessions[sid], json.load(fh).get('title', ''))
@@ -363,32 +363,32 @@ for sid, (cost, title) in sorted(sessions.items(), key=lambda x: -x[1][0])[:10]:
 
 ```bash
 # Search across all text parts for a keyword
-rg "landing page" /config/.local/share/opencode/storage/part/ -r -l --type json
+rg "landing page" /workspace/.local/share/opencode/storage/part/ -r -l --type json
 
 # Find which session a part belongs to (trace back)
 python3 -c "
 import json
 # Given a part file, trace back to its session
-with open('/config/.local/share/opencode/storage/part/msg_XXX/prt_YYY.json') as f:
+with open('/workspace/.local/share/opencode/storage/part/msg_XXX/prt_YYY.json') as f:
     part = json.load(f)
 print(f'Session: {part[\"sessionID\"]}')
 print(f'Message: {part[\"messageID\"]}')
 "
 
 # Search tool outputs for specific content
-rg "error\|failed\|exception" /config/.local/share/opencode/storage/tool-output/ -i -l
+rg "error\|failed\|exception" /workspace/.local/share/opencode/storage/tool-output/ -i -l
 
 # Find all bash commands executed in a session
 python3 -c "
 import json, glob, sys
 session_id = sys.argv[1]
 # Find all messages in this session
-for mf in sorted(glob.glob(f'/config/.local/share/opencode/storage/message/{session_id}/msg_*.json')):
+for mf in sorted(glob.glob(f'/workspace/.local/share/opencode/storage/message/{session_id}/msg_*.json')):
     with open(mf) as fh:
         msg = json.load(fh)
     msg_id = msg['id']
     # Find tool parts for this message
-    for pf in sorted(glob.glob(f'/config/.local/share/opencode/storage/part/{msg_id}/prt_*.json')):
+    for pf in sorted(glob.glob(f'/workspace/.local/share/opencode/storage/part/{msg_id}/prt_*.json')):
         with open(pf) as fh:
             part = json.load(fh)
         if part.get('type') == 'tool' and part.get('tool') == 'bash':
@@ -406,7 +406,7 @@ for mf in sorted(glob.glob(f'/config/.local/share/opencode/storage/message/{sess
 python3 -c "
 import json, glob
 results = []
-for f in glob.glob('/config/.local/share/opencode/storage/message/ses_*/msg_*.json'):
+for f in glob.glob('/workspace/.local/share/opencode/storage/message/ses_*/msg_*.json'):
     with open(f) as fh:
         d = json.load(fh)
     tokens = d.get('tokens', {})
@@ -426,10 +426,10 @@ import json, glob, sys
 from collections import Counter
 session_id = sys.argv[1]
 tools = Counter()
-for mf in glob.glob(f'/config/.local/share/opencode/storage/message/{session_id}/msg_*.json'):
+for mf in glob.glob(f'/workspace/.local/share/opencode/storage/message/{session_id}/msg_*.json'):
     with open(mf) as fh:
         msg = json.load(fh)
-    for pf in glob.glob(f'/config/.local/share/opencode/storage/part/{msg[\"id\"]}/prt_*.json'):
+    for pf in glob.glob(f'/workspace/.local/share/opencode/storage/part/{msg[\"id\"]}/prt_*.json'):
         with open(pf) as fh:
             part = json.load(fh)
         if part.get('type') == 'tool':
@@ -451,13 +451,13 @@ Session JSON files aren't directly indexed by LSS (it indexes Desktop files and 
 
 ```bash
 # Search Desktop for session outputs (agents write results here)
-lss "landing page with dark theme" -p /config/Desktop -k 10 --json
+lss "landing page with dark theme" -p /workspace -k 10 --json
 
 # Search agent memory for session-related knowledge
-lss "what sessions were created for research tasks" -p /config/workspace/.kortix/ -k 5 --json
+lss "what sessions were created for research tasks" -p /workspace/.kortix/ -k 5 --json
 
 # Search a specific project directory an agent built
-lss "authentication middleware" -p /config/Desktop/myproject/ -k 5 --json
+lss "authentication middleware" -p /workspace/myproject/ -k 5 --json
 ```
 
 ### Index Session Data for Semantic Search
@@ -469,7 +469,7 @@ To make session content searchable by meaning, you can index it:
 python3 -c "
 import json, glob
 with open('/tmp/session-index.txt', 'w') as out:
-    for f in sorted(glob.glob('/config/.local/share/opencode/storage/session/global/ses_*.json')):
+    for f in sorted(glob.glob('/workspace/.local/share/opencode/storage/session/global/ses_*.json')):
         with open(f) as fh:
             d = json.load(fh)
         out.write(f'{d[\"id\"]} | {d[\"title\"]}\n')
@@ -483,12 +483,12 @@ python3 -c "
 import json, glob, sys
 session_id = sys.argv[1]
 with open(f'/tmp/{session_id}-texts.txt', 'w') as out:
-    for mf in sorted(glob.glob(f'/config/.local/share/opencode/storage/message/{session_id}/msg_*.json')):
+    for mf in sorted(glob.glob(f'/workspace/.local/share/opencode/storage/message/{session_id}/msg_*.json')):
         with open(mf) as fh:
             msg = json.load(fh)
         if msg.get('role') != 'assistant':
             continue
-        for pf in sorted(glob.glob(f'/config/.local/share/opencode/storage/part/{msg[\"id\"]}/prt_*.json')):
+        for pf in sorted(glob.glob(f'/workspace/.local/share/opencode/storage/part/{msg[\"id\"]}/prt_*.json')):
             with open(pf) as fh:
                 part = json.load(fh)
             if part.get('type') == 'text' and part.get('text'):
@@ -503,13 +503,13 @@ Best results come from combining both:
 
 ```bash
 # Step 1: Semantic search to find relevant files/content
-lss "database migration strategy" -p /config/Desktop -k 5 --json
+lss "database migration strategy" -p /workspace -k 5 --json
 
 # Step 2: Deterministic grep for exact matches in those files
-rg "migration" /config/Desktop/project/src/ -l
+rg "migration" /workspace/project/src/ -l
 
 # Step 3: Check which sessions created those files
-rg "project/src" /config/.local/share/opencode/storage/part/ -r -l --type json
+rg "project/src" /workspace/.local/share/opencode/storage/part/ -r -l --type json
 ```
 
 ---
@@ -526,7 +526,7 @@ import json, glob, os, sys, time
 from collections import Counter
 from datetime import datetime
 
-STORAGE = "/config/.local/share/opencode/storage"
+STORAGE = "/workspace/.local/share/opencode/storage"
 SESSION_DIR = f"{STORAGE}/session/global"
 MESSAGE_DIR = f"{STORAGE}/message"
 PART_DIR = f"{STORAGE}/part"
@@ -711,10 +711,10 @@ for m in json.load(sys.stdin):
 ### "Find sessions about topic X"
 ```bash
 # Deterministic (exact match)
-rg -i "topic" /config/.local/share/opencode/storage/session/global/ -l
+rg -i "topic" /workspace/.local/share/opencode/storage/session/global/ -l
 
 # Semantic (meaning match)
-lss "topic description" -p /config/Desktop -k 10 --json
+lss "topic description" -p /workspace -k 10 --json
 ```
 
 ### "How much did I spend today?"
@@ -723,7 +723,7 @@ python3 -c "
 import json, glob, time
 cutoff = (time.time() - 86400) * 1000
 total = 0
-for f in glob.glob('/config/.local/share/opencode/storage/message/ses_*/msg_*.json'):
+for f in glob.glob('/workspace/.local/share/opencode/storage/message/ses_*/msg_*.json'):
     with open(f) as fh:
         d = json.load(fh)
     if d['time']['created'] > cutoff:
@@ -741,7 +741,7 @@ curl -s -X DELETE "http://localhost:3111/session/SESSION_ID"
 python3 -c "
 import json, glob, time, subprocess
 cutoff = (time.time() - 7 * 86400) * 1000
-for f in glob.glob('/config/.local/share/opencode/storage/session/global/ses_*.json'):
+for f in glob.glob('/workspace/.local/share/opencode/storage/session/global/ses_*.json'):
     with open(f) as fh:
         d = json.load(fh)
     if d['time']['created'] < cutoff:
@@ -801,7 +801,7 @@ When an agent uses the `task` tool, OpenCode creates a child session:
 4. **Tool outputs over ~50KB** are stored separately in `tool-output/tool_{id}` as plain text, referenced by ID.
 5. **Timestamps are Unix milliseconds** — divide by 1000 for Python `time.time()` comparisons.
 6. **Session IDs sort chronologically** — the hex portion of the ID encodes creation time.
-7. **The bundled ripgrep is at** `/config/.local/share/opencode/bin/rg` — use it for fast searches if system `rg` isn't available.
-8. **Prompt history** (all prompts ever entered) is at `/config/.local/state/opencode/prompt-history.jsonl`.
+7. **The bundled ripgrep is at** `/workspace/.local/share/opencode/bin/rg` — use it for fast searches if system `rg` isn't available.
+8. **Prompt history** (all prompts ever entered) is at `/workspace/.local/state/opencode/prompt-history.jsonl`.
 9. **The `POST /session/{id}/message` endpoint is synchronous** — it blocks until the full response is generated. Use `prompt_async` for fire-and-forget.
 10. **CORS is enabled** — the API accepts requests from any origin with GET/POST/PUT/PATCH/DELETE.

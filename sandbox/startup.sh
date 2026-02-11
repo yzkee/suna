@@ -14,14 +14,20 @@ echo "[startup] Preparing Kortix sandbox..."
 
 # ── Pre-s6 fixes ────────────────────────────────────────────────────────────
 # These must run as root before s6 takes over, because Daytona creates
-# /config dirs as root/dockremap and s6 services run as user abc.
+# /workspace dirs as root/dockremap and s6 services run as user abc.
 
-mkdir -p /config/Desktop /config/workspace /config/workspace/.kortix \
-    /config/.agent-browser /config/.browser-profile /config/.lss \
-    /config/.local/share/opencode /config/.local/share/konsole \
-    /config/.XDG /config/.config /config/ssl
+mkdir -p /workspace/.kortix \
+    /workspace/.agent-browser /workspace/.browser-profile /workspace/.lss \
+    /workspace/.local/share/opencode /workspace/.local/share/konsole \
+    /workspace/.XDG /workspace/.config /workspace/ssl \
+    /workspace/presentations
 
-chown -R abc:abc /config 2>/dev/null || true
+# Ensure /config symlink exists (backward compat for linuxserver base image)
+if [ ! -L /config ] && [ ! -d /config ]; then
+    ln -s /workspace /config
+fi
+
+chown -R abc:abc /workspace 2>/dev/null || true
 
 echo "[startup] Starting s6-overlay via PID namespace..."
 

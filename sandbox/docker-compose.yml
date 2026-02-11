@@ -16,7 +16,8 @@ services:
       - OPENCODE_CONFIG_DIR=/opt/opencode
       - OPENCODE_PERMISSION={"*":"allow"}
       - DISPLAY=:1
-      - LSS_DIR=/config/.lss
+      - LSS_DIR=/workspace/.lss
+      - KORTIX_WORKSPACE=/workspace
       # Kortix Master
       - OPENCODE_SERVER_USERNAME=${OPENCODE_SERVER_USERNAME:-admin}
       - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD:-changeme}
@@ -28,8 +29,7 @@ services:
     env_file:
       - .env
     volumes:
-      - config:/config
-      - workspace:/config/workspace
+      - workspace:/workspace
       - secrets_data:/app/secrets
     ports:
       - "6080:6080"   # Desktop (noVNC) -> http://localhost:6080
@@ -48,6 +48,5 @@ services:
       retries: 3
 
 volumes:
-  config:
   workspace:
   secrets_data:
