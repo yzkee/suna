@@ -36,6 +36,7 @@ import { isLocalMode } from '@/lib/config';
 import { useAccountState, accountStateSelectors } from '@/hooks/billing';
 import { getPlanIcon } from '@/components/billing/plan-utils';
 import { useCreateOpenCodeSession } from '@/hooks/opencode/use-opencode-sessions';
+import { useTabStore } from '@/stores/tab-store';
 import { createClient } from '@/lib/supabase/client';
 
 // ============================================================================
@@ -133,6 +134,12 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
     posthog.capture('new_task_clicked', { source: 'new_session_button' });
     try {
       const session = await createSession.mutateAsync();
+      useTabStore.getState().openTab({
+        id: session.id,
+        title: 'New session',
+        type: 'session',
+        href: `/sessions/${session.id}`,
+      });
       router.push(`/sessions/${session.id}`);
       if (isMobile) setOpenMobile(false);
     } catch {

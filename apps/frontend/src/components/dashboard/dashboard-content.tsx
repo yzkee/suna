@@ -11,6 +11,7 @@ import {
   useOpenCodeProviders,
   useOpenCodeCommands,
 } from '@/hooks/opencode/use-opencode-sessions';
+import { useTabStore } from '@/stores/tab-store';
 import { SessionWelcome } from '@/components/session/session-welcome';
 import { SessionChatInput, flattenModels } from '@/components/session/session-chat-input';
 import { Menu } from 'lucide-react';
@@ -67,6 +68,12 @@ export function DashboardContent() {
         }
 
         const session = await createSession.mutateAsync();
+        useTabStore.getState().openTab({
+          id: session.id,
+          title: 'New session',
+          type: 'session',
+          href: `/sessions/${session.id}`,
+        });
         router.push(`/sessions/${session.id}?new=true`);
       } catch (error) {
         sessionStorage.removeItem('opencode_pending_prompt');

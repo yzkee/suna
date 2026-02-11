@@ -831,6 +831,15 @@ export function SessionChatInput({
       }
     }
 
+    // Tab cycles through agents when no popover is open
+    if (e.key === 'Tab' && agents.length > 1 && onAgentChange) {
+      e.preventDefault();
+      const currentIdx = agents.findIndex((a) => a.name === selectedAgent);
+      const nextIdx = (currentIdx + 1) % agents.length;
+      onAgentChange(agents[nextIdx].name);
+      return;
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();

@@ -20,6 +20,9 @@ import { backendApi } from '@/lib/api-client';
 import { AnnouncementDialog } from '../announcements/announcement-dialog';
 import { NovuInboxProvider } from '../notifications/novu-inbox-provider';
 import { useOpenCodeEventStream } from '@/hooks/opencode/use-opencode-events';
+import { TabBar } from '@/components/tabs/tab-bar';
+import { useTabStore } from '@/stores/tab-store';
+import { cn } from '@/lib/utils';
 
 function OpenCodeEventStreamProvider() {
   useOpenCodeEventStream();
@@ -67,8 +70,15 @@ const TechnicalIssueBanner = lazy(() =>
   import('@/components/announcements/technical-issue-banner').then(mod => ({ default: mod.TechnicalIssueBanner }))
 );
 
-const MaintenanceCountdownBanner = lazy(() => 
+const MaintenanceCountdownBanner = lazy(() =>
   import('@/components/announcements/maintenance-countdown-banner').then(mod => ({ default: mod.MaintenanceCountdownBanner }))
+);
+
+const SessionLayout = lazy(() =>
+  import('@/components/session/session-layout').then(mod => ({ default: mod.SessionLayout }))
+);
+const SessionChat = lazy(() =>
+  import('@/components/session/session-chat').then(mod => ({ default: mod.SessionChat }))
 );
 
 // Skeleton shell that renders immediately for FCP
@@ -94,6 +104,53 @@ function DashboardSkeleton() {
             <div className="h-24 bg-muted/20 rounded-xl animate-pulse" />
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Pre-mounted session tabs: keeps all open sessions alive in the DOM so
+// switching between tabs is instant (no re-mount, no loading spinner).
+// ============================================================================
+function SessionTabsContainer({ children }: { children: React.ReactNode }) {
+  const tabs = useTabStore((s) => s.tabs);
+  const tabOrder = useTabStore((s) => s.tabOrder);
+  const activeTabId = useTabStore((s) => s.activeTabId);
+
+  // Collect session tab IDs
+  const sessionTabIds = tabOrder.filter((id) => tabs[id]?.type === 'session');
+  const activeTab = activeTabId ? tabs[activeTabId] : null;
+  const showingMountedSession = activeTab?.type === 'session';
+
+  return (
+    <div className="bg-background flex-1 min-h-0 flex flex-col overflow-hidden relative">
+      {/* Pre-mounted session tabs — always rendered, shown/hidden via CSS */}
+      {sessionTabIds.map((id) => (
+        <div
+          key={id}
+          className={cn(
+            'absolute inset-0 flex flex-col',
+            id !== activeTabId && 'hidden',
+          )}
+        >
+          <Suspense fallback={null}>
+            <SessionLayout sessionId={id}>
+              <SessionChat sessionId={id} />
+            </SessionLayout>
+          </Suspense>
+        </div>
+      ))}
+
+      {/* Route-based children (dashboard, settings, etc.)
+          Hidden when a pre-mounted session tab is active. */}
+      <div
+        className={cn(
+          'flex-1 min-h-0 flex flex-col overflow-hidden',
+          showingMountedSession && 'hidden',
+        )}
+      >
+        {children}
       </div>
     </div>
   );
@@ -256,7 +313,8 @@ export default function DashboardLayoutContent({
         
         <Suspense fallback={null}>
           <OnboardingProvider>
-            <div className="bg-background flex-1 min-h-0 flex flex-col overflow-hidden">{children}</div>
+            <TabBar />
+            <SessionTabsContainer>{children}</SessionTabsContainer>
           </OnboardingProvider>
         </Suspense>
         <Suspense fallback={null}>

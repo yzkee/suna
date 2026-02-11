@@ -28,6 +28,7 @@ import {
 } from '@/hooks/opencode/use-opencode-sessions';
 import { useOpenCodeSessionStatusStore } from '@/stores/opencode-session-status-store';
 import { useOpenCodePendingStore } from '@/stores/opencode-pending-store';
+import { useTabStore } from '@/stores/tab-store';
 
 import { childMapByParent, sortSessions, allDescendantIds } from '@/ui';
 import type { Session } from '@/hooks/opencode/use-opencode-sessions';
@@ -421,6 +422,15 @@ export function SessionList({ projectId }: SessionListProps = {}) {
     e.preventDefault();
     if (isMobile) setOpenMobile(false);
 
+    const session = rootSessions.find(s => s.id === sessionId) ||
+      sessions?.find(s => s.id === sessionId);
+    useTabStore.getState().openTab({
+      id: sessionId,
+      title: session?.title || 'Session',
+      type: 'session',
+      href: `/sessions/${sessionId}`,
+    });
+
     startTransition(() => {
       router.push(`/sessions/${sessionId}`);
     });
@@ -449,12 +459,21 @@ export function SessionList({ projectId }: SessionListProps = {}) {
 
   const handleArchiveSession = (sessionId: string) => {
     const isActive = pathname?.includes(sessionId);
+
+    // Close the tab for the archived session
+    const tabState = useTabStore.getState();
+    if (tabState.tabs[sessionId]) {
+      tabState.closeTab(sessionId);
+    }
+
     updateSession(
       { sessionId, archived: true },
       {
         onSuccess: () => {
           if (isActive) {
-            router.push('/dashboard');
+            const nextState = useTabStore.getState();
+            const nextTab = nextState.activeTabId ? nextState.tabs[nextState.activeTabId] : null;
+            router.push(nextTab?.href || '/dashboard');
           }
         },
       },
@@ -465,10 +484,19 @@ export function SessionList({ projectId }: SessionListProps = {}) {
     if (!sessionToDelete) return;
     setIsDeleteDialogOpen(false);
     const isActive = pathname?.includes(sessionToDelete.id);
+
+    // Close the tab for the deleted session
+    const tabState = useTabStore.getState();
+    if (tabState.tabs[sessionToDelete.id]) {
+      tabState.closeTab(sessionToDelete.id);
+    }
+
     deleteSession(sessionToDelete.id, {
       onSuccess: () => {
         if (isActive) {
-          router.push('/dashboard');
+          const nextState = useTabStore.getState();
+          const nextTab = nextState.activeTabId ? nextState.tabs[nextState.activeTabId] : null;
+          router.push(nextTab?.href || '/dashboard');
         }
       },
     });

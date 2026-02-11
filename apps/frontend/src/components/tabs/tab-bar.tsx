@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   X,
   MessageCircle,
@@ -12,13 +13,15 @@ import {
   PinOff,
   ArrowRightToLine,
   XCircle,
+  ChevronsUpDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTabStore, type Tab, type TabType } from '@/stores/tab-store';
 import { useOpenCodeSessionStatusStore } from '@/stores/opencode-session-status-store';
 import { useOpenCodePendingStore } from '@/stores/opencode-pending-store';
-import { useOpenCodeSessions } from '@/hooks/opencode/use-opencode-sessions';
+import { useOpenCodeSessions, opencodeKeys } from '@/hooks/opencode/use-opencode-sessions';
 import { childMapByParent } from '@/ui';
+import { getClient } from '@/lib/opencode-sdk';
 
 // ============================================================================
 // Helpers
@@ -45,7 +48,6 @@ interface ContextMenuProps {
 function TabContextMenu({ tab, position, onAction, onClose }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Close on click outside or Escape
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -63,7 +65,6 @@ function TabContextMenu({ tab, position, onAction, onClose }: ContextMenuProps) 
     };
   }, [onClose]);
 
-  // Adjust position so menu doesn't go off screen
   useEffect(() => {
     if (!menuRef.current) return;
     const rect = menuRef.current.getBoundingClientRect();
@@ -78,7 +79,7 @@ function TabContextMenu({ tab, position, onAction, onClose }: ContextMenuProps) 
   const item = (label: string, action: string, icon: React.ReactNode, destructive?: boolean) => (
     <button
       className={cn(
-        'flex items-center gap-2 w-full px-3 py-1.5 text-xs rounded-sm transition-colors text-left',
+        'flex items-center gap-2 w-full px-3 py-1.5 text-xs rounded-sm transition-colors text-left cursor-pointer',
         destructive
           ? 'text-destructive hover:bg-destructive/10'
           : 'text-foreground hover:bg-accent'
@@ -111,6 +112,96 @@ function TabContextMenu({ tab, position, onAction, onClose }: ContextMenuProps) 
 }
 
 // ============================================================================
+// Tab List Dropdown (VS Code-style "Open Tabs" list)
+// ============================================================================
+
+interface TabListDropdownProps {
+  tabs: Tab[];
+  activeTabId: string | null;
+  onActivate: (tabId: string, href: string) => void;
+  onClose: () => void;
+  anchorRef: React.RefObject<HTMLButtonElement | null>;
+  getStatus: (sessionId: string) => { isBusy: boolean; pendingCount: number };
+}
+
+function TabListDropdown({ tabs, activeTabId, onActivate, onClose, anchorRef, getStatus }: TabListDropdownProps) {
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (
+        menuRef.current && !menuRef.current.contains(e.target as Node) &&
+        anchorRef.current && !anchorRef.current.contains(e.target as Node)
+      ) {
+        onClose();
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [onClose, anchorRef]);
+
+  const [pos, setPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
+  useEffect(() => {
+    if (anchorRef.current) {
+      const rect = anchorRef.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 2, right: window.innerWidth - rect.right });
+    }
+  }, [anchorRef]);
+
+  return (
+    <div
+      ref={menuRef}
+      className="fixed z-50 min-w-[220px] max-w-[320px] max-h-[400px] overflow-y-auto rounded-md border border-border bg-popover p-1 shadow-lg animate-in fade-in-0 zoom-in-95"
+      style={{ top: pos.top, right: pos.right }}
+    >
+      <div className="px-2 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+        Open tabs
+      </div>
+      {tabs.map((tab) => {
+        const Icon = TAB_ICONS[tab.type];
+        const isActive = tab.id === activeTabId;
+        const { isBusy, pendingCount } = tab.type === 'session' ? getStatus(tab.id) : { isBusy: false, pendingCount: 0 };
+        return (
+          <button
+            key={tab.id}
+            className={cn(
+              'flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded-sm transition-colors text-left cursor-pointer',
+              isActive
+                ? 'bg-accent text-accent-foreground'
+                : 'text-foreground hover:bg-accent/50'
+            )}
+            onClick={() => { onActivate(tab.id, tab.href); onClose(); }}
+          >
+            {tab.type === 'session' && (isBusy || pendingCount > 0) ? (
+              <div className="relative flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center">
+                {isBusy && <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />}
+                {pendingCount > 0 && !isBusy && <span className="h-2 w-2 rounded-full bg-amber-500" />}
+              </div>
+            ) : (
+              <Icon className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+            )}
+            <span className="flex-1 truncate">{tab.title || 'Untitled'}</span>
+            {tab.pinned && <Pin className="h-2.5 w-2.5 flex-shrink-0 text-muted-foreground/50" />}
+            {pendingCount > 0 && (
+              <span className="flex-shrink-0 h-4 min-w-4 px-1 rounded-full bg-amber-500/15 text-amber-500 text-[10px] font-medium flex items-center justify-center">
+                {pendingCount}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================================
 // Single Tab
 // ============================================================================
 
@@ -123,6 +214,12 @@ interface TabItemProps {
   onActivate: (tabId: string, href: string) => void;
   onClose: (tabId: string) => void;
   onContextMenu: (e: React.MouseEvent, tab: Tab) => void;
+  onDragStart: (e: React.DragEvent, tabId: string) => void;
+  onDragOver: (e: React.DragEvent, index: number) => void;
+  onDrop: (e: React.DragEvent) => void;
+  onDragEnd: () => void;
+  isDragOver: boolean;
+  dragSide: 'left' | 'right' | null;
 }
 
 function TabItem({
@@ -134,24 +231,39 @@ function TabItem({
   onActivate,
   onClose,
   onContextMenu,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  isDragOver,
+  dragSide,
 }: TabItemProps) {
   const Icon = TAB_ICONS[tab.type];
+  const didDragRef = useRef(false);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      // Middle-click to close
+      // Middle-click to close — only preventDefault for middle-click
       if (e.button === 1) {
         e.preventDefault();
         if (!tab.pinned) onClose(tab.id);
-        return;
-      }
-      // Left-click to activate
-      if (e.button === 0) {
-        e.preventDefault();
-        onActivate(tab.id, tab.href);
       }
     },
-    [tab, onActivate, onClose]
+    [tab, onClose]
+  );
+
+  // Use onClick for activation (fires after mouseup, doesn't block drag)
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      // Skip activation if we just finished a drag
+      if (didDragRef.current) {
+        didDragRef.current = false;
+        return;
+      }
+      e.preventDefault();
+      onActivate(tab.id, tab.href);
+    },
+    [tab, onActivate]
   );
 
   const handleCloseClick = useCallback(
@@ -171,14 +283,33 @@ function TabItem({
     [tab, onContextMenu]
   );
 
-  // Show position number for first 9 tabs (Ctrl+1..9 shortcut hint)
-  const shortcutHint = index < 9 ? index + 1 : null;
+  const handleDragStart = useCallback(
+    (e: React.DragEvent) => {
+      didDragRef.current = true;
+      onDragStart(e, tab.id);
+    },
+    [tab.id, onDragStart]
+  );
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      onDragOver(e, index);
+    },
+    [index, onDragOver]
+  );
 
   return (
     <div
       role="tab"
       aria-selected={isActive}
+      draggable
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
       onMouseDown={handleMouseDown}
+      onClick={handleClick}
       onContextMenu={handleContextMenu}
       className={cn(
         'group relative flex items-center gap-1.5 h-9 px-3 text-xs select-none cursor-pointer',
@@ -189,7 +320,15 @@ function TabItem({
           : 'bg-muted/30 text-muted-foreground hover:bg-muted/60 hover:text-foreground',
       )}
     >
-      {/* Icon with status (skip icon for sessions — placeholder only) */}
+      {/* Drag-over indicator */}
+      {isDragOver && dragSide === 'left' && (
+        <div className="absolute left-0 top-1 bottom-1 w-[2px] bg-primary rounded-full z-10" />
+      )}
+      {isDragOver && dragSide === 'right' && (
+        <div className="absolute right-0 top-1 bottom-1 w-[2px] bg-primary rounded-full z-10" />
+      )}
+
+      {/* Icon with status */}
       {tab.type !== 'session' ? (
         <div className="relative flex-shrink-0 text-muted-foreground">
           <Icon className="h-3.5 w-3.5" />
@@ -215,17 +354,17 @@ function TabItem({
         <span className="flex-shrink-0 h-1.5 w-1.5 rounded-full bg-amber-500" />
       )}
 
-      {/* Pin indicator (when pinned) */}
+      {/* Pin indicator */}
       {tab.pinned && (
         <Pin className="flex-shrink-0 h-2.5 w-2.5 text-muted-foreground/50" />
       )}
 
-      {/* Close button / shortcut hint area */}
+      {/* Close button */}
       {!tab.pinned && (
         <button
           onClick={handleCloseClick}
           className={cn(
-            'flex-shrink-0 p-0.5 rounded-sm transition-colors',
+            'flex-shrink-0 p-0.5 rounded-sm transition-colors cursor-pointer',
             'opacity-0 group-hover:opacity-100',
             'hover:bg-muted-foreground/20'
           )}
@@ -234,7 +373,7 @@ function TabItem({
         </button>
       )}
 
-      {/* Active tab indicator -- bottom line */}
+      {/* Active tab indicator — bottom line */}
       {isActive && (
         <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary" />
       )}
@@ -250,6 +389,7 @@ export function TabBar() {
   const router = useRouter();
   const pathname = usePathname();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -257,8 +397,17 @@ export function TabBar() {
     position: { x: number; y: number };
   } | null>(null);
 
+  // Tab list dropdown state
+  const [showTabList, setShowTabList] = useState(false);
+  const tabListBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Drag-and-drop state
+  const dragTabIdRef = useRef<string | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [dragSide, setDragSide] = useState<'left' | 'right' | null>(null);
+  const [dragTabId, setDragTabId] = useState<string | null>(null);
+
   // Track recently closed tab IDs so the route-sync effect doesn't reopen them
-  // before the router has finished navigating away.
   const closingTabIds = useRef<Set<string>>(new Set());
 
   // Tab store
@@ -267,6 +416,7 @@ export function TabBar() {
   const activeTabId = useTabStore((s) => s.activeTabId);
   const openTab = useTabStore((s) => s.openTab);
   const setActiveTab = useTabStore((s) => s.setActiveTab);
+  const moveTab = useTabStore((s) => s.moveTab);
   const pinTab = useTabStore((s) => s.pinTab);
   const closeOtherTabs = useTabStore((s) => s.closeOtherTabs);
   const closeTabsToRight = useTabStore((s) => s.closeTabsToRight);
@@ -277,7 +427,7 @@ export function TabBar() {
   const permissions = useOpenCodePendingStore((s) => s.permissions);
   const questions = useOpenCodePendingStore((s) => s.questions);
 
-  // Sessions data -- used to keep tab titles in sync
+  // Sessions data
   const { data: sessions } = useOpenCodeSessions();
   const updateTabTitle = useTabStore((s) => s.updateTabTitle);
 
@@ -292,6 +442,47 @@ export function TabBar() {
     }
   }, [sessions, tabs, updateTabTitle]);
 
+  // Prune tabs for sessions that no longer exist on the server
+  useEffect(() => {
+    if (!sessions) return;
+    const sessionIds = new Set(sessions.map(s => s.id));
+    const staleTabIds = tabOrder.filter(id => {
+      const tab = tabs[id];
+      return tab?.type === 'session' && !sessionIds.has(id);
+    });
+    for (const id of staleTabIds) {
+      useTabStore.getState().closeTab(id);
+    }
+  }, [sessions, tabs, tabOrder]);
+
+  // Prefetch session + messages data for all open tabs so switching is instant
+  useEffect(() => {
+    for (const id of tabOrder) {
+      const tab = tabs[id];
+      if (tab?.type !== 'session' || id === activeTabId) continue;
+      queryClient.prefetchQuery({
+        queryKey: opencodeKeys.session(id),
+        queryFn: async () => {
+          const client = getClient();
+          const result = await client.session.get({ sessionID: id });
+          if (result.error) throw new Error('prefetch failed');
+          return result.data;
+        },
+        staleTime: 30 * 1000,
+      });
+      queryClient.prefetchQuery({
+        queryKey: opencodeKeys.messages(id),
+        queryFn: async () => {
+          const client = getClient();
+          const result = await client.session.messages({ sessionID: id });
+          if (result.error) throw new Error('prefetch failed');
+          return result.data;
+        },
+        staleTime: 5 * 1000,
+      });
+    }
+  }, [tabOrder, tabs, activeTabId, queryClient]);
+
   const orderedTabs = useMemo(
     () => tabOrder.map((id) => tabs[id]).filter(Boolean),
     [tabs, tabOrder]
@@ -301,8 +492,6 @@ export function TabBar() {
   useEffect(() => {
     if (!pathname) return;
 
-    // Clear closing-tab tracking once the pathname has actually changed away.
-    // This means the router finished navigating after a tab close.
     closingTabIds.current.forEach((id) => {
       const closedHref = `/sessions/${id}`;
       if (pathname !== closedHref) {
@@ -310,30 +499,29 @@ export function TabBar() {
       }
     });
 
-    // Check if current route matches an existing tab
     const matchingTab = orderedTabs.find((t) => t.href === pathname);
     if (matchingTab && matchingTab.id !== activeTabId) {
       setActiveTab(matchingTab.id);
     }
 
-    // Auto-open a tab for the current session page if not already open
     const sessionMatch = pathname.match(/^\/sessions\/([^/]+)$/);
     if (sessionMatch) {
       const sessionId = sessionMatch[1];
-      // Don't reopen a tab we just closed — the router hasn't navigated away yet
       if (closingTabIds.current.has(sessionId)) return;
       if (!tabs[sessionId]) {
+        const session = sessions?.find(s => s.id === sessionId);
         openTab({
           id: sessionId,
-          title: 'Session',
+          title: session?.title || 'Session',
           type: 'session',
           href: `/sessions/${sessionId}`,
+          parentSessionId: session?.parentID,
         });
       } else {
         setActiveTab(sessionId);
       }
     }
-  }, [pathname, orderedTabs, activeTabId, tabs, openTab, setActiveTab]);
+  }, [pathname, orderedTabs, activeTabId, tabs, openTab, setActiveTab, sessions]);
 
   // Build child map for permission aggregation across sub-sessions
   const childMap = useMemo(
@@ -341,7 +529,6 @@ export function TabBar() {
     [sessions],
   );
 
-  // Aggregate pending count: session's own + all child sessions' pending items
   const getPendingCount = useCallback(
     (sessionId: string) => {
       const countForSession = (sid: string) => {
@@ -365,31 +552,47 @@ export function TabBar() {
     [permissions, questions, childMap],
   );
 
+  const getStatus = useCallback(
+    (sessionId: string) => {
+      const pendingCount = getPendingCount(sessionId);
+      const isBusy = pendingCount === 0 && statuses[sessionId]?.type === 'busy';
+      return { isBusy: !!isBusy, pendingCount };
+    },
+    [getPendingCount, statuses],
+  );
+
+  // Tab switching: update URL via history.pushState for session tabs (no re-mount),
+  // fall back to router.push for non-session tabs.
   const handleActivate = useCallback(
     (tabId: string, href: string) => {
+      const tab = useTabStore.getState().tabs[tabId];
       setActiveTab(tabId);
-      router.push(href);
+      if (tab?.type === 'session') {
+        // pushState changes the URL without triggering a Next.js navigation,
+        // so the pre-mounted session component just becomes visible instantly.
+        window.history.pushState(null, '', href);
+      } else {
+        router.push(href);
+      }
     },
     [setActiveTab, router]
   );
 
   const handleClose = useCallback(
     (tabId: string) => {
-      // Mark this tab as "closing" so the route-sync effect won't reopen it
-      // while the router is still navigating away from its route.
       closingTabIds.current.add(tabId);
-
-      // Read everything from the store directly to avoid stale closures.
-      // closeTab mutates state synchronously, so re-read after to get the next tab.
       const state = useTabStore.getState();
       const nextTabId = state.closeTab(tabId);
       if (nextTabId) {
         const nextTab = useTabStore.getState().tabs[nextTabId];
         if (nextTab) {
-          router.push(nextTab.href);
+          if (nextTab.type === 'session') {
+            window.history.pushState(null, '', nextTab.href);
+          } else {
+            router.push(nextTab.href);
+          }
         }
       } else {
-        // No tabs left -- go to dashboard
         router.push('/dashboard');
       }
     },
@@ -430,45 +633,92 @@ export function TabBar() {
     [pinTab, handleClose, closeOtherTabs, closeTabsToRight, closeAllTabs, router]
   );
 
-  // Horizontal scroll on wheel
   const handleWheel = useCallback((e: React.WheelEvent) => {
     if (scrollRef.current) {
       scrollRef.current.scrollLeft += e.deltaY;
     }
   }, []);
 
-  // Keyboard shortcuts: Ctrl+1..9 to switch tabs, Ctrl+W to close active tab
-  // Using Ctrl (not Cmd/Meta, not Option/Alt) to avoid conflicts with:
-  //   - macOS Option+key producing special characters (¡, ™, £, ∑, etc.)
-  //   - Browser native Cmd+W (close browser tab), Cmd+1..9 (browser tab switching)
-  //   - Chat input text entry
+  // --- Drag and drop ---
+  const handleDragStart = useCallback(
+    (e: React.DragEvent, tabId: string) => {
+      dragTabIdRef.current = tabId;
+      setDragTabId(tabId);
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', tabId);
+    },
+    []
+  );
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent, index: number) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const midX = rect.left + rect.width / 2;
+      setDragOverIndex(index);
+      setDragSide(e.clientX < midX ? 'left' : 'right');
+    },
+    []
+  );
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      const srcId = dragTabIdRef.current;
+      if (srcId !== null && dragOverIndex !== null && dragSide !== null) {
+        const currentOrder = useTabStore.getState().tabOrder;
+        const fromIndex = currentOrder.indexOf(srcId);
+        if (fromIndex !== -1) {
+          let toIndex = dragSide === 'right' ? dragOverIndex + 1 : dragOverIndex;
+          if (fromIndex < toIndex) toIndex -= 1;
+          if (fromIndex !== toIndex) {
+            moveTab(srcId, toIndex);
+          }
+        }
+      }
+      dragTabIdRef.current = null;
+      setDragTabId(null);
+      setDragOverIndex(null);
+      setDragSide(null);
+    },
+    [dragOverIndex, dragSide, moveTab]
+  );
+
+  const handleDragEnd = useCallback(() => {
+    dragTabIdRef.current = null;
+    setDragTabId(null);
+    setDragOverIndex(null);
+    setDragSide(null);
+  }, []);
+
+  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Only handle Ctrl key combos (not Cmd/Meta)
       if (!e.ctrlKey || e.metaKey || e.altKey) return;
 
-      // Ctrl+1 through Ctrl+9: switch to tab at that position
       const digitMatch = e.code.match(/^Digit(\d)$/);
       if (digitMatch) {
         const num = parseInt(digitMatch[1], 10);
         if (num >= 1 && num <= 9) {
           e.preventDefault();
           const { tabOrder: order, tabs: allTabs } = useTabStore.getState();
-          const targetIndex = num - 1;
-          // Ctrl+9 always goes to the last tab (like browsers)
-          const idx = num === 9 ? order.length - 1 : targetIndex;
+          const idx = num === 9 ? order.length - 1 : num - 1;
           if (idx >= 0 && idx < order.length) {
             const targetTab = allTabs[order[idx]];
             if (targetTab) {
               setActiveTab(targetTab.id);
-              router.push(targetTab.href);
+              if (targetTab.type === 'session') {
+                window.history.pushState(null, '', targetTab.href);
+              } else {
+                router.push(targetTab.href);
+              }
             }
           }
           return;
         }
       }
 
-      // Ctrl+W: close active tab
       if (e.code === 'KeyW') {
         e.preventDefault();
         const { activeTabId: active, tabs: allTabs } = useTabStore.getState();
@@ -495,11 +745,10 @@ export function TabBar() {
         <div
           ref={scrollRef}
           onWheel={handleWheel}
-          className="flex items-stretch overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']"
+          className="flex-1 flex items-stretch overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']"
         >
           {orderedTabs.map((tab, index) => {
             const pending = tab.type === 'session' ? getPendingCount(tab.id) : 0;
-            // Matching SolidJS: permissions suppress busy indicator
             const busy = tab.type === 'session' && pending === 0 && statuses[tab.id]?.type === 'busy';
             return (
               <TabItem
@@ -512,14 +761,44 @@ export function TabBar() {
                 onActivate={handleActivate}
                 onClose={handleClose}
                 onContextMenu={handleContextMenu}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+                onDragEnd={handleDragEnd}
+                isDragOver={dragOverIndex === index && dragTabId !== tab.id}
+                dragSide={dragOverIndex === index && dragTabId !== tab.id ? dragSide : null}
               />
             );
           })}
         </div>
 
+        {/* Tab list button (VS Code-style) */}
+        <button
+          ref={tabListBtnRef}
+          onClick={() => setShowTabList((v) => !v)}
+          className={cn(
+            'flex-shrink-0 flex items-center justify-center w-9 h-9 cursor-pointer',
+            'border-l border-border/40 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors',
+          )}
+          title="Open tab list"
+        >
+          <ChevronsUpDown className="h-3.5 w-3.5" />
+        </button>
       </div>
 
-      {/* Right-click context menu (portal-style, rendered at fixed position) */}
+      {/* Tab list dropdown */}
+      {showTabList && (
+        <TabListDropdown
+          tabs={orderedTabs}
+          activeTabId={activeTabId}
+          onActivate={handleActivate}
+          onClose={() => setShowTabList(false)}
+          anchorRef={tabListBtnRef}
+          getStatus={getStatus}
+        />
+      )}
+
+      {/* Right-click context menu */}
       {contextMenu && (
         <TabContextMenu
           tab={contextMenu.tab}
