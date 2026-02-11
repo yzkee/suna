@@ -265,7 +265,7 @@ web-search("claim fact check ||| claim evidence ||| claim debunked OR confirmed"
 grep -r "keyword" workspace/.kortix/research/ workspace/.kortix/memory/
 
 # Semantic search if available
-lss "research question" -p /config/workspace/.kortix/ --json -k 10
+lss "research question" -p /workspace/.kortix/ --json -k 10
 ```
 
 ## Handling Edge Cases

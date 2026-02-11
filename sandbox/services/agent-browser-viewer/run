@@ -14,7 +14,7 @@ exec s6-setuidgid abc \
     const path = require("path");
 
     const html = fs.readFileSync("/opt/agent-browser-viewer/index.html");
-    const socketDir = process.env.AGENT_BROWSER_SOCKET_DIR || "/config/.agent-browser";
+    const socketDir = process.env.AGENT_BROWSER_SOCKET_DIR || "/workspace/.agent-browser";
 
     function getSessions() {
       try {

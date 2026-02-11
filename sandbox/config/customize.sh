@@ -1,5 +1,5 @@
 #!/bin/bash
-CONFIG_DIR="/config"
+CONFIG_DIR="/workspace"
 MARKER="$CONFIG_DIR/.heyagi-customized"
 
 # ── Always run: ensure agent-browser dirs exist, clean stale locks ──────────
@@ -17,11 +17,12 @@ fi
 echo "[heyagi] Applying desktop customization..."
 mkdir -p "$CONFIG_DIR/.config/autostart"
 mkdir -p "$CONFIG_DIR/.local/share/konsole"
-mkdir -p "$CONFIG_DIR/Desktop"
 
 # ── Symlink presentations into Desktop for easy access ─────────────────────
-mkdir -p "$CONFIG_DIR/workspace/presentations"
-ln -sfn "$CONFIG_DIR/workspace/presentations" "$CONFIG_DIR/Desktop/presentations"
+mkdir -p "$CONFIG_DIR/presentations"
+# Create a Desktop directory for KDE and symlink presentations into it
+mkdir -p "$CONFIG_DIR/Desktop"
+ln -sfn "$CONFIG_DIR/presentations" "$CONFIG_DIR/Desktop/presentations"
 
 # ── KDE Global: Breeze Dark ────────────────────────────────────────────────
 cat > "$CONFIG_DIR/.config/kdeglobals" << 'EOF'
@@ -134,7 +135,7 @@ SCRIPT
 chmod +x /usr/share/wallpapers/heyagi/apply-desktop.sh
 
 # ── Fix ownership ──────────────────────────────────────────────────────────
-# Give abc full ownership of everything under /config so opencode and its
+# Give abc full ownership of everything under /workspace so opencode and its
 # agents can freely create directories and files (presentations, output, etc.)
 chown -R abc:abc "$CONFIG_DIR" 2>/dev/null
 

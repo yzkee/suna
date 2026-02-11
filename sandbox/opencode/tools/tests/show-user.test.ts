@@ -1,7 +1,7 @@
 import { existsSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { resolve } from "path";
 
-// Use a temp directory for the queue instead of /config/.show-user (which is container-only)
+// Use a temp directory for the queue instead of /workspace/.show-user (which is container-only)
 const TEST_SHOW_DIR = resolve(import.meta.dir, "test-show-user");
 const TEST_QUEUE_FILE = `${TEST_SHOW_DIR}/queue.jsonl`;
 

@@ -13,14 +13,14 @@ A background file-watcher daemon (`lss-sync`) detects file changes in real time 
 
 lss combines **BM25 full-text search** (keyword matching with custom re-scoring) and **embedding similarity** (semantic meaning via OpenAI or local fastembed) using Reciprocal Rank Fusion. Queries can be natural language — you don't need exact keywords.
 
-The database lives at `/config/.lss/lss.db`.
+The database lives at `/workspace/.lss/lss.db`.
 
 ## What's Indexed
 
 | Source | Path | Content |
 |--------|------|---------|
-| **Desktop files** | `/config/Desktop` | Code, docs, PDFs, DOCX, XLSX, PPTX, HTML, JSON, CSV — all text-like files recursively |
-| **Agent memory** | `/config/workspace/.kortix/` | MEMORY.md, memory/*.md, journal/*.md, knowledge/*.md |
+| **Desktop files** | `/workspace` | Code, docs, PDFs, DOCX, XLSX, PPTX, HTML, JSON, CSV — all text-like files recursively |
+| **Agent memory** | `/workspace/.kortix/` | MEMORY.md, memory/*.md, journal/*.md, knowledge/*.md |
 
 Indexed formats: ~80 known extensions (code, markup, config, documents). Unknown extensions are skipped. `.gitignore` patterns are respected.
 
@@ -28,28 +28,28 @@ Indexed formats: ~80 known extensions (code, markup, config, documents). Unknown
 
 ```bash
 # Search EVERYTHING indexed
-lss "your natural language query" -p /config/Desktop -k 10 --json
+lss "your natural language query" -p /workspace -k 10 --json
 
 # Search only agent memory + knowledge
-lss "user deployment preferences" -p /config/workspace/.kortix/ -k 5 --json
+lss "user deployment preferences" -p /workspace/.kortix/ -k 5 --json
 
 # Search a specific project directory
-lss "database migration strategy" -p /config/Desktop/myproject/ -k 5 --json
+lss "database migration strategy" -p /workspace/myproject/ -k 5 --json
 
 # Search without triggering re-indexing (faster, uses existing index)
-lss "query" -p /config/Desktop --no-index -k 10 --json
+lss "query" -p /workspace --no-index -k 10 --json
 
 # Filter by file type
-lss "auth logic" -p /config/Desktop -e .py -e .ts -k 10 --json
+lss "auth logic" -p /workspace -e .py -e .ts -k 10 --json
 
 # Exclude file types
-lss "config" -p /config/Desktop -E .json -E .yaml -k 10 --json
+lss "config" -p /workspace -E .json -E .yaml -k 10 --json
 
 # Exclude content patterns
-lss "user data" -p /config/Desktop -x '\d{4}-\d{2}-\d{2}' -k 10 --json
+lss "user data" -p /workspace -x '\d{4}-\d{2}-\d{2}' -k 10 --json
 
 # Force re-index a path immediately
-lss index /config/Desktop/important-file.md
+lss index /workspace/important-file.md
 
 # List all indexed files
 lss ls
@@ -74,13 +74,13 @@ Narrow results at query time without re-indexing.
 
 ```bash
 # 1. Try narrow: only Python source files
-lss "authentication flow" -p /config/Desktop/project -e .py -k 10 --json
+lss "authentication flow" -p /workspace/project -e .py -k 10 --json
 
 # 2. If too few results, broaden to all code
-lss "authentication flow" -p /config/Desktop/project -e .py -e .ts -e .go -e .rs -k 10 --json
+lss "authentication flow" -p /workspace/project -e .py -e .ts -e .go -e .rs -k 10 --json
 
 # 3. If still insufficient, search everything
-lss "authentication flow" -p /config/Desktop/project -k 10 --json
+lss "authentication flow" -p /workspace/project -k 10 --json
 ```
 
 **Exclude noise, not signal:**
@@ -101,7 +101,7 @@ lss "customer report" -x '\d{4}-\d{2}-\d{2}' --json -k 10
 **Always use `--json` for programmatic parsing.**
 
 ```bash
-lss "query" -p /config/Desktop --json -k 10
+lss "query" -p /workspace --json -k 10
 ```
 
 Returns an array of result arrays (one per query):
@@ -111,7 +111,7 @@ Returns an array of result arrays (one per query):
     "query": "authentication flow",
     "hits": [
       {
-        "file_path": "/config/Desktop/project/auth.py",
+        "file_path": "/workspace/project/auth.py",
         "score": 0.0345,
         "snippet": "def authenticate(user, password):\n    \"\"\"Authenticate user with JWT...",
         "rank_stage": "S3_MMR",
@@ -145,7 +145,7 @@ Or use a query file:
 echo "system architecture overview" > /tmp/queries.txt
 echo "API endpoint design" >> /tmp/queries.txt
 echo "database schema" >> /tmp/queries.txt
-lss -Q /tmp/queries.txt -p /config/Desktop/project --json -k 5
+lss -Q /tmp/queries.txt -p /workspace/project --json -k 5
 ```
 
 ## When to Use lss vs grep
@@ -163,26 +163,26 @@ For large codebases, use an iterative approach:
 
 ```bash
 # Step 1: Broad discovery — find relevant areas
-lss "payment processing" -p /config/Desktop/project -k 20 --json
+lss "payment processing" -p /workspace/project -k 20 --json
 
 # Step 2: Narrow by extension — focus on implementation
-lss "payment processing" -p /config/Desktop/project -e .py -k 10 --json
+lss "payment processing" -p /workspace/project -e .py -k 10 --json
 
 # Step 3: Narrow by path — focus on specific module
-lss "payment processing" -p /config/Desktop/project/src/payments/ -k 10 --json
+lss "payment processing" -p /workspace/project/src/payments/ -k 10 --json
 
 # Step 4: Read the actual files for full context
-cat /config/Desktop/project/src/payments/processor.py
+cat /workspace/project/src/payments/processor.py
 ```
 
 ## Indexing
 
 ```bash
 # Index a directory (auto-triggered on first search)
-lss index /config/Desktop/project/
+lss index /workspace/project/
 
 # Index a single file
-lss index /config/Desktop/important.pdf
+lss index /workspace/important.pdf
 
 # The daemon handles real-time updates automatically
 # Use manual indexing only for immediate needs

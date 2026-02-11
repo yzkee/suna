@@ -13,10 +13,10 @@ Run searches across all indexed sources in parallel:
 
 ```bash
 # Search Desktop files (projects, documents, etc.)
-lss "$ARGUMENTS" -p /config/Desktop --json -k 10
+lss "$ARGUMENTS" -p /workspace --json -k 10
 
 # Search agent memory + knowledge
-lss "$ARGUMENTS" -p /config/workspace/.kortix/ --json -k 5
+lss "$ARGUMENTS" -p /workspace/.kortix/ --json -k 5
 ```
 
 ## Output

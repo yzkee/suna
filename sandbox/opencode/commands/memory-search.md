@@ -22,7 +22,7 @@ Run these in parallel for speed:
 
 ```bash
 # Search memory semantically (finds related concepts, not just exact keywords)
-lss "$ARGUMENTS" -p /config/workspace/.kortix/ --json -k 5
+lss "$ARGUMENTS" -p /workspace/.kortix/ --json -k 5
 ```
 
 ## Output
@@ -38,7 +38,7 @@ Group results by source:
 
 If no results found from either method, say so clearly and suggest:
 - Related terms to try
-- Whether to search Desktop files too: `lss "$ARGUMENTS" -p /config/Desktop --json -k 10`
+- Whether to search Desktop files too: `lss "$ARGUMENTS" -p /workspace --json -k 10`
 
 ## Search query
 
