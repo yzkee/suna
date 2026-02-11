@@ -29,6 +29,7 @@ import {
   ExternalLink,
   Glasses,
   SquareKanban,
+  FileText,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -41,6 +42,7 @@ import {
 import { useOpenCodeMessages } from '@/hooks/opencode/use-opencode-sessions';
 import { useOpenCodePendingStore } from '@/stores/opencode-pending-store';
 import { useTabStore } from '@/stores/tab-store';
+import { useOcFileOpen } from '@/components/thread/tool-views/opencode/useOcFileOpen';
 import { QuestionPrompt } from '@/components/session/question-prompt';
 import {
   type ToolPart,
@@ -508,13 +510,158 @@ function ReadTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 }
 ToolRegistry.register('read', ReadTool);
 
+// ============================================================================
+// Parsing helpers for Glob/Grep/List output
+// ============================================================================
+
+/** Try to parse output into a list of file paths (one per line) */
+function parseFilePaths(output: string): string[] | null {
+  if (!output) return null;
+  const lines = output.trim().split('\n').map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) return null;
+  const pathLike = lines.filter((l) => l.startsWith('/') || l.startsWith('./') || l.startsWith('~'));
+  if (pathLike.length >= lines.length * 0.7) return pathLike;
+  return null;
+}
+
+interface GrepMatch { line: number; content: string; }
+interface GrepFileGroup { filePath: string; matches: GrepMatch[]; }
+
+/** Parse grep output into structured file groups */
+function parseGrepOutput(output: string): { matchCount: number; groups: GrepFileGroup[] } | null {
+  if (!output) return null;
+  const text = String(output).trim();
+  const headerMatch = text.match(/^Found\s+(\d+)\s+match/i);
+  const matchCount = headerMatch ? parseInt(headerMatch[1], 10) : 0;
+  const body = headerMatch ? text.slice(headerMatch[0].length).trim() : text;
+  if (!body) return null;
+
+  const groups: GrepFileGroup[] = [];
+  const blocks = body.split(/\n\n+/);
+
+  for (const block of blocks) {
+    const trimmed = block.trim();
+    if (!trimmed) continue;
+    const fileMatch = trimmed.match(/^(\/[^:]+?):\s*/);
+    if (!fileMatch) continue;
+    const filePath = fileMatch[1];
+    const rest = trimmed.slice(fileMatch[0].length);
+    const matches: GrepMatch[] = [];
+    const lineRegex = /Line\s+(\d+):\s*([\s\S]*?)(?=\s*(?:Line\s+\d+:|$))/g;
+    let m: RegExpExecArray | null;
+    while ((m = lineRegex.exec(rest)) !== null) {
+      matches.push({ line: parseInt(m[1], 10), content: m[2].trim().replace(/;$/, '') });
+    }
+    if (matches.length > 0) groups.push({ filePath, matches });
+  }
+
+  if (groups.length === 0) return null;
+  return { matchCount: matchCount || groups.reduce((sum, g) => sum + g.matches.length, 0), groups };
+}
+
+// ============================================================================
+// InlineFileList — styled file path list for Glob/List
+// ============================================================================
+
+function InlineFileList({ paths, onFileClick, toDisplayPath }: { paths: string[]; onFileClick: (path: string) => void; toDisplayPath: (p: string) => string }) {
+  return (
+    <div className="py-0.5">
+      {paths.map((fp, i) => {
+        const dp = toDisplayPath(fp);
+        const name = getFilename(dp);
+        const dir = getDirectory(dp);
+        return (
+          <div
+            key={i}
+            className="flex items-center gap-2 px-3 py-1 cursor-pointer hover:bg-muted/50 transition-colors group"
+            onClick={() => onFileClick(fp)}
+            title={dp}
+          >
+            <FileText className="size-3 text-muted-foreground/50 flex-shrink-0 group-hover:text-foreground/60 transition-colors" />
+            <span className="text-[11px] min-w-0 flex items-baseline gap-1.5 overflow-hidden">
+              <span className="text-foreground font-medium font-mono whitespace-nowrap flex-shrink-0">{name}</span>
+              {dir && <span className="text-muted-foreground/40 truncate text-[10px]">{dir}</span>}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================================
+// InlineGrepResults — styled grep result groups
+// ============================================================================
+
+function InlineGrepResults({ groups, onFileClick, toDisplayPath }: { groups: GrepFileGroup[]; onFileClick: (path: string) => void; toDisplayPath: (p: string) => string }) {
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(groups.length === 1 ? 0 : null);
+
+  return (
+    <div className="py-1 px-2 space-y-1">
+      {groups.map((group, i) => {
+        const dp = toDisplayPath(group.filePath);
+        const name = getFilename(dp);
+        const dir = getDirectory(dp);
+        const isExpanded = expandedIndex === i;
+
+        return (
+          <div key={i} className="rounded-md border border-border/30 overflow-hidden">
+            <div
+              className="flex items-center gap-1.5 px-2.5 py-1.5 cursor-pointer hover:bg-muted/50 transition-colors group"
+              onClick={() => setExpandedIndex(isExpanded ? null : i)}
+            >
+              {isExpanded ? (
+                <ChevronDown className="size-3 text-muted-foreground flex-shrink-0" />
+              ) : (
+                <ChevronRight className="size-3 text-muted-foreground flex-shrink-0" />
+              )}
+              <FileText className="size-3 text-muted-foreground/50 flex-shrink-0" />
+              <span className="text-[11px] min-w-0 flex items-baseline gap-1.5 overflow-hidden flex-1">
+                <span
+                  className="text-foreground font-medium font-mono whitespace-nowrap flex-shrink-0 cursor-pointer hover:text-blue-500 transition-colors"
+                  onClick={(e) => { e.stopPropagation(); onFileClick(group.filePath); }}
+                  title={group.filePath}
+                >
+                  {name}
+                </span>
+                {dir && <span className="text-muted-foreground/40 truncate text-[10px]">{dir}</span>}
+              </span>
+              <span className="text-[10px] text-muted-foreground flex-shrink-0">{group.matches.length}</span>
+            </div>
+            {isExpanded && (
+              <div className="border-t border-border/20">
+                {group.matches.map((match, j) => (
+                  <div
+                    key={j}
+                    className="flex items-start gap-0 border-b last:border-b-0 border-border/10"
+                  >
+                    <span className="text-[10px] font-mono text-muted-foreground/50 w-10 text-right pr-2 py-1 flex-shrink-0 select-none">
+                      {match.line}
+                    </span>
+                    <span className="text-[10px] font-mono text-foreground/70 py-1 pr-2 break-all leading-relaxed">
+                      {match.content}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // --- Glob ---
 function GlobTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
   const input = partInput(part);
   const output = partOutput(part);
+  const { openFile, openFileWithList, toDisplayPath } = useOcFileOpen();
   const directory = getDirectory(input.path as string) || undefined;
   const args: string[] = [];
   if (input.pattern) args.push('pattern=' + String(input.pattern));
+
+  const filePaths = useMemo(() => parseFilePaths(output), [output]);
 
   return (
     <BasicTool
@@ -524,11 +671,15 @@ function GlobTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
       forceOpen={forceOpen}
       locked={locked}
     >
-      {output && (
+      {filePaths && filePaths.length > 0 ? (
+        <div data-scrollable className="max-h-72 overflow-auto">
+          <InlineFileList paths={filePaths} onFileClick={(fp) => openFileWithList(fp, filePaths)} toDisplayPath={toDisplayPath} />
+        </div>
+      ) : output ? (
         <div data-scrollable className="p-2 max-h-72 overflow-auto">
           <UnifiedMarkdown content={output} isStreaming={false} />
         </div>
-      )}
+      ) : null}
     </BasicTool>
   );
 }
@@ -538,10 +689,13 @@ ToolRegistry.register('glob', GlobTool);
 function GrepTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
   const input = partInput(part);
   const output = partOutput(part);
+  const { openFile, toDisplayPath } = useOcFileOpen();
   const directory = getDirectory(input.path as string) || undefined;
   const args: string[] = [];
   if (input.pattern) args.push('pattern=' + String(input.pattern));
   if (input.include) args.push('include=' + String(input.include));
+
+  const grepResult = useMemo(() => parseGrepOutput(output), [output]);
 
   return (
     <BasicTool
@@ -551,11 +705,15 @@ function GrepTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
       forceOpen={forceOpen}
       locked={locked}
     >
-      {output && (
+      {grepResult ? (
+        <div data-scrollable className="max-h-72 overflow-auto">
+          <InlineGrepResults groups={grepResult.groups} onFileClick={(fp) => openFile(fp)} toDisplayPath={toDisplayPath} />
+        </div>
+      ) : output ? (
         <div data-scrollable className="p-2 max-h-72 overflow-auto">
           <UnifiedMarkdown content={output} isStreaming={false} />
         </div>
-      )}
+      ) : null}
     </BasicTool>
   );
 }
@@ -565,7 +723,10 @@ ToolRegistry.register('grep', GrepTool);
 function ListTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
   const input = partInput(part);
   const output = partOutput(part);
+  const { openFile, openFileWithList, toDisplayPath } = useOcFileOpen();
   const directory = getDirectory(input.path as string) || (input.path as string) || undefined;
+
+  const filePaths = useMemo(() => parseFilePaths(output), [output]);
 
   return (
     <BasicTool
@@ -575,11 +736,15 @@ function ListTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
       forceOpen={forceOpen}
       locked={locked}
     >
-      {output && (
+      {filePaths && filePaths.length > 0 ? (
+        <div data-scrollable className="max-h-72 overflow-auto">
+          <InlineFileList paths={filePaths} onFileClick={(fp) => openFileWithList(fp, filePaths)} toDisplayPath={toDisplayPath} />
+        </div>
+      ) : output ? (
         <div data-scrollable className="p-2 max-h-72 overflow-auto">
           <UnifiedMarkdown content={output} isStreaming={false} />
         </div>
-      )}
+      ) : null}
     </BasicTool>
   );
 }

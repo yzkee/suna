@@ -1,7 +1,15 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { Search, CheckCircle, AlertCircle, FileText, FolderOpen, ChevronRight, ChevronDown } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import {
+  Search,
+  CheckCircle,
+  AlertCircle,
+  FileText,
+  FolderOpen,
+  ChevronRight,
+  ChevronDown,
+} from 'lucide-react';
 import { ToolViewProps } from '../types';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,20 +18,7 @@ import { ToolViewIconTitle } from '../shared/ToolViewIconTitle';
 import { ToolViewFooter } from '../shared/ToolViewFooter';
 import { LoadingState } from '../shared/LoadingState';
 import { UnifiedMarkdown } from '@/components/markdown/unified-markdown';
-import { getClient } from '@/lib/opencode-sdk';
-import { useKortixComputerStore } from '@/stores/kortix-computer-store';
-
-/** Module-level worktree cache — survives re-renders & re-mounts */
-let _worktreeCache: string | null = null;
-
-/** Strip worktree prefix from an absolute path → project-relative */
-function toRelative(absPath: string, worktree: string): string {
-  if (!worktree || worktree === '/') return absPath;
-  const prefix = worktree.endsWith('/') ? worktree : worktree + '/';
-  if (absPath.startsWith(prefix)) return absPath.slice(prefix.length);
-  if (absPath === worktree) return '.';
-  return absPath;
-}
+import { useOcFileOpen } from './useOcFileOpen';
 
 function getFilename(path: string): string {
   const parts = path.split('/');
@@ -39,9 +34,15 @@ function getDirectory(path: string): string {
 /** Try to parse the output into a list of file paths (one per line) */
 function parseFilePaths(output: string): string[] | null {
   if (!output) return null;
-  const lines = output.trim().split('\n').map((l) => l.trim()).filter(Boolean);
+  const lines = output
+    .trim()
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
   if (lines.length === 0) return null;
-  const pathLike = lines.filter((l) => l.startsWith('/') || l.startsWith('./') || l.startsWith('~'));
+  const pathLike = lines.filter(
+    (l) => l.startsWith('/') || l.startsWith('./') || l.startsWith('~'),
+  );
   if (pathLike.length >= lines.length * 0.7) {
     return pathLike;
   }
@@ -58,14 +59,19 @@ interface GrepFileGroup {
   matches: GrepMatch[];
 }
 
-/** Parse grep output into structured file groups */
-function parseGrepOutput(output: string): { matchCount: number; groups: GrepFileGroup[] } | null {
+/** Parse grep output into structured file groups.
+ *  Handles both single-newline and double-newline separated entries.
+ *  Format: `/path/to/file: Line N: content Line N: content`
+ */
+function parseGrepOutput(
+  output: string,
+): { matchCount: number; groups: GrepFileGroup[] } | null {
   if (!output) return null;
 
   const text = String(output).trim();
 
   // Check for "Found N matches" header
-  const headerMatch = text.match(/^Found\s+(\d+)\s+match/i);
+  const headerMatch = text.match(/^Found\s+(\d+)\s+match[^\n]*/i);
   const matchCount = headerMatch ? parseInt(headerMatch[1], 10) : 0;
 
   // Remove the header line if present
@@ -74,38 +80,56 @@ function parseGrepOutput(output: string): { matchCount: number; groups: GrepFile
 
   const groups: GrepFileGroup[] = [];
 
-  // Split into blocks by file path. Each block starts with an absolute path followed by ":"
-  const blocks = body.split(/\n\n+/);
+  // Strategy: scan line-by-line. Each line starting with `/...path...:` begins a new file group.
+  // Within a file group, extract "Line N: content" entries.
+  const lines = body.split('\n');
+  let currentFile: string | null = null;
+  let currentContent = '';
 
-  for (const block of blocks) {
-    const trimmed = block.trim();
+  const flushGroup = () => {
+    if (!currentFile || !currentContent) return;
+    const matches: GrepMatch[] = [];
+    // Split by "Line N:" occurrences
+    const parts = currentContent.split(/(?=Line\s+\d+:)/g);
+    for (const part of parts) {
+      const lm = part.match(/^Line\s+(\d+):\s*([\s\S]*)/);
+      if (lm) {
+        const content = lm[2].trim().replace(/;$/, '');
+        if (content) {
+          matches.push({ line: parseInt(lm[1], 10), content });
+        }
+      }
+    }
+    if (matches.length > 0) {
+      groups.push({ filePath: currentFile, matches });
+    }
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
     if (!trimmed) continue;
 
-    // Try to extract file path from the start of the block
-    const fileMatch = trimmed.match(/^(\/[^:]+?):\s*/);
-    if (!fileMatch) continue;
-
-    const filePath = fileMatch[1];
-    const rest = trimmed.slice(fileMatch[0].length);
-
-    // Extract "Line N: content" entries
-    const matches: GrepMatch[] = [];
-    const lineRegex = /Line\s+(\d+):\s*(.*?)(?=\s*(?:Line\s+\d+:|$))/gs;
-    let m: RegExpExecArray | null;
-    while ((m = lineRegex.exec(rest)) !== null) {
-      matches.push({
-        line: parseInt(m[1], 10),
-        content: m[2].trim().replace(/;$/, ''),
-      });
-    }
-
-    if (matches.length > 0) {
-      groups.push({ filePath, matches });
+    // Check if this line starts a new file entry (absolute path followed by `: Line N:`)
+    const fileMatch = trimmed.match(/^(\/[^:]+?):\s*(Line\s+\d+:[\s\S]*)?$/);
+    if (fileMatch) {
+      // Flush previous group
+      flushGroup();
+      currentFile = fileMatch[1];
+      currentContent = fileMatch[2] || '';
+    } else if (currentFile) {
+      // Continuation line — append to current content
+      currentContent += ' ' + trimmed;
     }
   }
+  // Flush last group
+  flushGroup();
 
   if (groups.length === 0) return null;
-  return { matchCount: matchCount || groups.reduce((sum, g) => sum + g.matches.length, 0), groups };
+  return {
+    matchCount:
+      matchCount || groups.reduce((sum, g) => sum + g.matches.length, 0),
+    groups,
+  };
 }
 
 export function OcSearchToolView({
@@ -122,104 +146,26 @@ export function OcSearchToolView({
 
   const pattern = (args.pattern as string) || '';
   const path = (args.path as string) || '';
-  const output = toolResult?.output || (ocState?.output) || '';
+  const include = (args.include as string) || '';
+  const output = toolResult?.output || ocState?.output || '';
 
-  const openFileInComputer = useKortixComputerStore((s) => s.openFileInComputer);
-  const [worktree, setWorktree] = useState<string | null>(_worktreeCache);
+  const { openFile, openFileWithList, toDisplayPath } = useOcFileOpen();
 
-  // Fetch worktree directly from the SDK on mount
-  useEffect(() => {
-    if (_worktreeCache) {
-      setWorktree(_worktreeCache);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const client = getClient();
-        const res = await client.path.get();
-        const pathData = res.data;
-        console.log('[OcSearchToolView] path.get() full response:', JSON.stringify(pathData));
-        if (!cancelled && pathData) {
-          // Try worktree first, fall back to directory
-          const wt = pathData.worktree || pathData.directory || '';
-          if (wt) {
-            _worktreeCache = wt;
-            setWorktree(wt);
-            console.log('[OcSearchToolView] Using path:', wt);
-          }
-        }
-      } catch (err) {
-        console.error('[OcSearchToolView] Failed to fetch path info:', err);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  const toolLabel =
+    ocTool === 'glob'
+      ? 'Search Files'
+      : ocTool === 'grep'
+        ? 'Search Content'
+        : ocTool === 'list'
+          ? 'List Directory'
+          : 'Search';
 
-  /** Convert absolute path → relative for display */
-  const toDisplayPath = (absPath: string): string => {
-    if (!absPath || !absPath.startsWith('/')) return absPath;
-    if (worktree) return toRelative(absPath, worktree);
-    return absPath;
-  };
-
-  /** Fetch worktree on-demand (for click handlers) */
-  const fetchWorktree = async (): Promise<string | null> => {
-    let wt = worktree || _worktreeCache;
-    if (wt) return wt;
-    try {
-      const client = getClient();
-      const res = await client.path.get();
-      const pathData = res.data;
-      console.log('[OcSearchToolView] on-demand path.get():', JSON.stringify(pathData));
-      wt = pathData?.worktree || pathData?.directory || '';
-      if (wt) {
-        _worktreeCache = wt;
-        setWorktree(wt);
-      }
-      return wt || null;
-    } catch (err) {
-      console.error('[OcSearchToolView] Failed to fetch worktree on click:', err);
-      return null;
-    }
-  };
-
-  /** Open a file — resolve to relative path first */
-  const handleOpenFile = async (filePath: string) => {
-    if (!filePath.startsWith('/')) {
-      openFileInComputer(filePath);
-      return;
-    }
-    const wt = await fetchWorktree();
-    const resolved = wt ? toRelative(filePath, wt) : filePath;
-    console.log('[OcSearchToolView] openFile wt=' + wt, filePath, '→', resolved);
-    openFileInComputer(resolved);
-  };
-
-  /** Open a file with navigation list */
-  const handleOpenFileWithList = async (filePath: string, allPaths: string[]) => {
-    if (!filePath.startsWith('/')) {
-      openFileInComputer(filePath, allPaths);
-      return;
-    }
-    const wt = await fetchWorktree();
-    if (wt) {
-      const resolved = toRelative(filePath, wt);
-      const resolvedList = allPaths.map((p) => toRelative(p, wt));
-      console.log('[OcSearchToolView] openFileWithList wt=' + wt, filePath, '→', resolved);
-      openFileInComputer(resolved, resolvedList);
-    } else {
-      console.log('[OcSearchToolView] openFileWithList NO worktree, using absolute:', filePath);
-      openFileInComputer(filePath, allPaths);
-    }
-  };
-
-  const toolLabel = ocTool === 'glob' ? 'Search Files'
-    : ocTool === 'grep' ? 'Search Content'
-    : ocTool === 'list' ? 'List Directory'
-    : 'Search';
-
-  const subtitle = pattern || path || undefined;
+  // Build subtitle from available args
+  const subtitleParts: string[] = [];
+  if (pattern) subtitleParts.push(`pattern=${pattern}`);
+  if (include) subtitleParts.push(`include=${include}`);
+  if (path) subtitleParts.push(path);
+  const subtitle = subtitleParts.join('  ') || undefined;
 
   const isError = toolResult?.success === false || !!toolResult?.error;
 
@@ -235,9 +181,7 @@ export function OcSearchToolView({
     return parseGrepOutput(String(output));
   }, [output, ocTool]);
 
-  const resultCount = filePaths?.length
-    ?? grepResult?.matchCount
-    ?? null;
+  const resultCount = filePaths?.length ?? grepResult?.matchCount ?? null;
 
   if (isStreaming && !toolResult) {
     return (
@@ -254,19 +198,18 @@ export function OcSearchToolView({
 
   return (
     <Card className="gap-0 flex border-0 shadow-none p-0 py-0 rounded-none flex-col h-full overflow-hidden bg-card">
-      <CardHeader className="h-14 bg-zinc-50/80 dark:bg-zinc-900/80 backdrop-blur-sm border-b p-2 px-4 space-y-2">
-        <div className="flex flex-row items-center justify-between">
+      <CardHeader className="h-14 bg-zinc-50/80 dark:bg-zinc-900/80 backdrop-blur-sm border-b p-2 px-4 space-y-2 overflow-hidden">
+        <div className="flex flex-row items-center justify-between min-w-0 overflow-hidden">
           <ToolViewIconTitle
             icon={Search}
             title={toolLabel}
             subtitle={subtitle}
           />
           {resultCount != null && resultCount > 0 && (
-            <span className="text-xs text-muted-foreground flex-shrink-0">
+            <span className="text-xs text-muted-foreground flex-shrink-0 ml-2">
               {filePaths
                 ? `${resultCount} file${resultCount !== 1 ? 's' : ''}`
-                : `${resultCount} match${resultCount !== 1 ? 'es' : ''}`
-              }
+                : `${resultCount} match${resultCount !== 1 ? 'es' : ''}`}
             </span>
           )}
         </div>
@@ -278,13 +221,13 @@ export function OcSearchToolView({
             <FilePathList
               paths={filePaths}
               toDisplayPath={toDisplayPath}
-              onFileClick={(fp) => handleOpenFileWithList(fp, filePaths)}
+              onFileClick={(fp) => openFileWithList(fp, filePaths)}
             />
           ) : grepResult ? (
             <GrepResultList
               groups={grepResult.groups}
               toDisplayPath={toDisplayPath}
-              onFileClick={(fp) => handleOpenFile(fp)}
+              onFileClick={(fp) => openFile(fp)}
             />
           ) : output ? (
             <div className="p-4">
@@ -306,19 +249,24 @@ export function OcSearchToolView({
         toolTimestamp={toolTimestamp}
         isStreaming={isStreaming}
       >
-        {!isStreaming && (
-          isError ? (
-            <Badge variant="outline" className="h-6 py-0.5 bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800/50 text-red-700 dark:text-red-300">
+        {!isStreaming &&
+          (isError ? (
+            <Badge
+              variant="outline"
+              className="h-6 py-0.5 bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800/50 text-red-700 dark:text-red-300"
+            >
               <AlertCircle className="h-3 w-3" />
               Failed
             </Badge>
           ) : (
-            <Badge variant="outline" className="h-6 py-0.5 bg-zinc-50 dark:bg-zinc-900">
+            <Badge
+              variant="outline"
+              className="h-6 py-0.5 bg-zinc-50 dark:bg-zinc-900"
+            >
               <CheckCircle className="h-3 w-3 text-green-600 dark:text-green-400" />
               Done
             </Badge>
-          )
-        )}
+          ))}
       </ToolViewFooter>
     </Card>
   );
@@ -351,8 +299,14 @@ function FilePathList({
           >
             <FileText className="h-3.5 w-3.5 text-amber-500/70 dark:text-amber-400/70 flex-shrink-0 group-hover:text-amber-500 dark:group-hover:text-amber-400 transition-colors" />
             <span className="text-xs min-w-0 flex items-baseline gap-1.5 overflow-hidden">
-              <span className="text-foreground font-medium font-mono whitespace-nowrap flex-shrink-0">{name}</span>
-              {dir && <span className="text-muted-foreground/40 truncate text-[11px]">{dir}</span>}
+              <span className="text-foreground font-medium font-mono whitespace-nowrap flex-shrink-0">
+                {name}
+              </span>
+              {dir && (
+                <span className="text-muted-foreground/40 truncate text-[11px]">
+                  {dir}
+                </span>
+              )}
             </span>
           </div>
         );
@@ -373,7 +327,7 @@ function GrepResultList({
   onFileClick: (path: string) => void;
 }) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(
-    groups.length === 1 ? 0 : null
+    groups.length === 1 ? 0 : null,
   );
 
   return (
@@ -403,14 +357,24 @@ function GrepResultList({
               <span className="text-xs min-w-0 flex items-baseline gap-1.5 overflow-hidden flex-1">
                 <span
                   className="text-foreground font-medium font-mono whitespace-nowrap flex-shrink-0 cursor-pointer hover:text-amber-600 dark:hover:text-amber-400 transition-colors"
-                  onClick={(e) => { e.stopPropagation(); onFileClick(group.filePath); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onFileClick(group.filePath);
+                  }}
                   title={dp}
                 >
                   {name}
                 </span>
-                {dir && <span className="text-muted-foreground/40 truncate text-[11px]">{dir}</span>}
+                {dir && (
+                  <span className="text-muted-foreground/40 truncate text-[11px]">
+                    {dir}
+                  </span>
+                )}
               </span>
-              <Badge variant="outline" className="h-5 py-0 text-[10px] flex-shrink-0 text-muted-foreground">
+              <Badge
+                variant="outline"
+                className="h-5 py-0 text-[10px] flex-shrink-0 text-muted-foreground"
+              >
                 {group.matches.length}
               </Badge>
             </div>

@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { MermaidRenderer } from '@/components/ui/mermaid-renderer';
 import { isMermaidCode } from '@/lib/mermaid-utils';
 import { autoLinkUrls } from '@agentpress/shared';
+import { useOcFileOpen } from '@/components/thread/tool-views/opencode/useOcFileOpen';
 
 // Helper to check if a URL is internal (same origin)
 function isInternalUrl(href: string | undefined): boolean {
@@ -150,6 +151,46 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
       </pre>
       {codeText && <CopyButton code={codeText} />}
     </div>
+  );
+}
+
+// File extension patterns for detecting clickable file paths in inline code
+const FILE_EXTENSION_RE = /\.\w{1,10}$/;
+const COMMON_NON_FILES = new Set(['e.g.', 'i.e.', 'etc.', 'vs.', 'v1.', 'v2.']);
+
+/** Heuristic: does this inline code text look like a file path? */
+function looksLikeFilePath(text: string): boolean {
+  if (!text || text.length < 3 || text.length > 300) return false;
+  if (text.includes(' ') || text.includes('\n')) return false;
+  if (COMMON_NON_FILES.has(text.toLowerCase())) return false;
+  // Must contain at least one slash and have a file extension
+  if (!text.includes('/')) return false;
+  return FILE_EXTENSION_RE.test(text);
+}
+
+/** Inline code that opens file in computer panel when it looks like a file path */
+function ClickableInlineCode({ children }: { children: React.ReactNode }) {
+  const { openFile } = useOcFileOpen();
+  const text = String(children);
+  const isFile = looksLikeFilePath(text);
+
+  if (isFile) {
+    return (
+      <code
+        className="px-1.5 py-0.5 rounded-md text-[13px] font-mono bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/50 text-foreground cursor-pointer hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 dark:hover:bg-blue-900/30 dark:hover:border-blue-700/50 dark:hover:text-blue-400 transition-colors"
+        onClick={() => openFile(text)}
+        title={`Open ${text}`}
+        role="button"
+      >
+        {children}
+      </code>
+    );
+  }
+
+  return (
+    <code className="px-1.5 py-0.5 rounded-md text-[13px] font-mono bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/50 text-foreground">
+      {children}
+    </code>
   );
 }
 
@@ -342,12 +383,8 @@ export const UnifiedMarkdown = React.memo<UnifiedMarkdownProps>(({
               );
             }
 
-            // Inline code - subtle pill style
-            return (
-              <code className="px-1.5 py-0.5 rounded-md text-[13px] font-mono bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/50 text-foreground">
-                {children}
-              </code>
-            );
+            // Inline code - subtle pill style, clickable if it looks like a file path
+            return <ClickableInlineCode>{children}</ClickableInlineCode>;
           },
           pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
 

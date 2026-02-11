@@ -30,11 +30,11 @@ export function ToolViewIconTitle({
   className,
 }: ToolViewIconTitleProps) {
   return (
-    <div className={cn("flex items-center gap-2 min-w-0", className)}>
+    <div className={cn("flex items-center gap-2 min-w-0 overflow-hidden flex-1", className)}>
       <div className="relative p-2 rounded-lg border bg-zinc-100 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 flex-shrink-0">
         <Icon className="w-5 h-5 text-zinc-700 dark:text-zinc-300" />
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 overflow-hidden">
         {onTitleClick ? (
           <div
             className="text-base font-medium text-zinc-900 dark:text-zinc-100 truncate cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
@@ -49,7 +49,7 @@ export function ToolViewIconTitle({
           </div>
         )}
         {subtitle && (
-          <div className="text-xs text-zinc-500 dark:text-zinc-400 truncate">
+          <div className="text-xs text-zinc-500 dark:text-zinc-400 truncate" title={subtitle}>
             {subtitle}
           </div>
         )}
