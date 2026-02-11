@@ -12,6 +12,11 @@
     "build": "nx run-many --target=build --parallel",
     "build:frontend": "nx run frontend:build",
     "typecheck": "nx run-many --target=typecheck --parallel",
+    "docker:build": "docker compose --profile all build",
+    "docker:up": "docker compose --profile all up -d",
+    "docker:up:backend": "docker compose --profile backend up -d",
+    "docker:up:frontend": "docker compose --profile frontend up -d",
+    "docker:down": "docker compose --profile all down",
     "graph": "nx graph"
   },
   "pnpm": {

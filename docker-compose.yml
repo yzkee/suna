@@ -1,0 +1,56 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - path: apps/frontend/.env
+        required: false
+    profiles: [frontend, all]
+    restart: unless-stopped
+
+  kortix-router:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE: kortix-router
+    ports:
+      - "8008:8008"
+    env_file:
+      - path: services/kortix-router/.env
+        required: false
+    profiles: [backend, all]
+    restart: unless-stopped
+
+  kortix-auth:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE: kortix-auth
+    ports:
+      - "8009:8009"
+    env_file:
+      - path: services/kortix-auth/.env
+        required: false
+    profiles: [backend, all]
+    restart: unless-stopped
+
+  kortix-cloud:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE: kortix-cloud
+    ports:
+      - "8010:8010"
+    environment:
+      - PORT=8010
+    env_file:
+      - path: services/kortix-cloud/.env
+        required: false
+    profiles: [backend, all]
+    restart: unless-stopped
