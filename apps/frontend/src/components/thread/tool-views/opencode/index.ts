@@ -14,6 +14,7 @@ export { OcWebFetchToolView } from './OcWebFetchToolView';
 export { OcTaskToolView } from './OcTaskToolView';
 export { OcTodoToolView } from './OcTodoToolView';
 export { OcGenericToolView } from './OcGenericToolView';
+export { OcImageSearchToolView } from './OcImageSearchToolView';
 
 import type { ToolViewComponent } from '../wrapper/ToolViewRegistry';
 import { OcBashToolView } from './OcBashToolView';
@@ -25,6 +26,7 @@ import { OcWebFetchToolView } from './OcWebFetchToolView';
 import { OcTaskToolView } from './OcTaskToolView';
 import { OcTodoToolView } from './OcTodoToolView';
 import { OcGenericToolView } from './OcGenericToolView';
+import { OcImageSearchToolView } from './OcImageSearchToolView';
 
 /**
  * Registry entries for OpenCode tools.
@@ -54,6 +56,9 @@ export const ocToolViewRegistrations: Record<string, ToolViewComponent> = {
   'oc-webfetch': OcWebFetchToolView,
   'oc-web-search': OcWebFetchToolView,
   'oc-scrape-webpage': OcWebFetchToolView,
+
+  // Image search
+  'oc-image-search': OcImageSearchToolView,
 
   // Sub-agent delegation
   'oc-task': OcTaskToolView,

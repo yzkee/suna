@@ -1,0 +1,288 @@
+'use client';
+
+import React, { useMemo } from 'react';
+import {
+  Image as ImageIcon,
+  CheckCircle,
+  AlertCircle,
+  ExternalLink,
+  Maximize2,
+} from 'lucide-react';
+import { ToolViewProps } from '../types';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { ToolViewIconTitle } from '../shared/ToolViewIconTitle';
+import { ToolViewFooter } from '../shared/ToolViewFooter';
+import { LoadingState } from '../shared/LoadingState';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+
+interface ImageResult {
+  url: string;
+  imageUrl?: string;
+  title?: string;
+  width?: number;
+  height?: number;
+  description?: string;
+  source?: string;
+}
+
+const IMAGE_FALLBACK_SVG =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2' ry='2'%3E%3C/rect%3E%3Ccircle cx='8.5' cy='8.5' r='1.5'%3E%3C/circle%3E%3Cpolyline points='21 15 16 10 5 21'%3E%3C/polyline%3E%3C/svg%3E";
+
+function parseImages(output: unknown): ImageResult[] {
+  if (!output) return [];
+  const raw = typeof output === 'string' ? output : null;
+  const obj = typeof output === 'object' ? output : null;
+
+  // Already an object with images array
+  if (obj && 'images' in (obj as any) && Array.isArray((obj as any).images)) {
+    return (obj as any).images;
+  }
+  if (Array.isArray(obj)) return obj;
+
+  // String — try JSON parse
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed?.images && Array.isArray(parsed.images)) return parsed.images;
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      const match = raw.match(/\{[\s\S]*"images"\s*:\s*\[[\s\S]*\]/);
+      if (match) {
+        try {
+          const parsed = JSON.parse(match[0]);
+          if (parsed?.images) return parsed.images;
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+  return [];
+}
+
+function truncate(str: string, max: number): string {
+  return str.length > max ? str.slice(0, max) + '...' : str;
+}
+
+export function OcImageSearchToolView({
+  toolCall,
+  toolResult,
+  assistantTimestamp,
+  toolTimestamp,
+  isSuccess = true,
+  isStreaming = false,
+}: ToolViewProps) {
+  const args = toolCall?.arguments || {};
+  const ocState = args._oc_state as any;
+  const query = (ocState?.input?.query as string) || (args.query as string) || '';
+  const numResults = (ocState?.input?.num_results as number) || (args.num_results as number) || 0;
+  const rawOutput = toolResult?.output || ocState?.output || '';
+  const isError = toolResult?.success === false || !!toolResult?.error;
+
+  const images = useMemo(() => parseImages(rawOutput), [rawOutput]);
+
+  if (isStreaming && !toolResult) {
+    return (
+      <LoadingState
+        icon={ImageIcon}
+        iconColor="text-violet-500 dark:text-violet-400"
+        bgColor="bg-gradient-to-b from-violet-100 to-violet-50 shadow-inner dark:from-violet-800/40 dark:to-violet-900/60"
+        title="Image Search"
+        subtitle={query || 'Searching...'}
+        showProgress={true}
+      />
+    );
+  }
+
+  return (
+    <Card className="gap-0 flex border-0 shadow-none p-0 py-0 rounded-none flex-col h-full overflow-hidden bg-card">
+      <CardHeader className="h-14 bg-zinc-50/80 dark:bg-zinc-900/80 backdrop-blur-sm border-b p-2 px-4 space-y-2">
+        <div className="flex flex-row items-center justify-between">
+          <ToolViewIconTitle icon={ImageIcon} title="Image Search" subtitle={query} />
+          {images.length > 0 && (
+            <Badge
+              variant="outline"
+              className="h-5 py-0 text-[10px] bg-zinc-50 dark:bg-zinc-900 text-muted-foreground"
+            >
+              {images.length} image{images.length !== 1 ? 's' : ''}
+            </Badge>
+          )}
+        </div>
+      </CardHeader>
+
+      <CardContent className="p-0 h-full flex-1 overflow-hidden">
+        <ScrollArea className="h-full w-full">
+          <div className="p-3">
+            {/* Query info */}
+            {query && (
+              <div className="flex items-center gap-2 mb-3 px-1">
+                <ImageIcon className="size-3.5 text-violet-500 dark:text-violet-400 flex-shrink-0" />
+                <span className="text-xs text-muted-foreground truncate">
+                  &quot;{query}&quot;
+                </span>
+                {numResults > 0 && (
+                  <span className="text-[10px] text-muted-foreground/60 ml-auto flex-shrink-0">
+                    {numResults} requested
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Error state */}
+            {isError && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                <AlertCircle className="size-3.5 text-red-500 flex-shrink-0" />
+                <span className="text-xs text-red-700 dark:text-red-400">
+                  {typeof rawOutput === 'string' ? rawOutput : 'Image search failed'}
+                </span>
+              </div>
+            )}
+
+            {/* No images state */}
+            {!isError && !isStreaming && images.length === 0 && (
+              <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground">
+                <ImageIcon className="size-8 opacity-40" />
+                <span className="text-xs">No images found</span>
+                {query && (
+                  <span className="text-[10px] opacity-60">
+                    Try a different search query
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Image grid */}
+            {images.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                {images.map((img, idx) => {
+                  const imageUrl = img.url || img.imageUrl || '';
+                  const hasDimensions =
+                    img.width && img.height && img.width > 0 && img.height > 0;
+                  const orientation = hasDimensions
+                    ? img.width! > img.height!
+                      ? 'landscape'
+                      : img.width! < img.height!
+                        ? 'portrait'
+                        : 'square'
+                    : null;
+
+                  return (
+                    <TooltipProvider key={idx}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <a
+                            href={imageUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="group relative overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 hover:border-violet-300 dark:hover:border-violet-700 transition-colors shadow-sm hover:shadow-md"
+                          >
+                            <img
+                              src={imageUrl}
+                              alt={img.title || `Image ${idx + 1}`}
+                              className="object-cover w-full h-32 group-hover:opacity-90 transition-opacity"
+                              loading="lazy"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.src = IMAGE_FALLBACK_SVG;
+                                target.classList.add('p-4');
+                              }}
+                            />
+                            {/* Metadata badges */}
+                            <div className="absolute top-0 left-0 right-0 p-1 flex justify-between items-start">
+                              <div className="flex gap-1">
+                                {hasDimensions && (
+                                  <Badge
+                                    variant="secondary"
+                                    className="bg-black/60 hover:bg-black/70 text-white border-none shadow-md text-[10px] px-1.5 py-0"
+                                  >
+                                    <Maximize2 className="h-2.5 w-2.5 mr-0.5" />
+                                    {img.width}&times;{img.height}
+                                  </Badge>
+                                )}
+                              </div>
+                              <Badge
+                                variant="secondary"
+                                className="bg-black/60 hover:bg-black/70 text-white border-none shadow-md"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                              </Badge>
+                            </div>
+                            {/* Title at bottom */}
+                            {(img.title || img.source) && (
+                              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2 pt-4">
+                                <p className="text-[10px] text-white/90 truncate leading-tight">
+                                  {img.title || img.source}
+                                </p>
+                              </div>
+                            )}
+                          </a>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="max-w-xs">
+                          <div className="space-y-1.5">
+                            {img.title && (
+                              <p className="font-medium text-sm">
+                                {truncate(img.title, 80)}
+                              </p>
+                            )}
+                            {hasDimensions && (
+                              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                <Maximize2 className="h-3 w-3" />
+                                {img.width} &times; {img.height}px
+                                {orientation && (
+                                  <span className="text-xs">({orientation})</span>
+                                )}
+                              </p>
+                            )}
+                            {img.description && (
+                              <p className="text-xs text-muted-foreground">
+                                {truncate(img.description, 150)}
+                              </p>
+                            )}
+                            {img.source && (
+                              <p className="text-xs text-muted-foreground truncate">
+                                Source: {img.source}
+                              </p>
+                            )}
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+      </CardContent>
+
+      <ToolViewFooter
+        assistantTimestamp={assistantTimestamp}
+        toolTimestamp={toolTimestamp}
+        isStreaming={isStreaming}
+      >
+        {!isStreaming &&
+          (isError ? (
+            <Badge
+              variant="outline"
+              className="h-6 py-0.5 bg-zinc-50 dark:bg-zinc-900 text-muted-foreground"
+            >
+              <AlertCircle className="h-3 w-3" />
+              Failed
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="h-6 py-0.5 bg-zinc-50 dark:bg-zinc-900">
+              <CheckCircle className="h-3 w-3 text-green-600 dark:text-green-400" />
+              Completed
+            </Badge>
+          ))}
+      </ToolViewFooter>
+    </Card>
+  );
+}

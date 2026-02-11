@@ -564,6 +564,8 @@ export function getToolInfo(tool: string, input: Record<string, any> = {}): Tool
       return { icon: 'search', title: 'Grep', subtitle: input.pattern };
     case 'webfetch':
       return { icon: 'globe', title: 'Web Fetch', subtitle: input.url };
+    case 'image-search':
+      return { icon: 'image', title: 'Image Search', subtitle: input.query };
     case 'task':
       return {
         icon: 'square-kanban',
@@ -591,6 +593,15 @@ export function getToolInfo(tool: string, input: Record<string, any> = {}): Tool
       return { icon: 'check-square', title: 'Todos (read)' };
     case 'question':
       return { icon: 'message-circle', title: 'Questions' };
+    case 'pty_spawn':
+      return { icon: 'terminal', title: 'Spawn', subtitle: input.title || input.command };
+    case 'pty_read':
+      return { icon: 'terminal', title: 'Terminal Output', subtitle: input.id };
+    case 'pty_write':
+    case 'pty_input':
+      return { icon: 'terminal', title: 'Terminal Input', subtitle: input.id };
+    case 'pty_kill':
+      return { icon: 'terminal', title: 'Kill Process', subtitle: input.id };
     default:
       return { icon: 'cpu', title: tool };
   }
