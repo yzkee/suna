@@ -5,6 +5,7 @@ import {
   useMemo,
   useEffect,
   useCallback,
+  useRef,
   type ReactNode,
   type ComponentType,
 } from 'react';
@@ -28,6 +29,8 @@ import {
   Glasses,
   SquareKanban,
   FileText,
+  Image as ImageIcon,
+  Maximize2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { UnifiedMarkdown } from '@/components/markdown/unified-markdown';
@@ -36,6 +39,12 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  TooltipProvider,
+} from '@/components/ui/tooltip';
 import { useRouter } from 'next/navigation';
 import { useOpenCodeMessages } from '@/hooks/opencode/use-opencode-sessions';
 import { useOpenCodePendingStore } from '@/stores/opencode-pending-store';
@@ -787,6 +796,159 @@ function WebFetchTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 }
 ToolRegistry.register('webfetch', WebFetchTool);
 
+// --- Image Search — visual grid preview ---
+interface ImageResult {
+  url: string;
+  imageUrl?: string;
+  title?: string;
+  width?: number;
+  height?: number;
+  description?: string;
+  source?: string;
+}
+
+const IMAGE_FALLBACK_SVG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2' ry='2'%3E%3C/rect%3E%3Ccircle cx='8.5' cy='8.5' r='1.5'%3E%3C/circle%3E%3Cpolyline points='21 15 16 10 5 21'%3E%3C/polyline%3E%3C/svg%3E";
+
+function parseImageSearchOutput(output: string): ImageResult[] {
+  if (!output) return [];
+  try {
+    const parsed = JSON.parse(output);
+    if (parsed?.images && Array.isArray(parsed.images)) return parsed.images;
+    if (Array.isArray(parsed)) return parsed;
+  } catch {
+    // try to extract JSON from mixed text
+    const match = output.match(/\{[\s\S]*"images"\s*:\s*\[[\s\S]*\]/);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[0]);
+        if (parsed?.images) return parsed.images;
+      } catch { /* ignore */ }
+    }
+  }
+  return [];
+}
+
+function ImageSearchTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
+  const input = partInput(part);
+  const output = partOutput(part);
+  const query = (input.query as string) || '';
+  const numResults = input.num_results as number | undefined;
+  const status = partStatus(part);
+  const images = useMemo(() => parseImageSearchOutput(output), [output]);
+
+  return (
+    <BasicTool
+      icon={<ImageIcon className="size-3.5 flex-shrink-0" />}
+      trigger={{
+        title: 'image-search',
+        subtitle: query + (numResults ? ` (${numResults})` : ''),
+      }}
+      defaultOpen={defaultOpen || images.length > 0}
+      forceOpen={forceOpen}
+      locked={locked}
+    >
+      <div className="p-2">
+        {status === 'running' && images.length === 0 && (
+          <div className="flex items-center gap-2 py-4 justify-center text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" />
+            Searching images...
+          </div>
+        )}
+
+        {status === 'completed' && images.length === 0 && (
+          <div className="flex flex-col items-center gap-1.5 py-4 text-muted-foreground">
+            <ImageIcon className="size-5" />
+            <span className="text-xs">No images found</span>
+          </div>
+        )}
+
+        {images.length > 0 && (
+          <>
+            <div className="text-[10px] text-muted-foreground mb-2">
+              {images.length} image{images.length !== 1 ? 's' : ''}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              {images.map((img, idx) => {
+                const imageUrl = img.url || img.imageUrl || '';
+                const hasDimensions = img.width && img.height && img.width > 0 && img.height > 0;
+
+                return (
+                  <TooltipProvider key={idx}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <a
+                          href={imageUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group relative overflow-hidden rounded-md border border-border/40 bg-muted/30 hover:border-primary/40 transition-colors"
+                        >
+                          <img
+                            src={imageUrl}
+                            alt={img.title || `Image ${idx + 1}`}
+                            className="object-cover w-full h-28 group-hover:opacity-90 transition-opacity"
+                            loading="lazy"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.src = IMAGE_FALLBACK_SVG;
+                              target.classList.add('p-4');
+                            }}
+                          />
+                          {/* Metadata overlay */}
+                          <div className="absolute top-0 left-0 right-0 p-1 flex justify-between items-start">
+                            <div className="flex gap-0.5">
+                              {hasDimensions && (
+                                <span className="inline-flex items-center gap-0.5 bg-black/60 text-white text-[9px] px-1 py-0 rounded">
+                                  <Maximize2 className="size-2" />
+                                  {img.width}&times;{img.height}
+                                </span>
+                              )}
+                            </div>
+                            <span className="bg-black/60 text-white p-0.5 rounded">
+                              <ExternalLink className="size-2.5" />
+                            </span>
+                          </div>
+                          {/* Title at bottom */}
+                          {(img.title || img.source) && (
+                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5 pt-3">
+                              <p className="text-[9px] text-white/90 truncate leading-tight">
+                                {img.title || img.source}
+                              </p>
+                            </div>
+                          )}
+                        </a>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="max-w-xs">
+                        <div className="space-y-1">
+                          {img.title && (
+                            <p className="font-medium text-xs">{img.title.length > 80 ? img.title.slice(0, 80) + '...' : img.title}</p>
+                          )}
+                          {hasDimensions && (
+                            <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                              <Maximize2 className="size-2.5" />
+                              {img.width} &times; {img.height}px
+                            </p>
+                          )}
+                          {img.description && (
+                            <p className="text-[10px] text-muted-foreground">{img.description.length > 120 ? img.description.slice(0, 120) + '...' : img.description}</p>
+                          )}
+                          {img.source && (
+                            <p className="text-[10px] text-muted-foreground truncate">Source: {img.source}</p>
+                          )}
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    </BasicTool>
+  );
+}
+ToolRegistry.register('image-search', ImageSearchTool);
+
 // --- Task (sub-agent) — Slack-thread-style inline card ---
 function TaskTool({ part, sessionId, defaultOpen, forceOpen, locked, onPermissionReply }: ToolProps) {
   const router = useRouter();
@@ -906,6 +1068,15 @@ function TaskThreadCard({
   hasChild: boolean;
 }) {
   const stepCount = childToolParts.length;
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll tool list when new items are added
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [stepCount]);
 
   return (
     <div
@@ -934,6 +1105,12 @@ function TaskThreadCard({
           {subagentType} Agent
         </span>
 
+        {/* Thread badge */}
+        <span className="inline-flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground flex-shrink-0">
+          <ListTree className="size-2.5" />
+          Thread
+        </span>
+
         {/* Meta */}
         {stepCount > 0 && (
           <span className="text-[10px] text-muted-foreground/60 tabular-nums flex-shrink-0">
@@ -951,7 +1128,7 @@ function TaskThreadCard({
 
       {/* Scrollable tool activity list */}
       {childToolParts.length > 0 && (
-        <div data-scrollable className="max-h-48 overflow-y-auto">
+        <div ref={scrollRef} data-scrollable className="max-h-48 overflow-y-auto">
           {childToolParts.map((childPart, i) => {
             const info = getToolInfo(childPart.tool, childPart.state.input ?? {});
             return (

@@ -598,6 +598,11 @@ function SessionTurn({
     [turn, stepsExpanded, nextQuestion],
   );
 
+  // Task/subsession parts (always visible outside collapsed steps)
+  const taskToolParts = useMemo(() => {
+    return allParts.filter(({ part }) => isToolPart(part) && (part as ToolPart).tool === 'task');
+  }, [allParts]);
+
   // ---- Status throttling (2.5s) ----
   const lastStatusChangeRef = useRef(Date.now());
   const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -808,6 +813,8 @@ function SessionTurn({
               if (!shouldShowToolPart(part)) return null;
               // Skip all todowrite parts — rendered as a single stable component below
               if (part.tool === 'todowrite') return null;
+              // Skip task parts — rendered always-visible outside collapsed steps
+              if (part.tool === 'task') return null;
               // Hide tool parts that have active permission/question
               if (isToolPartHidden(part, message.info.id, hidden)) return null;
 
@@ -850,6 +857,31 @@ function SessionTurn({
               <span className="break-all">{turnError}</span>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Always-visible: Subsession/task cards */}
+      {taskToolParts.length > 0 && (
+        <div className="space-y-2">
+          {taskToolParts.map(({ part, message }) => {
+            const toolPart = part as ToolPart;
+            if (!shouldShowToolPart(toolPart)) return null;
+            if (isToolPartHidden(toolPart, message.info.id, hidden)) return null;
+            const perm = getPermissionForTool(permissions, toolPart.callID);
+            const question = getQuestionForTool(questions, toolPart.callID);
+            return (
+              <ToolPartRenderer
+                key={part.id}
+                part={toolPart}
+                sessionId={sessionId}
+                permission={perm}
+                question={question}
+                onPermissionReply={onPermissionReply}
+                onQuestionReply={onQuestionReply}
+                onQuestionReject={onQuestionReject}
+              />
+            );
+          })}
         </div>
       )}
 

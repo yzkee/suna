@@ -237,7 +237,8 @@ function SessionTreeNode({
     if (!childIds) return [];
     return childIds
       .map((id) => allSessions.find((s) => s.id === id))
-      .filter((s): s is Session => !!s);
+      .filter((s): s is Session => !!s)
+      .sort((a, b) => a.time.created - b.time.created);
   }, [childIds, allSessions]);
 
   return (
