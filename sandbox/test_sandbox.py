@@ -3,7 +3,7 @@ import json
 import os
 from daytona_sdk import AsyncDaytona, DaytonaConfig, CreateSandboxFromSnapshotParams
 
-SNAPSHOT = "kortix-sandbox-v0.3.4"
+SNAPSHOT = "kortix-sandbox-v0.3.7"
 
 # Load from environment or sandbox/.env
 DAYTONA_API_KEY = os.environ.get("DAYTONA_API_KEY", "")
@@ -27,8 +27,6 @@ async def main():
         snapshot=SNAPSHOT,
         public=True,
         env_vars={
-            "OPENCODE_SERVER_USERNAME": "opencode",
-            "OPENCODE_SERVER_PASSWORD": "testpass123",
             "KORTIX_API_URL": KORTIX_API_URL,
             "KORTIX_TOKEN": KORTIX_TOKEN,
             "ENV_MODE": "cloud",
@@ -40,8 +38,8 @@ async def main():
     sandbox = await daytona.create(params, timeout=300)
     print(f"Sandbox ID: {sandbox.id}")
 
-    # s6-overlay starts all services automatically — no need to launch supervisord.
-    # Just wait for them to come up.
+    # s6-overlay starts all services automatically via unshare --pid --fork /init.
+    # Wait for them to come up.
     print("Waiting 20s for s6 services to start...")
     await asyncio.sleep(20)
 
@@ -59,25 +57,32 @@ async def main():
     )
     print(result.result)
 
-    print("\n--- Health check (Kortix Master) ---")
+    print("\n--- Health check: Desktop/noVNC (port 6080) ---")
+    result = await sandbox.process.exec("curl -s -o /dev/null -w '%{http_code}' http://localhost:6080")
+    status = result.result.strip()
+    print(f"HTTP {status} {'OK' if status == '200' else 'FAIL'}")
+
+    print("\n--- Health check: Kortix Master (port 8000) ---")
     result = await sandbox.process.exec("curl -s http://localhost:8000/kortix/health")
     print(result.result)
 
-    print("\n--- Health check (OpenCode via proxy) ---")
-    result = await sandbox.process.exec(
-        "curl -s -u opencode:testpass123 http://localhost:8000/global/health"
-    )
+    print("\n--- Health check: OpenCode API (port 4096) ---")
+    result = await sandbox.process.exec("curl -s http://localhost:4096/global/health")
     print(result.result)
 
-    print("\n--- Health check (OpenCode direct) ---")
-    result = await sandbox.process.exec(
-        "curl -s -u opencode:testpass123 http://localhost:4096/global/health"
-    )
-    print(result.result)
+    print("\n--- Health check: OpenCode Web UI (port 3111) ---")
+    result = await sandbox.process.exec("curl -s -o /dev/null -w '%{http_code}' http://localhost:3111")
+    status = result.result.strip()
+    print(f"HTTP {status} {'OK' if status == '200' else 'FAIL'}")
+
+    print("\n--- Health check: Agent Browser Viewer (port 9224) ---")
+    result = await sandbox.process.exec("curl -s -o /dev/null -w '%{http_code}' http://localhost:9224")
+    status = result.result.strip()
+    print(f"HTTP {status} {'OK' if status == '200' else 'FAIL'}")
 
     print("\n--- Test LLM via OpenCode API ---")
     result = await sandbox.process.exec(
-        """curl -s -X POST -u opencode:testpass123 http://localhost:4096/sessions """
+        """curl -s -X POST http://localhost:4096/sessions """
         """-H 'Content-Type: application/json' """
         """-d '{"title": "test"}'"""
     )
@@ -91,7 +96,7 @@ async def main():
 
             print("\n--- Sending message to test LLM ---")
             result = await sandbox.process.exec(
-                f"""curl -s -X POST -u opencode:testpass123 """
+                f"""curl -s -X POST """
                 f"""'http://localhost:4096/sessions/{session_id}/message' """
                 f"""-H 'Content-Type: application/json' """
                 f"""-d '{{"content": "Say hello in exactly 5 words"}}'"""
@@ -100,13 +105,18 @@ async def main():
     except Exception:
         print("Could not parse session response")
 
-    link = await sandbox.get_preview_link(8000)
+    # Get preview links for all services
+    desktop_link = await sandbox.get_preview_link(6080)
+    master_link = await sandbox.get_preview_link(8000)
+    web_link = await sandbox.get_preview_link(3111)
+    viewer_link = await sandbox.get_preview_link(9224)
+
     print(f"\n=== SANDBOX READY ===")
-    print(f"Kortix Master URL: {link.url}")
-    print(f"Sandbox ID: {sandbox.id}")
-    print(
-        f"\nTo connect: opencode client --url {link.url} --username opencode --password testpass123"
-    )
+    print(f"Desktop (noVNC):        {desktop_link.url}")
+    print(f"Kortix Master:          {master_link.url}")
+    print(f"OpenCode Web UI:        {web_link.url}")
+    print(f"Agent Browser Viewer:   {viewer_link.url}")
+    print(f"Sandbox ID:             {sandbox.id}")
 
 
 asyncio.run(main())

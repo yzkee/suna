@@ -99,10 +99,20 @@ RUN chmod +x /custom-cont-init.d/99-customize
 
 # ── Daytona entrypoint ───────────────────────────────────────────────────────
 # Daytona runs its own agent as PID 1, so s6-overlay can't run (requires PID 1).
-# startup.sh launches all services as background processes and stays alive.
+# startup.sh uses `unshare --pid --fork /init` to run s6 in a PID namespace.
 COPY sandbox/startup.sh /opt/startup.sh
 RUN chmod +x /opt/startup.sh
 
-# Expose ports: Desktop (3000/3001), OpenCode Web (3111), Kortix Master (8000),
+# ── Desktop config ───────────────────────────────────────────────────────────
+# Move noVNC/desktop from default 3000/3001 to 6080/6081 so it matches
+# our docker-compose and doesn't clash with app ports.
+ENV CUSTOM_PORT=6080
+ENV CUSTOM_HTTPS_PORT=6081
+# Default screen resolution (1920x1080) and window title
+ENV SELKIES_MANUAL_WIDTH=1920
+ENV SELKIES_MANUAL_HEIGHT=1080
+ENV TITLE="HeyAGI Sandbox"
+
+# Expose ports: Desktop (6080/6081), OpenCode Web (3111), Kortix Master (8000),
 # Presentation Viewer (3210), Agent Browser (9223/9224)
-EXPOSE 3000 3001 3111 3210 8000 9223 9224
+EXPOSE 6080 6081 3111 3210 8000 9223 9224

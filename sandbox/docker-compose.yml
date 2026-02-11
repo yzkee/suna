@@ -31,8 +31,8 @@ services:
       - workspace:/config/workspace
       - secrets_data:/app/secrets
     ports:
-      - "6080:3000"   # Desktop -> http://localhost:6080
-      - "6081:3001"   # Desktop (HTTPS) -> https://localhost:6081
+      - "6080:6080"   # Desktop (noVNC) -> http://localhost:6080
+      - "6081:6081"   # Desktop (HTTPS) -> https://localhost:6081
       - "3111:3111"   # OpenCode Web UI -> http://localhost:3111
       - "3210:3210"   # Presentation Viewer -> http://localhost:3210
       - "8000:8000"   # Kortix Master (proxy entry point) -> http://localhost:8000
