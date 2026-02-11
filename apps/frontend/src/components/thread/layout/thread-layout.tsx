@@ -87,7 +87,7 @@ export const ThreadLayout = memo(function ThreadLayout({
   const isActuallyMobile = useIsMobile();
 
   // Kortix Computer Store - for handling file open requests
-  const { shouldOpenPanel, clearShouldOpenPanel, openFileInComputer, openFileBrowser } = useKortixComputerStore();
+  const { shouldOpenPanel, clearShouldOpenPanel, openFileInComputer, openFileBrowser, isExpanded } = useKortixComputerStore();
 
   // Track when panel should be visible
   const shouldShowPanel = isSidePanelOpen && initialLoadCompleted;
@@ -169,22 +169,25 @@ export const ThreadLayout = memo(function ThreadLayout({
 
   useEffect(() => {
     if (shouldShowPanel) {
-      // Auto-expand for suite mode with animation delay
-      if (isSuiteMode) {
+      if (isExpanded) {
+        sidePanelRef.current?.resize(100);
+        mainPanelRef.current?.resize(0);
+      } else if (isSuiteMode) {
+        // Auto-expand for suite mode with animation delay
         const timer = setTimeout(() => {
           sidePanelRef.current?.resize(70);
           mainPanelRef.current?.resize(30);
         }, 100);
         return () => clearTimeout(timer);
       } else {
-      sidePanelRef.current?.resize(50);
-      mainPanelRef.current?.resize(50);
+        sidePanelRef.current?.resize(50);
+        mainPanelRef.current?.resize(50);
       }
     } else {
       sidePanelRef.current?.resize(0);
       mainPanelRef.current?.resize(100);
     }
-  }, [shouldShowPanel, isSuiteMode]);
+  }, [shouldShowPanel, isSuiteMode, isExpanded]);
 
   if (compact) {
     return (
@@ -288,9 +291,13 @@ export const ThreadLayout = memo(function ThreadLayout({
         <ResizablePanel
           ref={mainPanelRef}
           defaultSize={shouldShowPanel ? 50 : 100}
-          minSize={shouldShowPanel ? 30 : 100}
-          maxSize={shouldShowPanel ? 65 : 100}
-          className="flex flex-col overflow-hidden relative bg-transparent"
+          minSize={shouldShowPanel ? (isExpanded ? 0 : 30) : 100}
+          maxSize={shouldShowPanel ? (isExpanded ? 0 : 65) : 100}
+          collapsible={isExpanded}
+          className={cn(
+            "flex flex-col overflow-hidden relative bg-transparent",
+            isExpanded && "hidden"
+          )}
         >
           <SiteHeader
             threadId={threadId}
@@ -316,23 +323,29 @@ export const ThreadLayout = memo(function ThreadLayout({
           )}
         </ResizablePanel>
 
-        {/* Resizable handle - always enabled */}
-        <ResizableHandle
-          withHandle={true}
-          disabled={false}
-          className="z-20 w-0"
-        />
+        {/* Resizable handle - hidden when expanded */}
+        {!isExpanded && (
+          <ResizableHandle
+            withHandle={true}
+            disabled={false}
+            className="z-20 w-0"
+          />
+        )}
 
         {/* Side panel - always render but control size */}
         <ResizablePanel
           ref={sidePanelRef}
           defaultSize={shouldShowPanel ? 50 : 0}
-          minSize={shouldShowPanel ? 35 : 0}
-          maxSize={shouldShowPanel ? 70 : 0}
-          collapsible={true}
+          minSize={shouldShowPanel ? (isExpanded ? 100 : 35) : 0}
+          maxSize={shouldShowPanel ? (isExpanded ? 100 : 70) : 0}
+          collapsible={!isExpanded}
           className={cn(
             "relative bg-transparent",
-            shouldShowPanel ? "pr-4 pb-5 pt-4" : "px-0",
+            shouldShowPanel
+              ? isExpanded
+                ? "px-0 pb-0 pt-0"
+                : "pr-4 pb-5 pt-4"
+              : "px-0",
             !shouldShowPanel ? "hidden" : ""
           )}
         >

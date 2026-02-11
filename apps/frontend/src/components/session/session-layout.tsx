@@ -23,7 +23,7 @@ import {
   adaptMessagesToToolCalls,
   adaptAgentStatus,
 } from '@/lib/adapters/opencode-to-kortix-computer';
-import { Activity, FolderOpen, Monitor, X } from 'lucide-react';
+import { Activity, FolderOpen, Monitor, X, Maximize2, Minimize2 } from 'lucide-react';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { useServerStore } from '@/stores/server-store';
@@ -148,6 +148,8 @@ export const SessionLayout = memo(function SessionLayout({
     clearShouldOpenPanel,
     activeView,
     setActiveView,
+    isExpanded,
+    toggleExpanded,
   } = useKortixComputerStore();
 
   const serverUrl = useServerStore((s) => {
@@ -182,8 +184,9 @@ export const SessionLayout = memo(function SessionLayout({
   }, []);
 
   const handleSidePanelClose = useCallback(() => {
+    if (isExpanded) toggleExpanded();
     setIsSidePanelOpen(false);
-  }, [setIsSidePanelOpen]);
+  }, [setIsSidePanelOpen, isExpanded, toggleExpanded]);
 
   const handleToggleSidePanel = useCallback(() => {
     setIsSidePanelOpen(!isSidePanelOpen);
@@ -210,13 +213,18 @@ export const SessionLayout = memo(function SessionLayout({
 
   useEffect(() => {
     if (shouldShowPanel) {
-      sidePanelRef.current?.resize(50);
-      mainPanelRef.current?.resize(50);
+      if (isExpanded) {
+        sidePanelRef.current?.resize(100);
+        mainPanelRef.current?.resize(0);
+      } else {
+        sidePanelRef.current?.resize(50);
+        mainPanelRef.current?.resize(50);
+      }
     } else {
       sidePanelRef.current?.resize(0);
       mainPanelRef.current?.resize(100);
     }
-  }, [shouldShowPanel]);
+  }, [shouldShowPanel, isExpanded]);
 
   const renderAssistantMessage = useCallback(() => null, []);
   const renderToolResult = useCallback(() => null, []);
@@ -278,9 +286,13 @@ export const SessionLayout = memo(function SessionLayout({
           <ResizablePanel
             ref={mainPanelRef}
             defaultSize={shouldShowPanel ? 50 : 100}
-            minSize={shouldShowPanel ? 30 : 100}
-            maxSize={shouldShowPanel ? 65 : 100}
-            className="flex flex-col overflow-hidden relative bg-transparent pl-3 pr-1.5"
+            minSize={shouldShowPanel ? (isExpanded ? 0 : 30) : 100}
+            maxSize={shouldShowPanel ? (isExpanded ? 0 : 65) : 100}
+            collapsible={isExpanded}
+            className={cn(
+              "flex flex-col overflow-hidden relative bg-transparent pl-3 pr-1.5",
+              isExpanded && "hidden"
+            )}
           >
             <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
               {children}
@@ -288,27 +300,32 @@ export const SessionLayout = memo(function SessionLayout({
           </ResizablePanel>
 
           {/* Resizable handle */}
-          <ResizableHandle
-            withHandle={shouldShowPanel}
-            disabled={!shouldShowPanel}
-            className={cn('z-20', shouldShowPanel ? 'w-0' : 'w-0 opacity-0')}
-          />
+          {!isExpanded && (
+            <ResizableHandle
+              withHandle={shouldShowPanel}
+              disabled={!shouldShowPanel}
+              className={cn('z-20', shouldShowPanel ? 'w-0' : 'w-0 opacity-0')}
+            />
+          )}
 
           {/* Side panel (KortixComputer or Desktop iframe) */}
           <ResizablePanel
             ref={sidePanelRef}
             defaultSize={shouldShowPanel ? 50 : 0}
-            minSize={shouldShowPanel ? 35 : 0}
-            maxSize={shouldShowPanel ? 70 : 0}
-            collapsible={true}
+            minSize={shouldShowPanel ? (isExpanded ? 100 : 35) : 0}
+            maxSize={shouldShowPanel ? (isExpanded ? 100 : 70) : 0}
+            collapsible={!isExpanded}
             className={cn(
               'relative overflow-hidden',
               !shouldShowPanel && 'hidden',
             )}
           >
-            <div className="h-full pt-3 pb-5 pr-3 pl-1.5">
+            <div className={cn(
+              "h-full",
+              isExpanded ? "p-0" : "pt-3 pb-5 pr-3 pl-1.5"
+            )}>
               {showDesktop ? (
-                <div className="h-full flex flex-col border rounded-3xl bg-card overflow-hidden">
+                <div className={cn("h-full flex flex-col bg-card overflow-hidden", isExpanded ? "rounded-none border-0" : "border rounded-3xl")}>
                   {/* Header inside the card */}
                   <div className="flex-shrink-0 h-11 flex items-center justify-between px-4">
                     <div className="flex items-center gap-3">
@@ -334,6 +351,13 @@ export const SessionLayout = memo(function SessionLayout({
                         currentView={activeView}
                         onViewChange={handleViewChange}
                       />
+                      <button
+                        onClick={toggleExpanded}
+                        className="p-1.5 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                        title={isExpanded ? 'Collapse' : 'Expand'}
+                      >
+                        {isExpanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                      </button>
                       <button
                         onClick={handleSidePanelClose}
                         className="p-1.5 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
@@ -388,6 +412,13 @@ export const SessionLayout = memo(function SessionLayout({
                           currentView={activeView}
                           onViewChange={handleViewChange}
                         />
+                        <button
+                          onClick={toggleExpanded}
+                          className="p-1.5 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                          title={isExpanded ? 'Collapse' : 'Expand'}
+                        >
+                          {isExpanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                        </button>
                         <button
                           onClick={handleSidePanelClose}
                           className="p-1.5 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"

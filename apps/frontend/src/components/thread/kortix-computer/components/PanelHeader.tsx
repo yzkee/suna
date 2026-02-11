@@ -90,6 +90,8 @@ interface PanelHeaderProps {
   isSuiteMode?: boolean;
   onToggleSuiteMode?: () => void;
   hideViewToggle?: boolean;
+  isExpanded?: boolean;
+  onToggleExpand?: () => void;
 }
 
 export const PanelHeader = memo(function PanelHeader({
@@ -106,6 +108,8 @@ export const PanelHeader = memo(function PanelHeader({
   isSuiteMode = false,
   onToggleSuiteMode,
   hideViewToggle = false,
+  isExpanded = false,
+  onToggleExpand,
 }: PanelHeaderProps) {
   if (variant === 'drawer') {
     return (
@@ -163,6 +167,8 @@ export const PanelHeader = memo(function PanelHeader({
         <ToolbarButtons
           onClose={onClose}
           isMaximized={isMaximized}
+          isExpanded={isExpanded}
+          onToggleExpand={onToggleExpand}
         />
       </div>
       <div

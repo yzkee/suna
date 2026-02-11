@@ -15,6 +15,7 @@ interface KortixComputerState {
   // Panel state
   shouldOpenPanel: boolean;
   isSidePanelOpen: boolean;
+  isExpanded: boolean;
   
   // Tool navigation state (for external tool click triggers)
   pendingToolNavIndex: number | null;
@@ -41,6 +42,8 @@ interface KortixComputerState {
   setIsSidePanelOpen: (open: boolean) => void;
   openSidePanel: () => void;
   closeSidePanel: () => void;
+  setIsExpanded: (expanded: boolean) => void;
+  toggleExpanded: () => void;
   
   // Reset all state (full reset)
   reset: () => void;
@@ -51,6 +54,7 @@ const initialState = {
   activeView: 'tools' as ViewType,
   shouldOpenPanel: false,
   isSidePanelOpen: false,
+  isExpanded: false,
   pendingToolNavIndex: null as number | null,
 };
 
@@ -130,7 +134,15 @@ export const useKortixComputerStore = create<KortixComputerState>()(
       },
       
       closeSidePanel: () => {
-        set({ isSidePanelOpen: false });
+        set({ isSidePanelOpen: false, isExpanded: false });
+      },
+
+      setIsExpanded: (expanded: boolean) => {
+        set({ isExpanded: expanded });
+      },
+
+      toggleExpanded: () => {
+        set((state) => ({ isExpanded: !state.isExpanded }));
       },
       
       reset: () => {
@@ -171,3 +183,9 @@ export const useIsSidePanelOpen = () =>
 
 export const useSetIsSidePanelOpen = () =>
   useKortixComputerStore((state) => state.setIsSidePanelOpen);
+
+export const useIsExpanded = () =>
+  useKortixComputerStore((state) => state.isExpanded);
+
+export const useToggleExpanded = () =>
+  useKortixComputerStore((state) => state.toggleExpanded);

@@ -10,6 +10,7 @@ import { ApiMessageType } from '@/components/thread/types';
 import { Globe, CircleDashed } from 'lucide-react';
 import { KortixLoader } from '@/components/ui/kortix-loader';
 import { useIsMobile } from '@/hooks/utils';
+import { cn } from '@/lib/utils';
 import { ToolView } from '../tool-views/wrapper';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HealthCheckedVncIframe } from '../HealthCheckedVncIframe';
@@ -122,9 +123,11 @@ export const KortixComputer = memo(function KortixComputer({
   const { isOpen: isDocumentModalOpen } = useDocumentModalStore();
   const sandbox = project?.sandbox;
 
-  const { 
-    activeView, 
+  const {
+    activeView,
     setActiveView,
+    isExpanded,
+    toggleExpanded,
   } = useKortixComputerStore();
   
   const filesView = useFilesStore((s) => s.view);
@@ -256,8 +259,9 @@ export const KortixComputer = memo(function KortixComputer({
 
   const handleClose = useCallback(() => {
     setIsMaximized(false);
+    if (isExpanded) toggleExpanded();
     onClose();
-  }, [onClose]);
+  }, [onClose, isExpanded, toggleExpanded]);
 
   const handleMaximize = useCallback(() => {
     setIsMaximized(!isMaximized);
@@ -682,6 +686,8 @@ export const KortixComputer = memo(function KortixComputer({
             onViewChange={setActiveView}
             showFilesTab={true}
             isMaximized={isMaximized}
+            isExpanded={isExpanded}
+            onToggleExpand={toggleExpanded}
             isSuiteMode={isSuiteMode}
             onToggleSuiteMode={() => {
               if (isSuiteMode) {
@@ -956,7 +962,10 @@ export const KortixComputer = memo(function KortixComputer({
           duration: 0.2
         }
       }}
-      className="h-full w-full max-w-full max-h-full flex flex-col border rounded-3xl bg-card overflow-hidden min-w-0 min-h-0"
+      className={cn(
+      "h-full w-full max-w-full max-h-full flex flex-col bg-card overflow-hidden min-w-0 min-h-0",
+      isExpanded ? "rounded-none border-0" : "border rounded-3xl"
+    )}
       style={{ contain: 'strict' }}
     >
       {headerSlot}
