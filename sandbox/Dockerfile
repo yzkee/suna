@@ -97,6 +97,12 @@ RUN chmod +x /custom-cont-init.d/98-kortix-env
 COPY sandbox/config/customize.sh /custom-cont-init.d/99-customize
 RUN chmod +x /custom-cont-init.d/99-customize
 
+# ── Daytona entrypoint ───────────────────────────────────────────────────────
+# Daytona runs its own agent as PID 1, so s6-overlay can't run (requires PID 1).
+# startup.sh launches all services as background processes and stays alive.
+COPY sandbox/startup.sh /opt/startup.sh
+RUN chmod +x /opt/startup.sh
+
 # Expose ports: Desktop (3000/3001), OpenCode Web (3111), Kortix Master (8000),
 # Presentation Viewer (3210), Agent Browser (9223/9224)
 EXPOSE 3000 3001 3111 3210 8000 9223 9224

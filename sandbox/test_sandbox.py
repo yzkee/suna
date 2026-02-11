@@ -3,7 +3,7 @@ import json
 import os
 from daytona_sdk import AsyncDaytona, DaytonaConfig, CreateSandboxFromSnapshotParams
 
-SNAPSHOT = "kortix-sandbox-v0.3.0"
+SNAPSHOT = "kortix-sandbox-v0.3.4"
 
 # Load from environment or sandbox/.env
 DAYTONA_API_KEY = os.environ.get("DAYTONA_API_KEY", "")
