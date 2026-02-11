@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useCallback, useState, useRef } from 'react';
+import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import {
   Search,
   RefreshCw,
@@ -11,6 +11,13 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { useFilesStore } from '../store/files-store';
 import { useFileList, useServerHealth } from '../hooks';
 import { useFileUpload, useFileDelete, useFileMkdir, useFileRename } from '../hooks/use-file-mutations';
@@ -50,8 +57,38 @@ export function FileBrowser() {
 
   // Upload state
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+
+  // Auto-focus and select all text when folder input appears
+  useEffect(() => {
+    if (isCreatingFolder) {
+      // Double rAF to ensure React has flushed the value to the DOM
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const el = folderInputRef.current;
+          if (el) {
+            el.focus();
+            el.setSelectionRange(0, el.value.length);
+          }
+        });
+      });
+    }
+  }, [isCreatingFolder]);
+
+  // All sibling names in current directory (for duplicate detection)
+  const siblingNames = useMemo(() => {
+    if (!files) return [];
+    return files.map((f) => f.name);
+  }, [files]);
+
+  // Check if folder name already exists
+  const folderNameExists = useMemo(() => {
+    if (!isCreatingFolder || !newFolderName.trim() || !files) return false;
+    const name = newFolderName.trim().toLowerCase();
+    return files.some((f) => f.name.toLowerCase() === name);
+  }, [isCreatingFolder, newFolderName, files]);
 
   // Separate dirs and files, sorted
   const { dirs, fileItems } = useMemo(() => {
@@ -97,10 +134,9 @@ export function FileBrowser() {
     }
   }, []);
 
-  // Rename a file/folder
+  // Rename a file/folder (called from inline input in FileTreeItem)
   const handleRename = useCallback(
-    async (node: FileNode) => {
-      const newName = window.prompt('New name:', node.name);
+    async (node: FileNode, newName: string) => {
       if (!newName || newName === node.name) return;
 
       const parentPath = node.path.substring(0, node.path.lastIndexOf('/'));
@@ -297,75 +333,126 @@ export function FileBrowser() {
 
         {/* File entries */}
         {!isLoading && !error && files && (
-          <div className="p-1.5">
-            {/* Go up */}
-            {currentPath !== '.' && currentPath !== '' && (
-              <button
-                onClick={handleNavigateUp}
-                className={cn(
-                  'flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left rounded-md transition-colors cursor-pointer',
-                  'hover:bg-muted/80 text-muted-foreground',
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
+              <div className="p-1.5 min-h-full">
+                {/* Go up */}
+                {currentPath !== '.' && currentPath !== '' && (
+                  <button
+                    onClick={handleNavigateUp}
+                    className={cn(
+                      'flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left rounded-md transition-colors cursor-pointer',
+                      'hover:bg-muted/80 text-muted-foreground',
+                    )}
+                  >
+                    <FolderUp className="h-4 w-4 shrink-0" />
+                    <span>..</span>
+                  </button>
                 )}
+
+                {/* New folder inline input */}
+                {isCreatingFolder && (
+                  <div className="flex flex-col gap-0.5 px-3 py-1.5">
+                    <div className="flex items-center gap-2">
+                      <FolderPlus className="h-4 w-4 text-blue-400 shrink-0" />
+                      <input
+                        type="text"
+                        ref={folderInputRef}
+                        value={newFolderName}
+                        onChange={(e) => setNewFolderName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !folderNameExists) handleCreateFolder();
+                          if (e.key === 'Escape') {
+                            setIsCreatingFolder(false);
+                            setNewFolderName('');
+                          }
+                        }}
+                        onBlur={() => {
+                          if (!folderNameExists) handleCreateFolder();
+                          else {
+                            setIsCreatingFolder(false);
+                            setNewFolderName('');
+                          }
+                        }}
+                        className={cn(
+                          'flex-1 text-sm bg-transparent border rounded px-1.5 py-0.5 outline-none selection:bg-primary/15 selection:text-foreground',
+                          folderNameExists
+                            ? 'border-red-500/60'
+                            : 'border-primary',
+                        )}
+                      />
+                    </div>
+                    {folderNameExists && (
+                      <p className="text-[11px] text-red-400 pl-6">
+                        A file or folder with that name already exists
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Directories first */}
+                {dirs.map((node) => (
+                  <FileTreeItem
+                    key={node.path}
+                    node={node}
+                    onClick={() => handleFileClick(node)}
+                    onRename={handleRename}
+                    onDelete={handleDelete}
+                    siblingNames={siblingNames}
+                  />
+                ))}
+
+                {/* Then files */}
+                {fileItems.map((node) => (
+                  <FileTreeItem
+                    key={node.path}
+                    node={node}
+                    onClick={() => handleFileClick(node)}
+                    onDownload={handleDownload}
+                    onRename={handleRename}
+                    onDelete={handleDelete}
+                    siblingNames={siblingNames}
+                  />
+                ))}
+
+                {/* Empty directory */}
+                {files.length === 0 && !isCreatingFolder && (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      Empty directory
+                    </p>
+                  </div>
+                )}
+              </div>
+            </ContextMenuTrigger>
+            <ContextMenuContent className="w-48">
+              <ContextMenuItem
+                onClick={handleUpload}
+                disabled={uploadMutation.isPending}
               >
-                <FolderUp className="h-4 w-4 shrink-0" />
-                <span>..</span>
-              </button>
-            )}
-
-            {/* New folder inline input */}
-            {isCreatingFolder && (
-              <div className="flex items-center gap-2 px-3 py-1.5">
-                <FolderPlus className="h-4 w-4 text-blue-400 shrink-0" />
-                <input
-                  type="text"
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleCreateFolder();
-                    if (e.key === 'Escape') {
-                      setIsCreatingFolder(false);
-                      setNewFolderName('');
-                    }
-                  }}
-                  onBlur={handleCreateFolder}
-                  autoFocus
-                  className="flex-1 text-sm bg-transparent border border-primary rounded px-1.5 py-0.5 outline-none"
-                />
-              </div>
-            )}
-
-            {/* Directories first */}
-            {dirs.map((node) => (
-              <FileTreeItem
-                key={node.path}
-                node={node}
-                onClick={() => handleFileClick(node)}
-                onRename={handleRename}
-                onDelete={handleDelete}
-              />
-            ))}
-
-            {/* Then files */}
-            {fileItems.map((node) => (
-              <FileTreeItem
-                key={node.path}
-                node={node}
-                onClick={() => handleFileClick(node)}
-                onDownload={handleDownload}
-                onRename={handleRename}
-                onDelete={handleDelete}
-              />
-            ))}
-
-            {/* Empty directory */}
-            {files.length === 0 && !isCreatingFolder && (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <p className="text-sm text-muted-foreground">
-                  Empty directory
-                </p>
-              </div>
-            )}
-          </div>
+                <Upload className="mr-2 h-4 w-4" />
+                Upload File
+              </ContextMenuItem>
+              <ContextMenuItem
+                onClick={() => {
+                  // Small delay to let context menu fully close before input mounts
+                  setTimeout(() => {
+                    setNewFolderName('New Folder');
+                    setIsCreatingFolder(true);
+                  }, 100);
+                }}
+                disabled={mkdirMutation.isPending}
+              >
+                <FolderPlus className="mr-2 h-4 w-4" />
+                New Folder
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem onClick={() => refetch()}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Refresh
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
         )}
       </div>
     </div>

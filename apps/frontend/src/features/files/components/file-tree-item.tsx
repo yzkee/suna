@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Folder,
   FileText,
@@ -29,8 +30,10 @@ interface FileTreeItemProps {
   node: FileNode;
   onClick: () => void;
   onDownload?: (node: FileNode) => void;
-  onRename?: (node: FileNode) => void;
+  onRename?: (node: FileNode, newName: string) => void;
   onDelete?: (node: FileNode) => void;
+  /** All sibling names in the current directory, for duplicate detection */
+  siblingNames?: string[];
 }
 
 /** File extension to icon mapping */
@@ -72,10 +75,98 @@ function getNodeIcon(node: FileNode) {
   return <FileIcon className="h-4 w-4 text-muted-foreground shrink-0" />;
 }
 
-export function FileTreeItem({ node, onClick, onDownload, onRename, onDelete }: FileTreeItemProps) {
+/** Get selection end index: before extension for files, full length for folders */
+function getNameSelectionEnd(name: string, isDirectory: boolean): number {
+  if (isDirectory) return name.length;
+  const dotIdx = name.lastIndexOf('.');
+  return dotIdx > 0 ? dotIdx : name.length;
+}
+
+export function FileTreeItem({ node, onClick, onDownload, onRename, onDelete, siblingNames }: FileTreeItemProps) {
   const hasContextMenu = onDownload || onRename || onDelete;
 
-  const content = (
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameName, setRenameName] = useState('');
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  // Check for duplicate name (exclude current node's own name)
+  const nameConflict = useMemo(() => {
+    if (!isRenaming || !renameName.trim() || !siblingNames) return false;
+    const trimmed = renameName.trim().toLowerCase();
+    if (trimmed === node.name.toLowerCase()) return false; // same name is fine
+    return siblingNames.some((n) => n.toLowerCase() === trimmed);
+  }, [isRenaming, renameName, siblingNames, node.name]);
+
+  // Auto-focus and select when entering rename mode
+  useEffect(() => {
+    if (isRenaming) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const el = renameInputRef.current;
+          if (el) {
+            el.focus();
+            const selEnd = getNameSelectionEnd(el.value, node.type === 'directory');
+            el.setSelectionRange(0, selEnd);
+          }
+        });
+      });
+    }
+  }, [isRenaming, node.type]);
+
+  const startRenaming = () => {
+    setRenameName(node.name);
+    setIsRenaming(true);
+  };
+
+  const confirmRename = () => {
+    const trimmed = renameName.trim();
+    if (trimmed && trimmed !== node.name && !nameConflict && onRename) {
+      onRename(node, trimmed);
+    }
+    setIsRenaming(false);
+    setRenameName('');
+  };
+
+  const cancelRename = () => {
+    setIsRenaming(false);
+    setRenameName('');
+  };
+
+  const content = isRenaming ? (
+    <div
+      className={cn(
+        'flex items-center gap-2 w-full px-3 py-1.5 text-sm rounded-md',
+        node.ignored && 'opacity-50',
+      )}
+    >
+      {getNodeIcon(node)}
+      <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+        <input
+          type="text"
+          ref={renameInputRef}
+          value={renameName}
+          onChange={(e) => setRenameName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !nameConflict) confirmRename();
+            if (e.key === 'Escape') cancelRename();
+          }}
+          onBlur={() => {
+            if (!nameConflict) confirmRename();
+            else cancelRename();
+          }}
+          className={cn(
+            'w-full text-sm bg-transparent border rounded px-1.5 py-0.5 outline-none selection:bg-primary/15 selection:text-foreground',
+            nameConflict ? 'border-red-500/60' : 'border-primary',
+          )}
+        />
+        {nameConflict && (
+          <p className="text-[11px] text-red-400">
+            A file or folder with that name already exists
+          </p>
+        )}
+      </div>
+    </div>
+  ) : (
     <button
       onClick={onClick}
       className={cn(
@@ -126,7 +217,9 @@ export function FileTreeItem({ node, onClick, onDownload, onRename, onDelete }: 
         {onRename && (
           <>
             <ContextMenuSeparator />
-            <ContextMenuItem onClick={() => onRename(node)}>
+            <ContextMenuItem onClick={() => {
+              setTimeout(() => startRenaming(), 100);
+            }}>
               <Pencil className="mr-2 h-4 w-4" />
               Rename
             </ContextMenuItem>
