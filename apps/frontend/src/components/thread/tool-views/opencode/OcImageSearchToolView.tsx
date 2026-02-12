@@ -1,12 +1,14 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Image as ImageIcon,
   CheckCircle,
   AlertCircle,
   ExternalLink,
   Maximize2,
+  Search,
+  AlertTriangle,
 } from 'lucide-react';
 import { ToolViewProps } from '../types';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -33,43 +35,91 @@ interface ImageResult {
   source?: string;
 }
 
+interface BatchItem {
+  query: string;
+  total: number;
+  images: ImageResult[];
+  success: boolean;
+}
+
 const IMAGE_FALLBACK_SVG =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2' ry='2'%3E%3C/rect%3E%3Ccircle cx='8.5' cy='8.5' r='1.5'%3E%3C/circle%3E%3Cpolyline points='21 15 16 10 5 21'%3E%3C/polylyline%3E%3C/svg%3E";
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2' ry='2'%3E%3C/rect%3E%3Ccircle cx='8.5' cy='8.5' r='1.5'%3E%3C/circle%3E%3Cpolyline points='21 15 16 10 5 21'%3E%3C/polyline%3E%3C/svg%3E";
 
-function parseImages(output: unknown): ImageResult[] {
-  if (!output) return [];
-  const raw = typeof output === 'string' ? output : null;
-  const obj = typeof output === 'object' ? output : null;
+function normalizeImage(img: any): ImageResult | null {
+  if (!img) return null;
+  if (typeof img === 'string') return { url: img };
+  const url = img.url || img.imageUrl || img.image_url || '';
+  if (!url) return null;
+  return {
+    url,
+    imageUrl: img.imageUrl,
+    title: img.title || '',
+    width: img.width || img.imageWidth || 0,
+    height: img.height || img.imageHeight || 0,
+    description: img.description || '',
+    source: img.source || img.link || '',
+  };
+}
 
-  // Already an object with images array
-  if (obj && 'images' in (obj as any) && Array.isArray((obj as any).images)) {
-    return (obj as any).images;
-  }
-  if (obj && 'results' in (obj as any) && Array.isArray((obj as any).results)) {
-    return (obj as any).results;
-  }
-  if (Array.isArray(obj)) return obj;
+interface ParsedOutput {
+  isBatch: boolean;
+  batchItems: BatchItem[];
+  images: ImageResult[];
+}
 
-  // String — try JSON parse
-  if (raw) {
+function parseOutput(output: unknown): ParsedOutput {
+  const empty: ParsedOutput = { isBatch: false, batchItems: [], images: [] };
+  if (!output) return empty;
+
+  let obj: any = output;
+  if (typeof output === 'string') {
     try {
-      const parsed = JSON.parse(raw);
-      if (parsed?.images && Array.isArray(parsed.images)) return parsed.images;
-      if (parsed?.results && Array.isArray(parsed.results)) return parsed.results;
-      if (Array.isArray(parsed)) return parsed;
+      obj = JSON.parse(output);
     } catch {
-      const match = raw.match(/\{[\s\S]*"images"\s*:\s*\[[\s\S]*\]/);
-      if (match) {
-        try {
-          const parsed = JSON.parse(match[0]);
-          if (parsed?.images) return parsed.images;
-        } catch {
-          /* ignore */
-        }
-      }
+      return empty;
     }
   }
-  return [];
+
+  if (!obj || typeof obj !== 'object') return empty;
+
+  // Handle batch mode: { batch_mode: true, results: [{ query, total, images }] }
+  if (obj.batch_mode === true && Array.isArray(obj.results)) {
+    const batchItems: BatchItem[] = obj.results.map((item: any) => ({
+      query: item.query || '',
+      total: item.total || 0,
+      success: item.success !== false,
+      images: Array.isArray(item.images)
+        ? item.images.map(normalizeImage).filter((i: ImageResult | null): i is ImageResult => i !== null)
+        : [],
+    }));
+    const allImages = batchItems.flatMap(b => b.images);
+    return { isBatch: true, batchItems, images: allImages };
+  }
+
+  // Handle legacy batch_results format
+  if (obj.batch_results && Array.isArray(obj.batch_results)) {
+    const batchItems: BatchItem[] = obj.batch_results.map((item: any) => ({
+      query: item.query || '',
+      total: item.total || 0,
+      success: item.success !== false,
+      images: Array.isArray(item.images)
+        ? item.images.map(normalizeImage).filter((i: ImageResult | null): i is ImageResult => i !== null)
+        : [],
+    }));
+    const allImages = batchItems.flatMap(b => b.images);
+    return { isBatch: true, batchItems, images: allImages };
+  }
+
+  // Handle single result: { images: [...] } or { results: [...] } or array
+  let images: ImageResult[] = [];
+  if (Array.isArray(obj.images)) {
+    images = obj.images.map(normalizeImage).filter((i: ImageResult | null): i is ImageResult => i !== null);
+  } else if (Array.isArray(obj.results)) {
+    images = obj.results.map(normalizeImage).filter((i: ImageResult | null): i is ImageResult => i !== null);
+  } else if (Array.isArray(obj)) {
+    images = obj.map(normalizeImage).filter((i: ImageResult | null): i is ImageResult => i !== null);
+  }
+  return { isBatch: false, batchItems: [], images };
 }
 
 function getImageUrl(img: ImageResult): string {
@@ -88,6 +138,8 @@ export function OcImageSearchToolView({
   isSuccess = true,
   isStreaming = false,
 }: ToolViewProps) {
+  const [currentQueryIndex, setCurrentQueryIndex] = useState(0);
+
   const args = toolCall?.arguments || {};
   const ocState = args._oc_state as any;
   const query = (ocState?.input?.query as string) || (args.query as string) || '';
@@ -95,7 +147,18 @@ export function OcImageSearchToolView({
   const rawOutput = toolResult?.output || ocState?.output || '';
   const isError = toolResult?.success === false || !!toolResult?.error;
 
-  const images = useMemo(() => parseImages(rawOutput), [rawOutput]);
+  const { isBatch, batchItems, images: allImages } = useMemo(() => parseOutput(rawOutput), [rawOutput]);
+
+  const safeQueryIndex = batchItems.length > 0
+    ? Math.min(currentQueryIndex, batchItems.length - 1)
+    : 0;
+  const currentBatch = batchItems[safeQueryIndex];
+  const currentImages = isBatch && currentBatch ? currentBatch.images : allImages;
+  const totalImages = isBatch ? batchItems.reduce((n, b) => n + b.images.length, 0) : allImages.length;
+
+  const headerSubtitle = isBatch && batchItems.length > 1
+    ? `${batchItems.length} queries`
+    : query;
 
   if (isStreaming && !toolResult) {
     return (
@@ -114,13 +177,13 @@ export function OcImageSearchToolView({
     <Card className="gap-0 flex border-0 shadow-none p-0 py-0 rounded-none flex-col h-full overflow-hidden bg-card">
       <CardHeader className="h-14 bg-zinc-50/80 dark:bg-zinc-900/80 backdrop-blur-sm border-b p-2 px-4 space-y-2">
         <div className="flex flex-row items-center justify-between">
-          <ToolViewIconTitle icon={ImageIcon} title="Image Search" subtitle={query} />
-          {images.length > 0 && (
+          <ToolViewIconTitle icon={ImageIcon} title="Image Search" subtitle={headerSubtitle} />
+          {totalImages > 0 && (
             <Badge
               variant="outline"
               className="h-5 py-0 text-[10px] bg-zinc-50 dark:bg-zinc-900 text-muted-foreground"
             >
-              {images.length} image{images.length !== 1 ? 's' : ''}
+              {totalImages} image{totalImages !== 1 ? 's' : ''}
             </Badge>
           )}
         </div>
@@ -129,8 +192,62 @@ export function OcImageSearchToolView({
       <CardContent className="p-0 h-full flex-1 overflow-hidden">
         <ScrollArea className="h-full w-full">
           <div className="p-3">
-            {/* Query info */}
-            {query && (
+            {/* Batch query tabs */}
+            {isBatch && batchItems.length > 1 && (
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {batchItems.map((bi, idx) => {
+                  const isActive = idx === safeQueryIndex;
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setCurrentQueryIndex(idx)}
+                      className={`
+                        inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all
+                        ${isActive
+                          ? 'bg-violet-500/10 text-violet-700 dark:text-violet-300 border border-violet-500/20'
+                          : 'bg-muted/40 text-muted-foreground hover:bg-muted/70 border border-transparent'
+                        }
+                      `}
+                    >
+                      <Search className="size-3 flex-shrink-0" />
+                      <span className="truncate max-w-[180px]">{bi.query}</span>
+                      {bi.images.length > 0 && (
+                        <span className={`
+                          text-[10px] px-1.5 py-0.5 rounded-full font-medium
+                          ${isActive ? 'bg-violet-500/15 text-violet-700 dark:text-violet-300' : 'bg-muted text-muted-foreground'}
+                        `}>
+                          {bi.images.length}
+                        </span>
+                      )}
+                      {bi.success ? (
+                        <CheckCircle className="size-3 text-emerald-500/70" />
+                      ) : (
+                        <AlertTriangle className="size-3 text-amber-500/70" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Single batch header */}
+            {isBatch && batchItems.length === 1 && currentBatch && (
+              <div className="flex items-center gap-2 mb-3 px-1">
+                <ImageIcon className="size-3.5 text-violet-500 dark:text-violet-400 flex-shrink-0" />
+                <span className="text-xs text-muted-foreground truncate">
+                  &quot;{currentBatch.query}&quot;
+                </span>
+                {currentBatch.success ? (
+                  <CheckCircle className="size-3.5 text-emerald-500/70" />
+                ) : (
+                  <AlertTriangle className="size-3.5 text-amber-500/70" />
+                )}
+              </div>
+            )}
+
+            {/* Single query info (non-batch) */}
+            {!isBatch && query && (
               <div className="flex items-center gap-2 mb-3 px-1">
                 <ImageIcon className="size-3.5 text-violet-500 dark:text-violet-400 flex-shrink-0" />
                 <span className="text-xs text-muted-foreground truncate">
@@ -155,7 +272,7 @@ export function OcImageSearchToolView({
             )}
 
             {/* No images state */}
-            {!isError && !isStreaming && images.length === 0 && (
+            {!isError && !isStreaming && currentImages.length === 0 && (
               <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground">
                 <ImageIcon className="size-8 opacity-40" />
                 <span className="text-xs">No images found</span>
@@ -168,9 +285,9 @@ export function OcImageSearchToolView({
             )}
 
             {/* Image grid */}
-            {images.length > 0 && (
+            {currentImages.length > 0 && (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                {images.map((img, idx) => {
+                {currentImages.map((img, idx) => {
                   const imageUrl = getImageUrl(img);
                   if (!imageUrl) return null;
                   const hasDimensions =
@@ -286,10 +403,13 @@ export function OcImageSearchToolView({
               <AlertCircle className="h-3 w-3" />
               Failed
             </Badge>
-          ) : images.length > 0 ? (
+          ) : totalImages > 0 ? (
             <Badge variant="outline" className="h-6 py-0.5 bg-zinc-50 dark:bg-zinc-900">
               <CheckCircle className="h-3 w-3 text-green-600 dark:text-green-400" />
-              {images.length} image{images.length !== 1 ? 's' : ''}
+              {isBatch && batchItems.length > 1
+                ? `${batchItems.length} queries, ${totalImages} images`
+                : `${totalImages} image${totalImages !== 1 ? 's' : ''}`
+              }
             </Badge>
           ) : null)}
       </ToolViewFooter>

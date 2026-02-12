@@ -1522,19 +1522,44 @@ function ImageSearchTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
   const status = partStatus(part);
   const query = (input.query as string) || '';
 
-  // Try to parse image results from JSON output
-  const imageResults = useMemo(() => {
-    if (!output) return [];
+  // Parse image results - handles single and batch formats
+  const { imageResults, isBatch, batchCount, displayQuery } = useMemo(() => {
+    if (!output) return { imageResults: [], isBatch: false, batchCount: 0, displayQuery: query };
     try {
       const parsed = JSON.parse(output);
-      if (Array.isArray(parsed)) return parsed;
-      if (parsed.images && Array.isArray(parsed.images)) return parsed.images;
-      if (parsed.results && Array.isArray(parsed.results)) return parsed.results;
+
+      // Handle batch mode: { batch_mode: true, results: [{ query, total, images }] }
+      if (parsed.batch_mode === true && Array.isArray(parsed.results)) {
+        const allImages = parsed.results.flatMap((r: any) => Array.isArray(r.images) ? r.images : []);
+        const queries = parsed.results.map((r: any) => r.query).filter(Boolean);
+        return {
+          imageResults: allImages,
+          isBatch: true,
+          batchCount: parsed.results.length,
+          displayQuery: queries.length > 1 ? `${queries.length} queries` : queries[0] || query,
+        };
+      }
+
+      // Handle legacy batch_results
+      if (parsed.batch_results && Array.isArray(parsed.batch_results)) {
+        const allImages = parsed.batch_results.flatMap((r: any) => Array.isArray(r.images) ? r.images : []);
+        return {
+          imageResults: allImages,
+          isBatch: true,
+          batchCount: parsed.batch_results.length,
+          displayQuery: query,
+        };
+      }
+
+      // Single result formats
+      if (Array.isArray(parsed)) return { imageResults: parsed, isBatch: false, batchCount: 0, displayQuery: query };
+      if (parsed.images && Array.isArray(parsed.images)) return { imageResults: parsed.images, isBatch: false, batchCount: 0, displayQuery: query };
+      if (parsed.results && Array.isArray(parsed.results)) return { imageResults: parsed.results, isBatch: false, batchCount: 0, displayQuery: query };
     } catch {
       // Not JSON — return empty
     }
-    return [];
-  }, [output]);
+    return { imageResults: [], isBatch: false, batchCount: 0, displayQuery: query };
+  }, [output, query]);
 
   return (
     <BasicTool
@@ -1542,10 +1567,10 @@ function ImageSearchTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
       trigger={
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
           <span className="font-medium text-xs text-foreground whitespace-nowrap">Image Search</span>
-          <span className="text-muted-foreground text-xs truncate font-mono">{query}</span>
+          <span className="text-muted-foreground text-xs truncate font-mono">{displayQuery}</span>
           {imageResults.length > 0 && (
             <span className="text-[10px] px-1 py-0.5 rounded bg-muted/60 text-muted-foreground font-mono whitespace-nowrap ml-auto flex-shrink-0">
-              {imageResults.length} images
+              {isBatch ? `${batchCount}q, ` : ''}{imageResults.length} images
             </span>
           )}
         </div>
