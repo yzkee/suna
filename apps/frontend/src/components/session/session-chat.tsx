@@ -707,76 +707,92 @@ function SessionTurn({
         {/* User message */}
         <UserMessageRow message={turn.userMessage} agentNames={agentNames} />
 
-        {/* Steps trigger button */}
-        {(working || hasSteps) && (
-          <button
-            onClick={onToggleSteps}
-            aria-expanded={stepsExpanded}
-            className={cn(
-              'flex items-center gap-2 text-xs transition-colors py-1.5 mt-2.5 cursor-pointer',
-              working
-                ? 'text-muted-foreground'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {working ? (
-              <span className="flex items-center gap-1.5">
-                <span className="relative flex size-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-muted-foreground/30" />
-                  <span className="relative inline-flex rounded-full size-3 bg-muted-foreground/50" />
-                </span>
-              </span>
-            ) : (
-              <ChevronRight
-                className={cn(
-                  'size-3 transition-transform flex-shrink-0',
-                  stepsExpanded && 'rotate-90',
-                )}
-              />
-            )}
-
-            {/* Status text / retry info / show-hide label */}
-            <span>
-              {retryInfo
-                ? retryInfo.message.length > 60
-                  ? retryInfo.message.slice(0, 60) + '...'
-                  : retryInfo.message
-                : working
-                  ? (throttledStatus || 'Working...')
-                  : stepsExpanded
-                    ? 'Hide steps'
-                    : 'Show steps'}
-            </span>
-
-            {/* Retry countdown + attempt */}
-            {retryInfo && (
-              <>
-                <span className="text-muted-foreground/50">·</span>
-                <span className="text-amber-500">
-                  Retrying{retrySecondsLeft > 0 ? ` in ${retrySecondsLeft}s` : ''}
-                </span>
-                <span className="text-muted-foreground/50">(#{retryInfo.attempt})</span>
-              </>
-            )}
-
-            {/* Duration */}
-            <span className="text-muted-foreground/50">·</span>
-            <span className="text-muted-foreground/70">{duration}</span>
-
-            {/* Cost & tokens (when done) */}
-            {costInfo && !working && (
-              <>
-                <span className="text-muted-foreground/50">·</span>
-                <span className="text-muted-foreground/70">{formatCost(costInfo.cost)}</span>
-                <span className="text-muted-foreground/50">·</span>
-                <span className="text-muted-foreground/70">
-                  {formatTokens(costInfo.tokens.input + costInfo.tokens.output)}t
-                </span>
-              </>
-            )}
-          </button>
-        )}
       </div>
+
+      {/* Kortix logo header */}
+      {(working || hasSteps) && (
+        <div className="flex items-center gap-2 mt-3">
+          <img
+            src="/kortix-logomark-white.svg"
+            alt="Kortix"
+            className={cn('dark:invert-0 invert flex-shrink-0', working && 'animate-pulse')}
+            style={{ height: '14px', width: 'auto' }}
+          />
+          {working && turn.assistantMessages.length === 0 && (
+            <KortixLoader size="small" />
+          )}
+        </div>
+      )}
+
+      {/* Steps trigger button */}
+      {(working || hasSteps) && (
+        <button
+          onClick={onToggleSteps}
+          aria-expanded={stepsExpanded}
+          className={cn(
+            'flex items-center gap-2 text-xs transition-colors py-1.5 cursor-pointer',
+            working
+              ? 'text-muted-foreground'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          {working ? (
+            <span className="flex items-center gap-1.5">
+              <span className="relative flex size-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-muted-foreground/30" />
+                <span className="relative inline-flex rounded-full size-3 bg-muted-foreground/50" />
+              </span>
+            </span>
+          ) : (
+            <ChevronRight
+              className={cn(
+                'size-3 transition-transform flex-shrink-0',
+                stepsExpanded && 'rotate-90',
+              )}
+            />
+          )}
+
+          {/* Status text / retry info / show-hide label */}
+          <span>
+            {retryInfo
+              ? retryInfo.message.length > 60
+                ? retryInfo.message.slice(0, 60) + '...'
+                : retryInfo.message
+              : working
+                ? (throttledStatus || 'Working...')
+                : stepsExpanded
+                  ? 'Hide steps'
+                  : 'Show steps'}
+          </span>
+
+          {/* Retry countdown + attempt */}
+          {retryInfo && (
+            <>
+              <span className="text-muted-foreground/50">·</span>
+              <span className="text-amber-500">
+                Retrying{retrySecondsLeft > 0 ? ` in ${retrySecondsLeft}s` : ''}
+              </span>
+              <span className="text-muted-foreground/50">(#{retryInfo.attempt})</span>
+            </>
+          )}
+
+          {/* Duration */}
+          <span className="text-muted-foreground/50">·</span>
+          <span className="text-muted-foreground/70">{duration}</span>
+
+          {/* Cost & tokens (when done) */}
+          {costInfo && !working && (
+            <>
+              <span className="text-muted-foreground/50">·</span>
+              <span className="text-muted-foreground/70">{formatCost(costInfo.cost)}</span>
+              <span className="text-muted-foreground/50">·</span>
+              <span className="text-muted-foreground/70">
+                {formatTokens(costInfo.tokens.input + costInfo.tokens.output)}t
+              </span>
+            </>
+          )}
+        </button>
+      )}
 
       {/* Expanded steps content — indented with left border (matching OpenCode SolidJS) */}
       {(working || hasSteps) && stepsExpanded && turn.assistantMessages.length > 0 && (
@@ -900,29 +916,10 @@ function SessionTurn({
         </div>
       )}
 
-      {/* Busy indicator when no assistant messages yet */}
-      {working && turn.assistantMessages.length === 0 && (
-        <div className="flex items-center gap-3 mt-3">
-          <img
-            src="/kortix-logomark-white.svg"
-            alt="Kortix"
-            className="dark:invert-0 invert flex-shrink-0 animate-pulse"
-            style={{ height: '14px', width: 'auto' }}
-          />
-          <KortixLoader size="small" />
-        </div>
-      )}
-
       {/* Response section (final text, shown when done) */}
       {!working && response && (
         <div className="mt-3">
           <div className="flex items-center gap-2 mb-2">
-            <img
-              src="/kortix-logomark-white.svg"
-              alt="Kortix"
-              className="dark:invert-0 invert flex-shrink-0"
-              style={{ height: '12px', width: 'auto' }}
-            />
             <span className="text-xs font-medium text-muted-foreground">Response</span>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -948,14 +945,6 @@ function SessionTurn({
       {/* Streaming text when working and steps not expanded */}
       {working && !stepsExpanded && lastTextPart?.text?.trim() && (
         <div className="mt-3">
-          <div className="flex items-center gap-2 mb-2">
-            <img
-              src="/kortix-logomark-white.svg"
-              alt="Kortix"
-              className="dark:invert-0 invert flex-shrink-0 animate-pulse"
-              style={{ height: '12px', width: 'auto' }}
-            />
-          </div>
           <div className="text-sm">
             <ThrottledMarkdown content={lastTextPart.text} isStreaming={true} />
           </div>
