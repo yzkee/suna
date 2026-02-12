@@ -36,35 +36,72 @@ interface WebSearchQueryResult {
   sources: WebSearchSource[];
 }
 
-function parseWebSearchOutput(output: string): WebSearchQueryResult[] {
+function parseWebSearchOutput(output: string | any): WebSearchQueryResult[] {
   if (!output) return [];
 
-  // --- JSON ---
-  try {
-    const parsed = JSON.parse(output);
+  // Handle both string and already-parsed object (+ double-encoded)
+  let parsed: any = null;
+  if (typeof output === 'object' && output !== null) {
+    parsed = output;
+  } else if (typeof output === 'string') {
+    try {
+      let result = JSON.parse(output);
+      if (typeof result === 'string') {
+        try { result = JSON.parse(result); } catch { /* keep as-is */ }
+      }
+      parsed = typeof result === 'object' ? result : null;
+    } catch {
+      const trimmed = output.trim().replace(/^\uFEFF/, '');
+      if (trimmed !== output) {
+        try { parsed = JSON.parse(trimmed); } catch { /* not JSON */ }
+      }
+    }
+  }
 
+  if (parsed) {
     // Batch: { results: [{ query, answer, results: [...] }] }
-    if (parsed.results && Array.isArray(parsed.results)) {
-      const qrs: WebSearchQueryResult[] = [];
-      for (const r of parsed.results) {
-        if (typeof r.query !== 'string') continue;
-        const sources: WebSearchSource[] = [];
-        if (Array.isArray(r.results)) {
-          for (const s of r.results) {
-            if (s.title && s.url) {
-              sources.push({
-                title: s.title,
-                url: s.url,
-                snippet: s.snippet || s.text || undefined,
-                author: s.author || undefined,
-                publishedDate: s.publishedDate || s.published_date || undefined,
-              });
+    if (parsed.results && Array.isArray(parsed.results) && parsed.results.length > 0) {
+      const firstItem = parsed.results[0];
+      if (firstItem && typeof firstItem.query === 'string') {
+        // Batch query results
+        const qrs: WebSearchQueryResult[] = [];
+        for (const r of parsed.results) {
+          if (typeof r.query !== 'string') continue;
+          const sources: WebSearchSource[] = [];
+          if (Array.isArray(r.results)) {
+            for (const s of r.results) {
+              if (s.title && s.url) {
+                sources.push({
+                  title: s.title,
+                  url: s.url,
+                  snippet: s.snippet || s.content || s.text || undefined,
+                  author: s.author || undefined,
+                  publishedDate: s.publishedDate || s.published_date || undefined,
+                });
+              }
             }
           }
+          qrs.push({ query: r.query, answer: r.answer || undefined, sources });
         }
-        qrs.push({ query: r.query, answer: r.answer || undefined, sources });
+        if (qrs.length > 0) return qrs;
+      } else if (firstItem && (firstItem.title || firstItem.url)) {
+        // Direct results array: { results: [{title, url, content}, ...] }
+        const sources: WebSearchSource[] = [];
+        for (const s of parsed.results) {
+          if (s.title && s.url) {
+            sources.push({
+              title: s.title,
+              url: s.url,
+              snippet: s.snippet || s.content || s.text || undefined,
+              author: s.author || undefined,
+              publishedDate: s.publishedDate || s.published_date || undefined,
+            });
+          }
+        }
+        if (sources.length > 0) {
+          return [{ query: parsed.query || '', answer: parsed.answer || undefined, sources }];
+        }
       }
-      if (qrs.length > 0) return qrs;
     }
 
     // Single: { query, answer, results: [...] }
@@ -73,36 +110,57 @@ function parseWebSearchOutput(output: string): WebSearchQueryResult[] {
       if (Array.isArray(parsed.results)) {
         for (const s of parsed.results) {
           if (s.title && s.url) {
-            sources.push({ title: s.title, url: s.url, snippet: s.snippet || s.text || undefined });
+            sources.push({
+              title: s.title,
+              url: s.url,
+              snippet: s.snippet || s.content || s.text || undefined,
+            });
           }
         }
       }
       return [{ query: parsed.query, answer: parsed.answer || undefined, sources }];
     }
-  } catch {
-    // Not JSON
+
+    // Flat array: [{title, url, content}, ...]
+    if (Array.isArray(parsed) && parsed.length > 0 && parsed[0] && (parsed[0].title || parsed[0].url)) {
+      const sources: WebSearchSource[] = [];
+      for (const s of parsed) {
+        if (s.title && s.url) {
+          sources.push({
+            title: s.title,
+            url: s.url,
+            snippet: s.snippet || s.content || s.text || undefined,
+            author: s.author || undefined,
+            publishedDate: s.publishedDate || s.published_date || undefined,
+          });
+        }
+      }
+      if (sources.length > 0) return [{ query: '', sources }];
+    }
   }
 
   // --- Plain text ---
-  const blocks = output.split(/(?=^Title: )/m).filter(Boolean);
-  const sources: WebSearchSource[] = [];
-  for (const block of blocks) {
-    const titleMatch = block.match(/^Title:\s*(.+)/m);
-    const urlMatch = block.match(/^URL:\s*(.+)/m);
-    const authorMatch = block.match(/^Author:\s*(.+)/m);
-    const dateMatch = block.match(/^Published Date:\s*(.+)/m);
-    const textMatch = block.match(/^Text:\s*([\s\S]*?)$/m);
-    if (titleMatch && urlMatch) {
-      sources.push({
-        title: titleMatch[1].trim(),
-        url: urlMatch[1].trim(),
-        author: authorMatch?.[1]?.trim() || undefined,
-        publishedDate: dateMatch?.[1]?.trim() || undefined,
-        snippet: textMatch?.[1]?.trim() || undefined,
-      });
+  if (typeof output === 'string') {
+    const blocks = output.split(/(?=^Title: )/m).filter(Boolean);
+    const sources: WebSearchSource[] = [];
+    for (const block of blocks) {
+      const titleMatch = block.match(/^Title:\s*(.+)/m);
+      const urlMatch = block.match(/^URL:\s*(.+)/m);
+      const authorMatch = block.match(/^Author:\s*(.+)/m);
+      const dateMatch = block.match(/^Published Date:\s*(.+)/m);
+      const textMatch = block.match(/^Text:\s*([\s\S]*?)$/m);
+      if (titleMatch && urlMatch) {
+        sources.push({
+          title: titleMatch[1].trim(),
+          url: urlMatch[1].trim(),
+          author: authorMatch?.[1]?.trim() || undefined,
+          publishedDate: dateMatch?.[1]?.trim() || undefined,
+          snippet: textMatch?.[1]?.trim() || undefined,
+        });
+      }
     }
+    if (sources.length > 0) return [{ query: '', sources }];
   }
-  if (sources.length > 0) return [{ query: '', sources }];
   return [];
 }
 
@@ -130,10 +188,11 @@ export function OcWebSearchToolView({
   const ocState = args._oc_state as any;
   const query = (args.query as string) || (ocState?.input?.query as string) || '';
   const rawOutput = toolResult?.output || ocState?.output || '';
-  const output = typeof rawOutput === 'string' ? rawOutput : String(rawOutput);
+  const output = typeof rawOutput === 'string' ? rawOutput : (typeof rawOutput === 'object' ? JSON.stringify(rawOutput, null, 2) : String(rawOutput));
 
   const isError = toolResult?.success === false || !!toolResult?.error;
-  const queryResults = useMemo(() => parseWebSearchOutput(output), [output]);
+  // Pass raw value to parser so it handles objects directly
+  const queryResults = useMemo(() => parseWebSearchOutput(rawOutput), [rawOutput]);
   const totalSources = useMemo(() => queryResults.reduce((n, q) => n + q.sources.length, 0), [queryResults]);
 
   const [expandedQuery, setExpandedQuery] = useState<number | null>(
