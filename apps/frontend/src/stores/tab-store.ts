@@ -257,71 +257,31 @@ export const useTabStore = create<TabState>()(
       swapForServer: (newServerId: string, currentServerId?: string) => {
         const { tabs, tabOrder, activeTabId } = get();
 
-        // Identify which tabs are server-scoped (session/file) vs global (dashboard/settings/page/project)
-        const isServerScoped = (t: Tab) => t.type === 'session' || t.type === 'file';
-
-        // Save server-scoped tabs for the OLD server into localStorage
-        const serverTabs: Tab[] = [];
-        const serverTabOrder: string[] = [];
-        const globalTabs: Record<string, Tab> = {};
-        const globalTabOrder: string[] = [];
-
-        for (const id of tabOrder) {
-          const tab = tabs[id];
-          if (!tab) continue;
-          if (isServerScoped(tab)) {
-            serverTabs.push(tab);
-            serverTabOrder.push(id);
-          } else {
-            globalTabs[id] = tab;
-            globalTabOrder.push(id);
-          }
-        }
-
-        // Determine which server we're saving FROM
-        // Use explicit currentServerId, fall back to serverId on any tab, then skip save
-        const oldServerId = currentServerId || serverTabs[0]?.serverId;
-        if (oldServerId) {
+        // Save the entire current tab state for the old server
+        if (currentServerId) {
           try {
             const cache = JSON.parse(localStorage.getItem('kortix-tabs-per-server') || '{}');
-            cache[oldServerId] = { tabs: serverTabs, tabOrder: serverTabOrder, activeTabId };
+            cache[currentServerId] = { tabs, tabOrder, activeTabId };
             localStorage.setItem('kortix-tabs-per-server', JSON.stringify(cache));
           } catch {}
         }
 
-        // Restore server-scoped tabs for the NEW server from localStorage
-        let restoredTabs: Record<string, Tab> = {};
-        let restoredTabOrder: string[] = [];
-        let restoredActiveTabId: string | null = null;
+        // Restore the full tab state for the new server
         try {
           const cache = JSON.parse(localStorage.getItem('kortix-tabs-per-server') || '{}');
           const saved = cache[newServerId];
           if (saved?.tabs && saved?.tabOrder) {
-            for (const tab of saved.tabs as Tab[]) {
-              restoredTabs[tab.id] = tab;
-            }
-            restoredTabOrder = saved.tabOrder;
-            restoredActiveTabId = saved.activeTabId || null;
+            set({
+              tabs: saved.tabs,
+              tabOrder: saved.tabOrder,
+              activeTabId: saved.activeTabId || null,
+            });
+            return;
           }
         } catch {}
 
-        // Merge: global tabs + restored server tabs
-        const mergedTabs = { ...globalTabs, ...restoredTabs };
-        const mergedTabOrder = [...globalTabOrder, ...restoredTabOrder];
-
-        // Pick the best active tab: restored active > first restored > current global > null
-        const nextActive =
-          (restoredActiveTabId && mergedTabs[restoredActiveTabId] ? restoredActiveTabId : null) ||
-          restoredTabOrder[0] ||
-          (activeTabId && globalTabs[activeTabId] ? activeTabId : null) ||
-          mergedTabOrder[0] ||
-          null;
-
-        set({
-          tabs: mergedTabs,
-          tabOrder: mergedTabOrder,
-          activeTabId: nextActive,
-        });
+        // No saved state for new server — clear tabs, route-sync will add Dashboard
+        set({ tabs: {}, tabOrder: [], activeTabId: null });
       },
     }),
     {
