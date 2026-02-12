@@ -116,51 +116,28 @@ export function extractWebSearchData(
     }> | undefined = undefined;
 
     if (output && typeof output === 'object' && output !== null) {
-      // Handle image_search batch_results format (batch_results array without batch_mode flag)
-      if (output.batch_results && Array.isArray(output.batch_results) && !output.batch_mode) {
+      // Handle batch mode: both web-search and image-search use { batch_mode: true, results: [...] }
+      // image-search results have { query, total, images } per item
+      // web-search results have { query, success, results, answer, images } per item
+      // Also handle legacy batch_results format (batch_results array without batch_mode flag)
+      const batchArray = output.batch_mode === true && Array.isArray(output.results)
+        ? output.results
+        : (output.batch_results && Array.isArray(output.batch_results) && !output.batch_mode)
+          ? output.batch_results
+          : null;
+
+      if (batchArray) {
         isBatch = true;
-        batchResults = output.batch_results.map((batchItem: any) => ({
+        batchResults = batchArray.map((batchItem: any) => ({
           query: batchItem.query || '',
           success: batchItem.success !== false,
-          results: [], // image_search doesn't have text results
-          answer: '',
-          images: Array.isArray(batchItem.images) 
-            ? batchItem.images.map(normalizeImage).filter((img): img is EnrichedImage => img !== null)
-            : []
-        }));
-
-        // Flatten all images for combined display
-        const allImages = batchResults.flatMap(br => br.images);
-        const allQueries = batchResults.map(br => br.query).filter(Boolean);
-        const combinedQuery = allQueries.length > 1 
-          ? `${allQueries.length} queries: ${allQueries.join(', ')}` 
-          : allQueries[0] || query;
-        const allSuccessful = batchResults.every(br => br.success);
-
-        return {
-          query: combinedQuery || query,
-          searchResults: [],
-          answer: null,
-          images: allImages,
-          actualIsSuccess: allSuccessful,
-          actualToolTimestamp,
-          actualAssistantTimestamp: assistantTimestamp,
-          isBatch: true,
-          batchResults
-        };
-      }
-
-      // Handle web_search batch mode (batch_mode flag with results array)
-      if (output.batch_mode === true && Array.isArray(output.results)) {
-        isBatch = true;
-        batchResults = output.results.map((batchItem: any) => ({
-          query: batchItem.query || '',
-          success: batchItem.success !== false,
-          results: (batchItem.results || []).map((result: any) => ({
-            title: result.title || '',
-            url: result.url || '',
-            snippet: result.content || result.snippet || ''
-          })),
+          results: Array.isArray(batchItem.results)
+            ? batchItem.results.map((result: any) => ({
+                title: result.title || '',
+                url: result.url || '',
+                snippet: result.content || result.snippet || ''
+              }))
+            : [],
           answer: batchItem.answer || '',
           images: Array.isArray(batchItem.images) 
             ? batchItem.images.map(normalizeImage).filter((img): img is EnrichedImage => img !== null)
