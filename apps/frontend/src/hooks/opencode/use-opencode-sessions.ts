@@ -476,6 +476,95 @@ export function useSummarizeOpenCodeSession() {
 }
 
 // ============================================================================
+// Fork / Revert / Unrevert Hooks
+// ============================================================================
+
+/**
+ * Fork a session at a specific message point.
+ * Creates a new session that branches off from the given message.
+ * Returns the newly created Session.
+ */
+export function useForkSession() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      sessionId,
+      messageId,
+    }: {
+      sessionId: string;
+      messageId?: string;
+    }) => {
+      const client = getClient();
+      const result = await client.session.fork({
+        sessionID: sessionId,
+        ...(messageId && { messageID: messageId }),
+      });
+      return unwrap(result) as Session;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: opencodeKeys.sessions() });
+    },
+  });
+}
+
+/**
+ * Revert a session to a specific message, undoing all subsequent changes.
+ * The session enters a "reverted" state (session.revert is populated).
+ */
+export function useRevertSession() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      sessionId,
+      messageId,
+      partId,
+    }: {
+      sessionId: string;
+      messageId: string;
+      partId?: string;
+    }) => {
+      const client = getClient();
+      const result = await client.session.revert({
+        sessionID: sessionId,
+        messageID: messageId,
+        ...(partId && { partID: partId }),
+      });
+      return unwrap(result) as Session;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: opencodeKeys.sessions() });
+      queryClient.invalidateQueries({ queryKey: opencodeKeys.session(variables.sessionId) });
+      queryClient.invalidateQueries({ queryKey: opencodeKeys.messages(variables.sessionId) });
+    },
+  });
+}
+
+/**
+ * Unrevert a session — restores all previously reverted messages.
+ * Clears the session.revert field.
+ */
+export function useUnrevertSession() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const client = getClient();
+      const result = await client.session.unrevert({
+        sessionID: sessionId,
+      });
+      return unwrap(result) as Session;
+    },
+    onSuccess: (_data, sessionId) => {
+      queryClient.invalidateQueries({ queryKey: opencodeKeys.sessions() });
+      queryClient.invalidateQueries({ queryKey: opencodeKeys.session(sessionId) });
+      queryClient.invalidateQueries({ queryKey: opencodeKeys.messages(sessionId) });
+    },
+  });
+}
+
+// ============================================================================
 // Provider Hooks
 // ============================================================================
 

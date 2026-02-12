@@ -15,6 +15,7 @@ import {
   Image as ImageIcon,
   ArrowUpLeft,
   Info,
+  GitFork,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -106,10 +107,19 @@ import { MessageActions, RevertBanner } from '@/components/session/message-actio
 import { useTabStore } from '@/stores/tab-store';
 
 // ============================================================================
-// Sub-Session Breadcrumb
+// Sub-Session / Fork Breadcrumb
 // ============================================================================
 
-function SubSessionBar({ sessionId, parentID }: { sessionId: string; parentID: string }) {
+function SubSessionBar({
+  sessionId,
+  parentID,
+  variant = 'thread',
+}: {
+  sessionId: string;
+  parentID: string;
+  /** 'thread' for task sub-sessions, 'fork' for forked sessions */
+  variant?: 'thread' | 'fork';
+}) {
   const { data: parentSession } = useOpenCodeSession(parentID);
   const router = useRouter();
 
@@ -120,11 +130,19 @@ function SubSessionBar({ sessionId, parentID }: { sessionId: string; parentID: s
   }, [parentSession, router]);
 
   const parentTitle = parentSession?.title || 'Parent session';
+  const isFork = variant === 'fork';
 
   return (
     <div className="flex-shrink-0">
       {/* Thin accent stripe */}
-      <div className="h-[2px] bg-gradient-to-r from-indigo-500/80 via-violet-500/80 to-purple-500/60" />
+      <div
+        className={cn(
+          'h-[2px] bg-gradient-to-r',
+          isFork
+            ? 'from-emerald-500/80 via-teal-500/80 to-cyan-500/60'
+            : 'from-indigo-500/80 via-violet-500/80 to-purple-500/60',
+        )}
+      />
       {/* Bar */}
       <div className="flex items-center h-10 px-3 gap-2 border-b border-border/50 bg-background">
         <button
@@ -142,9 +160,25 @@ function SubSessionBar({ sessionId, parentID }: { sessionId: string; parentID: s
 
         <div className="flex-1" />
 
-        <div className="flex items-center gap-1.5 h-6 px-2 rounded-md bg-muted/50">
-          <span className="h-1.5 w-1.5 rounded-full bg-violet-500 flex-shrink-0" />
-          <span className="text-[11px] font-medium text-muted-foreground">Thread</span>
+        <div
+          className={cn(
+            'flex items-center gap-1.5 h-6 px-2 rounded-md',
+            isFork ? 'bg-emerald-500/10' : 'bg-muted/50',
+          )}
+        >
+          {isFork ? (
+            <GitFork className="size-3 text-emerald-500 flex-shrink-0" />
+          ) : (
+            <span className="h-1.5 w-1.5 rounded-full bg-violet-500 flex-shrink-0" />
+          )}
+          <span
+            className={cn(
+              'text-[11px] font-medium',
+              isFork ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground',
+            )}
+          >
+            {isFork ? 'Fork' : 'Thread'}
+          </span>
         </div>
       </div>
     </div>
@@ -1290,6 +1324,8 @@ export function SessionChat({ sessionId }: SessionChatProps) {
         href: `/sessions/${forkedSession.id}`,
         parentSessionId: sessionId,
       });
+      // Store fork origin so the forked session can show "Forked from" banner
+      sessionStorage.setItem(`fork_origin_${forkedSession.id}`, sessionId);
       router.push(`/sessions/${forkedSession.id}`);
     },
     [sessionId, forkSession, router],
@@ -1381,6 +1417,17 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     }
   }, []);
 
+  // Detect if this session was forked (vs a task sub-session)
+  // Must be above early returns to preserve hook order.
+  const isSubSession = !!session?.parentID;
+  const isFork = useMemo(() => {
+    if (!isSubSession) return false;
+    if (typeof window !== 'undefined') {
+      return !!sessionStorage.getItem(`fork_origin_${sessionId}`);
+    }
+    return false;
+  }, [isSubSession, sessionId]);
+
   // ============================================================================
   // Loading / Not-found states
   // ============================================================================
@@ -1404,17 +1451,15 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   const hasMessages = messages && messages.length > 0;
   const showOptimistic = !!optimisticPrompt && !hasMessages;
 
-  // ============================================================================
-  // Render
-  // ============================================================================
-
-  const isSubSession = !!session?.parentID;
-
   return (
     <div className="relative flex flex-col h-full bg-background">
-      {/* Sub-session top bar */}
+      {/* Sub-session / fork top bar */}
       {isSubSession && (
-        <SubSessionBar sessionId={sessionId} parentID={session.parentID} />
+        <SubSessionBar
+          sessionId={sessionId}
+          parentID={session.parentID}
+          variant={isFork ? 'fork' : 'thread'}
+        />
       )}
 
       {/* Revert banner — shown when session is in reverted state */}

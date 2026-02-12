@@ -23,6 +23,7 @@ import {
   useOpenCodeSkills,
   useOpenCodeAgents,
   useCreateOpenCodeSession,
+  useSendOpenCodeMessage,
   useOpenCodeProviders,
   useOpenCodeCommands,
 } from '@/hooks/opencode/use-opencode-sessions';
@@ -291,6 +292,7 @@ export function ProjectPage({ projectId }: { projectId: string }) {
   const { data: providers } = useOpenCodeProviders();
   const { data: commands } = useOpenCodeCommands();
   const createSession = useCreateOpenCodeSession();
+  const sendMessage = useSendOpenCodeMessage();
 
   // Find the current project
   const project = useMemo(
@@ -342,19 +344,30 @@ export function ProjectPage({ projectId }: { projectId: string }) {
       if (!text.trim() || isSubmitting || !project) return;
       setIsSubmitting(true);
       try {
-        sessionStorage.setItem('opencode_pending_prompt', text);
-
         const options: Record<string, unknown> = {};
         if (selectedAgent) options.agent = selectedAgent;
         if (selectedModel) options.model = selectedModel;
         if (selectedVariant) options.variant = selectedVariant;
+
+        // Step 1: Create the session
+        const session = await createSession.mutateAsync({
+          directory: project.worktree,
+        });
+
+        // Store prompt/options for optimistic display on the session page
+        sessionStorage.setItem('opencode_pending_prompt', text);
         if (Object.keys(options).length > 0) {
           sessionStorage.setItem('opencode_pending_options', JSON.stringify(options));
         }
 
-        const session = await createSession.mutateAsync({
-          directory: project.worktree,
-        });
+        // Step 2: Send the prompt directly (don't rely on session page)
+        sendMessage.mutateAsync({
+          sessionId: session.id,
+          parts: [{ type: 'text', text }],
+          options: Object.keys(options).length > 0 ? options as any : undefined,
+        }).catch(() => {});
+
+        // Step 3: Navigate
         router.push(`/sessions/${session.id}?new=true`);
       } catch {
         sessionStorage.removeItem('opencode_pending_prompt');
@@ -363,7 +376,7 @@ export function ProjectPage({ projectId }: { projectId: string }) {
         toast.warning('Failed to create session');
       }
     },
-    [isSubmitting, createSession, router, project, selectedAgent, selectedModel, selectedVariant],
+    [isSubmitting, createSession, sendMessage, router, project, selectedAgent, selectedModel, selectedVariant],
   );
 
   const handleCommand = useCallback(() => {}, []);

@@ -271,7 +271,11 @@ export function useOpenCodeEventStream() {
     function updateMessageInCache(info: Message) {
       const key = opencodeKeys.messages(info.sessionID);
       queryClient.setQueryData<MessageWithParts[]>(key, (old) => {
-        if (!old) return old;
+        if (!old) {
+          // Initialize cache with this message so SSE events arriving before
+          // the React Query fetch completes are not silently dropped.
+          return [{ info: info as any, parts: [] }];
+        }
         const idx = old.findIndex((m) => m.info.id === info.id);
         if (idx >= 0) {
           // Update existing message info, keep parts
@@ -302,9 +306,26 @@ export function useOpenCodeEventStream() {
 
       const key = opencodeKeys.messages(sessionID);
       queryClient.setQueryData<MessageWithParts[]>(key, (old) => {
-        if (!old) return old;
+        if (!old) {
+          // Cache not yet initialized — create a stub message entry so the part
+          // is preserved. The full message info will be patched by a later
+          // message.updated event or the React Query fetch.
+          return [{
+            info: { id: part.messageID, sessionID, role: 'assistant' } as any,
+            parts: [part as any],
+          }];
+        }
         const msgIdx = old.findIndex((m) => m.info.id === part.messageID);
-        if (msgIdx < 0) return old;
+        if (msgIdx < 0) {
+          // Message not yet in cache — create a stub entry for it
+          const newMsg: MessageWithParts = {
+            info: { id: part.messageID, sessionID, role: 'assistant' } as any,
+            parts: [part as any],
+          };
+          const next = [...old, newMsg];
+          next.sort((a, b) => a.info.id.localeCompare(b.info.id));
+          return next;
+        }
 
         const updated = [...old];
         const msg = { ...updated[msgIdx] };
