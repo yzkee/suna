@@ -227,18 +227,40 @@ function extractImageSearchUrls(toolResult: UnifiedMessage | undefined): string[
     const output = metadata?.result?.output || metadata?.result || metadata?.output;
     
     if (output) {
+      // Handle batch mode: { batch_mode: true, results: [{ query, images: [...] }] }
+      if (output.batch_mode && Array.isArray(output.results)) {
+        const allImages: string[] = [];
+        for (const batch of output.results) {
+          if (batch.images && Array.isArray(batch.images)) {
+            for (const img of batch.images) {
+              const url = typeof img === 'string' ? img : (img?.url || img?.imageUrl || '');
+              if (url) allImages.push(url);
+            }
+          }
+        }
+        return allImages;
+      }
+
+      // Handle legacy batch_results format
       if (output.batch_results && Array.isArray(output.batch_results)) {
         const allImages: string[] = [];
         for (const batch of output.batch_results) {
           if (batch.images && Array.isArray(batch.images)) {
-            allImages.push(...batch.images);
+            for (const img of batch.images) {
+              const url = typeof img === 'string' ? img : (img?.url || img?.imageUrl || '');
+              if (url) allImages.push(url);
+            }
           }
         }
         return allImages;
       }
       
+      // Handle single result: { images: [...] }
       if (Array.isArray(output.images)) {
-        return output.images;
+        return output.images.map((img: any) => {
+          if (typeof img === 'string') return img;
+          return img?.url || img?.imageUrl || '';
+        }).filter(Boolean);
       }
     }
     
@@ -248,7 +270,10 @@ function extractImageSearchUrls(toolResult: UnifiedMessage | undefined): string[
       : rawContent;
       
     if (content?.images && Array.isArray(content.images)) {
-      return content.images;
+      return content.images.map((img: any) => {
+        if (typeof img === 'string') return img;
+        return img?.url || img?.imageUrl || '';
+      }).filter(Boolean);
     }
   } catch (e) {
     console.error('extractImageSearchUrls error:', e);
