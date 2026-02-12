@@ -16,6 +16,7 @@ import {
   ArrowUpLeft,
   Info,
   GitFork,
+  Layers,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -70,6 +71,7 @@ import {
   isReasoningPart,
   isFilePart,
   isAgentPart,
+  isCompactionPart,
   isAttachment,
   splitUserParts,
   groupMessagesIntoTurns,
@@ -160,41 +162,59 @@ function SubSessionBar({
 
         <div className="flex-1" />
 
-        <div
-          className={cn(
-            'flex items-center gap-1.5 h-6 px-2 rounded-md',
-            isFork ? 'bg-emerald-500/10' : 'bg-muted/50',
-          )}
-        >
-          {isFork ? (
-            <GitFork className="size-3 text-emerald-500 flex-shrink-0" />
-          ) : (
-            <span className="h-1.5 w-1.5 rounded-full bg-violet-500 flex-shrink-0" />
-          )}
-          <span
-            className={cn(
-              'text-[11px] font-medium',
-              isFork ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground',
-            )}
-          >
-            {isFork ? 'Fork' : 'Thread'}
-          </span>
-        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div
+              className={cn(
+                'flex items-center gap-1.5 h-6 px-2 rounded-md',
+                isFork ? 'bg-emerald-500/10' : 'bg-muted/50',
+              )}
+            >
+              {isFork ? (
+                <GitFork className="size-3 text-emerald-500 flex-shrink-0" />
+              ) : (
+                <span className="h-1.5 w-1.5 rounded-full bg-violet-500 flex-shrink-0" />
+              )}
+              <span
+                className={cn(
+                  'text-[11px] font-medium',
+                  isFork ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground',
+                )}
+              >
+                {isFork ? 'Fork' : 'Thread'}
+              </span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs">
+            {isFork ? `Forked from: ${parentTitle}` : `Sub-session of: ${parentTitle}`}
+          </TooltipContent>
+        </Tooltip>
       </div>
     </div>
   );
 }
 
 // Sub-session indicator shown above the chat input
-function SubSessionInputBanner({ parentID }: { parentID: string }) {
+function SubSessionInputBanner({ parentID, variant = 'thread' }: { parentID: string; variant?: 'thread' | 'fork' }) {
   const { data: parentSession } = useOpenCodeSession(parentID);
   const router = useRouter();
+  const isForkVariant = variant === 'fork';
 
   return (
-    <div className="flex items-center gap-2 px-4 py-1.5 border-t border-border/40 bg-muted/20">
-      <span className="h-1.5 w-1.5 rounded-full bg-violet-500/70 flex-shrink-0" />
-      <span className="text-[11px] text-muted-foreground truncate">
-        Replying in thread
+    <div className={cn(
+      'flex items-center gap-2 px-4 py-1.5 border-t border-border/40',
+      isForkVariant ? 'bg-emerald-500/5' : 'bg-muted/20',
+    )}>
+      {isForkVariant ? (
+        <GitFork className="size-3 text-emerald-500/70 flex-shrink-0" />
+      ) : (
+        <span className="h-1.5 w-1.5 rounded-full bg-violet-500/70 flex-shrink-0" />
+      )}
+      <span className={cn(
+        'text-[11px] truncate',
+        isForkVariant ? 'text-emerald-600 dark:text-emerald-400/70' : 'text-muted-foreground',
+      )}>
+        {isForkVariant ? 'Continuing in fork' : 'Replying in thread'}
       </span>
       <button
         onClick={() => parentSession && router.push(`/sessions/${parentSession.id}`)}
@@ -203,6 +223,42 @@ function SubSessionInputBanner({ parentID }: { parentID: string }) {
         <ArrowUpLeft className="size-3" />
         <span className="truncate max-w-[150px]">{parentSession?.title || 'Back'}</span>
       </button>
+    </div>
+  );
+}
+
+// ============================================================================
+// Fork Context Divider — shown at the top of the message list in forked sessions
+// ============================================================================
+
+function ForkContextDivider({ parentID }: { parentID: string }) {
+  const { data: parentSession } = useOpenCodeSession(parentID);
+  const router = useRouter();
+  const parentTitle = parentSession?.title || 'Parent session';
+
+  return (
+    <div className="flex items-center gap-3 py-2 mb-2">
+      <div className="flex-1 h-px bg-emerald-500/20" />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() => parentSession && router.push(`/sessions/${parentSession.id}`)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/15 transition-colors cursor-pointer group"
+          >
+            <GitFork className="size-3 text-emerald-500/70" />
+            <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400/80 uppercase tracking-wider">
+              Forked from
+            </span>
+            <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 max-w-[150px] truncate">
+              {parentTitle}
+            </span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="text-xs">
+          Go to parent session: {parentTitle}
+        </TooltipContent>
+      </Tooltip>
+      <div className="flex-1 h-px bg-emerald-500/20" />
     </div>
   );
 }
@@ -659,6 +715,12 @@ function SessionTurn({
     return allParts.filter(({ part }) => isToolPart(part) && (part as ToolPart).tool === 'task');
   }, [allParts]);
 
+  // Last assistant message ID — used for "fork from response" action
+  const lastAssistantMessageId = useMemo(() => {
+    const msgs = turn.assistantMessages;
+    return msgs.length > 0 ? msgs[msgs.length - 1].info.id : undefined;
+  }, [turn.assistantMessages]);
+
   // ---- Status throttling (2.5s) ----
   const lastStatusChangeRef = useRef(Date.now());
   const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -892,6 +954,20 @@ function SessionTurn({
               );
             }
 
+            // Compaction indicator
+            if (isCompactionPart(part)) {
+              return (
+                <div key={part.id} className="flex items-center gap-2 py-1.5 -mx-1">
+                  <div className="flex-1 h-px bg-border/60" />
+                  <span className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider flex items-center gap-1.5 px-1">
+                    <Layers className="size-3" />
+                    {(part as any).auto ? 'Auto-compacted' : 'Context compacted'}
+                  </span>
+                  <div className="flex-1 h-px bg-border/60" />
+                </div>
+              );
+            }
+
             // Tool parts
             if (isToolPart(part)) {
               if (!shouldShowToolPart(part)) return null;
@@ -1000,17 +1076,32 @@ function SessionTurn({
           )}
           <div className="flex items-center gap-2 mb-2">
             <span className="text-xs font-medium text-muted-foreground">Response</span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={handleCopy}
-                  className="ml-auto p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
-                >
-                  {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{copied ? 'Copied!' : 'Copy'}</TooltipContent>
-            </Tooltip>
+            <div className="ml-auto flex items-center gap-0.5">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={handleCopy}
+                    className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                  >
+                    {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{copied ? 'Copied!' : 'Copy'}</TooltipContent>
+              </Tooltip>
+              {!isBusy && !isReverted && lastAssistantMessageId && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => onFork(lastAssistantMessageId)}
+                      className="p-1 rounded-md text-muted-foreground/60 hover:text-emerald-500 hover:bg-emerald-500/10 transition-colors cursor-pointer"
+                    >
+                      <GitFork className="size-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Fork from this response</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
           </div>
           <div className="text-sm">
             <UnifiedMarkdown content={response} isStreaming={false} />
@@ -1324,8 +1415,9 @@ export function SessionChat({ sessionId }: SessionChatProps) {
         href: `/sessions/${forkedSession.id}`,
         parentSessionId: sessionId,
       });
-      // Store fork origin so the forked session can show "Forked from" banner
-      sessionStorage.setItem(`fork_origin_${forkedSession.id}`, sessionId);
+      // Store fork origin in localStorage (survives refresh) so the forked
+      // session can show the "Forked from" indicator.
+      localStorage.setItem(`fork_origin_${forkedSession.id}`, sessionId);
       router.push(`/sessions/${forkedSession.id}`);
     },
     [sessionId, forkSession, router],
@@ -1417,13 +1509,15 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     }
   }, []);
 
-  // Detect if this session was forked (vs a task sub-session)
+  // Detect if this session was forked (vs a task sub-session).
   // Must be above early returns to preserve hook order.
+  // The fork origin is stored in localStorage by handleFork so it survives
+  // page refreshes and new tabs.
   const isSubSession = !!session?.parentID;
   const isFork = useMemo(() => {
     if (!isSubSession) return false;
     if (typeof window !== 'undefined') {
-      return !!sessionStorage.getItem(`fork_origin_${sessionId}`);
+      return !!localStorage.getItem(`fork_origin_${sessionId}`);
     }
     return false;
   }, [isSubSession, sessionId]);
@@ -1503,6 +1597,11 @@ export function SessionChat({ sessionId }: SessionChatProps) {
               className="mx-auto max-w-3xl min-w-0 w-full px-3 sm:px-6"
             >
               <div className="flex flex-col gap-12 min-w-0">
+                {/* Fork context divider — shown at the top of forked sessions */}
+                {isFork && session?.parentID && (
+                  <ForkContextDivider parentID={session.parentID} />
+                )}
+
                 {/* Optimistic user message */}
                 {showOptimistic && (
                   <>
@@ -1526,28 +1625,52 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                 )}
 
                 {/* Turn-based message rendering */}
-                {turns.map((turn, turnIndex) => (
-                  <SessionTurn
-                    key={turn.userMessage.info.id}
-                    turn={turn}
-                    allMessages={messages!}
-                    sessionId={sessionId}
-                    sessionStatus={sessionStatus}
-                    permissions={pendingPermissions}
-                    questions={pendingQuestions}
-                    stepsExpanded={!!expanded[turn.userMessage.info.id]}
-                    onToggleSteps={() => toggleExpanded(turn.userMessage.info.id)}
-                    onPermissionReply={handlePermissionReply}
-                    onQuestionReply={handleQuestionReply}
-                    onQuestionReject={handleQuestionReject}
-                    agentNames={agentNames}
-                    isFirstTurn={turnIndex === 0}
-                    isBusy={isBusy}
-                    isReverted={isReverted}
-                    onFork={handleFork}
-                    onRevert={handleRevert}
-                  />
-                ))}
+                {turns.map((turn, turnIndex) => {
+                  // Check if this turn has a compaction part
+                  const hasCompaction = turn.assistantMessages.some(
+                    (msg) => msg.parts.some((p) => p.type === 'compaction')
+                  );
+                  const compactionPart = hasCompaction
+                    ? turn.assistantMessages.flatMap((m) => m.parts).find((p) => p.type === 'compaction')
+                    : null;
+
+                  return (
+                    <div key={turn.userMessage.info.id}>
+                      {/* Compaction divider — shown before the first turn after compaction */}
+                      {hasCompaction && (
+                        <div className="flex items-center gap-3 py-2 my-2">
+                          <div className="flex-1 h-px bg-border/50" />
+                          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-muted/50 border border-border/40">
+                            <Layers className="size-3 text-muted-foreground/60" />
+                            <span className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider">
+                              {(compactionPart as any)?.auto ? 'Auto-compacted' : 'Context compacted'}
+                            </span>
+                          </div>
+                          <div className="flex-1 h-px bg-border/50" />
+                        </div>
+                      )}
+                      <SessionTurn
+                        turn={turn}
+                        allMessages={messages!}
+                        sessionId={sessionId}
+                        sessionStatus={sessionStatus}
+                        permissions={pendingPermissions}
+                        questions={pendingQuestions}
+                        stepsExpanded={!!expanded[turn.userMessage.info.id]}
+                        onToggleSteps={() => toggleExpanded(turn.userMessage.info.id)}
+                        onPermissionReply={handlePermissionReply}
+                        onQuestionReply={handleQuestionReply}
+                        onQuestionReject={handleQuestionReject}
+                        agentNames={agentNames}
+                        isFirstTurn={turnIndex === 0}
+                        isBusy={isBusy}
+                        isReverted={isReverted}
+                        onFork={handleFork}
+                        onRevert={handleRevert}
+                      />
+                    </div>
+                  );
+                })}
 
                 {/* Busy indicator when no turns yet but session is busy */}
                 {!showOptimistic && isBusy && turns.length === 0 && (
@@ -1590,7 +1713,7 @@ export function SessionChat({ sessionId }: SessionChatProps) {
       )}
 
       {/* Sub-session indicator above input */}
-      {session?.parentID && <SubSessionInputBanner parentID={session.parentID} />}
+      {session?.parentID && <SubSessionInputBanner parentID={session.parentID} variant={isFork ? 'fork' : 'thread'} />}
 
       {/* Input */}
       <SessionChatInput

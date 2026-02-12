@@ -7,6 +7,7 @@ import { useOpenCodePendingStore } from '@/stores/opencode-pending-store';
 import { useServerStore } from '@/stores/server-store';
 import { getClient, resetClient } from '@/lib/opencode-sdk';
 import { opencodeKeys } from './use-opencode-sessions';
+import { ptyKeys } from './use-opencode-pty';
 import type { Event as OpenCodeEvent, Message, Part } from '@kortix/opencode-sdk/v2/client';
 import type { MessageWithParts } from './use-opencode-sessions';
 
@@ -258,6 +259,15 @@ export function useOpenCodeEventStream() {
         // ---- LSP updated ----
         case 'lsp.updated': {
           queryClient.invalidateQueries({ queryKey: ['opencode', 'lsp'] });
+          break;
+        }
+
+        // ---- PTY events ----
+        case 'pty.created':
+        case 'pty.updated':
+        case 'pty.exited':
+        case 'pty.deleted': {
+          queryClient.invalidateQueries({ queryKey: ptyKeys.list() });
           break;
         }
 

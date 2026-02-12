@@ -32,6 +32,7 @@ import { LoadingState } from './components/LoadingState';
 import { AppDock } from './components/Dock';
 import { SandboxDesktop } from './components/Desktop';
 import { SSHTerminal } from './components/SSHTerminal';
+import { PtyTerminalPanel } from '@/components/session/pty-terminal-panel';
 import { getToolNumber } from '@/hooks/messages/tool-tracking';
 
 export interface ToolCallInput {
@@ -674,29 +675,13 @@ export const KortixComputer = memo(function KortixComputer({
   };
 
   const renderTerminalView = () => {
-    if (!effectiveSandboxId) {
-      return (
-        <div className="h-full flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-auto flex flex-col items-center justify-center p-8 bg-zinc-50 dark:bg-zinc-900/50">
-            <div className="flex flex-col items-center space-y-4 max-w-sm text-center">
-              <div className="w-16 h-16 bg-zinc-100 dark:bg-zinc-800 rounded-full flex items-center justify-center border-2 border-zinc-200 dark:border-zinc-700">
-                <CircleDashed className="h-8 w-8 text-zinc-400 dark:text-zinc-500" />
-              </div>
-              <div className="space-y-2">
-                <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-                  Terminal not available
-                </h3>
-                <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                  No active sandbox session. The terminal will connect when a sandbox is running.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      );
+    // If a sandbox is available, use SSHTerminal for direct sandbox access
+    if (effectiveSandboxId) {
+      return <SSHTerminal sandboxId={effectiveSandboxId} className="h-full" />;
     }
 
-    return <SSHTerminal sandboxId={effectiveSandboxId} className="h-full" />;
+    // Otherwise, show PTY terminal panel (OpenCode PTY sessions)
+    return <PtyTerminalPanel className="h-full" />;
   };
 
   const renderContent = () => {

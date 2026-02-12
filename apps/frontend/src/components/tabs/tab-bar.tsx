@@ -472,18 +472,21 @@ export function TabBar() {
     }
   }, [sessions, tabs, updateTabTitle]);
 
-  // Prune tabs for sessions that no longer exist on the server
+  // Prune tabs for sessions that no longer exist on the server.
+  // Read tab state from the store directly (not from reactive selectors) to
+  // avoid re-triggering when the prune itself mutates tabs/tabOrder.
   useEffect(() => {
     if (!sessions) return;
     const sessionIds = new Set(sessions.map(s => s.id));
-    const staleTabIds = tabOrder.filter(id => {
-      const tab = tabs[id];
+    const { tabs: currentTabs, tabOrder: currentOrder } = useTabStore.getState();
+    const staleTabIds = currentOrder.filter(id => {
+      const tab = currentTabs[id];
       return tab?.type === 'session' && !sessionIds.has(id);
     });
     for (const id of staleTabIds) {
       useTabStore.getState().closeTab(id);
     }
-  }, [sessions, tabs, tabOrder]);
+  }, [sessions]);
 
   // Prefetch session + messages data for all open tabs so switching is instant
   useEffect(() => {
@@ -539,7 +542,11 @@ export function TabBar() {
       const sessionId = sessionMatch[1];
       if (closingTabIds.current.has(sessionId)) return;
       if (!tabs[sessionId]) {
+        // Only open a tab if the session still exists on the server to avoid
+        // re-opening a tab for a just-deleted session (which causes an
+        // infinite setState loop with the prune effect).
         const session = sessions?.find(s => s.id === sessionId);
+        if (!session && sessions) return;
         openTab({
           id: sessionId,
           title: session?.title || 'Session',

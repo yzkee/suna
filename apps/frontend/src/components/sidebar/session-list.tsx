@@ -11,6 +11,7 @@ import {
   Pencil,
   Archive,
   ChevronRight,
+  GitFork,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -51,6 +52,7 @@ interface SessionItemProps {
   depth: number;
   hasChildren: boolean;
   isExpanded: boolean;
+  isFork: boolean;
   onToggleExpand: () => void;
   onClick: (e: React.MouseEvent, sessionId: string) => void;
   onDelete: (sessionId: string, title: string) => void;
@@ -66,6 +68,7 @@ function SessionItem({
   depth,
   hasChildren,
   isExpanded,
+  isFork,
   onToggleExpand,
   onClick,
   onDelete,
@@ -90,7 +93,7 @@ function SessionItem({
         onMouseEnter={() => setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}
       >
-        {/* Expand/collapse chevron for parents, or a subtle connector for children */}
+        {/* Expand/collapse chevron for parents, fork icon for forks, or a subtle connector for children */}
         {hasChildren ? (
           <button
             onClick={(e) => {
@@ -107,6 +110,15 @@ function SessionItem({
               )}
             />
           </button>
+        ) : isFork ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="flex-shrink-0 w-4 flex items-center justify-center">
+                <GitFork className="size-3 text-emerald-500" />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="text-xs">Forked session</TooltipContent>
+          </Tooltip>
         ) : depth > 0 ? (
           <span className="flex-shrink-0 w-4 flex items-center justify-center">
             <span className="h-1 w-1 rounded-full bg-muted-foreground/25" />
@@ -226,6 +238,7 @@ interface SessionTreeNodeProps {
   allSessions: Session[];
   childMap: Map<string, string[]>;
   expandedNodes: Record<string, boolean>;
+  forkIds: Set<string>;
   onToggleExpand: (sessionId: string) => void;
   isActiveSession: (sessionId: string) => boolean;
   getStatus: (sessionId: string) => { isBusy: boolean; pendingCount: number };
@@ -241,6 +254,7 @@ function SessionTreeNode({
   allSessions,
   childMap,
   expandedNodes,
+  forkIds,
   onToggleExpand,
   isActiveSession,
   getStatus,
@@ -273,6 +287,7 @@ function SessionTreeNode({
         depth={depth}
         hasChildren={hasChildren}
         isExpanded={isExpanded}
+        isFork={forkIds.has(session.id)}
         onToggleExpand={() => onToggleExpand(session.id)}
         onClick={onClick}
         onDelete={onDelete}
@@ -296,6 +311,7 @@ function SessionTreeNode({
               allSessions={allSessions}
               childMap={childMap}
               expandedNodes={expandedNodes}
+              forkIds={forkIds}
               onToggleExpand={onToggleExpand}
               isActiveSession={isActiveSession}
               getStatus={getStatus}
@@ -337,6 +353,18 @@ export function SessionList({ projectId }: SessionListProps = {}) {
 
   // Track which tree nodes are manually expanded/collapsed
   const [manualExpanded, setManualExpanded] = useState<Record<string, boolean>>({});
+
+  // Build a set of session IDs that are forks (stored in localStorage by the fork handler)
+  const forkIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (typeof window === 'undefined' || !sessions) return ids;
+    for (const s of sessions) {
+      if (s.parentID && localStorage.getItem(`fork_origin_${s.id}`)) {
+        ids.add(s.id);
+      }
+    }
+    return ids;
+  }, [sessions]);
 
   // Build child map for tree structure
   const childMap = useMemo(
@@ -509,21 +537,21 @@ export function SessionList({ projectId }: SessionListProps = {}) {
     setIsDeleteDialogOpen(false);
     const isActive = pathname?.includes(sessionToDelete.id);
 
-    // Close the tab for the deleted session
+    // Close the tab for the deleted session and navigate BEFORE the async
+    // deletion so the route-sync effect in TabBar doesn't re-open the tab
+    // (which would cause an infinite setState loop).
     const tabState = useTabStore.getState();
     if (tabState.tabs[sessionToDelete.id]) {
-      tabState.closeTab(sessionToDelete.id);
+      const nextTabId = tabState.closeTab(sessionToDelete.id);
+      if (isActive) {
+        const nextTab = nextTabId ? useTabStore.getState().tabs[nextTabId] : null;
+        router.push(nextTab?.href || '/dashboard');
+      }
+    } else if (isActive) {
+      router.push('/dashboard');
     }
 
-    deleteSession(sessionToDelete.id, {
-      onSuccess: () => {
-        if (isActive) {
-          const nextState = useTabStore.getState();
-          const nextTab = nextState.activeTabId ? nextState.tabs[nextState.activeTabId] : null;
-          router.push(nextTab?.href || '/dashboard');
-        }
-      },
-    });
+    deleteSession(sessionToDelete.id);
     setSessionToDelete(null);
   };
 
@@ -578,6 +606,7 @@ export function SessionList({ projectId }: SessionListProps = {}) {
                 allSessions={sessions || []}
                 childMap={childMap}
                 expandedNodes={expandedNodes}
+                forkIds={forkIds}
                 onToggleExpand={handleToggleExpand}
                 isActiveSession={isActiveSession}
                 getStatus={getStatus}
@@ -609,6 +638,7 @@ export function SessionList({ projectId }: SessionListProps = {}) {
                 allSessions={sessions || []}
                 childMap={childMap}
                 expandedNodes={expandedNodes}
+                forkIds={forkIds}
                 onToggleExpand={handleToggleExpand}
                 isActiveSession={isActiveSession}
                 getStatus={getStatus}
