@@ -52,6 +52,14 @@ export async function searchLss(
       return [];
     }
 
+    // Guard against non-JSON responses (e.g. the dev server returning an HTML page
+    // when the /lss/search route doesn't exist on this server).
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      console.warn(`[lss-search] Expected JSON but got "${contentType}" — endpoint may not be available`);
+      return [];
+    }
+
     const data: LssSearchResult[] | { error: string } = await response.json();
 
     // Handle error responses
