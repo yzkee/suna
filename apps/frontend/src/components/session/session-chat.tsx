@@ -114,6 +114,9 @@ import { ImagePreview } from '@/components/session/image-preview';
 import { RevertBanner, ConfirmDialog } from '@/components/session/message-actions';
 import { useTabStore } from '@/stores/tab-store';
 import { useServerStore } from '@/stores/server-store';
+import { useQueryClient } from '@tanstack/react-query';
+import { billingApi } from '@/lib/api/billing';
+import { invalidateAccountState } from '@/hooks/billing/use-account-state';
 
 // ============================================================================
 // Sub-Session / Fork Breadcrumb
@@ -1265,6 +1268,12 @@ function SessionTurn({
 }
 
 // ============================================================================
+// Billing: track billed turn IDs to prevent double-deduction
+// ============================================================================
+
+const billedTurnIds = new Set<string>();
+
+// ============================================================================
 // Main SessionChat Component
 // ============================================================================
 
@@ -1295,6 +1304,9 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   const revertSession = useRevertSession();
   const unrevertSession = useUnrevertSession();
   const router = useRouter();
+
+  // ---- Billing: query client for invalidation ----
+  const queryClient = useQueryClient();
 
   // ---- Unified model/agent/variant state (1:1 port of SolidJS local.tsx) ----
   const local = useOpenCodeLocal({ agents, providers, config });
@@ -1565,6 +1577,38 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   const toggleExpanded = useCallback((id: string) => {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
   }, []);
+
+  // ============================================================================
+  // Billing: deduct credits after agent run completes
+  // ============================================================================
+
+  useEffect(() => {
+    if (!messages || messages.length === 0 || isBusy) return;
+
+    const currentTurns = groupMessagesIntoTurns(messages);
+    for (const turn of currentTurns) {
+      const turnId = turn.userMessage.info.id;
+      if (billedTurnIds.has(turnId)) continue;
+
+      const parts = collectTurnParts(turn);
+      const costInfo = getTurnCost(parts);
+      if (!costInfo || costInfo.cost <= 0) continue;
+
+      // Mark as billed immediately to prevent double-deduction
+      billedTurnIds.add(turnId);
+
+      // Fire-and-forget deduction
+      billingApi.deductUsage({
+        amount: costInfo.cost,
+        thread_id: sessionId,
+        description: `Agent run: ${formatCost(costInfo.cost)} (${formatTokens(costInfo.tokens.input + costInfo.tokens.output)} tokens)`,
+      }).then(() => {
+        invalidateAccountState(queryClient);
+      }).catch((err) => {
+        console.warn('[Billing] Failed to deduct usage:', err);
+      });
+    }
+  }, [messages, isBusy, sessionId, queryClient]);
 
   // ============================================================================
   // Fork / Revert / Unrevert handlers
