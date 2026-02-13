@@ -11,6 +11,7 @@ import {
   Box,
   Settings2,
   Cloud,
+  Container,
   Loader2,
 } from 'lucide-react';
 import { useServerStore, type ServerEntry } from '@/stores/server-store';
@@ -18,7 +19,8 @@ import { useTabStore } from '@/stores/tab-store';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 import { getSupabaseAccessToken } from '@/lib/auth-token';
-import { initAccount, getSandboxUrl } from '@/lib/platform-client';
+import { initAccount, getSandboxUrl, type SandboxProviderName } from '@/lib/platform-client';
+import { useProviders } from '@/hooks/platform/use-sandbox';
 import {
   Dialog,
   DialogContent,
@@ -179,7 +181,13 @@ function DialogInstanceRow({
       <div className="px-3.5 py-3">
         {/* Top line: label/name + badges + actions */}
         <div className="flex items-center gap-2">
-          <Box className={cn('h-4 w-4 flex-shrink-0', isActive ? 'text-primary' : 'text-muted-foreground/60')} />
+          {server.provider === 'local_docker' ? (
+            <Container className={cn('h-4 w-4 flex-shrink-0', isActive ? 'text-primary' : 'text-muted-foreground/60')} />
+          ) : server.provider === 'daytona' ? (
+            <Cloud className={cn('h-4 w-4 flex-shrink-0', isActive ? 'text-primary' : 'text-muted-foreground/60')} />
+          ) : (
+            <Box className={cn('h-4 w-4 flex-shrink-0', isActive ? 'text-primary' : 'text-muted-foreground/60')} />
+          )}
           <span className={cn(
             'text-sm leading-tight flex-1 min-w-0 break-all',
             isActive ? 'text-foreground font-semibold' : 'text-foreground/80 font-medium',
@@ -352,17 +360,30 @@ function InstanceManagerDialog({
     }
   }
 
-  async function handleCreateSandbox() {
+  async function handleCreateSandbox(provider?: SandboxProviderName) {
     setIsCreatingSandbox(true);
     setSandboxError(null);
     try {
-      const { sandbox } = await initAccount();
-      const newServer = addServer(
-        sandbox.name || 'Cloud Sandbox',
-        getSandboxUrl(sandbox),
-      );
-      useTabStore.getState().swapForServer(newServer.id, activeServerId);
-      setActiveServer(newServer.id);
+      const { sandbox } = await initAccount(provider ? { provider } : undefined);
+      const label = sandbox.name || (provider === 'local_docker' ? 'Local Sandbox' : 'Cloud Sandbox');
+
+      // Use setState directly to inject provider + sandboxId metadata
+      const newId = `srv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      useServerStore.setState((state) => ({
+        servers: [
+          ...state.servers,
+          {
+            id: newId,
+            label,
+            url: getSandboxUrl(sandbox),
+            provider: sandbox.provider,
+            sandboxId: sandbox.sandbox_id,
+          },
+        ],
+      }));
+
+      useTabStore.getState().swapForServer(newId, activeServerId);
+      setActiveServer(newId);
       router.push('/dashboard');
       onOpenChange(false);
     } catch (err: any) {
@@ -449,29 +470,46 @@ function InstanceManagerDialog({
               )}
             </div>
 
-            {/* New Sandbox button */}
+            {/* New Sandbox buttons */}
             <div className="border-t border-border/40 px-4 py-3">
               {sandboxError && (
                 <p className="text-xs text-destructive mb-2">{sandboxError}</p>
               )}
-              <button
-                type="button"
-                onClick={handleCreateSandbox}
-                disabled={isCreatingSandbox}
-                className="flex items-center justify-center gap-2 w-full h-9 text-sm font-medium text-foreground bg-muted/50 hover:bg-muted/80 border border-border/50 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isCreatingSandbox ? (
-                  <>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleCreateSandbox('daytona')}
+                  disabled={isCreatingSandbox}
+                  className="flex items-center justify-center gap-2 flex-1 h-9 text-sm font-medium text-foreground bg-muted/50 hover:bg-muted/80 border border-border/50 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isCreatingSandbox ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Creating sandbox...
-                  </>
-                ) : (
-                  <>
-                    <Cloud className="h-3.5 w-3.5" />
-                    New Sandbox
-                  </>
-                )}
-              </button>
+                  ) : (
+                    <>
+                      <Cloud className="h-3.5 w-3.5" />
+                      Cloud
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCreateSandbox('local_docker')}
+                  disabled={isCreatingSandbox}
+                  className="flex items-center justify-center gap-2 flex-1 h-9 text-sm font-medium text-foreground bg-muted/50 hover:bg-muted/80 border border-border/50 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isCreatingSandbox ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <>
+                      <Container className="h-3.5 w-3.5" />
+                      Local Docker
+                    </>
+                  )}
+                </button>
+              </div>
+              <p className="text-[10px] text-muted-foreground/50 mt-1.5 text-center">
+                Cloud uses Daytona. Local Docker runs on your machine.
+              </p>
             </div>
           </div>
         )}

@@ -3,7 +3,7 @@ services:
     build:
       context: ..
       dockerfile: sandbox/Dockerfile
-    image: heyagi/sandbox:0.1.0
+    image: kortixmarko/sandbox:0.1.0
     container_name: sandbox-desktop
     cap_add:
       - SYS_ADMIN

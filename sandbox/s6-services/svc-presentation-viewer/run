@@ -1,9 +1,5 @@
 #!/usr/bin/with-contenv bash
-# KORTIX Presentation Viewer — s6 service
-#
-# Watches for presentations in /workspace/presentations/ and serves
-# the most recently updated one on port 3210.
-# If no presentation exists yet, waits until one appears.
+# Presentation Viewer — watches for and serves slide decks on port 3210
 
 PRES_ROOT="/workspace/presentations"
 VIEWER="/opt/opencode/skills/KORTIX-presentation-viewer/serve.ts"

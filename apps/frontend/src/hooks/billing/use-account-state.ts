@@ -15,7 +15,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/lib/toast';
 import { siteConfig } from '@/lib/site-config';
-import { CREDITS_PER_DOLLAR, dollarsToCredits } from '@agentpress/shared';
+import { CREDITS_PER_DOLLAR, dollarsToCredits } from '@kortix/shared';
 import {
   billingApi,
   AccountState,

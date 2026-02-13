@@ -1,12 +1,5 @@
 #!/usr/bin/with-contenv bash
-# lss-sync — File-watcher daemon that keeps the semantic search index in sync.
-#
-# Uses watchdog (inotify/FSEvents) to detect file changes in real time and
-# triggers re-indexing with debounce. Changes are picked up within seconds.
-#
-# Watches:
-#   /workspace       — User files and projects
-#   /workspace/.kortix — Agent memory
+# lss-sync — File-watcher daemon for semantic search indexing
 
 exec s6-setuidgid abc \
   env HOME=/workspace \

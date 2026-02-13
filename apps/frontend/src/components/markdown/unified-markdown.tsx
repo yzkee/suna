@@ -9,7 +9,7 @@ import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
 import { MermaidRenderer } from '@/components/ui/mermaid-renderer';
 import { isMermaidCode } from '@/lib/mermaid-utils';
-import { autoLinkUrls } from '@agentpress/shared';
+import { autoLinkUrls } from '@kortix/shared';
 import { useOcFileOpen } from '@/components/thread/tool-views/opencode/useOcFileOpen';
 
 // Helper to check if a URL is internal (same origin)

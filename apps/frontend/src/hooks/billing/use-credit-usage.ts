@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { backendApi } from '@/lib/api-client';
 import { accountStateKeys } from './use-account-state';
-import { dollarsToCredits } from '@agentpress/shared';
+import { dollarsToCredits } from '@kortix/shared';
 
 interface UsageRecord {
   id: string;

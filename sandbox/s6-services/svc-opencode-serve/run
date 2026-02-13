@@ -1,16 +1,10 @@
 #!/usr/bin/with-contenv bash
-# OpenCode API Server — s6 service
-#
-# Runs `opencode serve` on port 4096 (internal only, proxied by kortix-master).
-# This is the headless API server, distinct from `opencode web` (the Web UI).
+# OpenCode API Server — headless API on port 4096 (proxied by Kortix Master)
 
-# Wait a moment for filesystem to settle
 sleep 3
 
 cd /workspace
 
-# Ensure OpenCode data dirs exist and are owned by abc (guards against
-# Daytona race conditions where /workspace ownership may shift after startup.sh)
 mkdir -p /workspace/.local/share/opencode/log \
          /workspace/.local/share/opencode/storage \
          /workspace/.local/share/opencode/snapshot

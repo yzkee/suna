@@ -11,7 +11,7 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
-    "@agentpress/shared": "workspace:*",
+    "@kortix/shared": "workspace:*",
     "@calcom/embed-react": "^1.5.2",
     "@codemirror/commands": "^6.10.1",
     "@codemirror/language": "^6.12.1",

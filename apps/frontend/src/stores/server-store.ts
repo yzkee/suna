@@ -1,11 +1,17 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+export type SandboxProvider = 'daytona' | 'local_docker';
+
 export interface ServerEntry {
   id: string;
   label: string;
   url: string;
   isDefault?: boolean;
+  /** Sandbox provider type, if this server was provisioned via platform API */
+  provider?: SandboxProvider;
+  /** Platform sandbox ID, if this server is a managed sandbox */
+  sandboxId?: string;
 }
 
 interface ServerStore {

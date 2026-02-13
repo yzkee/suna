@@ -2,7 +2,7 @@
 
 import { Project } from '@/lib/api/threads';
 import { HIDE_BROWSER_TAB } from '@/components/thread/utils';
-import { isHiddenTool } from '@agentpress/shared/tools';
+import { isHiddenTool } from '@kortix/shared/tools';
 import React, { memo, useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ApiMessageType } from '@/components/thread/types';

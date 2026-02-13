@@ -13,7 +13,7 @@ import { usePromo } from '@/hooks/utils/use-promo';
 import { useAuth } from '@/components/AuthProvider';
 import { isLocalMode } from '@/lib/config';
 import { useSubscriptionStore } from '@/stores/subscription-store';
-import { dollarsToCredits } from '@agentpress/shared';
+import { dollarsToCredits } from '@kortix/shared';
 
 type Plan = 'Plus' | 'Pro' | 'Ultra';
 type BillingPeriod = 'monthly' | 'yearly';

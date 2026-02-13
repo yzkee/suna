@@ -2,8 +2,13 @@
  * Platform API client.
  *
  * Talks to kortix-platform (platform.kortix.com) for sandbox lifecycle:
- *   POST /v1/account/init   — ensure user has a sandbox, provision if needed
- *   GET  /v1/account/sandbox — get user's active sandbox
+ *   GET  /v1/account/providers          — available sandbox providers
+ *   POST /v1/account/init               — ensure user has a sandbox, provision if needed
+ *   GET  /v1/account/sandbox            — get user's active sandbox
+ *   GET  /v1/account/sandboxes          — list all sandboxes
+ *   POST /v1/account/sandbox/:id/start  — start a stopped sandbox
+ *   POST /v1/account/sandbox/:id/stop   — stop a running sandbox
+ *   DELETE /v1/account/sandbox/:id      — remove a sandbox
  *
  * Auth: Supabase JWT passed as Bearer token (same as all other services).
  */
@@ -24,21 +29,25 @@ function getPlatformUrl(): string {
 
 const PLATFORM_URL = getPlatformUrl();
 
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+export type SandboxProviderName = 'daytona' | 'local_docker';
+
 export interface SandboxInfo {
   sandbox_id: string;
   external_id: string;
   name: string;
+  provider: SandboxProviderName;
   base_url: string;
   status: string;
+  metadata?: Record<string, unknown>;
   created_at: string;
+  updated_at: string;
 }
 
-/**
- * Build the OpenCode server URL for a sandbox.
- * Format: https://kortix.cloud/{externalId}/8000
- */
-export function getSandboxUrl(sandbox: SandboxInfo): string {
-  return `https://kortix.cloud/${sandbox.external_id}/8000`;
+export interface ProvidersInfo {
+  providers: SandboxProviderName[];
+  default: SandboxProviderName;
 }
 
 interface PlatformResponse<T> {
@@ -47,6 +56,8 @@ interface PlatformResponse<T> {
   error?: string;
   created?: boolean;
 }
+
+// ─── Fetch helper ────────────────────────────────────────────────────────────
 
 async function platformFetch<T>(
   path: string,
@@ -80,14 +91,42 @@ async function platformFetch<T>(
   return body as PlatformResponse<T>;
 }
 
+// ─── API methods ─────────────────────────────────────────────────────────────
+
+/**
+ * Build the OpenCode server URL for a sandbox.
+ * - Daytona: https://kortix.cloud/{externalId}/8000
+ * - Local Docker: uses the base_url directly (http://localhost:{port})
+ */
+export function getSandboxUrl(sandbox: SandboxInfo): string {
+  if (sandbox.provider === 'local_docker') {
+    return sandbox.base_url;
+  }
+  return `https://kortix.cloud/${sandbox.external_id}/8000`;
+}
+
+/**
+ * Get available sandbox providers from the platform service.
+ */
+export async function getProviders(): Promise<ProvidersInfo> {
+  const result = await platformFetch<ProvidersInfo>('/v1/account/providers');
+  if (!result.success || !result.data) {
+    throw new Error(result.error || 'Failed to get providers');
+  }
+  return result.data;
+}
+
 /**
  * Initialize account — ensures the user has an active sandbox.
  * Idempotent: if a sandbox already exists, returns it.
- * If none exists, provisions a new one via Daytona.
+ * If none exists, provisions a new one via the specified provider.
  */
-export async function initAccount(): Promise<{ sandbox: SandboxInfo; created: boolean }> {
+export async function initAccount(opts?: {
+  provider?: SandboxProviderName;
+}): Promise<{ sandbox: SandboxInfo; created: boolean }> {
   const result = await platformFetch<SandboxInfo>('/v1/account/init', {
     method: 'POST',
+    body: opts?.provider ? JSON.stringify({ provider: opts.provider }) : undefined,
   });
 
   if (!result.success || !result.data) {
@@ -114,5 +153,59 @@ export async function getSandbox(): Promise<SandboxInfo | null> {
     return result.data;
   } catch {
     return null;
+  }
+}
+
+/**
+ * List all sandboxes for the user's account.
+ */
+export async function listSandboxes(): Promise<SandboxInfo[]> {
+  const result = await platformFetch<SandboxInfo[]>('/v1/account/sandboxes', {
+    method: 'GET',
+  });
+
+  if (!result.success || !result.data) {
+    return [];
+  }
+
+  return result.data;
+}
+
+/**
+ * Start a stopped sandbox.
+ */
+export async function startSandbox(sandboxId: string): Promise<void> {
+  const result = await platformFetch<void>(`/v1/account/sandbox/${sandboxId}/start`, {
+    method: 'POST',
+  });
+
+  if (!result.success) {
+    throw new Error(result.error || 'Failed to start sandbox');
+  }
+}
+
+/**
+ * Stop a running sandbox.
+ */
+export async function stopSandbox(sandboxId: string): Promise<void> {
+  const result = await platformFetch<void>(`/v1/account/sandbox/${sandboxId}/stop`, {
+    method: 'POST',
+  });
+
+  if (!result.success) {
+    throw new Error(result.error || 'Failed to stop sandbox');
+  }
+}
+
+/**
+ * Remove (archive) a sandbox.
+ */
+export async function removeSandbox(sandboxId: string): Promise<void> {
+  const result = await platformFetch<void>(`/v1/account/sandbox/${sandboxId}`, {
+    method: 'DELETE',
+  });
+
+  if (!result.success) {
+    throw new Error(result.error || 'Failed to remove sandbox');
   }
 }

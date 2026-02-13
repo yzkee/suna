@@ -1,9 +1,5 @@
 #!/usr/bin/with-contenv bash
-# Kortix Master — s6 service
-#
-# Reverse proxy that sits in front of OpenCode on port 8000.
-# All external traffic enters through Kortix Master, which proxies
-# to the OpenCode API server on localhost:4096.
+# Kortix Master — reverse proxy on port 8000, proxying to OpenCode at localhost:4096
 
 echo "[kortix-master] Starting on port 8000, proxying to OpenCode at localhost:4096"
 

@@ -38,6 +38,11 @@ export const sessionModeEnum = kortixSchema.enum('session_mode', [
   'reuse',
 ]);
 
+export const sandboxProviderEnum = kortixSchema.enum('sandbox_provider', [
+  'daytona',
+  'local_docker',
+]);
+
 // ─── Sandboxes ───────────────────────────────────────────────────────────────
 export const sandboxes = kortixSchema.table(
   'sandboxes',
@@ -45,6 +50,7 @@ export const sandboxes = kortixSchema.table(
     sandboxId: uuid('sandbox_id').defaultRandom().primaryKey(),
     accountId: uuid('account_id').notNull(),
     name: varchar('name', { length: 255 }).notNull(),
+    provider: sandboxProviderEnum('provider').default('daytona').notNull(),
     externalId: text('external_id'),
     status: sandboxStatusEnum('status').default('provisioning').notNull(),
     baseUrl: text('base_url').notNull(),

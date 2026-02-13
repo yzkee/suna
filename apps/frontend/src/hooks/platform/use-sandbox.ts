@@ -3,7 +3,7 @@
  *
  * On mount (when user is authenticated):
  *   1. Calls POST /v1/account/init on the platform service
- *   2. Gets back the sandbox info (base_url, external_id, etc.)
+ *   2. Gets back the sandbox info (base_url, external_id, provider, etc.)
  *   3. Registers the sandbox as a server in the server-store
  *      so the OpenCode SDK automatically connects to it
  *
@@ -12,7 +12,13 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { initAccount, getSandboxUrl, type SandboxInfo } from '@/lib/platform-client';
+import {
+  initAccount,
+  getProviders,
+  getSandboxUrl,
+  type SandboxInfo,
+  type SandboxProviderName,
+} from '@/lib/platform-client';
 import { useServerStore } from '@/stores/server-store';
 import { useAuth } from '@/components/AuthProvider';
 import { useEffect, useRef } from 'react';
@@ -44,8 +50,10 @@ function registerSandboxServer(sandbox: SandboxInfo) {
         ...state.servers,
         {
           id: SANDBOX_SERVER_ID,
-          label: sandbox.name || 'Cloud Sandbox',
+          label: sandbox.name || (sandbox.provider === 'local_docker' ? 'Local Sandbox' : 'Cloud Sandbox'),
           url,
+          provider: sandbox.provider,
+          sandboxId: sandbox.sandbox_id,
         },
       ],
     }));
@@ -96,4 +104,21 @@ export function useSandbox() {
   };
 }
 
+/**
+ * useProviders — fetch available sandbox providers from the platform.
+ */
+export function useProviders() {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: ['platform', 'providers'],
+    queryFn: getProviders,
+    enabled: !!user,
+    staleTime: 10 * 60 * 1000, // 10 minutes
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
+}
+
 export { SANDBOX_SERVER_ID };
+export type { SandboxProviderName };

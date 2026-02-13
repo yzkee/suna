@@ -5,7 +5,7 @@ import { HTTPException } from 'hono/http-exception';
 
 import { config } from './config';
 import { accountRouter } from './routes/account';
-import { isDaytonaConfigured } from './lib/daytona';
+import { getAvailableProviders } from './providers';
 import type { AuthVariables } from './types';
 
 const app = new Hono<{ Variables: AuthVariables }>();
@@ -37,6 +37,7 @@ app.get('/health', (c) => {
     service: 'kortix-platform',
     timestamp: new Date().toISOString(),
     env: config.ENV_MODE,
+    providers: getAvailableProviders(),
   });
 });
 
@@ -75,6 +76,7 @@ app.notFound((c) => {
 
 // Start server
 const port = config.PORT;
+const providers = getAvailableProviders();
 
 console.log(`
 ╔═══════════════════════════════════════════════════════════╗
@@ -84,12 +86,17 @@ console.log(`
 ║  Mode: ${config.ENV_MODE.padEnd(49)}║
 ╠═══════════════════════════════════════════════════════════╣
 ║  Endpoints:                                               ║
-║    POST  /v1/account/init     Init account + sandbox      ║
-║    GET   /v1/account/sandbox  Get user's sandbox          ║
+║    GET   /v1/account/providers       Available providers   ║
+║    POST  /v1/account/init            Init account+sandbox  ║
+║    GET   /v1/account/sandbox         Get active sandbox    ║
+║    GET   /v1/account/sandboxes       List all sandboxes    ║
+║    POST  /v1/account/sandbox/:id/start  Start sandbox      ║
+║    POST  /v1/account/sandbox/:id/stop   Stop sandbox       ║
+║    DELETE /v1/account/sandbox/:id       Remove sandbox     ║
 ╠═══════════════════════════════════════════════════════════╣
-║  Database:  ${config.DATABASE_URL ? '✓ Configured'.padEnd(43) : '✗ NOT SET'.padEnd(43)}║
-║  Supabase:  ${config.SUPABASE_URL ? '✓ Configured'.padEnd(43) : '✗ NOT SET'.padEnd(43)}║
-║  Daytona:   ${isDaytonaConfigured() ? '✓ Configured'.padEnd(43) : '✗ NOT SET'.padEnd(43)}║
+║  Database:   ${config.DATABASE_URL ? '✓ Configured'.padEnd(42) : '✗ NOT SET'.padEnd(42)}║
+║  Supabase:   ${config.SUPABASE_URL ? '✓ Configured'.padEnd(42) : '✗ NOT SET'.padEnd(42)}║
+║  Providers:  ${providers.join(', ').padEnd(42)}║
 ║  Kortix URL: ${(config.KORTIX_URL || 'NOT SET').padEnd(42)}║
 ╚═══════════════════════════════════════════════════════════╝
 `);

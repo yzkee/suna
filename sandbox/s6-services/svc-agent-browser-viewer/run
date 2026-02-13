@@ -1,9 +1,5 @@
 #!/usr/bin/with-contenv bash
-# Agent Browser Viewer — s6 service
-#
-# Serves the browser viewer UI on port 9224.
-# - GET /           → viewer HTML
-# - GET /sessions   → JSON list of active sessions + stream ports
+# Agent Browser Viewer — serves browser viewer UI on port 9224
 
 echo "[agent-browser-viewer] Starting viewer on port 9224"
 
