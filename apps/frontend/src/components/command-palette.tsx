@@ -18,6 +18,7 @@ import {
   Database,
   Zap,
   Settings,
+  Cog,
   MessageCircle,
   FileCode,
   Folder,
@@ -231,12 +232,13 @@ export function CommandPalette() {
   });
 
   // Semantic search (LSS — BM25 + embeddings over workspace files)
+  // TODO: temporarily disabled
   const {
     data: lssResults = [],
     isFetching: isLssSearching,
   } = useLssSearch(lssDebouncedQuery, {
     limit: 8,
-    enabled: lssDebouncedQuery.length >= 2,
+    enabled: false,
   });
 
   // Global keyboard shortcut
@@ -692,6 +694,10 @@ export function CommandPalette() {
               <CommandItem onSelect={() => handleNavigate('/settings/api-keys')}>
                 <Settings className="mr-2 h-4 w-4" />
                 <span>Settings</span>
+              </CommandItem>
+              <CommandItem onSelect={() => handleNavigate('/configuration')}>
+                <Cog className="mr-2 h-4 w-4" />
+                <span>Configuration</span>
               </CommandItem>
             </CommandGroup>
 

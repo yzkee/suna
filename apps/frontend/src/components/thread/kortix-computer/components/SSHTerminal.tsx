@@ -4,10 +4,8 @@ import { memo, useRef, useEffect, useCallback, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
-import { Terminal as XTerm, ITheme } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import { WebLinksAddon } from '@xterm/addon-web-links';
-import '@xterm/xterm/css/xterm.css';
+import type { Terminal as XTerm, ITheme } from '@xterm/xterm';
+import type { FitAddon } from '@xterm/addon-fit';
 import { useAuth } from '@/components/AuthProvider';
 import { RefreshCw, Copy, Check, TerminalSquare } from 'lucide-react';
 import { KortixLoader } from '@/components/ui/kortix-loader';
@@ -90,6 +88,7 @@ export const SSHTerminal = memo(function SSHTerminal({ sandboxId, className }: S
   const invalidateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
+  const [termReady, setTermReady] = useState(false);
   const [sshCommand, setSshCommand] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -245,62 +244,82 @@ export const SSHTerminal = memo(function SSHTerminal({ sandboxId, className }: S
   useEffect(() => {
     if (!terminalRef.current) return;
 
-    const term = new XTerm({
-      cursorBlink: true,
-      cursorStyle: 'bar',
-      fontSize: 13,
-      fontFamily: 'JetBrains Mono, Menlo, Monaco, Consolas, monospace',
-      theme: isDark ? darkTheme : lightTheme,
-      allowProposedApi: true,
-    });
-
-    const fitAddon = new FitAddon();
-    const webLinksAddon = new WebLinksAddon();
-    
-    term.loadAddon(fitAddon);
-    term.loadAddon(webLinksAddon);
-    
-    term.open(terminalRef.current);
-    fitAddon.fit();
-    
-    xtermRef.current = term;
-    fitAddonRef.current = fitAddon;
-
-    term.writeln('\x1b[38;5;141m┌──────────────────────────────────────────┐\x1b[0m');
-    term.writeln('\x1b[38;5;141m│\x1b[0m   \x1b[1;38;5;183m◉\x1b[0m \x1b[1;37mKortix\x1b[0m \x1b[38;5;245m• Terminal\x1b[0m               \x1b[38;5;141m│\x1b[0m');
-    term.writeln('\x1b[38;5;141m└──────────────────────────────────────────┘\x1b[0m');
-    term.writeln('');
-
-    term.onData((data) => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'input', data }));
-        if (data.includes('\r') || data.includes('\n')) {
-          invalidateFileQueries();
-        }
-      }
-    });
-
-    term.onResize(({ cols, rows }) => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'resize', cols, rows }));
-      }
-    });
-
-    const handleResize = () => fitAddonRef.current?.fit();
-    window.addEventListener('resize', handleResize);
-    
+    let disposed = false;
+    let term: XTerm | null = null;
+    let handleResize: (() => void) | null = null;
+    let resizeObserver: ResizeObserver | null = null;
     const container = terminalRef.current;
-    const resizeObserver = new ResizeObserver(handleResize);
-    resizeObserver.observe(container);
+
+    // Dynamically import xterm modules to avoid SSR issues (they reference `self`)
+    Promise.all([
+      import('@xterm/xterm'),
+      import('@xterm/addon-fit'),
+      import('@xterm/addon-web-links'),
+      // @ts-expect-error -- CSS module has no type declarations
+      import('@xterm/xterm/css/xterm.css'),
+    ]).then(([xtermModule, fitModule, webLinksModule]) => {
+      if (disposed || !container) return;
+
+      term = new xtermModule.Terminal({
+        cursorBlink: true,
+        cursorStyle: 'bar',
+        fontSize: 13,
+        fontFamily: 'JetBrains Mono, Menlo, Monaco, Consolas, monospace',
+        theme: isDark ? darkTheme : lightTheme,
+        allowProposedApi: true,
+      });
+
+      const fitAddon = new fitModule.FitAddon();
+      const webLinksAddon = new webLinksModule.WebLinksAddon();
+
+      term.loadAddon(fitAddon);
+      term.loadAddon(webLinksAddon);
+
+      term.open(container);
+      fitAddon.fit();
+
+      xtermRef.current = term;
+      fitAddonRef.current = fitAddon;
+
+      term.writeln('\x1b[38;5;141m┌──────────────────────────────────────────┐\x1b[0m');
+      term.writeln('\x1b[38;5;141m│\x1b[0m   \x1b[1;38;5;183m◉\x1b[0m \x1b[1;37mKortix\x1b[0m \x1b[38;5;245m• Terminal\x1b[0m               \x1b[38;5;141m│\x1b[0m');
+      term.writeln('\x1b[38;5;141m└──────────────────────────────────────────┘\x1b[0m');
+      term.writeln('');
+
+      term.onData((data) => {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'input', data }));
+          if (data.includes('\r') || data.includes('\n')) {
+            invalidateFileQueries();
+          }
+        }
+      });
+
+      term.onResize(({ cols, rows }) => {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'resize', cols, rows }));
+        }
+      });
+
+      handleResize = () => fitAddonRef.current?.fit();
+      window.addEventListener('resize', handleResize);
+
+      resizeObserver = new ResizeObserver(handleResize);
+      resizeObserver.observe(container);
+
+      setTermReady(true);
+    });
 
     return () => {
-      window.removeEventListener('resize', handleResize);
-      resizeObserver.disconnect();
+      disposed = true;
+      setTermReady(false);
+      if (handleResize) window.removeEventListener('resize', handleResize);
+      if (resizeObserver) resizeObserver.disconnect();
       if (invalidateTimeoutRef.current) {
         clearTimeout(invalidateTimeoutRef.current);
       }
       disconnect();
-      term.dispose();
+      if (term) term.dispose();
       xtermRef.current = null;
       fitAddonRef.current = null;
     };
@@ -319,14 +338,14 @@ export const SSHTerminal = memo(function SSHTerminal({ sandboxId, className }: S
   }, [isDark]);
 
   useEffect(() => {
-    if (!session?.access_token || !sandboxId || !xtermRef.current || wsRef.current) {
+    if (!session?.access_token || !sandboxId || !xtermRef.current || !termReady || wsRef.current) {
       return;
     }
-    
+
     console.log('[SSHTerminal] Initiating connection...');
     getSSHCommand();
     connectWebSocket(session.access_token, xtermRef.current);
-  }, [session?.access_token, sandboxId, getSSHCommand, connectWebSocket]);
+  }, [session?.access_token, sandboxId, termReady, getSSHCommand, connectWebSocket]);
 
   return (
     <div className={cn(
