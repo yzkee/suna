@@ -28,6 +28,7 @@ import { useServerStore } from '@/stores/server-store';
 import { useCreatePty } from '@/hooks/opencode/use-opencode-pty';
 import { useTabStore } from '@/stores/tab-store';
 import { getProxyBaseUrl } from '@/lib/utils/sandbox-url';
+import { getDirectPortUrl, SANDBOX_PORTS } from '@/lib/platform-client';
 
 // ============================================================================
 // Main Right Sidebar — Explorer + action buttons
@@ -69,7 +70,43 @@ export function SidebarRight() {
     }
   }, [createPty]);
 
-  /** Open a sandbox port as a preview tab using the proxy system. */
+  /**
+   * Open a well-known sandbox service as a preview tab using a DIRECT URL.
+   * Resolves the random Docker host port (or Daytona path) from the active server's mappedPorts.
+   * Falls back to the proxy if no direct URL can be resolved.
+   */
+  const openSandboxServiceTab = useCallback(
+    (containerPort: string, title: string) => {
+      // Try direct URL first (bypasses proxy, works for WebSocket services like noVNC)
+      const directUrl = activeServer
+        ? getDirectPortUrl(activeServer, containerPort)
+        : null;
+      // Fall back to proxy-based URL if direct resolution fails
+      const url = directUrl || getProxyBaseUrl(parseInt(containerPort, 10), serverUrl, mappedPorts);
+
+      const tabId = `preview:${containerPort}`;
+      const tabHref = `/preview/${containerPort}`;
+
+      useTabStore.getState().openTab({
+        id: tabId,
+        title,
+        type: 'preview',
+        href: tabHref,
+        metadata: {
+          url,
+          port: parseInt(containerPort, 10),
+          originalUrl: `http://localhost:${containerPort}/`,
+        },
+      });
+      window.history.pushState(null, '', tabHref);
+    },
+    [activeServer, serverUrl, mappedPorts],
+  );
+
+  /**
+   * Open an agent-started service (arbitrary port) via the proxy.
+   * Used by sandbox-url-detector when the agent starts a dev server on e.g. port 3000.
+   */
   const openPreviewTab = useCallback(
     (port: number, title: string) => {
       const proxyUrl = getProxyBaseUrl(port, serverUrl, mappedPorts);
@@ -93,12 +130,12 @@ export function SidebarRight() {
   );
 
   const handleOpenDesktop = useCallback(() => {
-    openPreviewTab(6080, 'Desktop');
-  }, [openPreviewTab]);
+    openSandboxServiceTab(SANDBOX_PORTS.DESKTOP, 'Desktop');
+  }, [openSandboxServiceTab]);
 
   const handleOpenAgentBrowser = useCallback(() => {
-    openPreviewTab(9224, 'Agent Browser');
-  }, [openPreviewTab]);
+    openSandboxServiceTab(SANDBOX_PORTS.BROWSER_VIEWER, 'Agent Browser');
+  }, [openSandboxServiceTab]);
 
   if (isMobile) return null;
 

@@ -2218,7 +2218,7 @@ function MultiSelectToolbar({
       );
 
       // Send to backend - use correct backend URL
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008';
       const response = await fetch(`${backendUrl}/canvas-ai/merge`, {
         method: 'POST',
         headers: {
