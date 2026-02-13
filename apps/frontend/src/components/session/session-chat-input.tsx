@@ -423,6 +423,7 @@ function SlashCommandPopover({
   selectedIndex: number;
   onSelect: (command: Command) => void;
 }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
   const filtered = useMemo(() => {
     const q = filter.toLowerCase();
     return commands.filter(
@@ -432,11 +433,21 @@ function SlashCommandPopover({
     );
   }, [commands, filter]);
 
+  // Scroll selected item into view
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const item = container.children[selectedIndex] as HTMLElement | undefined;
+    if (item) {
+      item.scrollIntoView({ block: 'nearest' });
+    }
+  }, [selectedIndex]);
+
   if (filtered.length === 0) return null;
 
   return (
     <div className="absolute bottom-full left-0 right-0 mb-1 z-50 bg-popover border border-border rounded-xl shadow-lg overflow-hidden">
-      <div className="max-h-64 overflow-y-auto py-1">
+      <div ref={scrollRef} className="max-h-64 overflow-y-auto py-1">
         {filtered.map((cmd, i) => (
           <button
             key={cmd.name}
@@ -445,12 +456,14 @@ function SlashCommandPopover({
               onSelect(cmd);
             }}
             className={cn(
-              'w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors cursor-pointer',
+              'w-full flex flex-col gap-0.5 px-3 py-2 text-left transition-colors cursor-pointer rounded-lg mx-0',
               i === selectedIndex ? 'bg-muted/60' : 'hover:bg-muted/40',
             )}
           >
-            <span className="font-mono text-muted-foreground">/{cmd.name}</span>
-            <span className="text-muted-foreground/70 truncate">{cmd.description || ''}</span>
+            <span className="font-mono text-sm text-foreground">/{cmd.name}</span>
+            {cmd.description && (
+              <span className="text-xs text-muted-foreground line-clamp-2">{cmd.description}</span>
+            )}
           </button>
         ))}
       </div>
