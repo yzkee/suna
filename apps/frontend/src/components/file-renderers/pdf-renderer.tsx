@@ -16,10 +16,10 @@ import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
 // Configure PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url,
-).toString();
+// Use the worker from /public for reliable loading across Next.js dev (Turbopack) and production builds.
+// The file is copied from node_modules/pdfjs-dist/build/pdf.worker.min.mjs during setup.
+// Falls back to unpkg CDN if the local file is unavailable.
+pdfjs.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.mjs`;
 
 interface PdfRendererProps {
   url: string;
@@ -75,9 +75,9 @@ export function PdfRenderer({ url, className, compact = false }: PdfRendererProp
     setError(null);
   }
 
-  function onDocumentLoadError(error: Error): void {
-    console.error('PDF load error:', error);
-    setError('Failed to load PDF');
+  function onDocumentLoadError(err: Error): void {
+    console.error('PDF load error:', err, '| URL:', url);
+    setError(err.message || 'Failed to load PDF');
     setIsLoading(false);
   }
 

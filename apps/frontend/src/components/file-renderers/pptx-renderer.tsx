@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { KortixLoader } from '@/components/ui/kortix-loader';
 import JSZip from 'jszip';
+import { readFileAsBlob } from '@/features/files/api/opencode-files';
 
 // ---------------------------------------------------------------------------
 // Optional: keep the public-URL path for suna-style rendering
@@ -197,6 +198,7 @@ export function PptxRenderer({
   const [currentSlide, setCurrentSlide] = useState(0);
   const [parseError, setParseError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [retryCount, setRetryCount] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Check if we have a public URL for the doc-viewer path
@@ -223,12 +225,29 @@ export function PptxRenderer({
       setIsLoading(true);
       setParseError(null);
       try {
-        let pptxBlob = blob;
-        if (!pptxBlob && binaryUrl) {
+        let pptxBlob: Blob | null = null;
+
+        // On retry, re-fetch from the file API to get fresh data
+        if (retryCount > 0 && filePath) {
+          pptxBlob = await readFileAsBlob(filePath);
+        }
+
+        // Fall back to the provided blob or binaryUrl
+        if (!pptxBlob || pptxBlob.size < 4) {
+          pptxBlob = blob ?? null;
+        }
+        if ((!pptxBlob || pptxBlob.size < 4) && binaryUrl) {
           const resp = await fetch(binaryUrl);
           pptxBlob = await resp.blob();
         }
         if (!pptxBlob) throw new Error('No blob data');
+
+        // Validate blob has actual content (ZIP signature is at least 4 bytes)
+        if (pptxBlob.size < 4) {
+          throw new Error(
+            'File appears to be empty or still being written. Try again in a moment.',
+          );
+        }
 
         const parsed = await parsePptxBlob(pptxBlob);
         if (cancelled) {
@@ -255,7 +274,11 @@ export function PptxRenderer({
       cancelled = true;
       imageUrls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [blob, binaryUrl, hasPublicUrl]);
+  }, [blob, binaryUrl, hasPublicUrl, retryCount]);
+
+  const handleRetry = useCallback(() => {
+    setRetryCount((c) => c + 1);
+  }, []);
 
   // Keyboard navigation
   const goNext = useCallback(() => {
@@ -326,16 +349,21 @@ export function PptxRenderer({
           <p className="text-sm text-muted-foreground">
             {parseError || 'No slides found in presentation'}
           </p>
-          {onDownload && (
-            <Button size="sm" onClick={onDownload} disabled={isDownloading}>
-              {isDownloading ? (
-                <KortixLoader size="small" />
-              ) : (
-                <Download className="h-4 w-4 mr-2" />
-              )}
-              Download
+          <div className="flex items-center justify-center gap-2">
+            <Button size="sm" variant="outline" onClick={handleRetry}>
+              Retry
             </Button>
-          )}
+            {onDownload && (
+              <Button size="sm" onClick={onDownload} disabled={isDownloading}>
+                {isDownloading ? (
+                  <KortixLoader size="small" />
+                ) : (
+                  <Download className="h-4 w-4 mr-2" />
+                )}
+                Download
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     );

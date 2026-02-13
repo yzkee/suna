@@ -102,6 +102,8 @@ function RendererFallback() {
 // Hook: fetch binary blob
 // ---------------------------------------------------------------------------
 
+const EMPTY_BLOB_RETRY_DELAYS = [1500, 3000, 5000];
+
 function useBinaryBlob(filePath: string | null, category: FileCategory) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [blob, setBlob] = useState<Blob | null>(null);
@@ -118,13 +120,32 @@ function useBinaryBlob(filePath: string | null, category: FileCategory) {
 
     let cancelled = false;
     let objectUrl: string | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    async function load() {
+    async function load(attempt = 0) {
       setBlobLoading(true);
       setBlobError(null);
       try {
         const result = await readFileAsBlob(filePath!);
         if (cancelled) return;
+
+        // If blob is empty, the file may still be writing — auto-retry
+        if (result.size === 0 && attempt < EMPTY_BLOB_RETRY_DELAYS.length) {
+          retryTimer = setTimeout(() => {
+            if (!cancelled) load(attempt + 1);
+          }, EMPTY_BLOB_RETRY_DELAYS[attempt]);
+          return; // Don't set loading=false yet, retry is pending
+        }
+
+        // After all retries, if still empty, report an error
+        if (result.size === 0) {
+          if (!cancelled) {
+            setBlobError('File is empty (0 bytes). It may still be generating — try again in a moment.');
+            setBlobLoading(false);
+          }
+          return;
+        }
+
         if (category === 'docx' || category === 'pptx') {
           setBlob(result);
           setBlobUrl(null);
@@ -133,18 +154,19 @@ function useBinaryBlob(filePath: string | null, category: FileCategory) {
           setBlobUrl(objectUrl);
           setBlob(null);
         }
+        if (!cancelled) setBlobLoading(false);
       } catch (err) {
         if (!cancelled) {
           setBlobError(err instanceof Error ? err.message : 'Failed to load file');
+          setBlobLoading(false);
         }
-      } finally {
-        if (!cancelled) setBlobLoading(false);
       }
     }
 
     load();
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [filePath, category]);
