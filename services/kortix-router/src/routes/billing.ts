@@ -31,5 +31,7 @@ async function proxyToBilling(c: any) {
 // Match both /billing/* and /v1/billing/*
 billing.all('/billing/*', proxyToBilling);
 billing.all('/v1/billing/*', proxyToBilling);
+billing.all('/setup/*', proxyToBilling);
+billing.all('/v1/setup/*', proxyToBilling);
 billing.all('/webhooks/*', proxyToBilling);
 billing.all('/v1/webhooks/*', proxyToBilling);

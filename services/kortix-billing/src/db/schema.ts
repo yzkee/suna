@@ -17,8 +17,6 @@ import { sql } from 'drizzle-orm';
 
 const basejump = pgSchema('basejump');
 
-// ─── credit_accounts ───────────────────────────────────────────────────────
-
 export const creditAccounts = pgTable('credit_accounts', {
   accountId: uuid('account_id').primaryKey().notNull(),
   balance: numeric({ precision: 12, scale: 4 }).default('0').notNull(),
@@ -64,8 +62,6 @@ export const creditAccounts = pgTable('credit_accounts', {
   lastDailyRefresh: timestamp('last_daily_refresh', { withTimezone: true, mode: 'string' }),
   dailyCreditsBalance: numeric('daily_credits_balance', { precision: 10, scale: 2 }).default('0').notNull(),
 });
-
-// ─── billing_customers (basejump schema) ────────────────────────────────────
 
 export const billingCustomers = basejump.table('billing_customers', {
   accountId: uuid('account_id').notNull(),

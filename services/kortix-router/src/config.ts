@@ -46,7 +46,10 @@ export const config = {
   // Database (Drizzle ORM)
   DATABASE_URL: process.env.DATABASE_URL || '',
 
-  // Backend API for billing (legacy fallback)
+  // Billing service
+  BILLING_SERVICE_URL: process.env.BILLING_SERVICE_URL || 'http://localhost:8012',
+
+  // Backend API (legacy fallback)
   BACKEND_API_URL: process.env.BACKEND_API_URL || 'http://localhost:8000',
   BACKEND_API_KEY: process.env.BACKEND_API_KEY || '',
 
@@ -72,7 +75,7 @@ export interface ToolPricing {
   perResultCost: number;
   markupMultiplier: number;
 }
-
+  
 export const TOOL_PRICING: Record<string, ToolPricing> = {
   web_search_basic: {
     baseCost: 0.005,

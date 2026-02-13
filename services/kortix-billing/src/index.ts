@@ -10,14 +10,13 @@ import { subscriptionsRouter } from './routes/subscriptions';
 import { paymentsRouter } from './routes/payments';
 import { creditsRouter } from './routes/credits';
 import { webhooksRouter } from './routes/webhooks';
+import type { AppEnv } from './types/hono';
 
-const app = new Hono();
+const app = new Hono<AppEnv>();
 
-// ─── Global Middleware ──────────────────────────────────────────────────────
 app.use('*', logger());
 app.use('*', cors());
 
-// ─── Health Check ───────────────────────────────────────────────────────────
 app.get('/health', (c) => {
   return c.json({
     status: 'ok',
@@ -26,22 +25,61 @@ app.get('/health', (c) => {
   });
 });
 
-// ─── Webhooks (no auth - verified by provider signatures) ───────────────────
 app.route('/webhooks', webhooksRouter);
 
-// ─── Auth Middleware ────────────────────────────────────────────────────────
 app.use('/billing/*', authMiddleware);
+app.use('/setup/*', authMiddleware);
 
-// ─── Billing Routes ─────────────────────────────────────────────────────────
+app.post('/setup/initialize', async (c) => {
+  const accountId = c.get('userId');
+  const email = c.get('userEmail');
+  const { upsertCreditAccount, getCreditAccount } = await import('./repositories/credit-accounts');
+  const { getDailyCreditConfig, resolvePriceId } = await import('./services/tiers');
+  const { getOrCreateStripeCustomer } = await import('./services/subscriptions');
+
+  const existing = await getCreditAccount(accountId);
+  if (existing?.stripeSubscriptionId) {
+    return c.json({ status: 'already_initialized', tier: existing.tier });
+  }
+
+  const customerId = await getOrCreateStripeCustomer(accountId, email);
+  const { getStripe } = await import('./lib/stripe');
+  const stripe = getStripe();
+
+  const freePriceId = resolvePriceId('free', 'monthly');
+  if (!freePriceId) {
+    return c.json({ error: 'Free tier price not configured' }, 500);
+  }
+
+  const subscription = await stripe.subscriptions.create({
+    customer: customerId,
+    items: [{ price: freePriceId }],
+    payment_behavior: 'allow_incomplete',
+    payment_settings: { save_default_payment_method: 'on_subscription' },
+    metadata: { account_id: accountId, tier_key: 'free' },
+  });
+
+  const dailyConfig = getDailyCreditConfig('free');
+  await upsertCreditAccount(accountId, {
+    tier: 'free',
+    provider: 'stripe',
+    stripeSubscriptionId: subscription.id,
+    stripeSubscriptionStatus: 'active',
+    planType: 'monthly',
+    dailyCreditsBalance: String(dailyConfig?.dailyAmount ?? 3),
+    lastDailyRefresh: new Date().toISOString(),
+  });
+
+  return c.json({ status: 'initialized', tier: 'free' });
+});
+
 app.route('/billing/account-state', accountStateRouter);
 app.route('/billing', subscriptionsRouter);
 app.route('/billing', paymentsRouter);
 app.route('/billing', creditsRouter);
 
-// ─── 404 ────────────────────────────────────────────────────────────────────
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 
-// ─── Error Handler ──────────────────────────────────────────────────────────
 app.onError((err, c) => {
   if (err instanceof BillingError) {
     return c.json({ error: err.message }, err.statusCode as any);
@@ -53,7 +91,7 @@ app.onError((err, c) => {
   return c.json({ error: 'Internal server error' }, 500);
 });
 
-// ─── Start ──────────────────────────────────────────────────────────────────
+
 const port = config.PORT;
 
 console.log(`
@@ -64,6 +102,7 @@ console.log(`
 ╠══════════════════════════════════════════════════════════════════╣
 ║  Endpoints:                                                      ║
 ║    GET    /health                        Health check             ║
+║    POST   /setup/initialize              Init free tier account   ║
 ║    GET    /billing/account-state         Full account state       ║
 ║    GET    /billing/account-state/minimal Minimal account state    ║
 ║    POST   /billing/deduct               Deduct credits            ║

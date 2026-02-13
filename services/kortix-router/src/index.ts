@@ -59,6 +59,15 @@ app.get('/v1/health', (c) => {
   return c.json({ status: 'ok', service: 'kortix', timestamp: new Date().toISOString() });
 });
 
+// System status (no auth — polled by frontend for maintenance banners)
+app.get('/v1/system/status', (c) => {
+  return c.json({
+    maintenanceNotice: { enabled: false },
+    technicalIssue: { enabled: false },
+    updatedAt: new Date().toISOString(),
+  });
+});
+
 // === Billing Proxy (forwarded to kortix-billing service, handles its own auth) ===
 
 app.route('/', billing);

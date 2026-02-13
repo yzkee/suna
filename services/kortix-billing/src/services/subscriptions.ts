@@ -9,8 +9,6 @@ import { BillingError, SubscriptionError } from '../errors';
 import { getTier, isUpgrade, isDowngrade, getMonthlyCredits, resolvePriceId } from './tiers';
 import { grantCredits, resetExpiringCredits } from './credits';
 
-// ─── Customer Management ────────────────────────────────────────────────────
-
 export async function getOrCreateStripeCustomer(
   accountId: string,
   email: string,
@@ -35,8 +33,6 @@ export async function getOrCreateStripeCustomer(
   return customer.id;
 }
 
-// ─── Checkout Sessions ──────────────────────────────────────────────────────
-
 export async function createCheckoutSession(params: {
   accountId: string;
   email: string;
@@ -57,7 +53,7 @@ export async function createCheckoutSession(params: {
     return { status: 'no_change' as const, message: 'Already on this tier' };
   }
 
-  if (account?.stripeSubscriptionId && isUpgrade(currentTier, tierKey)) {
+  if (account?.stripeSubscriptionId && currentTier !== 'free' && isUpgrade(currentTier, tierKey)) {
     return handleUpgrade(accountId, account.stripeSubscriptionId, tierKey, commitmentType);
   }
 
@@ -98,8 +94,6 @@ export async function createCheckoutSession(params: {
     session_id: session.id,
   };
 }
-
-// ─── Inline Checkout ────────────────────────────────────────────────────────
 
 export async function createInlineCheckout(params: {
   accountId: string;
@@ -186,8 +180,6 @@ export async function confirmInlineCheckout(params: {
   return { success: true, tier: tierKey, message: 'Subscription activated' };
 }
 
-// ─── Portal Session ─────────────────────────────────────────────────────────
-
 export async function createPortalSession(accountId: string, returnUrl: string) {
   const customer = await getCustomerByAccountId(accountId);
   if (!customer) throw new BillingError('No billing customer found');
@@ -200,8 +192,6 @@ export async function createPortalSession(accountId: string, returnUrl: string) 
 
   return { portal_url: session.url };
 }
-
-// ─── Cancel / Reactivate ────────────────────────────────────────────────────
 
 export async function cancelSubscription(accountId: string, feedback?: string) {
   const account = await getCreditAccount(accountId);
@@ -238,8 +228,6 @@ export async function reactivateSubscription(accountId: string) {
 
   return { success: true, message: 'Subscription reactivated' };
 }
-
-// ─── Schedule Downgrade ─────────────────────────────────────────────────────
 
 export async function scheduleDowngrade(
   accountId: string,
@@ -292,8 +280,6 @@ export async function cancelScheduledChange(accountId: string) {
   return { success: true, message: 'Scheduled change cancelled' };
 }
 
-// ─── Sync ───────────────────────────────────────────────────────────────────
-
 export async function syncSubscription(accountId: string) {
   const account = await getCreditAccount(accountId);
   if (!account?.stripeSubscriptionId) {
@@ -310,8 +296,6 @@ export async function syncSubscription(accountId: string) {
 
   return { success: true, message: 'Subscription synced' };
 }
-
-// ─── Checkout Session Details ───────────────────────────────────────────────
 
 export async function getCheckoutSessionDetails(sessionId: string) {
   const stripe = getStripe();
@@ -340,8 +324,6 @@ export async function getCheckoutSessionDetails(sessionId: string) {
   };
 }
 
-// ─── Proration Preview ──────────────────────────────────────────────────────
-
 export async function getProrationPreview(accountId: string, newPriceId: string) {
   const account = await getCreditAccount(accountId);
   if (!account?.stripeSubscriptionId) throw new SubscriptionError('No active subscription');
@@ -364,8 +346,6 @@ export async function getProrationPreview(accountId: string, newPriceId: string)
     proration_date: invoice.subscription_proration_date,
   };
 }
-
-// ─── Internal Helpers ───────────────────────────────────────────────────────
 
 async function handleUpgrade(
   accountId: string,
@@ -421,4 +401,3 @@ async function activateSubscription(
     scheduledPriceId: null,
   });
 }
-
