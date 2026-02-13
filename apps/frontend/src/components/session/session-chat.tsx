@@ -37,7 +37,6 @@ import {
   useOpenCodeAgents,
   useOpenCodeCommands,
   useExecuteOpenCodeCommand,
-  useSummarizeOpenCodeSession,
   useOpenCodeProviders,
   useForkSession,
   useRevertSession,
@@ -1265,7 +1264,6 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   const sendMessage = useSendOpenCodeMessage();
   const abortSession = useAbortOpenCodeSession();
   const executeCommand = useExecuteOpenCodeCommand();
-  const summarizeSession = useSummarizeOpenCodeSession();
   const forkSession = useForkSession();
   const revertSession = useRevertSession();
   const unrevertSession = useUnrevertSession();
@@ -1623,13 +1621,9 @@ export function SessionChat({ sessionId }: SessionChatProps) {
 
   const handleCommand = useCallback(
     (cmd: Command) => {
-      if (cmd.name === 'compact') {
-        summarizeSession.mutate({ sessionId });
-      } else {
-        executeCommand.mutate({ sessionId, command: cmd.name });
-      }
+      executeCommand.mutate({ sessionId, command: cmd.name });
     },
-    [sessionId, executeCommand, summarizeSession],
+    [sessionId, executeCommand],
   );
 
   const handleFileSearch = useCallback(async (query: string): Promise<string[]> => {

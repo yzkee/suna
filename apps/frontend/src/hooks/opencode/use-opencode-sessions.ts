@@ -643,6 +643,42 @@ export function useOpenCodeMcpStatus() {
 }
 
 // ============================================================================
+// Share / Unshare Hooks
+// ============================================================================
+
+export function useShareSession() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const client = getClient();
+      const result = await client.session.share({ sessionID: sessionId });
+      return unwrap(result) as Session;
+    },
+    onSuccess: (updatedSession) => {
+      queryClient.invalidateQueries({ queryKey: opencodeKeys.session(updatedSession.id) });
+      queryClient.invalidateQueries({ queryKey: opencodeKeys.sessions() });
+    },
+  });
+}
+
+export function useUnshareSession() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const client = getClient();
+      const result = await client.session.unshare({ sessionID: sessionId });
+      return unwrap(result) as Session;
+    },
+    onSuccess: (updatedSession) => {
+      queryClient.invalidateQueries({ queryKey: opencodeKeys.session(updatedSession.id) });
+      queryClient.invalidateQueries({ queryKey: opencodeKeys.sessions() });
+    },
+  });
+}
+
+// ============================================================================
 // File Search (direct SDK call, not a hook)
 // ============================================================================
 
