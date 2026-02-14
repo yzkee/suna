@@ -12,28 +12,33 @@ import {
 import { getSupabaseAccessToken } from '@/lib/auth-token';
 
 /**
- * Number of consecutive failures before marking sandbox as unreachable.
+ * Number of consecutive failures before marking as unreachable
+ * when this is the FIRST connection (never been connected).
  */
-const FAIL_THRESHOLD = 3;
+const FAIL_THRESHOLD_FIRST = 3;
+
+/**
+ * For reconnection (was connected, then failed) — show the banner
+ * after just 1 failure since the user already had a working connection.
+ */
+const FAIL_THRESHOLD_RECONNECT = 1;
 
 /** Interval between health checks (ms) */
-const POLL_CONNECTED = 30_000; // 30s when already connected
-const POLL_DISCONNECTED = 5_000; // 5s when connecting/unreachable
+const POLL_CONNECTED = 30_000; // 30s when healthy
+const POLL_FAILING = 3_000;   // 3s when any failure detected (fast retry)
+const POLL_UNREACHABLE = 5_000; // 5s when confirmed unreachable
 
 /** Timeout for each health check request */
-const CHECK_TIMEOUT = 8_000;
+const CHECK_TIMEOUT = 5_000;
 
 /**
  * useSandboxConnection — monitors the active server's reachability.
  *
- * Subscribes to:
- *   - activeServerId + serverVersion — for full server switches (user picks
- *     a different server). Resets status to 'connecting'.
- *   - urlVersion — for silent URL/port updates (sandbox port changed). Does
- *     NOT reset status; just re-verifies in the background.
- *
- * This two-tier approach prevents the "connecting flash" that occurred
- * when sandbox port changes triggered a full reconnect cycle.
+ * Key behaviour:
+ *   - On first failure, immediately switches to fast polling (3s).
+ *   - If the user was previously connected, marks unreachable after 1 failure
+ *     so the reconnect banner appears within ~8s (one 30s poll + 5s timeout).
+ *   - If it's the first connection, requires 3 failures (same as before).
  */
 export function useSandboxConnection() {
   const activeServerId = useServerStore((s) => s.activeServerId);
@@ -48,8 +53,6 @@ export function useSandboxConnection() {
     const isServerSwitch = serverVersion !== prevServerVersionRef.current;
     prevServerVersionRef.current = serverVersion;
 
-    // Only reset to 'connecting' on actual server switches — NOT on URL updates
-    // and NOT if we were already connected.
     if (isServerSwitch) {
       const { status } = useSandboxConnectionStore.getState();
       if (status !== 'connected') {
@@ -66,7 +69,6 @@ export function useSandboxConnection() {
     async function check() {
       if (!alive) return;
 
-      // Abort any in-flight request from a previous tick
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -92,8 +94,10 @@ export function useSandboxConnection() {
         if (!alive) return;
         incrementSandboxFail();
 
-        const { failCount } = useSandboxConnectionStore.getState();
-        if (failCount >= FAIL_THRESHOLD) {
+        const { failCount, wasConnected } = useSandboxConnectionStore.getState();
+        const threshold = wasConnected ? FAIL_THRESHOLD_RECONNECT : FAIL_THRESHOLD_FIRST;
+
+        if (failCount >= threshold) {
           setSandboxStatus('unreachable');
         }
       } finally {
@@ -109,12 +113,19 @@ export function useSandboxConnection() {
       if (!alive) return;
       if (timerRef.current) clearTimeout(timerRef.current);
 
-      const { status } = useSandboxConnectionStore.getState();
-      const delay = status === 'connected' ? POLL_CONNECTED : POLL_DISCONNECTED;
+      const { status, failCount } = useSandboxConnectionStore.getState();
+      let delay: number;
+      if (status === 'connected') {
+        delay = POLL_CONNECTED;
+      } else if (status === 'unreachable') {
+        delay = POLL_UNREACHABLE;
+      } else {
+        // Any failure → fast poll to detect recovery quickly
+        delay = failCount > 0 ? POLL_FAILING : POLL_UNREACHABLE;
+      }
       timerRef.current = setTimeout(check, delay);
     }
 
-    // Kick off first check immediately
     check();
 
     return () => {
