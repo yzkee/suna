@@ -170,10 +170,13 @@ preview.all('/:sandboxId/:port/*', async (c) => {
   }
 
   // 3. Build path & query (invariant across retries)
+  // c.req.url includes the full mount prefix (e.g. /v1/preview/{sandboxId}/{port}/agent)
+  // so we use indexOf instead of startsWith to find /{sandboxId}/{port} anywhere in the path
   const fullPath = new URL(c.req.url).pathname;
   const prefixPattern = `/${sandboxId}/${portStr}`;
-  const remainingPath = fullPath.startsWith(prefixPattern)
-    ? fullPath.slice(prefixPattern.length) || '/'
+  const prefixIndex = fullPath.indexOf(prefixPattern);
+  const remainingPath = prefixIndex !== -1
+    ? fullPath.slice(prefixIndex + prefixPattern.length) || '/'
     : '/';
   const upstreamUrl = new URL(c.req.url);
   upstreamUrl.searchParams.delete('token');
