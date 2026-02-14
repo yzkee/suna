@@ -47,8 +47,8 @@ export function TodoDialog({ sessionId, open, onOpenChange }: TodoDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg max-h-[80vh] flex flex-col p-0 gap-0">
-        <DialogHeader className="px-5 pt-5 pb-3">
-          <DialogTitle className="flex items-center gap-2 text-base">
+        <DialogHeader className="px-6 pt-5 pb-4 pr-12">
+          <DialogTitle className="flex items-center gap-2.5 text-base">
             <ListTodo className="h-4 w-4" />
             Session Tasks
             {total > 0 && (
@@ -61,7 +61,7 @@ export function TodoDialog({ sessionId, open, onOpenChange }: TodoDialogProps) {
 
         {/* Progress bar */}
         {total > 0 && (
-          <div className="px-5 pb-3">
+          <div className="px-6 pb-4">
             <div className="h-1.5 bg-muted rounded-full overflow-hidden">
               <div
                 className="h-full bg-emerald-500 rounded-full transition-all duration-300"
@@ -72,7 +72,7 @@ export function TodoDialog({ sessionId, open, onOpenChange }: TodoDialogProps) {
         )}
 
         <ScrollArea className="flex-1 min-h-0">
-          <div className="px-5 pb-5 space-y-1">
+          <div className="px-6 pb-5 space-y-0.5">
             {isLoading && (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -107,14 +107,14 @@ export function TodoDialog({ sessionId, open, onOpenChange }: TodoDialogProps) {
                 <div
                   key={todo.id}
                   className={cn(
-                    'flex items-start gap-2.5 px-3 py-2.5 rounded-lg transition-colors',
+                    'flex items-center gap-3 px-3 py-3 rounded-lg transition-colors',
                     isCompleted && 'opacity-60',
                     isCancelled && 'opacity-40',
                   )}
                 >
                   <StatusIcon
                     className={cn(
-                      'h-4 w-4 flex-shrink-0 mt-0.5',
+                      'h-4.5 w-4.5 flex-shrink-0',
                       status.color,
                       todo.status === 'in_progress' && 'animate-spin',
                     )}
@@ -130,7 +130,7 @@ export function TodoDialog({ sessionId, open, onOpenChange }: TodoDialogProps) {
                   </div>
                   {priority && (
                     <span className={cn(
-                      'text-[10px] font-medium px-1.5 py-0.5 rounded border flex-shrink-0',
+                      'text-[10px] font-medium px-2 py-0.5 rounded border flex-shrink-0',
                       priority.color,
                     )}>
                       {priority.label}

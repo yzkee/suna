@@ -21,6 +21,7 @@ export { OcTaskToolView } from './OcTaskToolView';
 export { OcTodoToolView } from './OcTodoToolView';
 export { OcGenericToolView } from './OcGenericToolView';
 export { OcQuestionToolView } from './OcQuestionToolView';
+export { OcPtySpawnToolView, OcPtyReadToolView, OcPtyWriteToolView, OcPtyKillToolView } from './OcPtyToolViews';
 
 import type { ToolViewComponent } from '../wrapper/ToolViewRegistry';
 import { OcBashToolView } from './OcBashToolView';
@@ -39,6 +40,7 @@ import { OcTaskToolView } from './OcTaskToolView';
 import { OcTodoToolView } from './OcTodoToolView';
 import { OcGenericToolView } from './OcGenericToolView';
 import { OcQuestionToolView } from './OcQuestionToolView';
+import { OcPtySpawnToolView, OcPtyReadToolView, OcPtyWriteToolView, OcPtyKillToolView } from './OcPtyToolViews';
 
 /**
  * Registry entries for OpenCode tools.
@@ -47,6 +49,18 @@ import { OcQuestionToolView } from './OcQuestionToolView';
 export const ocToolViewRegistrations: Record<string, ToolViewComponent> = {
   // Shell / command execution
   'oc-bash': OcBashToolView,
+
+  // PTY (pseudo-terminal) tools
+  'oc-pty_spawn': OcPtySpawnToolView,
+  'oc-pty-spawn': OcPtySpawnToolView,
+  'oc-pty_read': OcPtyReadToolView,
+  'oc-pty-read': OcPtyReadToolView,
+  'oc-pty_write': OcPtyWriteToolView,
+  'oc-pty-write': OcPtyWriteToolView,
+  'oc-pty_input': OcPtyWriteToolView,
+  'oc-pty-input': OcPtyWriteToolView,
+  'oc-pty_kill': OcPtyKillToolView,
+  'oc-pty-kill': OcPtyKillToolView,
 
   // File editing
   'oc-edit': OcEditToolView,

@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -7,6 +8,7 @@ import {
 } from '@/components/ui/dialog';
 import { SessionDiffViewer } from '@/components/session/session-diff-viewer';
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
+import { cn } from '@/lib/utils';
 
 interface DiffDialogProps {
   sessionId: string;
@@ -15,12 +17,25 @@ interface DiffDialogProps {
 }
 
 export function DiffDialog({ sessionId, open, onOpenChange }: DiffDialogProps) {
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col p-0 gap-0">
+    <Dialog open={open} onOpenChange={(v) => { if (!v) setIsFullscreen(false); onOpenChange(v); }}>
+      <DialogContent
+        className={cn(
+          'flex flex-col p-0 gap-0 overflow-hidden transition-all duration-200',
+          isFullscreen
+            ? 'sm:max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] h-[calc(100vh-2rem)]'
+            : 'sm:max-w-4xl max-h-[80vh]',
+        )}
+      >
         <VisuallyHidden><DialogTitle>File Changes</DialogTitle></VisuallyHidden>
         <div className="flex-1 min-h-0 overflow-hidden">
-          <SessionDiffViewer sessionId={sessionId} />
+          <SessionDiffViewer
+            sessionId={sessionId}
+            isFullscreen={isFullscreen}
+            onToggleFullscreen={() => setIsFullscreen((v) => !v)}
+          />
         </div>
       </DialogContent>
     </Dialog>
