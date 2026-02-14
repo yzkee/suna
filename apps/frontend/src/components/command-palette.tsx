@@ -364,7 +364,16 @@ export function CommandPalette() {
   }, [isCreating, createSession, close]);
 
   const handleNavigate = useCallback(
-    (path: string) => {
+    (path: string, label?: string) => {
+      const type = path.startsWith('/settings') || path === '/configuration'
+        ? 'settings' as const
+        : 'page' as const;
+      useTabStore.getState().openTab({
+        id: `page:${path}`,
+        title: label || path.split('/').pop() || '',
+        type,
+        href: path,
+      });
       router.push(path);
       close();
     },
@@ -697,27 +706,27 @@ export function CommandPalette() {
             <CommandSeparator />
 
             <CommandGroup heading="Navigation">
-              <CommandItem onSelect={() => handleNavigate('/dashboard')}>
+              <CommandItem onSelect={() => handleNavigate('/dashboard', 'Dashboard')}>
                 <LayoutDashboard className="mr-2 h-4 w-4" />
                 <span>Dashboard</span>
               </CommandItem>
-              <CommandItem onSelect={() => handleNavigate('/agents')}>
+              <CommandItem onSelect={() => handleNavigate('/agents', 'Agents')}>
                 <Bot className="mr-2 h-4 w-4" />
                 <span>Agents</span>
               </CommandItem>
-              <CommandItem onSelect={() => handleNavigate('/knowledge')}>
+              <CommandItem onSelect={() => handleNavigate('/knowledge', 'Knowledge')}>
                 <Database className="mr-2 h-4 w-4" />
                 <span>Knowledge</span>
               </CommandItem>
-              <CommandItem onSelect={() => handleNavigate('/triggers')}>
+              <CommandItem onSelect={() => handleNavigate('/triggers', 'Triggers')}>
                 <Zap className="mr-2 h-4 w-4" />
                 <span>Triggers</span>
               </CommandItem>
-              <CommandItem onSelect={() => handleNavigate('/settings/api-keys')}>
+              <CommandItem onSelect={() => handleNavigate('/settings/api-keys', 'Settings')}>
                 <Settings className="mr-2 h-4 w-4" />
                 <span>Settings</span>
               </CommandItem>
-              <CommandItem onSelect={() => handleNavigate('/configuration')}>
+              <CommandItem onSelect={() => handleNavigate('/configuration', 'Configuration')}>
                 <Cog className="mr-2 h-4 w-4" />
                 <span>Configuration</span>
               </CommandItem>

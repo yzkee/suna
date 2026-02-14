@@ -1229,7 +1229,7 @@ export default function ConfigurationPage() {
               >
                 <button
                   onClick={() => setActiveTab(tab.id)}
-                  className={cn('w-full flex items-center gap-3 px-4 py-2.5 text-sm', isActive ? 'text-foreground' : 'text-muted-foreground')}
+                  className={cn('w-full flex items-center gap-3 px-4 py-2.5 text-sm cursor-pointer', isActive ? 'text-foreground' : 'text-muted-foreground')}
                 >
                   <Icon className="h-4 w-4" />
                   {tab.label}
