@@ -329,6 +329,7 @@ function GeneralTab({ onClose }: { onClose: () => void }) {
         };
 
         fetchUserData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const getInitials = (name: string) => {
@@ -1123,6 +1124,7 @@ function BillingTab({ returnUrl, onOpenPlanModal, isActive }: { returnUrl: strin
                         <div className="flex items-center gap-2">
                             {planIcon && (
                                 <div className="rounded-full py-0.5 flex items-center justify-center">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img 
                                         src={planIcon} 
                                         alt={planName} 
