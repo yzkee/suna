@@ -1,16 +1,27 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { UnifiedMarkdown } from '@/components/markdown/unified-markdown';
 import { KortixLoader } from '@/components/ui/kortix-loader';
 import {
   AlertTriangle,
   Copy,
   Check,
-  Clock,
+  ThumbsUp,
+  ThumbsDown,
+  PanelRightOpen,
+  PanelRightClose,
+  Menu,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { toast } from '@/lib/toast';
+import { motion, AnimatePresence } from 'framer-motion';
 
 // ============================================================================
 // Types
@@ -53,52 +64,26 @@ interface ShareData {
 
 const OPENCODE_BASE_URL = (process.env.NEXT_PUBLIC_OPENCODE_URL || 'http://localhost:4096').replace(/\/+$/, '');
 
-/**
- * Resolve a share ID (e.g. "t9RGzhWU") to a session, then fetch its messages.
- *
- * The share ID is the last 8 characters of the session ID.
- * We list all sessions, find the one whose ID ends with the shareId
- * and has an active share, then fetch its messages.
- */
 async function fetchShareData(shareId: string): Promise<ShareData> {
-  // 1. List sessions to find the one matching this share ID
   const sessionsRes = await fetch(`${OPENCODE_BASE_URL}/session`, {
     headers: { 'Accept': 'application/json' },
   });
-  if (!sessionsRes.ok) {
-    throw new Error('Failed to load sessions');
-  }
-
+  if (!sessionsRes.ok) throw new Error('Failed to load sessions');
   const contentType = sessionsRes.headers.get('content-type') || '';
-  if (!contentType.includes('application/json')) {
-    throw new Error('Unexpected response from server');
-  }
+  if (!contentType.includes('application/json')) throw new Error('Unexpected response from server');
 
   const sessions: SessionInfo[] = await sessionsRes.json();
+  const session = sessions.find((s) => s.id.endsWith(shareId) && s.share?.url);
+  if (!session) throw new Error('Share not found');
 
-  // Find the session whose ID ends with the shareId and has sharing enabled
-  const session = sessions.find(
-    (s) => s.id.endsWith(shareId) && s.share?.url
-  );
-  if (!session) {
-    throw new Error('Share not found');
-  }
-
-  // 2. Fetch messages for this session
   const messagesRes = await fetch(`${OPENCODE_BASE_URL}/session/${session.id}/message`, {
     headers: { 'Accept': 'application/json' },
   });
-  if (!messagesRes.ok) {
-    throw new Error('Failed to load messages');
-  }
-
+  if (!messagesRes.ok) throw new Error('Failed to load messages');
   const msgContentType = messagesRes.headers.get('content-type') || '';
-  if (!msgContentType.includes('application/json')) {
-    throw new Error('Unexpected response from server');
-  }
+  if (!msgContentType.includes('application/json')) throw new Error('Unexpected response from server');
 
   const messages: MessageWithParts[] = await messagesRes.json();
-
   return { session, messages };
 }
 
@@ -117,31 +102,19 @@ export function ShareViewer({ shareId }: { shareId: string }) {
     setError(null);
 
     fetchShareData(shareId)
-      .then((result) => {
-        if (!cancelled) setData(result);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.message || 'Failed to load share');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      .then((result) => { if (!cancelled) setData(result); })
+      .catch((err) => { if (!cancelled) setError(err.message || 'Failed to load share'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
   }, [shareId]);
 
-  // Extract only text parts from messages
   const parsed = useMemo(() => {
     if (!data) return null;
-
     const { session, messages } = data;
-
-    // Sort messages by creation time
     const sortedMessages = [...messages].sort(
-      (a, b) => a.info.time.created - b.info.time.created
+      (a, b) => a.info.time.created - b.info.time.created,
     );
-
-    // Build a parts map with only text parts
     const textPartsByMessage: Record<string, MessagePart[]> = {};
     for (const msg of sortedMessages) {
       const textParts = msg.parts.filter((p) => p.type === 'text');
@@ -149,13 +122,13 @@ export function ShareViewer({ shareId }: { shareId: string }) {
         textPartsByMessage[msg.info.id] = textParts;
       }
     }
-
     return { session, messages: sortedMessages, textPartsByMessage };
   }, [data]);
 
+  // ---------- Loading state ----------
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="flex h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <KortixLoader size="medium" />
           <p className="text-sm text-muted-foreground">Loading shared session...</p>
@@ -164,9 +137,10 @@ export function ShareViewer({ shareId }: { shareId: string }) {
     );
   }
 
+  // ---------- Error state ----------
   if (error || !parsed?.session) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="flex h-screen items-center justify-center bg-background p-4">
         <div className="flex flex-col items-center gap-4 max-w-md text-center">
           <div className="rounded-full bg-muted p-3">
             <AlertTriangle className="h-5 w-5 text-muted-foreground" />
@@ -185,55 +159,16 @@ export function ShareViewer({ shareId }: { shareId: string }) {
   }
 
   const { session, messages, textPartsByMessage } = parsed;
-  const userMessages = messages.filter((m) => m.info.role === 'user');
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-20 bg-background border-b border-border/40">
-        <div className="h-12 sm:h-14 flex items-center justify-between px-4 sm:px-6 max-w-5xl mx-auto w-full">
-          <div className="flex items-center gap-3 min-w-0">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/kortix-logomark-white.svg"
-              alt="Kortix"
-              className="dark:invert-0 invert flex-shrink-0"
-              style={{ height: '14px', width: 'auto' }}
-            />
-            <span className="text-sm font-medium truncate">{session.title}</span>
-          </div>
-          <CopyLinkButton />
-        </div>
-      </header>
+    <div className="flex flex-col h-screen bg-background">
+      {/* ── Header (matches Suna thread-site-header variant="shared") ── */}
+      <ShareHeader sessionTitle={session.title} />
 
-      {/* Content */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
-          {/* Session info */}
-          <div className="mb-8 flex flex-col gap-2">
-            <h1 className="text-lg font-semibold">{session.title}</h1>
-            <div className="flex items-center gap-4 text-xs text-muted-foreground">
-              {session.version && (
-                <span className="px-1.5 py-0.5 bg-muted rounded text-[10px] font-mono">
-                  v{session.version}
-                </span>
-              )}
-              <span className="flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                {new Date(session.time.created).toLocaleDateString('en-US', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-              </span>
-              <span>{userMessages.length} turn{userMessages.length !== 1 ? 's' : ''}</span>
-            </div>
-          </div>
-
-          {/* Message turns — chat content only */}
-          <div className="space-y-8">
+      {/* ── Message list ── */}
+      <div className="flex-1 overflow-y-auto scrollbar-hide px-4 py-4 pb-0 bg-background min-h-0">
+        <div className="mx-auto max-w-3xl min-w-0 w-full px-3 sm:px-6">
+          <div className="space-y-6 min-w-0">
             {messages.map((msg) => {
               const parts = textPartsByMessage[msg.info.id];
               if (!parts || parts.length === 0) return null;
@@ -246,35 +181,26 @@ export function ShareViewer({ shareId }: { shareId: string }) {
               );
             })}
           </div>
-
-          {/* Footer */}
-          <div className="flex items-center justify-center pt-16 pb-8">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/kortix-logomark-white.svg"
-              alt="Kortix"
-              className="dark:invert-0 invert opacity-10"
-              style={{ height: '24px', width: 'auto' }}
-            />
-          </div>
+          {/* Bottom spacer */}
+          <div className="!h-8" />
         </div>
-      </main>
+      </div>
     </div>
   );
 }
 
 // ============================================================================
-// Sub-components
+// Header — matches Suna SiteHeader variant="shared"
 // ============================================================================
 
-function CopyLinkButton() {
+function ShareHeader({ sessionTitle }: { sessionTitle: string }) {
   const [copied, setCopied] = useState(false);
 
-  const handleCopy = async () => {
+  const copyShareLink = async () => {
     try {
       await navigator.clipboard.writeText(window.location.href);
       setCopied(true);
-      toast.success('Share link copied!');
+      toast.success('Share link copied to clipboard!');
       setTimeout(() => setCopied(false), 2000);
     } catch {
       toast.error('Failed to copy link');
@@ -282,17 +208,47 @@ function CopyLinkButton() {
   };
 
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      onClick={handleCopy}
-      className="h-8 px-2.5 gap-1.5 text-muted-foreground hover:text-foreground"
-    >
-      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-      <span className="hidden sm:inline text-xs">{copied ? 'Copied!' : 'Copy Link'}</span>
-    </Button>
+    <header className="bg-background sticky top-0 z-20 w-full h-12 sm:h-14 flex-shrink-0">
+      <div className="h-full flex items-center justify-between px-3 sm:px-4">
+        {/* Left side — title + "Shared" badge */}
+        <div className="flex items-center gap-1 min-w-0 flex-1">
+          <div className="text-sm font-medium text-muted-foreground flex items-center gap-2 min-w-0">
+            <span className="truncate max-w-[140px] sm:max-w-none">{sessionTitle}</span>
+            <span className="text-[11px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-md shrink-0 font-medium">
+              Shared
+            </span>
+          </div>
+        </div>
+
+        {/* Right side — Copy Link */}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <TooltipProvider delayDuration={300}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  onClick={copyShareLink}
+                  size="sm"
+                  className="h-9 px-2.5 cursor-pointer gap-1.5"
+                >
+                  {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  <span className="hidden sm:inline text-sm">{copied ? 'Copied!' : 'Copy Link'}</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={4}>
+                <p>Copy share link</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+      </div>
+    </header>
   );
 }
+
+// ============================================================================
+// Message views — matches Suna UserMessageRow + AssistantGroupRow
+// ============================================================================
 
 function ShareMessageView({
   role,
@@ -305,19 +261,38 @@ function ShareMessageView({
   if (!text) return null;
 
   if (role === 'user') {
-    return (
-      <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-3xl rounded-br-lg bg-card border px-4 py-3">
-          <p className="text-sm whitespace-pre-wrap break-words">{text}</p>
-        </div>
-      </div>
-    );
+    return <UserBubble text={text} />;
   }
 
-  // Assistant message — only text content
+  return <AssistantBlock parts={parts} aggregatedText={text} />;
+}
+
+// ── User message bubble (matches Suna UserMessageRow) ──
+
+function UserBubble({ text }: { text: string }) {
+  return (
+    <div className="flex justify-end">
+      <div className="flex max-w-[90%] rounded-3xl rounded-br-lg bg-card border px-4 py-3 break-words overflow-hidden">
+        <div className="space-y-2 min-w-0 flex-1">
+          <UnifiedMarkdown content={text} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Assistant message block (matches Suna AssistantGroupRow) ──
+
+function AssistantBlock({
+  parts,
+  aggregatedText,
+}: {
+  parts: MessagePart[];
+  aggregatedText: string;
+}) {
   return (
     <div className="flex flex-col gap-2">
-      {/* Agent header */}
+      {/* Agent header — Kortix logomark (matches Suna AgentHeader for name="Kortix") */}
       <div className="flex items-center">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
@@ -328,16 +303,128 @@ function ShareMessageView({
         />
       </div>
 
-      {/* Text content only */}
-      {parts.map((part) => {
-        const partText = part.text || part.content?.text || '';
-        if (!partText.trim()) return null;
-        return (
-          <div key={part.id} className="break-words overflow-hidden">
-            <UnifiedMarkdown content={partText} />
-          </div>
-        );
-      })}
+      {/* Text content */}
+      <div className="flex w-full break-words">
+        <div className="space-y-1.5 min-w-0 flex-1">
+          {parts.map((part) => {
+            const partText = part.text || part.content?.text || '';
+            if (!partText.trim()) return null;
+            return (
+              <div key={part.id} className="break-words overflow-hidden">
+                <UnifiedMarkdown content={partText} />
+              </div>
+            );
+          })}
+
+          {/* Message actions — Copy + Thumbs (matches Suna MessageActions) */}
+          <MessageActions text={aggregatedText} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// MessageActions — matches Suna MessageActions component
+// ============================================================================
+
+function MessageActions({ text, className }: { text: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  const [liked, setLiked] = useState(false);
+  const [disliked, setDisliked] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  }, [text]);
+
+  const handleLike = useCallback(() => {
+    setLiked((v) => !v);
+    setDisliked(false);
+  }, []);
+
+  const handleDislike = useCallback(() => {
+    setDisliked((v) => !v);
+    setLiked(false);
+  }, []);
+
+  if (!text?.trim()) return null;
+
+  return (
+    <div className={`flex items-center gap-1 mt-2 ${className || ''}`}>
+      {/* Copy */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-foreground transition-colors"
+            onClick={handleCopy}
+          >
+            {copied ? (
+              <Check className="h-3.5 w-3.5 text-foreground" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          <p>{copied ? 'Copied!' : 'Copy'}</p>
+        </TooltipContent>
+      </Tooltip>
+
+      {/* Thumbs up */}
+      <AnimatePresence mode="popLayout">
+        {!disliked && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.5, width: 0 }}
+            animate={{ opacity: 1, scale: 1, width: 'auto' }}
+            exit={{ opacity: 0, scale: 0.5, width: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground transition-colors"
+              onClick={handleLike}
+            >
+              <ThumbsUp
+                className="h-3.5 w-3.5"
+                fill={liked ? 'currentColor' : 'none'}
+              />
+            </Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Thumbs down */}
+      <AnimatePresence mode="popLayout">
+        {!liked && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.5, width: 0 }}
+            animate={{ opacity: 1, scale: 1, width: 'auto' }}
+            exit={{ opacity: 0, scale: 0.5, width: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground transition-colors"
+              onClick={handleDislike}
+            >
+              <ThumbsDown
+                className="h-3.5 w-3.5"
+                fill={disliked ? 'currentColor' : 'none'}
+              />
+            </Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

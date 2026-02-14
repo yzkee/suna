@@ -1,14 +1,18 @@
 'use client';
 
 import React, { useEffect, useState, Suspense, lazy } from 'react';
+import { useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { AppProviders } from '@/components/layout/app-providers';
+import { MobileAppBanner } from './MobileAppBanner';
 
 const PresentationViewerWrapper = lazy(() =>
   import('@/stores/presentation-viewer-store').then(mod => ({ default: mod.PresentationViewerWrapper }))
 );
 
 export function SharePageWrapper({ children }: { children: React.ReactNode }) {
+  const params = useParams();
+  const shareId = params?.shareId as string;
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
   const [isChecking, setIsChecking] = useState(true);
 
@@ -27,27 +31,32 @@ export function SharePageWrapper({ children }: { children: React.ReactNode }) {
     checkAuth();
   }, []);
 
+  // Don't block render — show content immediately for anon users
   if (isChecking) {
     return <div className="flex-1">{children}</div>;
   }
 
+  // Logged-in: wrap with providers + sidebar
   if (isLoggedIn) {
     return (
-      <AppProviders showSidebar={false}>
+      <AppProviders showSidebar={true}>
         {children}
         <Suspense fallback={null}>
           <PresentationViewerWrapper />
         </Suspense>
+        {shareId && <MobileAppBanner shareId={shareId} />}
       </AppProviders>
     );
   }
 
+  // Anonymous: render without sidebar or auth providers
   return (
     <div className="flex-1">
       {children}
       <Suspense fallback={null}>
         <PresentationViewerWrapper />
       </Suspense>
+      {shareId && <MobileAppBanner shareId={shareId} />}
     </div>
   );
 }

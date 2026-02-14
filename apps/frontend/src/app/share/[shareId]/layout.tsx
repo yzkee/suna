@@ -2,21 +2,27 @@ import { Metadata } from 'next';
 
 export async function generateMetadata({ params }: { params: Promise<{ shareId: string }> }): Promise<Metadata> {
   const { shareId } = await params;
+
+  const title = 'Shared Conversation | Kortix';
+  const description = 'Replay this Worker conversation on Kortix';
+  const url = process.env.NEXT_PUBLIC_URL || 'https://www.kortix.com';
+
   return {
-    title: 'Shared Session | Kortix',
-    description: 'View this shared session on Kortix',
+    title,
+    description,
     alternates: {
-      canonical: `${process.env.NEXT_PUBLIC_URL || 'https://www.kortix.com'}/share/${shareId}`,
+      canonical: `${url}/share/${shareId}`,
     },
     openGraph: {
-      title: 'Shared Session | Kortix',
-      description: 'View this shared session on Kortix',
-      images: [`${process.env.NEXT_PUBLIC_URL || 'https://www.kortix.com'}/share-page/og-fallback.png`],
+      title,
+      description,
+      images: [`${url}/share-page/og-fallback.png`],
     },
     twitter: {
+      title,
+      description,
+      images: `${url}/share-page/og-fallback.png`,
       card: 'summary_large_image',
-      title: 'Shared Session | Kortix',
-      description: 'View this shared session on Kortix',
     },
     robots: {
       index: false,
