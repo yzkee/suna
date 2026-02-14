@@ -1,11 +1,3 @@
-/**
- * Sandbox Connector.
- *
- * Communicates with OpenCode API inside a sandbox, extending the pattern
- * from cron/services/opencode.ts with streaming support ported from
- * services/voice/server.py.
- */
-
 import type { SandboxTarget } from '../types';
 import { getProvider } from '../../platform/providers';
 import type { ProviderName } from '../../platform/providers';
@@ -35,9 +27,6 @@ export class SandboxConnector {
     }
   }
 
-  /**
-   * Check if the sandbox's OpenCode API is reachable.
-   */
   async isReady(): Promise<boolean> {
     try {
       const res = await fetch(`${this.baseUrl}/kortix/health`, {
@@ -51,9 +40,6 @@ export class SandboxConnector {
     }
   }
 
-  /**
-   * Wake up a stopped sandbox by calling the provider's start() directly.
-   */
   async wakeUp(): Promise<void> {
     if (!this.target.externalId) {
       throw new Error('Cannot wake sandbox: no external ID');
@@ -62,9 +48,6 @@ export class SandboxConnector {
     await provider.start(this.target.externalId);
   }
 
-  /**
-   * Create a new session in the sandbox.
-   */
   async createSession(agentName?: string): Promise<string> {
     const body: Record<string, unknown> = {};
     if (agentName) {
@@ -87,10 +70,6 @@ export class SandboxConnector {
     return session.id;
   }
 
-  /**
-   * Send a prompt and collect the full response (non-streaming).
-   * Internally uses promptStreaming and concatenates all text chunks.
-   */
   async prompt(sessionId: string, content: string, agentName?: string): Promise<string> {
     let fullText = '';
 
@@ -106,26 +85,15 @@ export class SandboxConnector {
     return fullText;
   }
 
-  /**
-   * Send a prompt and stream back events via SSE.
-   *
-   * Ported from services/voice/server.py's persistent SSE pattern:
-   * - Connect to GET /event
-   * - Filter by sessionId
-   * - Yield text deltas
-   * - Complete on session.idle
-   */
   async *promptStreaming(
     sessionId: string,
     content: string,
     agentName?: string,
   ): AsyncGenerator<StreamEvent> {
-    // Start SSE listener before sending the prompt
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 300000); // 5 min timeout
+    const timeout = setTimeout(() => controller.abort(), 300000);
 
     try {
-      // Connect to the event stream
       const sseRes = await fetch(`${this.baseUrl}/event`, {
         method: 'GET',
         headers: { ...this.headers, Accept: 'text/event-stream' },
@@ -136,7 +104,6 @@ export class SandboxConnector {
         throw new Error(`Failed to connect to SSE: ${sseRes.status}`);
       }
 
-      // Send the prompt asynchronously
       const promptBody: Record<string, unknown> = {
         parts: [{ type: 'text', text: content }],
       };
@@ -151,7 +118,6 @@ export class SandboxConnector {
         signal: controller.signal,
       });
 
-      // Track assistant message IDs for filtering
       const assistantMsgIds = new Set<string>();
       let sawBusy = false;
       let gotText = false;
@@ -160,7 +126,6 @@ export class SandboxConnector {
       const decoder = new TextDecoder();
       let buffer = '';
 
-      // Wait for prompt to be sent
       const promptRes = await promptPromise;
       if (!promptRes.ok) {
         const errText = await promptRes.text();
@@ -193,7 +158,6 @@ export class SandboxConnector {
           const evt = data.type as string;
           const props = (data.properties || {}) as Record<string, unknown>;
 
-          // Filter to our session
           const sid =
             (props.sessionID as string) ||
             ((props.part as Record<string, unknown>)?.sessionID as string) ||
@@ -201,7 +165,6 @@ export class SandboxConnector {
 
           if (sid && sid !== sessionId) continue;
 
-          // Track assistant message IDs
           if (evt === 'message.updated') {
             const info = (props.info || {}) as Record<string, unknown>;
             if (info.role === 'assistant') {
@@ -209,7 +172,6 @@ export class SandboxConnector {
             }
           }
 
-          // Forward text deltas
           if (evt === 'message.part.updated') {
             const part = (props.part || {}) as Record<string, unknown>;
             const delta = props.delta as string;
@@ -224,7 +186,6 @@ export class SandboxConnector {
             }
           }
 
-          // Session went busy
           if (evt === 'session.status') {
             const status = (props.status as Record<string, unknown>)?.type as string;
             if (status === 'busy') {
@@ -233,7 +194,6 @@ export class SandboxConnector {
             }
           }
 
-          // Session went idle — completion
           if (evt === 'session.idle') {
             if (sawBusy || gotText) {
               yield { type: 'done' };
@@ -241,7 +201,6 @@ export class SandboxConnector {
             }
           }
 
-          // Session error
           if (evt === 'session.error') {
             const err = ((props.error as Record<string, unknown>)?.data as Record<string, unknown>)?.message as string;
             yield { type: 'error', data: err || 'unknown error' };
@@ -255,9 +214,6 @@ export class SandboxConnector {
     }
   }
 
-  /**
-   * Abort the current prompt in a session.
-   */
   async abort(sessionId: string): Promise<void> {
     try {
       await fetch(`${this.baseUrl}/session/${sessionId}/abort`, {

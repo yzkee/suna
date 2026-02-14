@@ -1,11 +1,3 @@
-/**
- * Rate Limiter.
- *
- * In-memory token bucket rate limiter.
- * - Per-config: 60 requests/minute
- * - Per-user-per-config: 20 requests/minute
- */
-
 interface Bucket {
   tokens: number;
   lastRefill: number;
@@ -16,11 +8,8 @@ export class RateLimiter {
 
   private readonly configLimit = 60;
   private readonly userLimit = 20;
-  private readonly windowMs = 60_000; // 1 minute
+  private readonly windowMs = 60_000;
 
-  /**
-   * Check if a request is allowed. Returns true if allowed, false if rate limited.
-   */
   check(configId: string, userId: string): { allowed: boolean; retryAfterMs?: number } {
     const configKey = `config:${configId}`;
     const userKey = `user:${configId}:${userId}`;
@@ -35,7 +24,6 @@ export class RateLimiter {
       return userResult;
     }
 
-    // Consume tokens
     this.consume(configKey);
     this.consume(userKey);
 
@@ -51,7 +39,6 @@ export class RateLimiter {
       this.buckets.set(key, bucket);
     }
 
-    // Refill tokens based on elapsed time
     const elapsed = now - bucket.lastRefill;
     const refill = Math.floor((elapsed / this.windowMs) * limit);
     if (refill > 0) {
@@ -74,9 +61,6 @@ export class RateLimiter {
     }
   }
 
-  /**
-   * Evict expired buckets to prevent memory leaks.
-   */
   cleanup(): void {
     const now = Date.now();
     const maxAge = this.windowMs * 2;

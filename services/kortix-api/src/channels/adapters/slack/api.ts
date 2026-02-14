@@ -1,10 +1,3 @@
-/**
- * Slack Web API client.
- *
- * Thin fetch wrappers around the Slack Web API.
- * No external dependencies — uses native fetch.
- */
-
 const SLACK_API = 'https://slack.com/api';
 
 export interface SlackPostMessageOptions {

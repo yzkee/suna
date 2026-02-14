@@ -1,10 +1,3 @@
-/**
- * Telegram Bot API client.
- *
- * Thin fetch wrappers around the Telegram Bot API.
- * No external dependencies — uses native fetch.
- */
-
 const TELEGRAM_API = 'https://api.telegram.org';
 
 export interface TelegramSendMessageOptions {

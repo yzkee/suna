@@ -1,12 +1,5 @@
-/**
- * Channel service lifecycle management.
- *
- * Handles startup (adapter initialization, persistent connections)
- * and graceful shutdown.
- */
-
 import type { ChannelEngineImpl } from './engine';
-import type { ChannelAdapter } from '../adapters/base';
+import type { ChannelAdapter } from '../adapters/adapter';
 import type { ChannelType } from '../types';
 
 let abortController: AbortController | null = null;
@@ -18,7 +11,6 @@ export async function startChannels(
 ): Promise<void> {
   abortController = new AbortController();
 
-  // Start adapters that have persistent connections
   for (const [type, adapter] of adapters) {
     if (adapter.start) {
       console.log(`[CHANNELS] Starting ${type} adapter...`);
@@ -28,7 +20,6 @@ export async function startChannels(
     }
   }
 
-  // Periodic cache cleanup every 5 minutes
   cleanupInterval = setInterval(() => {
     engine.cleanup();
   }, 5 * 60 * 1000);
@@ -41,19 +32,16 @@ export async function stopChannels(
 ): Promise<void> {
   console.log('[CHANNELS] Shutting down...');
 
-  // Signal abort to persistent connections
   if (abortController) {
     abortController.abort();
     abortController = null;
   }
 
-  // Clear cleanup interval
   if (cleanupInterval) {
     clearInterval(cleanupInterval);
     cleanupInterval = null;
   }
 
-  // Shutdown each adapter
   for (const [type, adapter] of adapters) {
     if (adapter.shutdown) {
       try {

@@ -1,10 +1,3 @@
-/**
- * Channel Config CRUD routes.
- *
- * All routes require supabaseAuth. Follows the pattern from
- * cron/routes/triggers.ts (Zod validation, ownership check, Drizzle queries).
- */
-
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { eq, and, desc } from 'drizzle-orm';
@@ -26,8 +19,6 @@ const CHANNEL_TYPES = [
 ] as const;
 
 const SESSION_STRATEGIES = ['single', 'per-thread', 'per-user', 'per-message'] as const;
-
-// ─── Validation Schemas ──────────────────────────────────────────────────────
 
 const createChannelSchema = z.object({
   sandbox_id: z.string().uuid(),
@@ -53,12 +44,9 @@ const updateChannelSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 
-// ─── Router Factory ──────────────────────────────────────────────────────────
-
 export function createChannelsRouter(engine: ChannelEngineImpl): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
-  // POST / - Create channel config
   app.post('/', async (c) => {
     const userId = c.get('userId') as string;
     const body = await c.req.json();
@@ -68,7 +56,6 @@ export function createChannelsRouter(engine: ChannelEngineImpl): Hono<AppEnv> {
       throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
     }
 
-    // Verify sandbox ownership
     const [sandbox] = await db
       .select()
       .from(sandboxes)
@@ -83,7 +70,6 @@ export function createChannelsRouter(engine: ChannelEngineImpl): Hono<AppEnv> {
       throw new NotFoundError('Sandbox', parsed.data.sandbox_id);
     }
 
-    // Validate credentials if adapter supports it
     const adapter = engine.getAdapter(parsed.data.channel_type);
     if (adapter?.validateCredentials) {
       const validation = await adapter.validateCredentials(parsed.data.credentials);
@@ -109,7 +95,6 @@ export function createChannelsRouter(engine: ChannelEngineImpl): Hono<AppEnv> {
       })
       .returning();
 
-    // Notify adapter of new channel
     if (adapter?.onChannelCreated) {
       try {
         await adapter.onChannelCreated(config);
@@ -121,7 +106,6 @@ export function createChannelsRouter(engine: ChannelEngineImpl): Hono<AppEnv> {
     return c.json({ success: true, data: config }, 201);
   });
 
-  // GET / - List channel configs
   app.get('/', async (c) => {
     const userId = c.get('userId') as string;
     const sandboxId = c.req.query('sandbox_id');
@@ -151,7 +135,6 @@ export function createChannelsRouter(engine: ChannelEngineImpl): Hono<AppEnv> {
     return c.json({ success: true, data: results, total: results.length });
   });
 
-  // GET /:id - Get channel config with sandbox info
   app.get('/:id', async (c) => {
     const userId = c.get('userId') as string;
     const configId = c.req.param('id');
@@ -170,7 +153,6 @@ export function createChannelsRouter(engine: ChannelEngineImpl): Hono<AppEnv> {
       throw new NotFoundError('Channel config', configId);
     }
 
-    // Fetch sandbox info
     const [sandbox] = await db
       .select({ name: sandboxes.name, status: sandboxes.status })
       .from(sandboxes)
@@ -179,7 +161,6 @@ export function createChannelsRouter(engine: ChannelEngineImpl): Hono<AppEnv> {
     return c.json({ success: true, data: { ...config, sandbox } });
   });
 
-  // PATCH /:id - Update channel config
   app.patch('/:id', async (c) => {
     const userId = c.get('userId') as string;
     const configId = c.req.param('id');
@@ -228,7 +209,6 @@ export function createChannelsRouter(engine: ChannelEngineImpl): Hono<AppEnv> {
     return c.json({ success: true, data: updated });
   });
 
-  // DELETE /:id - Delete channel config
   app.delete('/:id', async (c) => {
     const userId = c.get('userId') as string;
     const configId = c.req.param('id');
@@ -247,7 +227,6 @@ export function createChannelsRouter(engine: ChannelEngineImpl): Hono<AppEnv> {
       throw new NotFoundError('Channel config', configId);
     }
 
-    // Notify adapter before deletion
     const adapter = engine.getAdapter(config.channelType as typeof CHANNEL_TYPES[number]);
     if (adapter?.onChannelRemoved) {
       try {
@@ -269,7 +248,6 @@ export function createChannelsRouter(engine: ChannelEngineImpl): Hono<AppEnv> {
     return c.json({ success: true, message: 'Channel config deleted' });
   });
 
-  // POST /:id/enable - Enable channel
   app.post('/:id/enable', async (c) => {
     const userId = c.get('userId') as string;
     const configId = c.req.param('id');
@@ -292,7 +270,6 @@ export function createChannelsRouter(engine: ChannelEngineImpl): Hono<AppEnv> {
     return c.json({ success: true, data: updated });
   });
 
-  // POST /:id/disable - Disable channel
   app.post('/:id/disable', async (c) => {
     const userId = c.get('userId') as string;
     const configId = c.req.param('id');
@@ -315,14 +292,12 @@ export function createChannelsRouter(engine: ChannelEngineImpl): Hono<AppEnv> {
     return c.json({ success: true, data: updated });
   });
 
-  // GET /:id/messages - Paginated audit trail
   app.get('/:id/messages', async (c) => {
     const userId = c.get('userId') as string;
     const configId = c.req.param('id');
     const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 100);
     const offset = parseInt(c.req.query('offset') || '0', 10);
 
-    // Verify ownership
     const [config] = await db
       .select()
       .from(channelConfigs)

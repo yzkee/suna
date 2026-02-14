@@ -34,7 +34,8 @@ import {
 } from 'lucide-react';
 import { useCreateChannel, type ChannelType, type SessionStrategy } from '@/hooks/channels';
 import { useSandbox } from '@/hooks/platform/use-sandbox';
-import { useAuth } from '@/components/AuthProvider';
+import { useServerStore } from '@/stores/server-store';
+import { ensureSandbox } from '@/lib/platform-client';
 import { toast } from 'sonner';
 
 interface ChannelConfigDialogProps {
@@ -70,7 +71,6 @@ export function ChannelConfigDialog({ open, onOpenChange, onCreated }: ChannelCo
   const [systemPrompt, setSystemPrompt] = useState('');
 
   const { sandbox } = useSandbox();
-  const { user } = useAuth();
   const createMutation = useCreateChannel();
 
   const handleClose = () => {
@@ -83,15 +83,33 @@ export function ChannelConfigDialog({ open, onOpenChange, onCreated }: ChannelCo
     onOpenChange(false);
   };
 
-  const handleSelectType = (type: ChannelType) => {
+  const resolveSandboxId = async (): Promise<string | null> => {
+    // 1. From useSandbox hook (React Query cache)
+    if (sandbox?.sandbox_id) return sandbox.sandbox_id;
+    // 2. From server store (populated by layout on init)
+    const store = useServerStore.getState();
+    for (const s of store.servers) {
+      if (s.sandboxId) return s.sandboxId;
+    }
+    // 3. Direct API call as last resort (works in both local and cloud mode)
+    try {
+      const result = await ensureSandbox();
+      return result.sandbox.sandbox_id;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleSelectType = async (type: ChannelType) => {
     if (type === 'slack') {
-      // Redirect to backend install endpoint for OAuth flow
-      const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || '').replace(/\/v1\/?$/, '');
-      if (!sandbox || !user) {
-        toast.error('Sandbox or user not available');
+      const sandboxId = await resolveSandboxId();
+      if (!sandboxId) {
+        toast.error('Could not find your sandbox — is the backend running?');
         return;
       }
-      const installUrl = `${backendUrl}/webhooks/slack/install?sandboxId=${encodeURIComponent(sandbox.sandbox_id)}&accountId=${encodeURIComponent(user.id)}`;
+      // Redirect to backend install endpoint for OAuth flow
+      const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || '').replace(/\/v1\/?$/, '');
+      const installUrl = `${backendUrl}/webhooks/slack/install?sandboxId=${encodeURIComponent(sandboxId)}`;
       handleClose();
       window.location.href = installUrl;
       return;

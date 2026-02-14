@@ -1,14 +1,7 @@
-/**
- * Slack Adapter.
- *
- * Implements the ChannelAdapter interface for the Slack Events API.
- * Uses a single events endpoint for all workspaces (one Slack app, many installs).
- * Uses the Web API for sending responses.
- */
-
 import type { Context } from 'hono';
 import type { Hono } from 'hono';
-import type { ChannelAdapter, ChannelEngine } from '../base';
+import type { ChannelEngine } from '../adapter';
+import { BaseAdapter } from '../adapter';
 import type { ChannelCapabilities, NormalizedMessage, AgentResponse } from '../../types';
 import type { ChannelConfig } from '@kortix/db';
 import { SlackApi } from './api';
@@ -16,9 +9,10 @@ import { handleSlackWebhook } from './webhook';
 import { splitMessage } from '../../lib/message-splitter';
 import { config } from '../../../config';
 import { db } from '../../../shared/db';
-import { channelConfigs } from '@kortix/db';
+import { channelConfigs, sandboxes } from '@kortix/db';
+import { eq } from 'drizzle-orm';
 
-export class SlackAdapter implements ChannelAdapter {
+export class SlackAdapter extends BaseAdapter {
   readonly type = 'slack' as const;
   readonly name = 'Slack';
   readonly capabilities: ChannelCapabilities = {
@@ -31,18 +25,9 @@ export class SlackAdapter implements ChannelAdapter {
   };
 
   registerRoutes(router: Hono, engine: ChannelEngine): void {
-    // Single events endpoint for all workspaces
     router.post('/slack/events', (c) => handleSlackWebhook(c, engine));
-    // "Add to Slack" install redirect
     router.get('/slack/install', (c) => this.handleInstall(c));
-    // OAuth callback for "Add to Slack" flow
     router.get('/slack/oauth_callback', (c) => this.handleOAuthCallback(c));
-  }
-
-  parseInbound(payload: unknown, _config: ChannelConfig): NormalizedMessage | null {
-    // Parsing is handled in webhook.ts directly since it needs
-    // the HTTP context for signature verification
-    return null;
   }
 
   async sendResponse(
@@ -50,8 +35,7 @@ export class SlackAdapter implements ChannelAdapter {
     message: NormalizedMessage,
     response: AgentResponse,
   ): Promise<void> {
-    const credentials = channelConfig.credentials as Record<string, unknown>;
-    const botToken = credentials.botToken as string;
+    const botToken = this.getBotToken(channelConfig);
     if (!botToken) {
       console.error('[SLACK] No bot token in credentials');
       return;
@@ -59,7 +43,6 @@ export class SlackAdapter implements ChannelAdapter {
 
     const api = new SlackApi(botToken);
 
-    // Determine target channel from raw event
     const rawPayload = message.raw as Record<string, unknown> | undefined;
     const event = rawPayload?.event as Record<string, unknown> | undefined;
     const channel = event?.channel as string;
@@ -69,11 +52,7 @@ export class SlackAdapter implements ChannelAdapter {
       return;
     }
 
-    // Thread handling: reply in existing thread, or start a new thread
-    // on the original message to keep channels clean
     const threadTs = message.threadId || (message.chatType !== 'dm' ? message.externalId : undefined);
-
-    // Split response into chunks respecting Slack's 4000 char limit
     const chunks = splitMessage(response.content, this.capabilities.textChunkLimit);
 
     for (const chunk of chunks) {
@@ -89,24 +68,13 @@ export class SlackAdapter implements ChannelAdapter {
     }
   }
 
-  async sendTypingIndicator(
-    _config: ChannelConfig,
-    _message: NormalizedMessage,
-  ): Promise<void> {
-    // Slack doesn't support typing indicators for bots via the Events API
-  }
-
-  async onChannelCreated(_channelConfig: ChannelConfig): Promise<void> {
-    // Nothing to do — events endpoint and OAuth are configured at the platform level
-  }
-
-  async onChannelRemoved(channelConfig: ChannelConfig): Promise<void> {
+  override async onChannelRemoved(channelConfig: ChannelConfig): Promise<void> {
     console.log(
       `[SLACK] Channel ${channelConfig.channelConfigId} removed.`,
     );
   }
 
-  async validateCredentials(
+  override async validateCredentials(
     credentials: Record<string, unknown>,
   ): Promise<{ valid: boolean; error?: string }> {
     const botToken = credentials.botToken as string;
@@ -120,7 +88,6 @@ export class SlackAdapter implements ChannelAdapter {
       if (!result.ok) {
         return { valid: false, error: `Invalid bot token: ${result.error}` };
       }
-      // Store bot info in credentials for filtering bot's own messages
       if (result.user_id) {
         credentials.botUserId = result.user_id;
       }
@@ -133,16 +100,20 @@ export class SlackAdapter implements ChannelAdapter {
     }
   }
 
-  /**
-   * Redirect user to Slack's OAuth authorization page.
-   * Query params: sandboxId, accountId — encoded into the state param.
-   */
-  private handleInstall(c: Context): Response {
+  private async handleInstall(c: Context): Promise<Response> {
     const sandboxId = c.req.query('sandboxId');
-    const accountId = c.req.query('accountId');
 
-    if (!sandboxId || !accountId) {
-      return c.json({ error: 'Missing sandboxId or accountId' }, 400);
+    if (!sandboxId) {
+      return c.json({ error: 'Missing sandboxId' }, 400);
+    }
+
+    const [sandbox] = await db
+      .select({ accountId: sandboxes.accountId })
+      .from(sandboxes)
+      .where(eq(sandboxes.sandboxId, sandboxId));
+
+    if (!sandbox) {
+      return c.json({ error: 'Sandbox not found' }, 404);
     }
 
     const clientId = config.SLACK_CLIENT_ID;
@@ -150,29 +121,22 @@ export class SlackAdapter implements ChannelAdapter {
       return c.json({ error: 'Slack OAuth not configured (missing client ID)' }, 500);
     }
 
-    const publicUrl = config.CHANNELS_PUBLIC_URL;
-    if (!publicUrl) {
-      return c.json({ error: 'CHANNELS_PUBLIC_URL not configured' }, 500);
-    }
-
-    const redirectUri = `${publicUrl}/webhooks/slack/oauth_callback`;
-    const state = JSON.stringify({ sandboxId, accountId });
+    const state = JSON.stringify({ sandboxId, accountId: sandbox.accountId });
     const scopes = 'chat:write,app_mentions:read,im:history,channels:history,groups:history,mpim:history';
 
     const slackUrl = new URL('https://slack.com/oauth/v2/authorize');
     slackUrl.searchParams.set('client_id', clientId);
     slackUrl.searchParams.set('scope', scopes);
-    slackUrl.searchParams.set('redirect_uri', redirectUri);
     slackUrl.searchParams.set('state', state);
+
+    const publicUrl = config.CHANNELS_PUBLIC_URL;
+    if (publicUrl) {
+      slackUrl.searchParams.set('redirect_uri', `${publicUrl}/webhooks/slack/oauth_callback`);
+    }
 
     return c.redirect(slackUrl.toString());
   }
 
-  /**
-   * Handle Slack OAuth callback.
-   * Exchanges the authorization code for a bot token, creates the channel config,
-   * and redirects to the frontend.
-   */
   private async handleOAuthCallback(c: Context): Promise<Response> {
     const frontendUrl = config.FRONTEND_URL;
     const code = c.req.query('code');
@@ -202,7 +166,6 @@ export class SlackAdapter implements ChannelAdapter {
     const publicUrl = config.CHANNELS_PUBLIC_URL;
     const redirectUri = publicUrl ? `${publicUrl}/webhooks/slack/oauth_callback` : undefined;
 
-    // Exchange code for token
     const body: Record<string, string> = {
       client_id: clientId,
       client_secret: clientSecret,
@@ -231,14 +194,12 @@ export class SlackAdapter implements ChannelAdapter {
 
     console.log(`[SLACK] OAuth success for team ${data.team?.name} (${data.team?.id})`);
 
-    // Verify the token works
     const api = new SlackApi(data.access_token!);
     const authResult = await api.authTest();
     if (!authResult.ok) {
       return c.redirect(`${frontendUrl}/channels?slack=error&message=${encodeURIComponent('Token verification failed')}`);
     }
 
-    // Create channel config in DB
     try {
       const teamName = data.team?.name || 'Slack';
       await db

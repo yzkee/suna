@@ -1,12 +1,6 @@
-/**
- * Telegram Adapter.
- *
- * Implements the ChannelAdapter interface for Telegram Bot API.
- * Uses webhooks for receiving updates and HTTP API for sending responses.
- */
-
 import type { Hono } from 'hono';
-import type { ChannelAdapter, ChannelEngine } from '../base';
+import type { ChannelEngine } from '../adapter';
+import { BaseAdapter } from '../adapter';
 import type { ChannelCapabilities, NormalizedMessage, AgentResponse } from '../../types';
 import type { ChannelConfig } from '@kortix/db';
 import { TelegramApi } from './api';
@@ -14,7 +8,7 @@ import { handleTelegramWebhook } from './webhook';
 import { splitMessage } from '../../lib/message-splitter';
 import { config } from '../../../config';
 
-export class TelegramAdapter implements ChannelAdapter {
+export class TelegramAdapter extends BaseAdapter {
   readonly type = 'telegram' as const;
   readonly name = 'Telegram';
   readonly capabilities: ChannelCapabilities = {
@@ -27,40 +21,28 @@ export class TelegramAdapter implements ChannelAdapter {
   };
 
   registerRoutes(router: Hono, engine: ChannelEngine): void {
-    // Webhook endpoint: POST /webhooks/telegram/:configId
     router.post('/telegram/:configId', (c) => handleTelegramWebhook(c, engine));
   }
 
-  parseInbound(payload: unknown, _config: ChannelConfig): NormalizedMessage | null {
-    // Parsing is handled in webhook.ts directly since it needs
-    // the HTTP context for header verification
-    return null;
-  }
-
   async sendResponse(
-    config: ChannelConfig,
+    channelConfig: ChannelConfig,
     message: NormalizedMessage,
     response: AgentResponse,
   ): Promise<void> {
-    const credentials = config.credentials as Record<string, unknown>;
-    const botToken = credentials.botToken as string;
+    const botToken = this.getBotToken(channelConfig);
     if (!botToken) {
       console.error('[TELEGRAM] No bot token in credentials');
       return;
     }
 
     const api = new TelegramApi(botToken);
-    const rawUpdate = message.raw as Record<string, unknown>;
-    const telegramMsg = (rawUpdate?.message || rawUpdate?.edited_message || rawUpdate?.channel_post) as Record<string, unknown> | undefined;
-    const chat = telegramMsg?.chat as Record<string, unknown> | undefined;
-    const chatId = chat?.id as number;
+    const chatId = this.extractChatId(message);
 
     if (!chatId) {
       console.error('[TELEGRAM] Cannot determine chat ID from message');
       return;
     }
 
-    // Split response into chunks respecting Telegram's 4096 char limit
     const chunks = splitMessage(response.content, this.capabilities.textChunkLimit);
 
     for (const chunk of chunks) {
@@ -77,28 +59,23 @@ export class TelegramAdapter implements ChannelAdapter {
     }
   }
 
-  async sendTypingIndicator(
-    config: ChannelConfig,
+  override async sendTypingIndicator(
+    channelConfig: ChannelConfig,
     message: NormalizedMessage,
   ): Promise<void> {
-    const credentials = config.credentials as Record<string, unknown>;
-    const botToken = credentials.botToken as string;
+    const botToken = this.getBotToken(channelConfig);
     if (!botToken) return;
 
     const api = new TelegramApi(botToken);
-    const rawUpdate = message.raw as Record<string, unknown>;
-    const telegramMsg = (rawUpdate?.message || rawUpdate?.edited_message || rawUpdate?.channel_post) as Record<string, unknown> | undefined;
-    const chat = telegramMsg?.chat as Record<string, unknown> | undefined;
-    const chatId = chat?.id as number;
+    const chatId = this.extractChatId(message);
 
     if (chatId) {
       await api.sendChatAction(chatId, 'typing');
     }
   }
 
-  async onChannelCreated(channelConfig: ChannelConfig): Promise<void> {
-    const credentials = channelConfig.credentials as Record<string, unknown>;
-    const botToken = credentials.botToken as string;
+  override async onChannelCreated(channelConfig: ChannelConfig): Promise<void> {
+    const botToken = this.getBotToken(channelConfig);
     if (!botToken) return;
 
     const publicUrl = config.CHANNELS_PUBLIC_URL;
@@ -109,7 +86,6 @@ export class TelegramAdapter implements ChannelAdapter {
 
     const api = new TelegramApi(botToken);
 
-    // Generate a webhook secret
     const webhookSecret = crypto.randomUUID();
     const webhookUrl = `${publicUrl}/webhooks/telegram/${channelConfig.channelConfigId}`;
 
@@ -119,18 +95,14 @@ export class TelegramAdapter implements ChannelAdapter {
       return;
     }
 
-    // Store bot info and webhook secret back in credentials
     const botInfo = await api.getMe();
     if (botInfo.ok && botInfo.result) {
-      // Note: caller should update credentials with botId, botUsername, webhookSecret
-      // This is handled by storing them during creation
       console.log(`[TELEGRAM] Webhook set for bot @${botInfo.result.username} → ${webhookUrl}`);
     }
   }
 
-  async onChannelRemoved(channelConfig: ChannelConfig): Promise<void> {
-    const credentials = channelConfig.credentials as Record<string, unknown>;
-    const botToken = credentials.botToken as string;
+  override async onChannelRemoved(channelConfig: ChannelConfig): Promise<void> {
+    const botToken = this.getBotToken(channelConfig);
     if (!botToken) return;
 
     const api = new TelegramApi(botToken);
@@ -140,7 +112,7 @@ export class TelegramAdapter implements ChannelAdapter {
     }
   }
 
-  async validateCredentials(
+  override async validateCredentials(
     credentials: Record<string, unknown>,
   ): Promise<{ valid: boolean; error?: string }> {
     const botToken = credentials.botToken as string;
@@ -158,5 +130,12 @@ export class TelegramAdapter implements ChannelAdapter {
     } catch {
       return { valid: false, error: 'Failed to validate bot token' };
     }
+  }
+
+  private extractChatId(message: NormalizedMessage): number | undefined {
+    const rawUpdate = message.raw as Record<string, unknown>;
+    const telegramMsg = (rawUpdate?.message || rawUpdate?.edited_message || rawUpdate?.channel_post) as Record<string, unknown> | undefined;
+    const chat = telegramMsg?.chat as Record<string, unknown> | undefined;
+    return chat?.id as number | undefined;
   }
 }

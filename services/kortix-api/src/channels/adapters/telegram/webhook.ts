@@ -1,21 +1,12 @@
-/**
- * Telegram webhook handler.
- *
- * Handles incoming Telegram Update objects, verifies the
- * X-Telegram-Bot-Api-Secret-Token header, and dispatches
- * messages to the engine.
- */
-
 import type { Context } from 'hono';
 import { eq, and } from 'drizzle-orm';
 import { db } from '../../../shared/db';
 import { channelConfigs } from '@kortix/db';
 import type { ChannelConfig } from '@kortix/db';
 import type { NormalizedMessage, ChatType } from '../../types';
-import type { ChannelEngine } from '../base';
+import type { ChannelEngine } from '../adapter';
 import { WebhookVerificationError } from '../../../errors';
 
-// Telegram Update type (subset of relevant fields)
 interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;
@@ -51,9 +42,6 @@ interface TelegramMessage {
   }>;
 }
 
-/**
- * Handle an incoming Telegram webhook request.
- */
 export async function handleTelegramWebhook(
   c: Context,
   engine: ChannelEngine,
@@ -63,7 +51,6 @@ export async function handleTelegramWebhook(
     return c.json({ error: 'Missing config ID' }, 400);
   }
 
-  // Fetch config
   const [config] = await db
     .select()
     .from(channelConfigs)
@@ -79,7 +66,6 @@ export async function handleTelegramWebhook(
     return c.json({ error: 'Channel not found or disabled' }, 404);
   }
 
-  // Verify secret token
   const secretToken = c.req.header('X-Telegram-Bot-Api-Secret-Token');
   const expectedSecret = (config.credentials as Record<string, unknown>)?.webhookSecret as string;
 
@@ -87,31 +73,24 @@ export async function handleTelegramWebhook(
     throw new WebhookVerificationError('Invalid Telegram webhook secret token');
   }
 
-  // Parse update
   const update = (await c.req.json()) as TelegramUpdate;
 
-  // Extract message from update
   const telegramMsg = update.message || update.edited_message || update.channel_post;
   if (!telegramMsg) {
-    // Not a message event — acknowledge silently
     return c.json({ ok: true });
   }
 
-  // Skip bot messages
   if (telegramMsg.from?.is_bot) {
     return c.json({ ok: true });
   }
 
-  // Extract text content
   const content = telegramMsg.text || telegramMsg.caption || '';
   if (!content) {
     return c.json({ ok: true });
   }
 
-  // Detect chat type
   const chatType = detectChatType(telegramMsg);
 
-  // In groups, only respond to mentions or replies to the bot
   if (chatType === 'group') {
     const botId = (config.credentials as Record<string, unknown>)?.botId as number | undefined;
     const botUsername = (config.credentials as Record<string, unknown>)?.botUsername as string | undefined;
@@ -119,14 +98,13 @@ export async function handleTelegramWebhook(
 
     const platformConfig = config.platformConfig as Record<string, unknown> | null;
     const groupConfig = (platformConfig?.groups as Record<string, unknown>) ?? {};
-    const requireMention = groupConfig.requireMention !== false; // default: require mention
+    const requireMention = groupConfig.requireMention !== false;
 
     if (requireMention && !isMention) {
       return c.json({ ok: true });
     }
   }
 
-  // Build normalized message
   const normalized: NormalizedMessage = {
     externalId: String(telegramMsg.message_id),
     channelType: 'telegram',
@@ -151,7 +129,6 @@ export async function handleTelegramWebhook(
     raw: update,
   };
 
-  // Process asynchronously — respond to Telegram immediately
   engine.processMessage(normalized).catch((err) => {
     console.error(`[TELEGRAM] Failed to process message:`, err);
   });
@@ -192,7 +169,6 @@ function detectMention(
     }
   }
 
-  // Check if replying to the bot
   if (msg.reply_to_message?.from?.id === botId) {
     return true;
   }

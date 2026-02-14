@@ -1,13 +1,3 @@
-/**
- * Session Manager.
- *
- * Resolves which OpenCode session to use for a given inbound message,
- * based on the channel config's session strategy.
- *
- * Uses an in-memory cache with 24h TTL backed by DB persistence
- * in the channelSessions table.
- */
-
 import { eq, and } from 'drizzle-orm';
 import { db } from '../../shared/db';
 import { channelSessions } from '@kortix/db';
@@ -20,14 +10,11 @@ interface CachedSession {
   lastUsedAt: number;
 }
 
-const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
 export class SessionManager {
   private cache = new Map<string, CachedSession>();
 
-  /**
-   * Build a deterministic cache key from the config, strategy, and message.
-   */
   private buildKey(
     configId: string,
     channelType: string,
@@ -56,9 +43,6 @@ export class SessionManager {
     return `${configId}:${channelType}:${strategy}:${discriminator}`;
   }
 
-  /**
-   * Resolve or create a session for the given message.
-   */
   async resolve(
     config: ChannelConfig,
     message: NormalizedMessage,
@@ -72,22 +56,18 @@ export class SessionManager {
       message,
     );
 
-    // per-message always creates a new session
     if (strategy === 'per-message') {
       const sessionId = await connector.createSession(config.agentName ?? undefined);
       return sessionId;
     }
 
-    // Check in-memory cache
     const cached = this.cache.get(key);
     if (cached && Date.now() - cached.lastUsedAt < SESSION_TTL_MS) {
       cached.lastUsedAt = Date.now();
-      // Update DB last_used_at in background
       this.touchDb(config.channelConfigId, key).catch(() => {});
       return cached.sessionId;
     }
 
-    // Check DB
     const [dbSession] = await db
       .select()
       .from(channelSessions)
@@ -110,13 +90,10 @@ export class SessionManager {
       }
     }
 
-    // Create new session
     const sessionId = await connector.createSession(config.agentName ?? undefined);
 
-    // Cache it
     this.cache.set(key, { sessionId, lastUsedAt: Date.now() });
 
-    // Persist to DB (upsert)
     if (dbSession) {
       await db
         .update(channelSessions)
@@ -137,9 +114,6 @@ export class SessionManager {
     return sessionId;
   }
 
-  /**
-   * Update last_used_at in DB (fire-and-forget).
-   */
   private async touchDb(configId: string, key: string): Promise<void> {
     await db
       .update(channelSessions)
@@ -152,9 +126,6 @@ export class SessionManager {
       );
   }
 
-  /**
-   * Evict expired entries from the in-memory cache.
-   */
   cleanup(): void {
     const now = Date.now();
     for (const [key, entry] of this.cache) {
