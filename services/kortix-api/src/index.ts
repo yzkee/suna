@@ -13,6 +13,7 @@ import { router } from './router';
 import { billingApp } from './billing';
 import { platformApp } from './platform';
 import { cronApp, startScheduler, stopScheduler, getSchedulerStatus } from './cron';
+import { channelsApp, startChannelService, stopChannelService, getChannelServiceStatus } from './channels';
 import { daytonaProxyApp } from './daytona-proxy';
 import { deploymentsApp } from './deployments';
 import { setupApp } from './setup';
@@ -58,6 +59,7 @@ app.get('/health', (c) => {
     timestamp: new Date().toISOString(),
     env: config.ENV_MODE,
     scheduler: getSchedulerStatus(),
+    channels: getChannelServiceStatus(),
   });
 });
 
@@ -69,6 +71,7 @@ app.get('/v1/health', (c) => {
     timestamp: new Date().toISOString(),
     env: config.ENV_MODE,
     scheduler: getSchedulerStatus(),
+    channels: getChannelServiceStatus(),
   });
 });
 
@@ -213,16 +216,19 @@ console.log(`
 ║  Database:   ${config.DATABASE_URL ? '✓ Configured'.padEnd(42) : '✗ NOT SET'.padEnd(42)}║
 ║  Supabase:   ${config.SUPABASE_URL ? '✓ Configured'.padEnd(42) : '✗ NOT SET'.padEnd(42)}║
 ║  Stripe:     ${config.STRIPE_SECRET_KEY ? '✓ Configured'.padEnd(42) : '✗ NOT SET'.padEnd(42)}║
+║  Channels:   ${(config.CHANNELS_ENABLED ? 'ENABLED' : 'DISABLED').padEnd(42)}║
 ║  Scheduler:  ${(config.SCHEDULER_ENABLED ? 'ENABLED' : 'DISABLED').padEnd(42)}║
 ╚═══════════════════════════════════════════════════════════╝
 `);
 
 startScheduler();
+startChannelService();
 
 // Graceful shutdown
 function shutdown(signal: string) {
   console.log(`\n[${signal}] Shutting down gracefully...`);
   stopScheduler();
+  stopChannelService();
   process.exit(0);
 }
 
