@@ -26,10 +26,16 @@ import {
   Upload,
   FileDown,
   MoreHorizontal,
+  GitCompareArrows,
+  ListTodo,
+  Sparkles,
 } from 'lucide-react';
 import { CompactDialog } from '@/components/session/compact-dialog';
 import { ExportTranscriptDialog } from '@/components/session/export-transcript-dialog';
 import { SharePopover } from '@/components/session/share-popover';
+import { DiffDialog } from '@/components/session/diff-dialog';
+import { TodoDialog } from '@/components/session/todo-dialog';
+import { InitProjectDialog } from '@/components/session/init-project-dialog';
 
 interface SessionSiteHeaderProps {
   sessionId: string;
@@ -52,6 +58,9 @@ export function SessionSiteHeader({
 }: SessionSiteHeaderProps) {
   const [compactOpen, setCompactOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [diffOpen, setDiffOpen] = useState(false);
+  const [todoOpen, setTodoOpen] = useState(false);
+  const [initOpen, setInitOpen] = useState(false);
   const isMobile = useIsMobile() || isMobileView;
   const { setOpen: setSidebarOpen, setOpenMobile } = useSidebar();
 
@@ -84,7 +93,7 @@ export function SessionSiteHeader({
           {/* Right: actions */}
           <div className="flex items-center gap-1 flex-shrink-0">
             <TooltipProvider delayDuration={300}>
-              {/* More actions dropdown (Export + Compact) */}
+              {/* More actions dropdown */}
               <DropdownMenu>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -103,14 +112,26 @@ export function SessionSiteHeader({
                   </TooltipContent>
                 </Tooltip>
 
-                <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuContent align="end" className="w-52">
+                  {/* View Changes */}
+                  <DropdownMenuItem onClick={() => setDiffOpen(true)}>
+                    <GitCompareArrows className="mr-2 h-4 w-4" />
+                    View changes
+                  </DropdownMenuItem>
+
+                  {/* View Tasks */}
+                  <DropdownMenuItem onClick={() => setTodoOpen(true)}>
+                    <ListTodo className="mr-2 h-4 w-4" />
+                    View tasks
+                  </DropdownMenuItem>
+
+                  <DropdownMenuSeparator />
+
                   {/* Export transcript */}
                   <DropdownMenuItem onClick={() => setExportOpen(true)}>
                     <FileDown className="mr-2 h-4 w-4" />
                     Export transcript
                   </DropdownMenuItem>
-
-                  <DropdownMenuSeparator />
 
                   {/* Compact */}
                   <DropdownMenuItem
@@ -124,10 +145,18 @@ export function SessionSiteHeader({
                     )}
                     {isCompacting ? 'Compacting...' : 'Compact session'}
                   </DropdownMenuItem>
+
+                  <DropdownMenuSeparator />
+
+                  {/* Initialize project */}
+                  <DropdownMenuItem onClick={() => setInitOpen(true)}>
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    Initialize project
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              {/* Share button with popover (matches Suna) */}
+              {/* Share button */}
               <SharePopover sessionId={sessionId}>
                 <Button
                   variant="ghost"
@@ -169,16 +198,31 @@ export function SessionSiteHeader({
         </div>
       </header>
 
+      {/* Dialogs */}
       <CompactDialog
         sessionId={sessionId}
         open={compactOpen}
         onOpenChange={setCompactOpen}
       />
-
       <ExportTranscriptDialog
         sessionId={sessionId}
         open={exportOpen}
         onOpenChange={setExportOpen}
+      />
+      <DiffDialog
+        sessionId={sessionId}
+        open={diffOpen}
+        onOpenChange={setDiffOpen}
+      />
+      <TodoDialog
+        sessionId={sessionId}
+        open={todoOpen}
+        onOpenChange={setTodoOpen}
+      />
+      <InitProjectDialog
+        sessionId={sessionId}
+        open={initOpen}
+        onOpenChange={setInitOpen}
       />
     </>
   );

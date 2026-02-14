@@ -9,7 +9,9 @@ import {
   MessageCircle,
   Pencil,
   Archive,
+  ArchiveRestore,
   ChevronRight,
+  ChevronDown,
   GitFork,
   Search,
   X,
@@ -22,6 +24,26 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useSidebar } from '@/components/ui/sidebar';
 import { DeleteConfirmationDialog } from '@/components/thread/DeleteConfirmationDialog';
 import { CompactDialog } from '@/components/session/compact-dialog';
@@ -204,6 +226,7 @@ function SessionItem({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-40">
               <DropdownMenuItem
+                className="cursor-pointer"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -214,6 +237,7 @@ function SessionItem({
                 Rename
               </DropdownMenuItem>
               <DropdownMenuItem
+                className="cursor-pointer"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -224,6 +248,7 @@ function SessionItem({
                 Compact
               </DropdownMenuItem>
               <DropdownMenuItem
+                className="cursor-pointer"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -234,12 +259,12 @@ function SessionItem({
                 Archive
               </DropdownMenuItem>
               <DropdownMenuItem
+                className="cursor-pointer text-destructive focus:text-destructive"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
                   onDelete(session.id, session.title || 'Untitled');
                 }}
-                className="text-destructive focus:text-destructive"
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete
@@ -373,6 +398,9 @@ export function SessionList({ projectId }: SessionListProps = {}) {
   const router = useRouter();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [isArchiveDialogOpen, setIsArchiveDialogOpen] = useState(false);
+  const [sessionToArchive, setSessionToArchive] = useState<{ id: string; name: string } | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   const { data: sessions, isLoading, error, refetch } = useOpenCodeSessions();
   const { mutate: deleteSession, isPending: isDeleting } = useDeleteOpenCodeSession();
@@ -553,6 +581,14 @@ export function SessionList({ projectId }: SessionListProps = {}) {
     });
   }, [sessions, projectId, statuses, getPendingCount, forkIds]);
 
+  // Archived sessions
+  const archivedSessions = useMemo(() => {
+    if (!sessions) return [];
+    return sessions
+      .filter((s) => !!(s.time as any).archived)
+      .sort((a, b) => ((b.time as any).archived || 0) - ((a.time as any).archived || 0));
+  }, [sessions]);
+
   // Filter sessions by search query
   const filteredRootSessions = useMemo(() => {
     if (!searchQuery.trim()) return rootSessions;
@@ -613,16 +649,24 @@ export function SessionList({ projectId }: SessionListProps = {}) {
   };
 
   const handleArchiveSession = (sessionId: string) => {
-    const isActive = pathname?.includes(sessionId);
+    const session = sessions?.find((s) => s.id === sessionId);
+    setSessionToArchive({ id: sessionId, name: session?.title || 'Untitled' });
+    setIsArchiveDialogOpen(true);
+  };
+
+  const confirmArchive = () => {
+    if (!sessionToArchive) return;
+    setIsArchiveDialogOpen(false);
+    const isActive = pathname?.includes(sessionToArchive.id);
 
     // Close the tab for the archived session
     const tabState = useTabStore.getState();
-    if (tabState.tabs[sessionId]) {
-      tabState.closeTab(sessionId);
+    if (tabState.tabs[sessionToArchive.id]) {
+      tabState.closeTab(sessionToArchive.id);
     }
 
     updateSession(
-      { sessionId, archived: true },
+      { sessionId: sessionToArchive.id, archived: true },
       {
         onSuccess: () => {
           if (isActive) {
@@ -633,6 +677,11 @@ export function SessionList({ projectId }: SessionListProps = {}) {
         },
       },
     );
+    setSessionToArchive(null);
+  };
+
+  const handleUnarchiveSession = (sessionId: string) => {
+    updateSession({ sessionId, archived: false });
   };
 
   const handleCompactSession = (sessionId: string) => {
@@ -691,6 +740,65 @@ export function SessionList({ projectId }: SessionListProps = {}) {
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Archived sessions toggle */}
+      {archivedSessions.length > 0 && !isLoading && !error && (
+        <div className="px-2 pb-1">
+          <button
+            onClick={() => setShowArchived((v) => !v)}
+            className="flex items-center gap-1.5 w-full px-3 py-1.5 rounded-lg text-xs text-muted-foreground/50 hover:text-muted-foreground hover:bg-sidebar-accent/30 transition-colors cursor-pointer"
+          >
+            <Archive className="size-3" />
+            <span>Archived</span>
+            <span className="ml-auto text-[10px] tabular-nums bg-muted/50 px-1.5 py-0.5 rounded-full">{archivedSessions.length}</span>
+            {showArchived ? (
+              <ChevronDown className="size-3" />
+            ) : (
+              <ChevronRight className="size-3" />
+            )}
+          </button>
+          {showArchived && (
+            <div className="space-y-0.5 mt-0.5 mb-1">
+              {archivedSessions.map((session) => (
+                <div
+                  key={session.id}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-muted-foreground/50 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-all duration-150 group cursor-pointer"
+                >
+                  <span className="flex-1 truncate text-xs">
+                    {session.title || 'Untitled'}
+                  </span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => handleUnarchiveSession(session.id)}
+                        className="p-0.5 rounded-md hover:bg-sidebar-accent text-muted-foreground/40 hover:text-sidebar-foreground transition-all cursor-pointer"
+                      >
+                        <ArchiveRestore className="size-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="text-xs">
+                      Unarchive
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => handleDeleteSession(session.id, session.title || 'Untitled')}
+                        className="p-0.5 rounded-md hover:bg-sidebar-accent text-muted-foreground/40 hover:text-destructive transition-all cursor-pointer"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="text-xs">
+                      Delete
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -782,6 +890,7 @@ export function SessionList({ projectId }: SessionListProps = {}) {
         )}
       </div>
 
+      {/* Delete confirmation dialog */}
       {sessionToDelete && (
         <DeleteConfirmationDialog
           isOpen={isDeleteDialogOpen}
@@ -791,6 +900,33 @@ export function SessionList({ projectId }: SessionListProps = {}) {
           isDeleting={isDeleting}
         />
       )}
+
+      {/* Archive confirmation dialog */}
+      <AlertDialog open={isArchiveDialogOpen} onOpenChange={setIsArchiveDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Archive session</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to archive{' '}
+              <span className="font-semibold">&ldquo;{sessionToArchive?.name}&rdquo;</span>?
+              <br />
+              You can restore it later from the archived list.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="cursor-pointer">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                confirmArchive();
+              }}
+              className="cursor-pointer"
+            >
+              Archive
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Compact dialog */}
       {compactSessionId && (
@@ -802,39 +938,45 @@ export function SessionList({ projectId }: SessionListProps = {}) {
       )}
 
       {/* Rename dialog */}
-      {renameSessionId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setRenameSessionId(null)}>
-          <div className="bg-popover border border-border rounded-xl shadow-lg p-4 w-80" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-medium mb-3">Rename session</h3>
-            <input
-              type="text"
-              value={renameValue}
-              onChange={(e) => setRenameValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') confirmRename();
-                if (e.key === 'Escape') setRenameSessionId(null);
-              }}
-              autoFocus
-              className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
-              placeholder="Session title..."
-            />
-            <div className="flex justify-end gap-2 mt-3">
-              <button
-                onClick={() => setRenameSessionId(null)}
-                className="px-3 py-1.5 text-xs rounded-md text-muted-foreground hover:bg-muted transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmRename}
-                className="px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Dialog
+        open={!!renameSessionId}
+        onOpenChange={(open) => { if (!open) setRenameSessionId(null); }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Rename session</DialogTitle>
+            <DialogDescription>
+              Enter a new name for this session.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') confirmRename();
+            }}
+            autoFocus
+            placeholder="Session title..."
+          />
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setRenameSessionId(null)}
+              className="cursor-pointer"
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={confirmRename}
+              className="cursor-pointer"
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
