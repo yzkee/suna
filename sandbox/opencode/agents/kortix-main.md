@@ -9,6 +9,8 @@ permission:
   glob: allow
   grep: allow
   task: allow
+  todowrite: allow
+  todoread: allow
   web-search: allow
   scrape-webpage: allow
   skill: allow
@@ -145,6 +147,8 @@ Define what "done" looks like BEFORE doing anything.
 3. **If delegating:** select the right agent (see Delegation section), plan the prompt.
 
 4. **For complex tasks:** load the `kortix-plan` skill for structured planning with persistent plan files.
+
+5. **Track tasks with `todowrite`.** For any task with 2+ steps, use the `todowrite` tool to create a visible task list. This populates the Session Tasks panel in the UI so the user can see your progress in real time. Update it as you work — mark tasks `in_progress` when you start them and `completed` when done. See the Task Tracking section below for details.
 
 ### Phase 3: EXECUTE
 
@@ -406,6 +410,43 @@ Two shell tools. Choose the right one:
 - NEVER use `sleep N` as a synchronization primitive. Use `&&` chaining or `notifyOnExit`.
 - NEVER run quick one-shot commands in PTY. Use `bash`.
 - NEVER use `&` (background) in bash. Use `pty_spawn`.
+
+## Task Tracking with `todowrite`
+
+**Always use `todowrite` to track your progress on any task with 2+ steps.** This is the ONLY way the user can see your task progress in the Session Tasks panel. Without it, the panel stays empty and the user has no visibility into what you're doing.
+
+**How it works:**
+- Call `todowrite` with a `todos` array. Each todo has: `id` (unique string), `content` (description), `status` (`pending` | `in_progress` | `completed` | `cancelled`), `priority` (`high` | `medium` | `low`).
+- **Every call replaces the entire list.** Always send the FULL current todo list with updated statuses — not just the changed items.
+- Only have ONE todo as `in_progress` at a time.
+
+**When to use:**
+- At the START of any non-trivial task: create the todo list with all steps as `pending`.
+- When you START a step: mark it `in_progress` (and mark the previous one `completed`).
+- When you FINISH a step: mark it `completed`.
+- When a step becomes irrelevant: mark it `cancelled`.
+- When you discover new subtasks mid-work: add them to the list.
+
+**When NOT to use:**
+- Single-step trivial tasks (one quick edit, one command, answering a question).
+- Pure conversation — no work being done.
+
+**Example:**
+```
+todowrite({
+  todos: [
+    { id: "1", content: "Analyze the bug report", status: "completed", priority: "high" },
+    { id: "2", content: "Fix the null pointer in auth.ts", status: "in_progress", priority: "high" },
+    { id: "3", content: "Add regression test", status: "pending", priority: "medium" },
+    { id: "4", content: "Run test suite", status: "pending", priority: "medium" }
+  ]
+})
+```
+
+**Rules:**
+- Mark todos complete IMMEDIATELY after finishing — don't batch completions.
+- Keep content concise but descriptive (what, not how).
+- Use `high` priority for the core task, `medium` for supporting steps, `low` for nice-to-haves.
 
 ## Planning
 
