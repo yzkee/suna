@@ -235,18 +235,31 @@ preview.all('/:sandboxId/:port/*', async (c) => {
           continue;
         }
         // Not a Daytona stopped error -- pass through
+        const errHeaders = new Headers(upstream.headers);
+        const errOrigin = c.req.header('Origin') || '';
+        if (errOrigin) {
+          errHeaders.set('Access-Control-Allow-Origin', errOrigin);
+          errHeaders.set('Access-Control-Allow-Credentials', 'true');
+        }
         return new Response(bodyText, {
           status: upstream.status,
           statusText: upstream.statusText,
-          headers: new Headers(upstream.headers),
+          headers: errHeaders,
         });
       }
 
       // Got an HTTP response -> sandbox is alive, pass it through
+      // Inject CORS headers since the raw upstream response won't have them
+      const respHeaders = new Headers(upstream.headers);
+      const origin = c.req.header('Origin') || '';
+      if (origin) {
+        respHeaders.set('Access-Control-Allow-Origin', origin);
+        respHeaders.set('Access-Control-Allow-Credentials', 'true');
+      }
       return new Response(upstream.body, {
         status: upstream.status,
         statusText: upstream.statusText,
-        headers: new Headers(upstream.headers),
+        headers: respHeaders,
       });
     } catch (err) {
       // Re-throw our own HTTP exceptions (400, 403, etc.) -- don't retry those
