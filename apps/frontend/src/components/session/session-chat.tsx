@@ -1592,17 +1592,20 @@ export function SessionChat({ sessionId }: SessionChatProps) {
 
       const parts = collectTurnParts(turn);
       const costInfo = getTurnCost(parts);
+      console.log('[Billing] Turn', turnId, 'costInfo:', costInfo);
       if (!costInfo || costInfo.cost <= 0) continue;
 
       // Mark as billed immediately to prevent double-deduction
       billedTurnIds.add(turnId);
 
+      console.log('[Billing] Deducting', costInfo.cost, 'for turn', turnId);
       // Fire-and-forget deduction
       billingApi.deductUsage({
         amount: costInfo.cost,
         thread_id: sessionId,
         description: `Agent run: ${formatCost(costInfo.cost)} (${formatTokens(costInfo.tokens.input + costInfo.tokens.output)} tokens)`,
-      }).then(() => {
+      }).then((result) => {
+        console.log('[Billing] Deduction successful:', result);
         invalidateAccountState(queryClient);
       }).catch((err) => {
         console.warn('[Billing] Failed to deduct usage:', err);
