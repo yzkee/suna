@@ -32,7 +32,7 @@ app.use(
       'https://staging.kortix.com',
       'https://kortix.cloud',
       'https://www.kortix.cloud',
-      'https://new.kortix.com',
+      'https://new-api.kortix.com',
       ...(config.isLocal()
         ? ['http://localhost:3000', 'http://127.0.0.1:3000']
         : []),
