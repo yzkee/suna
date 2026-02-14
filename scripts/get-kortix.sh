@@ -5,9 +5,12 @@
 # ║  Install Kortix with a single command:                                     ║
 # ║    curl -fsSL https://get.kortix.ai/install | bash                         ║
 # ║                                                                            ║
+# ║  Or run locally (for development / private repos):                         ║
+# ║    bash /path/to/scripts/get-kortix.sh                                     ║
+# ║                                                                            ║
 # ║  What this does:                                                           ║
 # ║    1. Checks for Docker + Git                                              ║
-# ║    2. Clones the Kortix repo to ~/kortix                                   ║
+# ║    2. Gets the Kortix source to ~/kortix                                   ║
 # ║    3. Runs the interactive setup (API keys, sandbox creds)                 ║
 # ║    4. Starts all services via Docker Compose                               ║
 # ║                                                                            ║
@@ -50,9 +53,24 @@ echo ""
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 
-REPO_URL="https://github.com/kortix-ai/kortix.git"
+REPO_URL="${KORTIX_REPO:-https://github.com/kortix-ai/computer.git}"
 INSTALL_DIR="${KORTIX_HOME:-$HOME/kortix}"
 BRANCH="${KORTIX_BRANCH:-main}"
+
+# Detect if this script is being run from inside an existing checkout
+SCRIPT_DIR=""
+if [ -n "${BASH_SOURCE[0]:-}" ] && [ "${BASH_SOURCE[0]}" != "bash" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || true
+fi
+
+# If we're inside a checkout, use it as the source (no git clone needed)
+LOCAL_SOURCE=""
+if [ -n "$SCRIPT_DIR" ]; then
+  PARENT_DIR="$(dirname "$SCRIPT_DIR")"
+  if [ -f "$PARENT_DIR/docker-compose.local.yml" ] && [ -f "$PARENT_DIR/scripts/install.sh" ]; then
+    LOCAL_SOURCE="$PARENT_DIR"
+  fi
+fi
 
 # ─── Preflight ───────────────────────────────────────────────────────────────
 
@@ -85,21 +103,43 @@ success "Git installed"
 
 echo ""
 
-# ─── Clone or update ────────────────────────────────────────────────────────
+# ─── Get the source ─────────────────────────────────────────────────────────
 
-if [ -d "$INSTALL_DIR/.git" ]; then
-  info "Existing installation found at $INSTALL_DIR"
-  info "Pulling latest changes..."
-  (cd "$INSTALL_DIR" && git pull --ff-only 2>/dev/null) || warn "Could not pull latest — using current version"
-  success "Repository up to date"
-else
-  if [ -d "$INSTALL_DIR" ] && [ "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
-    fatal "$INSTALL_DIR already exists and is not a git repo. Remove it or set KORTIX_HOME to a different path."
+if [ -n "$LOCAL_SOURCE" ]; then
+  # Running from inside an existing checkout — copy to install dir
+  if [ "$LOCAL_SOURCE" = "$INSTALL_DIR" ]; then
+    info "Already at $INSTALL_DIR"
+  elif [ -d "$INSTALL_DIR/scripts/install.sh" ]; then
+    info "Existing installation found at $INSTALL_DIR"
+  else
+    info "Copying from local checkout: $LOCAL_SOURCE"
+    mkdir -p "$INSTALL_DIR"
+    rsync -a --quiet \
+      --exclude 'node_modules' \
+      --exclude '.git' \
+      --exclude '.nx' \
+      --exclude '.next' \
+      --exclude 'dist' \
+      --exclude '.turbo' \
+      "$LOCAL_SOURCE/" "$INSTALL_DIR/"
+    success "Copied to $INSTALL_DIR"
   fi
+else
+  # Remote install — clone from GitHub
+  if [ -d "$INSTALL_DIR/.git" ]; then
+    info "Existing installation found at $INSTALL_DIR"
+    info "Pulling latest changes..."
+    (cd "$INSTALL_DIR" && git pull --ff-only 2>/dev/null) || warn "Could not pull latest — using current version"
+    success "Repository up to date"
+  else
+    if [ -d "$INSTALL_DIR" ] && [ "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
+      fatal "$INSTALL_DIR already exists and is not a git repo. Remove it or set KORTIX_HOME to a different path."
+    fi
 
-  info "Cloning Kortix to $INSTALL_DIR..."
-  git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$INSTALL_DIR" 2>&1 | tail -1
-  success "Repository cloned"
+    info "Cloning Kortix to $INSTALL_DIR..."
+    git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$INSTALL_DIR" 2>&1 | tail -1
+    success "Repository cloned"
+  fi
 fi
 
 echo ""
@@ -108,11 +148,9 @@ echo ""
 
 cd "$INSTALL_DIR"
 
-# The repo has the full installer at scripts/install.sh
 if [ ! -f "scripts/install.sh" ]; then
   fatal "scripts/install.sh not found. The repository may be incomplete."
 fi
 
 chmod +x scripts/install.sh
 exec bash scripts/install.sh --skip-preflight --skip-clone
-
