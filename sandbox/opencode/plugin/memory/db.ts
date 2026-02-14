@@ -432,6 +432,28 @@ export function getObservationsByIds(db: Database, ids: number[]): Observation[]
 }
 
 /**
+ * Get compact observation index entries by IDs (for hydrating LSS search results).
+ */
+export function getObservationIndexByIds(db: Database, ids: number[]): ObservationIndex[] {
+	if (ids.length === 0) return []
+	const placeholders = ids.map(() => "?").join(",")
+	const rows = db
+		.prepare(
+			`SELECT id, type, title, tool_name, files_modified, created_at
+			 FROM observations WHERE id IN (${placeholders}) ORDER BY created_at DESC`,
+		)
+		.all(...ids) as Array<Record<string, unknown>>
+	return rows.map((row) => ({
+		id: row.id as number,
+		type: row.type as ObservationType,
+		title: row.title as string,
+		toolName: row.tool_name as string | null,
+		filesModified: safeJsonParse(row.files_modified as string),
+		createdAt: row.created_at as number,
+	}))
+}
+
+/**
  * Get recent observations as compact index (for context injection).
  */
 export function getRecentObservations(

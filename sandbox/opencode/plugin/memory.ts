@@ -47,6 +47,8 @@ import {
 import { generateContextBlock } from "./memory/context"
 import { compressObservationAsync, generateSessionSummaryAsync } from "./memory/ai"
 import type { SessionSummaryFields } from "./memory/ai"
+import { ensureMemDir, writeObservationFile, writeSummaryFile } from "./memory/lss"
+import { getObservationById } from "./memory/db"
 
 // =============================================================================
 // PLUGIN ENTRY POINT
@@ -79,6 +81,14 @@ export const MemoryPlugin: Plugin = async ({ directory, client }) => {
 		log("error", `[mem] ✦ FAILED to initialize database: ${err}`)
 		// Return empty plugin — graceful degradation
 		return {}
+	}
+
+	// Initialize LSS companion file directory for semantic search indexing
+	try {
+		ensureMemDir()
+		log("info", "[mem] ✦ LSS mem directory ready at ~/.kortix/mem/")
+	} catch (err) {
+		log("warn", `[mem] ✦ LSS mem directory creation failed (non-critical): ${err}`)
 	}
 
 	log("info", `[mem] ✦ Plugin ready — directory: ${directory}`)
@@ -177,6 +187,14 @@ export const MemoryPlugin: Plugin = async ({ directory, client }) => {
 
 			upsertSummary(db, summary)
 			writeJournalEntry(summary)
+
+			// Write companion .md file for LSS semantic search indexing
+			try {
+				const savedSummary = getSummaryBySessionId(db, sessionId)
+				if (savedSummary) writeSummaryFile(sessionId, savedSummary)
+			} catch {
+				// Non-critical: LSS indexing is best-effort
+			}
 
 			log("info", `[mem]   └─ SUMMARY SAVED: "${(summaryFields.completed || "").slice(0, 80)}"`)
 			log("info", `[mem]   └─ Journal entry written to ~/.kortix/journal/`)
@@ -284,13 +302,14 @@ export const MemoryPlugin: Plugin = async ({ directory, client }) => {
 			 */
 			mem_search: tool({
 				description:
-					"Search observation memory. Returns a compact index of matching observations " +
+					"Search observation memory using semantic search (LSS) with keyword fallback (FTS5). " +
+					"Returns a compact index of matching observations " +
 					"with IDs, titles, types, and dates (~50-100 tokens per result).\n\n" +
 					"WORKFLOW: Always search first, then use mem_timeline(anchor=ID) for context, " +
 					"then mem_get(ids=[...]) for full details. Never skip to mem_get directly.\n\n" +
-					"Supports FTS5 syntax: AND, OR, NOT, \"exact phrases\".",
+					"Supports natural language queries and FTS5 syntax: AND, OR, NOT, \"exact phrases\".",
 				args: {
-					query: tool.schema.string().describe("Search query (supports FTS5 syntax)"),
+					query: tool.schema.string().describe("Search query (natural language or FTS5 syntax)"),
 					limit: tool.schema
 						.number()
 						.optional()
@@ -507,6 +526,14 @@ export const MemoryPlugin: Plugin = async ({ directory, client }) => {
 					const obsId = insertObservation(db, observation)
 					observationCount++
 
+					// Write companion .md file for LSS semantic search indexing
+					try {
+						const savedObs = getObservationById(db, obsId)
+						if (savedObs) writeObservationFile(savedObs)
+					} catch {
+						// Non-critical: LSS indexing is best-effort
+					}
+
 					// Track files for session summary
 					for (const f of observation.filesRead) sessionFilesRead.add(f)
 					for (const f of observation.filesModified) sessionFilesModified.add(f)
@@ -519,7 +546,15 @@ export const MemoryPlugin: Plugin = async ({ directory, client }) => {
 					log("info", `[mem]   └─ Observation #${obsId} saved: [${observation.type}] "${observation.title}"${filesInfo ? ` (${filesInfo})` : ""} — total: ${observationCount}`)
 
 					// Fire-and-forget: AI enrichment (non-blocking)
-					compressObservationAsync(client, db, obsId, raw, log).catch((err) => {
+					// After enrichment succeeds, re-write the companion file with AI-enhanced data
+					compressObservationAsync(client, db, obsId, raw, log).then(() => {
+						try {
+							const enrichedObs = getObservationById(db, obsId)
+							if (enrichedObs) writeObservationFile(enrichedObs)
+						} catch {
+							// Non-critical
+						}
+					}).catch((err) => {
 						log("warn", `[mem:ai] Compression failed for #${obsId}: ${err}`)
 					})
 				} else {

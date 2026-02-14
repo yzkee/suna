@@ -1,17 +1,23 @@
 /**
- * FTS5 Search Service for Memory Plugin
+ * Search Service for Memory Plugin
  *
  * Implements the 3-layer progressive disclosure pattern from claude-mem:
  *   1. search() → Compact index (~50-100 tokens/result)
  *   2. timeline() → Chronological context around an observation
  *   3. getObservationsBatch() → Full details (~500-1000 tokens each)
  *
- * All queries use SQLite FTS5 for fast full-text search.
- * FTS5 queries are properly escaped to prevent injection.
+ * Search priority:
+ *   1. LSS (Local Semantic Search) — hybrid BM25 + embedding search via lss CLI
+ *   2. FTS5 fallback — keyword matching when LSS is unavailable
+ *
+ * LSS provides richer results (conceptual similarity) while FTS5 handles
+ * exact keyword matching. Both are always available; LSS is preferred.
  */
 
 import type { Database } from "bun:sqlite"
 import type { Observation, ObservationIndex, ObservationType, SessionSummary } from "./db"
+import { getObservationIndexByIds } from "./db"
+import { searchViaLss } from "./lss"
 
 // =============================================================================
 // TYPES
@@ -56,31 +62,66 @@ export interface TimelineEntry {
 // =============================================================================
 
 /**
- * Search observations using FTS5 full-text search.
+ * Search observations using LSS semantic search with FTS5 fallback.
  * Returns compact index entries optimized for minimal token usage.
  *
- * Supports:
- * - Full-text queries with FTS5 syntax (AND, OR, NOT, phrases)
- * - Filtering by type, project, date range
- * - Ordering by date or relevance
+ * Search priority:
+ *   1. LSS (hybrid BM25 + embedding) — richer semantic matching
+ *   2. FTS5 — keyword matching fallback when LSS is unavailable
+ *
+ * Supports filtering by type, project, date range (applied post-search).
  */
 export function searchObservations(db: Database, opts: SearchOptions): SearchResult {
 	const limit = Math.min(opts.limit ?? 20, 100)
 	const offset = opts.offset ?? 0
-	const orderBy = opts.orderBy ?? "date_desc"
 
-	// Escape the FTS5 query to prevent injection
+	// ── Try LSS first (semantic search) ──────────────────────────────
+	const lssHits = searchViaLss(opts.query, limit + 20) // fetch extra to compensate for post-filtering
+	if (lssHits.length > 0) {
+		const ids = lssHits.map((h) => h.id)
+		let observations = getObservationIndexByIds(db, ids)
+
+		// Apply post-filters on the SQLite-hydrated results
+		if (opts.type) {
+			observations = observations.filter((o) => o.type === opts.type)
+		}
+		if (opts.dateStart) {
+			const startEpoch = new Date(opts.dateStart).getTime()
+			observations = observations.filter((o) => o.createdAt >= startEpoch)
+		}
+		if (opts.dateEnd) {
+			const endEpoch = new Date(opts.dateEnd).getTime() + 86400000
+			observations = observations.filter((o) => o.createdAt <= endEpoch)
+		}
+
+		// Preserve LSS relevance ordering (ids came sorted by score)
+		const idOrder = new Map(ids.map((id, i) => [id, i]))
+		observations.sort((a, b) => (idOrder.get(a.id) ?? 999) - (idOrder.get(b.id) ?? 999))
+
+		// Apply offset + limit
+		const paged = observations.slice(offset, offset + limit)
+
+		return { observations: paged, totalEstimate: observations.length }
+	}
+
+	// ── FTS5 fallback (keyword search) ───────────────────────────────
+	return searchObservationsFts5(db, opts, limit, offset)
+}
+
+/**
+ * FTS5-based observation search (fallback when LSS is unavailable).
+ */
+function searchObservationsFts5(
+	db: Database,
+	opts: SearchOptions,
+	limit: number,
+	offset: number,
+): SearchResult {
+	const orderBy = opts.orderBy ?? "date_desc"
 	const ftsQuery = escapeFts5Query(opts.query)
 
-	// Build the query with filters
-	const conditions: string[] = []
-	const params: Record<string, unknown> = {}
+	const params: Record<string, unknown> = { $query: ftsQuery }
 
-	// Core FTS5 match
-	conditions.push(`observations_fts MATCH $query`)
-	params.$query = ftsQuery
-
-	// Additional filters via JOIN with source table
 	let typeFilter = ""
 	let projectFilter = ""
 	let dateFilter = ""
@@ -102,12 +143,11 @@ export function searchObservations(db: Database, opts: SearchOptions): SearchRes
 	}
 
 	if (opts.dateEnd) {
-		const endEpoch = new Date(opts.dateEnd).getTime() + 86400000 // end of day
+		const endEpoch = new Date(opts.dateEnd).getTime() + 86400000
 		dateFilter += ` AND o.created_at <= $dateEnd`
 		params.$dateEnd = endEpoch
 	}
 
-	// Order clause
 	let orderClause: string
 	switch (orderBy) {
 		case "relevance":
@@ -145,7 +185,6 @@ export function searchObservations(db: Database, opts: SearchOptions): SearchRes
 			createdAt: row.created_at as number,
 		}))
 
-		// Estimate total (without LIMIT)
 		const countSql = `
 			SELECT COUNT(*) as cnt
 			FROM observations_fts
@@ -158,8 +197,7 @@ export function searchObservations(db: Database, opts: SearchOptions): SearchRes
 
 		return { observations, totalEstimate }
 	} catch (err) {
-		// FTS5 query syntax error — fall back to LIKE search
-		return searchFallback(db, opts.query, limit, offset, opts)
+			return searchFallback(db, opts.query, limit, offset, opts)
 	}
 }
 
