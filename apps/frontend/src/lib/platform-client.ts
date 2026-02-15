@@ -5,10 +5,10 @@
  *   GET  /platform/providers          — available sandbox providers
  *   POST /platform/init               — ensure user has a sandbox, provision if needed
  *   GET  /platform/sandbox            — get user's active sandbox
- *   GET  /platform/sandboxes          — list all sandboxes
- *   POST /platform/sandbox/:id/start  — start a stopped sandbox
- *   POST /platform/sandbox/:id/stop   — stop a running sandbox
- *   DELETE /platform/sandbox/:id      — remove a sandbox
+ *   GET  /platform/sandbox/list        — list all sandboxes
+ *   POST /platform/sandbox/stop       — stop the active sandbox
+ *   POST /platform/sandbox/restart    — restart the active sandbox
+ *   DELETE /platform/sandbox           — remove/archive the active sandbox
  *
  * In production: https://api.kortix.com/v1/platform/*  (base URL includes /v1)
  * In local:      http://localhost:8008/v1/platform/*  (base URL includes /v1)
@@ -285,7 +285,7 @@ export async function getSandbox(): Promise<SandboxInfo | null> {
  * List all sandboxes for the user's account.
  */
 export async function listSandboxes(): Promise<SandboxInfo[]> {
-  const result = await platformFetch<SandboxInfo[]>('/platform/sandboxes', {
+  const result = await platformFetch<SandboxInfo[]>('/platform/sandbox/list', {
     method: 'GET',
   });
 
@@ -297,23 +297,23 @@ export async function listSandboxes(): Promise<SandboxInfo[]> {
 }
 
 /**
- * Start a stopped sandbox.
+ * Restart the active sandbox (stop + start).
  */
-export async function startSandbox(sandboxId: string): Promise<void> {
-  const result = await platformFetch<void>(`/platform/sandbox/${sandboxId}/start`, {
+export async function restartSandbox(): Promise<void> {
+  const result = await platformFetch<void>('/platform/sandbox/restart', {
     method: 'POST',
   });
 
   if (!result.success) {
-    throw new Error(result.error || 'Failed to start sandbox');
+    throw new Error(result.error || 'Failed to restart sandbox');
   }
 }
 
 /**
- * Stop a running sandbox.
+ * Stop the active sandbox.
  */
-export async function stopSandbox(sandboxId: string): Promise<void> {
-  const result = await platformFetch<void>(`/platform/sandbox/${sandboxId}/stop`, {
+export async function stopSandbox(): Promise<void> {
+  const result = await platformFetch<void>('/platform/sandbox/stop', {
     method: 'POST',
   });
 
@@ -323,10 +323,11 @@ export async function stopSandbox(sandboxId: string): Promise<void> {
 }
 
 /**
- * Remove (destroy) a sandbox.
+ * Remove (destroy) the active sandbox.
+ * Calls the backend which destroys the Daytona VM and archives the DB row.
  */
-export async function removeSandbox(sandboxId: string): Promise<void> {
-  const result = await platformFetch<void>(`/platform/sandbox/${sandboxId}`, {
+export async function removeSandbox(): Promise<void> {
+  const result = await platformFetch<void>('/platform/sandbox', {
     method: 'DELETE',
   });
 

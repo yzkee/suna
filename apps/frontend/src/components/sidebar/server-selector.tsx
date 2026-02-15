@@ -19,8 +19,9 @@ import { useServerStore, type ServerEntry } from '@/stores/server-store';
 import { useTabStore } from '@/stores/tab-store';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { getSupabaseAccessToken } from '@/lib/auth-token';
-import { ensureSandbox, getSandboxUrl, extractMappedPorts, type SandboxProviderName } from '@/lib/platform-client';
+import { ensureSandbox, getSandboxUrl, extractMappedPorts, removeSandbox, type SandboxProviderName } from '@/lib/platform-client';
 import { useProviders } from '@/hooks/platform/use-sandbox';
 import { useSandboxUpdate } from '@/hooks/platform/use-sandbox-update';
 import { SANDBOX_SERVER_ID } from '@/hooks/platform/use-sandbox';
@@ -177,6 +178,7 @@ function DialogInstanceRow({
   onSelect,
   onEdit,
   onDelete,
+  isDeleting,
   sandboxUpdate,
   onVersionDetected,
 }: {
@@ -185,6 +187,7 @@ function DialogInstanceRow({
   onSelect: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
+  isDeleting?: boolean;
   sandboxUpdate?: SandboxUpdateInfo;
   onVersionDetected?: (version: string) => void;
 }) {
@@ -324,18 +327,25 @@ function DialogInstanceRow({
             <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
               <button
                 type="button"
-                className="h-6 px-2.5 text-[11px] font-medium text-destructive-foreground bg-destructive rounded-md transition-colors cursor-pointer hover:bg-destructive/90"
+                disabled={isDeleting}
+                className="h-6 px-2.5 text-[11px] font-medium text-destructive-foreground bg-destructive rounded-md transition-colors cursor-pointer hover:bg-destructive/90 disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={() => { onDelete?.(); setConfirmDelete(false); }}
               >
-                Remove
+                {isDeleting ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  'Remove'
+                )}
               </button>
-              <button
-                type="button"
-                className="p-1 rounded-md hover:bg-muted cursor-pointer"
-                onClick={() => setConfirmDelete(false)}
-              >
-                <X className="h-3.5 w-3.5 text-muted-foreground" />
-              </button>
+              {!isDeleting && (
+                <button
+                  type="button"
+                  className="p-1 rounded-md hover:bg-muted cursor-pointer"
+                  onClick={() => setConfirmDelete(false)}
+                >
+                  <X className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -358,6 +368,7 @@ export function InstanceManagerDialog({
   const { servers, activeServerId, addServer, updateServer, removeServer, setActiveServer } =
     useServerStore();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [search, setSearch] = React.useState('');
   const [mode, setMode] = React.useState<'list' | 'add' | 'edit'>('list');
   const [editingId, setEditingId] = React.useState<string | null>(null);
@@ -474,6 +485,9 @@ export function InstanceManagerDialog({
         }));
       }
 
+      // Update the sandbox query cache so useSandbox() picks up the new sandbox
+      queryClient.setQueryData(['platform', 'sandbox'], sandbox);
+
       useTabStore.getState().swapForServer(SANDBOX_SERVER_ID, activeServerId);
       setActiveServer(SANDBOX_SERVER_ID);
       router.push('/dashboard');
@@ -493,8 +507,41 @@ export function InstanceManagerDialog({
     onOpenChange(false);
   }
 
-  function handleRemove(id: string) {
+  const [isRemovingSandbox, setIsRemovingSandbox] = React.useState(false);
+
+  async function handleRemove(id: string) {
+    const server = servers.find((s) => s.id === id);
+
+    // Cloud or Docker sandbox → destroy the actual VM/container via backend, then remove from store
+    if (server && (server.provider === 'daytona' || server.provider === 'local_docker')) {
+      setIsRemovingSandbox(true);
+      try {
+        await removeSandbox();
+      } catch (err) {
+        console.error('[InstanceManager] Failed to remove sandbox from backend:', err);
+        // Still remove from local store so user isn't stuck
+      } finally {
+        setIsRemovingSandbox(false);
+      }
+
+      // Kill the cached sandbox query so useSandbox() doesn't auto-recreate it.
+      // removeQueries wipes the data entirely — the hook won't refetch because
+      // there's no stale data to trigger it until the user explicitly creates again.
+      queryClient.removeQueries({ queryKey: ['platform', 'sandbox'] });
+    }
+
+    // Remove from local store (manual/localhost entries just get this)
     removeServer(id);
+
+    // If we just deleted the active server, switch to the first remaining one
+    if (id === activeServerId) {
+      const remaining = useServerStore.getState().servers;
+      if (remaining.length > 0) {
+        const fallback = remaining[0];
+        useTabStore.getState().swapForServer(fallback.id, id);
+        setActiveServer(fallback.id);
+      }
+    }
   }
 
   return (
@@ -557,6 +604,7 @@ export function InstanceManagerDialog({
                     onSelect={() => handleSelect(server.id)}
                     onEdit={() => startEdit(server)}
                     onDelete={() => handleRemove(server.id)}
+                    isDeleting={isRemovingSandbox}
                     sandboxUpdate={server.id === SANDBOX_SERVER_ID ? sandboxUpdate : undefined}
                     onVersionDetected={server.id === SANDBOX_SERVER_ID ? setSandboxVersion : undefined}
                   />

@@ -1,23 +1,21 @@
 /**
- * useSandbox — manages the user's sandbox lifecycle.
+ * useSandbox — monitors the user's sandbox lifecycle.
  *
  * On mount (when user is authenticated):
- *   1. Calls POST /platform/init on the platform service
- *   2. Gets back the sandbox info (base_url, external_id, provider, etc.)
- *   3. Registers the sandbox as a server in the server-store
+ *   1. Calls GET /platform/sandbox to check for an existing sandbox
+ *   2. If one exists, registers it as a server in the server-store
  *      so the OpenCode SDK automatically connects to it
+ *   3. If none exists, returns null — the user must explicitly create
+ *      one via the Instance Manager dialog
  *
- * The hook is idempotent — calling init multiple times returns the
- * same sandbox if one already exists.
- *
- * In LOCAL mode, kortix-api runs without a database and uses Docker
- * containers directly as the source of truth. The same platform API
- * endpoints work — they just talk to Docker instead of Postgres.
+ * NOTE: This hook does NOT auto-create sandboxes. Creation only happens
+ * when the user clicks "Cloud" or "Local Docker" in the Instance Manager,
+ * which calls ensureSandbox() directly.
  */
 
 import { useQuery } from '@tanstack/react-query';
 import {
-  ensureSandbox,
+  getSandbox,
   getProviders,
   getSandboxUrl,
   extractMappedPorts,
@@ -94,8 +92,9 @@ export function useSandbox() {
   const query = useQuery({
     queryKey: ['platform', 'sandbox'],
     queryFn: async () => {
-      const result = await ensureSandbox();
-      return result.sandbox;
+      // Read-only check — returns null if no sandbox exists.
+      // Does NOT create one. Creation is explicit via the Instance Manager.
+      return await getSandbox();
     },
     enabled: !!user,
     staleTime: 5 * 60 * 1000, // 5 minutes — sandbox doesn't change often
