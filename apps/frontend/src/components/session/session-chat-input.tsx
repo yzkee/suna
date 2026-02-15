@@ -17,6 +17,7 @@ import {
   Archive,
   Database,
   PanelRight,
+  ListPlus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -36,6 +37,7 @@ import type {
 } from '@/hooks/opencode/use-opencode-sessions';
 import { useSummarizeOpenCodeSession } from '@/hooks/opencode/use-opencode-sessions';
 import { toast } from '@/lib/toast';
+import { useMessageQueueStore } from '@/stores/message-queue-store';
 
 export type { ProviderListResponse };
 
@@ -816,9 +818,12 @@ export function SessionChatInput({
     return [...agentItems, ...fileItems];
   }, [mentionQuery, agents, fileResults]);
 
+  const enqueue = useMessageQueueStore((s) => s.enqueue);
+
   const handleSubmit = useCallback(async () => {
     const trimmed = text.trim();
-    if (!trimmed || isBusy || disabled) return;
+    if (!trimmed || disabled) return;
+
     // Push to prompt history
     historyRef.current.push(trimmed);
     historyIndexRef.current = -1;
@@ -827,15 +832,24 @@ export function SessionChatInput({
     // Snapshot files before clearing
     const filesToSend = attachedFiles.length > 0 ? [...attachedFiles] : undefined;
 
-    // Optimistically clear input — restore on failure
+    // Optimistically clear input
     setText('');
     setSlashFilter(null);
     setMentionQuery(null);
     setMentions([]);
-    for (const af of attachedFiles) URL.revokeObjectURL(af.localUrl);
+    // Don't revoke URLs for files going into the queue — they're still needed
+    if (!isBusy) {
+      for (const af of attachedFiles) URL.revokeObjectURL(af.localUrl);
+    }
     setAttachedFiles([]);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
+    }
+
+    // If busy, queue the message instead of sending immediately
+    if (isBusy && sessionId) {
+      enqueue(sessionId, trimmed, filesToSend);
+      return;
     }
 
     try {
@@ -844,7 +858,7 @@ export function SessionChatInput({
       // Restore the text so the user can retry
       setText(trimmed);
     }
-  }, [text, isBusy, disabled, onSend, attachedFiles]);
+  }, [text, isBusy, disabled, onSend, attachedFiles, sessionId, enqueue]);
 
   function handleSelectCommand(cmd: Command) {
     onCommand?.(cmd);
@@ -1219,15 +1233,35 @@ export function SessionChatInput({
                     disabled={disabled || isBusy}
                   />
 
-                  {isBusy && onStop ? (
-                    <Button
-                      size="sm"
-                      onClick={onStop}
-                      className="flex-shrink-0 self-end border-[1.5px] border-border rounded-2xl w-10 h-10"
-                    >
-                      <div className="min-h-[14px] min-w-[14px] w-[14px] h-[14px] rounded-sm bg-current" />
-                    </Button>
-                  ) : (
+                  {isBusy && onStop && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          size="sm"
+                          onClick={onStop}
+                          className="flex-shrink-0 self-end border-[1.5px] border-border rounded-2xl w-10 h-10"
+                        >
+                          <div className="min-h-[14px] min-w-[14px] w-[14px] h-[14px] rounded-sm bg-current" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top"><p>Stop</p></TooltipContent>
+                    </Tooltip>
+                  )}
+                  {isBusy && text.trim() ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          size="sm"
+                          onClick={handleSubmit}
+                          variant="outline"
+                          className="flex-shrink-0 self-end border-[1.5px] border-border rounded-2xl w-10 h-10"
+                        >
+                          <ListPlus className="size-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top"><p>Add to queue</p></TooltipContent>
+                    </Tooltip>
+                  ) : !isBusy && (
                     <Button
                       size="sm"
                       disabled={!text.trim() || disabled}

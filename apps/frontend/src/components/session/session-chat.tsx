@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   ArrowDown,
+  ArrowUp,
   Loader2,
   Copy,
   Check,
@@ -21,8 +22,10 @@ import {
   Layers,
   ListTodo,
   MoreHorizontal,
+  Send,
   Sparkles,
   Undo2,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -55,6 +58,7 @@ import {
 import { useOpenCodeSessionStatusStore } from '@/stores/opencode-session-status-store';
 import { useOpenCodePendingStore } from '@/stores/opencode-pending-store';
 import { useKortixComputerStore } from '@/stores/kortix-computer-store';
+import { useMessageQueueStore } from '@/stores/message-queue-store';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { useThrottledValue } from '@/hooks/use-throttled-value';
 import { SessionSiteHeader } from '@/components/session/session-site-header';
@@ -1543,6 +1547,62 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   const isServerBusy = sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry';
   const isBusy = isServerBusy || !!pendingUserMessage || pendingSendInFlight;
 
+  // ---- Message Queue ----
+  // Select the full array (stable ref) and derive the filtered list via useMemo
+  // to avoid the "getSnapshot should be cached" infinite-loop error that occurs
+  // when .filter() creates a new array reference on every selector call.
+  const allQueuedMessages = useMessageQueueStore((s) => s.messages);
+  const queuedMessages = useMemo(
+    () => allQueuedMessages.filter((m) => m.sessionId === sessionId),
+    [allQueuedMessages, sessionId],
+  );
+  const queueDequeue = useMessageQueueStore((s) => s.dequeue);
+  const queueRemove = useMessageQueueStore((s) => s.remove);
+  const queueMoveUp = useMessageQueueStore((s) => s.moveUp);
+  const queueMoveDown = useMessageQueueStore((s) => s.moveDown);
+
+  // Track previous busy state to detect idle transitions
+  const prevBusyRef = useRef(isBusy);
+
+  // Auto-drain: when session transitions from busy → idle, send the next queued message
+  useEffect(() => {
+    const wasBusy = prevBusyRef.current;
+    prevBusyRef.current = isBusy;
+
+    if (wasBusy && !isBusy) {
+      // Session just became idle — check for queued messages
+      const sessionQueue = useMessageQueueStore.getState().messages.filter(
+        (m) => m.sessionId === sessionId,
+      );
+      if (sessionQueue.length > 0) {
+        // Small delay to let the UI settle before auto-sending
+        const timer = setTimeout(() => {
+          const next = queueDequeue(sessionId);
+          if (next) {
+            handleSend(next.text, next.files);
+          }
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [isBusy, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // "Send now" handler: abort current session + send the queued message
+  const handleQueueSendNow = useCallback(
+    (messageId: string) => {
+      const msg = useMessageQueueStore.getState().messages.find((m) => m.id === messageId);
+      if (!msg) return;
+      queueRemove(messageId);
+      // Abort the current session first
+      abortSession.mutate(sessionId);
+      // Send after a brief delay to let abort take effect
+      setTimeout(() => {
+        handleSend(msg.text, msg.files);
+      }, 150);
+    },
+    [sessionId, abortSession, queueRemove], // handleSend added via eslint-disable below
+  ); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Stop polling when session goes idle (via SSE or polling fallback).
   // Grace period: if we sent a message recently (within 5s), don't stop polling
   // on the first idle status — the server may not have started processing yet.
@@ -2144,6 +2204,85 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                       style={{ height: '14px', width: 'auto' }}
                     />
                     <KortixLoader size="small" />
+                  </div>
+                )}
+
+                {/* Queued messages preview — shown as dimmed user bubbles below current activity */}
+                {queuedMessages.length > 0 && (
+                  <div className="flex flex-col gap-3 mt-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-px bg-border/40" />
+                      <span className="text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">
+                        Queued
+                      </span>
+                      <div className="flex-1 h-px bg-border/40" />
+                    </div>
+                    {queuedMessages.map((qm, idx) => (
+                      <div key={qm.id} className="group/queued flex justify-end opacity-40 hover:opacity-70 transition-opacity">
+                        <div className="flex items-center gap-1.5">
+                          {/* Action buttons — visible on hover */}
+                          <div className="flex items-center gap-0.5 opacity-0 group-hover/queued:opacity-100 transition-opacity shrink-0">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() => handleQueueSendNow(qm.id)}
+                                  className="inline-flex items-center justify-center size-6 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
+                                >
+                                  <Send className="size-3" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top"><p className="text-xs">Send now</p></TooltipContent>
+                            </Tooltip>
+                            {idx > 0 && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={() => queueMoveUp(qm.id)}
+                                    className="inline-flex items-center justify-center size-6 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
+                                  >
+                                    <ArrowUp className="size-3" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top"><p className="text-xs">Move up</p></TooltipContent>
+                              </Tooltip>
+                            )}
+                            {idx < queuedMessages.length - 1 && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={() => queueMoveDown(qm.id)}
+                                    className="inline-flex items-center justify-center size-6 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
+                                  >
+                                    <ArrowDown className="size-3" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top"><p className="text-xs">Move down</p></TooltipContent>
+                              </Tooltip>
+                            )}
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() => queueRemove(qm.id)}
+                                  className="inline-flex items-center justify-center size-6 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
+                                >
+                                  <X className="size-3" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top"><p className="text-xs">Remove</p></TooltipContent>
+                            </Tooltip>
+                          </div>
+                          <div className="flex flex-col max-w-[90%] rounded-3xl rounded-br-lg bg-card border border-dashed border-border/60 overflow-hidden">
+                            <p className="text-sm leading-relaxed whitespace-pre-wrap px-4 py-3 text-muted-foreground">
+                              {qm.text}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
