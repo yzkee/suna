@@ -1002,9 +1002,6 @@ function SessionTurn({
             className={cn('dark:invert-0 invert flex-shrink-0', working && 'animate-pulse')}
             style={{ height: '14px', width: 'auto' }}
           />
-          {working && turn.assistantMessages.length === 0 && (
-            <KortixLoader size="small" />
-          )}
         </div>
       )}
 
@@ -2106,7 +2103,6 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                         className="dark:invert-0 invert flex-shrink-0 animate-pulse"
                         style={{ height: '14px', width: 'auto' }}
                       />
-                      <KortixLoader size="small" />
                       {isRetrying && (
                         <span className="text-xs text-amber-500 animate-pulse">
                           Retrying connection...
@@ -2183,7 +2179,6 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                         className="dark:invert-0 invert flex-shrink-0 animate-pulse"
                         style={{ height: '14px', width: 'auto' }}
                       />
-                      <KortixLoader size="small" />
                       {isRetrying && (
                         <span className="text-xs text-amber-500 animate-pulse">
                           Retrying connection...
@@ -2203,7 +2198,6 @@ export function SessionChat({ sessionId }: SessionChatProps) {
                       className="dark:invert-0 invert flex-shrink-0 animate-pulse"
                       style={{ height: '14px', width: 'auto' }}
                     />
-                    <KortixLoader size="small" />
                   </div>
                 )}
 
