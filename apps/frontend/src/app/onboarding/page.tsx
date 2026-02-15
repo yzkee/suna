@@ -161,7 +161,7 @@ function OnboardingContent() {
         const configured = envData.configured || {};
         const hasKey = LLM_KEYS.some((k) => configured[k]);
         if (!hasKey) {
-          router.replace('/setup?step=keys');
+          router.replace('/dashboard');
           return;
         }
 
@@ -294,7 +294,7 @@ function OnboardingContent() {
             <Button variant="default" size="sm" onClick={() => window.location.reload()}>
               Retry
             </Button>
-            <Button variant="outline" size="sm" onClick={() => router.push('/setup?step=keys')}>
+            <Button variant="outline" size="sm" onClick={() => router.push('/dashboard')}>
               Setup
             </Button>
           </div>
@@ -326,7 +326,7 @@ function OnboardingContent() {
           variant="ghost"
           size="sm"
           className="text-xs text-muted-foreground h-7"
-          onClick={() => router.push('/setup?step=keys')}
+          onClick={() => router.push('/dashboard')}
         >
           Setup
         </Button>
