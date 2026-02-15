@@ -167,7 +167,6 @@ export async function handleSlackWebhook(
     raw: eventPayload,
   };
 
-  // Fire-and-forget: fetch thread context (if in thread) then process
   (async () => {
     if (event.thread_ts && event.channel) {
       normalized.threadContext = await fetchThreadContext(
@@ -225,7 +224,6 @@ async function fetchThreadContext(
 
     const context: ThreadMessage[] = [];
     for (const msg of result.messages) {
-      // Skip the current message (will be sent as the main content)
       if (msg.ts === currentTs) continue;
       if (!msg.text) continue;
 

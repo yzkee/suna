@@ -52,7 +52,7 @@ export class SlackAdapter extends BaseAdapter {
       return;
     }
 
-    const threadTs = message.threadId || (message.chatType !== 'dm' ? message.externalId : undefined);
+    const threadTs = message.threadId || message.externalId;
     const chunks = splitMessage(response.content, this.capabilities.textChunkLimit);
 
     for (const chunk of chunks) {
