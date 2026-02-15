@@ -3,12 +3,11 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
-import { ArrowRight, Key, CheckCircle, Loader2 } from 'lucide-react';
+import { Key, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { KortixLogo } from '@/components/sidebar/kortix-logo';
 import { ProviderSettings } from '@/components/providers/provider-settings';
-import { Button } from '@/components/ui/button';
 import { useProviders } from '@/hooks/providers/use-providers';
 import { useCreateOpenCodeSession } from '@/hooks/opencode/use-opencode-sessions';
 import { useTabStore } from '@/stores/tab-store';
@@ -103,10 +102,11 @@ function WelcomeStep({ onDone }: { onDone: () => void }) {
   );
 }
 
-// ─── Provider Setup Step (overlay with card + provider list) ────────────────
+// ─── Provider Setup Step ────────────────────────────────────────────────────
+// Thin overlay shell — all provider UI comes from <ProviderSettings variant="setup" />
 
 function ProviderSetupStep({ onDone }: { onDone: () => void }) {
-  const { data: providers, isLoading } = useProviders();
+  const { data: providers } = useProviders();
 
   const hasLLMProvider = providers?.some(
     (p) => p.category === 'llm' && p.connected,
@@ -146,30 +146,9 @@ function ProviderSetupStep({ onDone }: { onDone: () => void }) {
           </div>
         </div>
 
-        {/* Scrollable provider list — compact, LLM only */}
+        {/* Provider list + Continue footer — all from ProviderSettings */}
         <div className="flex-1 overflow-y-auto px-6 pb-2">
-          <ProviderSettings compact filter="llm" />
-        </div>
-
-        {/* Footer */}
-        <div className="sticky bottom-0 flex items-center justify-end px-6 py-4 border-t bg-card shrink-0">
-          <Button
-            size="sm"
-            onClick={onDone}
-            disabled={!hasLLMProvider}
-            className="gap-2"
-          >
-            {isLoading ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : hasLLMProvider ? (
-              <>
-                Continue
-                <ArrowRight className="h-3.5 w-3.5" />
-              </>
-            ) : (
-              'Connect a provider to continue'
-            )}
-          </Button>
+          <ProviderSettings variant="setup" onContinue={onDone} />
         </div>
       </motion.div>
     </motion.div>
