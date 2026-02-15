@@ -71,7 +71,7 @@ jobs:
             set -e
 
             echo "--- Pulling latest code ---"
-            cd ~/kortix
+            cd ~/computer
             git fetch origin main
             git reset --hard origin/main
 
