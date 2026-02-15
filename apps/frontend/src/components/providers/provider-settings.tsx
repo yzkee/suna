@@ -10,6 +10,9 @@ import {
   PlugZap,
   ExternalLink,
   Loader2,
+  Key,
+  CheckCircle,
+  ArrowRight,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -46,17 +49,27 @@ const CATEGORY_DESCRIPTIONS: Record<string, string> = {
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 interface ProviderSettingsProps {
-  /** When true, hides the header and health pills. */
-  compact?: boolean;
+  /**
+   * "settings" — full view for the settings modal (header + health pills).
+   * "setup"    — onboarding variant with compact header, sticky Continue footer.
+   */
+  variant?: 'settings' | 'setup';
   /** Only show providers of this category. */
   filter?: ProviderCategory;
   /** Callback after a provider is connected/disconnected. */
   onProviderChange?: () => void;
+  /** Called when the user clicks "Continue" (setup variant only). */
+  onContinue?: () => void;
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export function ProviderSettings({ compact, filter, onProviderChange }: ProviderSettingsProps) {
+export function ProviderSettings({
+  variant = 'settings',
+  filter,
+  onProviderChange,
+  onContinue,
+}: ProviderSettingsProps) {
   const { data: providers, isLoading: providersLoading } = useProviders();
   const { data: schema } = useProviderSchema();
   const { data: health } = useProviderHealth();
@@ -90,7 +103,6 @@ export function ProviderSettings({ compact, filter, onProviderChange }: Provider
     (open: boolean) => {
       setConnectDialogOpen(open);
       if (!open) {
-        // Small delay to let the dialog close animation finish
         setTimeout(() => setConnectDialogProvider(null), 200);
         onProviderChange?.();
       }
@@ -117,78 +129,46 @@ export function ProviderSettings({ compact, filter, onProviderChange }: Provider
     );
   }
 
+  const isSetup = variant === 'setup';
   const allProviders = providers ?? [];
-  const connected = allProviders.filter((p) => p.connected && (!filter || p.category === filter));
-  const categories = filter ? [filter] : (['llm', 'tool'] as ProviderCategory[]);
+  const effectiveFilter = isSetup ? 'llm' : filter;
+  const connected = allProviders.filter((p) => p.connected && (!effectiveFilter || p.category === effectiveFilter));
+  const categories = effectiveFilter ? [effectiveFilter] : (['llm', 'tool'] as ProviderCategory[]);
+  const hasLLMProvider = allProviders.some((p) => p.category === 'llm' && p.connected);
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      {!compact && (
-        <>
-          <div>
-            <h3 className="text-lg font-semibold mb-1">Providers</h3>
-            <p className="text-sm text-muted-foreground">
-              Manage API keys and provider connections for your local Kortix instance.
-            </p>
-          </div>
-
-          {/* Health Status */}
-          {health && (
-            <div className="flex flex-wrap gap-2">
-              <StatusPill label="Docker" ok={health.docker?.ok ?? false} />
-              <StatusPill label="API" ok={health.api?.ok ?? false} />
-              <StatusPill label="Sandbox" ok={health.sandbox?.ok ?? false} />
+    <>
+      <div className="space-y-5">
+        {/* Header — settings variant shows full header + health; setup variant is headless (parent provides header) */}
+        {!isSetup && (
+          <>
+            <div>
+              <h3 className="text-lg font-semibold mb-1">Providers</h3>
+              <p className="text-sm text-muted-foreground">
+                Manage API keys and provider connections for your local Kortix instance.
+              </p>
             </div>
-          )}
-        </>
-      )}
 
-      {/* Connected Providers */}
-      {connected.length > 0 && (
-        <div className="space-y-2">
-          <h4 className="text-sm font-semibold flex items-center gap-2">
-            <PlugZap className="h-4 w-4 text-green-500" />
-            Connected
-          </h4>
-          <div className="rounded-lg border divide-y">
-            {connected.map((provider) => (
-              <ProviderRow
-                key={provider.id}
-                provider={provider}
-                onConnect={() => openConnect(provider)}
-                onDisconnect={() => handleDisconnect(provider)}
-                isDisconnecting={disconnectMutation.isPending}
-              />
-            ))}
-          </div>
-        </div>
-      )}
+            {/* Health Status */}
+            {health && (
+              <div className="flex flex-wrap gap-2">
+                <StatusPill label="Docker" ok={health.docker?.ok ?? false} />
+                <StatusPill label="API" ok={health.api?.ok ?? false} />
+                <StatusPill label="Sandbox" ok={health.sandbox?.ok ?? false} />
+              </div>
+            )}
+          </>
+        )}
 
-      {/* Available Providers by Category */}
-      {categories.map((category) => {
-        const available = allProviders.filter(
-          (p) => p.category === category && !p.connected,
-        );
-        if (available.length === 0 && connected.some((c) => c.category === category)) return null;
-        if (available.length === 0) return null;
-
-        return (
-          <div key={category} className="space-y-2">
-            <div className="flex items-center gap-2">
-              {CATEGORY_ICONS[category]}
-              <h4 className="text-sm font-semibold">{CATEGORY_TITLES[category]}</h4>
-              {category === 'llm' && (
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                  Required
-                </Badge>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground -mt-1">
-              {CATEGORY_DESCRIPTIONS[category]}
-            </p>
+        {/* Connected Providers */}
+        {connected.length > 0 && (
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold flex items-center gap-2">
+              <PlugZap className="h-4 w-4 text-green-500" />
+              Connected
+            </h4>
             <div className="rounded-lg border divide-y">
-              {available.map((provider) => (
+              {connected.map((provider) => (
                 <ProviderRow
                   key={provider.id}
                   provider={provider}
@@ -199,8 +179,68 @@ export function ProviderSettings({ compact, filter, onProviderChange }: Provider
               ))}
             </div>
           </div>
-        );
-      })}
+        )}
+
+        {/* Available Providers by Category */}
+        {categories.map((category) => {
+          const available = allProviders.filter(
+            (p) => p.category === category && !p.connected,
+          );
+          if (available.length === 0 && connected.some((c) => c.category === category)) return null;
+          if (available.length === 0) return null;
+
+          return (
+            <div key={category} className="space-y-2">
+              <div className="flex items-center gap-2">
+                {CATEGORY_ICONS[category]}
+                <h4 className="text-sm font-semibold">{CATEGORY_TITLES[category]}</h4>
+                {category === 'llm' && (
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                    Required
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground -mt-1">
+                {CATEGORY_DESCRIPTIONS[category]}
+              </p>
+              <div className="rounded-lg border divide-y">
+                {available.map((provider) => (
+                  <ProviderRow
+                    key={provider.id}
+                    provider={provider}
+                    onConnect={() => openConnect(provider)}
+                    onDisconnect={() => handleDisconnect(provider)}
+                    isDisconnecting={disconnectMutation.isPending}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Setup variant: sticky Continue footer */}
+      {isSetup && onContinue && (
+        <div className="sticky bottom-0 flex items-center justify-end px-6 py-4 border-t bg-card shrink-0 -mx-6 -mb-2 mt-4">
+          <Button
+            size="sm"
+            onClick={onContinue}
+            disabled={!hasLLMProvider}
+            className="gap-2"
+          >
+            {providersLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : hasLLMProvider ? (
+              <>
+                Continue
+                <ArrowRight className="h-3.5 w-3.5" />
+              </>
+            ) : (
+              'Connect a provider to continue'
+            )}
+          </Button>
+        </div>
+      )}
 
       {/* Connect Dialog */}
       <ConnectProviderDialog
@@ -209,7 +249,7 @@ export function ProviderSettings({ compact, filter, onProviderChange }: Provider
         open={connectDialogOpen}
         onOpenChange={handleDialogOpenChange}
       />
-    </div>
+    </>
   );
 }
 

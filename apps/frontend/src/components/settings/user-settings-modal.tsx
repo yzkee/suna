@@ -127,6 +127,7 @@ export function UserSettingsModal({
     const isLocal = isLocalMode();
     const tabs: Tab[] = [
         { id: 'general', label: 'General', icon: Settings },
+        ...(isLocal ? [{ id: 'providers' as TabId, label: 'Providers', icon: Plug }] : []),
         { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
         { id: 'plan', label: 'Plan', icon: Zap },
         { id: 'billing', label: 'Billing', icon: CreditCard },
@@ -135,7 +136,6 @@ export function UserSettingsModal({
         ...(!isLocal ? [{ id: 'referrals' as TabId, label: 'Referrals', icon: Users }] : []),
         { id: 'integrations', label: 'Integrations', icon: Plug },
         { id: 'api-keys', label: 'API Keys', icon: Key },
-        ...(isLocal ? [{ id: 'providers' as TabId, label: 'Providers', icon: Plug }] : []),
     ];
     
     useEffect(() => {

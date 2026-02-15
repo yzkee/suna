@@ -124,6 +124,7 @@ export function UserMenu({ user }: UserMenuProps) {
   // Data-driven menu items — cloud-only items filtered out in local mode
   const generalItems: MenuItemConfig[] = isLocal
     ? [
+        { icon: Plug, label: 'Providers', onClick: () => openSettings('providers') },
         { icon: Settings, label: 'Settings', onClick: () => openSettings('general') },
         { icon: SlidersHorizontal, label: 'Configuration', href: '/configuration' },
         { icon: BookOpen, label: 'Tutorials', href: '/tutorials' },
@@ -259,18 +260,12 @@ export function UserMenu({ user }: UserMenuProps) {
               </DropdownMenuGroup>
 
               {/* Admin */}
-              {(user.isAdmin || isLocalMode()) && (
+              {user.isAdmin && (
                 <>
                   <DropdownMenuSeparator className="my-1" />
                   <DropdownMenuLabel className="text-muted-foreground text-xs px-2 py-1.5">Advanced</DropdownMenuLabel>
                   <DropdownMenuGroup>
-                    {user.isAdmin && adminItems.map(renderMenuItem)}
-                    {isLocalMode() && (
-                      <DropdownMenuItem onClick={() => openSettings('providers')} className="gap-2 p-2">
-                        <Plug className="h-4 w-4" />
-                        <span>Providers</span>
-                      </DropdownMenuItem>
-                    )}
+                    {adminItems.map(renderMenuItem)}
                   </DropdownMenuGroup>
                 </>
               )}
