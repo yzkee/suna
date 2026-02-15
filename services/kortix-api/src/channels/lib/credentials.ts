@@ -56,6 +56,7 @@ export async function encryptCredentials(
 export async function decryptCredentials(
   credentials: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
+  
   const encrypted = credentials._encrypted as string | undefined;
 
   if (!encrypted || typeof encrypted !== 'string' || !encrypted.startsWith(ENCRYPTED_PREFIX)) {
