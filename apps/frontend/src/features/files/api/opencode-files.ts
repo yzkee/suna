@@ -9,6 +9,8 @@
  */
 
 import { getClient } from '@/lib/opencode-sdk';
+import { getActiveOpenCodeUrl } from '@/stores/server-store';
+import { getSupabaseAccessToken } from '@/lib/auth-token';
 import type {
   FileContent,
   FileNode,
@@ -135,15 +137,49 @@ export async function mkdirFile(dirPath: string): Promise<boolean> {
 }
 
 /**
+ * Upload a file to a specific path using the field-name-as-path convention.
+ *
+ * The generated SDK's `client.file.upload()` doesn't correctly pass the
+ * filename through FormData serialization, so we build the request manually
+ * using the approach documented by the hand-written SDK helper: set the
+ * FormData field name to the desired relative path.
+ */
+async function uploadToPath(
+  filePath: string,
+  content: Blob,
+): Promise<UploadResult[]> {
+  const baseUrl = getActiveOpenCodeUrl();
+
+  const form = new FormData();
+  const fileName = filePath.split('/').pop() || 'file';
+  form.append(filePath, content, fileName);
+
+  const headers: Record<string, string> = {};
+  const token = await getSupabaseAccessToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${baseUrl}/file/upload`, {
+    method: 'POST',
+    body: form,
+    headers,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Upload failed (${res.status}): ${text || res.statusText}`);
+  }
+
+  return res.json();
+}
+
+/**
  * Create an empty file at the given path.
- * Uses upload with an empty Blob to create the file.
  */
 export async function createFile(filePath: string): Promise<UploadResult[]> {
-  const parts = filePath.split('/');
-  const fileName = parts.pop() || 'untitled';
-  const dirPath = parts.join('/') || undefined;
-  const blob = new File([''], fileName, { type: 'application/octet-stream' });
-  return uploadFile(blob, dirPath);
+  const blob = new Blob([''], { type: 'application/octet-stream' });
+  return uploadToPath(filePath, blob);
 }
 
 /**
@@ -154,12 +190,8 @@ export async function copyFile(
   sourcePath: string,
   destPath: string,
 ): Promise<UploadResult[]> {
-  const blob = await readFileAsBlob(sourcePath);
-  const parts = destPath.split('/');
-  const fileName = parts.pop() || 'copy';
-  const dirPath = parts.join('/') || undefined;
-  const file = new File([blob], fileName, { type: blob.type || 'application/octet-stream' });
-  return uploadFile(file, dirPath);
+  const content = await readFileAsBlob(sourcePath);
+  return uploadToPath(destPath, content);
 }
 
 /**

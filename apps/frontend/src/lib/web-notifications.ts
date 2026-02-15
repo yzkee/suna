@@ -14,6 +14,7 @@
  */
 
 import { useWebNotificationStore } from '@/stores/web-notification-store';
+import { toast as sonnerToast } from 'sonner';
 import { logger } from '@/lib/logger';
 
 // ============================================================================
@@ -93,12 +94,13 @@ function playNotificationPing() {
 // ============================================================================
 
 /**
- * Check if the browser tab is currently hidden (user switched to another
- * tab or minimised the window).
+ * Check if the user is NOT actively looking at the app — either switched
+ * to another Chrome tab (`document.hidden`) or switched to another app
+ * via Cmd+Tab / Alt+Tab (`!document.hasFocus()`).
  */
 export function isTabHidden(): boolean {
   if (typeof document === 'undefined') return false;
-  return document.hidden;
+  return document.hidden || !document.hasFocus();
 }
 
 /**
@@ -115,60 +117,99 @@ export function isNotificationSupported(): boolean {
  */
 export function sendWebNotification(
   payload: WebNotificationPayload,
+  /** Skip all preference/permission gates (used for test notifications) */
+  force = false,
 ): Notification | null {
   // 1. Browser support check
   if (!isNotificationSupported()) return null;
 
-  // 2. Permission check
-  if (Notification.permission !== 'granted') return null;
-
-  // 3. Preferences check
   const { preferences } = useWebNotificationStore.getState();
 
-  if (!preferences.enabled) return null;
+  if (!force) {
+    // 2. Permission check
+    if (Notification.permission !== 'granted') return null;
 
-  // 4. Category check
-  const prefKey = TYPE_TO_PREF[payload.type];
-  if (!preferences[prefKey]) return null;
+    // 3. Preferences check
+    if (!preferences.enabled) return null;
 
-  // 5. Visibility check
-  if (preferences.onlyWhenHidden && !isTabHidden()) return null;
+    // 4. Category check
+    const prefKey = TYPE_TO_PREF[payload.type];
+    if (!preferences[prefKey]) return null;
 
-  // 6. Fire notification
-  try {
-    const notification = new Notification(payload.title, {
-      body: payload.body,
-      icon: '/favicon.png',
-      tag: payload.tag,
-      // Auto-close after 8 seconds
-      requireInteraction: false,
-    });
+    // 5. Visibility check — questions and permissions always show since the
+    //    agent is blocked waiting for user input
+    const isBlocking = payload.type === 'question' || payload.type === 'permission';
+    if (!isBlocking && preferences.onlyWhenHidden && !isTabHidden()) return null;
+  }
 
-    notification.onclick = () => {
-      // Focus the window
-      window.focus();
-      notification.close();
-      payload.onClick?.();
-    };
+  // 6. Fire in-app toast (always works, regardless of OS notification settings)
+  showInAppToast(payload);
 
-    // Auto-close after 8s (in case the browser doesn't)
-    setTimeout(() => {
-      try {
-        notification.close();
-      } catch {
-        // May already be closed
-      }
-    }, 8000);
+  // 7. Fire native OS notification (may be blocked by OS settings)
+  let notification: Notification | null = null;
+  if (Notification.permission === 'granted') {
+    try {
+      notification = new Notification(payload.title, {
+        body: payload.body,
+        icon: '/favicon.png',
+        tag: payload.tag,
+        // Auto-close after 8 seconds
+        requireInteraction: false,
+      });
 
-    // 7. Sound
-    if (preferences.playSound) {
-      playNotificationPing();
+      notification.onclick = () => {
+        // Focus the window
+        window.focus();
+        notification?.close();
+        payload.onClick?.();
+      };
+
+      // Auto-close after 8s (in case the browser doesn't)
+      setTimeout(() => {
+        try {
+          notification?.close();
+        } catch {
+          // May already be closed
+        }
+      }, 8000);
+    } catch (err) {
+      logger.error('Failed to send native notification', { error: String(err) });
     }
+  }
 
-    return notification;
-  } catch (err) {
-    logger.error('Failed to send web notification', { error: String(err) });
-    return null;
+  // 8. Sound
+  if (force || preferences.playSound) {
+    playNotificationPing();
+  }
+
+  return notification;
+}
+
+// ============================================================================
+// In-app toast fallback
+// ============================================================================
+
+const TOAST_TYPE_MAP: Record<WebNotificationType, 'info' | 'warning' | 'error' | 'success'> = {
+  completion: 'success',
+  error: 'error',
+  question: 'warning',
+  permission: 'warning',
+};
+
+/**
+ * Show an in-app toast notification via sonner.
+ * This always works regardless of OS notification settings.
+ */
+function showInAppToast(payload: WebNotificationPayload) {
+  try {
+    const variant = TOAST_TYPE_MAP[payload.type];
+    const toastFn = sonnerToast[variant] || sonnerToast;
+    toastFn(payload.title, {
+      description: payload.body,
+      duration: 8000,
+    });
+  } catch {
+    // Silently ignore — toast not critical
   }
 }
 
