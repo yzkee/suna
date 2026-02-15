@@ -130,12 +130,18 @@ export class ChannelEngineImpl {
   private resolveModel(config: ChannelConfig): { providerID: string; modelID: string } {
     // Allow per-channel model override via metadata
     const meta = config.metadata as Record<string, unknown> | null;
-    if (meta?.model && typeof meta.model === 'string' && meta.model.includes('/')) {
-      const [providerID, ...rest] = meta.model.split('/');
-      return { providerID, modelID: rest.join('/') };
+
+    // Object format: { providerID: "kortix", modelID: "kortix/basic" }
+    if (meta?.model && typeof meta.model === 'object' && !Array.isArray(meta.model)) {
+      const m = meta.model as Record<string, unknown>;
+      if (typeof m.providerID === 'string' && typeof m.modelID === 'string') {
+        return { providerID: m.providerID, modelID: m.modelID };
+      }
     }
-    // Default to kortix/basic (free tier, routed through kortix-api)
-    return { providerID: 'kortix', modelID: 'basic' };
+
+    // Default to kortix/basic (free tier, routed through kortix-api).
+    // modelID must match the key in opencode.jsonc's provider.kortix.models
+    return { providerID: 'kortix', modelID: 'kortix/basic' };
   }
 
   private buildPrompt(config: ChannelConfig, message: NormalizedMessage): string {
