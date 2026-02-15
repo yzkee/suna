@@ -16,6 +16,8 @@ import {
   Pencil,
   Trash2,
   Copy,
+  Scissors,
+  ClipboardCopy,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { FileNode } from '../types';
@@ -37,10 +39,14 @@ interface FileTreeItemProps {
   onRename?: (node: FileNode, newName: string) => void;
   onDelete?: (node: FileNode) => void;
   onHistory?: (node: FileNode) => void;
+  onCopy?: (node: FileNode) => void;
+  onCut?: (node: FileNode) => void;
   /** All sibling names in the current directory, for duplicate detection */
   siblingNames?: string[];
   /** Git status for this file/directory */
   gitStatus?: GitStatusType;
+  /** Whether this item is currently cut (pending move) */
+  isCut?: boolean;
 }
 
 /** File extension to icon mapping */
@@ -110,8 +116,8 @@ function getNameSelectionEnd(name: string, isDirectory: boolean): number {
   return dotIdx > 0 ? dotIdx : name.length;
 }
 
-export function FileTreeItem({ node, onClick, onDownload, onRename, onDelete, onHistory, siblingNames, gitStatus }: FileTreeItemProps) {
-  const hasContextMenu = onDownload || onRename || onDelete || onHistory;
+export function FileTreeItem({ node, onClick, onDownload, onRename, onDelete, onHistory, onCopy, onCut, siblingNames, gitStatus, isCut }: FileTreeItemProps) {
+  const hasContextMenu = onDownload || onRename || onDelete || onHistory || onCopy || onCut;
 
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameName, setRenameName] = useState('');
@@ -201,6 +207,7 @@ export function FileTreeItem({ node, onClick, onDownload, onRename, onDelete, on
         'flex items-center gap-2 w-full px-3 py-1.5 text-sm text-left rounded-md transition-colors cursor-pointer',
         'hover:bg-muted/80',
         node.ignored && 'opacity-50',
+        isCut && 'opacity-40',
       )}
     >
       {getNodeIcon(node)}
@@ -244,6 +251,26 @@ export function FileTreeItem({ node, onClick, onDownload, onRename, onDelete, on
           <ContextMenuItem onClick={() => onHistory(node)}>
             <History className="mr-2 h-4 w-4" />
             View History
+          </ContextMenuItem>
+        )}
+
+        <ContextMenuSeparator />
+
+        {onCopy && (
+          <ContextMenuItem
+            onClick={() => onCopy(node)}
+          >
+            <ClipboardCopy className="mr-2 h-4 w-4" />
+            Copy
+          </ContextMenuItem>
+        )}
+
+        {onCut && (
+          <ContextMenuItem
+            onClick={() => onCut(node)}
+          >
+            <Scissors className="mr-2 h-4 w-4" />
+            Cut
           </ContextMenuItem>
         )}
 

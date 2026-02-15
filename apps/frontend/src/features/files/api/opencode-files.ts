@@ -135,6 +135,34 @@ export async function mkdirFile(dirPath: string): Promise<boolean> {
 }
 
 /**
+ * Create an empty file at the given path.
+ * Uses upload with an empty Blob to create the file.
+ */
+export async function createFile(filePath: string): Promise<UploadResult[]> {
+  const parts = filePath.split('/');
+  const fileName = parts.pop() || 'untitled';
+  const dirPath = parts.join('/') || undefined;
+  const blob = new File([''], fileName, { type: 'application/octet-stream' });
+  return uploadFile(blob, dirPath);
+}
+
+/**
+ * Copy a file from one location to another.
+ * Reads the source file and uploads it to the destination.
+ */
+export async function copyFile(
+  sourcePath: string,
+  destPath: string,
+): Promise<UploadResult[]> {
+  const blob = await readFileAsBlob(sourcePath);
+  const parts = destPath.split('/');
+  const fileName = parts.pop() || 'copy';
+  const dirPath = parts.join('/') || undefined;
+  const file = new File([blob], fileName, { type: blob.type || 'application/octet-stream' });
+  return uploadFile(file, dirPath);
+}
+
+/**
  * Rename or move a file/directory.
  */
 export async function renameFile(from: string, to: string): Promise<boolean> {
