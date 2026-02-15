@@ -1,51 +1,41 @@
 import { Hono } from 'hono';
-import { streamSSE } from 'hono/streaming';
 import { HTTPException } from 'hono/http-exception';
-import { z } from 'zod';
 import type { AppContext } from '../../types';
-import { generate, stream, calculateCost, getAllModels, getModel } from '../services/llm';
+import { proxyToOpenRouter, extractUsage, calculateCost, getModel, getAllModels } from '../services/llm';
 import { checkCredits, deductLLMCredits } from '../services/billing';
 
 const llm = new Hono<{ Variables: AppContext }>();
 
-// Request validation schema
-const ChatCompletionSchema = z.object({
-  model: z.string(),
-  messages: z.array(
-    z.object({
-      role: z.enum(['system', 'user', 'assistant']),
-      content: z.string(),
-    })
-  ),
-  max_tokens: z.number().optional(),
-  temperature: z.number().min(0).max(2).optional(),
-  stream: z.boolean().optional().default(false),
-  session_id: z.string().optional(),
-});
-
 /**
- * POST /v1/chat/completions
+ * POST /chat/completions
  *
- * OpenAI-compatible chat completions endpoint.
+ * OpenAI-compatible chat completions — 1:1 passthrough proxy to OpenRouter.
+ *
+ * Preserves ALL request fields: tools, tool_choice, response_format, etc.
+ * The only transformation is resolving Kortix model aliases (e.g. kortix/basic → anthropic/claude-sonnet-4-5).
  */
 llm.post('/chat/completions', async (c) => {
   const accountId = c.get('accountId');
 
-  // Parse request
-  let body: unknown;
+  // Parse request body
+  let body: Record<string, unknown>;
   try {
     body = await c.req.json();
   } catch {
     throw new HTTPException(400, { message: 'Invalid JSON body' });
   }
 
-  const parseResult = ChatCompletionSchema.safeParse(body);
-  if (!parseResult.success) {
-    const errors = parseResult.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
-    throw new HTTPException(400, { message: `Validation error: ${errors}` });
+  // Minimal validation — model and messages are required
+  if (!body.model || typeof body.model !== 'string') {
+    throw new HTTPException(400, { message: 'Validation error: model is required' });
+  }
+  if (!body.messages || !Array.isArray(body.messages) || body.messages.length === 0) {
+    throw new HTTPException(400, { message: 'Validation error: messages is required and must be a non-empty array' });
   }
 
-  const request = parseResult.data;
+  const modelId = body.model as string;
+  const isStreaming = body.stream === true;
+  const sessionId = typeof body.session_id === 'string' ? body.session_id : undefined;
 
   // Check credits
   const creditCheck = await checkCredits(accountId);
@@ -53,124 +43,71 @@ llm.post('/chat/completions', async (c) => {
     throw new HTTPException(402, { message: creditCheck.message || 'Insufficient credits' });
   }
 
-  // Get model config for tier check
-  const modelConfig = getModel(request.model);
+  // Get model config for billing
+  const modelConfig = getModel(modelId);
 
-  // Handle streaming
-  if (request.stream) {
-    const result = await stream(request);
+  // Proxy to OpenRouter
+  const response = await proxyToOpenRouter(body, isStreaming);
 
-    if (!result.success) {
-      throw new HTTPException(502, { message: result.error || 'LLM stream failed' });
-    }
-
-    // Deduct credits when stream completes (fire and forget)
-    result.usagePromise?.then((usage) => {
-      const cost = calculateCost(result.modelConfig!, usage.promptTokens, usage.completionTokens);
-      deductLLMCredits(
-        accountId,
-        request.model,
-        usage.promptTokens,
-        usage.completionTokens,
-        cost,
-        request.session_id
-      ).catch((err) => console.error(`[LLM] Failed to deduct credits for ${request.model}:`, err));
-      console.log(`[LLM] Stream complete: ${usage.promptTokens}/${usage.completionTokens} tokens, cost=$${cost.toFixed(6)}`);
-    }).catch((err) => console.error(`[LLM] Failed to get stream usage for billing:`, err));
-
-    // Return SSE stream
-    return streamSSE(c, async (sseStream) => {
-      const id = `chatcmpl-${Date.now()}`;
-
-      for await (const chunk of result.stream!) {
-        await sseStream.writeSSE({
-          data: JSON.stringify({
-            id,
-            object: 'chat.completion.chunk',
-            created: Math.floor(Date.now() / 1000),
-            model: request.model,
-            choices: [
-              {
-                index: 0,
-                delta: { content: chunk },
-                finish_reason: null,
-              },
-            ],
-          }),
-        });
-      }
-
-      // Send final chunk
-      await sseStream.writeSSE({
-        data: JSON.stringify({
-          id,
-          object: 'chat.completion.chunk',
-          created: Math.floor(Date.now() / 1000),
-          model: request.model,
-          choices: [
-            {
-              index: 0,
-              delta: {},
-              finish_reason: 'stop',
-            },
-          ],
-        }),
-      });
-
-      await sseStream.writeSSE({ data: '[DONE]' });
+  // If OpenRouter returned an error, pass it through
+  if (!response.ok && !isStreaming) {
+    const errorBody = await response.text();
+    console.error(`[LLM] OpenRouter error ${response.status}: ${errorBody}`);
+    return new Response(errorBody, {
+      status: response.status,
+      headers: { 'Content-Type': response.headers.get('Content-Type') || 'application/json' },
     });
   }
 
-  // Non-streaming
-  const result = await generate(request);
+  if (isStreaming) {
+    // Stream: pipe the response body through verbatim, extracting usage from the final chunk for billing
+    const upstreamBody = response.body;
+    if (!upstreamBody) {
+      throw new HTTPException(502, { message: 'No response body from upstream' });
+    }
 
-  if (!result.success) {
-    throw new HTTPException(502, { message: result.error || 'LLM generation failed' });
-  }
+    // We need to tee the stream: one for the client, one for usage extraction
+    const [clientStream, billingStream] = upstreamBody.tee();
 
-  // Deduct credits
-  if (result.usage) {
-    const cost = calculateCost(result.modelConfig!, result.usage.promptTokens, result.usage.completionTokens);
-    await deductLLMCredits(
-      accountId,
-      request.model,
-      result.usage.promptTokens,
-      result.usage.completionTokens,
-      cost,
-      request.session_id
-    );
-  }
+    // Fire-and-forget: extract usage from the billing stream and deduct credits
+    extractUsageFromStream(billingStream, modelConfig, modelId, accountId, sessionId);
 
-  // Return OpenAI-compatible response
-  return c.json({
-    id: `chatcmpl-${Date.now()}`,
-    object: 'chat.completion',
-    created: Math.floor(Date.now() / 1000),
-    model: request.model,
-    choices: [
-      {
-        index: 0,
-        message: {
-          role: 'assistant',
-          content: result.text,
-        },
-        finish_reason: 'stop',
+    // Return the client stream verbatim
+    return new Response(clientStream, {
+      status: response.status,
+      headers: {
+        'Content-Type': response.headers.get('Content-Type') || 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
       },
-    ],
-    usage: result.usage
-      ? {
-          prompt_tokens: result.usage.promptTokens,
-          completion_tokens: result.usage.completionTokens,
-          total_tokens: result.usage.totalTokens,
-        }
-      : undefined,
-  });
+    });
+  }
+
+  // Non-streaming: read the response, extract usage for billing, then return
+  const responseBody = await response.json();
+
+  // Deduct credits based on usage
+  const usage = extractUsage(responseBody);
+  if (usage) {
+    const cost = calculateCost(modelConfig, usage.promptTokens, usage.completionTokens);
+    deductLLMCredits(
+      accountId,
+      modelId,
+      usage.promptTokens,
+      usage.completionTokens,
+      cost,
+      sessionId,
+    ).catch((err) => console.error(`[LLM] Failed to deduct credits for ${modelId}:`, err));
+    console.log(`[LLM] ${modelId}: ${usage.promptTokens}/${usage.completionTokens} tokens, cost=$${cost.toFixed(6)}`);
+  }
+
+  return c.json(responseBody);
 });
 
 /**
- * GET /v1/models
+ * GET /models
  *
- * List available models with pricing info.
+ * List available Kortix models with pricing info.
  */
 llm.get('/models', async (c) => {
   const models = getAllModels();
@@ -190,7 +127,7 @@ llm.get('/models', async (c) => {
 });
 
 /**
- * GET /v1/models/:model
+ * GET /models/:model
  *
  * Get specific model info.
  */
@@ -213,5 +150,71 @@ llm.get('/models/:model', async (c) => {
     tier: model.tier,
   });
 });
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+/**
+ * Read through the SSE stream to extract usage from the final data chunk,
+ * then deduct credits. Runs in background (fire-and-forget).
+ */
+async function extractUsageFromStream(
+  stream: ReadableStream<Uint8Array>,
+  modelConfig: import('../config/models').ModelConfig,
+  modelId: string,
+  accountId: string,
+  sessionId?: string,
+) {
+  try {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let lastUsage: { promptTokens: number; completionTokens: number } | null = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Parse SSE lines looking for usage data
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // Keep the last incomplete line
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+        try {
+          const chunk = JSON.parse(line.slice(6));
+          if (chunk.usage) {
+            lastUsage = {
+              promptTokens: chunk.usage.prompt_tokens ?? 0,
+              completionTokens: chunk.usage.completion_tokens ?? 0,
+            };
+          }
+        } catch {
+          // Not valid JSON — skip
+        }
+      }
+    }
+
+    if (lastUsage) {
+      const cost = calculateCost(modelConfig, lastUsage.promptTokens, lastUsage.completionTokens);
+      await deductLLMCredits(
+        accountId,
+        modelId,
+        lastUsage.promptTokens,
+        lastUsage.completionTokens,
+        cost,
+        sessionId,
+      );
+      console.log(`[LLM] Stream ${modelId}: ${lastUsage.promptTokens}/${lastUsage.completionTokens} tokens, cost=$${cost.toFixed(6)}`);
+    } else {
+      console.warn(`[LLM] Stream ${modelId}: no usage data found in stream — billing skipped`);
+    }
+  } catch (err) {
+    console.error(`[LLM] Error extracting usage from stream for billing:`, err);
+  }
+}
 
 export { llm };

@@ -1,65 +1,34 @@
-import { createOpenAI } from '@ai-sdk/openai';
-import { createAnthropic } from '@ai-sdk/anthropic';
-import { createXai } from '@ai-sdk/xai';
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import type { LanguageModel } from 'ai';
 import { config } from '../../config';
-
-// =============================================================================
-// Provider Instances
-// =============================================================================
-
-// OpenRouter - fallback for any model
-const openrouter = createOpenAICompatible({
-  name: 'openrouter',
-  baseURL: config.OPENROUTER_API_URL,
-  apiKey: config.OPENROUTER_API_KEY,
-});
-
-// Direct providers (faster, no middleman)
-const anthropic = createAnthropic({
-  apiKey: config.ANTHROPIC_API_KEY,
-});
-
-const openai = createOpenAI({
-  apiKey: config.OPENAI_API_KEY,
-});
-
-const xai = createXai({
-  apiKey: config.XAI_API_KEY,
-});
-
-const groq = createOpenAICompatible({
-  name: 'groq',
-  baseURL: config.GROQ_API_URL,
-  apiKey: config.GROQ_API_KEY,
-});
 
 // =============================================================================
 // Model Registry
 // =============================================================================
 
 export interface ModelConfig {
-  model: LanguageModel;
+  /** The actual model ID to send to OpenRouter */
+  openrouterId: string;
   inputPer1M: number;   // Cost per 1M input tokens (USD)
   outputPer1M: number;  // Cost per 1M output tokens (USD)
   contextWindow: number;
   tier: 'free' | 'paid';
 }
 
+/**
+ * Kortix model aliases → OpenRouter model IDs.
+ *
+ * Users can send `kortix/basic` and we resolve it to the actual model.
+ * Any model NOT in this registry is passed through to OpenRouter as-is.
+ */
 export const MODELS: Record<string, ModelConfig> = {
-  // -------------------------------------------------------------------------
-  // Kortix Aliases (simple names for users)
-  // -------------------------------------------------------------------------
   'kortix/basic': {
-    model: openrouter('moonshotai/kimi-k2.5'),
-    inputPer1M: 0.45,
-    outputPer1M: 2.25,
+    openrouterId: 'anthropic/claude-sonnet-4-5',
+    inputPer1M: 3.00,
+    outputPer1M: 15.00,
     contextWindow: 200000,
     tier: 'free',
   },
   'kortix/power': {
-    model: openrouter('anthropic/claude-opus-4.6'),
+    openrouterId: 'anthropic/claude-opus-4-6',
     inputPer1M: 5.00,
     outputPer1M: 25.00,
     contextWindow: 200000,
@@ -72,30 +41,22 @@ export const MODELS: Record<string, ModelConfig> = {
 // =============================================================================
 
 /**
- * Get model config by ID.
- * Falls back to OpenRouter for unknown models.
+ * Resolve a user-provided model ID to a ModelConfig.
+ * - Known aliases (kortix/basic, etc.) → mapped config with pricing
+ * - Unknown models → passed through to OpenRouter as-is (zero local pricing → use provider cost)
  */
 export function getModel(modelId: string): ModelConfig {
-  // Direct lookup
   if (MODELS[modelId]) {
     return MODELS[modelId];
   }
 
-  // OpenRouter passthrough (e.g., "openrouter/meta-llama/llama-3-70b")
-  if (modelId.startsWith('openrouter/')) {
-    const actualModel = modelId.replace('openrouter/', '');
-    return {
-      model: openrouter(actualModel),
-      inputPer1M: 0, // Use provider-reported cost
-      outputPer1M: 0,
-      contextWindow: 128000,
-      tier: 'paid',
-    };
-  }
+  // Strip "openrouter/" prefix if present
+  const openrouterId = modelId.startsWith('openrouter/')
+    ? modelId.replace('openrouter/', '')
+    : modelId;
 
-  // Fallback: route unknown models through OpenRouter
   return {
-    model: openrouter(modelId),
+    openrouterId,
     inputPer1M: 0,
     outputPer1M: 0,
     contextWindow: 128000,
@@ -104,19 +65,27 @@ export function getModel(modelId: string): ModelConfig {
 }
 
 /**
+ * Resolve a model ID to the OpenRouter model ID.
+ * This is the ID that gets sent in the request body to OpenRouter.
+ */
+export function resolveOpenRouterId(modelId: string): string {
+  return getModel(modelId).openrouterId;
+}
+
+/**
  * Get all available models for /v1/models endpoint.
  */
 export function getAllModels() {
-  return Object.entries(MODELS).map(([id, config]) => ({
+  return Object.entries(MODELS).map(([id, cfg]) => ({
     id,
     object: 'model' as const,
     owned_by: getProvider(id),
-    context_window: config.contextWindow,
+    context_window: cfg.contextWindow,
     pricing: {
-      input: config.inputPer1M,
-      output: config.outputPer1M,
+      input: cfg.inputPer1M,
+      output: cfg.outputPer1M,
     },
-    tier: config.tier,
+    tier: cfg.tier,
   }));
 }
 

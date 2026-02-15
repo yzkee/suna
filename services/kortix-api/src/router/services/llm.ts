@@ -1,123 +1,5 @@
-import { generateText, streamText } from 'ai';
-import { getModel, getAllModels, type ModelConfig } from '../config/models';
-
-export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-}
-
-export interface ChatCompletionRequest {
-  model: string;
-  messages: ChatMessage[];
-  max_tokens?: number;
-  temperature?: number;
-  stream?: boolean;
-  session_id?: string;
-}
-
-export interface LLMResult {
-  success: boolean;
-  text?: string;
-  usage?: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  };
-  modelConfig?: ModelConfig;
-  error?: string;
-}
-
-export interface LLMStreamResult {
-  success: boolean;
-  stream?: AsyncIterable<string>;
-  usagePromise?: Promise<{
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  }>;
-  modelConfig?: ModelConfig;
-  error?: string;
-}
-
-/**
- * Generate text (non-streaming).
- */
-export async function generate(request: ChatCompletionRequest): Promise<LLMResult> {
-  try {
-    const modelConfig = getModel(request.model);
-
-    console.log(`[LLM] Generating with ${request.model}`);
-
-    const result = await generateText({
-      model: modelConfig.model,
-      messages: request.messages,
-      maxOutputTokens: request.max_tokens,
-      temperature: request.temperature,
-    });
-
-    const inputTokens = result.usage.inputTokens ?? 0;
-    const outputTokens = result.usage.outputTokens ?? 0;
-
-    console.log(`[LLM] Generated: ${inputTokens} in / ${outputTokens} out tokens`);
-
-    return {
-      success: true,
-      text: result.text,
-      usage: {
-        promptTokens: inputTokens,
-        completionTokens: outputTokens,
-        totalTokens: inputTokens + outputTokens,
-      },
-      modelConfig,
-    };
-  } catch (error) {
-    console.error('[LLM] Generate error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
-/**
- * Stream text.
- */
-export async function stream(request: ChatCompletionRequest): Promise<LLMStreamResult> {
-  try {
-    const modelConfig = getModel(request.model);
-
-    console.log(`[LLM] Streaming with ${request.model}`);
-
-    const result = streamText({
-      model: modelConfig.model,
-      messages: request.messages,
-      maxOutputTokens: request.max_tokens,
-      temperature: request.temperature,
-    });
-
-    return {
-      success: true,
-      stream: result.textStream,
-      usagePromise: (async () => {
-        const usage = await result.usage;
-        const inputTokens = usage.inputTokens ?? 0;
-        const outputTokens = usage.outputTokens ?? 0;
-        return {
-          promptTokens: inputTokens,
-          completionTokens: outputTokens,
-          totalTokens: inputTokens + outputTokens,
-        };
-      })(),
-      modelConfig,
-    };
-  } catch (error) {
-    console.error('[LLM] Stream error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
+import { config } from '../../config';
+import { getModel, getAllModels, resolveOpenRouterId, type ModelConfig } from '../config/models';
 
 /**
  * Calculate cost based on token usage and model pricing.
@@ -132,5 +14,50 @@ export function calculateCost(
   return (inputCost + outputCost) * 1.2; // 20% markup
 }
 
+/**
+ * Forward a chat completion request to OpenRouter as a 1:1 passthrough proxy.
+ * Preserves the full request body (tools, tool_choice, response_format, etc).
+ *
+ * @returns The raw fetch Response from OpenRouter (may be streaming or not).
+ */
+export async function proxyToOpenRouter(
+  body: Record<string, unknown>,
+  isStreaming: boolean
+): Promise<Response> {
+  const modelId = body.model as string;
+  const openrouterId = resolveOpenRouterId(modelId);
+
+  // Rewrite the model field to the actual OpenRouter model ID
+  const forwardBody = { ...body, model: openrouterId };
+
+  const url = `${config.OPENROUTER_API_URL}/chat/completions`;
+
+  console.log(`[LLM] Proxying to OpenRouter: ${modelId} → ${openrouterId} (stream=${isStreaming})`);
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${config.OPENROUTER_API_KEY}`,
+      'HTTP-Referer': config.FRONTEND_URL || 'https://kortix.ai',
+      'X-Title': 'Kortix',
+    },
+    body: JSON.stringify(forwardBody),
+  });
+
+  return response;
+}
+
+/**
+ * Extract usage from a non-streaming OpenAI-compatible response body.
+ */
+export function extractUsage(responseBody: any): { promptTokens: number; completionTokens: number } | null {
+  if (!responseBody?.usage) return null;
+  return {
+    promptTokens: responseBody.usage.prompt_tokens ?? 0,
+    completionTokens: responseBody.usage.completion_tokens ?? 0,
+  };
+}
+
 // Re-export model functions
-export { getModel, getAllModels } from '../config/models';
+export { getModel, getAllModels, resolveOpenRouterId } from '../config/models';

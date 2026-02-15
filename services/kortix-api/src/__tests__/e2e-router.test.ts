@@ -1,12 +1,13 @@
 /**
  * E2E tests for the Router service.
  *
- * Tests: health, web-search, image-search, models, chat/completions, proxy passthrough.
+ * Tests: health, web-search, image-search, models, chat/completions (passthrough proxy).
  *
  * Strategy:
- * - mock.module() replaces external services (Tavily, Serper, LLM, billing)
- * - apiKeyAuth without DATABASE_URL falls back to treating bearer token as accountId
- * - Proxy without DATABASE_URL always returns isKortixUser=false (passthrough mode)
+ * - mock.module() replaces external services (Tavily, Serper, LLM proxy, billing)
+ * - apiKeyAuth mock bypasses auth validation, sets accountId from Bearer token
+ * - The LLM route is a 1:1 passthrough proxy to OpenRouter — we mock proxyToOpenRouter
+ *   to return realistic OpenAI-compatible responses (including tool_calls)
  */
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
 import { Hono } from 'hono';
@@ -20,13 +21,59 @@ let mockTavilyResults: any[] = [];
 let mockTavilyError: Error | null = null;
 let mockSerperResults: any[] = [];
 let mockSerperError: Error | null = null;
-let mockLlmResult: any = null;
-let mockLlmStreamResult: any = null;
 let mockCheckCreditsResult = { hasCredits: true, message: 'OK', balance: 100 };
 let mockDeductResult: any = { success: true, cost: 0.01, newBalance: 99, transactionId: 'tx_mock_001' };
-let fetchCalls: { url: string; method: string; headers?: any; body?: any }[] = [];
+
+// Mock OpenRouter proxy response — full OpenAI-compat format
+let mockProxyResponse: Response | null = null;
+let mockProxyError: Error | null = null;
+let lastProxyBody: Record<string, unknown> | null = null;
 
 const TEST_ACCOUNT_ID = 'acc_test_e2e_001';
+
+// ─── Helper: create mock OpenAI response ─────────────────────────────────────
+
+function createMockChatResponse(overrides?: Partial<any>) {
+  return {
+    id: 'chatcmpl-mock-001',
+    object: 'chat.completion',
+    created: Math.floor(Date.now() / 1000),
+    model: 'anthropic/claude-sonnet-4-5',
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: 'Hello! How can I help you?',
+        },
+        finish_reason: 'stop',
+      },
+    ],
+    usage: {
+      prompt_tokens: 100,
+      completion_tokens: 50,
+      total_tokens: 150,
+    },
+    ...overrides,
+  };
+}
+
+function createMockStreamResponse(): Response {
+  const chunks = [
+    { id: 'chatcmpl-mock-001', object: 'chat.completion.chunk', model: 'anthropic/claude-sonnet-4-5', choices: [{ index: 0, delta: { role: 'assistant', content: '' }, finish_reason: null }] },
+    { id: 'chatcmpl-mock-001', object: 'chat.completion.chunk', model: 'anthropic/claude-sonnet-4-5', choices: [{ index: 0, delta: { content: 'Hello ' }, finish_reason: null }] },
+    { id: 'chatcmpl-mock-001', object: 'chat.completion.chunk', model: 'anthropic/claude-sonnet-4-5', choices: [{ index: 0, delta: { content: 'world!' }, finish_reason: null }] },
+    { id: 'chatcmpl-mock-001', object: 'chat.completion.chunk', model: 'anthropic/claude-sonnet-4-5', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 } },
+  ];
+
+  const encoder = new TextEncoder();
+  const sseBody = chunks.map(c => `data: ${JSON.stringify(c)}\n\n`).join('') + 'data: [DONE]\n\n';
+
+  return new Response(encoder.encode(sseBody), {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+  });
+}
 
 // ─── Register mocks ──────────────────────────────────────────────────────────
 
@@ -78,26 +125,25 @@ mock.module('../router/services/billing', () => ({
 }));
 
 mock.module('../router/services/llm', () => ({
-  generate: async (request: any) => {
-    if (mockLlmResult) return mockLlmResult;
-    return {
-      success: true,
-      text: `Hello from ${request.model}!`,
-      usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
-      modelConfig: { model: {} as any, inputPer1M: 3, outputPer1M: 15, contextWindow: 200000, tier: 'free' as const },
-    };
-  },
-  stream: async (request: any) => {
-    if (mockLlmStreamResult) return mockLlmStreamResult;
-    async function* gen() {
-      yield 'Hello ';
-      yield 'world!';
+  proxyToOpenRouter: async (body: Record<string, unknown>, isStreaming: boolean) => {
+    lastProxyBody = body;
+    if (mockProxyError) throw mockProxyError;
+    if (mockProxyResponse) return mockProxyResponse;
+
+    // Default: return a realistic non-streaming response
+    if (isStreaming) {
+      return createMockStreamResponse();
     }
+    return new Response(JSON.stringify(createMockChatResponse()), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  },
+  extractUsage: (responseBody: any) => {
+    if (!responseBody?.usage) return null;
     return {
-      success: true,
-      stream: gen(),
-      usagePromise: Promise.resolve({ promptTokens: 100, completionTokens: 50, totalTokens: 150 }),
-      modelConfig: { model: {} as any, inputPer1M: 3, outputPer1M: 15, contextWindow: 200000, tier: 'free' as const },
+      promptTokens: responseBody.usage.prompt_tokens ?? 0,
+      completionTokens: responseBody.usage.completion_tokens ?? 0,
     };
   },
   calculateCost: (modelConfig: any, prompt: number, completion: number) => {
@@ -105,16 +151,21 @@ mock.module('../router/services/llm', () => ({
             (completion / 1_000_000) * (modelConfig?.outputPer1M || 0)) * 1.2;
   },
   getAllModels: () => [
-    { id: 'kortix/basic', object: 'model', owned_by: 'kortix', context_window: 200000, pricing: { input: 0.45, output: 2.25 }, tier: 'free' },
+    { id: 'kortix/basic', object: 'model', owned_by: 'kortix', context_window: 200000, pricing: { input: 3, output: 15 }, tier: 'free' },
     { id: 'kortix/power', object: 'model', owned_by: 'kortix', context_window: 200000, pricing: { input: 5, output: 25 }, tier: 'paid' },
   ],
   getModel: (id: string) => ({
-    model: {} as any, // stub LanguageModel — real code uses this for AI SDK calls which are also mocked
-    inputPer1M: id === 'kortix/basic' ? 0.45 : 5,
-    outputPer1M: id === 'kortix/basic' ? 2.25 : 25,
+    openrouterId: id === 'kortix/basic' ? 'anthropic/claude-sonnet-4-5' : 'anthropic/claude-opus-4-6',
+    inputPer1M: id === 'kortix/basic' ? 3 : 5,
+    outputPer1M: id === 'kortix/basic' ? 15 : 25,
     contextWindow: 200000,
     tier: (id === 'kortix/basic' ? 'free' : 'paid') as 'free' | 'paid',
   }),
+  resolveOpenRouterId: (id: string) => {
+    if (id === 'kortix/basic') return 'anthropic/claude-sonnet-4-5';
+    if (id === 'kortix/power') return 'anthropic/claude-opus-4-6';
+    return id;
+  },
 }));
 
 // ─── Import router AFTER mocks ───────────────────────────────────────────────
@@ -127,10 +178,8 @@ function createRouterTestApp() {
   const app = new Hono();
   app.use('*', cors());
 
-  // apiKeyAuth is mocked above to auto-set accountId from Bearer token
   app.route('/v1/router', router);
 
-  // Error handler
   app.onError((err, c) => {
     if (err instanceof BillingError) {
       return c.json({ error: err.message }, err.statusCode as any);
@@ -159,11 +208,11 @@ beforeEach(() => {
     { title: 'Image 1', url: 'https://img.com/1.jpg', thumbnail_url: 'https://img.com/1_t.jpg', source_url: 'https://example.com/1', width: 800, height: 600 },
   ];
   mockSerperError = null;
-  mockLlmResult = null;
-  mockLlmStreamResult = null;
   mockCheckCreditsResult = { hasCredits: true, message: 'OK', balance: 100 };
   mockDeductResult = { success: true, cost: 0.01, newBalance: 99, transactionId: 'tx_mock_001' };
-  fetchCalls = [];
+  mockProxyResponse = null;
+  mockProxyError = null;
+  lastProxyBody = null;
 });
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -265,7 +314,7 @@ describe('Router: web-search', () => {
 });
 
 describe('Router: image-search', () => {
-  test('POST /v1/router/image-search/ returns image results', async () => {
+  test('POST /v1/router/image-search returns image results', async () => {
     const app = createRouterTestApp();
     const res = await app.request('/v1/router/image-search', {
       method: 'POST',
@@ -329,7 +378,7 @@ describe('Router: models', () => {
     const basic = body.data.find((m: any) => m.id === 'kortix/basic');
     expect(basic).toBeDefined();
     expect(basic.tier).toBe('free');
-    expect(basic.pricing.input).toBe(0.45);
+    expect(basic.pricing.input).toBe(3);
 
     const power = body.data.find((m: any) => m.id === 'kortix/power');
     expect(power).toBeDefined();
@@ -347,15 +396,11 @@ describe('Router: models', () => {
 
   test('GET /v1/router/models/:model works for single-segment model ID', async () => {
     const app = createRouterTestApp();
-    // Note: model IDs with "/" (like "kortix/basic") can't be matched by /:model
-    // because Hono's :param only captures a single path segment.
-    // Use URL-encoded or single-segment model IDs.
     const res = await app.request('/v1/router/models/kortix%2Fbasic', {
       method: 'GET',
       headers: { Authorization: `Bearer ${TEST_ACCOUNT_ID}` },
     });
-    // URL-encoded slash may or may not be decoded by Hono — check actual behavior
-    // The getAllModels mock includes 'kortix/basic', so if param is decoded, it'd match
+    // URL-encoded slash may or may not be decoded by Hono
     expect([200, 404]).toContain(res.status);
   });
 });
@@ -374,7 +419,6 @@ describe('Router: chat/completions (non-streaming)', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.object).toBe('chat.completion');
-    expect(body.model).toBe('kortix/basic');
     expect(body.choices).toHaveLength(1);
     expect(body.choices[0].message.role).toBe('assistant');
     expect(body.choices[0].message.content).toBeDefined();
@@ -406,19 +450,6 @@ describe('Router: chat/completions (non-streaming)', () => {
     expect(res.status).toBe(400);
   });
 
-  test('returns 400 for invalid message role', async () => {
-    const app = createRouterTestApp();
-    const res = await app.request('/v1/router/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TEST_ACCOUNT_ID}` },
-      body: JSON.stringify({
-        model: 'kortix/basic',
-        messages: [{ role: 'invalid', content: 'Hello' }],
-      }),
-    });
-    expect(res.status).toBe(400);
-  });
-
   test('returns 400 for invalid JSON body', async () => {
     const app = createRouterTestApp();
     const res = await app.request('/v1/router/chat/completions', {
@@ -443,18 +474,23 @@ describe('Router: chat/completions (non-streaming)', () => {
     expect(res.status).toBe(402);
   });
 
-  test('returns 502 when LLM generation fails', async () => {
-    mockLlmResult = { success: false, error: 'Provider error' };
+  test('passes through upstream error responses', async () => {
+    mockProxyResponse = new Response(JSON.stringify({ error: { message: 'Model not found', type: 'invalid_request_error' } }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' },
+    });
     const app = createRouterTestApp();
     const res = await app.request('/v1/router/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TEST_ACCOUNT_ID}` },
       body: JSON.stringify({
-        model: 'kortix/basic',
+        model: 'nonexistent/model',
         messages: [{ role: 'user', content: 'Hello' }],
       }),
     });
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error.message).toBe('Model not found');
   });
 
   test('accepts optional temperature and max_tokens', async () => {
@@ -489,25 +525,130 @@ describe('Router: chat/completions (streaming)', () => {
     expect(res.headers.get('content-type')).toContain('text/event-stream');
 
     const text = await res.text();
-    // Should contain data: lines with JSON chunks
     expect(text).toContain('data:');
-    // Should end with [DONE]
     expect(text).toContain('[DONE]');
+    // Verify the stream contains actual content chunks
+    expect(text).toContain('Hello ');
+    expect(text).toContain('world!');
   });
+});
 
-  test('returns 502 when LLM stream fails', async () => {
-    mockLlmStreamResult = { success: false, error: 'Stream provider error' };
+describe('Router: chat/completions (tool support)', () => {
+  test('preserves tools and tool_choice in request to OpenRouter', async () => {
+    const tools = [
+      {
+        type: 'function',
+        function: {
+          name: 'get_weather',
+          description: 'Get the weather for a location',
+          parameters: {
+            type: 'object',
+            properties: { location: { type: 'string' } },
+            required: ['location'],
+          },
+        },
+      },
+    ];
+
     const app = createRouterTestApp();
     const res = await app.request('/v1/router/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TEST_ACCOUNT_ID}` },
       body: JSON.stringify({
         model: 'kortix/basic',
-        messages: [{ role: 'user', content: 'Hello' }],
-        stream: true,
+        messages: [{ role: 'user', content: 'What is the weather in SF?' }],
+        tools,
+        tool_choice: 'auto',
       }),
     });
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(200);
+
+    // Verify the tools were passed through to proxyToOpenRouter
+    expect(lastProxyBody).not.toBeNull();
+    expect(lastProxyBody!.tools).toEqual(tools);
+    expect(lastProxyBody!.tool_choice).toBe('auto');
+  });
+
+  test('preserves tool-role messages in request', async () => {
+    const messages = [
+      { role: 'user', content: 'What is the weather?' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'get_weather', arguments: '{"location":"SF"}' } }] },
+      { role: 'tool', tool_call_id: 'call_1', content: '{"temp": 65, "condition": "sunny"}' },
+    ];
+
+    const app = createRouterTestApp();
+    const res = await app.request('/v1/router/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TEST_ACCOUNT_ID}` },
+      body: JSON.stringify({
+        model: 'kortix/basic',
+        messages,
+      }),
+    });
+    expect(res.status).toBe(200);
+
+    // Verify tool-role messages were passed through (not rejected by Zod)
+    expect(lastProxyBody).not.toBeNull();
+    expect(lastProxyBody!.messages).toEqual(messages);
+  });
+
+  test('returns tool_calls in response when model decides to call tools', async () => {
+    // Mock OpenRouter returning a tool_call response
+    const toolCallResponse = createMockChatResponse({
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [
+              {
+                id: 'call_abc123',
+                type: 'function',
+                function: { name: 'get_weather', arguments: '{"location":"San Francisco"}' },
+              },
+            ],
+          },
+          finish_reason: 'tool_calls',
+        },
+      ],
+    });
+    mockProxyResponse = new Response(JSON.stringify(toolCallResponse), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const app = createRouterTestApp();
+    const res = await app.request('/v1/router/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TEST_ACCOUNT_ID}` },
+      body: JSON.stringify({
+        model: 'kortix/basic',
+        messages: [{ role: 'user', content: 'What is the weather in SF?' }],
+        tools: [{ type: 'function', function: { name: 'get_weather', parameters: {} } }],
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.choices[0].message.tool_calls).toHaveLength(1);
+    expect(body.choices[0].message.tool_calls[0].function.name).toBe('get_weather');
+    expect(body.choices[0].finish_reason).toBe('tool_calls');
+  });
+
+  test('preserves response_format in request', async () => {
+    const app = createRouterTestApp();
+    await app.request('/v1/router/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TEST_ACCOUNT_ID}` },
+      body: JSON.stringify({
+        model: 'kortix/basic',
+        messages: [{ role: 'user', content: 'Hello' }],
+        response_format: { type: 'json_object' },
+      }),
+    });
+
+    expect(lastProxyBody).not.toBeNull();
+    expect(lastProxyBody!.response_format).toEqual({ type: 'json_object' });
   });
 });
 
@@ -541,7 +682,6 @@ describe('Router: auth (mocked apiKeyAuth)', () => {
   test('search routes require auth, models require auth', async () => {
     const app = createRouterTestApp();
 
-    // No auth → 401
     const searchRes = await app.request('/v1/router/web-search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
