@@ -1,8 +1,13 @@
 # Frontend build — exclude everything not needed
 node_modules
 **/node_modules
-.next
+
+# Ignore Next.js build output by default, but keep standalone runtime artifacts
 **/.next
+!apps/frontend/.next/standalone
+!apps/frontend/.next/standalone/**
+!apps/frontend/.next/static
+!apps/frontend/.next/static/**
 .git
 **/.env
 **/.env.*

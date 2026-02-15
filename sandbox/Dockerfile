@@ -141,6 +141,8 @@ RUN for svc in svc-opencode-web svc-opencode-serve svc-kortix-master svc-lss-syn
 
 # ── Container init scripts (s6 cont-init.d) ─────────────────────────────────
 RUN mkdir -p /custom-cont-init.d
+COPY sandbox/config/97-secrets-to-s6-env.sh /custom-cont-init.d/97-secrets-to-s6-env
+RUN chmod +x /custom-cont-init.d/97-secrets-to-s6-env
 COPY sandbox/config/kortix-env-setup.sh /custom-cont-init.d/98-kortix-env
 RUN chmod +x /custom-cont-init.d/98-kortix-env
 COPY sandbox/config/customize.sh /custom-cont-init.d/99-customize

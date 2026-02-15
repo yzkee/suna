@@ -67,6 +67,8 @@ const nextConfig = (): NextConfig => ({
 
   // Performance optimizations
   experimental: {
+    // Limit build parallelism in Docker to prevent OOM (standalone builds)
+    ...(process.env.NEXT_OUTPUT === 'standalone' ? { cpus: 2 } : {}),
     // Optimize package imports for faster builds and smaller bundles
     optimizePackageImports: [
       'lucide-react',

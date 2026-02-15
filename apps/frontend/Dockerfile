@@ -1,95 +1,28 @@
 # syntax=docker.io/docker/dockerfile:1
-FROM node:22-slim AS base
-
-# ---- Deps Stage ----
-# Install workspace dependencies with pnpm, including local workspace
-# packages like @kortix/shared.
-FROM base AS deps
-
+#
+# Lightweight runner-only image.
+# Build the frontend on the HOST first:
+#   cd apps/frontend && NEXT_OUTPUT=standalone pnpm run build
+# Then from repo root:
+#   docker build -f apps/frontend/Dockerfile -t kortixmarko/kortix-frontend:latest .
+#
+FROM node:22-slim AS runner
 WORKDIR /app
 
-# Lockfile mode: use --frozen-lockfile for prod (default), --no-frozen-lockfile for local dev
-ARG PNPM_LOCKFILE_MODE=--frozen-lockfile
-
-# Copy only the files needed for dependency resolution and workspace linking.
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc* tsconfig.base.json ./
-COPY apps ./apps
-COPY packages ./packages
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    make \
-    g++ \
-    build-essential \
-    pkg-config \
-    libcairo2-dev \
-    libpango1.0-dev \
-    libjpeg-dev \
-    libgif-dev \
-    librsvg2-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install frontend + shared workspace deps.
-RUN corepack enable pnpm && pnpm install --filter ./apps/frontend... ${PNPM_LOCKFILE_MODE}
-
-
-# ---- Builder Stage ----
-FROM base AS builder
-WORKDIR /app
-
-# Bring the fully-installed workspace into the builder image.
-COPY --from=deps /app /app
-
-# Build the frontend app from its workspace location.
-WORKDIR /app/apps/frontend
-
-# Next.js collects completely anonymous telemetry data about general usage.
-# Learn more here: https://nextjs.org/telemetry
-ENV NEXT_TELEMETRY_DISABLED=1
-ENV NEXT_OUTPUT=standalone
-
-# NEXT_PUBLIC_* vars must be available at build time (baked into the JS bundle).
-# Pass via --build-arg or docker compose build.args.
-ARG NEXT_PUBLIC_ENV_MODE=cloud
-ARG NEXT_PUBLIC_BACKEND_URL=
-ARG NEXT_PUBLIC_OPENCODE_URL=
-ARG NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co
-ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder
-ENV NEXT_PUBLIC_ENV_MODE=${NEXT_PUBLIC_ENV_MODE}
-ENV NEXT_PUBLIC_BACKEND_URL=${NEXT_PUBLIC_BACKEND_URL}
-ENV NEXT_PUBLIC_OPENCODE_URL=${NEXT_PUBLIC_OPENCODE_URL}
-ENV NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
-ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-
-ENV NODE_OPTIONS="--max-old-space-size=4096"
-RUN corepack enable pnpm && pnpm run build
-
-
-# ---- Runner Stage ----
-FROM base AS runner
-WORKDIR /app
-
-ENV NEXT_PUBLIC_VERCEL_ENV=production
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
 
-# Copy built frontend assets from the workspace path.
-# Next.js standalone output includes everything needed to run the server.
-# The standalone directory structure mirrors the workspace, so we copy it as-is.
-COPY --from=builder --chown=nextjs:nodejs /app/apps/frontend/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/apps/frontend/.next/static ./apps/frontend/.next/static
-COPY --from=builder --chown=nextjs:nodejs /app/apps/frontend/public ./apps/frontend/public
+# Copy pre-built standalone output from the host.
+COPY --chown=nextjs:nodejs apps/frontend/.next/standalone ./
+COPY --chown=nextjs:nodejs apps/frontend/.next/static ./apps/frontend/.next/static
+COPY --chown=nextjs:nodejs apps/frontend/public ./apps/frontend/public
 
 USER nextjs
 
 EXPOSE 3000
-
 ENV PORT=3000
-
 ENV HOSTNAME="0.0.0.0"
-# Next.js standalone output in a monorepo creates server.js at apps/frontend/server.js
-# relative to the standalone root (which we copied to /app)
 CMD ["node", "apps/frontend/server.js"]

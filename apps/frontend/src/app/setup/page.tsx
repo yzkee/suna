@@ -1,25 +1,13 @@
 'use client';
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import {
-  ArrowRight,
-  CheckCircle,
-  Loader2,
-  Sparkles,
-} from 'lucide-react';
+import { ArrowRight, CheckCircle, Key, Loader2 } from 'lucide-react';
 import { isLocalMode } from '@/lib/config';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { LocalEnvManager } from '@/components/env-manager/local-env-manager';
 import { KortixLogo } from '@/components/sidebar/kortix-logo';
 
@@ -28,6 +16,9 @@ import { KortixLogo } from '@/components/sidebar/kortix-logo';
 interface EnvData {
   configured: Record<string, boolean>;
 }
+
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
 
 const LLM_KEYS = [
   'ANTHROPIC_API_KEY',
@@ -46,7 +37,7 @@ function WelcomeStep({ onContinue }: { onContinue: () => void }) {
 
   useEffect(() => {
     const colors = ['#a786ff', '#fd8bbc', '#eca184', '#f8deb1'];
-    endTimeRef.current = Date.now() + 3000;
+    endTimeRef.current = Date.now() + 2500;
 
     const frame = () => {
       if (Date.now() > endTimeRef.current) {
@@ -88,38 +79,49 @@ function WelcomeStep({ onContinue }: { onContinue: () => void }) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0, y: -20 }}
-      transition={{ duration: 0.4 }}
+      transition={{ duration: 0.35 }}
     >
-      <div className="flex flex-col items-center gap-6 text-center">
+      <div className="flex flex-col items-center gap-8 text-center px-4">
         <motion.div
-          initial={{ scale: 0.5, opacity: 0 }}
+          initial={{ scale: 0.6, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          transition={{ delay: 0.1, duration: 0.5, type: 'spring', stiffness: 200, damping: 20 }}
+          transition={{
+            delay: 0.1,
+            duration: 0.5,
+            type: 'spring',
+            stiffness: 200,
+            damping: 20,
+          }}
         >
-          <KortixLogo size={64} variant="logomark" />
+          <KortixLogo size={36} variant="logomark" />
         </motion.div>
 
         <motion.div
-          initial={{ opacity: 0, y: 15 }}
+          initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3, duration: 0.5 }}
-          className="space-y-2"
+          transition={{ delay: 0.3, duration: 0.4 }}
+          className="space-y-3"
         >
-          <h1 className="text-4xl font-bold tracking-tight">Welcome to Kortix</h1>
-          <p className="text-lg text-muted-foreground max-w-md">
-            Your AI computer is ready. Let&apos;s get you set up.
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Welcome to Kortix
+          </h1>
+          <p className="text-sm text-muted-foreground max-w-sm">
+            Your AI computer is ready. Let&apos;s configure it.
           </p>
         </motion.div>
 
         <motion.div
-          initial={{ opacity: 0, y: 10 }}
+          initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6, duration: 0.4 }}
+          transition={{ delay: 0.55, duration: 0.35 }}
         >
-          <Button size="lg" onClick={onContinue} className="gap-2 mt-4">
-            <Sparkles className="h-4 w-4" />
+          <Button
+            size="default"
+            onClick={onContinue}
+            className="gap-2"
+          >
             Get Started
-            <ArrowRight className="h-4 w-4" />
+            <ArrowRight className="h-3.5 w-3.5" />
           </Button>
         </motion.div>
       </div>
@@ -135,9 +137,7 @@ function ApiKeysStep({ onContinue }: { onContinue: () => void }) {
 
   const checkKeys = useCallback(async () => {
     try {
-      const backendUrl =
-        process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
-      const res = await fetch(`${backendUrl}/setup/env`);
+      const res = await fetch(`${BACKEND_URL}/setup/env`);
       if (!res.ok) throw new Error('Failed');
       const data: EnvData = await res.json();
       setHasLLMKey(LLM_KEYS.some((k) => data.configured[k]));
@@ -157,52 +157,49 @@ function ApiKeysStep({ onContinue }: { onContinue: () => void }) {
   return (
     <motion.div
       className="flex min-h-screen items-center justify-center bg-background p-4"
-      initial={{ opacity: 0, x: 30 }}
+      initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -30 }}
+      exit={{ opacity: 0, x: -20 }}
       transition={{ duration: 0.3 }}
     >
-      <div className="w-full max-w-2xl space-y-6">
-        <Card>
-          <CardHeader className="text-center pb-2">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-              {hasLLMKey ? (
-                <CheckCircle className="h-6 w-6 text-green-500" />
-              ) : (
-                <Sparkles className="h-6 w-6 text-primary" />
-              )}
-            </div>
-            <CardTitle className="text-xl">Configure API Keys</CardTitle>
-            <CardDescription>
+      <div className="w-full max-w-xl space-y-6">
+        {/* Header */}
+        <div className="text-center space-y-3">
+          <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+            {hasLLMKey ? (
+              <CheckCircle className="h-5 w-5 text-green-500" />
+            ) : (
+              <Key className="h-4 w-4 text-muted-foreground" />
+            )}
+          </div>
+          <div className="space-y-1">
+            <h2 className="text-lg font-semibold tracking-tight">
+              Configure API Keys
+            </h2>
+            <p className="text-sm text-muted-foreground">
               Add at least one LLM provider key to power your AI agent.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+            </p>
+          </div>
+        </div>
 
-        <Card>
-          <CardContent className="pt-6">
+        {/* Env Manager */}
+        <div className="rounded-lg border bg-card">
+          <div className="p-4">
             <LocalEnvManager />
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <div className="flex justify-center">
+        {/* Action */}
+        <div className="flex justify-center pt-2">
           <Button
-            size="lg"
+            size="default"
             onClick={onContinue}
             disabled={!hasLLMKey && checking}
             className="gap-2"
+            variant={hasLLMKey ? 'default' : 'outline'}
           >
-            {hasLLMKey ? (
-              <>
-                Continue
-                <ArrowRight className="h-4 w-4" />
-              </>
-            ) : (
-              <>
-                Skip for now
-                <ArrowRight className="h-4 w-4" />
-              </>
-            )}
+            {hasLLMKey ? 'Continue' : 'Skip for now'}
+            <ArrowRight className="h-3.5 w-3.5" />
           </Button>
         </div>
       </div>
@@ -214,22 +211,23 @@ function ApiKeysStep({ onContinue }: { onContinue: () => void }) {
 
 export default function SetupPage() {
   const router = useRouter();
-  const [step, setStep] = useState<'welcome' | 'keys'>('welcome');
+  const [step, setStep] = useState<'welcome' | 'keys'>(() => {
+    if (typeof window === 'undefined') return 'welcome';
+    const sp = new URLSearchParams(window.location.search);
+    return sp.get('step') === 'keys' ? 'keys' : 'welcome';
+  });
   const [loading, setLoading] = useState(true);
 
   // Check if already onboarded
   useEffect(() => {
     const checkOnboarding = async () => {
-      // Cloud users skip setup entirely
       if (!isLocalMode()) {
         router.replace('/dashboard');
         return;
       }
 
       try {
-        const backendUrl =
-          process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
-        const res = await fetch(`${backendUrl}/setup/onboarding-status`);
+        const res = await fetch(`${BACKEND_URL}/setup/onboarding-status`);
         if (res.ok) {
           const data = await res.json();
           if (data.complete) {
@@ -248,7 +246,7 @@ export default function SetupPage() {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     );
   }
