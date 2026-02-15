@@ -95,10 +95,11 @@ import { LanguageSwitcher } from './language-switcher';
 import { useTranslations } from 'next-intl';
 import { ReferralsTab } from '@/components/referrals/referrals-tab';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Keyboard, Receipt } from 'lucide-react';
+import { Keyboard, Receipt, Palette } from 'lucide-react';
 import { useUserPreferencesStore, type TabSwitchModifier } from '@/stores/user-preferences-store';
 import CreditTransactions from '@/components/billing/credit-transactions';
-type TabId = 'general' | 'plan' | 'billing' | 'transactions' | 'usage' | 'providers' | 'integrations' | 'api-keys' | 'referrals' | 'shortcuts';
+import { AppearanceTab } from '@/components/settings/appearance-tab';
+type TabId = 'general' | 'appearance' | 'plan' | 'billing' | 'transactions' | 'usage' | 'providers' | 'integrations' | 'api-keys' | 'referrals' | 'shortcuts';
 
 interface Tab {
     id: TabId;
@@ -127,6 +128,7 @@ export function UserSettingsModal({
     const isLocal = isLocalMode();
     const tabs: Tab[] = [
         { id: 'general', label: 'General', icon: Settings },
+        { id: 'appearance', label: 'Appearance', icon: Palette },
         { id: 'providers' as TabId, label: 'Providers', icon: Plug },
         { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
         { id: 'plan', label: 'Plan', icon: Zap },
@@ -218,6 +220,7 @@ export function UserSettingsModal({
                         <div className="flex-1 overflow-x-hidden overflow-y-auto">
                             <div className="w-full max-w-full">
                                 {activeTab === 'general' && <GeneralTab onClose={() => onOpenChange(false)} />}
+                                {activeTab === 'appearance' && <div className="p-6"><AppearanceTab /></div>}
                                 {activeTab === 'shortcuts' && <KeyboardShortcutsTab />}
                                 {activeTab === 'billing' && <BillingTab returnUrl={returnUrl} onOpenPlanModal={() => setShowPlanModal(true)} isActive={activeTab === 'billing'} />}
                                 {activeTab === 'transactions' && <TransactionsTab />}
@@ -272,6 +275,7 @@ export function UserSettingsModal({
                         {/* Desktop Content */}
                         <div className="flex-1 overflow-y-auto min-h-0 w-full max-w-full">
                             {activeTab === 'general' && <GeneralTab onClose={() => onOpenChange(false)} />}
+                            {activeTab === 'appearance' && <div className="p-6 h-full"><AppearanceTab /></div>}
                             {activeTab === 'shortcuts' && <KeyboardShortcutsTab />}
                             {activeTab === 'billing' && <BillingTab returnUrl={returnUrl} onOpenPlanModal={() => setShowPlanModal(true)} isActive={activeTab === 'billing'} />}
                             {activeTab === 'transactions' && <TransactionsTab />}

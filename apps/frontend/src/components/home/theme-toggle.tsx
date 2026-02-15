@@ -11,6 +11,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useUserPreferencesStore } from '@/stores/user-preferences-store';
+import { getThemeById } from '@/lib/themes';
 
 interface ThemeToggleProps {
   variant?: 'icon' | 'compact';
@@ -19,6 +21,8 @@ interface ThemeToggleProps {
 export function ThemeToggle({ variant = 'icon' }: ThemeToggleProps) {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const [mounted, setMounted] = React.useState(false);
+  const themeId = useUserPreferencesStore((s) => s.preferences.themeId);
+  const currentTheme = getThemeById(themeId);
 
   React.useEffect(() => {
     setMounted(true);
@@ -34,56 +38,74 @@ export function ThemeToggle({ variant = 'icon' }: ThemeToggleProps) {
 
   if (variant === 'compact') {
     return (
-      <Select value={theme} onValueChange={setTheme}>
-        <SelectTrigger
-          size="sm"
-          className="h-7 px-2.5 w-fit min-w-[72px] border-0 bg-transparent hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50 text-muted-foreground/60 transition-all duration-200 shadow-none"
-        >
-          <div className="flex items-center gap-1.5">
-            {resolvedTheme === 'dark' ? (
-              <Moon className="size-3.5" />
-            ) : (
-              <Sun className="size-3.5" />
-            )}
-            <SelectValue>
-              {theme === 'system' ? 'Auto' : theme === 'dark' ? 'Dark' : 'Light'}
-            </SelectValue>
-          </div>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="light">
-            <div className="flex items-center gap-2">
-              <Sun className="size-3.5" />
-              <span>Light</span>
+      <div className="flex items-center gap-2">
+        <Select value={theme} onValueChange={setTheme}>
+          <SelectTrigger
+            size="sm"
+            className="h-7 px-2.5 w-fit min-w-[72px] border-0 bg-transparent hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50 text-muted-foreground/60 transition-all duration-200 shadow-none"
+          >
+            <div className="flex items-center gap-1.5">
+              {resolvedTheme === 'dark' ? (
+                <Moon className="size-3.5" />
+              ) : (
+                <Sun className="size-3.5" />
+              )}
+              <SelectValue>
+                {theme === 'system' ? 'Auto' : theme === 'dark' ? 'Dark' : 'Light'}
+              </SelectValue>
             </div>
-          </SelectItem>
-          <SelectItem value="dark">
-            <div className="flex items-center gap-2">
-              <Moon className="size-3.5" />
-              <span>Dark</span>
-            </div>
-          </SelectItem>
-          <SelectItem value="system">
-            <div className="flex items-center gap-2">
-              <Monitor className="size-3.5" />
-              <span>Auto</span>
-            </div>
-          </SelectItem>
-        </SelectContent>
-      </Select>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="light">
+              <div className="flex items-center gap-2">
+                <Sun className="size-3.5" />
+                <span>Light</span>
+              </div>
+            </SelectItem>
+            <SelectItem value="dark">
+              <div className="flex items-center gap-2">
+                <Moon className="size-3.5" />
+                <span>Dark</span>
+              </div>
+            </SelectItem>
+            <SelectItem value="system">
+              <div className="flex items-center gap-2">
+                <Monitor className="size-3.5" />
+                <span>Auto</span>
+              </div>
+            </SelectItem>
+          </SelectContent>
+        </Select>
+        {currentTheme && currentTheme.id !== 'default' && (
+          <span
+            className="h-2.5 w-2.5 rounded-full shrink-0"
+            style={{ backgroundColor: currentTheme.accentColor }}
+            title={currentTheme.name}
+          />
+        )}
+      </div>
     );
   }
 
   return (
-    <Button
-      variant="outline"
-      size="icon"
-      onClick={() => setTheme(resolvedTheme === 'light' ? 'dark' : 'light')}
-      className="cursor-pointer rounded-full h-8 w-8"
-    >
-      <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0 text-primary" />
-      <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100 text-primary" />
-      <span className="sr-only">Toggle theme</span>
-    </Button>
+    <div className="flex items-center gap-1.5">
+      <Button
+        variant="outline"
+        size="icon"
+        onClick={() => setTheme(resolvedTheme === 'light' ? 'dark' : 'light')}
+        className="cursor-pointer rounded-full h-8 w-8"
+      >
+        <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0 text-primary" />
+        <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100 text-primary" />
+        <span className="sr-only">Toggle theme</span>
+      </Button>
+      {currentTheme && currentTheme.id !== 'default' && (
+        <span
+          className="h-2.5 w-2.5 rounded-full shrink-0"
+          style={{ backgroundColor: currentTheme.accentColor }}
+          title={currentTheme.name}
+        />
+      )}
+    </div>
   );
 }

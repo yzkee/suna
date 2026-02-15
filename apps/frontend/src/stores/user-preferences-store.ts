@@ -19,6 +19,8 @@ export interface KeyboardShortcutPreferences {
 
 export interface UserPreferences {
   keyboard: KeyboardShortcutPreferences;
+  /** Selected Kortix theme ID (e.g. 'default', 'ember', 'aurora') */
+  themeId: string;
 }
 
 // ============================================================================
@@ -44,6 +46,9 @@ interface UserPreferencesState {
   /** Update keyboard shortcut preferences (partial merge) */
   setKeyboardPreferences: (prefs: Partial<KeyboardShortcutPreferences>) => void;
 
+  /** Set the active Kortix theme by ID */
+  setThemeId: (themeId: string) => void;
+
   /** Reset all preferences to defaults */
   resetPreferences: () => void;
 
@@ -56,6 +61,7 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
     (set, get) => ({
       preferences: {
         keyboard: getDefaultKeyboardPreferences(),
+        themeId: 'graphite',
       },
 
       setKeyboardPreferences: (prefs) => {
@@ -68,10 +74,21 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
         });
       },
 
+      setThemeId: (themeId) => {
+        const current = get().preferences;
+        set({
+          preferences: {
+            ...current,
+            themeId,
+          },
+        });
+      },
+
       resetPreferences: () => {
         set({
           preferences: {
             keyboard: getDefaultKeyboardPreferences(),
+            themeId: 'graphite',
           },
         });
       },

@@ -48,7 +48,10 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { useTabStore } from '@/stores/tab-store';
 import { useTheme } from 'next-themes';
+import { Palette } from 'lucide-react';
 import { isLocalMode } from '@/lib/config';
+import { useUserPreferencesStore } from '@/stores/user-preferences-store';
+import { getThemeById } from '@/lib/themes';
 import { clearUserLocalStorage } from '@/lib/utils/clear-local-storage';
 import { UserSettingsModal } from '@/components/settings/user-settings-modal';
 import { PlanSelectionModal } from '@/components/billing/pricing';
@@ -75,7 +78,7 @@ interface UserMenuProps {
   };
 }
 
-type SettingsTab = 'general' | 'billing' | 'usage' | 'providers';
+type SettingsTab = 'general' | 'appearance' | 'billing' | 'usage' | 'providers';
 
 interface MenuItemConfig {
   icon: React.ComponentType<{ className?: string }>;
@@ -99,6 +102,8 @@ export function UserMenu({ user }: UserMenuProps) {
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('general');
   const { isOpen: isReferralDialogOpen, openDialog: openReferralDialog, closeDialog: closeReferralDialog } = useReferralDialog();
   const { theme, setTheme } = useTheme();
+  const themeId = useUserPreferencesStore((s) => s.preferences.themeId);
+  const currentTheme = getThemeById(themeId);
 
   const isFreeTier = !isLocal && (
     accountState?.subscription?.tier_key === 'free' ||
@@ -257,6 +262,17 @@ export function UserMenu({ user }: UserMenuProps) {
                     <Moon className="h-4 w-4 absolute rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
                   </div>
                   <span>{t('theme')}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => openSettings('appearance')}
+                  className="gap-2 p-2"
+                >
+                  <Palette className="h-4 w-4" />
+                  <span className="flex-1">Themes</span>
+                  <span
+                    className="ml-auto h-3 w-3 rounded-full shrink-0"
+                    style={{ backgroundColor: currentTheme?.accentColor ?? '#4F8EF7' }}
+                  />
                 </DropdownMenuItem>
               </DropdownMenuGroup>
 
