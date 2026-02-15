@@ -2,25 +2,53 @@
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, ArrowRight } from 'lucide-react';
+import { Loader2, ArrowRight, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { isLocalMode } from '@/lib/config';
-import { getClient } from '@/lib/opencode-sdk';
+import { getClient, resetClient } from '@/lib/opencode-sdk';
 import { useOpenCodeEventStream } from '@/hooks/opencode/use-opencode-events';
 import { SessionChat } from '@/components/session/session-chat';
 import { KortixLogo } from '@/components/sidebar/kortix-logo';
 import { Button } from '@/components/ui/button';
 
-// ─── SSE Provider (required for real-time chat updates) ─────────────────────
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
+
+const LLM_KEYS = [
+  'ANTHROPIC_API_KEY',
+  'OPENAI_API_KEY',
+  'OPENROUTER_API_KEY',
+  'GEMINI_API_KEY',
+  'GROQ_API_KEY',
+  'XAI_API_KEY',
+];
+
+// Standalone QueryClient for the onboarding page (isolated from dashboard)
+const onboardingQueryClient = new QueryClient({
+  defaultOptions: {
+    queries: { retry: 2, staleTime: 5000 },
+  },
+});
 
 function OpenCodeEventStreamProvider() {
   useOpenCodeEventStream();
   return null;
 }
 
-// ─── Completion Celebration ─────────────────────────────────────────────────
+function unwrap<T>(result: { data?: T; error?: unknown }): T {
+  if (result.error) {
+    const err = result.error as any;
+    const msg =
+      err?.data?.message ||
+      err?.message ||
+      (typeof err === 'string' ? err : 'SDK request failed');
+    throw new Error(msg);
+  }
+  return result.data as T;
+}
 
 function CompletionCelebration({ onContinue }: { onContinue: () => void }) {
   const animationRef = useRef<number | null>(null);
@@ -28,7 +56,7 @@ function CompletionCelebration({ onContinue }: { onContinue: () => void }) {
 
   useEffect(() => {
     const colors = ['#a786ff', '#fd8bbc', '#eca184', '#f8deb1'];
-    endTimeRef.current = Date.now() + 3000;
+    endTimeRef.current = Date.now() + 2500;
 
     const frame = () => {
       if (Date.now() > endTimeRef.current) {
@@ -55,7 +83,6 @@ function CompletionCelebration({ onContinue }: { onContinue: () => void }) {
     };
     frame();
 
-    // Auto-redirect after 5s
     const timer = setTimeout(onContinue, 5000);
 
     return () => {
@@ -82,103 +109,146 @@ function CompletionCelebration({ onContinue }: { onContinue: () => void }) {
         animate={{ scale: 1, opacity: 1, y: 0 }}
         transition={{ delay: 0.1, duration: 0.5, type: 'spring', stiffness: 200, damping: 20 }}
       >
-        <KortixLogo size={48} variant="logomark" />
+        <KortixLogo size={32} variant="logomark" />
         <div className="space-y-2">
-          <h2 className="text-3xl font-bold tracking-tight">You&apos;re all set!</h2>
-          <p className="text-muted-foreground">Your AI computer is ready to go.</p>
+          <h2 className="text-xl font-semibold tracking-tight">You&apos;re all set!</h2>
+          <p className="text-sm text-muted-foreground">Your AI computer is ready to go.</p>
         </div>
-        <Button size="lg" onClick={onContinue} className="gap-2 mt-2">
+        <Button size="default" onClick={onContinue} className="gap-2 mt-1">
           Go to Dashboard
-          <ArrowRight className="h-4 w-4" />
+          <ArrowRight className="h-3.5 w-3.5" />
         </Button>
       </motion.div>
     </motion.div>
   );
 }
 
-// ─── Main Onboarding Page ───────────────────────────────────────────────────
-
-export default function OnboardingPage() {
+function OnboardingContent() {
   const router = useRouter();
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [checking, setChecking] = useState(true);
   const [complete, setComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const attemptedRef = useRef(false);
 
-  // Check if already onboarded
+  // Gate: local only, require at least one LLM key.
   useEffect(() => {
     if (!isLocalMode()) {
       router.replace('/dashboard');
       return;
     }
 
+    let cancelled = false;
+
     const check = async () => {
       try {
-        const backendUrl =
-          process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
-        const res = await fetch(`${backendUrl}/setup/onboarding-status`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.complete) {
+        // If already complete, go straight to dashboard.
+        const statusRes = await fetch(`${BACKEND_URL}/setup/onboarding-status`);
+        if (statusRes.ok) {
+          const data = await statusRes.json();
+          if (data?.complete) {
             router.replace('/dashboard');
             return;
           }
         }
-      } catch {
-        // Continue to onboarding
+
+        const envRes = await fetch(`${BACKEND_URL}/setup/env`);
+        if (!envRes.ok) {
+          throw new Error('Local API not reachable');
+        }
+        const envData = (await envRes.json()) as { configured?: Record<string, boolean> };
+        const configured = envData.configured || {};
+        const hasKey = LLM_KEYS.some((k) => configured[k]);
+        if (!hasKey) {
+          router.replace('/setup?step=keys');
+          return;
+        }
+
+        if (!cancelled) {
+          setCreating(true);
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setError(e?.message || 'Failed to prepare onboarding');
+        }
+      } finally {
+        if (!cancelled) {
+          setChecking(false);
+        }
       }
     };
+
     check();
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
-  // Create the onboarding session
+  // Create the onboarding session — retry with backoff.
   useEffect(() => {
+    if (!creating) return;
+    if (attemptedRef.current) return;
+    attemptedRef.current = true;
+
     let cancelled = false;
 
     const createSession = async () => {
-      // Wait for OpenCode to be ready (retry a few times)
-      for (let i = 0; i < 15; i++) {
+      const MAX_RETRIES = 20;
+      const RETRY_DELAY_MS = 3000;
+      let lastMessage = '';
+
+      for (let i = 0; i < MAX_RETRIES; i++) {
+        if (cancelled) return;
+
         try {
           const client = getClient();
-          const session = await client.session.create({
-            title: 'Kortix Onboarding',
-          });
-          if (!cancelled && session?.id) {
-            setSessionId(session.id);
-            setCreating(false);
+          const createResult = await client.session.create({ title: 'Kortix Onboarding' });
+          const session = unwrap(createResult);
+          if (!session?.id) throw new Error('No session ID returned');
 
-            // Send initial prompt with the onboarding agent
-            await client.session.promptAsync({
-              sessionID: session.id,
-              parts: [{ type: 'text', text: 'Hey! I just installed Kortix.' }],
-              agent: 'kortix-onboarding',
-            });
-            return;
+          if (cancelled) return;
+          setSessionId(session.id);
+
+          // Send initial prompt.
+          const promptResult = await client.session.promptAsync({
+            sessionID: session.id,
+            parts: [{ type: 'text', text: 'Hey! I just installed Kortix.' }],
+            agent: 'kortix-onboarding',
+          });
+
+          if (promptResult?.error) {
+            console.warn('Prompt error (non-fatal):', promptResult.error);
           }
-        } catch {
-          // OpenCode not ready yet, wait and retry
-          await new Promise((r) => setTimeout(r, 2000));
+
+          return;
+        } catch (err: any) {
+          lastMessage = err?.message || String(err);
+          if (i === 3) resetClient();
+          if (i < MAX_RETRIES - 1) {
+            await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+          }
         }
       }
+
       if (!cancelled) {
-        setError('Could not connect to the agent. Make sure Kortix services are running.');
-        setCreating(false);
+        setError(lastMessage || 'Could not start onboarding session');
       }
     };
 
     createSession();
-    return () => { cancelled = true; };
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [creating]);
 
-  // Poll for onboarding completion
+  // Poll for onboarding completion.
   useEffect(() => {
     if (!sessionId || complete) return;
 
     const poll = setInterval(async () => {
       try {
-        const backendUrl =
-          process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
-        const res = await fetch(`${backendUrl}/setup/onboarding-status`);
+        const res = await fetch(`${BACKEND_URL}/setup/onboarding-status`);
         if (res.ok) {
           const data = await res.json();
           if (data.complete) {
@@ -198,30 +268,47 @@ export default function OnboardingPage() {
     router.replace('/dashboard');
   }, [router]);
 
-  // Loading state
-  if (creating) {
+  if (checking) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Starting your onboarding session...</p>
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Preparing onboarding…</p>
         </div>
       </div>
     );
   }
 
-  // Error state
   if (error) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-4">
-        <div className="flex flex-col items-center gap-4 text-center max-w-md">
-          <p className="text-sm text-destructive">{error}</p>
-          <Button variant="outline" onClick={() => window.location.reload()}>
-            Retry
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => router.push('/dashboard')}>
-            Skip onboarding
-          </Button>
+        <div className="flex flex-col items-center gap-5 text-center max-w-sm">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10">
+            <AlertCircle className="h-5 w-5 text-destructive" />
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Could not start onboarding</p>
+            <p className="text-sm text-muted-foreground">{error}</p>
+          </div>
+          <div className="flex gap-3">
+            <Button variant="default" size="sm" onClick={() => window.location.reload()}>
+              Retry
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => router.push('/setup?step=keys')}>
+              Setup
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!sessionId) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Connecting to your AI agent…</p>
         </div>
       </div>
     );
@@ -229,37 +316,38 @@ export default function OnboardingPage() {
 
   return (
     <div className="flex flex-col h-screen bg-background">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b">
-        <KortixLogo size={24} variant="logomark" />
-        <div>
-          <h1 className="text-sm font-semibold">Kortix Onboarding</h1>
-          <p className="text-xs text-muted-foreground">
-            Chat with your AI agent to get started
-          </p>
+      <div className="flex items-center gap-3 px-4 py-2.5 border-b bg-background">
+        <KortixLogo size={20} variant="logomark" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium leading-tight">Kortix Onboarding</p>
+          <p className="text-xs text-muted-foreground leading-tight">Let&apos;s get you set up</p>
         </div>
-        <div className="ml-auto">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-xs text-muted-foreground"
-            onClick={() => router.push('/dashboard')}
-          >
-            Skip
-          </Button>
-        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-xs text-muted-foreground h-7"
+          onClick={() => router.push('/setup?step=keys')}
+        >
+          Setup
+        </Button>
       </div>
 
-      {/* Chat */}
       <div className="flex-1 min-h-0 relative">
         <OpenCodeEventStreamProvider />
-        {sessionId && <SessionChat sessionId={sessionId} />}
+        <SessionChat sessionId={sessionId} />
       </div>
 
-      {/* Completion overlay */}
       <AnimatePresence>
         {complete && <CompletionCelebration onContinue={handleComplete} />}
       </AnimatePresence>
     </div>
+  );
+}
+
+export default function OnboardingPage() {
+  return (
+    <QueryClientProvider client={onboardingQueryClient}>
+      <OnboardingContent />
+    </QueryClientProvider>
   );
 }

@@ -17,8 +17,8 @@ export const setupApp = new Hono<AppEnv>();
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function getProjectRoot(): string {
-  // Walk up from CWD looking for docker-compose.local.yml
+function findRepoRoot(): string | null {
+  // Walk up from CWD looking for docker-compose.local.yml (repo/dev mode)
   const candidates = [
     process.cwd(),
     resolve(process.cwd(), '..'),
@@ -32,7 +32,74 @@ function getProjectRoot(): string {
     }
   }
 
-  return process.cwd();
+  return null;
+}
+
+function getProjectRoot(): string {
+  return findRepoRoot() ?? process.cwd();
+}
+
+function getMasterUrlCandidates(): string[] {
+  const candidates: string[] = [];
+  const explicit = process.env.KORTIX_MASTER_URL;
+  if (explicit && explicit.trim()) candidates.push(explicit.trim());
+
+  // Inside docker-compose network, the sandbox service is reachable by name.
+  candidates.push('http://sandbox:8000');
+
+  // When running the API on the host (dev), sandbox is exposed on this port.
+  candidates.push(`http://localhost:${config.SANDBOX_PORT_BASE || 14000}`);
+
+  // De-dupe
+  return Array.from(new Set(candidates));
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 5000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchMasterJson<T>(path: string, init: RequestInit = {}, timeoutMs = 5000): Promise<T> {
+  const candidates = getMasterUrlCandidates();
+  let lastErr: unknown = null;
+
+  for (const base of candidates) {
+    const url = `${base}${path}`;
+    try {
+      const res = await fetchWithTimeout(url, init, timeoutMs);
+      if (!res.ok) {
+        lastErr = new Error(`Master ${url} returned ${res.status}`);
+        continue;
+      }
+      return (await res.json()) as T;
+    } catch (e) {
+      lastErr = e;
+      continue;
+    }
+  }
+
+  throw lastErr instanceof Error ? lastErr : new Error('Failed to reach sandbox master');
+}
+
+async function getSandboxEnv(): Promise<Record<string, string>> {
+  try {
+    return await fetchMasterJson<Record<string, string>>('/env');
+  } catch {
+    return {};
+  }
+}
+
+async function setSandboxEnv(keys: Record<string, string>, restart = true): Promise<void> {
+  await fetchMasterJson('/env', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ keys, restart }),
+  }, 15000);
 }
 
 function parseEnvFile(path: string): Record<string, string> {
@@ -182,25 +249,48 @@ setupApp.get('/schema', async (c) => {
  * Read current .env values (masked)
  */
 setupApp.get('/env', async (c) => {
-  const root = getProjectRoot();
-  const rootEnv = parseEnvFile(resolve(root, '.env'));
-  const sandboxEnv = parseEnvFile(resolve(root, 'sandbox/.env'));
+  const repoRoot = findRepoRoot();
 
+  // Repo/dev mode: reads and writes actual .env files in the repo.
+  if (repoRoot) {
+    const rootEnv = parseEnvFile(resolve(repoRoot, '.env'));
+    const sandboxEnv = parseEnvFile(resolve(repoRoot, 'sandbox/.env'));
+
+    const masked: Record<string, string> = {};
+    const configured: Record<string, boolean> = {};
+
+    for (const group of Object.values(KEY_SCHEMA)) {
+      for (const k of group.keys) {
+        const val = rootEnv[k.key] || sandboxEnv[k.key] || '';
+        masked[k.key] = maskKey(val);
+        configured[k.key] = !!val;
+      }
+    }
+
+    for (const key of SYSTEM_KEYS) {
+      const val = rootEnv[key] || sandboxEnv[key] || '';
+      configured[key] = val === 'true';
+    }
+
+    return c.json({ masked, configured });
+  }
+
+  // Installed/local Docker mode: proxy to sandbox secret store.
+  const env = await getSandboxEnv();
   const masked: Record<string, string> = {};
   const configured: Record<string, boolean> = {};
 
   for (const group of Object.values(KEY_SCHEMA)) {
     for (const k of group.keys) {
-      const val = rootEnv[k.key] || sandboxEnv[k.key] || '';
+      const val = env[k.key] || '';
       masked[k.key] = maskKey(val);
       configured[k.key] = !!val;
     }
   }
 
-  // Include system keys in the configured map
   for (const key of SYSTEM_KEYS) {
-    const val = rootEnv[key] || sandboxEnv[key] || '';
-    configured[key] = !!val;
+    const val = env[key] || '';
+    configured[key] = val === 'true';
   }
 
   return c.json({ masked, configured });
@@ -217,7 +307,32 @@ setupApp.post('/env', async (c) => {
     return c.json({ error: 'Invalid keys' }, 400);
   }
 
-  const root = getProjectRoot();
+  const repoRoot = findRepoRoot();
+
+  // Installed/local Docker mode: persist keys in the sandbox secret store and
+  // restart OpenCode services so they pick up the new ENV vars.
+  if (!repoRoot) {
+    const clean: Record<string, string> = {};
+    for (const [k, v] of Object.entries(keys)) {
+      if (typeof v !== 'string') continue;
+      const trimmed = v.trim();
+      if (!trimmed) continue;
+      clean[k] = trimmed;
+    }
+
+    try {
+      await setSandboxEnv(clean, true);
+      return c.json({ ok: true });
+    } catch (e: any) {
+      return c.json(
+        { ok: false, error: 'Failed to save configuration', details: e?.message || String(e) },
+        500,
+      );
+    }
+  }
+
+  // Repo/dev mode: write keys into repo .env + sandbox/.env and generate per-service env files.
+  const root = repoRoot;
   const rootData: Record<string, string> = {};
   const sandboxData: Record<string, string> = {};
 
@@ -275,10 +390,25 @@ setupApp.post('/env', async (c) => {
  * Health check of all local services
  */
 setupApp.get('/health', async (c) => {
+  const repoRoot = findRepoRoot();
   const checks: Record<string, { ok: boolean; error?: string }> = {};
 
   // Check API (self)
   checks.api = { ok: true };
+
+  // Installed/local Docker mode: check sandbox by HTTP (no docker CLI in image)
+  if (!repoRoot) {
+    try {
+      await fetchMasterJson('/kortix/health', {}, 5000);
+      checks.sandbox = { ok: true };
+      checks.docker = { ok: true };
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      checks.sandbox = { ok: false, error: msg };
+      checks.docker = { ok: false, error: msg };
+    }
+    return c.json(checks);
+  }
 
   // Check Docker
   try {
@@ -307,9 +437,18 @@ setupApp.get('/health', async (c) => {
  * Check if onboarding is complete
  */
 setupApp.get('/onboarding-status', async (c) => {
-  const root = getProjectRoot();
-  const rootEnv = parseEnvFile(resolve(root, '.env'));
-  const complete = rootEnv['ONBOARDING_COMPLETE'] === 'true';
+  const repoRoot = findRepoRoot();
+
+  // Repo/dev mode: reads from repo .env
+  if (repoRoot) {
+    const rootEnv = parseEnvFile(resolve(repoRoot, '.env'));
+    const complete = rootEnv['ONBOARDING_COMPLETE'] === 'true';
+    return c.json({ complete });
+  }
+
+  // Installed/local Docker mode: read from sandbox secret store
+  const env = await getSandboxEnv();
+  const complete = env['ONBOARDING_COMPLETE'] === 'true';
   return c.json({ complete });
 });
 
@@ -318,8 +457,23 @@ setupApp.get('/onboarding-status', async (c) => {
  * Mark onboarding as complete (called by the onboarding tool or frontend)
  */
 setupApp.post('/onboarding-complete', async (c) => {
-  const root = getProjectRoot();
-  const rootEnvPath = resolve(root, '.env');
-  writeEnvFile(rootEnvPath, { ONBOARDING_COMPLETE: 'true' });
-  return c.json({ ok: true });
+  const repoRoot = findRepoRoot();
+
+  // Repo/dev mode: write to repo .env
+  if (repoRoot) {
+    const rootEnvPath = resolve(repoRoot, '.env');
+    writeEnvFile(rootEnvPath, { ONBOARDING_COMPLETE: 'true' });
+    return c.json({ ok: true });
+  }
+
+  // Installed/local Docker mode: write to sandbox secret store (no restart)
+  try {
+    await setSandboxEnv({ ONBOARDING_COMPLETE: 'true' }, false);
+    return c.json({ ok: true });
+  } catch (e: any) {
+    return c.json(
+      { ok: false, error: 'Failed to mark onboarding complete', details: e?.message || String(e) },
+      500,
+    );
+  }
 });
