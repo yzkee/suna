@@ -455,6 +455,26 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
     return () => window.removeEventListener('sidebar-right-toggled', handler);
   }, [state, setOpen]);
 
+  // Cmd+B is handled by the SidebarProvider in sidebar.tsx — do NOT duplicate
+  // it here. Having two handlers on the same keypress caused a race condition:
+  // the provider's toggleSidebar() would close the sidebar, then this handler
+  // (reading stale `state`) would reopen it on the same tick.
+
+  // Dispatch sidebar-left-toggled event when the sidebar state changes so the
+  // right sidebar can auto-collapse (mutual exclusion).
+  const prevStateRef = useRef(state);
+  useEffect(() => {
+    if (prevStateRef.current !== state) {
+      prevStateRef.current = state;
+      window.dispatchEvent(
+        new CustomEvent('sidebar-left-toggled', {
+          detail: { expanded: state === 'expanded' },
+        }),
+      );
+    }
+  }, [state]);
+
+  // Cmd+J shortcut for new session
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (isDocumentModalOpen) return;
@@ -468,14 +488,7 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
         el.closest('.ProseMirror')
       );
 
-      if ((event.metaKey || event.ctrlKey) && event.key === 'b' && !isEditing) {
-        event.preventDefault();
-        const newState = state !== 'expanded';
-        setOpen(newState);
-        window.dispatchEvent(new CustomEvent('sidebar-left-toggled', { detail: { expanded: newState } }));
-      }
-
-      if ((event.metaKey || event.ctrlKey) && event.key === 'j') {
+      if ((event.metaKey || event.ctrlKey) && event.key === 'j' && !isEditing) {
         event.preventDefault();
         handleNewSession();
       }
@@ -483,7 +496,7 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [state, setOpen, isDocumentModalOpen, handleNewSession]);
+  }, [isDocumentModalOpen, handleNewSession]);
 
   return (
     <Sidebar

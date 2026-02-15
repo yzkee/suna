@@ -294,6 +294,7 @@ export default function DashboardLayoutContent({
     }
   }, [user])
 
+
   // Check authentication status
   useEffect(() => {
     if (!isLoading && !user) {

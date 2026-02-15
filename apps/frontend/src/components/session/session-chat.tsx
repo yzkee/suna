@@ -2609,36 +2609,34 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   // ============================================================================
   // Loading / Not-found states
   // ============================================================================
+  //
+  // IMPORTANT: Do NOT use early returns here. Returning a different component
+  // tree unmounts the textarea, losing user input, focus, and all local state.
+  // Instead, render the full layout with a loading overlay on top. The main
+  // component tree (including SessionChatInput) stays mounted.
 
-  if ((sessionLoading || messagesLoading) && !optimisticPrompt) {
-    return (
-      <div className="flex-1 flex flex-col bg-background">
-        {/* Show error banner even during loading — errors from the Zustand store
-            persist across loading states and should be visible immediately */}
-        <SessionErrorBanner sessionId={sessionId} onErrorAction={handleErrorAction} />
-        <div className="flex-1 flex items-center justify-center">
-          <KortixLoader size="small" />
-        </div>
-      </div>
-    );
-  }
-
-  if (!session && !optimisticPrompt) {
-    return (
-      <div className="flex-1 flex flex-col bg-background">
-        <SessionErrorBanner sessionId={sessionId} onErrorAction={handleErrorAction} />
-        <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-          Session not found
-        </div>
-      </div>
-    );
-  }
+  const isSessionReady = !!(session || optimisticPrompt);
+  const isDataLoading = (sessionLoading || messagesLoading) && !optimisticPrompt;
+  const isNotFound = !session && !sessionLoading && !optimisticPrompt;
 
   const hasMessages = messages && messages.length > 0;
   const showOptimistic = !!optimisticPrompt && !hasMessages;
 
   return (
     <div className="relative flex flex-col h-full bg-background">
+      {/* Loading overlay — covers content but does NOT unmount children */}
+      {isDataLoading && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80">
+          <KortixLoader size="small" />
+        </div>
+      )}
+
+      {/* Not-found overlay */}
+      {isNotFound && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background text-sm text-muted-foreground">
+          Session not found
+        </div>
+      )}
       {/* Session header */}
       {!isSubSession && (
         <SessionSiteHeader

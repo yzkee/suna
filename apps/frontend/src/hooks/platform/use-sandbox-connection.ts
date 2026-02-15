@@ -43,7 +43,11 @@ const CHECK_TIMEOUT = 5_000;
 export function useSandboxConnection() {
   const activeServerId = useServerStore((s) => s.activeServerId);
   const serverVersion = useServerStore((s) => s.serverVersion);
-  const urlVersion = useServerStore((s) => s.urlVersion);
+  // NOTE: urlVersion intentionally NOT subscribed. URL/port updates (via
+  // updateServerSilent) should NOT restart the health check loop — the
+  // loop already reads the URL fresh from the store on each check() call.
+  // Including urlVersion here was causing the loop to restart on every
+  // sandbox init (port mapping update), flashing the ConnectingScreen.
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -61,13 +65,18 @@ export function useSandboxConnection() {
     }
     resetSandboxFail();
 
-    const url = useServerStore.getState().getActiveServerUrl();
-    if (!url) return;
-
     let alive = true;
 
     async function check() {
       if (!alive) return;
+
+      // Read URL fresh each check — it may change via updateServerSilent
+      // (port mapping updates) without restarting this effect.
+      const url = useServerStore.getState().getActiveServerUrl();
+      if (!url) {
+        scheduleNext();
+        return;
+      }
 
       abortRef.current?.abort();
       const controller = new AbortController();
@@ -136,5 +145,6 @@ export function useSandboxConnection() {
       abortRef.current?.abort();
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [activeServerId, serverVersion, urlVersion]);
+    // urlVersion intentionally excluded — see comment at top of hook.
+  }, [activeServerId, serverVersion]);
 }
