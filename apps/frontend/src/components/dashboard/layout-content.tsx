@@ -362,6 +362,7 @@ export default function DashboardLayoutContent({
     <NovuInboxProvider>
     <AppProviders 
       showSidebar={true}
+      defaultSidebarOpen={!showSetupOverlay}
       sidebarSiblings={
         <Suspense fallback={null}>
           {/* Status overlay for deletion operations */}

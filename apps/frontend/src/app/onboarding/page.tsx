@@ -13,6 +13,7 @@ import { useOpenCodeEventStream } from '@/hooks/opencode/use-opencode-events';
 import { SessionChat } from '@/components/session/session-chat';
 import { KortixLogo } from '@/components/sidebar/kortix-logo';
 import { Button } from '@/components/ui/button';
+import { SidebarProvider } from '@/components/ui/sidebar';
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
@@ -347,7 +348,9 @@ function OnboardingContent() {
 export default function OnboardingPage() {
   return (
     <QueryClientProvider client={onboardingQueryClient}>
-      <OnboardingContent />
+      <SidebarProvider defaultOpen={false}>
+        <OnboardingContent />
+      </SidebarProvider>
     </QueryClientProvider>
   );
 }

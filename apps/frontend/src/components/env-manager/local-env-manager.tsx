@@ -87,7 +87,19 @@ const HELP_URLS: Record<string, string> = {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export function LocalEnvManager() {
+interface LocalEnvManagerProps {
+  /** When true, hides the built-in header, health pills, and action bar. */
+  compact?: boolean;
+  /** Render custom action bar. When provided, the built-in Save/Refresh bar is hidden. */
+  renderActions?: (state: {
+    hasChanges: boolean;
+    isSaving: boolean;
+    onSave: () => void;
+    onRefresh: () => void;
+  }) => React.ReactNode;
+}
+
+export function LocalEnvManager({ compact, renderActions }: LocalEnvManagerProps = {}) {
   const queryClient = useQueryClient();
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
@@ -200,16 +212,18 @@ export function LocalEnvManager() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h3 className="text-lg font-semibold mb-1">Environment Configuration</h3>
-        <p className="text-sm text-muted-foreground">
-          Manage API keys and sandbox settings for your local Kortix instance.
-        </p>
-      </div>
+      {/* Header — hidden in compact mode */}
+      {!compact && (
+        <div>
+          <h3 className="text-lg font-semibold mb-1">Environment Configuration</h3>
+          <p className="text-sm text-muted-foreground">
+            Manage API keys and sandbox settings for your local Kortix instance.
+          </p>
+        </div>
+      )}
 
-      {/* Health Status */}
-      {health && (
+      {/* Health Status — hidden in compact mode */}
+      {!compact && health && (
         <div className="flex flex-wrap gap-2">
           <StatusPill label="Docker" ok={health.docker?.ok ?? false} />
           <StatusPill label="API" ok={health.api?.ok ?? false} />
@@ -310,37 +324,46 @@ export function LocalEnvManager() {
         </div>
       ))}
 
-      {/* Actions */}
-      <div className="flex items-center justify-between pt-2">
-        <p className="text-xs text-muted-foreground">
-          {hasChanges
-            ? `${Object.values(formValues).filter((v) => v.trim()).length} key(s) to save`
-            : 'No unsaved changes'}
-        </p>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRefresh}
-            disabled={saveMutation.isPending}
-          >
-            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-            Refresh
-          </Button>
-          <Button
-            size="sm"
-            onClick={handleSave}
-            disabled={!hasChanges || saveMutation.isPending}
-          >
-            {saveMutation.isPending ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Save className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            Save
-          </Button>
+      {/* Actions — custom or built-in */}
+      {renderActions ? (
+        renderActions({
+          hasChanges,
+          isSaving: saveMutation.isPending,
+          onSave: handleSave,
+          onRefresh: handleRefresh,
+        })
+      ) : (
+        <div className="flex items-center justify-between pt-2">
+          <p className="text-xs text-muted-foreground">
+            {hasChanges
+              ? `${Object.values(formValues).filter((v) => v.trim()).length} key(s) to save`
+              : 'No unsaved changes'}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={saveMutation.isPending}
+            >
+              <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+              Refresh
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSave}
+              disabled={!hasChanges || saveMutation.isPending}
+            >
+              {saveMutation.isPending ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Save
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
