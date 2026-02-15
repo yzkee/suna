@@ -10,20 +10,20 @@ import {
   Loader2,
   Copy,
   Check,
-  AlertTriangle,
   Bug,
   FileText,
   FileDown,
   Image as ImageIcon,
   ArrowUpLeft,
-  Info,
   GitCompareArrows,
   GitFork,
   Layers,
   ListTodo,
   MoreHorizontal,
+  Pencil,
   Send,
   Sparkles,
+  Trash2,
   Undo2,
   X,
 } from 'lucide-react';
@@ -49,6 +49,8 @@ import {
   useForkSession,
   useRevertSession,
   useUnrevertSession,
+  useUpdatePart,
+  useDeletePart,
   useSessionBusyPolling,
   replyToPermission,
   replyToQuestion,
@@ -70,6 +72,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 import { CompactDialog } from '@/components/session/compact-dialog';
 import { ExportTranscriptDialog } from '@/components/session/export-transcript-dialog';
 import { DiffDialog } from '@/components/session/diff-dialog';
@@ -113,8 +124,9 @@ import {
   getAnsweredQuestionParts,
   unwrapError,
   getTurnStatus,
-  getTurnError,
   getTurnCost,
+  classifyTurnError,
+  type SessionErrorDisplay,
   getRetryInfo,
   getPermissionForTool,
   getQuestionForTool,
@@ -134,8 +146,10 @@ import { ToolPartRenderer } from '@/components/session/tool-renderers';
 import { QuestionPrompt } from '@/components/session/question-prompt';
 import { ImagePreview } from '@/components/session/image-preview';
 import { RevertBanner, ConfirmDialog } from '@/components/session/message-actions';
+import { SessionErrorBanner, TurnErrorDisplay } from '@/components/session/session-error-banner';
 import { useTabStore } from '@/stores/tab-store';
 import { useServerStore } from '@/stores/server-store';
+import { useSessionErrorStore } from '@/stores/opencode-session-error-store';
 import { useQueryClient } from '@tanstack/react-query';
 import { billingApi } from '@/lib/api/billing';
 import { invalidateAccountState } from '@/hooks/billing/use-account-state';
@@ -482,6 +496,218 @@ function parseFileReferences(text: string): { cleanText: string; files: ParsedFi
 }
 
 // ============================================================================
+// Edit Part Dialog — inline editing for text parts
+// ============================================================================
+
+function EditPartDialog({
+  open,
+  onOpenChange,
+  initialText,
+  onSave,
+  loading,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  initialText: string;
+  onSave: (text: string) => void;
+  loading?: boolean;
+}) {
+  const [text, setText] = useState(initialText);
+
+  // Reset text when dialog opens with new content
+  useEffect(() => {
+    if (open) setText(initialText);
+  }, [open, initialText]);
+
+  const handleSave = () => {
+    const trimmed = text.trim();
+    if (trimmed && trimmed !== initialText) {
+      onSave(trimmed);
+    } else {
+      onOpenChange(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit message</DialogTitle>
+          <DialogDescription>
+            Modify the text content of this message part.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="py-2">
+          <Textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            className="min-h-[120px] text-sm"
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                handleSave();
+              }
+            }}
+          />
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={loading}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSave}
+            disabled={loading || !text.trim() || text.trim() === initialText}
+          >
+            {loading ? (
+              <Loader2 className="size-3.5 animate-spin mr-1.5" />
+            ) : null}
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================================
+// Part Actions — edit/delete actions for individual message parts
+// ============================================================================
+
+function PartActions({
+  part,
+  messageId,
+  sessionId,
+  isBusy,
+  className,
+}: {
+  part: Part;
+  messageId: string;
+  sessionId: string;
+  isBusy: boolean;
+  className?: string;
+}) {
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const updatePart = useUpdatePart();
+  const deletePart = useDeletePart();
+
+  // Only text parts are editable
+  const isEditable = isTextPart(part) && !!(part as TextPart).text?.trim();
+  const partText = isEditable ? (part as TextPart).text : '';
+
+  const handleUpdate = useCallback(
+    (newText: string) => {
+      updatePart.mutate(
+        {
+          sessionId,
+          messageId,
+          partId: part.id,
+          part: { ...part, text: newText, metadata: { ...((part as any).metadata || {}), edited: true } } as any,
+        },
+        {
+          onSuccess: () => setEditOpen(false),
+        },
+      );
+    },
+    [sessionId, messageId, part, updatePart],
+  );
+
+  const handleDelete = useCallback(() => {
+    deletePart.mutate(
+      {
+        sessionId,
+        messageId,
+        partId: part.id,
+      },
+      {
+        onSuccess: () => setDeleteDialogOpen(false),
+      },
+    );
+  }, [sessionId, messageId, part.id, deletePart]);
+
+  return (
+    <>
+      <div
+        className={cn(
+          'flex items-center gap-0.5',
+          className,
+        )}
+      >
+        {/* Edit button — only for text parts */}
+        {isEditable && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setEditOpen(true)}
+                disabled={isBusy}
+                className={cn(
+                  'p-1.5 rounded-md transition-colors cursor-pointer',
+                  'text-muted-foreground/50 hover:text-foreground hover:bg-muted/60',
+                  'disabled:opacity-30 disabled:cursor-not-allowed',
+                )}
+              >
+                <Pencil className="size-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">
+              Edit
+            </TooltipContent>
+          </Tooltip>
+        )}
+
+        {/* Delete button */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => setDeleteDialogOpen(true)}
+              disabled={isBusy}
+              className={cn(
+                'p-1.5 rounded-md transition-colors cursor-pointer',
+                'text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10',
+                'disabled:opacity-30 disabled:cursor-not-allowed',
+              )}
+            >
+              <Trash2 className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-xs">
+            Delete
+          </TooltipContent>
+        </Tooltip>
+      </div>
+
+      {/* Edit dialog */}
+      {isEditable && (
+        <EditPartDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          initialText={partText}
+          onSave={handleUpdate}
+          loading={updatePart.isPending}
+        />
+      )}
+
+      {/* Delete confirmation */}
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete message part"
+        description="This will permanently remove this part from the message. This action cannot be undone."
+        action={handleDelete}
+        actionLabel="Delete"
+        variant="destructive"
+        loading={deletePart.isPending}
+      />
+    </>
+  );
+}
+
+// ============================================================================
 // User Message Row
 // ============================================================================
 
@@ -496,6 +722,9 @@ function UserMessageRow({ message, agentNames }: { message: MessageWithParts; ag
   const textParts = stickyParts.filter(isTextPart).filter((p) => (p as TextPart).text?.trim() && !(p as TextPart).synthetic);
   const rawText = textParts.map((p) => (p as TextPart).text).join('\n');
   const { cleanText: text, files: uploadedFiles } = useMemo(() => parseFileReferences(rawText), [rawText]);
+
+  // Check if any text part was edited
+  const isEdited = textParts.some((p) => (p as any).metadata?.edited);
 
   // Inline file references
   const inlineFiles = stickyParts.filter(isFilePart) as FilePart[];
@@ -584,7 +813,7 @@ function UserMessageRow({ message, agentNames }: { message: MessageWithParts; ag
   }, [text, filesWithSource, agentParts, agentNames]);
 
   return (
-    <div className="flex justify-end">
+    <div className="flex flex-col items-end gap-1">
       <div
         className={cn(
           'flex flex-col max-w-[90%] rounded-3xl rounded-br-lg bg-card border overflow-hidden',
@@ -685,6 +914,9 @@ function UserMessageRow({ message, agentNames }: { message: MessageWithParts; ag
           </div>
         )}
       </div>
+      {isEdited && (
+        <span className="text-[10px] text-muted-foreground/50 pr-1">edited</span>
+      )}
     </div>
   );
 }
@@ -797,8 +1029,8 @@ function SessionTurn({
     [allParts, working],
   );
 
-  // Turn error
-  const turnError = useMemo(() => getTurnError(turn), [turn]);
+  // Turn error — classified for rich display
+  const turnError = useMemo(() => classifyTurnError(turn), [turn]);
 
   // Shell mode detection
   const shellModePart = useMemo(() => getShellModePart(turn), [turn]);
@@ -935,10 +1167,7 @@ function SessionTurn({
           defaultOpen
         />
         {turnError && (
-          <div className="flex items-start gap-2 px-3 py-1.5 rounded-md text-xs text-muted-foreground">
-            <Info className="size-3 flex-shrink-0 mt-0.5" />
-            <span className="break-all">{turnError}</span>
-          </div>
+          <TurnErrorDisplay error={turnError} className="mt-2" />
         )}
       </div>
     );
@@ -975,7 +1204,7 @@ function SessionTurn({
       <div>
         {/* User message */}
         <UserMessageRow message={turn.userMessage} agentNames={agentNames} />
-        {/* User message actions */}
+        {/* User message actions — copy, edit, delete */}
         {userMessageText && (
           <div className="flex justify-end mt-1 opacity-0 group-hover/turn:opacity-100 transition-opacity duration-150">
             <Tooltip>
@@ -989,6 +1218,21 @@ function SessionTurn({
               </TooltipTrigger>
               <TooltipContent>{userCopied ? 'Copied!' : 'Copy'}</TooltipContent>
             </Tooltip>
+            {/* Edit/Delete for user text parts */}
+            {(() => {
+              const userTextPart = turn.userMessage.parts.find(
+                (p) => isTextPart(p) && (p as TextPart).text?.trim() && !(p as TextPart).synthetic,
+              );
+              if (!userTextPart) return null;
+              return (
+                <PartActions
+                  part={userTextPart}
+                  messageId={turn.userMessage.info.id}
+                  sessionId={sessionId}
+                  isBusy={isBusy}
+                />
+              );
+            })()}
           </div>
         )}
       </div>
@@ -1139,16 +1383,17 @@ function SessionTurn({
               if (!question && isToolPartHidden(part, message.info.id, hidden)) return null;
 
               return (
-                <ToolPartRenderer
-                  key={part.id}
-                  part={part}
-                  sessionId={sessionId}
-                  permission={perm}
-                  question={question}
-                  onPermissionReply={onPermissionReply}
-                  onQuestionReply={onQuestionReply}
-                  onQuestionReject={onQuestionReject}
-                />
+                <div key={part.id}>
+                  <ToolPartRenderer
+                    part={part}
+                    sessionId={sessionId}
+                    permission={perm}
+                    question={question}
+                    onPermissionReply={onPermissionReply}
+                    onQuestionReply={onQuestionReply}
+                    onQuestionReject={onQuestionReject}
+                  />
+                </div>
               );
             }
 
@@ -1169,10 +1414,7 @@ function SessionTurn({
 
           {/* Error at bottom of steps */}
           {turnError && (
-            <div className="flex items-start gap-2 px-3 py-1.5 rounded-md text-xs text-muted-foreground">
-              <Info className="size-3 flex-shrink-0 mt-0.5" />
-              <span className="break-all">{turnError}</span>
-            </div>
+            <TurnErrorDisplay error={turnError} />
           )}
         </div>
       )}
@@ -1252,10 +1494,7 @@ function SessionTurn({
 
       {/* Error shown outside steps when collapsed */}
       {turnError && !stepsExpanded && (
-        <div className="flex items-start gap-2 px-3 py-1.5 rounded-md text-xs text-muted-foreground">
-          <Info className="size-3 flex-shrink-0 mt-0.5" />
-          <span className="break-all">{turnError}</span>
-        </div>
+        <TurnErrorDisplay error={turnError} />
       )}
 
       {/* Standalone permission (no tool ref) */}
@@ -1296,7 +1535,7 @@ function SessionTurn({
         />
       )}
 
-      {/* Unified action bar — copy, fork, revert under the response */}
+      {/* Unified action bar — copy, edit, delete, fork, revert under the response */}
       {!working && response && (
         <>
           <div className="flex items-center gap-0.5 opacity-0 group-hover/turn:opacity-100 transition-opacity duration-150">
@@ -1913,6 +2152,23 @@ export function SessionChat({ sessionId }: SessionChatProps) {
     await unrevertSession.mutateAsync(sessionId);
   }, [sessionId, unrevertSession]);
 
+  // ---- Session error dismissal on session change ----
+  const dismissSessionErrors = useSessionErrorStore((s) => s.dismissSessionErrors);
+
+  // ---- Error action handler (for banner action buttons) ----
+  const handleErrorAction = useCallback(
+    (display: SessionErrorDisplay) => {
+      // "Check settings" → could navigate to settings (no-op for now, dismiss the error)
+      // "Compact session" → trigger compaction (handled via the header menu)
+      // For now, dismiss the error — specific actions can be wired later.
+      if (display.actionLabel === 'Compact session') {
+        // Auto-scroll to the compact button in the header would be ideal,
+        // but for now just dismiss so the user can use the header compact menu.
+      }
+    },
+    [],
+  );
+
   // ============================================================================
   // Send / Stop / Command handlers
   // ============================================================================
@@ -2068,6 +2324,12 @@ export function SessionChat({ sessionId }: SessionChatProps) {
           onUnrevert={handleUnrevert}
         />
       )}
+
+      {/* Session error banner — shown when session.error events arrive */}
+      <SessionErrorBanner
+        sessionId={sessionId}
+        onErrorAction={handleErrorAction}
+      />
 
       {/* Debug mode toggle — floating, only visible when ?debug is in URL */}
       {isDebugEnabled && hasMessages && (
