@@ -95,6 +95,10 @@ const ConnectingScreen = lazy(() =>
   import('@/components/dashboard/connecting-screen').then(mod => ({ default: mod.ConnectingScreen }))
 );
 
+const SetupOverlay = lazy(() =>
+  import('@/components/dashboard/setup-overlay').then(mod => ({ default: mod.SetupOverlay }))
+);
+
 const SessionLayout = lazy(() =>
   import('@/components/session/session-layout').then(mod => ({ default: mod.SessionLayout }))
 );
@@ -290,8 +294,9 @@ export default function DashboardLayoutContent({
     }
   }, [user, isLoading, router]);
 
-  // Hard gate: redirect to /setup if onboarding not complete (local mode only)
+  // Hard gate: show setup overlay if onboarding not complete (local mode only)
   const [onboardingChecked, setOnboardingChecked] = useState(false);
+  const [showSetupOverlay, setShowSetupOverlay] = useState(false);
   useEffect(() => {
     if (!isLocalMode()) {
       setOnboardingChecked(true);
@@ -306,8 +311,7 @@ export default function DashboardLayoutContent({
         if (res.ok) {
           const data = await res.json();
           if (!data.complete) {
-            router.replace('/setup');
-            return;
+            setShowSetupOverlay(true);
           }
         }
       } catch {
@@ -358,6 +362,7 @@ export default function DashboardLayoutContent({
     <NovuInboxProvider>
     <AppProviders 
       showSidebar={true}
+      defaultSidebarOpen={!showSetupOverlay}
       sidebarSiblings={
         <Suspense fallback={null}>
           {/* Status overlay for deletion operations */}
@@ -373,6 +378,16 @@ export default function DashboardLayoutContent({
       <Suspense fallback={null}>
         <ConnectingScreen />
       </Suspense>
+      {showSetupOverlay && (
+        <Suspense fallback={null}>
+          <SetupOverlay
+            onComplete={() => {
+              setShowSetupOverlay(false);
+              router.push('/onboarding');
+            }}
+          />
+        </Suspense>
+      )}
       <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
         {technicalIssue?.enabled && technicalIssue.message && (
           <Suspense fallback={null}>

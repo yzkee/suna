@@ -43,6 +43,7 @@ function DeleteOperationEffectsWrapper({ children }: { children: React.ReactNode
 interface AppProvidersProps {
   children: React.ReactNode;
   showSidebar?: boolean;
+  defaultSidebarOpen?: boolean;
   sidebarContent?: React.ReactNode;
   sidebarSiblings?: React.ReactNode; // Components to render as siblings of SidebarInset (e.g., StatusOverlay, FloatingMobileMenuButton)
 }
@@ -56,6 +57,7 @@ interface AppProvidersProps {
 export function AppProviders({ 
   children, 
   showSidebar = true,
+  defaultSidebarOpen,
   sidebarContent,
   sidebarSiblings
 }: AppProvidersProps) {
@@ -72,7 +74,7 @@ export function AppProviders({
   }
 
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={defaultSidebarOpen}>
       {sidebarContent || (
         <Suspense fallback={<SidebarSkeleton />}>
           <SidebarLeft />

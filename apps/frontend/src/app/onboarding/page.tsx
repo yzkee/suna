@@ -13,6 +13,7 @@ import { useOpenCodeEventStream } from '@/hooks/opencode/use-opencode-events';
 import { SessionChat } from '@/components/session/session-chat';
 import { KortixLogo } from '@/components/sidebar/kortix-logo';
 import { Button } from '@/components/ui/button';
+import { SidebarProvider } from '@/components/ui/sidebar';
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
@@ -161,7 +162,7 @@ function OnboardingContent() {
         const configured = envData.configured || {};
         const hasKey = LLM_KEYS.some((k) => configured[k]);
         if (!hasKey) {
-          router.replace('/setup?step=keys');
+          router.replace('/dashboard');
           return;
         }
 
@@ -294,7 +295,7 @@ function OnboardingContent() {
             <Button variant="default" size="sm" onClick={() => window.location.reload()}>
               Retry
             </Button>
-            <Button variant="outline" size="sm" onClick={() => router.push('/setup?step=keys')}>
+            <Button variant="outline" size="sm" onClick={() => router.push('/dashboard')}>
               Setup
             </Button>
           </div>
@@ -326,7 +327,7 @@ function OnboardingContent() {
           variant="ghost"
           size="sm"
           className="text-xs text-muted-foreground h-7"
-          onClick={() => router.push('/setup?step=keys')}
+          onClick={() => router.push('/dashboard')}
         >
           Setup
         </Button>
@@ -347,7 +348,9 @@ function OnboardingContent() {
 export default function OnboardingPage() {
   return (
     <QueryClientProvider client={onboardingQueryClient}>
-      <OnboardingContent />
+      <SidebarProvider defaultOpen={false}>
+        <OnboardingContent />
+      </SidebarProvider>
     </QueryClientProvider>
   );
 }
