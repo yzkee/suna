@@ -758,6 +758,10 @@ export function SessionChatInput({
   const [fileSearchLoading, setFileSearchLoading] = useState(false);
   const fileSearchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const fileSearchSeq = useRef(0); // sequence counter to discard stale results
+  // Cache of all file results seen during the current mention session.
+  // This survives across query changes so that narrowing a query (e.g. "te" → "test")
+  // never loses results even if the API returns empty for the longer query.
+  const fileResultsCache = useRef<Set<string>>(new Set());
   const placeholderFadeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
@@ -835,15 +839,26 @@ export function SessionChatInput({
   }, [commands, slashFilter]);
 
   // Debounced file search for @ mentions
-  // Key fix: do NOT clear previous results between keystrokes — keep them visible
-  // until new results arrive. Merge new results with existing ones that still match
-  // so narrowing the query never drops valid cached results.
+  // Uses a persistent cache (fileResultsCache) so that narrowing a query never
+  // loses results — even if the API returns empty for longer queries.
   useEffect(() => {
     clearTimeout(fileSearchTimer.current);
     if (!mentionQuery) {
       setFileResults([]);
       setFileSearchLoading(false);
+      fileResultsCache.current.clear();
       return;
+    }
+    // Immediately apply cached results that match the new query so the popover
+    // never flickers empty while waiting for the debounced API call.
+    const q = mentionQuery.query.toLowerCase();
+    if (fileResultsCache.current.size > 0) {
+      const cachedMatches = Array.from(fileResultsCache.current).filter(
+        (f) => q.length === 0 || f.toLowerCase().includes(q),
+      );
+      if (cachedMatches.length > 0) {
+        setFileResults(cachedMatches.slice(0, 20));
+      }
     }
     setFileSearchLoading(true);
     const seq = ++fileSearchSeq.current;
@@ -851,26 +866,29 @@ export function SessionChatInput({
     fileSearchTimer.current = setTimeout(async () => {
       try {
         const results = await fileSearchFn(currentQuery);
+        // Add new results to the persistent cache
+        for (const r of results) {
+          fileResultsCache.current.add(r);
+        }
         // Only apply if this is still the latest request
         if (seq === fileSearchSeq.current) {
-          // Merge: keep existing results that still match the query + add new ones
-          const q = currentQuery.toLowerCase();
-          setFileResults((prev) => {
-            const kept = q.length > 0
-              ? prev.filter((f) => f.toLowerCase().includes(q))
-              : prev;
-            const merged = new Set([...results, ...kept]);
-            return Array.from(merged).slice(0, 20);
-          });
+          // Merge: API results + cached results that still match the query
+          const ql = currentQuery.toLowerCase();
+          const cachedMatches = Array.from(fileResultsCache.current).filter(
+            (f) => ql.length === 0 || f.toLowerCase().includes(ql),
+          );
+          const merged = new Set([...results, ...cachedMatches]);
+          setFileResults(Array.from(merged).slice(0, 20));
           setFileSearchLoading(false);
         }
       } catch {
         if (seq === fileSearchSeq.current) {
-          // On error, keep existing matching results rather than clearing
-          const q = currentQuery.toLowerCase();
-          setFileResults((prev) =>
-            q.length > 0 ? prev.filter((f) => f.toLowerCase().includes(q)) : prev,
+          // On error, fall back to cached results that match
+          const ql = currentQuery.toLowerCase();
+          const cachedMatches = Array.from(fileResultsCache.current).filter(
+            (f) => ql.length === 0 || f.toLowerCase().includes(ql),
           );
+          setFileResults(cachedMatches.slice(0, 20));
           setFileSearchLoading(false);
         }
       }

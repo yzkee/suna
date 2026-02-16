@@ -29,7 +29,6 @@ import {
   Trash2,
   Undo2,
   X,
-  Bell,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -153,57 +152,10 @@ import { ConnectProviderDialog } from '@/components/session/model-selector';
 import type { ProviderListResponse } from '@/hooks/opencode/use-opencode-sessions';
 import { useTabStore } from '@/stores/tab-store';
 import { useServerStore } from '@/stores/server-store';
-import { useWebNotificationStore } from '@/stores/web-notification-store';
-import { isNotificationSupported } from '@/lib/web-notifications';
+
 import { useQueryClient } from '@tanstack/react-query';
 import { billingApi } from '@/lib/api/billing';
 import { invalidateAccountState } from '@/hooks/billing/use-account-state';
-
-// ============================================================================
-// Notification Enable Prompt
-// ============================================================================
-
-function NotificationPromptBanner() {
-  const enabled = useWebNotificationStore((s) => s.preferences.enabled);
-  const promptDismissed = useWebNotificationStore((s) => s.promptDismissed);
-  const permission = useWebNotificationStore((s) => s.permission);
-  const toggleEnabled = useWebNotificationStore((s) => s.toggleEnabled);
-  const dismissPrompt = useWebNotificationStore((s) => s.dismissPrompt);
-
-  // Don't show if: already enabled, prompt dismissed, not supported, or browser denied
-  if (enabled || promptDismissed || !isNotificationSupported() || permission === 'denied') {
-    return null;
-  }
-
-  return (
-    <div className="flex-shrink-0">
-      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-blue-500/15 bg-blue-500/[0.04] dark:bg-blue-500/[0.03]">
-        <Bell className="size-4 flex-shrink-0 text-blue-500" />
-        <p className="flex-1 text-xs text-foreground/70 leading-relaxed">
-          Enable browser notifications to get alerted when tasks complete, errors occur, or input is needed.
-        </p>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          <button
-            onClick={async () => {
-              await toggleEnabled();
-              dismissPrompt();
-            }}
-            className="flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-medium bg-blue-500/[0.04] text-blue-600 dark:text-blue-400 hover:opacity-80 active:opacity-70 border border-blue-500/15 transition-colors cursor-pointer"
-          >
-            Enable
-          </button>
-          <button
-            onClick={dismissPrompt}
-            className="p-1 rounded-md transition-colors cursor-pointer text-blue-500/60 hover:text-blue-500 hover:bg-blue-500/10"
-            aria-label="Dismiss"
-          >
-            <X className="size-3.5" />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ============================================================================
 // Sub-Session / Fork Breadcrumb
@@ -2710,8 +2662,6 @@ export function SessionChat({ sessionId }: SessionChatProps) {
         />
       )}
 
-      {/* Notification enable prompt — shown once for new users */}
-      <NotificationPromptBanner />
       {/* Debug mode toggle — floating, only visible when ?debug is in URL */}
       {isDebugEnabled && hasMessages && (
         <button
