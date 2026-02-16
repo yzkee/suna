@@ -124,7 +124,7 @@ function SessionItem({
           'transition-all duration-150 ease-out',
           isActive
             ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-            : 'hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
+            : 'hover:bg-sidebar-accent hover:text-sidebar-foreground',
           depth === 0 ? 'px-3' : 'pr-3',
         )}
         style={depth > 0 ? { paddingLeft: `${12 + depth * 16}px` } : undefined}
@@ -139,7 +139,7 @@ function SessionItem({
               e.stopPropagation();
               onToggleExpand();
             }}
-            className="flex-shrink-0 p-0.5 rounded text-muted-foreground/40 hover:text-sidebar-foreground transition-colors duration-150 cursor-pointer"
+            className="flex-shrink-0 p-0.5 rounded text-muted-foreground hover:text-sidebar-foreground transition-colors duration-150 cursor-pointer"
           >
             <ChevronRight
               className={cn(
@@ -152,7 +152,7 @@ function SessionItem({
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="flex-shrink-0 w-4 flex items-center justify-center">
-                <GitFork className="size-3 text-muted-foreground/60" />
+                <GitFork className="size-3 text-muted-foreground" />
               </span>
             </TooltipTrigger>
             <TooltipContent side="right" className="text-xs">
@@ -161,7 +161,7 @@ function SessionItem({
           </Tooltip>
         ) : depth > 0 ? (
           <span className="flex-shrink-0 w-4 flex items-center justify-center">
-            <span className="h-1 w-1 rounded-full bg-muted-foreground/20" />
+            <span className="h-1 w-1 rounded-full bg-muted-foreground" />
           </span>
         ) : null}
 
@@ -190,8 +190,8 @@ function SessionItem({
           className={cn(
             'flex-1 truncate',
             depth === 0
-              ? isActive ? 'text-sidebar-accent-foreground font-medium' : 'text-sidebar-foreground/80'
-              : 'text-muted-foreground/70 text-xs',
+              ? isActive ? 'text-sidebar-accent-foreground font-medium' : 'text-sidebar-foreground'
+              : 'text-muted-foreground text-xs',
           )}
         >
           {session.title || 'Untitled'}
@@ -217,7 +217,7 @@ function SessionItem({
             <DropdownMenuTrigger asChild>
               <button
                 className={cn(
-                  'p-0.5 rounded-md hover:bg-sidebar-accent transition-all duration-150 ease-out text-muted-foreground/60 hover:text-sidebar-foreground cursor-pointer',
+                  'p-0.5 rounded-md hover:bg-sidebar-accent transition-all duration-150 ease-out text-muted-foreground hover:text-sidebar-foreground cursor-pointer',
                   isHovering ? 'opacity-100' : 'opacity-0 pointer-events-none',
                 )}
                 onClick={(e) => {
@@ -358,7 +358,7 @@ function SessionTreeNode({
           {/* Vertical tree line */}
           {depth < 2 && (
             <div
-              className="absolute top-0 bottom-0 border-l border-border/40"
+              className="absolute top-0 bottom-0 border-l border-border"
               style={{ left: `${20 + depth * 16}px` }}
             />
           )}
@@ -733,19 +733,19 @@ export function SessionList({ projectId }: SessionListProps = {}) {
       {!isLoading && !error && rootSessions.length > 0 && (
         <div className="px-2 pb-1.5">
           <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground/40 pointer-events-none" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
             <input
               ref={searchInputRef}
               type="text"
               placeholder="Search sessions..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full h-8 pl-8 pr-7 rounded-lg bg-muted/40 border border-border/40 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-border focus:bg-muted/60 transition-colors"
+              className="w-full h-8 pl-8 pr-7 rounded-lg bg-muted border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-border focus:bg-muted transition-colors"
             />
             {searchQuery && (
               <button
                 onClick={() => { setSearchQuery(''); searchInputRef.current?.focus(); }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground/40 hover:text-foreground transition-colors cursor-pointer"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
               >
                 <X className="size-3" />
               </button>
@@ -759,11 +759,11 @@ export function SessionList({ projectId }: SessionListProps = {}) {
         <div className="px-2 pb-1">
           <button
             onClick={() => setShowArchived((v) => !v)}
-            className="flex items-center gap-1.5 w-full px-3 py-1.5 rounded-lg text-xs text-muted-foreground/50 hover:text-muted-foreground hover:bg-sidebar-accent/30 transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 w-full px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-muted-foreground hover:bg-sidebar-accent transition-colors cursor-pointer"
           >
             <Archive className="size-3" />
             <span>Archived</span>
-            <span className="ml-auto text-[10px] tabular-nums bg-muted/50 px-1.5 py-0.5 rounded-full">{archivedSessions.length}</span>
+            <span className="ml-auto text-[10px] tabular-nums bg-muted px-1.5 py-0.5 rounded-full">{archivedSessions.length}</span>
             {showArchived ? (
               <ChevronDown className="size-3" />
             ) : (
@@ -775,7 +775,7 @@ export function SessionList({ projectId }: SessionListProps = {}) {
               {archivedSessions.map((session) => (
                 <div
                   key={session.id}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-muted-foreground/50 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-all duration-150 group cursor-pointer"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground transition-all duration-150 group cursor-pointer"
                 >
                   <span className="flex-1 truncate text-xs">
                     {session.title || 'Untitled'}
@@ -784,7 +784,7 @@ export function SessionList({ projectId }: SessionListProps = {}) {
                     <TooltipTrigger asChild>
                       <button
                         onClick={() => handleUnarchiveSession(session.id)}
-                        className="p-0.5 rounded-md hover:bg-sidebar-accent text-muted-foreground/40 hover:text-sidebar-foreground transition-all cursor-pointer"
+                        className="p-0.5 rounded-md hover:bg-sidebar-accent text-muted-foreground hover:text-sidebar-foreground transition-all cursor-pointer"
                       >
                         <ArchiveRestore className="size-3.5" />
                       </button>
@@ -797,7 +797,7 @@ export function SessionList({ projectId }: SessionListProps = {}) {
                     <TooltipTrigger asChild>
                       <button
                         onClick={() => handleDeleteSession(session.id, session.title || 'Untitled')}
-                        className="p-0.5 rounded-md hover:bg-sidebar-accent text-muted-foreground/40 hover:text-destructive transition-all cursor-pointer"
+                        className="p-0.5 rounded-md hover:bg-sidebar-accent text-muted-foreground hover:text-destructive transition-all cursor-pointer"
                       >
                         <Trash2 className="size-3.5" />
                       </button>
@@ -819,38 +819,38 @@ export function SessionList({ projectId }: SessionListProps = {}) {
           <div className="space-y-0.5">
             {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="flex items-center gap-3 px-3 py-1.5 rounded-lg">
-                <div className="h-3.5 w-24 bg-muted/20 rounded animate-pulse" />
+                <div className="h-3.5 w-24 bg-muted rounded animate-pulse" />
               </div>
             ))}
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
-            <Frown className="h-8 w-8 text-muted-foreground/30 mb-3" />
+            <Frown className="h-8 w-8 text-muted-foreground mb-3" />
             <p className="text-sm text-muted-foreground">Failed to connect</p>
-            <p className="text-xs text-muted-foreground/60 mt-1">Could not reach server</p>
+            <p className="text-xs text-muted-foreground mt-1">Could not reach server</p>
             <button
               onClick={() => refetch()}
-              className="mt-3 text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-lg bg-muted/50 hover:bg-muted transition-colors cursor-pointer"
+              className="mt-3 text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-lg bg-muted hover:bg-muted transition-colors cursor-pointer"
             >
               Retry
             </button>
           </div>
         ) : rootSessions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
-            <MessageCircle className="h-8 w-8 text-muted-foreground/30 mb-3" />
+            <MessageCircle className="h-8 w-8 text-muted-foreground mb-3" />
             <p className="text-sm text-muted-foreground">No sessions yet</p>
-            <p className="text-xs text-muted-foreground/60 mt-1">Start a new session to get going</p>
+            <p className="text-xs text-muted-foreground mt-1">Start a new session to get going</p>
           </div>
         ) : filteredRootSessions.length === 0 && semanticResults.length === 0 && searchQuery && !isSemanticSearching ? (
           <div className="flex flex-col items-center justify-center py-10 px-6 text-center">
-            <Search className="h-8 w-8 text-muted-foreground/40 mb-3" />
+            <Search className="h-8 w-8 text-muted-foreground mb-3" />
             <p className="text-sm font-medium text-muted-foreground">No results found</p>
-            <p className="text-xs text-muted-foreground/60 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               No sessions match &ldquo;{searchQuery}&rdquo;
             </p>
             <button
               onClick={() => { setSearchQuery(''); searchInputRef.current?.focus(); }}
-              className="mt-3 text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-lg bg-muted/50 hover:bg-muted transition-colors cursor-pointer"
+              className="mt-3 text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-lg bg-muted hover:bg-muted transition-colors cursor-pointer"
             >
               Clear search
             </button>
@@ -882,7 +882,7 @@ export function SessionList({ projectId }: SessionListProps = {}) {
             {filteredRootSessions.some((s) => getPendingCount(s.id) > 0) &&
               filteredRootSessions.some((s) => getPendingCount(s.id) === 0) && (
               <div className="flex items-center gap-2 px-3 py-1.5">
-                <div className="flex-1 h-px bg-border/20" />
+                <div className="flex-1 h-px bg-border" />
               </div>
             )}
 
@@ -912,15 +912,15 @@ export function SessionList({ projectId }: SessionListProps = {}) {
               <>
                 {/* Divider + heading */}
                 <div className="flex items-center gap-2 px-3 pt-2 pb-1">
-                  <div className="flex-1 h-px bg-border/20" />
-                  <span className="text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider inline-flex items-center gap-1">
+                  <div className="flex-1 h-px bg-border" />
+                  <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider inline-flex items-center gap-1">
                     <Sparkles className="h-2.5 w-2.5" />
                     Semantic
                     {isSemanticSearching && semanticResults.length > 0 && (
                       <Loader2 className="h-2.5 w-2.5 animate-spin" />
                     )}
                   </span>
-                  <div className="flex-1 h-px bg-border/20" />
+                  <div className="flex-1 h-px bg-border" />
                 </div>
 
                 {/* Skeleton loaders */}
@@ -942,7 +942,7 @@ export function SessionList({ projectId }: SessionListProps = {}) {
                 {semanticResults.map((result) => (
                   <button
                     key={`semantic-${result.thread_id}`}
-                    className="flex items-start gap-2.5 w-full text-left px-3 py-2 mx-1 rounded-lg hover:bg-muted/60 transition-colors cursor-pointer group"
+                    className="flex items-start gap-2.5 w-full text-left px-3 py-2 mx-1 rounded-lg hover:bg-muted transition-colors cursor-pointer group"
                     onClick={() => {
                       if (isMobile) setOpenMobile(false);
                       useTabStore.getState().openTab({
@@ -957,13 +957,13 @@ export function SessionList({ projectId }: SessionListProps = {}) {
                       });
                     }}
                   >
-                    <Sparkles className="h-3.5 w-3.5 text-muted-foreground/50 flex-shrink-0 mt-0.5" />
+                    <Sparkles className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />
                     <div className="flex flex-col gap-0.5 flex-1 min-w-0">
                       <span className="text-xs font-medium text-foreground truncate">
                         {result.project_name || 'Untitled'}
                       </span>
                       {result.text_preview && (
-                        <span className="text-[11px] text-muted-foreground/70 line-clamp-2 leading-relaxed">
+                        <span className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
                           {result.text_preview}
                         </span>
                       )}

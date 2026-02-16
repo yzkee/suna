@@ -26,7 +26,7 @@ import { SidebarFileBrowser } from '@/components/sidebar/sidebar-explorer';
 import { useFilesStore } from '@/features/files/store/files-store';
 import { useServerStore } from '@/stores/server-store';
 import { useCreatePty } from '@/hooks/opencode/use-opencode-pty';
-import { useTabStore } from '@/stores/tab-store';
+import { openTabAndNavigate } from '@/stores/tab-store';
 import { getProxyBaseUrl } from '@/lib/utils/sandbox-url';
 import { getDirectPortUrl, SANDBOX_PORTS } from '@/lib/platform-client';
 
@@ -58,8 +58,7 @@ export function SidebarRight() {
       const pty = await createPty.mutateAsync({
         env: { TERM: 'xterm-256color', COLORTERM: 'truecolor' },
       });
-      // Open as a tab in the main content area
-      useTabStore.getState().openTab({
+      openTabAndNavigate({
         id: `terminal:${pty.id}`,
         title: pty.title || pty.command || `Terminal`,
         type: 'terminal',
@@ -87,7 +86,7 @@ export function SidebarRight() {
       const tabId = `preview:${containerPort}`;
       const tabHref = `/preview/${containerPort}`;
 
-      useTabStore.getState().openTab({
+      openTabAndNavigate({
         id: tabId,
         title,
         type: 'preview',
@@ -98,7 +97,6 @@ export function SidebarRight() {
           originalUrl: `http://localhost:${containerPort}/`,
         },
       });
-      window.history.pushState(null, '', tabHref);
     },
     [activeServer, serverUrl, mappedPorts],
   );
@@ -113,7 +111,7 @@ export function SidebarRight() {
       const tabId = `preview:${port}`;
       const tabHref = `/preview/${port}`;
 
-      useTabStore.getState().openTab({
+      openTabAndNavigate({
         id: tabId,
         title,
         type: 'preview',
@@ -124,7 +122,6 @@ export function SidebarRight() {
           originalUrl: `http://localhost:${port}/`,
         },
       });
-      window.history.pushState(null, '', tabHref);
     },
     [serverUrl, mappedPorts],
   );
@@ -147,14 +144,13 @@ export function SidebarRight() {
 
     const tabId = `preview:${containerPort}`;
     const tabHref = `/preview/${containerPort}`;
-    useTabStore.getState().openTab({
+    openTabAndNavigate({
       id: tabId,
       title: 'Desktop',
       type: 'preview',
       href: tabHref,
       metadata: { url, port: parseInt(containerPort, 10), originalUrl: `http://localhost:${containerPort}/` },
     });
-    window.history.pushState(null, '', tabHref);
   }, [activeServer, serverUrl, mappedPorts]);
 
   const handleOpenAgentBrowser = useCallback(() => {

@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 
 import { LightRays } from '@/components/ui/light-rays';
 import { useCreateOpenCodeSession } from '@/hooks/opencode/use-opencode-sessions';
-import { useTabStore } from '@/stores/tab-store';
+import { openTabAndNavigate } from '@/stores/tab-store';
 import { useServerStore } from '@/stores/server-store';
 
 interface SetupOverlayProps {
@@ -24,14 +24,13 @@ export function SetupOverlay({ onComplete }: SetupOverlayProps) {
 
     try {
       const session = await createSession.mutateAsync({ title: 'Kortix Onboarding' });
-      useTabStore.getState().openTab({
+      openTabAndNavigate({
         id: session.id, title: 'Kortix Onboarding', type: 'session',
         href: `/sessions/${session.id}`,
         serverId: useServerStore.getState().activeServerId,
       });
       sessionStorage.setItem(`opencode_pending_prompt:${session.id}`, 'Hey! I just installed Kortix.');
       sessionStorage.setItem(`opencode_pending_options:${session.id}`, JSON.stringify({ agent: 'kortix-onboarding' }));
-      window.history.pushState(null, '', `/sessions/${session.id}`);
     } catch {
       toast.warning('Failed to start onboarding session');
     }
