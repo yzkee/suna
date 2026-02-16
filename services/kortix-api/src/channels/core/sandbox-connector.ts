@@ -342,64 +342,48 @@ export class SandboxConnector {
     }
   }
 
-  async getCreatedFiles(sessionId: string): Promise<Array<{ name: string; path?: string; url?: string; mimeType?: string }>> {
+  /**
+   * Get files modified/created in the sandbox by checking git status.
+   * Only returns user-facing files (not hidden files, node_modules, etc.)
+   */
+  async getModifiedFiles(): Promise<Array<{ name: string; path: string }>> {
     try {
       const { url, headers } = await this.getEndpoint();
-      const res = await fetch(`${url}/session/${sessionId}/message`, {
+      const res = await fetch(`${url}/file/status`, {
         headers,
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(10000),
       });
 
-      if (!res.ok) return [];
+      if (!res.ok) {
+        console.warn(`[SANDBOX-CONNECTOR] file/status failed: ${res.status}`);
+        return [];
+      }
 
-      const messages = (await res.json()) as Array<{
-        info: { role: string };
-        parts: Array<Record<string, unknown>>;
-      }>;
+      const data = await res.json();
+      const files: Array<{ name: string; path: string }> = [];
 
-      const files: Array<{ name: string; path?: string; url?: string; mimeType?: string }> = [];
-      const seenPaths = new Set<string>();
+      // file/status returns an object or array of file statuses
+      const entries = Array.isArray(data) ? data : Object.entries(data).map(([path, status]) => ({ path, status }));
 
-      for (const msg of messages) {
-        if (msg.info.role !== 'assistant') continue;
+      for (const entry of entries) {
+        const filePath = (typeof entry === 'string' ? entry : entry.path || entry.file) as string | undefined;
+        if (!filePath) continue;
 
-        for (const part of msg.parts) {
-          if (part.type === 'file' && part.url) {
-            const name = (part.filename as string) || 'file';
-            if (!seenPaths.has(name)) {
-              seenPaths.add(name);
-              files.push({ name, url: part.url as string, mimeType: part.mime as string });
-            }
-          }
+        // Skip hidden files, configs, and system directories
+        if (filePath.startsWith('.') || filePath.includes('node_modules') || filePath.includes('/.')) continue;
 
-          if (part.type === 'tool') {
-            const state = part.state as Record<string, unknown> | undefined;
-            if (!state || state.status !== 'completed') continue;
+        // Only include files that look like user-facing output
+        const ext = filePath.split('.').pop()?.toLowerCase() || '';
+        const isOutputFile = /^(md|txt|pdf|html|csv|json|xml|doc|docx|xlsx|pptx|png|jpg|jpeg|gif|svg|mp3|mp4|wav)$/.test(ext);
+        if (!isOutputFile) continue;
 
-            const toolName = (part.tool as string || '').toLowerCase();
-            const input = state.input as Record<string, unknown> | undefined;
-            if (!input) continue;
-
-            const isWriteTool = /write|create_file|save/.test(toolName);
-            if (!isWriteTool) continue;
-
-            const filePath = (input.file_path || input.path || input.filePath) as string | undefined;
-            if (!filePath) continue;
-
-            if (filePath.startsWith('.') || filePath.includes('node_modules')) continue;
-
-            const name = filePath.split('/').pop() || filePath;
-            if (!seenPaths.has(filePath)) {
-              seenPaths.add(filePath);
-              files.push({ name, path: filePath });
-            }
-          }
-        }
+        const name = filePath.split('/').pop() || filePath;
+        files.push({ name, path: filePath });
       }
 
       return files;
     } catch (err) {
-      console.warn('[SANDBOX-CONNECTOR] Failed to get created files:', err);
+      console.warn('[SANDBOX-CONNECTOR] Failed to get modified files:', err);
       return [];
     }
   }
