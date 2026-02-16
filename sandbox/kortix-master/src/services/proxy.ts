@@ -2,7 +2,7 @@
 import type { Context } from 'hono'
 import { config } from '../config'
 
-// 30s timeout for regular requests, 0 (none) for SSE streams
+// 30s timeout for regular requests
 const FETCH_TIMEOUT_MS = 30_000
 
 export async function proxyToOpenCode(c: Context): Promise<Response> {
@@ -20,6 +20,29 @@ export async function proxyToOpenCode(c: Context): Promise<Response> {
   // Detect if this is likely an SSE request (Accept: text/event-stream)
   const acceptsSSE = (c.req.header('accept') || '').includes('text/event-stream')
 
+  // For SSE: use an AbortController linked to the client request's signal
+  // so when the client disconnects, we abort the upstream fetch too.
+  // For regular requests: use a 30s timeout.
+  const controller = new AbortController()
+  const { signal } = controller
+
+  if (acceptsSSE) {
+    // If the client request has a signal (Bun provides this when client disconnects),
+    // propagate its abort to our controller
+    const clientSignal = c.req.raw.signal
+    if (clientSignal) {
+      if (clientSignal.aborted) {
+        controller.abort()
+      } else {
+        clientSignal.addEventListener('abort', () => controller.abort(), { once: true })
+      }
+    }
+  } else {
+    // Regular request: 30s timeout
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+    signal.addEventListener('abort', () => clearTimeout(timer), { once: true })
+  }
+
   try {
     const response = await fetch(targetUrl, {
       method: c.req.method,
@@ -29,8 +52,7 @@ export async function proxyToOpenCode(c: Context): Promise<Response> {
         : undefined,
       // @ts-ignore - Bun supports duplex
       duplex: 'half',
-      // No timeout for SSE streams; 30s for regular requests
-      signal: acceptsSSE ? undefined : AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      signal,
     })
 
     // Check if this is an SSE/streaming response — pass body as stream
@@ -51,9 +73,13 @@ export async function proxyToOpenCode(c: Context): Promise<Response> {
       headers: response.headers,
     })
   } catch (error) {
-    // Don't log abort errors (expected on timeout)
+    // Don't log abort errors (expected on timeout or client disconnect)
     if (error instanceof DOMException && error.name === 'AbortError') {
-      return c.json({ error: 'Upstream request timed out', details: 'OpenCode did not respond within 30s' }, 504)
+      if (!acceptsSSE) {
+        return c.json({ error: 'Upstream request timed out', details: 'OpenCode did not respond within 30s' }, 504)
+      }
+      // SSE client disconnected — just return empty response (connection is already gone)
+      return new Response(null, { status: 499 })
     }
     console.error('[Kortix Master] Proxy error:', error)
     return c.json({ error: 'Failed to proxy to OpenCode', details: String(error) }, 502)
