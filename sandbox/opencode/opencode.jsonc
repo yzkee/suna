@@ -27,68 +27,9 @@
             "context": 200000,
             "output": 8192
           }
-        },
-        "claude-sonnet-4": {
-          "name": "Claude Sonnet 4",
-          "limit": {
-            "context": 200000,
-            "output": 8192
-          }
-        },
-        "claude-3-5-sonnet": {
-          "name": "Claude 3.5 Sonnet",
-          "limit": {
-            "context": 200000,
-            "output": 8192
-          }
-        },
-        "claude-3-haiku": {
-          "name": "Claude 3 Haiku",
-          "limit": {
-            "context": 200000,
-            "output": 8192
-          }
-        },
-        "gpt-4o": {
-          "name": "GPT-4o",
-          "limit": {
-            "context": 128000,
-            "output": 16384
-          }
-        },
-        "gpt-4o-mini": {
-          "name": "GPT-4o Mini",
-          "limit": {
-            "context": 128000,
-            "output": 16384
-          }
-        },
-        "grok-2": {
-          "name": "Grok 2",
-          "limit": {
-            "context": 131072,
-            "output": 8192
-          }
-        },
-        "llama-3.3-70b": {
-          "name": "Llama 3.3 70B",
-          "limit": {
-            "context": 128000,
-            "output": 8192
-          }
-        },
-        "llama-3.1-8b": {
-          "name": "Llama 3.1 8B",
-          "limit": {
-            "context": 128000,
-            "output": 8192
-          }
         }
       }
     }
-    // "anthropic": {
-    //   "name": "Anthropic"
-    // }
   },
   "mcp": {
     "context7": {

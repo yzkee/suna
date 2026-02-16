@@ -81,9 +81,9 @@ function getQueryStyle(query: string, index: number): QueryStyle {
   if (q.includes('terminal') || q.includes('cli') || q.includes('command') || q.includes('shell') || q.includes('bash')) {
     return {
       icon: Terminal,
-      bgClass: 'bg-slate-100 dark:bg-slate-800/60',
-      iconClass: 'text-slate-700 dark:text-slate-300',
-      borderClass: 'border-slate-300 dark:border-slate-600/50',
+      bgClass: 'bg-muted',
+      iconClass: 'text-foreground/70',
+      borderClass: 'border-border',
     };
   }
   
@@ -207,25 +207,25 @@ function getQueryStyle(query: string, index: number): QueryStyle {
     };
   }
   
-  // Default: cycle through accent colors for variety
+  // Default: cycle through neutral semantic styles
   const defaultStyles: QueryStyle[] = [
     {
       icon: Search,
-      bgClass: 'bg-zinc-100 dark:bg-zinc-800',
-      iconClass: 'text-zinc-500 dark:text-zinc-400',
-      borderClass: 'border-zinc-200 dark:border-zinc-700',
+      bgClass: 'bg-muted',
+      iconClass: 'text-muted-foreground',
+      borderClass: 'border-border',
     },
     {
       icon: Search,
-      bgClass: 'bg-stone-100 dark:bg-stone-800',
-      iconClass: 'text-stone-600 dark:text-stone-400',
-      borderClass: 'border-stone-200 dark:border-stone-700',
+      bgClass: 'bg-muted',
+      iconClass: 'text-muted-foreground',
+      borderClass: 'border-border',
     },
     {
       icon: Search,
-      bgClass: 'bg-neutral-100 dark:bg-neutral-800',
-      iconClass: 'text-neutral-600 dark:text-neutral-400',
-      borderClass: 'border-neutral-200 dark:border-neutral-700',
+      bgClass: 'bg-muted',
+      iconClass: 'text-muted-foreground',
+      borderClass: 'border-border',
     },
   ];
   
@@ -260,17 +260,17 @@ export function WebSearchLoadingState({
           transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
           className="relative mb-6"
         >
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-zinc-100 to-zinc-200 dark:from-zinc-700 dark:to-zinc-800 flex items-center justify-center border border-zinc-200 dark:border-zinc-600 shadow-inner">
+          <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center border border-border shadow-inner">
             <motion.div
               animate={{ rotate: [0, 10, -10, 0] }}
               transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
             >
-              <Search className="w-7 h-7 text-zinc-600 dark:text-zinc-300" />
+              <Search className="w-7 h-7 text-muted-foreground" />
             </motion.div>
           </div>
           {/* Pulse ring */}
           <motion.div
-            className="absolute inset-0 rounded-full border-2 border-zinc-300 dark:border-zinc-500"
+            className="absolute inset-0 rounded-full border-2 border-muted-foreground/30"
             animate={{ scale: [1, 1.3, 1.3], opacity: [0.6, 0, 0] }}
             transition={{ duration: 2, repeat: Infinity, ease: 'easeOut' }}
           />
@@ -281,7 +281,7 @@ export function WebSearchLoadingState({
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
-          className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-6"
+          className="text-lg font-semibold text-foreground mb-6"
         >
           {title}
         </motion.h3>
@@ -308,8 +308,8 @@ export function WebSearchLoadingState({
                   }}
                   className={cn(
                     'group flex items-center gap-3 px-4 py-3 rounded-xl',
-                    'bg-white/90 dark:bg-zinc-800/70',
-                    'border border-zinc-200/80 dark:border-zinc-700/60',
+                    'bg-card/90',
+                    'border border-border/80',
                     'shadow-sm hover:shadow transition-shadow',
                     'backdrop-blur-sm'
                   )}
@@ -331,7 +331,7 @@ export function WebSearchLoadingState({
                   </div>
 
                   {/* Query text */}
-                  <span className="flex-1 text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate">
+                  <span className="flex-1 text-sm font-medium text-foreground/80 truncate">
                     {query}
                   </span>
 
