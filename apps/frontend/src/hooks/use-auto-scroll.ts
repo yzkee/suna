@@ -5,12 +5,13 @@ import { useRef, useEffect, useCallback, useState } from 'react';
 /**
  * useAutoScroll — auto-scroll that respects user intent.
  *
- * The approach is simple and robust:
+ * The approach:
  * - We track whether the user has intentionally scrolled away via wheel/touch/keyboard.
  * - Once `userScrolled` is true, ALL programmatic scrolling stops.
  * - It only resets when the user clicks the "Scroll to bottom" button or
  *   actively scrolls (wheel/touch) back down to the bottom.
- * - No fragile "isAutoScrolling" flag or rAF timing tricks.
+ * - We use a single shared throttle for both ResizeObserver and MutationObserver
+ *   to prevent rapid-fire scrolls that race with user input.
  */
 
 interface UseAutoScrollOptions {
@@ -38,10 +39,6 @@ export function useAutoScroll({ working }: UseAutoScrollOptions): UseAutoScrollR
   const settlingTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const scrollThrottleRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Programmatic scroll counter — incremented before every programmatic scroll,
-  // decremented after. The scroll handler ignores events while counter > 0.
-  const programmaticScrollCount = useRef(0);
-
   const isAtBottom = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return true;
@@ -49,19 +46,26 @@ export function useAutoScroll({ working }: UseAutoScrollOptions): UseAutoScrollR
   }, []);
 
   // ---- Core programmatic scroll (instant) ----
+  // Re-checks userScrolledRef right before scrolling to close any race window.
   const doScroll = useCallback(() => {
+    if (userScrolledRef.current) return;
     const el = scrollRef.current;
     if (!el) return;
-    programmaticScrollCount.current++;
     el.scrollTop = el.scrollHeight;
-    // Decrement after the browser has processed the scroll event.
-    // Use double-rAF to be safe across all browsers.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        programmaticScrollCount.current = Math.max(0, programmaticScrollCount.current - 1);
-      });
-    });
   }, []);
+
+  // ---- Throttled scroll request ----
+  // Both ResizeObserver and MutationObserver funnel through this single
+  // throttle so we get at most one doScroll() per SCROLL_THROTTLE_MS.
+  const requestScroll = useCallback(() => {
+    if (userScrolledRef.current) return;
+    if (scrollThrottleRef.current) return;
+    scrollThrottleRef.current = setTimeout(() => {
+      scrollThrottleRef.current = undefined;
+      if (userScrolledRef.current) return;
+      doScroll();
+    }, SCROLL_THROTTLE_MS);
+  }, [doScroll]);
 
   // ---- Public scrollToBottom (smooth, resets user intent) ----
   const scrollToBottom = useCallback(() => {
@@ -69,11 +73,7 @@ export function useAutoScroll({ working }: UseAutoScrollOptions): UseAutoScrollR
     if (!el) return;
     userScrolledRef.current = false;
     setShowScrollButton(false);
-    programmaticScrollCount.current++;
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-    setTimeout(() => {
-      programmaticScrollCount.current = Math.max(0, programmaticScrollCount.current - 1);
-    }, 500);
   }, []);
 
   // ---- Wheel: primary user-intent detector ----
@@ -86,8 +86,13 @@ export function useAutoScroll({ working }: UseAutoScrollOptions): UseAutoScrollR
       if (target?.closest?.('[data-scrollable]')) return;
 
       if (e.deltaY < 0) {
-        // Scrolling UP — user wants to read previous content
+        // Scrolling UP — user wants to read previous content.
+        // Cancel any pending auto-scroll immediately.
         userScrolledRef.current = true;
+        if (scrollThrottleRef.current) {
+          clearTimeout(scrollThrottleRef.current);
+          scrollThrottleRef.current = undefined;
+        }
         setShowScrollButton(true);
       } else if (e.deltaY > 0) {
         // Scrolling DOWN — re-engage auto-scroll only when user reaches the bottom
@@ -123,8 +128,13 @@ export function useAutoScroll({ working }: UseAutoScrollOptions): UseAutoScrollR
       const delta = touchStartY - touchY;
 
       if (delta > 10) {
-        // Swiping content up = scrolling toward top
+        // Swiping content up = scrolling toward top.
+        // Cancel any pending auto-scroll immediately.
         userScrolledRef.current = true;
+        if (scrollThrottleRef.current) {
+          clearTimeout(scrollThrottleRef.current);
+          scrollThrottleRef.current = undefined;
+        }
         setShowScrollButton(true);
       } else if (delta < -10) {
         // Swiping content down = scrolling toward bottom
@@ -146,8 +156,8 @@ export function useAutoScroll({ working }: UseAutoScrollOptions): UseAutoScrollR
   }, [isAtBottom]);
 
   // ---- Scroll event: catch-all for keyboard / scrollbar-drag / momentum ----
-  // Only used to detect scrolling UP via mechanisms not covered by wheel/touch.
-  // Does NOT re-engage auto-scroll (that's the wheel/touch handlers' job).
+  // Detects scrolling UP via mechanisms not covered by wheel/touch.
+  // Also detects scrolling back to bottom to re-engage auto-scroll.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -155,20 +165,22 @@ export function useAutoScroll({ working }: UseAutoScrollOptions): UseAutoScrollR
     let lastScrollTop = el.scrollTop;
 
     const handleScroll = () => {
-      // Ignore programmatic scrolls entirely
-      if (programmaticScrollCount.current > 0) {
-        lastScrollTop = el.scrollTop;
-        return;
-      }
-
       const currentScrollTop = el.scrollTop;
       const scrolledUp = currentScrollTop < lastScrollTop;
       lastScrollTop = currentScrollTop;
 
       if (scrolledUp && !isAtBottom()) {
-        // User scrolled up via keyboard, scrollbar drag, etc.
+        // User scrolled up via keyboard, scrollbar drag, momentum, etc.
         userScrolledRef.current = true;
+        if (scrollThrottleRef.current) {
+          clearTimeout(scrollThrottleRef.current);
+          scrollThrottleRef.current = undefined;
+        }
         setShowScrollButton(true);
+      } else if (!scrolledUp && isAtBottom() && userScrolledRef.current) {
+        // User scrolled back to bottom via scrollbar drag or keyboard
+        userScrolledRef.current = false;
+        setShowScrollButton(false);
       }
     };
 
@@ -197,7 +209,7 @@ export function useAutoScroll({ working }: UseAutoScrollOptions): UseAutoScrollR
     return () => clearTimeout(timer);
   }, [working, isAtBottom]);
 
-  // ---- ResizeObserver: auto-scroll on content growth ----
+  // ---- ResizeObserver: auto-scroll on content growth (throttled) ----
   useEffect(() => {
     const content = contentRef.current;
     if (!content) return;
@@ -205,11 +217,11 @@ export function useAutoScroll({ working }: UseAutoScrollOptions): UseAutoScrollR
     const observer = new ResizeObserver(() => {
       if (userScrolledRef.current) return;
       if (!working && !settlingRef.current) return;
-      doScroll();
+      requestScroll();
     });
     observer.observe(content);
     return () => observer.disconnect();
-  }, [doScroll, working]);
+  }, [requestScroll, working]);
 
   // ---- Settling period ----
   useEffect(() => {
@@ -233,14 +245,7 @@ export function useAutoScroll({ working }: UseAutoScrollOptions): UseAutoScrollR
     const observer = new MutationObserver(() => {
       if (userScrolledRef.current) return;
       if (!working && !settlingRef.current) return;
-
-      if (scrollThrottleRef.current) return;
-      scrollThrottleRef.current = setTimeout(() => {
-        scrollThrottleRef.current = undefined;
-        if (userScrolledRef.current) return;
-        if (!working && !settlingRef.current) return;
-        doScroll();
-      }, SCROLL_THROTTLE_MS);
+      requestScroll();
     });
 
     observer.observe(content, {
@@ -254,7 +259,7 @@ export function useAutoScroll({ working }: UseAutoScrollOptions): UseAutoScrollR
       clearTimeout(scrollThrottleRef.current);
       scrollThrottleRef.current = undefined;
     };
-  }, [working, doScroll]);
+  }, [working, requestScroll]);
 
   return {
     scrollRef,

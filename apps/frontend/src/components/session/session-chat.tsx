@@ -2150,6 +2150,8 @@ export function SessionChat({ sessionId }: SessionChatProps) {
   // (`pendingUserMessage`) which can flicker false before the server has
   // reported busy via SSE — causing the drain to fire twice.
   const prevServerBusyRef = useRef(isServerBusy);
+  // Guard against double-drain: tracks whether a drain is already scheduled
+  const drainScheduledRef = useRef(false);
 
   // Auto-drain: when server transitions from busy → idle, send the next queued message
   useEffect(() => {
@@ -2163,16 +2165,39 @@ export function SessionChat({ sessionId }: SessionChatProps) {
       );
       if (sessionQueue.length > 0) {
         // Small delay to let the UI settle before auto-sending
+        drainScheduledRef.current = true;
         const timer = setTimeout(() => {
+          drainScheduledRef.current = false;
           const next = queueDequeue(sessionId);
           if (next) {
             handleSend(next.text, next.files);
           }
         }, 500);
-        return () => clearTimeout(timer);
+        return () => { clearTimeout(timer); drainScheduledRef.current = false; };
       }
     }
   }, [isServerBusy, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fallback drain: when isBusy becomes false and there are queued messages,
+  // drain the queue. This covers cases where the SSE missed the busy event
+  // entirely (e.g. status went undefined → idle, so isServerBusy was never
+  // true and the primary drain above never fires).
+  useEffect(() => {
+    if (isBusy || drainScheduledRef.current) return;
+    const sessionQueue = useMessageQueueStore.getState().messages.filter(
+      (m) => m.sessionId === sessionId,
+    );
+    if (sessionQueue.length === 0) return;
+     drainScheduledRef.current = true;
+    const timer = setTimeout(() => {
+      drainScheduledRef.current = false;
+      const next = queueDequeue(sessionId);
+      if (next) {
+        handleSend(next.text, next.files);
+      }
+    }, 500);
+    return () => { clearTimeout(timer); drainScheduledRef.current = false; };
+  }, [isBusy, queuedMessages.length, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // "Send now" handler: abort current session + send the queued message
   const handleQueueSendNow = useCallback(
