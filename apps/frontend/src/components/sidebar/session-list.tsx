@@ -16,6 +16,8 @@ import {
   Search,
   X,
   Layers,
+  Sparkles,
+  Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -65,6 +67,8 @@ import { useSandboxConnectionStore } from '@/stores/sandbox-connection-store';
 
 import { childMapByParent, sortSessions, allDescendantIds } from '@/ui';
 import type { Session } from '@/hooks/opencode/use-opencode-sessions';
+import { useThreadSearch } from '@/hooks/threads/use-thread-search';
+import { Skeleton } from '@/components/ui/skeleton';
 import Link from 'next/link';
 
 // ============================================================================
@@ -421,6 +425,13 @@ export function SessionList({ projectId }: SessionListProps = {}) {
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [renameValue, setRenameValue] = useState('');
+
+  // Semantic search over conversation content
+  const {
+    results: semanticResults,
+    isSearching: isSemanticSearching,
+    isConfigured: isSemanticConfigured,
+  } = useThreadSearch(searchQuery, 5);
   const statuses = useOpenCodeSessionStatusStore((s) => s.statuses);
   const permissions = useOpenCodePendingStore((s) => s.permissions);
   const questions = useOpenCodePendingStore((s) => s.questions);
@@ -830,7 +841,7 @@ export function SessionList({ projectId }: SessionListProps = {}) {
             <p className="text-sm text-muted-foreground">No sessions yet</p>
             <p className="text-xs text-muted-foreground/60 mt-1">Start a new session to get going</p>
           </div>
-        ) : filteredRootSessions.length === 0 && searchQuery ? (
+        ) : filteredRootSessions.length === 0 && semanticResults.length === 0 && searchQuery && !isSemanticSearching ? (
           <div className="flex flex-col items-center justify-center py-10 px-6 text-center">
             <Search className="h-8 w-8 text-muted-foreground/40 mb-3" />
             <p className="text-sm font-medium text-muted-foreground">No results found</p>
@@ -895,6 +906,74 @@ export function SessionList({ projectId }: SessionListProps = {}) {
                 onCompact={handleCompactSession}
               />
             ))}
+
+            {/* Semantic search section */}
+            {searchQuery.trim().length >= 2 && (isSemanticSearching || semanticResults.length > 0) && (
+              <>
+                {/* Divider + heading */}
+                <div className="flex items-center gap-2 px-3 pt-2 pb-1">
+                  <div className="flex-1 h-px bg-border/20" />
+                  <span className="text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider inline-flex items-center gap-1">
+                    <Sparkles className="h-2.5 w-2.5" />
+                    Semantic
+                    {isSemanticSearching && semanticResults.length > 0 && (
+                      <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                    )}
+                  </span>
+                  <div className="flex-1 h-px bg-border/20" />
+                </div>
+
+                {/* Skeleton loaders */}
+                {isSemanticSearching && semanticResults.length === 0 && (
+                  <div className="space-y-0.5 px-1">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <div key={i} className="flex items-start gap-2.5 px-3 py-2 rounded-lg">
+                        <Skeleton className="h-3.5 w-3.5 rounded flex-shrink-0 mt-0.5" />
+                        <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+                          <Skeleton className="h-3 w-28 rounded" />
+                          <Skeleton className="h-2.5 w-full rounded" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Semantic results */}
+                {semanticResults.map((result) => (
+                  <button
+                    key={`semantic-${result.thread_id}`}
+                    className="flex items-start gap-2.5 w-full text-left px-3 py-2 mx-1 rounded-lg hover:bg-muted/60 transition-colors cursor-pointer group"
+                    onClick={() => {
+                      if (isMobile) setOpenMobile(false);
+                      useTabStore.getState().openTab({
+                        id: result.thread_id,
+                        title: result.project_name || 'Session',
+                        type: 'session',
+                        href: `/sessions/${result.thread_id}`,
+                        serverId: useServerStore.getState().activeServerId,
+                      });
+                      startTransition(() => {
+                        router.push(`/sessions/${result.thread_id}`);
+                      });
+                    }}
+                  >
+                    <Sparkles className="h-3.5 w-3.5 text-muted-foreground/50 flex-shrink-0 mt-0.5" />
+                    <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                      <span className="text-xs font-medium text-foreground truncate">
+                        {result.project_name || 'Untitled'}
+                      </span>
+                      {result.text_preview && (
+                        <span className="text-[11px] text-muted-foreground/70 line-clamp-2 leading-relaxed">
+                          {result.text_preview}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </>
+            )}
+
+
           </div>
         )}
       </div>
