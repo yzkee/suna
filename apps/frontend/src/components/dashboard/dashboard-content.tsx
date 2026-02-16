@@ -20,6 +20,7 @@ import { useOpenCodeLocal } from '@/hooks/opencode/use-opencode-local';
 import { useOpenCodeConfig } from '@/hooks/opencode/use-opencode-config';
 import { Menu } from 'lucide-react';
 import type { Command } from '@/hooks/opencode/use-opencode-sessions';
+import { playSound } from '@/lib/sounds';
 
 // ============================================================================
 // Dashboard Content — identical to the session empty state
@@ -46,6 +47,7 @@ export function DashboardContent() {
   const handleSend = useCallback(
     async (text: string, _files?: unknown) => {
       if (!text.trim() || isSubmitting) return;
+      playSound('send');
       setIsSubmitting(true);
       let createdSessionId: string | null = null;
       try {

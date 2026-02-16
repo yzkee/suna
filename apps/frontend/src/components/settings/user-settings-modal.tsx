@@ -101,7 +101,9 @@ import CreditTransactions from '@/components/billing/credit-transactions';
 import { AppearanceTab } from '@/components/settings/appearance-tab';
 import { useWebNotificationStore } from '@/stores/web-notification-store';
 import { isNotificationSupported, sendWebNotification } from '@/lib/web-notifications';
-type TabId = 'general' | 'appearance' | 'notifications' | 'plan' | 'billing' | 'transactions' | 'usage' | 'providers' | 'integrations' | 'api-keys' | 'referrals' | 'shortcuts';
+import { useSoundStore, type SoundPack, type SoundEvent } from '@/stores/sound-store';
+import { previewSound } from '@/lib/sounds';
+type TabId = 'general' | 'appearance' | 'sounds' | 'notifications' | 'plan' | 'billing' | 'transactions' | 'usage' | 'providers' | 'integrations' | 'api-keys' | 'referrals' | 'shortcuts';
 
 interface Tab {
     id: TabId;
@@ -131,6 +133,7 @@ export function UserSettingsModal({
     const tabs: Tab[] = [
         { id: 'general', label: 'General', icon: Settings },
         { id: 'appearance', label: 'Appearance', icon: Palette },
+        { id: 'sounds', label: 'Sounds', icon: Volume2 },
         { id: 'notifications', label: 'Notifications', icon: Bell },
         ...(isLocal ? [{ id: 'providers' as TabId, label: 'Providers', icon: Plug }] : []),
         { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
@@ -224,6 +227,7 @@ export function UserSettingsModal({
                             <div className="w-full max-w-full">
                                 {activeTab === 'general' && <GeneralTab onClose={() => onOpenChange(false)} />}
                                 {activeTab === 'appearance' && <div className="p-6"><AppearanceTab /></div>}
+                                {activeTab === 'sounds' && <SoundsTab />}
                                 {activeTab === 'notifications' && <NotificationsTab />}
                                 {activeTab === 'shortcuts' && <KeyboardShortcutsTab />}
                                 {activeTab === 'billing' && <BillingTab returnUrl={returnUrl} onOpenPlanModal={() => setShowPlanModal(true)} isActive={activeTab === 'billing'} />}
@@ -280,6 +284,7 @@ export function UserSettingsModal({
                         <div className="flex-1 overflow-y-auto min-h-0 w-full max-w-full">
                             {activeTab === 'general' && <GeneralTab onClose={() => onOpenChange(false)} />}
                             {activeTab === 'appearance' && <div className="p-6 h-full"><AppearanceTab /></div>}
+                            {activeTab === 'sounds' && <SoundsTab />}
                             {activeTab === 'notifications' && <NotificationsTab />}
                             {activeTab === 'shortcuts' && <KeyboardShortcutsTab />}
                             {activeTab === 'billing' && <BillingTab returnUrl={returnUrl} onOpenPlanModal={() => setShowPlanModal(true)} isActive={activeTab === 'billing'} />}
@@ -891,6 +896,122 @@ function KeyboardShortcutsTab() {
                     ))}
                 </div>
             </div>
+        </div>
+    );
+}
+
+// Sounds Tab
+function SoundsTab() {
+    const preferences = useSoundStore((s) => s.preferences);
+    const setPack = useSoundStore((s) => s.setPack);
+    const setVolume = useSoundStore((s) => s.setVolume);
+    const setEventEnabled = useSoundStore((s) => s.setEventEnabled);
+
+    const packs: { id: SoundPack; label: string; description: string }[] = [
+        { id: 'off', label: 'Off', description: 'All sounds disabled' },
+        { id: 'opencode', label: 'OpenCode', description: 'Default sound pack' },
+        { id: 'kortix', label: 'Kortix', description: 'Kortix branded sounds' },
+    ];
+
+    const events: { id: SoundEvent; label: string; description: string }[] = [
+        { id: 'completion', label: 'Task Completion', description: 'When AI finishes a task' },
+        { id: 'error', label: 'Error', description: 'When a session encounters an error' },
+        { id: 'notification', label: 'Notification', description: 'Questions and permission requests' },
+        { id: 'send', label: 'Message Sent', description: 'When you send a message' },
+    ];
+
+    return (
+        <div className="p-6 space-y-6">
+            <div>
+                <h3 className="text-lg font-semibold">Sounds</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                    Choose a sound pack and configure which events play sounds
+                </p>
+            </div>
+
+            {/* Sound Pack Selection */}
+            <div>
+                <h4 className="text-sm font-medium mb-3">Sound Pack</h4>
+                <RadioGroup
+                    value={preferences.pack}
+                    onValueChange={(value) => setPack(value as SoundPack)}
+                    className="space-y-2"
+                >
+                    {packs.map((pack) => (
+                        <label
+                            key={pack.id}
+                            htmlFor={`pack-${pack.id}`}
+                            className={cn(
+                                'flex items-center gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-colors',
+                                preferences.pack === pack.id
+                                    ? 'border-foreground/20 bg-muted/50'
+                                    : 'border-border hover:bg-muted/30',
+                            )}
+                        >
+                            <RadioGroupItem value={pack.id} id={`pack-${pack.id}`} />
+                            <div className="flex-1">
+                                <div className="text-sm font-medium">{pack.label}</div>
+                                <div className="text-xs text-muted-foreground">{pack.description}</div>
+                            </div>
+                        </label>
+                    ))}
+                </RadioGroup>
+            </div>
+
+            {preferences.pack !== 'off' && (
+                <>
+                    {/* Volume */}
+                    <div>
+                        <h4 className="text-sm font-medium mb-3">Volume</h4>
+                        <div className="flex items-center gap-3 px-4">
+                            <Volume2 className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                            <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                value={Math.round(preferences.volume * 100)}
+                                onChange={(e) => setVolume(Number(e.target.value) / 100)}
+                                className="flex-1 accent-foreground h-1.5 cursor-pointer"
+                            />
+                            <span className="text-xs text-muted-foreground w-8 text-right tabular-nums">
+                                {Math.round(preferences.volume * 100)}%
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Sound Events */}
+                    <div>
+                        <h4 className="text-sm font-medium mb-3">Sound Events</h4>
+                        <div className="rounded-lg border divide-y">
+                            {events.map((event) => {
+                                const enabled = preferences.events[event.id] !== false;
+                                return (
+                                    <div key={event.id} className="flex items-center justify-between gap-4 px-4 py-3">
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-sm font-medium">{event.label}</div>
+                                            <div className="text-xs text-muted-foreground">{event.description}</div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                                                onClick={() => previewSound(event.id)}
+                                            >
+                                                Preview
+                                            </Button>
+                                            <Switch
+                                                checked={enabled}
+                                                onCheckedChange={(v) => setEventEnabled(event.id, v)}
+                                            />
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </>
+            )}
         </div>
     );
 }

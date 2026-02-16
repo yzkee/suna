@@ -156,6 +156,7 @@ import { useServerStore } from '@/stores/server-store';
 import { useQueryClient } from '@tanstack/react-query';
 import { billingApi } from '@/lib/api/billing';
 import { invalidateAccountState } from '@/hooks/billing/use-account-state';
+import { playSound } from '@/lib/sounds';
 
 // ============================================================================
 // Sub-Session / Fork Breadcrumb
@@ -2495,6 +2496,9 @@ export function SessionChat({ sessionId }: SessionChatProps) {
 
   const handleSend = useCallback(
     async (text: string, files?: AttachedFile[]) => {
+      // Play send sound
+      playSound('send');
+
       // Optimistic: show message immediately and start polling fallback
       setPendingUserMessage(text);
       setPollingActive(true);

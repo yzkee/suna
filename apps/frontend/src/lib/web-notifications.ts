@@ -18,6 +18,8 @@ import { useTabStore } from '@/stores/tab-store';
 import { useServerStore } from '@/stores/server-store';
 import { toast as sonnerToast } from 'sonner';
 import { logger } from '@/lib/logger';
+import { playSound } from '@/lib/sounds';
+import type { SoundEvent } from '@/stores/sound-store';
 
 // ============================================================================
 // Types
@@ -49,6 +51,14 @@ const TYPE_TO_PREF: Record<WebNotificationType, 'onCompletion' | 'onError' | 'on
   error: 'onError',
   question: 'onQuestion',
   permission: 'onPermission',
+};
+
+/** Map notification types to sound events */
+const TYPE_TO_SOUND: Record<WebNotificationType, SoundEvent> = {
+  completion: 'completion',
+  error: 'error',
+  question: 'notification',
+  permission: 'notification',
 };
 
 // ============================================================================
@@ -208,9 +218,11 @@ export function sendWebNotification(
     }
   }
 
-  // 8. Sound
+  // 8. Sound — uses the sound pack system (falls back to synth tones if mp3s
+  //    are missing). The old `playSound` web-notification preference acts as an
+  //    additional gate on top of the sound store's own pack/event settings.
   if (force || preferences.playSound) {
-    playNotificationPing();
+    playSound(TYPE_TO_SOUND[payload.type]);
   }
 
   return notification;
