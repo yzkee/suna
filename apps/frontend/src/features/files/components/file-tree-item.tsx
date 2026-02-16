@@ -18,6 +18,8 @@ import {
   Copy,
   Scissors,
   ClipboardCopy,
+  CircleAlert,
+  AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { FileNode } from '../types';
@@ -49,6 +51,8 @@ interface FileTreeItemProps {
   gitStatus?: GitStatusType;
   /** Whether this item is currently cut (pending move) */
   isCut?: boolean;
+  /** LSP diagnostic counts for this item (aggregated for directories) */
+  diagnosticCounts?: { errors: number; warnings: number };
 }
 
 // Custom MIME type for internal drag-and-drop
@@ -123,7 +127,7 @@ function getNameSelectionEnd(name: string, isDirectory: boolean): number {
 
 export { DRAG_MIME };
 
-export function FileTreeItem({ node, onClick, onDownload, onRename, onDelete, onHistory, onCopy, onCut, onDropMove, siblingNames, gitStatus, isCut }: FileTreeItemProps) {
+export function FileTreeItem({ node, onClick, onDownload, onRename, onDelete, onHistory, onCopy, onCut, onDropMove, siblingNames, gitStatus, isCut, diagnosticCounts }: FileTreeItemProps) {
   const hasContextMenu = onDownload || onRename || onDelete || onHistory || onCopy || onCut;
 
   const [isRenaming, setIsRenaming] = useState(false);
@@ -288,9 +292,26 @@ export function FileTreeItem({ node, onClick, onDownload, onRename, onDelete, on
       <span className={cn('truncate flex-1', gitStatus && gitStatusTextColor[gitStatus])}>
         {node.name}
       </span>
-      {gitStatus && (
-        <span className={cn('text-[10px] font-semibold leading-none shrink-0', gitStatusBadgeColor[gitStatus])}>
-          {gitStatusLabel[gitStatus]}
+      {/* Right-side indicators: git status + diagnostics */}
+      {(gitStatus || (diagnosticCounts && (diagnosticCounts.errors > 0 || diagnosticCounts.warnings > 0))) && (
+        <span className="inline-flex items-center gap-1.5 shrink-0">
+          {diagnosticCounts && diagnosticCounts.errors > 0 && (
+            <span className="inline-flex items-center gap-0.5 text-red-500">
+              <CircleAlert className="h-3 w-3" />
+              <span className="text-[10px] font-semibold leading-none">{diagnosticCounts.errors}</span>
+            </span>
+          )}
+          {diagnosticCounts && diagnosticCounts.warnings > 0 && (
+            <span className="inline-flex items-center gap-0.5 text-yellow-500">
+              <AlertTriangle className="h-3 w-3" />
+              <span className="text-[10px] font-semibold leading-none">{diagnosticCounts.warnings}</span>
+            </span>
+          )}
+          {gitStatus && (
+            <span className={cn('text-[10px] font-semibold leading-none', gitStatusBadgeColor[gitStatus])}>
+              {gitStatusLabel[gitStatus]}
+            </span>
+          )}
         </span>
       )}
       {node.type === 'directory' && (

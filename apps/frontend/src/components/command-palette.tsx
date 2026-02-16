@@ -1072,7 +1072,7 @@ export function CommandPalette() {
                   <BookOpen className="mr-2 h-4 w-4" />
                   <span>Knowledge</span>
                 </CommandItem>
-                <CommandItem onSelect={() => handleNavigate('/skills')}>
+                <CommandItem onSelect={() => handleNavigate('/skills', 'Skills')}>
                   <Database className="mr-2 h-4 w-4" />
                   <span>Skills</span>
                 </CommandItem>

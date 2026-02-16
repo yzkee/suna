@@ -48,6 +48,7 @@ import { FileTreeItem, DRAG_MIME } from './file-tree-item';
 import { FileSearch } from './file-search';
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
+import { useDiagnosticsStore } from '@/stores/diagnostics-store';
 
 /** Drop target for the ".." (parent directory) row */
 function ParentDropTarget({
@@ -225,6 +226,46 @@ export function FileBrowser() {
       .sort((a, b) => a.name.localeCompare(b.name));
     return { dirs, fileItems };
   }, [files]);
+
+  // Build per-entry diagnostic counts from the diagnostics store.
+  // For files: exact match. For directories: aggregate all files under that path.
+  const diagByFile = useDiagnosticsStore((s) => s.byFile);
+  const diagnosticCountsMap = useMemo(() => {
+    const map = new Map<string, { errors: number; warnings: number }>();
+    if (!files || Object.keys(diagByFile).length === 0) return map;
+
+    for (const node of files) {
+      let errors = 0;
+      let warnings = 0;
+
+      if (node.type === 'file') {
+        // Exact match — try the node.path directly
+        const diags = diagByFile[node.path];
+        if (diags) {
+          for (const d of diags) {
+            if (d.severity === 1) errors++;
+            else if (d.severity === 2) warnings++;
+          }
+        }
+      } else {
+        // Directory — aggregate all diagnostics whose file path starts with this dir
+        const prefix = node.path.endsWith('/') ? node.path : node.path + '/';
+        for (const [filePath, diags] of Object.entries(diagByFile)) {
+          if (filePath.startsWith(prefix) || filePath === node.path) {
+            for (const d of diags) {
+              if (d.severity === 1) errors++;
+              else if (d.severity === 2) warnings++;
+            }
+          }
+        }
+      }
+
+      if (errors > 0 || warnings > 0) {
+        map.set(node.path, { errors, warnings });
+      }
+    }
+    return map;
+  }, [files, diagByFile]);
 
   // Build file list for prev/next navigation in viewer
   const handleFileClick = useCallback(
@@ -744,6 +785,7 @@ export function FileBrowser() {
                     siblingNames={siblingNames}
                     gitStatus={gitStatusMap.get(node.path)}
                     isCut={clipboard?.operation === 'cut' && clipboard.path === node.path}
+                    diagnosticCounts={diagnosticCountsMap.get(node.path)}
                   />
                 ))}
 
@@ -763,6 +805,7 @@ export function FileBrowser() {
                     siblingNames={siblingNames}
                     gitStatus={gitStatusMap.get(node.path)}
                     isCut={clipboard?.operation === 'cut' && clipboard.path === node.path}
+                    diagnosticCounts={diagnosticCountsMap.get(node.path)}
                   />
                 ))}
 

@@ -38,6 +38,7 @@ import { DiffDialog } from '@/components/session/diff-dialog';
 import { TodoDialog } from '@/components/session/todo-dialog';
 import { InitProjectDialog } from '@/components/session/init-project-dialog';
 import { OpenCodeSettingsDialog } from '@/components/session/opencode-settings-dialog';
+import { DiagnosticsBadge } from '@/components/session/diagnostics-panel';
 
 interface SessionSiteHeaderProps {
   sessionId: string;
@@ -96,6 +97,9 @@ export function SessionSiteHeader({
           {/* Right: actions */}
           <div className="flex items-center gap-1 flex-shrink-0">
             <TooltipProvider delayDuration={300}>
+              {/* LSP Diagnostics badge */}
+              <DiagnosticsBadge />
+
               {/* More actions dropdown */}
               <DropdownMenu>
                 <Tooltip>

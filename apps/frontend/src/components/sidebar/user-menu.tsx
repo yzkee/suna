@@ -12,6 +12,7 @@ import {
   LogOut,
   Settings,
   SlidersHorizontal,
+  Sparkles,
   Sun,
   Moon,
   Plug,
@@ -132,6 +133,7 @@ export function UserMenu({ user }: UserMenuProps) {
         { icon: Plug, label: 'Providers', onClick: () => openSettings('providers') },
         { icon: Settings, label: 'Settings', onClick: () => openSettings('general') },
         { icon: SlidersHorizontal, label: 'Configuration', href: '/configuration' },
+        { icon: Sparkles, label: 'Skills', href: '/skills' },
         { icon: BookOpen, label: 'Tutorials', href: '/tutorials' },
       ]
     : [
@@ -144,6 +146,7 @@ export function UserMenu({ user }: UserMenuProps) {
         { icon: Key, label: 'API Keys', href: '/settings/api-keys' },
         { icon: Settings, label: 'Settings', onClick: () => openSettings('general') },
         { icon: SlidersHorizontal, label: 'Configuration', href: '/configuration' },
+        { icon: Sparkles, label: 'Skills', href: '/skills' },
         { icon: MessageSquare, label: 'Channels', href: '/channels' },
         { icon: BookOpen, label: 'Tutorials', href: '/tutorials' },
       ];
