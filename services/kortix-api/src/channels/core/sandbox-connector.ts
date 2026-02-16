@@ -512,4 +512,111 @@ export class SandboxConnector {
     } catch {
     }
   }
+
+  async listProviders(): Promise<Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }>> {
+    try {
+      const { url, headers } = await this.getEndpoint();
+      const res = await fetch(`${url}/config/providers`, {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!res.ok) {
+        console.warn(`[SANDBOX-CONNECTOR] listProviders failed: ${res.status}`);
+        return [];
+      }
+
+      const data = await res.json();
+      // Response shape: { providers: [{ id, name, models: { [key]: { id, name, ... } } }] }
+      const rawProviders: unknown[] = Array.isArray(data) ? data : (data.providers || []);
+
+      return rawProviders.map((p: any) => {
+        const modelsMap = p.models || {};
+        // models is a map { [key]: { id, name, ... } }, convert to array
+        const models = Object.values(modelsMap).map((m: any) => ({
+          id: m.id || '',
+          name: m.name || m.id || '',
+        }));
+        return { id: p.id || '', name: p.name || p.id || '', models };
+      });
+    } catch (err) {
+      console.warn('[SANDBOX-CONNECTOR] listProviders error:', err);
+      return [];
+    }
+  }
+
+  async listAgents(): Promise<Array<{ name: string; description?: string; mode?: string }>> {
+    try {
+      const { url, headers } = await this.getEndpoint();
+      const res = await fetch(`${url}/agent`, {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!res.ok) {
+        console.warn(`[SANDBOX-CONNECTOR] listAgents failed: ${res.status}`);
+        return [];
+      }
+
+      const data = await res.json();
+      // Response shape: Agent[] with { name, description, mode: "subagent"|"primary"|"all", ... }
+      const agents: unknown[] = Array.isArray(data) ? data : (data.agents || Object.values(data));
+      return agents.map((a: any) => ({
+        name: a.name || '',
+        description: a.description,
+        mode: a.mode,
+      }));
+    } catch (err) {
+      console.warn('[SANDBOX-CONNECTOR] listAgents error:', err);
+      return [];
+    }
+  }
+
+  async getSessionDiff(sessionId: string): Promise<string> {
+    try {
+      const { url, headers } = await this.getEndpoint();
+      const res = await fetch(`${url}/session/${sessionId}/diff`, {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (!res.ok) {
+        console.warn(`[SANDBOX-CONNECTOR] getSessionDiff failed: ${res.status}`);
+        return '';
+      }
+
+      const data = await res.json();
+      return typeof data === 'string' ? data : (data.diff || data.content || JSON.stringify(data, null, 2));
+    } catch (err) {
+      console.warn('[SANDBOX-CONNECTOR] getSessionDiff error:', err);
+      return '';
+    }
+  }
+
+  async shareSession(sessionId: string): Promise<{ shareUrl: string } | null> {
+    try {
+      const { url, headers } = await this.getEndpoint();
+      const res = await fetch(`${url}/session/${sessionId}/share`, {
+        method: 'POST',
+        headers,
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!res.ok) {
+        console.warn(`[SANDBOX-CONNECTOR] shareSession failed: ${res.status}`);
+        return null;
+      }
+
+      const data = await res.json() as Record<string, unknown>;
+      const shareUrl = (data.shareUrl || data.share_url || data.url) as string;
+      if (!shareUrl) return null;
+      return { shareUrl };
+    } catch (err) {
+      console.warn('[SANDBOX-CONNECTOR] shareSession error:', err);
+      return null;
+    }
+  }
 }
