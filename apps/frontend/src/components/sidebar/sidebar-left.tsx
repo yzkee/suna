@@ -207,7 +207,11 @@ function SessionsFlyout() {
       href: `/sessions/${sessionId}`,
       serverId: useServerStore.getState().activeServerId,
     });
-    router.push(`/sessions/${sessionId}`);
+    // Use pushState for pre-mounted session tabs (instant switch, no re-mount)
+    window.history.pushState(null, '', `/sessions/${sessionId}`);
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new CustomEvent('focus-session-textarea'));
+    });
   };
 
   return (
@@ -527,6 +531,9 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
                   href: '/dashboard',
                 });
                 router.push('/dashboard');
+                requestAnimationFrame(() => {
+                  window.dispatchEvent(new CustomEvent('focus-session-textarea'));
+                });
                 if (isMobile) setOpenMobile(false);
               }} className="flex items-center justify-center group-hover/collapsed:hidden">
                 <KortixLogo
@@ -554,6 +561,9 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
                 href: '/dashboard',
               });
               router.push('/dashboard');
+              requestAnimationFrame(() => {
+                window.dispatchEvent(new CustomEvent('focus-session-textarea'));
+              });
               if (isMobile) setOpenMobile(false);
             }} className="flex items-center">
               <KortixLogo

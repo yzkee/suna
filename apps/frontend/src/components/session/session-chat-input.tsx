@@ -659,6 +659,20 @@ function MentionPopover({
 }
 
 // ============================================================================
+// Prompt history persistence
+// ============================================================================
+
+function loadPromptHistory(key: string): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+// ============================================================================
 // SessionChatInput - The unified chat input
 // ============================================================================
 
@@ -788,41 +802,85 @@ export function SessionChatInput({
 
   // Listen for 'focus-session-textarea' events (dispatched when a session tab
   // is activated from the sidebar or dashboard). Only the visible textarea
-  // (inside the active, non-hidden tab) will respond.
+  // (inside the active, non-hidden tab) will respond. Retries briefly in case
+  // the event fires before React has finished rendering the new tab.
   useEffect(() => {
     const handler = () => {
-      const el = textareaRef.current;
-      if (el && el.offsetParent !== null) {
-        el.focus();
-      }
+      const tryFocus = (retries: number) => {
+        const el = textareaRef.current;
+        if (el && el.offsetParent !== null) {
+          el.focus();
+          return;
+        }
+        if (retries > 0) {
+          requestAnimationFrame(() => tryFocus(retries - 1));
+        }
+      };
+      tryFocus(10);
     };
     window.addEventListener('focus-session-textarea', handler);
     return () => window.removeEventListener('focus-session-textarea', handler);
   }, []);
 
-  // Prompt history (Up/Down arrow)
-  const historyRef = useRef<string[]>([]);
+  // ---------------------------------------------------------------------------
+  // Prompt history (Up/Down arrow) — persisted to localStorage
+  // ---------------------------------------------------------------------------
+  const HISTORY_KEY = 'opencode:prompt-history';
+  const HISTORY_MAX = 50;
+
+  const historyRef = useRef<string[]>(loadPromptHistory(HISTORY_KEY));
   const historyIndexRef = useRef(-1);
   const draftRef = useRef('');
+
+  /** Append a prompt to the persisted history (deduplicates consecutive). */
+  const pushHistory = useCallback((prompt: string) => {
+    const list = historyRef.current;
+    // Skip if identical to the last entry
+    if (list.length > 0 && list[list.length - 1] === prompt) return;
+    list.push(prompt);
+    // Trim to max length
+    if (list.length > HISTORY_MAX) {
+      list.splice(0, list.length - HISTORY_MAX);
+    }
+    historyIndexRef.current = -1;
+    draftRef.current = '';
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(list));
+    } catch {
+      // Storage full or unavailable — silently ignore
+    }
+  }, []);
 
   // Default autoFocus: true on desktop, false on mobile
   const shouldAutoFocus = autoFocus ?? (typeof window !== 'undefined' && window.innerWidth >= 640);
 
-  // Focus the textarea on mount (client-side navigations).
-  // The HTML autoFocus attribute only fires on initial DOM mount, not on
-  // subsequent client-side route changes. This effect ensures the textarea
-  // is focused whenever the component mounts or becomes visible.
+  // Focus the textarea whenever it becomes visible (handles mount, tab switch,
+  // and new-session creation where the component may mount inside a hidden div
+  // that is revealed after a Zustand state update).
   useEffect(() => {
     if (!shouldAutoFocus) return;
-    // Use requestAnimationFrame to ensure the element is laid out and visible
-    // before focusing (avoids race with tab panels and route transitions).
-    const raf = requestAnimationFrame(() => {
-      const el = textareaRef.current;
-      if (el && el.offsetParent !== null) {
-        el.focus();
-      }
-    });
-    return () => cancelAnimationFrame(raf);
+    const el = textareaRef.current;
+    if (!el) return;
+
+    // If already visible, focus immediately
+    if (el.offsetParent !== null) {
+      el.focus();
+      return;
+    }
+
+    // Otherwise observe visibility — the parent div toggles `hidden` via CSS
+    // class, so IntersectionObserver will fire when it becomes visible.
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          el.focus();
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.1 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [shouldAutoFocus]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -948,10 +1006,8 @@ export function SessionChatInput({
     const trimmed = text.trim();
     if (!trimmed || disabled) return;
 
-    // Push to prompt history
-    historyRef.current.push(trimmed);
-    historyIndexRef.current = -1;
-    draftRef.current = '';
+    // Push to prompt history (persisted to localStorage)
+    pushHistory(trimmed);
 
     // Snapshot files before clearing
     const filesToSend = attachedFiles.length > 0 ? [...attachedFiles] : undefined;
@@ -982,7 +1038,7 @@ export function SessionChatInput({
       // Restore the text so the user can retry
       setText(trimmed);
     }
-  }, [text, isBusy, disabled, onSend, attachedFiles, sessionId, enqueue]);
+  }, [text, isBusy, disabled, onSend, attachedFiles, sessionId, enqueue, pushHistory]);
 
   const handleSelectCommand = (cmd: Command) => {
     onCommand?.(cmd);
@@ -1021,7 +1077,7 @@ export function SessionChatInput({
     });
   };
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // @ mention popover keyboard navigation
     if (mentionQuery !== null && (mentionItems.length > 0 || fileSearchLoading)) {
       if (e.key === 'ArrowDown') {
@@ -1118,9 +1174,9 @@ export function SessionChatInput({
       e.preventDefault();
       handleSubmit();
     }
-  }
+  };
 
-  function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
+  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setText(val);
 
@@ -1170,7 +1226,7 @@ export function SessionChatInput({
     if (highlightRef.current) {
       highlightRef.current.style.height = newHeight;
     }
-  }
+  };
 
   const handleTranscription = useCallback((transcribedText: string) => {
     setText((prev) => (prev ? `${prev} ${transcribedText}` : transcribedText));
