@@ -104,7 +104,7 @@ function normalizeLanguage(lang: string): string {
 }
 
 // Syntax-highlighted code using Shiki
-function HighlightedCode({ code, language, children }: { code: string; language: string; children: React.ReactNode }) {
+export function HighlightedCode({ code, language, children }: { code: string; language: string; children: React.ReactNode }) {
   const { resolvedTheme } = useTheme();
   const [html, setHtml] = useState<string | null>(null);
   const theme = resolvedTheme === 'dark' ? 'github-dark' : 'github-light';

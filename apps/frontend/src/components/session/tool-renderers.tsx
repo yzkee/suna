@@ -50,7 +50,7 @@ import {
   hasStructuredContent,
   parseStructuredOutput,
 } from '@/lib/utils/structured-output';
-import { UnifiedMarkdown } from '@/components/markdown/unified-markdown';
+import { UnifiedMarkdown, HighlightedCode } from '@/components/markdown/unified-markdown';
 import {
   Collapsible,
   CollapsibleContent,
@@ -743,9 +743,11 @@ function BashTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
     >
       <div data-scrollable className="max-h-96 overflow-auto">
         {/* Command */}
-        <pre className="px-3 py-2.5 font-mono text-[12px] leading-relaxed text-foreground/90 whitespace-pre-wrap break-all">
-          <span className="text-muted-foreground/60 select-none">$ </span>{command}
-        </pre>
+        <div className="px-3 py-2.5 [&_code]:text-[12px] [&_code]:leading-relaxed [&_code]:whitespace-pre-wrap [&_code]:break-words [&_pre]:contents">
+          <HighlightedCode code={`$ ${command}`} language="bash">
+            {`$ ${command}`}
+          </HighlightedCode>
+        </div>
         {/* Output */}
         {hasOutput && (
           <div className="border-t border-border/30">
@@ -3067,9 +3069,7 @@ function MemSearchTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
       trigger={
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
           <span className="font-medium text-xs text-foreground whitespace-nowrap">Mem Search</span>
-          {query && (
-            <span className="text-muted-foreground text-xs truncate">{query}</span>
-          )}
+          <span className="text-muted-foreground text-xs truncate font-mono">{query}</span>
           {triggerBadge && (
             <span className={cn(
               'text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ml-auto flex-shrink-0',
@@ -3085,62 +3085,68 @@ function MemSearchTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
       locked={locked}
     >
       {status === 'completed' && parsed ? (
-        <div data-scrollable className="max-h-[420px] overflow-auto">
-          {/* Observation list */}
-          <div className="px-3 py-2.5 space-y-1.5">
-            {observations.map((obs, i) => {
-              const typeInfo = observationTypeInfo(obs.type);
-              return (
-                <div
-                  key={i}
-                  className="rounded-md border border-border/30 bg-background/50 px-3 py-2.5 flex items-start gap-2.5 hover:border-border/50 transition-colors"
-                >
-                  {/* ID badge */}
-                  <span className="text-[10px] font-mono text-muted-foreground/50 bg-muted/30 px-1.5 py-0.5 rounded flex-shrink-0 mt-px">
-                    {obs.id}
-                  </span>
+        <div data-scrollable className="max-h-[400px] overflow-auto">
+          <div className="px-3 pb-2.5">
+            {/* Section label */}
+            <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/40 mb-1.5 mt-1">
+              Observations
+            </div>
 
-                  {/* Content */}
-                  <div className="flex flex-col gap-1.5 flex-1 min-w-0">
-                    <p className="text-[11px] leading-relaxed text-foreground/90 line-clamp-2">
-                      {obs.title}
-                    </p>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {/* Time */}
-                      <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/40">
-                        <Clock className="size-2.5" />
-                        {obs.time}
-                      </span>
-                      {/* Type pill */}
-                      <span className={cn(
-                        'inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full',
-                        typeInfo.bg, typeInfo.text,
-                      )}>
-                        <span className={cn('size-1.5 rounded-full flex-shrink-0', typeInfo.dot)} />
-                        {typeInfo.label}
-                      </span>
-                      {/* Files */}
-                      {obs.files.trim() && (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/40 font-mono">
-                          <FileIcon className="size-2.5" />
-                          {obs.files}
+            {/* Observation list */}
+            <div className="space-y-0.5">
+              {observations.map((obs, i) => {
+                const typeInfo = observationTypeInfo(obs.type);
+                return (
+                  <div
+                    key={i}
+                    className="flex items-start gap-2.5 p-2 -mx-1 rounded-lg hover:bg-muted/40 transition-colors"
+                  >
+                    {/* Type dot */}
+                    <div className={cn('size-5 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5', typeInfo.bg)}>
+                      <span className={cn('size-2 rounded-full', typeInfo.dot)} />
+                    </div>
+
+                    {/* Content */}
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[11px] font-medium text-foreground line-clamp-2">
+                        {obs.title}
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[10px] text-muted-foreground/50 font-mono">
+                          {obs.id}
                         </span>
-                      )}
+                        <span className="text-muted-foreground/20">·</span>
+                        <span className="text-[10px] text-muted-foreground/50">
+                          {obs.time}
+                        </span>
+                        <span className="text-muted-foreground/20">·</span>
+                        <span className={cn('text-[10px] font-medium', typeInfo.text)}>
+                          {typeInfo.label}
+                        </span>
+                        {obs.files.trim() && (
+                          <>
+                            <span className="text-muted-foreground/20">·</span>
+                            <span className="text-[10px] text-muted-foreground/40 font-mono truncate">
+                              {obs.files}
+                            </span>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Footer */}
-          {parsed.total > observations.length && (
-            <div className="px-3 py-1.5 border-t border-border/20 bg-muted/10">
-              <span className="text-[10px] text-muted-foreground/50">
-                Showing {observations.length} of {parsed.total} observations
-              </span>
+                );
+              })}
             </div>
-          )}
+
+            {/* Footer */}
+            {parsed.total > observations.length && (
+              <div className="mt-2 pt-1.5 border-t border-border/20">
+                <span className="text-[10px] text-muted-foreground/40">
+                  Showing {observations.length} of {parsed.total} observations
+                </span>
+              </div>
+            )}
+          </div>
         </div>
       ) : status === 'completed' && output ? (
         <div data-scrollable className="p-2 max-h-72 overflow-auto">
