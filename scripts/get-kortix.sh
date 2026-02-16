@@ -291,15 +291,15 @@ ${auth_block}
     reverse_proxy kortix-api:8008
   }
 
-  # Sandbox / OpenCode — proxy to sandbox master
-  handle /opencode/* {
-    uri strip_prefix /opencode
+  # Sandbox — proxy to sandbox master
+  handle /server/* {
+    uri strip_prefix /server
     reverse_proxy sandbox:8000
   }
 
   # WebSocket support for sandbox
-  handle /opencode/ws/* {
-    uri strip_prefix /opencode
+  handle /server/ws/* {
+    uri strip_prefix /server
     reverse_proxy sandbox:8000
   }
 

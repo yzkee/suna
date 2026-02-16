@@ -130,14 +130,18 @@ export function rewriteLocalhostUrl(
     if (mappedPorts?.[SANDBOX_PORTS.KORTIX_MASTER]) {
       // Multi-sandbox Docker: use the explicit host port for Kortix Master
       url.port = mappedPorts[SANDBOX_PORTS.KORTIX_MASTER];
+      return `${url.origin}/proxy/${port}${path}`;
     } else if (url.port === '4096') {
       // Direct OpenCode connection (no Docker): switch to Kortix Master container port
       url.port = SANDBOX_PORTS.KORTIX_MASTER;
+      return `${url.origin}/proxy/${port}${path}`;
     }
-    // Otherwise, serverUrl already points to Kortix Master — keep its port as-is
-    return `${url.origin}/proxy/${port}${path}`;
+    // VPS / reverse-proxy mode: serverUrl has a path (e.g. https://host/server)
+    // url.origin would strip the path, so use the full base URL instead
+    const base = serverUrl.replace(/\/+$/, '');
+    return `${base}/proxy/${port}${path}`;
   } catch {
-    return `${serverUrl}/proxy/${port}${path}`;
+    return `${serverUrl.replace(/\/+$/, '')}/proxy/${port}${path}`;
   }
 }
 
@@ -161,4 +165,29 @@ export function isProxiableLocalhostUrl(url: string): boolean {
   if (!match) return false;
   const port = parseInt(match[1], 10);
   return port >= 1 && port <= 65535 && !EXCLUDED_PORTS.has(port);
+}
+
+/**
+ * If the given URL points to localhost:PORT, rewrite it through the sandbox
+ * proxy layer. Returns the original URL unchanged when it doesn't match or
+ * targets an excluded infrastructure port.
+ *
+ * This is the catch-all intended for use inside markdown renderers so that
+ * every `<a href>`, `<img src>`, etc. that references a sandbox service
+ * automatically gets proxied.
+ */
+export function proxyLocalhostUrl(
+  url: string | undefined,
+  serverUrl: string,
+  mappedPorts?: Record<string, string>,
+): string | undefined {
+  if (!url) return url;
+  const match = url.match(
+    /^https?:\/\/(?:localhost|127\.0\.0\.1):(\d{1,5})(\/[^\s)"'<>]*)?$/,
+  );
+  if (!match) return url;
+  const port = parseInt(match[1], 10);
+  if (port < 1 || port > 65535 || EXCLUDED_PORTS.has(port)) return url;
+  const path = match[2] || '/';
+  return rewriteLocalhostUrl(port, path, serverUrl, mappedPorts);
 }
