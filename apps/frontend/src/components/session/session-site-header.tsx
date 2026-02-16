@@ -165,8 +165,8 @@ export function SessionSiteHeader({
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              {/* Share button */}
-              <SharePopover sessionId={sessionId}>
+              {/* Share button — temporarily hidden until share architecture is resolved */}
+              {/* <SharePopover sessionId={sessionId}>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -175,7 +175,7 @@ export function SessionSiteHeader({
                   <Upload className="h-4 w-4" />
                   <span className="hidden sm:inline text-sm">Share</span>
                 </Button>
-              </SharePopover>
+              </SharePopover> */}
 
               {/* Panel toggle — hidden until there are actions to show */}
               {canOpenSidePanel && (
