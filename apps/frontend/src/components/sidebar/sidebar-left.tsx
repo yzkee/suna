@@ -122,9 +122,9 @@ function CollapsedIconButton({ icon, label, onClick, flyoutContent, disabled }: 
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'flex items-center justify-center h-10 w-10 rounded-xl cursor-pointer',
+        'flex items-center justify-center w-full py-2.5 rounded-xl cursor-pointer',
         'transition-all duration-150 ease-out',
-        'text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent',
+        'text-sidebar-foreground hover:bg-sidebar-accent',
         disabled && 'opacity-50 cursor-not-allowed',
       )}
     >
@@ -531,7 +531,7 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
                 />
               </Link>
               {/* Chevron — shows on hover */}
-              <ChevronRight className="h-4 w-4 text-muted-foreground hidden group-hover/collapsed:block" />
+              <ChevronRight className="h-4 w-4 text-sidebar-foreground hidden group-hover/collapsed:block" />
             </div>
           )}
 
@@ -561,7 +561,7 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
           <button
             className={cn(
               'flex items-center justify-center h-7 w-7 rounded-lg transition-colors duration-150 cursor-pointer',
-              'text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent',
+        'text-sidebar-foreground hover:bg-sidebar-accent',
               state === 'collapsed' ? 'opacity-0 pointer-events-none' : 'opacity-100'
             )}
             onClick={() => isMobile ? setOpenMobile(false) : setOpen(false)}
@@ -576,7 +576,7 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
       <SidebarContent className="[&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] relative overflow-visible">
         {/* --- Collapsed: 3 icon buttons — New Chat, Projects, Sessions --- */}
         <div className={cn(
-          'absolute inset-0 px-2 pt-3 space-y-0.5 flex flex-col items-center overflow-visible',
+          'absolute inset-0 px-3 pt-3 space-y-1 flex flex-col items-center overflow-visible',
           state === 'collapsed' ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         )}>
           <CollapsedIconButton
@@ -584,6 +584,23 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
             label="New session"
             onClick={handleNewSession}
             disabled={createSession.isPending}
+          />
+          <CollapsedIconButton
+            icon={<Search className="h-[18px] w-[18px]" />}
+            label="Search"
+            onClick={() => {
+              const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
+              document.dispatchEvent(
+                new KeyboardEvent('keydown', {
+                  key: 'k',
+                  code: 'KeyK',
+                  metaKey: isMac,
+                  ctrlKey: !isMac,
+                  bubbles: true,
+                  cancelable: true,
+                }),
+              );
+            }}
           />
           <CollapsedIconButton
             icon={<FolderOpen className="h-[18px] w-[18px]" />}

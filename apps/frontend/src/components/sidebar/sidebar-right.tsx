@@ -196,8 +196,8 @@ export function SidebarRight() {
               {/* Collapsed: centered chevron to expand */}
               {state === 'collapsed' && (
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <button
-                    className="flex items-center justify-center h-7 w-7 rounded-lg cursor-pointer text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150"
+                    <button
+                    className="flex items-center justify-center h-7 w-7 rounded-lg cursor-pointer text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150"
                     onClick={() => setOpen(true)}
                     aria-label="Expand sidebar"
                   >
@@ -215,7 +215,7 @@ export function SidebarRight() {
                   Explorer
                 </span>
                 <button
-                  className="flex items-center justify-center h-7 w-7 rounded-lg transition-colors duration-150 cursor-pointer text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                  className="flex items-center justify-center h-7 w-7 rounded-lg transition-colors duration-150 cursor-pointer text-sidebar-foreground hover:bg-sidebar-accent"
                   onClick={() => setOpen(false)}
                   aria-label="Collapse sidebar"
                 >
@@ -232,16 +232,16 @@ export function SidebarRight() {
           )}>
             {/* --- Collapsed: icon buttons --- */}
             <div className={cn(
-              'absolute inset-0 px-2 pt-3 space-y-1 flex flex-col items-center overflow-visible',
+              'absolute inset-0 px-3 pt-3 space-y-0.5 flex flex-col items-center overflow-visible',
               state === 'collapsed' ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
             )}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     onClick={() => setOpen(true)}
-                    className="flex items-center justify-center h-9 w-9 rounded-xl cursor-pointer text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150"
+                    className="flex items-center justify-center w-full py-2 rounded-xl cursor-pointer text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150"
                   >
-                    <FolderTree className="h-[18px] w-[18px]" />
+                    <FolderTree className="h-[16px] w-[16px]" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="left" sideOffset={12} className="text-xs">
@@ -254,12 +254,12 @@ export function SidebarRight() {
                     onClick={handleNewTerminal}
                     disabled={createPty.isPending}
                     className={cn(
-                      'flex items-center justify-center h-9 w-9 rounded-xl cursor-pointer',
+                      'flex items-center justify-center w-full py-2 rounded-xl cursor-pointer',
                       'text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150',
                       'disabled:opacity-50 disabled:cursor-not-allowed',
                     )}
                   >
-                    <TerminalSquare className="h-[18px] w-[18px]" />
+                    <TerminalSquare className="h-[16px] w-[16px]" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="left" sideOffset={12} className="text-xs">
@@ -270,9 +270,9 @@ export function SidebarRight() {
                 <TooltipTrigger asChild>
                   <button
                     onClick={() => { setOpen(true); setTimeout(() => toggleSearch(), 100); }}
-                    className="flex items-center justify-center h-9 w-9 rounded-xl cursor-pointer text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150"
+                    className="flex items-center justify-center w-full py-2 rounded-xl cursor-pointer text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150"
                   >
-                    <Search className="h-[18px] w-[18px]" />
+                    <Search className="h-[16px] w-[16px]" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="left" sideOffset={12} className="text-xs">
@@ -283,9 +283,9 @@ export function SidebarRight() {
                 <TooltipTrigger asChild>
                   <button
                     onClick={handleOpenDesktop}
-                    className="flex items-center justify-center h-9 w-9 rounded-xl cursor-pointer text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150"
+                    className="flex items-center justify-center w-full py-2 rounded-xl cursor-pointer text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150"
                   >
-                    <Monitor className="h-[18px] w-[18px]" />
+                    <Monitor className="h-[16px] w-[16px]" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="left" sideOffset={12} className="text-xs">
@@ -296,9 +296,9 @@ export function SidebarRight() {
                 <TooltipTrigger asChild>
                   <button
                     onClick={handleOpenAgentBrowser}
-                    className="flex items-center justify-center h-9 w-9 rounded-xl cursor-pointer text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150"
+                    className="flex items-center justify-center w-full py-2 rounded-xl cursor-pointer text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150"
                   >
-                    <Globe className="h-[18px] w-[18px]" />
+                    <Globe className="h-[16px] w-[16px]" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="left" sideOffset={12} className="text-xs">
