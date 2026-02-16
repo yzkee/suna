@@ -123,6 +123,11 @@ export class ChannelEngineImpl {
       const collectedFiles: FileOutput[] = [];
       const startTime = Date.now();
 
+      // Snapshot existing files before the prompt so we can detect new ones after
+      const filesBefore = new Set(
+        (await connector.getModifiedFiles().catch(() => [])).map((f) => f.path),
+      );
+
       const fileParts = message.attachments
         .filter((a) => a.url)
         .map((a) => ({ type: 'file' as const, mime: a.mimeType || 'application/octet-stream', url: a.url!, filename: a.name }));
@@ -163,41 +168,30 @@ export class ChannelEngineImpl {
         }
       }
 
+      // Detect new files created during the prompt by diffing against snapshot
       if (adapter.sendFiles) {
         try {
-          const createdFiles = await connector.getCreatedFiles(sessionId);
-          if (createdFiles.length > 0) {
-            const alreadyUploaded = new Set(collectedFiles.map((f) => f.name));
-            const newFiles: FileOutput[] = [];
+          const filesAfter = await connector.getModifiedFiles().catch(() => []);
+          const newFiles: FileOutput[] = [];
+          const alreadyUploaded = new Set(collectedFiles.map((f) => f.name));
 
-            for (const cf of createdFiles) {
-              if (alreadyUploaded.has(cf.name)) continue;
+          for (const f of filesAfter) {
+            if (filesBefore.has(f.path)) continue; // existed before prompt
+            if (alreadyUploaded.has(f.name)) continue; // already uploaded via SSE
 
-              let buffer: Buffer | null = null;
-              if (cf.path) {
-                buffer = await connector.downloadFileByPath(cf.path);
-              } else if (cf.url) {
-                buffer = await connector.downloadFile(cf.url);
-              }
-
-              if (buffer) {
-                newFiles.push({
-                  name: cf.name,
-                  url: cf.url || cf.path || '',
-                  mimeType: cf.mimeType,
-                  content: buffer,
-                });
-              }
-            }
-
-            if (newFiles.length > 0) {
-              await adapter.sendFiles(config, message, newFiles).catch((err) => {
-                console.error('[CHANNELS] Tool-created file upload failed:', err);
-              });
+            const buffer = await connector.downloadFileByPath(f.path);
+            if (buffer) {
+              newFiles.push({ name: f.name, url: f.path, content: buffer });
             }
           }
+
+          if (newFiles.length > 0) {
+            await adapter.sendFiles(config, message, newFiles).catch((err) => {
+              console.error('[CHANNELS] File upload failed:', err);
+            });
+          }
         } catch (err) {
-          console.warn('[CHANNELS] Failed to check for created files:', err);
+          console.warn('[CHANNELS] Failed to detect new files:', err);
         }
       }
 
