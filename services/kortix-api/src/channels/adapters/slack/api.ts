@@ -375,32 +375,6 @@ export class SlackApi {
     return res.json() as Promise<any>;
   }
 
-  async searchUsers(
-    query: string,
-    options?: { count?: number; page?: number },
-  ): Promise<{
-    ok: boolean;
-    users?: {
-      total: number;
-      matches: Array<{
-        id: string;
-        name: string;
-        real_name: string;
-        profile?: { email?: string; display_name?: string; image_48?: string };
-      }>;
-    };
-    error?: string;
-  }> {
-    const params = new URLSearchParams({ query });
-    if (options?.count) params.set('count', String(options.count));
-    if (options?.page) params.set('page', String(options.page));
-    const res = await fetch(`${SLACK_API}/search.users?${params}`, {
-      method: 'GET',
-      headers: { Authorization: `Bearer ${this.botToken}` },
-    });
-    return res.json() as Promise<any>;
-  }
-
   async conversationsCreate(
     name: string,
     isPrivate = false,

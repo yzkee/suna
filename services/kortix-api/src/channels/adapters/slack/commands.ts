@@ -969,21 +969,46 @@ async function handleWhoisCommand(
   }
 
   const api = new SlackApi(botToken);
-  const result = await api.searchUsers(subcommand.searchQuery!, { count: 5 });
+  const query = subcommand.searchQuery!.toLowerCase();
 
-  if (!result.ok) {
-    await postToResponseUrl(ctx.responseUrl, `:x: User search failed: ${result.error}`, true);
-    return;
-  }
+  // Paginate through users and collect matches
+  type UserMatch = NonNullable<Awaited<ReturnType<typeof api.usersList>>['members']>[number];
+  const matches: UserMatch[] = [];
+  let cursor: string | undefined;
 
-  const matches = result.users?.matches || [];
+  do {
+    const result = await api.usersList(cursor);
+    if (!result.ok || !result.members) {
+      await postToResponseUrl(ctx.responseUrl, `:x: Failed to fetch users: ${result.error}`, true);
+      return;
+    }
+
+    for (const member of result.members) {
+      if (member.deleted || member.is_bot) continue;
+      const haystack = [
+        member.name,
+        member.real_name,
+        member.profile?.display_name,
+        member.profile?.real_name,
+        member.profile?.email,
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      if (haystack.includes(query)) {
+        matches.push(member);
+        if (matches.length >= 5) break;
+      }
+    }
+
+    cursor = result.response_metadata?.next_cursor || undefined;
+  } while (cursor && matches.length < 5);
+
   if (matches.length === 0) {
     await postToResponseUrl(ctx.responseUrl, `:mag: No users found for "${subcommand.searchQuery}".`, true);
     return;
   }
 
-  const lines = [`*User results for "${subcommand.searchQuery}"* (${result.users?.total || 0} total)\n`];
-  for (const match of matches.slice(0, 5)) {
+  const lines = [`*User results for "${subcommand.searchQuery}"*\n`];
+  for (const match of matches) {
     const displayName = match.profile?.display_name || match.real_name || match.name;
     const email = match.profile?.email ? ` — ${match.profile.email}` : '';
     lines.push(`<@${match.id}> *${displayName}*${email}`);
@@ -1036,6 +1061,36 @@ async function handleChannelCommand(
   }
 }
 
+async function resolveUserId(api: SlackApi, target: string): Promise<string | null> {
+  // Already a Slack user ID
+  if (/^[UW]\w+$/.test(target)) return target;
+
+  // Strip leading @ if present
+  const query = target.replace(/^@/, '').toLowerCase();
+
+  let cursor: string | undefined;
+  do {
+    const result = await api.usersList(cursor);
+    if (!result.ok || !result.members) return null;
+
+    for (const member of result.members) {
+      if (member.deleted || member.is_bot) continue;
+      if (
+        member.name?.toLowerCase() === query ||
+        member.real_name?.toLowerCase() === query ||
+        member.profile?.display_name?.toLowerCase() === query ||
+        member.profile?.email?.toLowerCase() === query
+      ) {
+        return member.id;
+      }
+    }
+
+    cursor = result.response_metadata?.next_cursor || undefined;
+  } while (cursor);
+
+  return null;
+}
+
 async function handleDmCommand(
   channelConfig: ChannelConfig,
   subcommand: Subcommand,
@@ -1049,7 +1104,14 @@ async function handleDmCommand(
   }
 
   const api = new SlackApi(botToken);
-  const openResult = await api.conversationsOpen(subcommand.dmTarget!);
+
+  const userId = await resolveUserId(api, subcommand.dmTarget!);
+  if (!userId) {
+    await postToResponseUrl(ctx.responseUrl, `:x: Could not find user "${subcommand.dmTarget}".`, true);
+    return;
+  }
+
+  const openResult = await api.conversationsOpen(userId);
   if (!openResult.ok || !openResult.channel?.id) {
     await postToResponseUrl(ctx.responseUrl, `:x: Failed to open DM: ${openResult.error}`, true);
     return;
@@ -1065,7 +1127,7 @@ async function handleDmCommand(
     return;
   }
 
-  await postToResponseUrl(ctx.responseUrl, `:white_check_mark: DM sent to <@${subcommand.dmTarget}>.`, true);
+  await postToResponseUrl(ctx.responseUrl, `:white_check_mark: DM sent to <@${userId}>.`, true);
 }
 
 async function handlePinCommand(
