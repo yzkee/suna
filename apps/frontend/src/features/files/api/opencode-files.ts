@@ -176,10 +176,16 @@ async function uploadToPath(
 
 /**
  * Create an empty file at the given path.
+ *
+ * Uses the SDK's uploadFile with a proper File object and target directory
+ * so the server receives a named file entry it can place correctly.
  */
 export async function createFile(filePath: string): Promise<UploadResult[]> {
-  const blob = new Blob([''], { type: 'application/octet-stream' });
-  return uploadToPath(filePath, blob);
+  const parts = filePath.split('/');
+  const fileName = parts.pop() || 'untitled';
+  const dirPath = parts.join('/') || undefined;
+  const file = new File([' '], fileName, { type: 'application/octet-stream' });
+  return uploadFile(file, dirPath);
 }
 
 /**

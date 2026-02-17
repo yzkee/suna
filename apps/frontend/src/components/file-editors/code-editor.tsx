@@ -320,6 +320,10 @@ export function CodeEditor({
   const onUnsavedChangeRef = useRef(onUnsavedChange);
   onUnsavedChangeRef.current = onUnsavedChange;
   
+  // After a save, briefly ignore external content prop changes so a stale
+  // refetch doesn't flash the old content back into the editor.
+  const saveTimestampRef = useRef(0);
+  
   // Compute hasChanges - only after editor is ready and content differs from saved
   const hasChanges = isReady && localContent !== savedContent.current;
   
@@ -425,6 +429,7 @@ export function CodeEditor({
       setSaveState('saving');
       await onSave(localContent);
       savedContent.current = localContent;
+      saveTimestampRef.current = Date.now();
       setSaveState('saved');
 
       // Reset to idle after showing saved state
@@ -465,6 +470,14 @@ export function CodeEditor({
     const hasNoLocalChanges = readOnly || localContent === savedContent.current || !localContent;
     
     if (content !== localContent && hasNoLocalChanges) {
+      // After a save, ignore stale external content for a short window.
+      // Query refetches / SSE invalidations can briefly serve the old cached
+      // value before the fresh response arrives. Without this guard the editor
+      // flashes back to the pre-save content.
+      if (!readOnly && saveTimestampRef.current && Date.now() - saveTimestampRef.current < 2000) {
+        return;
+      }
+
       setLocalContent(content);
       // Also update savedContent when content is first loaded
       if (!isReady && content) {
