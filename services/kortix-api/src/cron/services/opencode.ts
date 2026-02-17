@@ -74,9 +74,13 @@ async function fetchWithRetry(
  * Build the prompt body in OpenCode's expected format.
  * OpenCode expects: { parts: [{ type: "text", text: "..." }] }
  */
+/** Default model for cron prompts — matches the "kortix" provider in opencode.jsonc */
+const DEFAULT_CRON_MODEL = { providerID: 'kortix', modelID: 'kortix/basic' };
+
 function buildPromptBody(prompt: string, agentName?: string): Record<string, unknown> {
   const body: Record<string, unknown> = {
     parts: [{ type: 'text', text: prompt }],
+    model: DEFAULT_CRON_MODEL,
   };
   if (agentName) {
     body.agent = agentName;
