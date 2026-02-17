@@ -23,11 +23,13 @@
     "opencode/memory.json",
     "services/",
     "config/",
+    "browser-viewer/",
     "postinstall.sh",
     "patch-agent-browser.js"
   ],
   "dependencies": {
-    "@kortix/opencode-ai": "0.3.0"
+    "@kortix/opencode-ai": "0.3.0",
+    "agent-browser": "^0.10.0"
   },
   "peerDependencies": {},
   "publishConfig": {

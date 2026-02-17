@@ -76,7 +76,10 @@ RUN apk del gcc g++ musl-dev linux-headers python3-dev libffi-dev \
 # Skip `playwright install` — we use the system chromium at /usr/bin/chromium-browser
 
 # ── Agent Browser (headless browser automation for AI agents) ────────────────
-RUN npm install -g agent-browser
+# Initial install for Docker image; postinstall.sh handles version updates.
+COPY sandbox/package.json /tmp/sandbox-pkg-versions.json
+RUN AB_VERSION=$(node -e "const p=require('/tmp/sandbox-pkg-versions.json');console.log(p.dependencies['agent-browser']||'latest')" 2>/dev/null || echo "latest") \
+    && npm install -g "agent-browser@$AB_VERSION"
 COPY sandbox/patch-agent-browser.js /tmp/patch-agent-browser.js
 RUN node /tmp/patch-agent-browser.js && rm /tmp/patch-agent-browser.js
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium-browser
@@ -88,24 +91,27 @@ ENV AGENT_BROWSER_ARGS="--no-sandbox,--disable-setuid-sandbox,--disable-gpu,--di
 ENV AGENT_BROWSER_USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
 # ── Agent Browser Viewer (watch the browser session from your Mac) ───────────
-COPY sandbox/assets/browser-viewer/ /opt/agent-browser-viewer/
+COPY sandbox/browser-viewer/ /opt/agent-browser-viewer/
 
 # ── OpenCode CLI ────────────────────────────────────────────────────────────
+# Initial install for Docker image; postinstall.sh handles version updates.
 # npm installs the glibc binary by default; force-install the musl variant
 # and symlink it over the glibc one so the wrapper script finds it.
-RUN npm install -g @kortix/opencode-ai@0.3.0 \
+RUN CLI_VERSION=$(node -e "const p=require('/tmp/sandbox-pkg-versions.json');console.log(p.dependencies['@kortix/opencode-ai']||'latest')" 2>/dev/null || echo "latest") \
+    && npm install -g "@kortix/opencode-ai@$CLI_VERSION" \
     && ARCH=$(uname -m) \
     && if [ "$ARCH" = "x86_64" ]; then \
-         npm install -g @kortix/opencode-ai-linux-x64-musl@0.3.0 --force \
+         npm install -g "@kortix/opencode-ai-linux-x64-musl@$CLI_VERSION" --force \
          && MUSL_BIN=$(npm root -g)/@kortix/opencode-ai-linux-x64-musl/bin/opencode \
          && GLIBC_BIN=$(npm root -g)/@kortix/opencode-ai/node_modules/@kortix/opencode-ai-linux-x64/bin/opencode \
          && ln -sf "$MUSL_BIN" "$GLIBC_BIN"; \
        else \
-         npm install -g @kortix/opencode-ai-linux-arm64-musl@0.3.0 --force \
+         npm install -g "@kortix/opencode-ai-linux-arm64-musl@$CLI_VERSION" --force \
          && MUSL_BIN=$(npm root -g)/@kortix/opencode-ai-linux-arm64-musl/bin/opencode \
          && GLIBC_BIN=$(npm root -g)/@kortix/opencode-ai/node_modules/@kortix/opencode-ai-linux-arm64/bin/opencode \
          && ln -sf "$MUSL_BIN" "$GLIBC_BIN"; \
        fi \
+    && rm /tmp/sandbox-pkg-versions.json \
     && opencode --version
 
 # ── OpenCode (agents, tools, skills) ────────────────────────────────────────

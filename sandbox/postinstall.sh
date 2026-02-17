@@ -51,10 +51,11 @@ rsync -a --delete \
 cd /opt/opencode && bun install 2>/dev/null || true
 
 # ── s6 service scripts ──────────────────────────────────────────────────────
-if [ -d "$PKG_DIR/services" ] && [ -d "/etc/services.d" ]; then
+# s6-overlay v3 uses s6-rc.d (not services.d)
+if [ -d "$PKG_DIR/services" ] && [ -d "/etc/s6-overlay/s6-rc.d" ]; then
   echo "[sandbox-postinstall] Updating s6 service scripts..."
-  rsync -a "$PKG_DIR/services/" /etc/services.d/
-  chmod +x /etc/services.d/*/run 2>/dev/null || true
+  rsync -a "$PKG_DIR/services/" /etc/s6-overlay/s6-rc.d/
+  chmod +x /etc/s6-overlay/s6-rc.d/svc-*/run 2>/dev/null || true
 fi
 
 # ── Init scripts ─────────────────────────────────────────────────────────────
@@ -93,10 +94,32 @@ if [ -n "$CLI_VERSION" ]; then
   fi
 fi
 
-# ── Agent browser patches ────────────────────────────────────────────────────
+# ── Agent Browser ────────────────────────────────────────────────────────────
+# Install/update agent-browser globally. Version is declared in package.json dependencies.
+AB_VERSION=$(node -e "console.log(require('$PKG_DIR/package.json').dependencies['agent-browser'] || '')" 2>/dev/null || echo "")
+if [ -n "$AB_VERSION" ]; then
+  CURRENT_AB=$(npm list -g agent-browser --depth=0 --json 2>/dev/null | node -e "try{const d=require('fs').readFileSync('/dev/stdin','utf8');const j=JSON.parse(d);console.log(j.dependencies['agent-browser']?.version||'none')}catch{console.log('none')}" 2>/dev/null || echo "none")
+  # Strip leading ^ or ~ from version for comparison
+  CLEAN_AB_VERSION=$(echo "$AB_VERSION" | sed 's/^[\^~]//')
+  if [ "$CURRENT_AB" != "$CLEAN_AB_VERSION" ]; then
+    echo "[sandbox-postinstall] Updating agent-browser: $CURRENT_AB -> $AB_VERSION..."
+    npm install -g "agent-browser@$AB_VERSION" 2>/dev/null || true
+  else
+    echo "[sandbox-postinstall] agent-browser already at $CURRENT_AB, skipping"
+  fi
+fi
+
+# Apply agent-browser patches (always re-apply — patches are idempotent)
 if [ -f "$PKG_DIR/patch-agent-browser.js" ]; then
   echo "[sandbox-postinstall] Applying agent-browser patches..."
   node "$PKG_DIR/patch-agent-browser.js" 2>/dev/null || true
+fi
+
+# ── Agent Browser Viewer ─────────────────────────────────────────────────────
+if [ -d "$PKG_DIR/browser-viewer" ]; then
+  echo "[sandbox-postinstall] Updating agent-browser-viewer..."
+  mkdir -p /opt/agent-browser-viewer
+  rsync -a --delete "$PKG_DIR/browser-viewer/" /opt/agent-browser-viewer/
 fi
 
 # ── Version file ─────────────────────────────────────────────────────────────
