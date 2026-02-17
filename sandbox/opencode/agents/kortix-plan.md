@@ -1,6 +1,6 @@
 ---
 description: "Planning and analysis agent. Analyzes codebases, designs architectures, reviews code, creates implementation plans — without making changes. Read-only. Use when you need to think through an approach, audit code, or create a detailed plan before executing. Dispatches explore agents for parallel codebase investigation."
-mode: subagent
+mode: primary
 tools:
   edit: false
   write: false
