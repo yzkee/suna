@@ -22,14 +22,18 @@ interface InitProjectDialogProps {
 export function InitProjectDialog({ sessionId, open, onOpenChange }: InitProjectDialogProps) {
   const initSession = useInitSession();
 
-  const handleInit = async () => {
-    try {
-      await initSession.mutateAsync({ sessionId });
-      toast.success('Project initialized — AGENTS.md created');
-      onOpenChange(false);
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to initialize project');
-    }
+  const handleInit = () => {
+    // Fire-and-forget: the /init command triggers a long-running analysis.
+    // Close the dialog immediately and let SSE events update the UI.
+    initSession.mutate(
+      { sessionId },
+      {
+        onError: (err: any) => {
+          toast.warning(err?.message || 'Failed to initialize project');
+        },
+      },
+    );
+    onOpenChange(false);
   };
 
   return (

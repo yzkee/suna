@@ -17,13 +17,17 @@ import type {
   McpStatus,
   Path as PathInfo,
   ProviderListResponse as SdkProviderListResponse,
+  Worktree,
+  WorktreeCreateInput,
+  WorktreeRemoveInput,
+  WorktreeResetInput,
 } from '@kortix/opencode-sdk/v2/client';
 
 // ============================================================================
 // Re-export SDK types for consumers
 // ============================================================================
 
-export type { Session, Message, Part, Agent, Command, Project, SessionStatus, PermissionRule, Model, McpStatus, PathInfo };
+export type { Session, Message, Part, Agent, Command, Project, SessionStatus, PermissionRule, Model, McpStatus, PathInfo, Worktree, WorktreeCreateInput, WorktreeRemoveInput, WorktreeResetInput };
 
 /**
  * Shape returned by `client.session.messages()`:
@@ -94,6 +98,7 @@ export const opencodeKeys = {
   providers: () => ['opencode', 'providers'] as const,
   pathInfo: () => ['opencode', 'path-info'] as const,
   mcpStatus: () => ['opencode', 'mcp-status'] as const,
+  worktrees: () => ['opencode', 'worktrees'] as const,
 };
 
 // ============================================================================
@@ -710,6 +715,8 @@ export function useInitSession() {
       queryClient.invalidateQueries({ queryKey: opencodeKeys.messages(variables.sessionId) });
       queryClient.invalidateQueries({ queryKey: opencodeKeys.sessions() });
     },
+    // Suppress global error handler — caller handles errors via onError callback
+    onError: () => {},
   });
 }
 

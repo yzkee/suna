@@ -464,6 +464,18 @@ export function useOpenCodeEventStream() {
           break;
         }
 
+        // ---- Worktree events — disabled for now ----
+        case 'worktree.ready': {
+          queryClient.invalidateQueries({ queryKey: opencodeKeys.worktrees() });
+          queryClient.invalidateQueries({ queryKey: opencodeKeys.projects() });
+          break;
+        }
+
+        case 'worktree.failed': {
+          queryClient.invalidateQueries({ queryKey: opencodeKeys.worktrees() });
+          break;
+        }
+
         default:
           break;
       }

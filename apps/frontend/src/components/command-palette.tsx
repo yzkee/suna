@@ -54,6 +54,13 @@ import {
   useOpenCodeCommands,
   useExecuteOpenCodeCommand,
 } from '@/hooks/opencode/use-opencode-sessions';
+// Worktree hooks — disabled for now, will be re-enabled later
+// import {
+//   useWorktreeList,
+//   useCreateWorktree,
+//   useRemoveWorktree,
+//   useResetWorktree,
+// } from '@/hooks/opencode/use-opencode-worktree';
 import { useThreadSearch } from '@/hooks/threads/use-thread-search';
 import { useFileSearch, useTextSearch, useLssSearch } from '@/features/files';
 import type { FindMatch } from '@/features/files';
@@ -239,6 +246,18 @@ export function CommandPalette() {
   const createSession = useCreateOpenCodeSession();
   const executeCommand = useExecuteOpenCodeCommand();
 
+  // Worktree management — disabled for now
+  // const [worktreeBrowsePath, setWorktreeBrowsePath] = useState<string | null>(null);
+  // const { data: worktrees = [] } = useWorktreeList();
+  // const { data: browseFiles } = useFileList(worktreeBrowsePath || '', { enabled: !!worktreeBrowsePath });
+  // const createWorktree = useCreateWorktree();
+  // const removeWorktree = useRemoveWorktree();
+  // const resetWorktree = useResetWorktree();
+  // const browseDirs = useMemo(
+  //   () => (browseFiles || []).filter((f: FileNode) => f.type === 'directory' && !f.ignored),
+  //   [browseFiles],
+  // );
+
   // Fetch all sessions (for client-side title filter)
   const { data: sessions } = useOpenCodeSessions();
 
@@ -327,7 +346,7 @@ export function CommandPalette() {
     return () => document.removeEventListener('keydown', down);
   }, []);
 
-  // Reset query when dialog closes
+  // Reset query and sub-views when dialog closes
   useEffect(() => {
     if (!open) {
       setQuery('');
@@ -647,6 +666,12 @@ export function CommandPalette() {
     close();
     setInitOpen(true);
   }, [currentSessionId, close]);
+
+  // Worktree handlers — disabled for now
+  // const handleCreateWorktree = useCallback(() => { ... }, []);
+  // const handleSelectWorktreeDir = useCallback(...);
+  // const handleRemoveWorktree = useCallback(...);
+  // const handleResetWorktree = useCallback(...);
 
   const themeLabel = useMemo(() => {
     if (theme === 'light') return 'Switch to Dark';
@@ -993,6 +1018,8 @@ export function CommandPalette() {
               </CommandGroup>
 
               <CommandSeparator />
+
+              {/* Worktrees management — disabled for now, will be re-enabled later */}
 
               {/* Slash commands quick access */}
               {slashCommands.length > 0 && (
