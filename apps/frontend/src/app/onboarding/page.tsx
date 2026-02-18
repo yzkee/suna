@@ -214,6 +214,7 @@ export default function OnboardingPage() {
   }, [user, isLoading, router]);
 
   // ── Onboarding session lifecycle ──────────────────────────────
+  // First try to resume an existing onboarding session, then create a new one.
   const MAX_RETRIES = 3;
 
   useEffect(() => {
@@ -227,6 +228,20 @@ export default function OnboardingPage() {
 
     (async () => {
       try {
+        // Check if there's an existing onboarding session we can resume
+        const instanceUrl = getInstanceUrl();
+        const existingRes = await fetch(`${instanceUrl}/env/ONBOARDING_SESSION_ID`).catch(() => null);
+        if (existingRes?.ok) {
+          const data = await existingRes.json();
+          const existingId = data.ONBOARDING_SESSION_ID;
+          if (existingId && existingId !== '' && existingId !== 'test123') {
+            setSessionId(existingId);
+            creatingRef.current = false;
+            return;
+          }
+        }
+
+        // No existing session — create a new one
         const session = await createSessionRef.current.mutateAsync({ title: 'Kortix Onboarding' });
         setSessionId(session.id);
         persistOnboardingSessionId(session.id);
