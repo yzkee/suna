@@ -1321,7 +1321,24 @@ function SessionTurn({
 
   // Permission/question matching for this session
   const nextPermission = useMemo(() => permissions.filter((p) => p.sessionID === sessionId)[0], [permissions, sessionId]);
-  const nextQuestion = useMemo(() => questions.filter((q) => q.sessionID === sessionId)[0], [questions, sessionId]);
+  // Only assign a question to this turn if:
+  // 1. It has a tool ref whose messageID belongs to one of this turn's assistant messages, OR
+  // 2. It has no tool ref and this is the last turn, OR
+  // 3. It has a tool ref that doesn't match any turn's messages and this is the last turn (fallback)
+  const nextQuestion = useMemo(() => {
+    const sessionQuestions = questions.filter((q) => q.sessionID === sessionId);
+    if (sessionQuestions.length === 0) return undefined;
+    const turnMessageIds = new Set(turn.assistantMessages.map((m) => m.info.id));
+    // First: find a question whose tool ref matches this turn
+    const matched = sessionQuestions.find((q) => q.tool && turnMessageIds.has(q.tool.messageID));
+    if (matched) return matched;
+    // For the last turn: also accept questions without a tool ref, or with a tool ref
+    // that doesn't match any specific turn (fallback to prevent questions from being invisible)
+    if (isLast) {
+      return sessionQuestions[0];
+    }
+    return undefined;
+  }, [questions, sessionId, turn.assistantMessages, isLast]);
 
   // Hidden tool parts (when permission/question is active)
   const hidden = useMemo(() => getHiddenToolParts(nextPermission, nextQuestion), [nextPermission, nextQuestion]);

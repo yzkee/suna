@@ -3819,6 +3819,8 @@ function MemGetTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 }
 ToolRegistry.register('mem-get', MemGetTool);
 ToolRegistry.register('mem_get', MemGetTool);
+ToolRegistry.register('memory-get', MemGetTool);
+ToolRegistry.register('memory_get', MemGetTool);
 
 // ============================================================================
 // MemSaveTool — renders the "mem-save" / "mem_save" tool result
@@ -3907,6 +3909,8 @@ function MemSaveTool({ part }: ToolProps) {
 }
 ToolRegistry.register('mem-save', MemSaveTool);
 ToolRegistry.register('mem_save', MemSaveTool);
+ToolRegistry.register('memory-save', MemSaveTool);
+ToolRegistry.register('memory_save', MemSaveTool);
 
 // ============================================================================
 // MemTimelineTool — renders the "mem-timeline" / "mem_timeline" tool result
@@ -4089,6 +4093,8 @@ function MemTimelineTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 }
 ToolRegistry.register('mem-timeline', MemTimelineTool);
 ToolRegistry.register('mem_timeline', MemTimelineTool);
+ToolRegistry.register('memory-timeline', MemTimelineTool);
+ToolRegistry.register('memory_timeline', MemTimelineTool);
 
 // ============================================================================
 // DCP Tools (distill, compress, prune, context_info)

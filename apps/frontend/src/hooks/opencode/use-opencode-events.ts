@@ -150,6 +150,16 @@ export function useOpenCodeEventStream() {
             queryClient.refetchQueries({
               queryKey: opcodeKeys.sessions(),
             });
+            // Re-hydrate pending permissions & questions on reconnect.
+            // If the SSE connection dropped, we may have missed question.asked
+            // or permission.asked events, leaving the session stuck in "busy"
+            // with no prompt visible. Fetching the current list fixes that.
+            client.permission.list().then((res) => {
+              if (res.data) (res.data as any[]).forEach(addPermission);
+            }).catch(() => {});
+            client.question.list().then((res) => {
+              if (res.data) (res.data as any[]).forEach(addQuestion);
+            }).catch(() => {});
           }
           retryCount = 0;
 
