@@ -3,92 +3,110 @@ import { writeFileSync, unlinkSync } from "fs";
 import { join } from "path";
 import { spawnSync } from "child_process";
 
-/**
- * Execute code that calls an authenticated third-party API.
- * The OAuth token is injected as an environment variable — never printed or logged.
- *
- * Security:
- * - Token is ONLY in the subprocess env vars — never in tool output
- * - Temp code files are deleted immediately after execution
- * - Subprocess has a 30s timeout
- */
+const PROXY_FETCH_PREAMBLE = `
+// ── Auto-injected proxy fetch ──────────────────────────────────────────────
+// Use proxyFetch(url, init) for all authenticated API calls.
+// It works like fetch() but auth is injected automatically by the proxy.
+const __PROXY_URL__ = process.env.__PROXY_URL__;
+const __APP_SLUG__ = process.env.__APP_SLUG__;
+
+globalThis.proxyFetch = async function proxyFetch(url, init = {}) {
+  const method = (init.method || 'GET').toUpperCase();
+
+  // Collect headers (skip auth — proxy handles it)
+  const headers = {};
+  if (init.headers) {
+    const h = init.headers instanceof Headers
+      ? Object.fromEntries(init.headers.entries())
+      : init.headers;
+    for (const [k, v] of Object.entries(h)) {
+      if (k.toLowerCase() !== 'authorization') headers[k] = v;
+    }
+  }
+
+  // Parse body — proxy expects a JSON-serializable object
+  let body = undefined;
+  if (init.body != null) {
+    if (typeof init.body === 'string') {
+      try { body = JSON.parse(init.body); } catch { body = init.body; }
+    } else {
+      body = init.body;
+    }
+  }
+
+  const proxyRes = await fetch(__PROXY_URL__, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      app: __APP_SLUG__,
+      method,
+      url,
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
+      body,
+    }),
+  });
+
+  if (!proxyRes.ok) {
+    const errText = await proxyRes.text();
+    throw new Error('Proxy error (' + proxyRes.status + '): ' + errText);
+  }
+
+  const data = await proxyRes.json();
+  const status = data.status || 200;
+  const ok = status >= 200 && status < 400;
+  const responseBody = data.body;
+
+  // Return a Response-like object
+  return {
+    ok,
+    status,
+    statusText: ok ? 'OK' : 'Error',
+    headers: new Map(Object.entries(data.headers || {})),
+    json: async () => responseBody,
+    text: async () => typeof responseBody === 'string' ? responseBody : JSON.stringify(responseBody),
+  };
+};
+// ── End proxy fetch ────────────────────────────────────────────────────────
+`;
+
 export default tool({
   description:
-    "Execute code that calls an authenticated third-party API. " +
-    "The OAuth token is securely injected as an environment variable — never printed or logged in the conversation. " +
-    "Write standard Node.js code that reads the token from process.env.INTEGRATION_TOKEN. " +
-    "For Python, use os.environ['INTEGRATION_TOKEN']. " +
-    "IMPORTANT: Never console.log or print the token itself.",
+    "Execute Node.js code that calls an authenticated third-party API. " +
+    "Auth is handled automatically — use the global `proxyFetch(url, init)` function " +
+    "instead of `fetch()` for any API call that needs the user's OAuth credentials. " +
+    "It works exactly like fetch() but injects auth server-side via the integration proxy. " +
+    "You can still use regular `fetch()` for non-authenticated requests. " +
+    "IMPORTANT: Never try to set Authorization headers — the proxy handles it.",
   args: {
     app: tool.schema
       .string()
       .describe(
-        "The integration app slug (e.g. 'google_sheets', 'slack', 'github')",
+        "The integration app slug (e.g. 'gmail', 'google_sheets', 'slack', 'github')",
       ),
-    language: tool.schema
-      .string()
-      .optional()
-      .describe("'node' (default) or 'python'"),
     code: tool.schema
       .string()
       .describe(
-        "Code to execute. Access token via process.env.INTEGRATION_TOKEN (Node) or os.environ['INTEGRATION_TOKEN'] (Python). " +
-        "The token type is in INTEGRATION_TOKEN_TYPE (usually 'Bearer').",
+        "Node.js code to execute. Use `proxyFetch(url, init)` for authenticated API calls — " +
+        "it works like fetch() but auth is injected automatically. " +
+        "Use regular `fetch()` for non-authenticated requests. " +
+        "Output results via console.log().",
       ),
   },
   async execute(args) {
-    const masterUrl = process.env.KORTIX_MASTER_URL || "http://localhost:8000";
-    const language = args.language || "node";
+    const masterUrl =
+      process.env.KORTIX_MASTER_URL || "http://localhost:8000";
+    const proxyUrl = `${masterUrl}/api/integrations/proxy`;
 
-    // 1. Fetch token from kortix-master → kortix-api
-    let accessToken: string;
-    let tokenType: string;
+    const fullCode = PROXY_FETCH_PREAMBLE + "\n" + args.code;
 
-    try {
-      const tokenRes = await fetch(`${masterUrl}/api/integrations/token`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ app: args.app }),
-      });
-
-      if (!tokenRes.ok) {
-        const err = await tokenRes.text();
-        return JSON.stringify(
-          {
-            success: false,
-            error: `Integration "${args.app}" not available (${tokenRes.status}): ${err}`,
-            hint: "Ask the user to connect this integration from the Kortix dashboard and link it to this sandbox.",
-          },
-          null,
-          2,
-        );
-      }
-
-      const tokenData = (await tokenRes.json()) as {
-        access_token: string;
-        token_type: string;
-        app: string;
-      };
-      accessToken = tokenData.access_token;
-      tokenType = tokenData.token_type || "Bearer";
-    } catch (err) {
-      return JSON.stringify(
-        {
-          success: false,
-          error: `Failed to fetch token for "${args.app}": ${err}`,
-        },
-        null,
-        2,
-      );
-    }
-
-    // 2. Write code to temp file
     const tmpDir = "/tmp";
-    const ext = language === "python" ? ".py" : ".mjs";
-    const tmpFile = join(tmpDir, `.integration_exec_${Date.now()}${ext}`);
+    const tmpFile = join(
+      tmpDir,
+      `.integration_exec_${Date.now()}.mjs`,
+    );
 
     try {
-      writeFileSync(tmpFile, args.code, "utf-8");
+      writeFileSync(tmpFile, fullCode, "utf-8");
     } catch (err) {
       return JSON.stringify(
         { success: false, error: `Failed to write temp file: ${err}` },
@@ -97,17 +115,15 @@ export default tool({
       );
     }
 
-    // 3. Execute with token as env var (NOT in args/output)
     try {
-      const runtime = language === "python" ? "python3" : "node";
-      const result = spawnSync(runtime, [tmpFile], {
+      const result = spawnSync("node", [tmpFile], {
         env: {
           ...process.env,
-          INTEGRATION_TOKEN: accessToken,
-          INTEGRATION_TOKEN_TYPE: tokenType,
+          __PROXY_URL__: proxyUrl,
+          __APP_SLUG__: args.app,
         },
         timeout: 30_000,
-        maxBuffer: 1024 * 1024, // 1MB
+        maxBuffer: 1024 * 1024, 
         encoding: "utf-8",
       });
 
@@ -115,16 +131,12 @@ export default tool({
       const stderr = result.stderr || "";
       const exitCode = result.status ?? -1;
 
-      // Filter out any accidental token leaks from output
-      const sanitize = (text: string) =>
-        text.replace(new RegExp(accessToken.slice(0, 20), "g"), "[REDACTED]");
-
       return JSON.stringify(
         {
           success: exitCode === 0,
           exit_code: exitCode,
-          stdout: sanitize(stdout).slice(0, 10_000),
-          stderr: sanitize(stderr).slice(0, 5_000),
+          stdout: stdout.slice(0, 10_000),
+          stderr: stderr.slice(0, 5_000),
         },
         null,
         2,
@@ -136,11 +148,9 @@ export default tool({
         2,
       );
     } finally {
-      // 4. Clean up temp file
       try {
         unlinkSync(tmpFile);
       } catch {
-        // Best effort
       }
     }
   },

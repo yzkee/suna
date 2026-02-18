@@ -161,7 +161,7 @@ export function createIntegrationsRouter(): Hono<AppEnv> {
 
     try {
       const provider = createAuthProvider();
-      await provider.deleteAccount(accountId, row.providerAccountId);
+      await provider.deleteAccount(accountId, row.providerAccountId as string);
     } catch (err) {
       console.error('[INTEGRATIONS] Error revoking on provider:', err);
     }
@@ -209,7 +209,6 @@ export function createIntegrationsRouter(): Hono<AppEnv> {
     return c.json({ success: true });
   });
 
-  // User-facing proxy endpoint (for testing / direct calls from dashboard)
   app.post('/connections/proxy', async (c) => {
     const userId = c.get('userId') as string;
     const accountId = userId;
@@ -293,7 +292,7 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
 
     const { app: appSlug } = parsed.data;
 
-    const linked = await getIntegrationForSandbox(sandboxId, appSlug);
+    const linked = await getIntegrationForSandbox(sandboxId, appSlug, accountId);
     if (!linked) {
       throw new HTTPException(403, {
         message: `No connected integration for "${appSlug}" linked to this sandbox`,
@@ -305,7 +304,7 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
       const token = await provider.getAuthToken(accountId, appSlug);
 
       console.log(`[INTEGRATIONS] Token fetched: app=${appSlug} sandbox=${sandboxId} account=${accountId}`);
-      await updateIntegrationLastUsed(linked.integrationId);
+      await updateIntegrationLastUsed(linked.integrationId as string);
 
       c.header('Cache-Control', 'no-store');
       return c.json({
@@ -335,7 +334,7 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
 
     const { app: appSlug, method, url, headers, body: reqBody } = parsed.data;
 
-    const linked = await getIntegrationForSandbox(sandboxId, appSlug);
+    const linked = await getIntegrationForSandbox(sandboxId, appSlug, accountId);
     if (!linked) {
       throw new HTTPException(403, {
         message: `No connected integration for "${appSlug}" linked to this sandbox`,
@@ -352,7 +351,7 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
       });
 
       console.log(`[INTEGRATIONS] Proxy: app=${appSlug} ${method} ${url} → ${result.status} sandbox=${sandboxId}`);
-      await updateIntegrationLastUsed(linked.integrationId);
+      await updateIntegrationLastUsed(linked.integrationId as string);
 
       c.header('Cache-Control', 'no-store');
       return c.json({
@@ -367,12 +366,13 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
 
   app.get('/list', async (c) => {
     const sandboxId = c.get('sandboxId') as string;
+    const accountId = c.get('accountId') as string;
 
     if (!sandboxId) {
       throw new HTTPException(403, { message: 'This endpoint requires a sandbox token (sbt_)' });
     }
 
-    const linked = await listSandboxIntegrations(sandboxId);
+    const linked = await listSandboxIntegrations(sandboxId, accountId);
     return c.json({
       integrations: linked.map((l) => ({
         app: l.integration.app,
