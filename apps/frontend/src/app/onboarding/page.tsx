@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { ArrowLeft } from 'lucide-react';
 import { useTheme } from 'next-themes';
+import { useRouter } from 'next/navigation';
 
 import { useAuth } from '@/components/AuthProvider';
 import { isLocalMode } from '@/lib/config';
@@ -37,12 +38,6 @@ function getInstanceUrl() {
 }
 
 /* ─── Types ──────────────────────────────────────────────────── */
-
-interface SetupOverlayProps {
-  onComplete: () => void;
-  /** If the backend already has an onboarding session ID, pass it to resume */
-  existingSessionId?: string | null;
-}
 
 type BootPhase = 'power' | 'bios' | 'logo' | 'login' | 'credentials' | 'onboarding';
 
@@ -128,27 +123,27 @@ function LoadingDots() {
   );
 }
 
-/* ─── Main component ─────────────────────────────────────────── */
+/* ─── Main page ──────────────────────────────────────────────── */
 
-export function SetupOverlay({ onComplete, existingSessionId }: SetupOverlayProps) {
+export default function OnboardingPage() {
+  const router = useRouter();
   const createSession = useCreateOpenCodeSession();
   const executeCommand = useExecuteOpenCodeCommand();
   const completedRef = useRef(false);
-  const creatingRef = useRef(false); // guard against double-creation
+  const creatingRef = useRef(false);
   const retriesRef = useRef(0);
   const { resolvedTheme } = useTheme();
-  const { user, signOut } = useAuth();
+  const { user, isLoading, signOut } = useAuth();
   const [mounted, setMounted] = useState(false);
   const [phase, setPhase] = useState<BootPhase>('power');
   const [visibleLines, setVisibleLines] = useState(0);
   const [progressFill, setProgressFill] = useState(false);
-  const [sessionId, setSessionId] = useState<string | null>(existingSessionId ?? null);
-  const [sessionError, setSessionError] = useState(false); // permanent error after max retries
-  const [retryTick, setRetryTick] = useState(0); // bumped to re-trigger creation effect
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionError, setSessionError] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const bootTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  // Stable refs for mutation functions — prevents useEffect re-triggers
   const createSessionRef = useRef(createSession);
   createSessionRef.current = createSession;
   const executeCommandRef = useRef(executeCommand);
@@ -158,23 +153,40 @@ export function SetupOverlay({ onComplete, existingSessionId }: SetupOverlayProp
   const isDark = !mounted || resolvedTheme !== 'light';
   const raysColor = isDark ? '#ffffff' : '#000000';
 
-  // ── Onboarding session lifecycle ──────────────────────────────
-  //
-  // When we enter the onboarding phase:
-  //   - If we have an existing session ID (from backend), just mount SessionChat
-  //   - If not, create a new session, persist its ID, then run /onboarding command
-  //
-  // This guarantees exactly ONE onboarding session across page reloads.
-  // Uses refs for mutation objects to avoid re-trigger loops.
-  // Retries up to MAX_RETRIES with exponential backoff before giving up.
+  // ── Redirect if already onboarded ─────────────────────────────
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const instanceUrl = getInstanceUrl();
+        const res = await fetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.ONBOARDING_COMPLETE === 'true') {
+            router.replace('/dashboard');
+          }
+        }
+      } catch {
+        // Sandbox not reachable yet — stay on onboarding
+      }
+    };
+    check();
+  }, [router]);
 
+  // ── Redirect to auth if not logged in ─────────────────────────
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.replace('/auth');
+    }
+  }, [user, isLoading, router]);
+
+  // ── Onboarding session lifecycle ──────────────────────────────
   const MAX_RETRIES = 3;
 
   useEffect(() => {
     if (phase !== 'onboarding') return;
-    if (sessionId) return;          // already have one — just render it
-    if (sessionError) return;       // gave up after max retries
-    if (creatingRef.current) return; // already creating (React strict mode)
+    if (sessionId) return;
+    if (sessionError) return;
+    if (creatingRef.current) return;
     creatingRef.current = true;
 
     let retryTimer: ReturnType<typeof setTimeout>;
@@ -193,13 +205,11 @@ export function SetupOverlay({ onComplete, existingSessionId }: SetupOverlayProp
           setSessionError(true);
           toast.error('Could not start onboarding. The sandbox may not be ready — try refreshing.');
         } else {
-          // Exponential backoff: 2s, 4s, 8s …
           const delay = Math.pow(2, retriesRef.current) * 1000;
           toast.warning(`Retrying onboarding session (${retriesRef.current}/${MAX_RETRIES})…`);
           retryTimer = setTimeout(() => {
-            // Allow the effect to re-attempt on next cycle
             creatingRef.current = false;
-            setRetryTick((t) => t + 1); // force re-trigger
+            setRetryTick((t) => t + 1);
           }, delay);
         }
       }
@@ -209,7 +219,7 @@ export function SetupOverlay({ onComplete, existingSessionId }: SetupOverlayProp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, sessionId, sessionError, retryTick]);
 
-  // ── Poll sandbox instance for onboarding completion to auto-dismiss ──
+  // ── Poll sandbox instance for onboarding completion ───────────
   useEffect(() => {
     if (phase !== 'onboarding') return;
     if (completedRef.current) return;
@@ -222,11 +232,9 @@ export function SetupOverlay({ onComplete, existingSessionId }: SetupOverlayProp
           const data = await res.json();
           if (data.ONBOARDING_COMPLETE === 'true') {
             clearInterval(poll);
-            // Small delay so the user sees the final message
             setTimeout(() => {
               if (!completedRef.current) {
                 completedRef.current = true;
-                onComplete();
                 if (sessionId) {
                   openTabAndNavigate({
                     id: sessionId,
@@ -236,6 +244,7 @@ export function SetupOverlay({ onComplete, existingSessionId }: SetupOverlayProp
                     serverId: useServerStore.getState().activeServerId,
                   });
                 }
+                router.replace('/dashboard');
               }
             }, 1500);
           }
@@ -246,27 +255,9 @@ export function SetupOverlay({ onComplete, existingSessionId }: SetupOverlayProp
     }, 5000);
 
     return () => clearInterval(poll);
-  }, [phase, sessionId, onComplete]);
-
-  // ── Finish: dismiss overlay & navigate to session ─────────────
-
-  const finishSetup = useCallback(() => {
-    if (completedRef.current) return;
-    completedRef.current = true;
-    onComplete();
-    if (sessionId) {
-      openTabAndNavigate({
-        id: sessionId,
-        title: 'Kortix Onboarding',
-        type: 'session',
-        href: `/sessions/${sessionId}`,
-        serverId: useServerStore.getState().activeServerId,
-      });
-    }
-  }, [onComplete, sessionId]);
+  }, [phase, sessionId, router]);
 
   // ── Boot sequence audio ───────────────────────────────────────
-
   useEffect(() => {
     const audio = new Audio('/sounds/kortix/bootup.wav');
     audio.volume = 0.6;
@@ -281,30 +272,27 @@ export function SetupOverlay({ onComplete, existingSessionId }: SetupOverlayProp
 
   const startBoot = useCallback(() => {
     if (phase !== 'power') return;
-    // Prime audio context with a silent play
     const audio = audioRef.current;
     if (audio) {
       audio.play().then(() => { audio.pause(); audio.currentTime = 0; }).catch(() => {});
     }
     setPhase('bios');
     const t = bootTimers.current;
-    // BIOS lines — fast typewriter
     BIOS_LINES.forEach((_, i) => {
       t.push(setTimeout(() => setVisibleLines(i + 1), 50 + i * 90));
     });
-    // Logo phase + play bootup sound (3s audio clip)
     t.push(setTimeout(() => {
       setPhase('logo');
       audioRef.current?.play().catch(() => {});
     }, 900));
     t.push(setTimeout(() => setProgressFill(true), 1100));
-    // Transition to login exactly when audio ends
     t.push(setTimeout(() => setPhase('login'), 3900));
   }, [phase]);
 
-  // ── Phase routing helper ──────────────────────────────────────
-
   const nextAfterLogin = isLocalMode() ? 'credentials' : 'onboarding';
+
+  if (isLoading) return null;
+  if (!user) return null;
 
   // ── Render ────────────────────────────────────────────────────
 
@@ -539,14 +527,6 @@ export function SetupOverlay({ onComplete, existingSessionId }: SetupOverlayProp
                 )}
               </div>
             </div>
-
-            {/* debug exit */}
-            <button
-              onClick={finishSetup}
-              className="absolute bottom-4 right-4 z-20 px-3 py-1 text-[10px] text-foreground/20 hover:text-foreground/40 transition-colors"
-            >
-              [debug] skip
-            </button>
           </motion.div>
         )}
 
