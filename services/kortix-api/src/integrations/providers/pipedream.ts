@@ -387,10 +387,6 @@ export class PipedreamProvider implements AuthProvider {
     }
 
     try {
-      // Pipedream Connect API requires:
-      // - `id` (the action key)
-      // - `configured_props` with the app auth as {app_slug: {authProvisionId: account_id}}
-      // - `external_user_id`
       const configured_props: Record<string, unknown> = {
         [app]: { authProvisionId: account.id },
         ...props,
