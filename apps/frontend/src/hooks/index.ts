@@ -1,6 +1,3 @@
-// Messages
-export * from './messages';
-
 // Files
 export * from './files';
 

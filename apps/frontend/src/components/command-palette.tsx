@@ -7,7 +7,6 @@ import { useTheme } from 'next-themes';
 import {
   Plus,
   LayoutDashboard,
-  Bot,
   Sun,
   Moon,
   Monitor,
@@ -997,10 +996,6 @@ export function CommandPalette() {
                 <CommandItem onSelect={() => handleNavigate('/workspace', 'Workspace')}>
                   <Blocks className="mr-2 h-4 w-4" />
                   <span>Workspace</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleNavigate('/agents', 'Agents')}>
-                  <Bot className="mr-2 h-4 w-4" />
-                  <span>Agents</span>
                 </CommandItem>
                 <CommandItem onSelect={() => handleNavigate('/skills', 'Skills')}>
                   <Sparkles className="mr-2 h-4 w-4" />

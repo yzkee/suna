@@ -122,7 +122,7 @@ export function AdminFeedbackTable() {
               className="h-8 gap-2"
               onClick={(e) => {
                 e.stopPropagation();
-                router.push(`/agents/${feedback.thread_id}`);
+                router.push(`/share/${feedback.thread_id}`);
               }}
               title={`View thread ${feedback.thread_id.substring(0, 8)}...`}
             >

@@ -122,8 +122,6 @@ export interface TokenUsage {
   prompt_tokens: number;
   completion_tokens: number;
   model: string;
-  thread_id?: string;
-  message_id?: string;
 }
 
 export interface DeductResult {
@@ -414,7 +412,7 @@ export const billingApi = {
     return response.data!;
   },
 
-  async deductUsage(params: { amount: number; thread_id?: string; description?: string }) {
+  async deductUsage(params: { amount: number; description?: string }) {
     const response = await backendApi.post<DeductResult>('/billing/deduct-usage', params, { showErrors: false });
     if (response.error) throw response.error;
     return response.data!;
@@ -584,7 +582,7 @@ export const billingApi = {
 // =============================================================================
 
 export const getAccountState = (skipCache?: boolean) => billingApi.getAccountState(skipCache);
-export const deductUsage = (params: { amount: number; thread_id?: string; description?: string }) =>
+export const deductUsage = (params: { amount: number; description?: string }) =>
   billingApi.deductUsage(params);
 export const deductTokenUsage = (usage: TokenUsage) => billingApi.deductTokenUsage(usage);
 export const createCheckoutSession = (request: CreateCheckoutSessionRequest) => 
