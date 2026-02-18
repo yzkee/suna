@@ -1628,6 +1628,23 @@ export function SessionChatInput({
 
           <div className="flex flex-col gap-1 px-3.5">
             <div className="relative w-full">
+              {/* Add to queue button — floats top-right of textarea when busy and text is typed */}
+              {isBusy && text.trim() && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      onClick={handleSubmit}
+                      variant="ghost"
+                      className="absolute right-0 top-1 z-20 h-7 gap-1.5 rounded-lg px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/80"
+                    >
+                      <ListPlus className="size-3.5" />
+                      <span>Queue</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top"><p>Add to queue</p></TooltipContent>
+                </Tooltip>
+              )}
               {text.trim().length === 0 && !stagedCommand && (
                 <div
                   aria-hidden
@@ -1767,21 +1784,7 @@ export function SessionChatInput({
                   <TooltipContent side="top"><p>Stop</p></TooltipContent>
                 </Tooltip>
               )}
-              {isBusy && text.trim() ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="sm"
-                      onClick={handleSubmit}
-                      variant="ghost"
-                      className="flex-shrink-0 h-8 w-8 rounded-full p-0 text-muted-foreground hover:text-foreground"
-                    >
-                      <ListPlus className="size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top"><p>Add to queue</p></TooltipContent>
-                </Tooltip>
-              ) : !isBusy && (
+              {!isBusy && (
                 <Button
                   size="sm"
                   disabled={!text.trim() || disabled}
