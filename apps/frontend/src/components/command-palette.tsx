@@ -28,18 +28,14 @@ import {
   MessagesSquare,
   Layers,
   GitCompareArrows,
+  History,
+  ListTodo,
   TextSearch,
   Hash,
   Keyboard,
   Slash,
   ArrowRightLeft,
-  FolderOpen,
-  Blocks,
-  Wrench,
-  KeyRound,
-  MessageSquare,
-  Calendar,
-  ScrollText,
+  BookOpen,
 } from 'lucide-react';
 
 import {
@@ -59,6 +55,13 @@ import {
   useOpenCodeCommands,
   useExecuteOpenCodeCommand,
 } from '@/hooks/opencode/use-opencode-sessions';
+// Worktree hooks — disabled for now, will be re-enabled later
+// import {
+//   useWorktreeList,
+//   useCreateWorktree,
+//   useRemoveWorktree,
+//   useResetWorktree,
+// } from '@/hooks/opencode/use-opencode-worktree';
 import { useThreadSearch } from '@/hooks/threads/use-thread-search';
 import { useFileSearch, useTextSearch, useLssSearch } from '@/features/files';
 import type { FindMatch } from '@/features/files';
@@ -70,6 +73,8 @@ import { useKortixComputerStore } from '@/stores/kortix-computer-store';
 import { THEMES, getThemeById } from '@/lib/themes';
 import { CompactDialog } from '@/components/session/compact-dialog';
 import { DiffDialog } from '@/components/session/diff-dialog';
+import { SnapshotDialog } from '@/components/session/snapshot-dialog';
+import { TodoDialog } from '@/components/session/todo-dialog';
 import { InitProjectDialog } from '@/components/session/init-project-dialog';
 
 // ============================================================================
@@ -234,6 +239,8 @@ export function CommandPalette() {
   const [isCreating, setIsCreating] = useState(false);
   const [compactOpen, setCompactOpen] = useState(false);
   const [diffOpen, setDiffOpen] = useState(false);
+  const [snapshotOpen, setSnapshotOpen] = useState(false);
+  const [todoOpen, setTodoOpen] = useState(false);
   const [initOpen, setInitOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
@@ -241,6 +248,18 @@ export function CommandPalette() {
   const { toggleSidebar, open: sidebarOpen } = useSidebar();
   const createSession = useCreateOpenCodeSession();
   const executeCommand = useExecuteOpenCodeCommand();
+
+  // Worktree management — disabled for now
+  // const [worktreeBrowsePath, setWorktreeBrowsePath] = useState<string | null>(null);
+  // const { data: worktrees = [] } = useWorktreeList();
+  // const { data: browseFiles } = useFileList(worktreeBrowsePath || '', { enabled: !!worktreeBrowsePath });
+  // const createWorktree = useCreateWorktree();
+  // const removeWorktree = useRemoveWorktree();
+  // const resetWorktree = useResetWorktree();
+  // const browseDirs = useMemo(
+  //   () => (browseFiles || []).filter((f: FileNode) => f.type === 'directory' && !f.ignored),
+  //   [browseFiles],
+  // );
 
   // Fetch all sessions (for client-side title filter)
   const { data: sessions } = useOpenCodeSessions();
@@ -330,7 +349,7 @@ export function CommandPalette() {
     return () => document.removeEventListener('keydown', down);
   }, []);
 
-  // Reset query when dialog closes
+  // Reset query and sub-views when dialog closes
   useEffect(() => {
     if (!open) {
       setQuery('');
@@ -639,13 +658,29 @@ export function CommandPalette() {
     setDiffOpen(true);
   }, [currentSessionId, close]);
 
-  // View tasks is now shown in the chat input todo panel — no modal needed
+  const handleViewSnapshots = useCallback(() => {
+    if (!currentSessionId) return;
+    close();
+    setSnapshotOpen(true);
+  }, [currentSessionId, close]);
+
+  const handleViewTasks = useCallback(() => {
+    if (!currentSessionId) return;
+    close();
+    setTodoOpen(true);
+  }, [currentSessionId, close]);
 
   const handleInitProject = useCallback(() => {
     if (!currentSessionId) return;
     close();
     setInitOpen(true);
   }, [currentSessionId, close]);
+
+  // Worktree handlers — disabled for now
+  // const handleCreateWorktree = useCallback(() => { ... }, []);
+  // const handleSelectWorktreeDir = useCallback(...);
+  // const handleRemoveWorktree = useCallback(...);
+  // const handleResetWorktree = useCallback(...);
 
   const themeLabel = useMemo(() => {
     if (theme === 'light') return 'Switch to Dark';
@@ -978,6 +1013,18 @@ export function CommandPalette() {
                   </CommandItem>
                 )}
                 {currentSessionId && (
+                  <CommandItem onSelect={handleViewSnapshots}>
+                    <History className="mr-2 h-4 w-4" />
+                    <span>View Snapshots</span>
+                  </CommandItem>
+                )}
+                {currentSessionId && (
+                  <CommandItem onSelect={handleViewTasks}>
+                    <ListTodo className="mr-2 h-4 w-4" />
+                    <span>View Tasks</span>
+                  </CommandItem>
+                )}
+                {currentSessionId && (
                   <CommandItem onSelect={handleInitProject}>
                     <Sparkles className="mr-2 h-4 w-4" />
                     <span>Initialize Project</span>
@@ -986,6 +1033,8 @@ export function CommandPalette() {
               </CommandGroup>
 
               <CommandSeparator />
+
+              {/* Worktrees management — disabled for now, will be re-enabled later */}
 
               {/* Slash commands quick access */}
               {slashCommands.length > 0 && (
@@ -1053,61 +1102,30 @@ export function CommandPalette() {
                   <LayoutDashboard className="mr-2 h-4 w-4" />
                   <span>Dashboard</span>
                 </CommandItem>
-                <CommandItem onSelect={() => handleNavigate('/projects', 'Projects')}>
-                  <FolderOpen className="mr-2 h-4 w-4" />
-                  <span>Projects</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleNavigate('/workspace', 'Workspace')}>
-                  <Blocks className="mr-2 h-4 w-4" />
-                  <span>Workspace</span>
-                </CommandItem>
                 <CommandItem onSelect={() => handleNavigate('/agents', 'Agents')}>
                   <Bot className="mr-2 h-4 w-4" />
                   <span>Agents</span>
                 </CommandItem>
+                <CommandItem onSelect={() => handleNavigate('/knowledge', 'Knowledge')}>
+                  <BookOpen className="mr-2 h-4 w-4" />
+                  <span>Knowledge</span>
+                </CommandItem>
                 <CommandItem onSelect={() => handleNavigate('/skills', 'Skills')}>
-                  <Sparkles className="mr-2 h-4 w-4" />
+                  <Database className="mr-2 h-4 w-4" />
                   <span>Skills</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleNavigate('/commands', 'Commands')}>
-                  <Slash className="mr-2 h-4 w-4" />
-                  <span>Commands</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleNavigate('/tools', 'Tools')}>
-                  <Wrench className="mr-2 h-4 w-4" />
-                  <span>Tools</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleNavigate('/files', 'Files')}>
-                  <FileText className="mr-2 h-4 w-4" />
-                  <span>Files</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleNavigate('/channels', 'Channels')}>
-                  <MessageSquare className="mr-2 h-4 w-4" />
-                  <span>Channels</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleNavigate('/scheduled-tasks', 'Scheduled Tasks')}>
-                  <Calendar className="mr-2 h-4 w-4" />
-                  <span>Scheduled Tasks</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleNavigate('/changelog', 'Changelog')}>
-                  <ScrollText className="mr-2 h-4 w-4" />
-                  <span>Changelog</span>
                 </CommandItem>
               </CommandGroup>
 
               <CommandSeparator />
 
               <CommandGroup heading="Settings">
-                <CommandItem
-                  onSelect={() => handleNavigate('/settings/credentials', 'Secrets Manager')}
-                  value="secrets manager credentials env environment variables integrations keys"
-                >
-                  <KeyRound className="mr-2 h-4 w-4" />
-                  <span>Secrets Manager</span>
-                </CommandItem>
                 <CommandItem onSelect={() => handleNavigate('/settings/api-keys', 'API Keys')}>
                   <Settings className="mr-2 h-4 w-4" />
                   <span>API Keys</span>
+                </CommandItem>
+                <CommandItem onSelect={() => handleNavigate('/settings/credentials', 'Integrations')}>
+                  <Settings className="mr-2 h-4 w-4" />
+                  <span>Integrations</span>
                 </CommandItem>
                 <CommandItem onSelect={() => handleNavigate('/configuration', 'Configuration')}>
                   <Cog className="mr-2 h-4 w-4" />
@@ -1187,6 +1205,16 @@ export function CommandPalette() {
             sessionId={currentSessionId}
             open={diffOpen}
             onOpenChange={setDiffOpen}
+          />
+          <SnapshotDialog
+            sessionId={currentSessionId}
+            open={snapshotOpen}
+            onOpenChange={setSnapshotOpen}
+          />
+          <TodoDialog
+            sessionId={currentSessionId}
+            open={todoOpen}
+            onOpenChange={setTodoOpen}
           />
           <InitProjectDialog
             sessionId={currentSessionId}

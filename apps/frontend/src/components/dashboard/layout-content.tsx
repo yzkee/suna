@@ -7,6 +7,7 @@ import { useSystemStatusQuery } from '@/hooks/edge-flags';
 import { useRouter } from 'next/navigation';
 import { useAdminRole } from '@/hooks/admin';
 import { featureFlags } from '@/lib/feature-flags';
+import { isLocalMode } from '@/lib/config';
 
 import { useProjects } from '@/hooks/threads/use-project';
 import { AppProviders } from '@/components/layout/app-providers';
@@ -20,7 +21,6 @@ import { useSandboxConnection } from '@/hooks/platform/use-sandbox-connection';
 import { useConnectionToasts } from '@/components/dashboard/connecting-screen';
 import { TabBar } from '@/components/tabs/tab-bar';
 import { useTabStore } from '@/stores/tab-store';
-import { useServerStore } from '@/stores/server-store';
 import { cn } from '@/lib/utils';
 
 function OpenCodeEventStreamProvider() {
@@ -98,6 +98,10 @@ const CommandPalette = lazy(() =>
 
 const ConnectingScreen = lazy(() =>
   import('@/components/dashboard/connecting-screen').then(mod => ({ default: mod.ConnectingScreen }))
+);
+
+const SetupOverlay = lazy(() =>
+  import('@/components/dashboard/setup-overlay').then(mod => ({ default: mod.SetupOverlay }))
 );
 
 const SessionLayout = lazy(() =>
@@ -291,35 +295,28 @@ export default function DashboardLayoutContent({
     }
   }, [user, isLoading, router]);
 
-  // Hard gate: redirect to /onboarding if not complete
-  // Checks the sandbox instance directly via /env/ONBOARDING_COMPLETE
-  // Skip with ?skip_onboarding query param
+  // Hard gate: show setup overlay if onboarding not complete (local mode only)
   const [onboardingChecked, setOnboardingChecked] = useState(false);
+  const [showSetupOverlay, setShowSetupOverlay] = useState(false);
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.has('skip_onboarding')) {
+    if (!isLocalMode()) {
       setOnboardingChecked(true);
       return;
     }
+
     const checkOnboarding = async () => {
       try {
-        const instanceUrl = useServerStore.getState().getActiveServerUrl();
-        const res = await fetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`);
+        const backendUrl =
+          process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
+        const res = await fetch(`${backendUrl}/setup/onboarding-status`);
         if (res.ok) {
           const data = await res.json();
-          if (data.ONBOARDING_COMPLETE !== 'true') {
-            router.replace('/onboarding');
-            return;
+          if (!data.complete) {
+            setShowSetupOverlay(true);
           }
-        } else {
-          // Env key not found — not onboarded yet
-          router.replace('/onboarding');
-          return;
         }
       } catch {
-        // Sandbox not reachable — treat as not onboarded
-        router.replace('/onboarding');
-        return;
+        // Backend not reachable — don't block, let them in
       }
       setOnboardingChecked(true);
     };
@@ -366,7 +363,7 @@ export default function DashboardLayoutContent({
     <NovuInboxProvider>
     <AppProviders 
       showSidebar={true}
-      defaultSidebarOpen={true}
+      defaultSidebarOpen={!showSetupOverlay}
       sidebarSiblings={
         <Suspense fallback={null}>
           {/* Status overlay for deletion operations */}
@@ -383,6 +380,18 @@ export default function DashboardLayoutContent({
       <Suspense fallback={null}>
         <ConnectingScreen />
       </Suspense>
+      {showSetupOverlay && (
+        <Suspense fallback={null}>
+          <SetupOverlay
+            onComplete={() => {
+              setShowSetupOverlay(false);
+              // NOTE: Do NOT set ONBOARDING_COMPLETE here — only the onboarding
+              // agent's onboarding_complete tool should persist that flag.
+              // Setting it here would mark onboarding done before the agent runs.
+            }}
+          />
+        </Suspense>
+      )}
       {/* Fixed overlay banners — outside document flow, won't affect layout */}
       <Suspense fallback={null}>
         <DashboardPromoBanner />

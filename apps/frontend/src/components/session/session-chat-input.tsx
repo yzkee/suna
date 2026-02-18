@@ -3,11 +3,8 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import {
   ArrowUp,
-  ArrowUpLeft,
   ChevronDown,
-  ChevronUp,
   Check,
-  GitFork,
   Loader2,
   Paperclip,
   X,
@@ -29,7 +26,6 @@ import { Button } from '@/components/ui/button';
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { VoiceRecorder } from '@/components/thread/chat-input/voice-recorder';
@@ -40,7 +36,7 @@ import type {
   Command,
   ProviderListResponse,
 } from '@/hooks/opencode/use-opencode-sessions';
-import { useSummarizeOpenCodeSession, findOpenCodeFiles, useOpenCodeSessions, useOpenCodeSessionTodo } from '@/hooks/opencode/use-opencode-sessions';
+import { useSummarizeOpenCodeSession, findOpenCodeFiles, useOpenCodeSessions } from '@/hooks/opencode/use-opencode-sessions';
 import type { Session } from '@/hooks/opencode/use-opencode-sessions';
 import { toast } from '@/lib/toast';
 import { useMessageQueueStore } from '@/stores/message-queue-store';
@@ -142,14 +138,8 @@ function AgentSelector({
 }) {
   const [open, setOpen] = useState(false);
   const [flash, setFlash] = useState(false);
-  const [focusedIndex, setFocusedIndex] = useState(-1);
   const ref = useRef<HTMLDivElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
   const prevAgentRef = useRef(selectedAgent);
-
-  const primaryAgents = useMemo(() => agents.filter((a) => a.mode !== 'subagent'), [agents]);
-  const subAgents = useMemo(() => agents.filter((a) => a.mode === 'subagent'), [agents]);
-  const allOrdered = useMemo(() => [...primaryAgents, ...subAgents], [primaryAgents, subAgents]);
 
   // Flash highlight when agent changes (e.g. via Tab cycling)
   useEffect(() => {
@@ -161,11 +151,11 @@ function AgentSelector({
     prevAgentRef.current = selectedAgent;
   }, [selectedAgent]);
 
+  // Update ref after flash starts
   useEffect(() => {
     prevAgentRef.current = selectedAgent;
   }, [selectedAgent]);
 
-  // Close on outside click
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) {
@@ -178,150 +168,47 @@ function AgentSelector({
     }
   }, [open]);
 
-  // Reset focus index when opening
-  useEffect(() => {
-    if (open) {
-      const idx = allOrdered.findIndex((a) => a.name === selectedAgent);
-      setFocusedIndex(idx >= 0 ? idx : 0);
-    }
-  }, [open, allOrdered, selectedAgent]);
-
-  // Scroll focused item into view
-  useEffect(() => {
-    if (!open || focusedIndex < 0) return;
-    const el = listRef.current?.querySelector(`[data-agent-index="${focusedIndex}"]`) as HTMLElement | null;
-    el?.scrollIntoView({ block: 'nearest' });
-  }, [focusedIndex, open]);
-
-  // Keyboard navigation
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (!open) return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setFocusedIndex((prev) => Math.min(prev + 1, allOrdered.length - 1));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setFocusedIndex((prev) => Math.max(prev - 1, 0));
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (focusedIndex >= 0 && focusedIndex < allOrdered.length) {
-        onSelect(allOrdered[focusedIndex].name);
-        setOpen(false);
-      }
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      setOpen(false);
-    }
-  }, [open, focusedIndex, allOrdered, onSelect]);
-
-  const currentAgent = agents.find((a) => a.name === selectedAgent) || agents[0];
-  const displayName = currentAgent?.name || 'Agent';
+  const currentAgent = agents.find((a) => a.name === selectedAgent);
+  const displayName = currentAgent?.name || agents[0]?.name || 'Agent';
 
   return (
-    <div className="relative" ref={ref} onKeyDown={handleKeyDown}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={() => setOpen(!open)}
-            className={cn(
-              "inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200 capitalize cursor-pointer",
-              flash && "bg-primary/10 text-foreground",
-              open && "bg-muted text-foreground",
-            )}
-          >
-            <span className="truncate max-w-[100px]">{displayName}</span>
-            <ChevronDown className={cn('size-3 opacity-50 transition-transform duration-200', open && 'rotate-180')} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="text-xs">
-          <p>Switch agent <kbd className="ml-1 px-1.5 py-0.5 rounded bg-foreground/10 text-[10px] font-mono">Tab</kbd></p>
-        </TooltipContent>
-      </Tooltip>
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={cn(
+          "inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200 capitalize cursor-pointer",
+          flash && "bg-primary/10 text-foreground",
+        )}
+      >
+        <span className="truncate max-w-[80px]">{displayName}</span>
+        <ChevronDown className={cn('size-3 opacity-50 transition-transform', open && 'rotate-180')} />
+      </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 mb-1.5 z-50 bg-popover border border-border rounded-xl overflow-hidden min-w-[240px] max-w-[320px] animate-in fade-in-0 slide-in-from-bottom-2 duration-150">
-          <div ref={listRef} className="max-h-[320px] overflow-y-auto p-1">
-            {/* Primary agents */}
-            {primaryAgents.length > 0 && (
-              <div className="px-2.5 pt-1.5 pb-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Agents</div>
-            )}
-            {primaryAgents.map((agent) => {
-              const globalIdx = allOrdered.indexOf(agent);
+        <div className="absolute bottom-full left-0 mb-1.5 z-50 bg-popover border border-border rounded-xl shadow-lg overflow-hidden min-w-[160px]">
+          <div className="max-h-48 overflow-y-auto p-1">
+            {agents.map((agent) => {
               const isSelected = selectedAgent === agent.name || (!selectedAgent && agent === agents[0]);
-              const isFocused = focusedIndex === globalIdx;
               return (
                 <button
                   key={agent.name}
-                  data-agent-index={globalIdx}
                   onClick={() => {
                     onSelect(agent.name);
                     setOpen(false);
                   }}
-                  onMouseEnter={() => setFocusedIndex(globalIdx)}
                   className={cn(
-                    'w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-[13px] transition-colors cursor-pointer group',
-                    isFocused ? 'bg-muted' : 'hover:bg-muted',
-                    isSelected && !isFocused && 'bg-muted/50',
+                    'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] hover:bg-muted transition-colors capitalize cursor-pointer',
+                    isSelected && 'bg-muted',
                   )}
                 >
-                  <div className="flex-1 min-w-0 text-left">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-medium truncate capitalize">{agent.name}</span>
-                      {isSelected && <Check className="size-3 text-foreground shrink-0" />}
-                    </div>
-                    {agent.description && (
-                      <p className="text-[11px] text-muted-foreground leading-snug mt-0.5 line-clamp-1">{agent.description}</p>
-                    )}
-                  </div>
+                  <span className="flex-1 text-left truncate">{agent.name}</span>
+                  {isSelected && (
+                    <Check className="size-3.5 text-foreground shrink-0" />
+                  )}
                 </button>
               );
             })}
-
-            {/* Sub-agents */}
-            {subAgents.length > 0 && (
-              <>
-                {primaryAgents.length > 0 && <div className="mx-2 my-1 border-t border-border" />}
-                <div className="px-2.5 pt-1.5 pb-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Sub-agents</div>
-                {subAgents.map((agent) => {
-                  const globalIdx = allOrdered.indexOf(agent);
-                  const isSelected = selectedAgent === agent.name;
-                  const isFocused = focusedIndex === globalIdx;
-                  return (
-                    <button
-                      key={agent.name}
-                      data-agent-index={globalIdx}
-                      onClick={() => {
-                        onSelect(agent.name);
-                        setOpen(false);
-                      }}
-                      onMouseEnter={() => setFocusedIndex(globalIdx)}
-                      className={cn(
-                        'w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-[13px] transition-colors cursor-pointer group',
-                        isFocused ? 'bg-muted' : 'hover:bg-muted',
-                        isSelected && !isFocused && 'bg-muted/50',
-                      )}
-                    >
-                      <div className="flex-1 min-w-0 text-left">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-medium truncate capitalize">{agent.name}</span>
-                          {isSelected && <Check className="size-3 text-foreground shrink-0" />}
-                        </div>
-                        {agent.description && (
-                          <p className="text-[11px] text-muted-foreground leading-snug mt-0.5 line-clamp-1">{agent.description}</p>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </>
-            )}
-          </div>
-
-          {/* Footer hint */}
-          <div className="border-t border-border px-2.5 py-1.5 flex items-center justify-between text-[10px] text-muted-foreground">
-            <span><kbd className="px-1.5 py-0.5 rounded bg-foreground/10 font-mono">↑↓</kbd> navigate</span>
-            <span><kbd className="px-1.5 py-0.5 rounded bg-foreground/10 font-mono">Tab</kbd> cycle</span>
           </div>
         </div>
       )}
@@ -381,98 +268,130 @@ function VariantSelector({
 
 const AUTO_COMPACT_THRESHOLD = 0.9;
 
-interface TokenProgressProps {
-  messages: MessageWithParts[] | undefined;
-  sessionId?: string;
-  models?: FlatModel[];
-  selectedModel?: { providerID: string; modelID: string } | null;
-  onContextClick?: () => void;
-}
-
-function getLastAssistantTokenTotal(messages: MessageWithParts[] | undefined): number {
-  if (!messages) return 0;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (msg.info.role !== 'assistant') continue;
-    const t = (msg.info as any).tokens;
-    if (!t) continue;
-    const total = (t.input ?? 0) + (t.output ?? 0) + (t.reasoning ?? 0) + (t.cache?.read ?? 0) + (t.cache?.write ?? 0);
-    if (total > 0) return total;
-  }
-  return 0;
-}
-
-function getContextLimit(models: FlatModel[] | undefined, selectedModel: { providerID: string; modelID: string } | null | undefined): number {
-  if (selectedModel && models) {
-    const model = models.find(m => m.providerID === selectedModel.providerID && m.modelID === selectedModel.modelID);
-    if (model?.contextWindow && model.contextWindow > 0) return model.contextWindow;
-  }
-  return 200000;
-}
-
-function TokenProgress({ messages, sessionId, models, selectedModel, onContextClick }: TokenProgressProps) {
+function TokenProgress({ messages, sessionId, models, selectedModel }: { messages: MessageWithParts[] | undefined; sessionId?: string; models?: FlatModel[]; selectedModel?: { providerID: string; modelID: string } | null }) {
   const summarize = useSummarizeOpenCodeSession();
   const autoCompactTriggered = useRef(false);
   const [isCompacting, setIsCompacting] = useState(false);
 
-  const contextTokens = useMemo(() => getLastAssistantTokenTotal(messages), [messages]);
-  const contextLimit = useMemo(() => getContextLimit(models, selectedModel), [models, selectedModel]);
+  // Use the LAST assistant message's input tokens as the context window fill level.
+  // Each API call's input tokens represent the full prompt size (all prior context),
+  // so the last one reflects the current context window usage — not a cumulative sum.
+  const contextTokens = useMemo(() => {
+    if (!messages) return 0;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.info.role === 'assistant') {
+        const tokens = (msg.info as any).tokens;
+        if (tokens && (tokens.input || 0) > 0) {
+          return tokens.input as number;
+        }
+      }
+    }
+    return 0;
+  }, [messages]);
+
+  // Use the actual model's context window instead of a hardcoded value
+  const contextLimit = useMemo(() => {
+    if (selectedModel && models) {
+      const model = models.find(
+        (m) => m.providerID === selectedModel.providerID && m.modelID === selectedModel.modelID
+      );
+      if (model?.contextWindow && model.contextWindow > 0) {
+        return model.contextWindow;
+      }
+    }
+    return 200000; // fallback
+  }, [models, selectedModel]);
+
   const ratio = contextTokens > 0 ? Math.min(contextTokens / contextLimit, 1) : 0;
 
+  // Reset auto-compact flag if ratio drops below threshold (e.g. after compaction)
   useEffect(() => {
-    if (ratio < AUTO_COMPACT_THRESHOLD) autoCompactTriggered.current = false;
+    if (ratio < AUTO_COMPACT_THRESHOLD) {
+      autoCompactTriggered.current = false;
+    }
   }, [ratio]);
 
+  // Auto-compact at 90% threshold
   useEffect(() => {
-    if (ratio >= AUTO_COMPACT_THRESHOLD && !autoCompactTriggered.current && !isCompacting && !summarize.isPending && sessionId) {
+    if (
+      ratio >= AUTO_COMPACT_THRESHOLD &&
+      !autoCompactTriggered.current &&
+      !isCompacting &&
+      !summarize.isPending &&
+      sessionId
+    ) {
       autoCompactTriggered.current = true;
       setIsCompacting(true);
       toast.info('Context is 90% full — auto-compacting session...');
+
       summarize.mutate({ sessionId }, {
-        onSuccess: () => { toast.success('Session compacted successfully'); setIsCompacting(false); },
-        onError: (err) => { toast.error(err instanceof Error ? err.message : 'Failed to auto-compact'); setIsCompacting(false); },
+        onSuccess: () => {
+          toast.success('Session compacted successfully');
+          setIsCompacting(false);
+        },
+        onError: (error) => {
+          toast.error(error instanceof Error ? error.message : 'Failed to auto-compact session');
+          setIsCompacting(false);
+        },
       });
     }
   }, [ratio, sessionId, isCompacting, summarize]);
 
-  if (contextTokens === 0 && !onContextClick) return null;
+  if (contextTokens === 0) return null;
 
   const circumference = 2 * Math.PI * 7;
   const offset = circumference * (1 - ratio);
-  const color = isCompacting ? 'text-blue-500 animate-pulse'
-    : ratio >= AUTO_COMPACT_THRESHOLD ? 'text-amber-400'
-    : ratio > 0.8 ? 'text-orange-500'
-    : 'text-muted-foreground';
+
+  // Color thresholds: >90% = amber/yellow warning, >80% = orange, default = muted
+  const circleColor = isCompacting
+    ? 'text-blue-500 animate-pulse'
+    : ratio >= AUTO_COMPACT_THRESHOLD
+      ? 'text-amber-400'
+      : ratio > 0.8
+        ? 'text-orange-500'
+        : 'text-muted-foreground';
 
   return (
-    <TooltipProvider delayDuration={200}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="relative inline-flex">
-            <button
-              type="button"
-              className="size-6 flex items-center justify-center cursor-pointer"
-              onPointerDown={(e) => { e.stopPropagation(); }}
-              onClick={(e) => { e.stopPropagation(); onContextClick?.(); }}
-            >
-              <svg className="size-5 -rotate-90" viewBox="0 0 18 18">
-                <circle cx="9" cy="9" r="7" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted" />
-                <circle cx="9" cy="9" r="7" fill="none" stroke="currentColor" strokeWidth="2"
-                  strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" className={color} />
-              </svg>
-              {isCompacting && <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-blue-500 animate-pulse" />}
-            </button>
-          </span>
-        </TooltipTrigger>
-        <TooltipContent side="top">
-          <div className="text-xs font-mono space-y-0.5">
-            <div>Context: {(contextTokens / 1000).toFixed(1)}k / {(contextLimit / 1000).toFixed(0)}k tokens</div>
-            <div className="text-muted-foreground">{Math.round(ratio * 100)}% used</div>
-            {isCompacting && <div className="text-blue-500 font-sans">Compacting...</div>}
-          </div>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="relative size-6 flex items-center justify-center cursor-default">
+          <svg className="size-5 -rotate-90" viewBox="0 0 18 18">
+            <circle cx="9" cy="9" r="7" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted" />
+            <circle
+              cx="9" cy="9" r="7" fill="none" stroke="currentColor" strokeWidth="2"
+              strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round"
+              className={circleColor}
+            />
+          </svg>
+          {/* Pulsing dot indicator when compacting */}
+          {isCompacting && (
+            <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-blue-500 animate-pulse" />
+          )}
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        <div className="text-xs font-mono space-y-1">
+          <div>Context: {(contextTokens / 1000).toFixed(1)}k / {(contextLimit / 1000).toFixed(0)}k tokens</div>
+          <div className="text-muted-foreground">{Math.round(ratio * 100)}% of context used</div>
+          {isCompacting && (
+            <div className="text-blue-500 font-sans pt-0.5">
+              Compacting session...
+            </div>
+          )}
+          {!isCompacting && ratio >= AUTO_COMPACT_THRESHOLD && (
+            <div className="text-amber-400 font-sans pt-0.5">
+              Context almost full — compaction will start automatically.
+            </div>
+          )}
+          {!isCompacting && ratio > 0.8 && ratio < AUTO_COMPACT_THRESHOLD && (
+            <div className="text-orange-500 font-sans pt-0.5">
+              Context getting full. Consider compacting.
+            </div>
+          )}
+        </div>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -637,7 +556,7 @@ function SlashCommandPopover({
 
   return (
     <div
-      className="fixed z-[9999] bg-popover border border-border rounded-xl overflow-hidden"
+      className="fixed z-[9999] bg-popover border border-border rounded-xl shadow-lg overflow-hidden"
       style={{ bottom: window.innerHeight - r.top + 4, left: r.left, width: r.width }}
     >
       <div ref={scrollRef} className="max-h-64 overflow-y-auto py-1">
@@ -717,7 +636,7 @@ function MentionPopover({
 
   return (
     <div
-      className="fixed z-[9999] bg-popover border border-border rounded-xl overflow-hidden"
+      className="fixed z-[9999] bg-popover border border-border rounded-xl shadow-lg overflow-hidden"
       style={{ bottom: window.innerHeight - r.top + 4, left: r.left, width: r.width }}
     >
       <div ref={listRef} className="max-h-64 overflow-y-auto py-1">
@@ -819,65 +738,6 @@ function loadPromptHistory(key: string): string[] {
 // SessionChatInput - The unified chat input
 // ============================================================================
 
-// --- Todo Panel (floating above chat input) ---
-
-function TodoPanel({ sessionId }: { sessionId: string }) {
-  const { data: todos } = useOpenCodeSessionTodo(sessionId);
-  const [open, setOpen] = useState(true);
-
-  if (!todos || todos.length === 0) return null;
-
-  const completed = todos.filter((t: any) => t.status === 'completed').length;
-  const total = todos.length;
-
-  return (
-    <div className="absolute bottom-full left-3 right-3 mb-1.5 z-20">
-      <div className="rounded-[24px] border border-border bg-card overflow-hidden">
-        <button
-          onClick={() => setOpen((v) => !v)}
-          className="flex items-center justify-between w-full h-8 px-4 cursor-default select-none"
-        >
-          <span className="text-xs font-medium text-foreground">
-            {completed} of {total} todos completed
-          </span>
-          <ChevronUp className={cn(
-            'size-3 text-muted-foreground transition-transform duration-150',
-            !open && 'rotate-180',
-          )} />
-        </button>
-        {open && (
-          <div className="px-4 pb-3 flex flex-col gap-2">
-            {todos.map((todo: any, i: number) => {
-              const done = todo.status === 'completed';
-              const active = todo.status === 'in_progress';
-              return (
-                <div key={todo.id || i} className="flex items-center gap-3">
-                  <span className={cn(
-                    'size-4 rounded-[4px] flex-shrink-0 flex items-center justify-center border',
-                    done ? 'border-border bg-muted' : 'border-border',
-                  )}>
-                    {done && (
-                      <svg viewBox="0 0 12 12" fill="none" width="10" height="10"><path d="M3 7.17905L5.02703 8.85135L9 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square" className="text-foreground" /></svg>
-                    )}
-                    {active && <div className="size-1.5 rounded-full bg-foreground" />}
-                  </span>
-                  <span className={cn(
-                    'text-xs',
-                    done && 'line-through text-muted-foreground',
-                    !done && 'text-foreground',
-                  )}>
-                    {todo.content}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export interface SessionChatInputProps {
   onSend: (text: string, files?: AttachedFile[], mentions?: TrackedMention[]) => void | Promise<void>;
   isBusy?: boolean;
@@ -906,16 +766,6 @@ export interface SessionChatInputProps {
   onFileSearch?: (query: string) => Promise<string[]>;
   /** Full provider list response (for connect/manage provider dialogs) */
   providers?: ProviderListResponse;
-
-  /** Thread/fork context — renders an inline indicator inside the input card */
-  threadContext?: {
-    variant: 'thread' | 'fork';
-    parentTitle: string;
-    onBackToParent: () => void;
-  };
-
-  /** Callback when the context usage indicator is clicked */
-  onContextClick?: () => void;
 }
 
 export function SessionChatInput({
@@ -941,8 +791,6 @@ export function SessionChatInput({
 
   onFileSearch,
   providers,
-  threadContext,
-  onContextClick,
 }: SessionChatInputProps) {
   const placeholderVariants = useMemo(
     () => [
@@ -1534,9 +1382,7 @@ export function SessionChatInput({
 
   return (
     <div className="mx-auto w-full max-w-4xl relative shrink-0 px-2 sm:px-4 pb-6">
-      {/* Todo panel — floating above the input card */}
-      {sessionId && <TodoPanel sessionId={sessionId} />}
-      <div ref={cardRef} className="w-full bg-card border border-border rounded-[24px] overflow-visible relative z-10">
+      <div ref={cardRef} className="w-full bg-card border border-border rounded-[24px] shadow-sm shadow-black/[0.03] dark:shadow-white/[0.02] overflow-visible relative z-10">
         <div className="relative flex flex-col w-full gap-2 overflow-visible">
           {/* Slash command popover (portalled to body to escape overflow-hidden ancestors) */}
           {slashFilter !== null && filteredCommands.length > 0 && (
@@ -1558,24 +1404,6 @@ export function SessionChatInput({
               loading={fileSearchLoading}
               anchorRef={cardRef}
             />
-          )}
-
-          {/* Sub-session context — integrated inside the input card */}
-          {threadContext && (
-            <button
-              onClick={threadContext.onBackToParent}
-              className={cn(
-                'flex items-center gap-2 mx-3 mt-3 mb-0 px-3 py-2 rounded-xl',
-                'bg-muted/50 hover:bg-muted/80 transition-colors cursor-pointer group',
-              )}
-            >
-              <ArrowUpLeft className="size-3.5 text-muted-foreground group-hover:-translate-x-0.5 group-hover:-translate-y-0.5 transition-transform flex-shrink-0" />
-              <span className="text-xs text-muted-foreground flex-1 min-w-0 truncate text-left">
-                {threadContext.variant === 'fork' ? 'Fork of' : 'Sub-session of'}
-                {' '}
-                <span className="text-foreground/80 font-medium">{threadContext.parentTitle}</span>
-              </span>
-            </button>
           )}
 
           {/* Attached files preview */}
@@ -1722,7 +1550,7 @@ export function SessionChatInput({
 
             {/* RIGHT: TokenProgress + Voice + Submit/Stop */}
             <div className="flex items-center gap-0 shrink-0">
-              <TokenProgress messages={messages} sessionId={sessionId} models={models} selectedModel={selectedModel} onContextClick={onContextClick} />
+              <TokenProgress messages={messages} sessionId={sessionId} models={models} selectedModel={selectedModel} />
 
               <VoiceRecorder
                 onTranscription={handleTranscription}

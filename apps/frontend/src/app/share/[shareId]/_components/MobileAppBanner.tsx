@@ -96,7 +96,7 @@ export function MobileAppBanner({ shareId }: MobileAppBannerProps) {
           <Button
             onClick={handleOpenInApp}
             size="sm"
-            className="h-8 px-4 text-xs"
+            className="h-8 px-4 text-xs font-semibold rounded-full"
           >
             Open
           </Button>

@@ -31,7 +31,7 @@ export interface UseOpenCodeLocalOptions {
 export interface OpenCodeLocalAgent {
   /** Currently selected agent (or first available) */
   current: Agent | undefined;
-  /** List of visible (non-hidden) agents, including subagents */
+  /** List of visible (non-subagent, non-hidden) agents */
   list: Agent[];
   /** Set agent by name */
   set: (name: string | undefined) => void;
@@ -176,7 +176,7 @@ export function useOpenCodeLocal({
 
   // ---- Agent state ----
   const visibleAgents = useMemo<Agent[]>(
-    () => (Array.isArray(rawAgents) ? rawAgents : []).filter((a) => !a.hidden),
+    () => (Array.isArray(rawAgents) ? rawAgents : []).filter((a) => a.mode !== 'subagent' && !a.hidden),
     [rawAgents],
   );
 

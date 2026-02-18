@@ -1,98 +1,65 @@
 'use client';
 
-/**
- * Compatibility re-export — the real data lives in opencode-sync-store.
- *
- * Old shape: permissions/questions as Record<requestID, Request>
- * Sync store: permissions/questions as Record<sessionID, Request[]>
- *
- * We store a cached flattened version to avoid infinite re-render loops.
- */
-import { useSyncStore } from './opencode-sync-store';
+import { create } from 'zustand';
 import type { PermissionRequest, QuestionRequest } from '@kortix/opencode-sdk/v2/client';
 
 interface OpenCodePendingState {
   permissions: Record<string, PermissionRequest>;
   questions: Record<string, QuestionRequest>;
+
+  addPermission: (req: PermissionRequest) => void;
   removePermission: (requestId: string) => void;
+  addQuestion: (req: QuestionRequest) => void;
   removeQuestion: (requestId: string) => void;
+  clear: () => void;
+
+  // Derived: all pending items for a specific session
+  getSessionPendingCount: (sessionId: string) => number;
+  getTotalPendingCount: () => number;
 }
 
-// Cached flattened versions — rebuilt when the source map reference changes
-let cachedPermsSource: Record<string, PermissionRequest[]> | null = null;
-let cachedPermsFlat: Record<string, PermissionRequest> = {};
-let cachedQuesSource: Record<string, QuestionRequest[]> | null = null;
-let cachedQuesFlat: Record<string, QuestionRequest> = {};
+export const useOpenCodePendingStore = create<OpenCodePendingState>()((set, get) => ({
+  permissions: {},
+  questions: {},
 
-function getFlatPermissions(perSession: Record<string, PermissionRequest[]>): Record<string, PermissionRequest> {
-  if (perSession === cachedPermsSource) return cachedPermsFlat;
-  cachedPermsSource = perSession;
-  const flat: Record<string, PermissionRequest> = {};
-  for (const arr of Object.values(perSession)) {
-    for (const p of arr) flat[p.id] = p;
-  }
-  cachedPermsFlat = flat;
-  return flat;
-}
+  addPermission: (req) =>
+    set((state) => ({
+      permissions: { ...state.permissions, [req.id]: req },
+    })),
 
-function getFlatQuestions(perSession: Record<string, QuestionRequest[]>): Record<string, QuestionRequest> {
-  if (perSession === cachedQuesSource) return cachedQuesFlat;
-  cachedQuesSource = perSession;
-  const flat: Record<string, QuestionRequest> = {};
-  for (const arr of Object.values(perSession)) {
-    for (const q of arr) flat[q.id] = q;
-  }
-  cachedQuesFlat = flat;
-  return flat;
-}
+  removePermission: (requestId) =>
+    set((state) => {
+      const { [requestId]: _, ...rest } = state.permissions;
+      return { permissions: rest };
+    }),
 
-export function useOpenCodePendingStore<T>(selector: (state: OpenCodePendingState) => T): T {
-  return useSyncStore((s) => {
-    const state: OpenCodePendingState = {
-      permissions: getFlatPermissions(s.permissions),
-      questions: getFlatQuestions(s.questions),
-      removePermission: (requestId) => {
-        for (const [sid, perms] of Object.entries(s.permissions)) {
-          if (perms.some((p) => p.id === requestId)) {
-            s.removePermission(sid, requestId);
-            return;
-          }
-        }
-      },
-      removeQuestion: (requestId) => {
-        for (const [sid, qs] of Object.entries(s.questions)) {
-          if (qs.some((q) => q.id === requestId)) {
-            s.removeQuestion(sid, requestId);
-            return;
-          }
-        }
-      },
-    };
-    return selector(state);
-  });
-}
+  addQuestion: (req) =>
+    set((state) => ({
+      questions: { ...state.questions, [req.id]: req },
+    })),
 
-// Static access
-useOpenCodePendingStore.getState = (): OpenCodePendingState => {
-  const s = useSyncStore.getState();
-  return {
-    permissions: getFlatPermissions(s.permissions),
-    questions: getFlatQuestions(s.questions),
-    removePermission: (requestId) => {
-      for (const [sid, perms] of Object.entries(s.permissions)) {
-        if (perms.some((p) => p.id === requestId)) {
-          s.removePermission(sid, requestId);
-          return;
-        }
-      }
-    },
-    removeQuestion: (requestId) => {
-      for (const [sid, qs] of Object.entries(s.questions)) {
-        if (qs.some((q) => q.id === requestId)) {
-          s.removeQuestion(sid, requestId);
-          return;
-        }
-      }
-    },
-  };
-};
+  removeQuestion: (requestId) =>
+    set((state) => {
+      const { [requestId]: _, ...rest } = state.questions;
+      return { questions: rest };
+    }),
+
+  clear: () => set({ permissions: {}, questions: {} }),
+
+  getSessionPendingCount: (sessionId) => {
+    const s = get();
+    const permCount = Object.values(s.permissions).filter((p) => p.sessionID === sessionId).length;
+    const qCount = Object.values(s.questions)
+      .filter((q) => q.sessionID === sessionId)
+      .reduce((sum, q) => sum + (q.questions?.length || 1), 0);
+    return permCount + qCount;
+  },
+
+  getTotalPendingCount: () => {
+    const s = get();
+    const permCount = Object.keys(s.permissions).length;
+    const qCount = Object.values(s.questions)
+      .reduce((sum, q) => sum + (q.questions?.length || 1), 0);
+    return permCount + qCount;
+  },
+}));
