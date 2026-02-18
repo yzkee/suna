@@ -1,22 +1,22 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { getActiveOpenCodeUrl } from '@/stores/server-store';
 
-const getBackendUrl = () =>
-  process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
+const getInstanceUrl = () => getActiveOpenCodeUrl();
 
 export const secretsKeys = {
   all: ['secrets'] as const,
 };
 
 /**
- * Fetch all secrets (key → masked value).
+ * Fetch all secrets (key → masked value) via /env?masked=1.
  */
 export function useSecrets() {
   return useQuery({
     queryKey: secretsKeys.all,
     queryFn: async (): Promise<Record<string, string>> => {
-      const res = await fetch(`${getBackendUrl()}/secrets`);
+      const res = await fetch(`${getInstanceUrl()}/env?masked=1`);
       if (!res.ok) throw new Error('Failed to fetch secrets');
       const data = await res.json();
       return data.secrets ?? {};
@@ -25,13 +25,13 @@ export function useSecrets() {
 }
 
 /**
- * Set a single secret.
+ * Set a single secret via PUT /env/:key.
  */
 export function useSetSecret() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ key, value }: { key: string; value: string }) => {
-      const res = await fetch(`${getBackendUrl()}/secrets/${encodeURIComponent(key)}`, {
+      const res = await fetch(`${getInstanceUrl()}/env/${encodeURIComponent(key)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value }),
@@ -63,13 +63,13 @@ export function useSetSecret() {
 }
 
 /**
- * Delete a single secret.
+ * Delete a single secret via DELETE /env/:key.
  */
 export function useDeleteSecret() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (key: string) => {
-      const res = await fetch(`${getBackendUrl()}/secrets/${encodeURIComponent(key)}`, {
+      const res = await fetch(`${getInstanceUrl()}/env/${encodeURIComponent(key)}`, {
         method: 'DELETE',
       });
       if (!res.ok) {
@@ -83,7 +83,6 @@ export function useDeleteSecret() {
       const prev = qc.getQueryData<Record<string, string>>(secretsKeys.all);
       if (prev) {
         const next = { ...prev };
-        // Set to empty (template keys will reappear as "not set", custom keys removed on refetch)
         if (key in next) next[key] = '';
         qc.setQueryData(secretsKeys.all, next);
       }
