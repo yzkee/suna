@@ -61,7 +61,7 @@ import { useSyncStore } from '@/stores/opencode-sync-store';
 import { getClient } from '@/lib/opencode-sdk';
 import { useOpenCodePendingStore } from '@/stores/opencode-pending-store';
 import { useKortixComputerStore } from '@/stores/kortix-computer-store';
-import { useMessageQueueStore } from '@/stores/message-queue-store';
+import { useMessageQueueStore, type QueuedMessage } from '@/stores/message-queue-store';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { useThrottledValue } from '@/hooks/use-throttled-value';
 import { SessionSiteHeader } from '@/components/session/session-site-header';
@@ -2126,6 +2126,14 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
   const isBusy = isServerBusy;
 
   // ---- Message Queue ----
+  // Hydrate the queue from the backend on first mount (survives page reloads).
+  const queueHydrated = useMessageQueueStore((s) => s.hydrated);
+  useEffect(() => {
+    if (!queueHydrated) {
+      useMessageQueueStore.getState().hydrateFromBackend();
+    }
+  }, [queueHydrated]);
+
   // Select the full array (stable ref) and derive the filtered list via useMemo
   // to avoid the "getSnapshot should be cached" infinite-loop error that occurs
   // when .filter() creates a new array reference on every selector call.
@@ -2150,28 +2158,56 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
   // Guard against double-drain: tracks whether a drain is already scheduled
   const drainScheduledRef = useRef(false);
 
-  // Auto-drain: when server transitions from busy → idle, send the next queued message
+  // Sync queue from backend when session goes idle. The backend drainer may
+  // have already processed messages while the tab was closed/backgrounded.
+  // This re-fetches the persisted queue so the frontend stays in sync.
   useEffect(() => {
     const wasBusy = prevServerBusyRef.current;
     prevServerBusyRef.current = isServerBusy;
 
     if (wasBusy && !isServerBusy) {
-      // Server confirmed idle — check for queued messages
-      const sessionQueue = useMessageQueueStore.getState().messages.filter(
-        (m) => m.sessionId === sessionId,
-      );
-      if (sessionQueue.length > 0) {
-        // Small delay to let the UI settle before auto-sending
-        drainScheduledRef.current = true;
-        const timer = setTimeout(() => {
-          drainScheduledRef.current = false;
-          const next = queueDequeue(sessionId);
-          if (next) {
-            handleSend(next.text, next.files);
-          }
-        }, 500);
-        return () => { clearTimeout(timer); drainScheduledRef.current = false; };
-      }
+      // Re-sync from backend first, then drain from local store
+      void (async () => {
+        // Refresh queue from backend (the drainer may have consumed messages)
+        try {
+          const { fetchSessionQueue } = await import('@/lib/api/queue');
+          const backendMsgs = await fetchSessionQueue(sessionId);
+          const state = useMessageQueueStore.getState();
+          // Replace session's messages with backend truth, preserving local file refs
+          const otherMsgs = state.messages.filter((m) => m.sessionId !== sessionId);
+          const merged = backendMsgs.map((bm) => {
+            // Preserve local file attachments if the message still exists locally
+            const local = state.messages.find((m) => m.id === bm.id);
+            return {
+              id: bm.id,
+              sessionId: bm.sessionId,
+              text: bm.text,
+              timestamp: bm.timestamp,
+              files: local?.files,
+            } as QueuedMessage;
+          });
+          useMessageQueueStore.setState({ messages: [...otherMsgs, ...merged] });
+        } catch {
+          // Backend unreachable — use local state as fallback
+        }
+
+        // Now drain: check if there are still queued messages to send
+        const sessionQueue = useMessageQueueStore.getState().messages.filter(
+          (m) => m.sessionId === sessionId,
+        );
+        if (sessionQueue.length > 0) {
+          drainScheduledRef.current = true;
+          setTimeout(() => {
+            drainScheduledRef.current = false;
+            const next = queueDequeue(sessionId);
+            if (next) {
+              handleSend(next.text, next.files);
+            }
+          }, 500);
+        }
+      })();
+
+      return () => { drainScheduledRef.current = false; };
     }
   }, [isServerBusy, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2585,10 +2621,25 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
       // SolidJS approach where part IDs are sent with the prompt request.
       const textPartId = ascendingId('prt');
 
+      // Build optimistic text that includes session ref XML so that
+      // HighlightMentions / UserMessageRow can detect multi-word session
+      // mentions (e.g. "@Intro message") before the server echoes back.
+      const sessionMentionsForOptimistic = mentions?.filter((m) => m.kind === 'session' && m.value);
+      let optimisticText = text;
+      if (sessionMentionsForOptimistic && sessionMentionsForOptimistic.length > 0) {
+        const refs = sessionMentionsForOptimistic
+          .map((m) => `<session_ref id="${m.value}" title="${m.label}" />`)
+          .join('\n');
+        optimisticText = `${text}\n\nReferenced sessions (use the session_context tool to fetch details when needed):\n${refs}`;
+      }
+
       // Optimistic: show message immediately in sync store + set busy
       // Matches OpenCode: sync.set("session_status", session.id, { type: "busy" })
-      addOptimisticUserMessage(messageID, text, [textPartId]);
+      addOptimisticUserMessage(messageID, optimisticText, [textPartId]);
       useSyncStore.getState().setStatus(sessionId, { type: 'busy' });
+
+      // Scroll to bottom after the optimistic message renders
+      requestAnimationFrame(() => scrollToBottom());
 
       const options: Record<string, unknown> = {};
       if (local.agent.current) options.agent = local.agent.current.name;
@@ -2670,7 +2721,7 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sessionId, sendMessage, local.agent.current, local.model.currentKey, local.model.variant.current, addOptimisticUserMessage, removeOptimisticUserMessage],
+    [sessionId, sendMessage, local.agent.current, local.model.currentKey, local.model.variant.current, addOptimisticUserMessage, removeOptimisticUserMessage, scrollToBottom],
   );
 
   const handleStop = useCallback(() => {
