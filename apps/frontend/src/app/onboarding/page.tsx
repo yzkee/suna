@@ -214,7 +214,7 @@ export default function OnboardingPage() {
   }, [user, isLoading, router]);
 
   // ── Onboarding session lifecycle ──────────────────────────────
-  // First try to resume an existing onboarding session, then create a new one.
+  // Resume existing session or create new one + fire /onboarding command.
   const MAX_RETRIES = 3;
 
   useEffect(() => {
@@ -225,27 +225,26 @@ export default function OnboardingPage() {
     creatingRef.current = true;
 
     let retryTimer: ReturnType<typeof setTimeout>;
+    const instanceUrl = getInstanceUrl();
 
     (async () => {
       try {
-        // Check if there's an existing onboarding session we can resume
-        const instanceUrl = getInstanceUrl();
-        const existingRes = await fetch(`${instanceUrl}/env/ONBOARDING_SESSION_ID`).catch(() => null);
-        if (existingRes?.ok) {
-          const data = await existingRes.json();
-          const existingId = data.ONBOARDING_SESSION_ID;
-          if (existingId && existingId !== '' && existingId !== 'test123') {
-            setSessionId(existingId);
-            creatingRef.current = false;
-            return;
-          }
+        // 1. Try to resume an existing onboarding session
+        const res = await fetch(`${instanceUrl}/env/ONBOARDING_SESSION_ID`).catch(() => null);
+        const existing = res?.ok ? (await res.json()).ONBOARDING_SESSION_ID : null;
+
+        if (existing && existing !== '') {
+          // Existing session found — just resume, don't re-send /onboarding command
+          setSessionId(existing);
+          creatingRef.current = false;
+          return;
         }
 
-        // No existing session — create a new one
+        // 2. No existing session — create + persist + fire command in one flow
         const session = await createSessionRef.current.mutateAsync({ title: 'Kortix Onboarding' });
-        setSessionId(session.id);
         persistOnboardingSessionId(session.id);
-        executeCommandRef.current.mutate({ sessionId: session.id, command: 'onboarding' });
+        await executeCommandRef.current.mutateAsync({ sessionId: session.id, command: 'onboarding' });
+        setSessionId(session.id);
         retriesRef.current = 0;
       } catch {
         creatingRef.current = false;
