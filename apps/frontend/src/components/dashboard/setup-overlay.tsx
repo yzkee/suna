@@ -31,7 +31,10 @@ const BIOS_LINES: { text: string; bold?: boolean }[] = [
   { text: 'Starting KORTIX OS...' },
 ];
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
+/** Get the sandbox instance URL (e.g. http://localhost:14000) */
+function getInstanceUrl() {
+  return useServerStore.getState().getActiveServerUrl();
+}
 
 /* ─── Types ──────────────────────────────────────────────────── */
 
@@ -45,12 +48,13 @@ type BootPhase = 'power' | 'bios' | 'logo' | 'login' | 'credentials' | 'onboardi
 
 /* ─── Helpers ────────────────────────────────────────────────── */
 
-/** Persist the onboarding session ID to the backend (fire-and-forget). */
+/** Persist the onboarding session ID to the sandbox instance (fire-and-forget). */
 function persistOnboardingSessionId(sessionId: string) {
-  fetch(`${BACKEND_URL}/setup/onboarding-session`, {
+  const instanceUrl = getInstanceUrl();
+  fetch(`${instanceUrl}/env/ONBOARDING_SESSION_ID`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId }),
+    body: JSON.stringify({ value: sessionId }),
   }).catch(() => {}); // best effort
 }
 
@@ -205,17 +209,18 @@ export function SetupOverlay({ onComplete, existingSessionId }: SetupOverlayProp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, sessionId, sessionError, retryTick]);
 
-  // ── Poll onboarding-status to auto-dismiss when agent completes ──
+  // ── Poll sandbox instance for onboarding completion to auto-dismiss ──
   useEffect(() => {
     if (phase !== 'onboarding') return;
     if (completedRef.current) return;
 
     const poll = setInterval(async () => {
       try {
-        const res = await fetch(`${BACKEND_URL}/setup/onboarding-status`);
+        const instanceUrl = getInstanceUrl();
+        const res = await fetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`);
         if (res.ok) {
           const data = await res.json();
-          if (data.complete) {
+          if (data.ONBOARDING_COMPLETE === 'true') {
             clearInterval(poll);
             // Small delay so the user sees the final message
             setTimeout(() => {
@@ -236,7 +241,7 @@ export function SetupOverlay({ onComplete, existingSessionId }: SetupOverlayProp
           }
         }
       } catch {
-        // ignore — backend may not be reachable yet
+        // ignore — sandbox may not be reachable yet
       }
     }, 5000);
 
