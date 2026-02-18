@@ -339,7 +339,17 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
       }
       case 'message.part.updated': {
         const part = (event.properties as { part: Part }).part;
-        if (!part?.messageID) return;
+        if (!part?.messageID || !part?.sessionID) return;
+
+        // Some streams can deliver part updates before message.updated.
+        // Ensure an assistant message stub exists so streaming text can render
+        // immediately in the active turn.
+        store.upsertMessage(part.sessionID, {
+          id: part.messageID,
+          sessionID: part.sessionID,
+          role: 'assistant',
+        } as Message);
+
         store.upsertPart(part.messageID, part);
         return;
       }

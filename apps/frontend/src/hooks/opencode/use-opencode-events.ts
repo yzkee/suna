@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useOpenCodeSessionStatusStore } from '@/stores/opencode-session-status-store';
 import { useOpenCodePendingStore } from '@/stores/opencode-pending-store';
 import { useDiagnosticsStore } from '@/stores/diagnostics-store';
+import { useSyncStore } from '@/stores/opencode-sync-store';
 import { useServerStore } from '@/stores/server-store';
 import { getClient, resetClient } from '@/lib/opencode-sdk';
 import { clearConfigOverrides } from '@/hooks/opencode/use-opencode-config';
@@ -21,8 +22,7 @@ import { ptyKeys } from './use-opencode-pty';
 import { fileListKeys } from '@/features/files/hooks/use-file-list';
 import { fileContentKeys } from '@/features/files/hooks/use-file-content';
 import { gitStatusKeys } from '@/features/files/hooks/use-git-status';
-import type { Event as OpenCodeEvent, Message, Part } from '@kortix/opencode-sdk/v2/client';
-import type { MessageWithParts } from './use-opencode-sessions';
+import type { Event as OpenCodeEvent, Part } from '@kortix/opencode-sdk/v2/client';
 
 /**
  * Connects to OpenCode's SSE event stream via the SDK and
@@ -41,6 +41,7 @@ export function useOpenCodeEventStream() {
   const addQuestion = useOpenCodePendingStore((s) => s.addQuestion);
   const removeQuestion = useOpenCodePendingStore((s) => s.removeQuestion);
   const clearPending = useOpenCodePendingStore((s) => s.clear);
+  const applySyncEvent = useSyncStore((s) => s.applyEvent);
   const serverVersion = useServerStore((s) => s.serverVersion);
   const abortRef = useRef<AbortController | null>(null);
   const prevServerVersionRef = useRef(serverVersion);
@@ -59,6 +60,7 @@ export function useOpenCodeEventStream() {
       clearConfigOverrides();
       clearStatuses({});
       clearPending();
+      useSyncStore.getState().reset();
       useDiagnosticsStore.getState().clearAll();
       queryClient.removeQueries({ queryKey: opcodeKeys.all });
     }
@@ -90,15 +92,19 @@ export function useOpenCodeEventStream() {
     // Coalescing map — replaces earlier events of the same key
     const coalesced = new Map<string, number>();
 
+    // Coalescing keys — matches OpenCode global-sdk.tsx exactly.
+    // message.part.updated IS coalesced (same part ID replaces earlier entry).
+    // This is safe because the server sends the FULL part state each time,
+    // not deltas. The sync store's upsertPart replaces the whole part.
     function getCoalesceKey(event: OpenCodeEvent): string | undefined {
-      // NOTE: session.status events are NOT coalesced — they represent
-      // important state transitions (busy → idle) that must all be processed
-      // for notification detection to work correctly.
-      if (event.type === 'message.part.updated') {
-        const part = (event.properties as any)?.part;
-        return `message.part.updated:${part?.messageID}:${part?.id}`;
+      if (event.type === 'session.status') {
+        return `session.status:${(event.properties as any).sessionID}`;
       }
       if (event.type === 'lsp.updated') return 'lsp.updated';
+      if (event.type === 'message.part.updated') {
+        const part = (event.properties as any).part;
+        return `message.part.updated:${part?.messageID}:${part?.id}`;
+      }
       return undefined;
     }
 
@@ -129,7 +135,7 @@ export function useOpenCodeEventStream() {
       let retryCount = 0;
       while (!abortController.signal.aborted) {
         try {
-          const result = await client.event.subscribe(undefined, {
+          const result = await client.global.event({
             signal: abortController.signal,
             sseDefaultRetryDelay: 3000,
             sseMaxRetryDelay: 30000,
@@ -146,19 +152,29 @@ export function useOpenCodeEventStream() {
           }
           retryCount = 0;
 
+          // Consume stream exactly like OpenCode global-sdk.tsx:
+          // queue + coalesce + 16ms flush + yield every 8ms
+          let yieldedAt = Date.now();
           for await (const event of stream) {
             if (abortController.signal.aborted) break;
-            const e = event as OpenCodeEvent;
+            const raw = event as any;
+            const e = (raw && typeof raw === 'object' && 'payload' in raw ? raw.payload : raw) as OpenCodeEvent;
+            if (!e?.type) continue;
+
             const ck = getCoalesceKey(e);
             if (ck) {
               const existing = coalesced.get(ck);
               if (existing !== undefined) {
-                queue[existing] = undefined; // null out old entry
+                queue[existing] = undefined;
               }
               coalesced.set(ck, queue.length);
             }
             queue.push({ type: (e as any).type, event: e });
             schedule();
+
+            if (Date.now() - yieldedAt < 8) continue;
+            yieldedAt = Date.now();
+            await new Promise<void>((resolve) => setTimeout(resolve, 0));
           }
         } catch (err) {
           if (abortController.signal.aborted) break;
@@ -192,29 +208,21 @@ export function useOpenCodeEventStream() {
     }
 
     function handleEvent(event: OpenCodeEvent) {
-      switch (event.type) {
-        // ---- Message events (INCREMENTAL) ----
-        case 'message.updated': {
-          const info = (event.properties as any).info as Message;
-          if (!info?.sessionID) break;
-          updateMessageInCache(info);
-          break;
-        }
+      // Sync store is the SINGLE source of truth for messages & parts.
+      // This matches OpenCode's architecture where the SolidJS store is
+      // the only place message/part data lives.
+      applySyncEvent(event);
 
-        case 'message.removed': {
-          const props = event.properties as { sessionID: string; messageID: string };
-          if (!props.sessionID || !props.messageID) break;
-          removeMessageFromCache(props.sessionID, props.messageID);
+      switch (event.type) {
+        // ---- Message events — handled by sync store only ----
+        case 'message.updated':
+        case 'message.removed':
           break;
-        }
 
         case 'message.part.updated': {
-          const part = (event.properties as any).part as Part;
-          if (!part?.sessionID || !part?.messageID) break;
-          updatePartInCache(part);
-
           // Extract diagnostics from tool part metadata if present
-          const partMeta = (part as any).metadata;
+          const part = (event.properties as any).part as Part;
+          const partMeta = (part as any)?.metadata;
           if (partMeta?.diagnostics && typeof partMeta.diagnostics === 'object') {
             const diagsByFile = partMeta.diagnostics as Record<string, any[]>;
             const validEntries: Record<string, any[]> = {};
@@ -232,12 +240,8 @@ export function useOpenCodeEventStream() {
           break;
         }
 
-        case 'message.part.removed': {
-          const props = event.properties as { sessionID?: string; messageID: string; partID: string };
-          if (!props.messageID || !props.partID) break;
-          removePartFromCache(props.messageID, props.partID, (props as any).sessionID);
+        case 'message.part.removed':
           break;
-        }
 
         // ---- Session lifecycle ----
         case 'session.created':
@@ -524,112 +528,6 @@ export function useOpenCodeEventStream() {
       }
     }
 
-    // ---- Incremental cache update helpers ----
-
-    function updateMessageInCache(info: Message) {
-      const key = opencodeKeys.messages(info.sessionID);
-      // Cancel pending refetches to prevent stale polling data from overwriting
-      // this SSE update. The backend publishes session.status(idle) BEFORE
-      // message.updated (with .error), so polling can race and overwrite.
-      queryClient.cancelQueries({ queryKey: key });
-      queryClient.setQueryData<MessageWithParts[]>(key, (old) => {
-        if (!old) {
-          // Initialize cache with this message so SSE events arriving before
-          // the React Query fetch completes are not silently dropped.
-          return [{ info: info as any, parts: [] }];
-        }
-        const idx = old.findIndex((m) => m.info.id === info.id);
-        if (idx >= 0) {
-          // Update existing message info, keep parts
-          const updated = [...old];
-          updated[idx] = { ...updated[idx], info: info as any };
-          return updated;
-        }
-        // Insert new message — find correct sorted position by id
-        const newMsg: MessageWithParts = { info: info as any, parts: [] };
-        const next = [...old, newMsg];
-        next.sort((a, b) => a.info.id.localeCompare(b.info.id));
-        return next;
-      });
-    }
-
-    function removeMessageFromCache(sessionID: string, messageID: string) {
-      const key = opencodeKeys.messages(sessionID);
-      queryClient.cancelQueries({ queryKey: key });
-      queryClient.setQueryData<MessageWithParts[]>(key, (old) => {
-        if (!old) return old;
-        return old.filter((m) => m.info.id !== messageID);
-      });
-    }
-
-    function updatePartInCache(part: Part) {
-      // Find which session this message belongs to — use the part's sessionID
-      const sessionID = part.sessionID;
-      if (!sessionID) return;
-
-      const key = opencodeKeys.messages(sessionID);
-      queryClient.cancelQueries({ queryKey: key });
-      queryClient.setQueryData<MessageWithParts[]>(key, (old) => {
-        if (!old) {
-          // Cache not yet initialized — create a stub message entry so the part
-          // is preserved. The full message info will be patched by a later
-          // message.updated event or the React Query fetch.
-          return [{
-            info: { id: part.messageID, sessionID, role: 'assistant' } as any,
-            parts: [part as any],
-          }];
-        }
-        const msgIdx = old.findIndex((m) => m.info.id === part.messageID);
-        if (msgIdx < 0) {
-          // Message not yet in cache — create a stub entry for it
-          const newMsg: MessageWithParts = {
-            info: { id: part.messageID, sessionID, role: 'assistant' } as any,
-            parts: [part as any],
-          };
-          const next = [...old, newMsg];
-          next.sort((a, b) => a.info.id.localeCompare(b.info.id));
-          return next;
-        }
-
-        const updated = [...old];
-        const msg = { ...updated[msgIdx] };
-        const parts = [...msg.parts];
-
-        const partIdx = parts.findIndex((p) => p.id === part.id);
-        if (partIdx >= 0) {
-          // Update existing part
-          parts[partIdx] = part as any;
-        } else {
-          // Insert new part — sorted by id
-          parts.push(part as any);
-          parts.sort((a, b) => a.id.localeCompare(b.id));
-        }
-
-        msg.parts = parts;
-        updated[msgIdx] = msg;
-        return updated;
-      });
-    }
-
-    function removePartFromCache(messageID: string, partID: string, sessionID?: string) {
-      // We need to find which session this message belongs to
-      // If sessionID is provided, use it directly
-      if (sessionID) {
-        const key = opencodeKeys.messages(sessionID);
-        queryClient.setQueryData<MessageWithParts[]>(key, (old) => {
-          if (!old) return old;
-          const msgIdx = old.findIndex((m) => m.info.id === messageID);
-          if (msgIdx < 0) return old;
-
-          const updated = [...old];
-          const msg = { ...updated[msgIdx] };
-          msg.parts = msg.parts.filter((p) => p.id !== partID);
-          updated[msgIdx] = msg;
-          return updated;
-        });
-      }
-    }
-
     return () => {
       abortController.abort();
       abortRef.current = null;
@@ -642,7 +540,7 @@ export function useOpenCodeEventStream() {
     // reconnection → cache invalidation cascades (the "random loading" bug).
     // The SDK's getClient() auto-detects URL changes via URL comparison,
     // so it handles URL updates lazily on next API call.
-  }, [queryClient, setStatus, clearStatuses, addPermission, removePermission, addQuestion, removeQuestion, clearPending, serverVersion]);
+  }, [queryClient, setStatus, clearStatuses, addPermission, removePermission, addQuestion, removeQuestion, clearPending, serverVersion, applySyncEvent]);
 }
 
 // Use the correct key reference

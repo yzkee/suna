@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   ChevronDown,
   ChevronRight,
@@ -54,8 +55,11 @@ import {
   replyToQuestion,
   rejectQuestion,
   findOpenCodeFiles,
+  opencodeKeys,
+  ascendingId,
 } from '@/hooks/opencode/use-opencode-sessions';
 import { useOpenCodeSessionStatusStore } from '@/stores/opencode-session-status-store';
+import { useSyncStore } from '@/stores/opencode-sync-store';
 import { getClient } from '@/lib/opencode-sdk';
 import { useOpenCodePendingStore } from '@/stores/opencode-pending-store';
 import { useKortixComputerStore } from '@/stores/kortix-computer-store';
@@ -110,7 +114,6 @@ import {
   getShellModePart,
   isLastUserMessage,
   getWorkingState,
-  shouldHideResponsePart,
   getHiddenToolParts,
   isToolPartHidden,
   getAnsweredQuestionParts,
@@ -1194,11 +1197,11 @@ function UserMessageRow({ message, agentNames, commandInfo, commands }: { messag
 }
 
 // ============================================================================
-// Throttled Markdown — limits re-renders during streaming (100ms)
+// Throttled Markdown — limits re-renders during streaming (~30fps)
 // ============================================================================
 
 function ThrottledMarkdown({ content, isStreaming }: { content: string; isStreaming: boolean }) {
-  const throttled = useThrottledValue(content, 100);
+  const throttled = useThrottledValue(content, 33);
   return <UnifiedMarkdown content={isStreaming ? throttled : content} isStreaming={isStreaming} />;
 }
 
@@ -1298,10 +1301,11 @@ function SessionTurn({
   }, [allParts]);
   const lastTextPart = useMemo(() => findLastTextPart(allParts), [allParts]);
   const responsePartId = lastTextPart?.id;
-  const response = lastTextPart?.text?.trim();
+  const responseRaw = lastTextPart?.text ?? '';
+  const response = working ? responseRaw : responseRaw.trim();
   const hideResponse = useMemo(
-    () => shouldHideResponsePart(working, responsePartId),
-    [working, responsePartId],
+    () => !!responsePartId,
+    [responsePartId],
   );
 
   // Retry info (only on last turn)
@@ -1745,8 +1749,8 @@ function SessionTurn({
         </div>
       )}
 
-      {/* Response section (final text, shown when done) */}
-      {!working && response && (
+      {/* Response section (streams in real time while the turn is working) */}
+      {response && (
         <div className="mt-3">
           {/* Kortix logo — shown when there are no steps (otherwise logo is already above) */}
           {!hasSteps && (
@@ -1761,15 +1765,19 @@ function SessionTurn({
             </div>
           )}
           <div className="text-sm">
-            <SandboxUrlDetector content={response} isStreaming={false} />
+            {working ? (
+              <ThrottledMarkdown content={response} isStreaming={true} />
+            ) : (
+              <SandboxUrlDetector content={response} isStreaming={false} />
+            )}
           </div>
-          <div className="sr-only" aria-live="polite">
-            {response}
-          </div>
+          {!working && (
+            <div className="sr-only" aria-live="polite">
+              {response}
+            </div>
+          )}
         </div>
       )}
-
-      {/* Streaming text is only visible inside expanded steps (matching SolidJS reference) */}
 
 
       {/* Error — always visible. Shown here (outside steps) when steps are collapsed OR when there are no steps at all */}
@@ -1901,6 +1909,7 @@ interface SessionChatProps {
 }
 
 export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: SessionChatProps) {
+  const queryClient = useQueryClient();
   // ---- Context modal ----
   const [contextModalOpen, setContextModalOpen] = useState(false);
 
@@ -1912,7 +1921,7 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
 
   // ---- Hooks ----
   const { data: session, isLoading: sessionLoading } = useOpenCodeSession(sessionId);
-  const { data: messages, isLoading: messagesLoading } = useOpenCodeMessages(sessionId);
+  const { data: queryMessages, isLoading: messagesLoading } = useOpenCodeMessages(sessionId);
   const { data: agents } = useOpenCodeAgents();
   const { data: commands } = useOpenCodeCommands();
   const { data: providers } = useOpenCodeProviders();
@@ -1924,6 +1933,28 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
   const revertSession = useRevertSession();
   const unrevertSession = useUnrevertSession();
 
+  // Hydrate sync store from React Query on initial load / session switch.
+  // After this, sync store is the SINGLE source of truth (SSE events update it).
+  useEffect(() => {
+    if (!queryMessages || queryMessages.length === 0) return;
+    useSyncStore.getState().hydrate(sessionId, queryMessages as any);
+  }, [sessionId, queryMessages]);
+
+  // Messages come ONLY from sync store — never from React Query directly.
+  // This matches OpenCode where the SolidJS store is the sole source.
+  const syncedMessageInfos = useSyncStore((s) => s.messages[sessionId]);
+  const syncedParts = useSyncStore((s) => s.parts);
+  const messages = useMemo<MessageWithParts[] | undefined>(() => {
+    if (!syncedMessageInfos || syncedMessageInfos.length === 0) {
+      // Sync store not yet hydrated — fall back to query data for initial render
+      return queryMessages;
+    }
+    return syncedMessageInfos.map((info) => ({
+      info: info as any,
+      parts: (syncedParts[info.id] ?? []) as any,
+    }));
+  }, [syncedMessageInfos, syncedParts, queryMessages]);
+
   // ---- Unified model/agent/variant state (1:1 port of SolidJS local.tsx) ----
   const local = useOpenCodeLocal({ agents, providers, config });
 
@@ -1932,6 +1963,7 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
   // ---- Polling fallback & optimistic send ----
   const [pollingActive, setPollingActive] = useState(false);
   const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
+  const [pendingUserMessageId, setPendingUserMessageId] = useState<string | null>(null);
   const [pendingCommand, setPendingCommand] = useState<{ name: string; description?: string } | null>(null);
   // Map of user message IDs → command info, so UserMessageRow can render
   // a compact command pill instead of the raw expanded template text.
@@ -1944,6 +1976,7 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
   // Track whether a pending prompt send is in flight (dashboard→session flow).
   // Keeps isBusy true until the server acknowledges with a busy status.
   const [pendingSendInFlight, setPendingSendInFlight] = useState(false);
+  const [pendingSendMessageId, setPendingSendMessageId] = useState<string | null>(null);
   // Grace period: don't stop polling immediately on idle after a recent send
   const lastSendTimeRef = useRef<number>(0);
   // ---- Optimistic prompt (from dashboard/project page) ----
@@ -1955,6 +1988,48 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
     }
     return null;
   });
+
+  const addOptimisticUserMessage = useCallback((messageId: string, text: string) => {
+    const parts = text.trim()
+      ? [
+          {
+            id: ascendingId('prt'),
+            sessionID: sessionId,
+            messageID: messageId,
+            type: 'text',
+            text,
+          } as any,
+        ]
+      : [];
+    const info = {
+      id: messageId,
+      sessionID: sessionId,
+      role: 'user',
+      time: { created: Date.now() },
+    } as any;
+
+    useSyncStore.getState().optimisticAdd(sessionId, info, parts as any);
+
+    queryClient.setQueryData<MessageWithParts[]>(opencodeKeys.messages(sessionId), (old) => {
+      const list = old ? [...old] : [];
+      if (list.some((m) => m.info.id === messageId)) return list;
+
+      list.push({
+        info,
+        parts: parts as any,
+      });
+      list.sort((a, b) => a.info.id.localeCompare(b.info.id));
+      return list;
+    });
+  }, [queryClient, sessionId]);
+
+  const removeOptimisticUserMessage = useCallback((messageId: string) => {
+    useSyncStore.getState().optimisticRemove(sessionId, messageId);
+    queryClient.setQueryData<MessageWithParts[]>(opencodeKeys.messages(sessionId), (old) => {
+      if (!old) return old;
+      return old.filter((m) => m.info.id !== messageId);
+    });
+  }, [queryClient, sessionId]);
 
   // Hydrate options from sessionStorage and send the pending prompt for new sessions.
   // The dashboard/project page stores the prompt in sessionStorage and navigates here.
@@ -1993,6 +2068,9 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
       const sendOpts = Object.keys(options).length > 0 ? options as any : undefined;
       const maxOuterRetries = 2;
       let outerAttempt = 0;
+      const messageID = ascendingId('msg');
+      setPendingSendMessageId(messageID);
+      addOptimisticUserMessage(messageID, pendingPrompt);
       lastSendTimeRef.current = Date.now();
       const trySend = () => {
         outerAttempt++;
@@ -2000,6 +2078,7 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
           sessionId,
           parts: [{ type: 'text', text: pendingPrompt }],
           options: sendOpts,
+          messageID,
         }).then(() => {
           // Send succeeded — update send time for grace period and clear retrying.
           // Keep pendingSendInFlight true until server status goes busy (cleared below).
@@ -2013,8 +2092,10 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
             setTimeout(trySend, 3000);
           } else {
             // All retries failed — clear optimistic display so user can retry manually
+            removeOptimisticUserMessage(messageID);
             setIsRetrying(false);
             setPendingSendInFlight(false);
+            setPendingSendMessageId(null);
             setOptimisticPrompt(null);
             setPollingActive(false);
           }
@@ -2023,7 +2104,7 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
       trySend();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
+  }, [sessionId, addOptimisticUserMessage, removeOptimisticUserMessage]);
 
   // Clear optimistic prompt once real messages arrive
   useEffect(() => {
@@ -2062,9 +2143,12 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
   }, [lastUserMessage?.info.id]);
 
   // ---- Session status ----
-  const sessionStatus = useOpenCodeSessionStatusStore(
+  // Use sync store as primary (matches OpenCode), fall back to status store
+  const syncStatus = useSyncStore((s) => s.sessionStatus[sessionId]);
+  const legacyStatus = useOpenCodeSessionStatusStore(
     (s) => s.statuses[sessionId],
   );
+  const sessionStatus = syncStatus ?? legacyStatus;
   const isServerBusy = sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry';
   const isBusy = isServerBusy || !!pendingUserMessage || pendingSendInFlight;
 
@@ -2185,14 +2269,23 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
     if (!pendingSendInFlight) return;
     if (isServerBusy) {
       setPendingSendInFlight(false);
+      setPendingSendMessageId(null);
       return;
     }
-    // If messages include assistant content, the server already processed it
-    const hasAssistant = messages?.some((m) => m.info.role === 'assistant');
-    if (hasAssistant) {
+    // If we got an assistant reply for the pending user message, the server
+    // already accepted and processed this send even if status events were missed.
+    const hasAssistantReply = pendingSendMessageId
+      ? !!messages?.some(
+          (m) =>
+            m.info.role === 'assistant' &&
+            (m.info as any).parentID === pendingSendMessageId,
+        )
+      : false;
+    if (hasAssistantReply) {
       setPendingSendInFlight(false);
+      setPendingSendMessageId(null);
     }
-  }, [pendingSendInFlight, isServerBusy, messages]);
+  }, [pendingSendInFlight, isServerBusy, messages, pendingSendMessageId]);
 
   // Safety timeout: clear pendingSendInFlight after 30s even if the server
   // never acknowledged. Prevents the UI from being stuck forever in "busy"
@@ -2201,6 +2294,7 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
     if (!pendingSendInFlight) return;
     const timer = setTimeout(() => {
       setPendingSendInFlight(false);
+      setPendingSendMessageId(null);
     }, 30_000);
     return () => clearTimeout(timer);
   }, [pendingSendInFlight]);
@@ -2265,26 +2359,29 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
     }
   }, [isServerBusy, messages, sessionId]);
 
-  // Clear pending user message when server acknowledges (status becomes busy)
-  // or when new messages arrive from the server.
+  // Clear pending user message when we can confirm the message is in cache
+  // (by ID), or when new messages arrive (fallback for command sends).
   // When a command was pending, associate the newest user message with the
   // command info so UserMessageRow can render a nice pill instead of raw template text.
   const prevMsgLenRef = useRef(messages?.length || 0);
   useEffect(() => {
     if (!pendingUserMessage) return;
-    // Server reported busy → it received our prompt, real messages incoming
-    if (isServerBusy) {
+    const hasPendingMessage = pendingUserMessageId
+      ? !!messages?.some((m) => m.info.id === pendingUserMessageId)
+      : false;
+    if (hasPendingMessage) {
       setPendingUserMessage(null);
+      setPendingUserMessageId(null);
       setPendingCommand(null);
       return;
     }
-    // New messages arrived from server → clear optimistic display
     const len = messages?.length || 0;
     if (len > prevMsgLenRef.current) {
       setPendingUserMessage(null);
+      setPendingUserMessageId(null);
       setPendingCommand(null);
     }
-  }, [isServerBusy, messages?.length, pendingUserMessage]);
+  }, [messages, messages?.length, pendingUserMessage, pendingUserMessageId]);
 
   // Associate stashed command info with the newest user message when messages arrive.
   // Runs separately so it captures the mapping even if busy fires before messages update.
@@ -2417,8 +2514,10 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
     setExpanded({});
     setPollingActive(false);
     setPendingUserMessage(null);
+    setPendingUserMessageId(null);
     setPendingCommand(null);
     setPendingSendInFlight(false);
+    setPendingSendMessageId(null);
     setIsRetrying(false);
     lastSendTimeRef.current = 0;
   }, [sessionId]);
@@ -2504,11 +2603,12 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
     async (text: string, files?: AttachedFile[], mentions?: TrackedMention[]) => {
       // Play send sound
       playSound('send');
+      const messageID = ascendingId('msg');
 
-      // Optimistic: show message immediately and start polling fallback
+      // Optimistic: show message immediately in sync store
+      addOptimisticUserMessage(messageID, text);
       setPendingUserMessage(text);
-      setPollingActive(true);
-      lastSendTimeRef.current = Date.now();
+      setPendingUserMessageId(messageID);
 
       const options: Record<string, unknown> = {};
       if (local.agent.current) options.agent = local.agent.current.name;
@@ -2560,22 +2660,22 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
         });
       }
 
-      try {
-        await sendMessage.mutateAsync({
-          sessionId,
-          parts,
-          options: Object.keys(options).length > 0 ? options as any : undefined,
-        });
-        // Send succeeded — update send time for grace period
-        lastSendTimeRef.current = Date.now();
-      } catch {
-        // If send fails (after all internal retries), clear optimistic state
-        setPendingUserMessage(null);
-        setPollingActive(false);
-      }
+      // Fire-and-forget — exactly like OpenCode's `void send().catch(...)`.
+      // The blocking prompt() call runs in the background.
+      // All incremental UI updates come from SSE → sync store.
+      sendMessage.mutateAsync({
+        sessionId,
+        parts,
+        options: Object.keys(options).length > 0 ? options as any : undefined,
+        messageID,
+      }).catch(() => {
+        // On failure, set status to idle and remove optimistic message
+        useSyncStore.getState().setStatus(sessionId, { type: 'idle' });
+        removeOptimisticUserMessage(messageID);
+      });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sessionId, sendMessage, local.agent.current, local.model.currentKey, local.model.variant.current],
+    [sessionId, sendMessage, local.agent.current, local.model.currentKey, local.model.variant.current, addOptimisticUserMessage, removeOptimisticUserMessage],
   );
 
   const handleStop = useCallback(() => {
@@ -2589,6 +2689,7 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
       setPendingCommand({ name: cmd.name, description: args || cmd.description });
       pendingCommandStashRef.current = { name: cmd.name, args: args || cmd.description };
       setPendingUserMessage(label);
+      setPendingUserMessageId(null);
       setPollingActive(true);
       lastSendTimeRef.current = Date.now();
       executeCommand.mutate(
@@ -2597,6 +2698,7 @@ export function SessionChat({ sessionId, headerLeadingAction, hideHeader }: Sess
           onError: () => {
             setPendingCommand(null);
             setPendingUserMessage(null);
+            setPendingUserMessageId(null);
             setPollingActive(false);
           },
         },
