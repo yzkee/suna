@@ -97,8 +97,8 @@ services:
       # OrbStack on macOS: set DOCKER_SOCKET to ~/.orbstack/run/docker.sock
       # The API tells sandboxes to call back via the Docker network
       - KORTIX_URL=http://kortix-api:8008/v1/router
-      # Sandbox proxy: route /v1/sandbox/* to the sandbox container via Docker network
-      - SANDBOX_INTERNAL_URL=http://sandbox:8000
+      # Network to place the sandbox container on (must match this compose project's network)
+      - SANDBOX_NETWORK=computer_default
       # Optional: sandbox auth token (set in .env to protect sandbox access)
       - SANDBOX_AUTH_TOKEN=${SANDBOX_AUTH_TOKEN:-}
       - INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY:-}

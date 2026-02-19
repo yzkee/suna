@@ -368,7 +368,7 @@ services:
       - SANDBOX_PROVIDER=local_docker
       - DOCKER_HOST=unix:///var/run/docker.sock
       - KORTIX_URL=http://kortix-api:8008/v1/router
-      - SANDBOX_INTERNAL_URL=http://sandbox:8000
+      - SANDBOX_NETWORK=kortix_default
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/postgres
       - CRON_API_URL=http://kortix-api:8008
       - CRON_TICK_SECRET=\${CRON_TICK_SECRET}
@@ -508,7 +508,7 @@ services:
       - SANDBOX_PROVIDER=local_docker
       - DOCKER_HOST=unix:///var/run/docker.sock
       - KORTIX_URL=http://kortix-api:8008/v1/router
-      - SANDBOX_INTERNAL_URL=http://sandbox:8000
+      - SANDBOX_NETWORK=kortix_default
       - INTERNAL_SERVICE_KEY=\${INTERNAL_SERVICE_KEY}
       - SANDBOX_AUTH_TOKEN=\${SANDBOX_AUTH_TOKEN}
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/postgres

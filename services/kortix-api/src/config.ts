@@ -84,7 +84,7 @@ export const config = {
 
   /**
    * Optional bearer token to protect sandbox proxy access in local/VPS mode.
-   * If set, all requests through /v1/preview/local/* must present this token
+   * If set, all requests through /v1/preview/{sandboxId}/* must present this token
    * via Authorization header or ?token= query param.
    * If unset, sandbox proxy is open (backward compatible).
    */

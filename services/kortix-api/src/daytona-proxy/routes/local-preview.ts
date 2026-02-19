@@ -1,17 +1,20 @@
 /**
- * Local Preview Proxy — handles /preview/local/{port}/* requests.
+ * Local Preview Proxy — handles /preview/{sandboxId}/{port}/* requests in local mode.
  *
  * This is the local-mode counterpart of the Daytona preview proxy.
  * Instead of going through Daytona SDK, it proxies directly to the sandbox
- * container on the Docker network.
+ * container on the Docker network using the sandbox ID as the Docker DNS name.
  *
  * URL pattern:
- *   /v1/preview/local/{port}/*
+ *   /v1/preview/{sandboxId}/{port}/*
  *
  * Routing:
- *   - Port 8000 (Kortix Master): proxy to http://sandbox:8000/{path}
- *   - Other ports: proxy to http://sandbox:8000/proxy/{port}/{path}
+ *   - Port 8000 (Kortix Master): proxy to http://{sandboxId}:8000/{path}
+ *   - Other ports: proxy to http://{sandboxId}:8000/proxy/{port}/{path}
  *     (Kortix Master's built-in port proxy)
+ *
+ * The sandboxId is the Docker container name (e.g. 'kortix-sandbox'),
+ * which resolves via Docker DNS on the shared network.
  *
  * Handles HTTP, SSE (text/event-stream), and regular responses.
  * WebSocket upgrades are handled at the Bun server level (see index.ts).
@@ -26,18 +29,21 @@ const FETCH_TIMEOUT_MS = 30_000;
 const localPreview = new Hono();
 
 /**
- * Resolve the sandbox's Kortix Master URL.
- * In Docker network: http://sandbox:8000 (via SANDBOX_INTERNAL_URL)
- * Fallback:          http://localhost:{SANDBOX_PORT_BASE}
+ * Resolve the sandbox's Kortix Master URL from its container name.
+ * Inside Docker: http://{sandboxId}:8000 (Docker DNS resolves the container name)
+ * On host (pnpm dev): http://localhost:{SANDBOX_PORT_BASE} (fixed port mapping)
  */
-export function getSandboxBaseUrl(): string {
-  const internalUrl = process.env.SANDBOX_INTERNAL_URL;
-  if (internalUrl) return internalUrl.replace(/\/+$/, '');
+export function getSandboxBaseUrl(sandboxId: string): string {
+  if (config.DOCKER_HOST) {
+    return `http://${sandboxId}:8000`;
+  }
   return `http://localhost:${config.SANDBOX_PORT_BASE}`;
 }
 
-// Only handle sandboxId=local — let other sandboxIds fall through to Daytona handler
-localPreview.all('/local/:port/*', async (c) => {
+// Match any sandboxId — the conditional mount in daytona-proxy/index.ts ensures
+// this handler is only active in local mode.
+localPreview.all('/:sandboxId/:port/*', async (c) => {
+  const sandboxId = c.req.param('sandboxId');
   const portStr = c.req.param('port');
   const port = parseInt(portStr, 10);
 
@@ -45,9 +51,9 @@ localPreview.all('/local/:port/*', async (c) => {
     return c.json({ error: `Invalid port: ${portStr}` }, 400);
   }
 
-  // Build remaining path after /local/{port}
+  // Build remaining path after /{sandboxId}/{port}
   const fullPath = new URL(c.req.url).pathname;
-  const prefixPattern = `/local/${portStr}`;
+  const prefixPattern = `/${sandboxId}/${portStr}`;
   const prefixIndex = fullPath.indexOf(prefixPattern);
   const remainingPath = prefixIndex !== -1
     ? fullPath.slice(prefixIndex + prefixPattern.length) || '/'
@@ -55,7 +61,7 @@ localPreview.all('/local/:port/*', async (c) => {
   const queryString = new URL(c.req.url).search;
 
   // Build target URL
-  const sandboxBaseUrl = getSandboxBaseUrl();
+  const sandboxBaseUrl = getSandboxBaseUrl(sandboxId);
   let targetUrl: string;
 
   if (port === KORTIX_MASTER_PORT) {
@@ -163,7 +169,7 @@ localPreview.all('/local/:port/*', async (c) => {
     }
 
     console.error(
-      `[local-preview] Error for :${port}${remainingPath}: ${error instanceof Error ? error.message : String(error)}`,
+      `[local-preview] Error for ${sandboxId}:${port}${remainingPath}: ${error instanceof Error ? error.message : String(error)}`,
     );
     return c.json(
       { error: 'Failed to proxy to sandbox', details: String(error) },
@@ -172,11 +178,12 @@ localPreview.all('/local/:port/*', async (c) => {
   }
 });
 
-// Handle /local/:port without trailing path — redirect to /local/:port/
-localPreview.all('/local/:port', async (c) => {
+// Handle /{sandboxId}/:port without trailing path — redirect to /{sandboxId}/:port/
+localPreview.all('/:sandboxId/:port', async (c) => {
+  const sandboxId = c.req.param('sandboxId');
   const port = c.req.param('port');
   const url = new URL(c.req.url);
-  return c.redirect(`/local/${port}/${url.search}`, 301);
+  return c.redirect(`/${sandboxId}/${port}/${url.search}`, 301);
 });
 
 export { localPreview };

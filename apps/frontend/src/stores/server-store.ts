@@ -60,12 +60,12 @@ interface ServerStore {
 
 /**
  * The default sandbox URL routes through the backend's unified preview proxy.
- * NEXT_PUBLIC_BACKEND_URL includes /v1, so the endpoint is /v1/preview/local/8000/*.
- * Same URL pattern as cloud mode (/v1/preview/{sandboxId}/{port}/*) — the frontend
- * is completely agnostic about whether it's local or cloud.
+ * Uses the container name ('kortix-sandbox') as the sandbox ID — the backend
+ * resolves this via Docker DNS on the shared network.
+ * Same URL pattern for all providers: /v1/preview/{sandboxId}/{port}/*
  */
 const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1').replace(/\/+$/, '');
-const DEFAULT_SANDBOX_URL = `${BACKEND_URL}/preview/local/8000`;
+const DEFAULT_SANDBOX_URL = `${BACKEND_URL}/preview/kortix-sandbox/8000`;
 
 function generateId(): string {
   return `srv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -197,7 +197,7 @@ export const useServerStore = create<ServerStore>()(
       },
     }),
     {
-      name: 'opencode-servers-v3', // v3: unified under /preview/local/{port} instead of /sandbox
+      name: 'opencode-servers-v4', // v4: dynamic sandbox ID (e.g. /preview/kortix-sandbox/{port}) replaces hardcoded /preview/local/
       partialize: (state) => ({
         servers: state.servers,
         activeServerId: state.activeServerId,

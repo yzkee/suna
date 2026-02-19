@@ -77,7 +77,7 @@ export function SidebarRight() {
    */
   const openSandboxServiceTab = useCallback(
     (containerPort: string, title: string) => {
-      // Prefer provider-aware URL (cloud: /preview/{id}/{port}, local: /preview/local/{port})
+      // Prefer provider-aware URL: /preview/{sandboxId}/{port}
       const url = activeServer
         ? (getDirectPortUrl(activeServer, containerPort) || getProxyBaseUrl(parseInt(containerPort, 10), serverUrl))
         : getProxyBaseUrl(parseInt(containerPort, 10), serverUrl);

@@ -46,13 +46,6 @@ const PORT_MAP: Record<string, string> = {
 
 const BASE_URL = `http://localhost:${PORT_MAP['8000']}`;
 
-/**
- * Internal Docker-network URL for the sandbox.
- * Used by resolveEndpoint() when the API runs inside Docker alongside the sandbox.
- * Falls back to BASE_URL (localhost) when running on the host (pnpm dev).
- */
-const INTERNAL_URL = `http://${CONTAINER_NAME}:8000`;
-
 /** ExposedPorts for Docker container config. */
 const EXPOSED_PORTS: Record<string, {}> = Object.fromEntries(
   Object.keys(PORT_MAP).map((p) => [`${p}/tcp`, {}]),
@@ -198,7 +191,7 @@ export class LocalDockerProvider implements SandboxProvider {
     this._lastCreateOpts = opts;
     const info = await this.ensure();
     return {
-      externalId: info.containerId,
+      externalId: info.name,  // Container name (e.g. 'kortix-sandbox') — used for Docker DNS & URL routing
       baseUrl: info.baseUrl,
       metadata: {
         containerName: info.name,
@@ -211,11 +204,12 @@ export class LocalDockerProvider implements SandboxProvider {
 
   // ── Cron / Endpoint resolution ───────────────────────────────────────
 
-  async resolveEndpoint(_externalId: string): Promise<ResolvedEndpoint> {
-    // When running inside Docker (DOCKER_HOST set), use the internal network URL
-    // so the API container can reach the sandbox via Docker DNS.
-    // When running on the host (pnpm dev), use localhost with mapped ports.
-    const url = config.DOCKER_HOST ? INTERNAL_URL : BASE_URL;
+  async resolveEndpoint(externalId: string): Promise<ResolvedEndpoint> {
+    // Inside Docker: resolve via Docker DNS using the container name (externalId).
+    // On host (pnpm dev): fall back to localhost with mapped ports.
+    const url = config.DOCKER_HOST
+      ? `http://${externalId}:8000`
+      : BASE_URL;
     return {
       url,
       headers: { 'Content-Type': 'application/json' },

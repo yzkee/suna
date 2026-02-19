@@ -5,8 +5,8 @@
  * and rewrites them to be accessible through the proxy layer.
  *
  * All modes route through the backend's unified preview proxy:
- *   Cloud mode:  http://localhost:8080 → {BACKEND_URL}/preview/{sandboxId}/8000/proxy/8080/
- *   Local mode:  http://localhost:8080 → {BACKEND_URL}/preview/local/8000/proxy/8080/
+ *   {BACKEND_URL}/preview/{sandboxId}/8000/proxy/{port}/
+ * The sandboxId is the container name (local) or Daytona ID (cloud).
  */
 
 import { SANDBOX_PORTS } from '@/lib/platform-client';
@@ -173,10 +173,8 @@ export function hasLocalhostUrls(text: string): boolean {
  * Rewrite a localhost URL to go through the sandbox proxy.
  *
  * The serverUrl always routes through the backend's unified preview proxy:
- *   - Local mode:  {BACKEND_URL}/preview/local/8000
- *   - Cloud mode:  {BACKEND_URL}/preview/{sandboxId}/8000
- *
- * Both expose Kortix Master's /proxy/{port}/ endpoint for dynamic port proxying.
+ *   {BACKEND_URL}/preview/{sandboxId}/8000
+ * Exposes Kortix Master's /proxy/{port}/ endpoint for dynamic port proxying.
  *
  * @param port - The port number to proxy
  * @param path - The path to append (e.g. "/api/docs")
@@ -243,6 +241,7 @@ export function isProxiableLocalhostUrl(url: string): boolean {
 export function proxyLocalhostUrl(
   url: string | undefined,
   serverUrl: string,
+  _mappedPorts?: Record<string, string>,
 ): string | undefined {
   if (!url) return url;
 

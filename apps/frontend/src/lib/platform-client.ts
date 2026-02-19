@@ -35,27 +35,19 @@ export const SANDBOX_PORTS = {
 
 /**
  * Get a URL to access a specific container port on a sandbox.
- * ALL modes route through the backend's unified preview proxy.
+ * ALL modes route through the backend's unified preview proxy:
+ *   {BACKEND_URL}/preview/{sandboxId}/{containerPort}
  *
- * - Daytona (cloud): `{BACKEND_URL}/preview/{externalId}/{containerPort}`
- * - Local Docker:    `{BACKEND_URL}/preview/local/{containerPort}`
- * - Manual/unknown: returns null (caller should fall back to generic proxy)
+ * Provider-agnostic — sandboxId is the external_id (container name for local,
+ * Daytona sandbox ID for cloud).
  */
 export function getDirectPortUrl(
   server: ServerEntry,
   containerPort: string,
 ): string | null {
-  // Cloud: route through the preview proxy
-  if (server.provider === 'daytona' && server.sandboxId && server.sandboxId !== 'undefined') {
+  if (server.sandboxId && server.sandboxId !== 'undefined') {
     return `${PLATFORM_URL}/preview/${server.sandboxId}/${containerPort}`;
   }
-
-  // Local Docker: route through the unified preview proxy.
-  // Backend handles port 8000 directly and other ports via Kortix Master's /proxy/{port}/.
-  if (server.provider === 'local_docker') {
-    return `${PLATFORM_URL}/preview/local/${containerPort}`;
-  }
-
   return null;
 }
 
@@ -146,23 +138,16 @@ async function platformFetch<T>(
 
 /**
  * Build the OpenCode server URL for a sandbox.
- * - Local Docker: uses the base_url directly (http://localhost:{port})
- * - Daytona (cloud): {BACKEND_URL}/preview/{externalId}/8000
+ * Provider-agnostic: {BACKEND_URL}/preview/{externalId}/8000
+ *
+ * The external_id is the sandbox identifier used for routing:
+ *   - Local Docker: container name (e.g. 'kortix-sandbox') — resolves via Docker DNS
+ *   - Daytona (cloud): Daytona sandbox ID
  *
  * Guards against missing external_id to prevent broken URLs.
  */
 export function getSandboxUrl(sandbox: SandboxInfo): string {
-  // Local Docker: route through the backend's unified preview proxy.
-  // The platform API returns the raw Docker URL (e.g. http://localhost:14000)
-  // but the frontend should never connect directly — all requests go through
-  // the backend at {BACKEND_URL}/preview/local/8000 which proxies to the sandbox.
-  if (sandbox.provider === 'local_docker') {
-    return `${PLATFORM_URL}/preview/local/${SANDBOX_PORTS.KORTIX_MASTER}`;
-  }
-
-  // Daytona requires a valid external_id for URL construction
   if (!sandbox.external_id) {
-    // Fallback: if base_url is set, use it directly
     if (sandbox.base_url) return sandbox.base_url;
     throw new Error(
       `Cannot build sandbox URL: missing external_id for ${sandbox.provider} sandbox "${sandbox.sandbox_id}"`,
@@ -174,24 +159,15 @@ export function getSandboxUrl(sandbox: SandboxInfo): string {
 
 /**
  * Build a URL to access a specific container port on a sandbox.
- *
- * - Daytona (cloud): `{BACKEND_URL}/preview/{externalId}/{containerPort}`
- * - Local Docker:    `{BACKEND_URL}/preview/local/{containerPort}`
- * - Falls back to null if the port can't be resolved.
+ * Provider-agnostic: {BACKEND_URL}/preview/{externalId}/{containerPort}
  */
 export function getSandboxPortUrl(
   sandbox: SandboxInfo,
   containerPort: string,
 ): string | null {
-  if ((sandbox.provider === 'daytona' || (!sandbox.provider && sandbox.external_id)) && sandbox.external_id) {
+  if (sandbox.external_id) {
     return `${PLATFORM_URL}/preview/${sandbox.external_id}/${containerPort}`;
   }
-
-  // Local Docker: route through the unified preview proxy
-  if (sandbox.provider === 'local_docker') {
-    return `${PLATFORM_URL}/preview/local/${containerPort}`;
-  }
-
   return null;
 }
 

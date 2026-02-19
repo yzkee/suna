@@ -154,9 +154,10 @@ if (config.isLocal()) {
 app.route('/v1/queue', queueApp);            // /v1/queue/sessions/:id, /v1/queue/messages/:id, /v1/queue/all, /v1/queue/status
 
 // Preview Proxy — unified route for both cloud (Daytona) and local mode.
-// Cloud:  /v1/preview/{sandboxId}/{port}/* → Daytona SDK → sandbox
-// Local:  /v1/preview/local/{port}/*       → direct to sandbox on Docker network
-// Auth is skipped for sandboxId=local (see daytona-proxy/index.ts).
+// Pattern: /v1/preview/{sandboxId}/{port}/* for ALL modes.
+// Cloud:  sandboxId = Daytona external ID → proxied via Daytona SDK
+// Local:  sandboxId = container name (e.g. 'kortix-sandbox') → Docker DNS resolution
+// Auth middleware is selected by config.isLocal() (see daytona-proxy/index.ts).
 // MUST be after all explicit routes (wildcard catch-all).
 app.route('/v1/preview', daytonaProxyApp);
 
@@ -289,15 +290,17 @@ export default {
   port: config.PORT,
 
   fetch(req: Request, server: any): Response | Promise<Response> | undefined {
-    // ── WebSocket upgrade for /v1/preview/local/{port}/* ─────────────
-    // Handles PTY terminal and other WS connections to local sandbox.
-    // Pattern: /v1/preview/local/{port}/{path} → ws://sandbox:8000/{path}
+    // ── WebSocket upgrade for /v1/preview/{sandboxId}/{port}/* ────────
+    // In local mode, ALL /v1/preview/* WebSocket connections go to local sandbox.
+    // Parses sandbox ID dynamically from the URL for Docker DNS resolution.
+    // Pattern: /v1/preview/{sandboxId}/{port}/{path} → ws://{sandboxId}:8000/{path}
     //   (port 8000 = direct, other ports = through Kortix Master's /proxy/{port}/)
     if (req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
       const url = new URL(req.url);
-      const localPreviewPrefix = '/v1/preview/local/';
+      const previewPrefix = '/v1/preview/';
+      const isLocalPreview = config.isLocal() && url.pathname.startsWith(previewPrefix);
 
-      if (url.pathname.startsWith(localPreviewPrefix)) {
+      if (isLocalPreview) {
         // Validate sandbox auth token if configured (WS can't set headers — use ?token=)
         if (config.hasSandboxAuth()) {
           const wsToken = url.searchParams.get('token');
@@ -309,15 +312,16 @@ export default {
           }
         }
 
-        // Parse: /v1/preview/local/{port}/{rest}
-        const afterPrefix = url.pathname.slice(localPreviewPrefix.length);
-        const slashIdx = afterPrefix.indexOf('/');
-        const portStr = slashIdx >= 0 ? afterPrefix.slice(0, slashIdx) : afterPrefix;
-        const remainingPath = slashIdx >= 0 ? afterPrefix.slice(slashIdx) : '/';
+        // Parse: /v1/preview/{sandboxId}/{port}/{rest}
+        const afterPreview = url.pathname.slice(previewPrefix.length); // e.g. "kortix-sandbox/8000/ws"
+        const segments = afterPreview.split('/');
+        const sandboxId = segments[0];   // e.g. "kortix-sandbox"
+        const portStr = segments[1] || '';
+        const remainingPath = segments.length > 2 ? '/' + segments.slice(2).join('/') : '/';
         const port = parseInt(portStr, 10);
 
-        if (!isNaN(port) && port >= 1 && port <= 65535) {
-          const sandboxBaseUrl = getSandboxBaseUrl();
+        if (sandboxId && !isNaN(port) && port >= 1 && port <= 65535) {
+          const sandboxBaseUrl = getSandboxBaseUrl(sandboxId);
           const wsBase = sandboxBaseUrl.replace('http://', 'ws://').replace('https://', 'wss://');
 
           // Port 8000 = direct to Kortix Master, others = through port proxy

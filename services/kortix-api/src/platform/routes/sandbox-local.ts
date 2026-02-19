@@ -27,7 +27,7 @@ const provider = new LocalDockerProvider();
 function serialize(info: SandboxInfo) {
   return {
     sandbox_id: info.name, // always 'kortix-sandbox'
-    external_id: info.containerId,
+    external_id: info.name,  // Container name (e.g. 'kortix-sandbox') — used for Docker DNS & URL routing
     name: info.name,
     provider: 'local_docker' as const,
     base_url: info.baseUrl,
