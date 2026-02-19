@@ -17,6 +17,7 @@
 import { Hono } from 'hono';
 import { supabaseAuth as authMiddleware } from '../../middleware/auth';
 import { LocalDockerProvider, type SandboxInfo } from '../providers/local-docker';
+import { sandboxAuthStore } from '../sandbox-auth-store';
 import {
   getAvailableProviders,
   getDefaultProviderName,
@@ -75,6 +76,8 @@ export function createLocalAccountRouter(): Hono<{ Variables: AuthVariables }> {
     try {
       const existed = !!(await provider.find());
       const info = await provider.ensure();
+      // Invalidate cached auth token — container may have been recreated
+      sandboxAuthStore.invalidate();
 
       console.log(
         `[PLATFORM-LOCAL] ${existed ? 'Found existing' : 'Created'} sandbox (${info.status})`,

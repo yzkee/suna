@@ -5,6 +5,7 @@ import { validateSandboxToken } from '../repositories/sandboxes';
 import { getSupabase } from '../shared/supabase';
 import { config } from '../config';
 import { timingSafeStringEqual } from '../shared/crypto';
+import { sandboxAuthStore } from '../platform/sandbox-auth-store';
 
 /**
  * API key auth (sk_/sbt_ for search, LLM routes).
@@ -172,7 +173,9 @@ export async function dualAuth(c: Context, next: Next) {
  * this from Supabase auth failures and show the correct dialog.
  */
 export async function sandboxTokenAuth(c: Context, next: Next) {
-  if (!config.hasSandboxAuth()) {
+  // Check if sandbox auth is enabled (env var or auto-generated in container)
+  const hasAuth = await sandboxAuthStore.hasAuth();
+  if (!hasAuth) {
     await next();
     return;
   }
@@ -193,7 +196,8 @@ export async function sandboxTokenAuth(c: Context, next: Next) {
     return c.json({ error: 'Unauthorized', authType: 'sandbox_token' }, 401);
   }
 
-  if (!timingSafeStringEqual(token, config.SANDBOX_AUTH_TOKEN)) {
+  const accessKey = await sandboxAuthStore.getAccessKey();
+  if (!accessKey || !timingSafeStringEqual(token, accessKey)) {
     return c.json({ error: 'Invalid token', authType: 'sandbox_token' }, 401);
   }
 

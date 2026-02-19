@@ -1,5 +1,22 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { useSandboxAuthStore } from '@/stores/sandbox-auth-store';
+
+/**
+ * SDK client reset callback — set by opencode-sdk.ts to break the circular
+ * dependency (server-store → opencode-sdk → server-store). Called when the
+ * active server or token changes to force client recreation.
+ */
+let _resetClient: (() => void) | null = null;
+
+/** Called by opencode-sdk.ts at module load to register the reset function. */
+export function registerClientResetter(fn: () => void): void {
+  _resetClient = fn;
+}
+
+function resetSDKClient(): void {
+  _resetClient?.();
+}
 
 export type SandboxProvider = 'daytona' | 'local_docker';
 
@@ -56,6 +73,49 @@ interface ServerStore {
   setActiveServer: (id: string, options?: { auto?: boolean }) => void;
   getActiveServerUrl: () => string;
   clearStatuses: () => void;
+
+  // ── Centralized actions (refactored from scattered callers) ──
+
+  /**
+   * Bump serverVersion to trigger a full reconnect (SSE + cached queries).
+   * Use instead of direct `setState({ serverVersion: ... })` calls —
+   * this is the single point of control for reconnect triggers.
+   */
+  bumpServerVersion: () => void;
+
+  /**
+   * Register or update a managed sandbox entry in the store.
+   *
+   * In local mode: updates the existing 'default' entry's metadata.
+   * In cloud mode: creates or updates the 'cloud-sandbox' entry.
+   *
+   * Returns the server ID of the registered entry.
+   */
+  registerOrUpdateSandbox: (sandbox: {
+    url: string;
+    label: string;
+    provider: SandboxProvider;
+    sandboxId: string;
+    mappedPorts?: Record<string, string>;
+  }, options?: {
+    /** If true, auto-switch to this sandbox when user hasn't manually selected */
+    autoSwitch?: boolean;
+    /** If true, this is local mode — update default entry instead of cloud-sandbox */
+    isLocal?: boolean;
+  }) => string;
+
+  /**
+   * Persist an auth token to BOTH the server entry AND the global
+   * sandbox-auth-store, then reset the SDK client and bump serverVersion
+   * so all connections pick up the new token.
+   *
+   * Replaces the scattered pattern of:
+   *   sandboxAuthStore.setSandboxToken(token)
+   *   updateServer(id, { authToken: token })
+   *   resetSDKClient()
+   *   bumpServerVersion()
+   */
+  persistToken: (serverId: string, token: string) => void;
 }
 
 /**
@@ -72,12 +132,14 @@ function generateId(): string {
 }
 
 const DEFAULT_SERVER_ID = 'default';
+const CLOUD_SANDBOX_SERVER_ID = 'cloud-sandbox';
 
 const createDefaultServer = (): ServerEntry => ({
   id: DEFAULT_SERVER_ID,
   label: 'Local Sandbox',
   url: DEFAULT_SANDBOX_URL,
   isDefault: true,
+  provider: 'local_docker',
 });
 
 export const useServerStore = create<ServerStore>()(
@@ -178,6 +240,22 @@ export const useServerStore = create<ServerStore>()(
       setActiveServer: (id: string, options?: { auto?: boolean }) => {
         const state = get();
         if (state.activeServerId === id) return; // no-op
+
+        // Sync per-instance auth token → global sandbox-auth-store.
+        // This ensures getAuthToken() returns the correct token for the
+        // target instance immediately, before any health check fires.
+        const target = state.servers.find((s) => s.id === id);
+        if (target?.authToken) {
+          useSandboxAuthStore.getState().setSandboxToken(target.authToken);
+        } else {
+          // Target has no token — clear the global store so we don't
+          // accidentally send the previous instance's token.
+          useSandboxAuthStore.getState().clearSandboxToken();
+        }
+
+        // Force SDK client to recreate for the new server URL + token
+        resetSDKClient();
+
         set({
           activeServerId: id,
           serverVersion: state.serverVersion + 1,
@@ -195,6 +273,82 @@ export const useServerStore = create<ServerStore>()(
       clearStatuses: () => {
         // placeholder -- the session status store subscribes to version changes
       },
+
+      // ── Centralized actions ──
+
+      bumpServerVersion: () => {
+        set((state) => ({ serverVersion: state.serverVersion + 1 }));
+      },
+
+      registerOrUpdateSandbox: (sandbox, options) => {
+        const state = get();
+        const isLocal = options?.isLocal ?? false;
+        const autoSwitch = options?.autoSwitch ?? false;
+
+        // In local mode, update the existing default entry — don't create a duplicate.
+        if (isLocal) {
+          const defaultEntry = state.servers.find((s) => s.id === DEFAULT_SERVER_ID);
+          if (defaultEntry) {
+            get().updateServerSilent(DEFAULT_SERVER_ID, {
+              url: sandbox.url,
+              mappedPorts: sandbox.mappedPorts,
+              provider: sandbox.provider,
+              sandboxId: sandbox.sandboxId,
+              ...(sandbox.label ? { label: sandbox.label } : {}),
+            });
+            return DEFAULT_SERVER_ID;
+          }
+        }
+
+        // Cloud mode: use the dedicated cloud-sandbox ID
+        const targetId = CLOUD_SANDBOX_SERVER_ID;
+        const existing = state.servers.find((s) => s.id === targetId);
+
+        if (existing) {
+          get().updateServerSilent(targetId, {
+            url: sandbox.url,
+            label: sandbox.label || existing.label,
+            mappedPorts: sandbox.mappedPorts,
+            provider: sandbox.provider,
+            sandboxId: sandbox.sandboxId,
+          });
+        } else {
+          set((state) => ({
+            servers: [
+              ...state.servers,
+              {
+                id: targetId,
+                label: sandbox.label,
+                url: sandbox.url.replace(/\/+$/, ''),
+                provider: sandbox.provider,
+                sandboxId: sandbox.sandboxId,
+                mappedPorts: sandbox.mappedPorts,
+              },
+            ],
+          }));
+        }
+
+        // Auto-switch to the sandbox if the user hasn't manually picked a server
+        if (autoSwitch && !state.userSelected && state.activeServerId === DEFAULT_SERVER_ID) {
+          get().setActiveServer(targetId, { auto: true });
+        }
+
+        return targetId;
+      },
+
+      persistToken: (serverId, token) => {
+        // 1. Store in the global sandbox-auth-store (used by getAuthToken())
+        useSandboxAuthStore.getState().setSandboxToken(token);
+
+        // 2. Persist to the server entry (survives page reloads + instance switches)
+        get().updateServer(serverId, { authToken: token });
+
+        // 3. Force SDK client to recreate with the new token
+        resetSDKClient();
+
+        // 4. Bump serverVersion so health check + SSE restart with the new token
+        set((state) => ({ serverVersion: state.serverVersion + 1 }));
+      },
     }),
     {
       name: 'opencode-servers-v4', // v4: dynamic sandbox ID (e.g. /preview/kortix-sandbox/{port}) replaces hardcoded /preview/local/
@@ -209,13 +363,28 @@ export const useServerStore = create<ServerStore>()(
         if (!hasDefault) {
           state.servers = [createDefaultServer(), ...state.servers];
         } else {
-          // Always reset the default server's URL to the current backend-proxied URL.
-          // This handles migration from old direct-connect URLs (localhost:14000).
+          // Always reset the default server's URL and provider to current values.
+          // This handles migration from old direct-connect URLs (localhost:14000)
+          // and ensures provider is set (needed for key generation button).
+          // Note: authToken is preserved if set — it was explicitly generated by the user.
           state.servers = state.servers.map((s) =>
             s.id === DEFAULT_SERVER_ID
-              ? { ...s, url: DEFAULT_SANDBOX_URL, label: 'Local Sandbox' }
+              ? { ...s, url: DEFAULT_SANDBOX_URL, label: 'Local Sandbox', provider: 'local_docker' }
               : s,
           );
+        }
+        // Clean up stale 'cloud-sandbox' duplicates that point to the same URL
+        // as the default entry. Previously useSandbox created these in local mode.
+        state.servers = state.servers.filter((s) => {
+          if (s.id === 'cloud-sandbox') {
+            const def = state.servers.find((d) => d.id === DEFAULT_SERVER_ID);
+            if (def && s.url === def.url) return false; // duplicate — remove
+          }
+          return true;
+        });
+        // If active server was the removed duplicate, switch to default
+        if (!state.servers.some((s) => s.id === state.activeServerId)) {
+          state.activeServerId = DEFAULT_SERVER_ID;
         }
       },
     },
@@ -256,3 +425,6 @@ export function getActiveServerAuthToken(): string | null {
   const server = getActiveServer();
   return server?.authToken ?? null;
 }
+
+/** Stable server IDs for managed sandbox entries */
+export { DEFAULT_SERVER_ID, CLOUD_SANDBOX_SERVER_ID };

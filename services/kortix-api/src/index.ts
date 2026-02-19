@@ -20,6 +20,7 @@ import { setupApp } from './setup';
 import { providersApp } from './providers/routes';
 import { secretsApp } from './secrets/routes';
 import { timingSafeStringEqual } from './shared/crypto';
+import { sandboxAuthStore } from './platform/sandbox-auth-store';
 import { integrationsApp } from './integrations';
 import { queueApp, startDrainer, stopDrainer } from './queue';
 
@@ -289,7 +290,7 @@ let activeWsConnections = 0;
 export default {
   port: config.PORT,
 
-  fetch(req: Request, server: any): Response | Promise<Response> | undefined {
+  async fetch(req: Request, server: any): Promise<Response | undefined> {
     // ── WebSocket upgrade for /v1/preview/{sandboxId}/{port}/* ────────
     // In local mode, ALL /v1/preview/* WebSocket connections go to local sandbox.
     // Parses sandbox ID dynamically from the URL for Docker DNS resolution.
@@ -302,9 +303,11 @@ export default {
 
       if (isLocalPreview) {
         // Validate sandbox auth token if configured (WS can't set headers — use ?token=)
-        if (config.hasSandboxAuth()) {
+        const hasAuth = await sandboxAuthStore.hasAuth();
+        if (hasAuth) {
           const wsToken = url.searchParams.get('token');
-          if (!wsToken || !timingSafeStringEqual(wsToken, config.SANDBOX_AUTH_TOKEN)) {
+          const accessKey = await sandboxAuthStore.getAccessKey();
+          if (!wsToken || !accessKey || !timingSafeStringEqual(wsToken, accessKey)) {
             return new Response(JSON.stringify({ error: 'Unauthorized', authType: 'sandbox_token' }), {
               status: 401,
               headers: { 'Content-Type': 'application/json' },
@@ -332,8 +335,9 @@ export default {
           // Build upstream query string: strip user's token, inject service key
           const upstreamParams = new URLSearchParams(url.searchParams);
           upstreamParams.delete('token'); // remove user's sandbox token
-          if (config.INTERNAL_SERVICE_KEY) {
-            upstreamParams.set('token', config.INTERNAL_SERVICE_KEY);
+          const serviceKey = await sandboxAuthStore.getServiceKey();
+          if (serviceKey) {
+            upstreamParams.set('token', serviceKey);
           }
           const upstreamSearch = upstreamParams.toString() ? `?${upstreamParams.toString()}` : '';
           const targetUrl = `${wsBase}${targetPath}${upstreamSearch}`;

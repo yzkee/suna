@@ -2,7 +2,6 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useSandboxAuthStore } from '@/stores/sandbox-auth-store';
-import { resetClient } from '@/lib/opencode-sdk';
 import { useServerStore } from '@/stores/server-store';
 import { Lock, Eye, EyeOff } from 'lucide-react';
 
@@ -16,8 +15,8 @@ import { Lock, Eye, EyeOff } from 'lucide-react';
  */
 export function SandboxTokenDialog() {
   const needsAuth = useSandboxAuthStore((s) => s.needsAuth);
+  const isGenerating = useSandboxAuthStore((s) => s.isGenerating);
   const existingToken = useSandboxAuthStore((s) => s.sandboxToken);
-  const setSandboxToken = useSandboxAuthStore((s) => s.setSandboxToken);
 
   const [value, setValue] = useState('');
   const [showToken, setShowToken] = useState(false);
@@ -32,26 +31,15 @@ export function SandboxTokenDialog() {
     }
   }, [needsAuth]);
 
-  const handleSubmit = useCallback(async () => {
+  const handleSubmit = useCallback(() => {
     const token = value.trim();
     if (!token) return;
 
-    // Store the token in the global sandbox-auth-store
-    setSandboxToken(token);
-
-    // Also persist the token to the active server entry so it survives
-    // page reloads and instance switches without re-prompting.
+    // Centralized: persists to both sandbox-auth-store AND server entry,
+    // resets SDK client, and bumps serverVersion for full reconnect.
     const store = useServerStore.getState();
-    const activeId = store.activeServerId;
-    store.updateServer(activeId, { authToken: token });
-
-    // Force SDK client to recreate with the new token
-    resetClient();
-
-    // Bump server version to trigger reconnect (health check + SSE).
-    // setActiveServer no-ops when the ID hasn't changed, so bump directly.
-    useServerStore.setState((s) => ({ serverVersion: s.serverVersion + 1 }));
-  }, [value, setSandboxToken]);
+    store.persistToken(store.activeServerId, token);
+  }, [value]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -63,7 +51,9 @@ export function SandboxTokenDialog() {
     [handleSubmit],
   );
 
-  if (!needsAuth) return null;
+  // Don't render while a token is being generated (avoids overlap with SaveKeyDialog)
+  // or when auth is not needed
+  if (!needsAuth || isGenerating) return null;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/95 backdrop-blur-sm">
@@ -136,8 +126,8 @@ export function SandboxTokenDialog() {
 
         {/* Help text */}
         <p className="text-xs text-muted-foreground text-center mt-4">
-          The token is the <code className="text-xs bg-muted px-1 py-0.5 rounded">SANDBOX_AUTH_TOKEN</code> value
-          from your server&apos;s <code className="text-xs bg-muted px-1 py-0.5 rounded">.env</code> file.
+          Enter the access key shown when your sandbox was created (starts with <code className="text-xs bg-muted px-1 py-0.5 rounded">sak_</code>).
+          Lost it? Open the Instance Manager and click <strong>Regenerate Key</strong> to get a new one.
         </p>
       </div>
     </div>

@@ -3,7 +3,7 @@ import { config } from '../config';
 
 const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
-function randomAlphanumeric(length: number): string {
+export function randomAlphanumeric(length: number): string {
   const bytes = randomBytes(length);
   let result = '';
   for (let i = 0; i < length; i++) {

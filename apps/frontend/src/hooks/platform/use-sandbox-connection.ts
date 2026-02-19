@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { getAuthToken, invalidateTokenCache } from "@/lib/auth-token";
+import { authenticatedFetch } from "@/lib/auth-token";
 import {
 	incrementSandboxFail,
 	markInitialCheckDone,
@@ -92,54 +92,39 @@ export function useSandboxConnection() {
 			try {
 				const timer = setTimeout(() => controller.abort(), CHECK_TIMEOUT);
 
-				const headers: Record<string, string> = {};
-				const token = await getAuthToken();
-				if (token) headers["Authorization"] = `Bearer ${token}`;
-
-				const res = await fetch(`${url}/session`, {
+				// Use the shared authenticatedFetch for auth injection + 401 handling.
+				// Sandbox auth detection (401 with authType=sandbox_token) is handled
+				// automatically — it sets needsAuth on the sandbox-auth-store.
+				const res = await authenticatedFetch(`${url}/session`, {
 					method: "GET",
 					signal: controller.signal,
-					headers,
 				});
 				clearTimeout(timer);
 
 				if (!alive) return;
 
-				// Detect sandbox auth requirement (401 with authType=sandbox_token)
+				// If authenticatedFetch detected sandbox auth, it already set needsAuth.
+				// Mark unreachable and schedule retry.
 				if (res.status === 401) {
-					try {
-						const body = await res.clone().json();
-						if (body?.authType === 'sandbox_token') {
-							useSandboxAuthStore.getState().setNeedsAuth(true);
-							setSandboxStatus('unreachable');
-							scheduleNext();
-							return;
-						}
-					} catch { /* non-JSON response */ }
-
-					// Non-sandbox 401/403: the cached Supabase token is stale.
-					// Invalidate and fetch fresh so the next health check uses a valid token.
-					try {
-						invalidateTokenCache();
-						await getAuthToken();
-					} catch {
-						/* refresh failed — will retry on next poll */
-					}
-					// Treat auth failure as a connection failure so the retry loop
-					// kicks in with fast polling.
-					throw new Error(`Auth error: ${res.status}`);
+					setSandboxStatus('unreachable');
+					scheduleNext();
+					return;
 				}
 
 				if (res.status === 403) {
-					try {
-						invalidateTokenCache();
-						await getAuthToken();
-					} catch { /* refresh failed */ }
 					throw new Error(`Auth error: ${res.status}`);
 				}
 
 				resetSandboxFail();
 				setSandboxStatus("connected");
+
+				// Connected successfully — clear any stale needsAuth flag.
+				// If the sandbox doesn't require auth (no 401), any previous
+				// needsAuth state is stale (e.g. from a recreated sandbox).
+				const authState = useSandboxAuthStore.getState();
+				if (authState.needsAuth) {
+					authState.setNeedsAuth(false);
+				}
 
 				// Fetch port mappings once on first successful connection.
 				// Stored as metadata for informational purposes (e.g. showing
@@ -148,10 +133,9 @@ export function useSandboxConnection() {
 				if (!portsFetchedRef.current) {
 					portsFetchedRef.current = true;
 					try {
-						const portsRes = await fetch(`${url}/kortix/ports`, {
+						const portsRes = await authenticatedFetch(`${url}/kortix/ports`, {
 							signal: AbortSignal.timeout(3000),
-							headers,
-						});
+						}, { handleSandboxAuth: false, retryOnAuthError: false });
 						if (portsRes.ok) {
 							const data = await portsRes.json();
 							if (data.ports && Object.keys(data.ports).length > 0) {
@@ -171,10 +155,9 @@ export function useSandboxConnection() {
 				if (!versionFetchedRef.current) {
 					versionFetchedRef.current = true;
 					try {
-						const hRes = await fetch(`${url}/kortix/health`, {
+						const hRes = await authenticatedFetch(`${url}/kortix/health`, {
 							signal: AbortSignal.timeout(3000),
-							headers,
-						});
+						}, { handleSandboxAuth: false, retryOnAuthError: false });
 						if (hRes.ok) {
 							const hData = await hRes.json();
 							if (hData.version) {

@@ -98,6 +98,8 @@ interface PlatformResponse<T> {
   data?: T;
   error?: string;
   created?: boolean;
+  /** One-time sandbox access key (sak_...) — only present when a new sandbox is created. */
+  accessKey?: string;
 }
 
 // ─── Fetch helper ────────────────────────────────────────────────────────────
@@ -348,18 +350,28 @@ export async function getLatestSandboxVersion(): Promise<SandboxVersionInfo> {
   return res.json();
 }
 
+// ─── Sandbox Token Regeneration ─────────────────────────────────────────────
+
 /**
- * Get the full changelog history from the platform.
- * Returns all changelog entries (newest first).
+ * Generate (or regenerate) the sandbox access key.
+ * Recreates the container with the token baked in (workspace volume preserved).
+ * Returns the new access key — shown to user once.
  */
-export async function getFullChangelog(): Promise<ChangelogEntry[]> {
-  const res = await fetch(`${PLATFORM_URL}/platform/sandbox/version/changelog`, {
-    headers: { 'Accept': 'application/json' },
+export async function regenerateSandboxToken(): Promise<{
+  sandbox: SandboxInfo;
+  accessKey: string;
+}> {
+  const result = await platformFetch<SandboxInfo>('/platform/sandbox/generate-token', {
+    method: 'POST',
   });
-  if (!res.ok) throw new Error(`Changelog fetch failed: ${res.status}`);
-  const data = await res.json();
-  return data.changelog ?? [];
+
+  if (!result.success || !result.data || !result.accessKey) {
+    throw new Error(result.error || 'Failed to generate token');
+  }
+
+  return { sandbox: result.data, accessKey: result.accessKey };
 }
+
 
 /**
  * Trigger an update on a running sandbox.

@@ -14,21 +14,19 @@ import {
   Container,
   Loader2,
   ArrowDownToLine,
-  Eye,
-  EyeOff,
   KeyRound,
+  Copy,
 } from 'lucide-react';
-import { useServerStore, type ServerEntry } from '@/stores/server-store';
+import { useServerStore, CLOUD_SANDBOX_SERVER_ID, type ServerEntry } from '@/stores/server-store';
 import { useSandboxAuthStore } from '@/stores/sandbox-auth-store';
 import { useTabStore } from '@/stores/tab-store';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import { getAuthToken } from '@/lib/auth-token';
-import { ensureSandbox, getSandboxUrl, extractMappedPorts, removeSandbox, type SandboxProviderName, type ChangelogEntry } from '@/lib/platform-client';
-import { useProviders } from '@/hooks/platform/use-sandbox';
+import { authenticatedFetch } from '@/lib/auth-token';
+import { ensureSandbox, getSandboxUrl, extractMappedPorts, removeSandbox, regenerateSandboxToken, type SandboxProviderName, type ChangelogEntry } from '@/lib/platform-client';
+
 import { useSandboxUpdate } from '@/hooks/platform/use-sandbox-update';
-import { SANDBOX_SERVER_ID } from '@/hooks/platform/use-sandbox';
 import { isLocalMode } from '@/lib/config';
 import {
   Dialog,
@@ -55,22 +53,18 @@ function useConnectionStatus(url: string, enabled: boolean) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 3000);
 
-      const headers: Record<string, string> = {};
-      const token = await getAuthToken();
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      await fetch(`${url}/session`, { method: 'GET', signal: controller.signal, headers });
+      await authenticatedFetch(`${url}/session`, {
+        method: 'GET',
+        signal: controller.signal,
+      }, { handleSandboxAuth: false, retryOnAuthError: false });
       clearTimeout(timeout);
       setStatus('connected');
 
-      // Try to get version from /kortix/health (cloud sandboxes)
+      // Try to get version from /kortix/health
       try {
-        const hc = new AbortController();
-        const ht = setTimeout(() => hc.abort(), 3000);
-        const hres = await fetch(`${url}/kortix/health`, { signal: hc.signal, headers });
-        clearTimeout(ht);
+        const hres = await authenticatedFetch(`${url}/kortix/health`, {
+          signal: AbortSignal.timeout(3000),
+        }, { handleSandboxAuth: false, retryOnAuthError: false });
         if (hres.ok) {
           const data = await hres.json();
           if (data.version && data.version !== '0.0.0') {
@@ -183,7 +177,9 @@ function DialogInstanceRow({
   onSelect,
   onEdit,
   onDelete,
+  onGenerateToken,
   isDeleting,
+  isGeneratingToken,
   sandboxUpdate,
   onVersionDetected,
 }: {
@@ -192,7 +188,9 @@ function DialogInstanceRow({
   onSelect: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
+  onGenerateToken?: () => void;
   isDeleting?: boolean;
+  isGeneratingToken?: boolean;
   sandboxUpdate?: SandboxUpdateInfo;
   onVersionDetected?: (version: string) => void;
 }) {
@@ -243,6 +241,16 @@ function DialogInstanceRow({
             {hasCustomLabel ? server.label : displayUrl}
           </span>
 
+          {server.provider && (
+            <span className={cn(
+              'px-1.5 py-px text-[9px] font-medium rounded-full uppercase tracking-wider leading-none flex-shrink-0',
+              server.provider === 'local_docker'
+                ? 'text-blue-500/70 bg-blue-500/10'
+                : 'text-violet-500/70 bg-violet-500/10',
+            )}>
+              {server.provider === 'local_docker' ? 'local' : 'cloud'}
+            </span>
+          )}
           {server.authToken && (
             <KeyRound className="h-3 w-3 text-amber-500/60 flex-shrink-0" title="Token configured" />
           )}
@@ -320,10 +328,26 @@ function DialogInstanceRow({
           {/* Spacer */}
           <div className="flex-1" />
 
-          {/* Edit/Delete — visible on hover */}
-          {!server.isDefault && !confirmDelete && (
+          {/* Key / Edit / Delete — visible on hover */}
+          {!confirmDelete && (
             <div className="flex items-center gap-0.5 opacity-0 group-hover/row:opacity-100 transition-opacity">
-              {onEdit && (
+              {onGenerateToken && (
+                <button
+                  type="button"
+                  disabled={isGeneratingToken}
+                  className="p-1.5 rounded-lg hover:bg-amber-500/10 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={(e) => { e.stopPropagation(); onGenerateToken(); }}
+                  aria-label="Generate access key"
+                  title="Generate access key"
+                >
+                  {isGeneratingToken ? (
+                    <Loader2 className="h-3.5 w-3.5 text-amber-500 animate-spin" />
+                  ) : (
+                    <KeyRound className={cn('h-3.5 w-3.5', server.authToken ? 'text-amber-500' : 'text-muted-foreground')} />
+                  )}
+                </button>
+              )}
+              {!server.isDefault && onEdit && (
                 <button
                   type="button"
                   className="p-1.5 rounded-lg hover:bg-muted/80 transition-colors cursor-pointer"
@@ -333,7 +357,7 @@ function DialogInstanceRow({
                   <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
                 </button>
               )}
-              {onDelete && (
+              {!server.isDefault && onDelete && (
                 <button
                   type="button"
                   className="p-1.5 rounded-lg hover:bg-destructive/10 transition-colors cursor-pointer"
@@ -378,6 +402,70 @@ function DialogInstanceRow({
 }
 
 // ============================================================================
+// Generated Key — inline display inside Instance Manager
+// ============================================================================
+
+function GeneratedKeyView({
+  accessKey,
+  onContinue,
+}: {
+  accessKey: string;
+  onContinue: () => void;
+}) {
+  const [copied, setCopied] = React.useState(false);
+
+  const handleCopy = React.useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(accessKey);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = accessKey;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [accessKey]);
+
+  return (
+    <div className="flex flex-col px-5 pb-5 gap-4">
+      {/* Key display */}
+      <div className="flex items-center gap-2 p-3 rounded-lg border border-border bg-muted/30">
+        <code className="flex-1 text-sm font-mono break-all select-all">{accessKey}</code>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="flex-shrink-0 p-1.5 rounded-md hover:bg-muted transition-colors cursor-pointer"
+          title="Copy to clipboard"
+        >
+          {copied ? (
+            <Check className="w-4 h-4 text-emerald-500" />
+          ) : (
+            <Copy className="w-4 h-4 text-muted-foreground" />
+          )}
+        </button>
+      </div>
+
+      {/* Info */}
+      <p className="text-xs text-muted-foreground">
+        This key is saved in your browser automatically. If you clear browser data or switch browsers, you&apos;ll need it to reconnect. You can always generate a new one from here.
+      </p>
+
+      {/* Continue */}
+      <button
+        type="button"
+        onClick={onContinue}
+        className="w-full py-2.5 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer"
+      >
+        Continue
+      </button>
+    </div>
+  );
+}
+
+// ============================================================================
 // Instance Manager Dialog
 // ============================================================================
 
@@ -397,6 +485,9 @@ export function InstanceManagerDialog({
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [isCreatingSandbox, setIsCreatingSandbox] = React.useState(false);
   const [sandboxError, setSandboxError] = React.useState<string | null>(null);
+  /** One-time access key shown after sandbox creation. null = not showing. */
+  const [pendingAccessKey, setPendingAccessKey] = React.useState<string | null>(null);
+  const [isRegenerating, setIsRegenerating] = React.useState(false);
 
   // Track the cloud sandbox's current version (from /kortix/health, fetched by DialogInstanceRow)
   const [sandboxVersion, setSandboxVersion] = React.useState<string | null>(null);
@@ -407,8 +498,6 @@ export function InstanceManagerDialog({
   // Form state
   const [formUrl, setFormUrl] = React.useState('');
   const [formLabel, setFormLabel] = React.useState('');
-  const [formToken, setFormToken] = React.useState('');
-  const [showFormToken, setShowFormToken] = React.useState(false);
   const urlInputRef = React.useRef<HTMLInputElement>(null);
 
   const filtered = React.useMemo(() => {
@@ -425,8 +514,6 @@ export function InstanceManagerDialog({
       setEditingId(null);
       setFormUrl('');
       setFormLabel('');
-      setFormToken('');
-      setShowFormToken(false);
       setSandboxError(null);
     }
   }, [open]);
@@ -442,8 +529,6 @@ export function InstanceManagerDialog({
   function startAdd() {
     setFormUrl('');
     setFormLabel('');
-    setFormToken('');
-    setShowFormToken(false);
     setMode('add');
   }
 
@@ -451,8 +536,6 @@ export function InstanceManagerDialog({
     setEditingId(server.id);
     setFormUrl(server.url);
     setFormLabel(server.label);
-    setFormToken(server.authToken || '');
-    setShowFormToken(false);
     setMode('edit');
   }
 
@@ -460,26 +543,46 @@ export function InstanceManagerDialog({
     const url = formUrl.trim();
     if (!url) return;
     const label = formLabel.trim();
-    const token = formToken.trim() || undefined;
 
     if (mode === 'add') {
-      const newServer = addServer(label, url, token);
-      // If a token was provided, load it into the sandbox-auth-store immediately
-      if (token) {
-        useSandboxAuthStore.getState().setSandboxToken(token);
-      }
+      const newServer = addServer(label, url);
       useTabStore.getState().swapForServer(newServer.id, activeServerId);
       setActiveServer(newServer.id);
       router.push('/dashboard');
       onOpenChange(false);
     } else if (mode === 'edit' && editingId) {
-      updateServer(editingId, { label: label || url.replace(/^https?:\/\//, ''), url, authToken: token });
-      // If editing the active server and token changed, update sandbox-auth-store
-      if (editingId === activeServerId && token) {
-        useSandboxAuthStore.getState().setSandboxToken(token);
-      }
+      updateServer(editingId, { label: label || url.replace(/^https?:\/\//, ''), url });
       setMode('list');
       setEditingId(null);
+    }
+  }
+
+  // ─── Generate Token ─────────────────────────────────────────────────────
+  async function handleGenerateToken() {
+    setIsRegenerating(true);
+    setSandboxError(null);
+
+    // Suppress the SandboxTokenDialog while we're generating —
+    // the container will be down briefly and the health monitor
+    // would otherwise trigger the "enter your token" prompt.
+    useSandboxAuthStore.getState().setIsGenerating(true);
+
+    try {
+      const { accessKey } = await regenerateSandboxToken();
+
+      // Find the target server and persist via the centralized action
+      const server = servers.find((s) => s.provider === 'local_docker');
+      const store = useServerStore.getState();
+      store.persistToken(server?.id ?? activeServerId, accessKey);
+
+      // Show the key inline in the dialog
+      setPendingAccessKey(accessKey);
+    } catch (err: any) {
+      setSandboxError(err?.message || 'Failed to generate token');
+      // Clear the generating flag so the token dialog can show if needed
+      useSandboxAuthStore.getState().setIsGenerating(false);
+    } finally {
+      setIsRegenerating(false);
     }
   }
 
@@ -497,39 +600,21 @@ export function InstanceManagerDialog({
         throw new Error(`Failed to build sandbox URL: ${err}`);
       }
 
-      // Use the fixed SANDBOX_SERVER_ID to prevent duplicates.
-      // If the entry already exists, update it; otherwise create it.
-      const existing = useServerStore.getState().servers.find((s) => s.id === SANDBOX_SERVER_ID);
-
-      if (existing) {
-        useServerStore.getState().updateServerSilent(SANDBOX_SERVER_ID, {
+      const store = useServerStore.getState();
+      const serverId = store.registerOrUpdateSandbox(
+        {
           url,
           label,
           provider: sandbox.provider,
           sandboxId: sandbox.external_id,
           mappedPorts: extractMappedPorts(sandbox),
-        });
-      } else {
-        useServerStore.setState((state) => ({
-          servers: [
-            ...state.servers,
-            {
-              id: SANDBOX_SERVER_ID,
-              label,
-              url,
-              provider: sandbox.provider,
-              sandboxId: sandbox.external_id,
-              mappedPorts: extractMappedPorts(sandbox),
-            },
-          ],
-        }));
-      }
+        },
+        { isLocal: isLocalMode() },
+      );
 
-      // Update the sandbox query cache so useSandbox() picks up the new sandbox
       queryClient.setQueryData(['platform', 'sandbox'], sandbox);
-
-      useTabStore.getState().swapForServer(SANDBOX_SERVER_ID, activeServerId);
-      setActiveServer(SANDBOX_SERVER_ID);
+      useTabStore.getState().swapForServer(serverId, activeServerId);
+      setActiveServer(serverId);
       router.push('/dashboard');
       onOpenChange(false);
     } catch (err: any) {
@@ -589,24 +674,39 @@ export function InstanceManagerDialog({
       <DialogContent className="p-0 gap-0 overflow-hidden" aria-describedby="instance-dialog-desc">
         <DialogHeader className="px-5 pt-5 pb-3">
           <DialogTitle className="flex items-center gap-2 text-base">
-            {mode === 'list' && (
+            {pendingAccessKey ? (
+              <>
+                <KeyRound className="h-4 w-4 text-emerald-500" />
+                Access Key Generated
+              </>
+            ) : mode === 'list' ? (
               <>
                 <Box className="h-4 w-4 text-muted-foreground" />
                 Instances
               </>
-            )}
-            {mode === 'add' && 'Add Instance'}
-            {mode === 'edit' && 'Edit Instance'}
+            ) : mode === 'add' ? 'Add Instance' : 'Edit Instance'}
           </DialogTitle>
           <DialogDescription id="instance-dialog-desc" className="text-xs">
-            {mode === 'list' && 'Manage your Kortix instances. Switch between local and remote servers.'}
-            {mode === 'add' && 'Connect to a new Kortix instance by entering its address.'}
-            {mode === 'edit' && 'Update the connection details for this instance.'}
+            {pendingAccessKey
+              ? 'Copy this key — it won\u2019t be shown again.'
+              : mode === 'list'
+                ? 'Manage your Kortix instances. Switch between local and remote servers.'
+                : mode === 'add'
+                  ? 'Connect to a new Kortix instance by entering its address.'
+                  : 'Update the connection details for this instance.'}
           </DialogDescription>
         </DialogHeader>
 
+        {/* ---- Generated key view ---- */}
+        {pendingAccessKey && (
+          <GeneratedKeyView
+            accessKey={pendingAccessKey}
+            onContinue={() => setPendingAccessKey(null)}
+          />
+        )}
+
         {/* ---- List view ---- */}
-        {mode === 'list' && (
+        {mode === 'list' && !pendingAccessKey && (
           <div className="flex flex-col">
             {/* Search + Add bar */}
             <div className="flex items-center gap-2 px-4 pb-3">
@@ -644,9 +744,11 @@ export function InstanceManagerDialog({
                     onSelect={() => handleSelect(server.id)}
                     onEdit={() => startEdit(server)}
                     onDelete={() => handleRemove(server.id)}
+                    onGenerateToken={server.provider === 'local_docker' ? handleGenerateToken : undefined}
                     isDeleting={isRemovingSandbox}
-                    sandboxUpdate={server.id === SANDBOX_SERVER_ID ? sandboxUpdate : undefined}
-                    onVersionDetected={server.id === SANDBOX_SERVER_ID ? setSandboxVersion : undefined}
+                    isGeneratingToken={isRegenerating}
+                    sandboxUpdate={server.id === CLOUD_SANDBOX_SERVER_ID ? sandboxUpdate : undefined}
+                    onVersionDetected={server.id === CLOUD_SANDBOX_SERVER_ID ? setSandboxVersion : undefined}
                   />
                 ))
               )}
@@ -761,32 +863,7 @@ export function InstanceManagerDialog({
                 />
               </div>
 
-              {/* Access Token */}
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
-                  <KeyRound className="h-3 w-3" />
-                  Access Token <span className="text-muted-foreground/40">(optional)</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type={showFormToken ? 'text' : 'password'}
-                    placeholder="Enter SANDBOX_AUTH_TOKEN if the instance is protected"
-                    value={formToken}
-                    onChange={(e) => setFormToken(e.target.value)}
-                    className="w-full h-9 px-3 pr-10 text-sm font-mono rounded-lg bg-muted/30 border border-border/60 outline-none placeholder:text-muted-foreground/30 focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowFormToken(!showFormToken)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-                  >
-                    {showFormToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                  </button>
-                </div>
-                <p className="text-[10px] text-muted-foreground/50">
-                  Only needed if the instance has <code className="text-[10px] bg-muted px-1 py-0.5 rounded">SANDBOX_AUTH_TOKEN</code> set.
-                </p>
-              </div>
+
             </div>
 
             {/* Actions */}
