@@ -18,6 +18,13 @@ export interface ServerEntry {
    * For Daytona, ports are accessed via subdomain routing, so this is unused.
    */
   mappedPorts?: Record<string, string>;
+  /**
+   * Optional per-instance sandbox auth token (SANDBOX_AUTH_TOKEN).
+   * Set by the user in the Add/Edit Instance form or auto-saved when
+   * the SandboxTokenDialog is submitted. Loaded into sandbox-auth-store
+   * on instance switch.
+   */
+  authToken?: string;
 }
 
 interface ServerStore {
@@ -37,14 +44,14 @@ interface ServerStore {
    * nuking cached data.
    */
   urlVersion: number;
-  addServer: (label: string, url: string) => ServerEntry;
-  updateServer: (id: string, updates: Partial<Pick<ServerEntry, 'label' | 'url'>>) => void;
+  addServer: (label: string, url: string, authToken?: string) => ServerEntry;
+  updateServer: (id: string, updates: Partial<Pick<ServerEntry, 'label' | 'url' | 'authToken'>>) => void;
   /**
    * Silently update a server's URL, ports, provider, and/or sandboxId
    * without triggering a full reconnect (no serverVersion bump). Only
    * bumps urlVersion so the connection monitor re-verifies.
    */
-  updateServerSilent: (id: string, updates: Partial<Pick<ServerEntry, 'url' | 'provider' | 'sandboxId'>> & { mappedPorts?: Record<string, string>; label?: string }) => void;
+  updateServerSilent: (id: string, updates: Partial<Pick<ServerEntry, 'url' | 'provider' | 'sandboxId' | 'authToken'>> & { mappedPorts?: Record<string, string>; label?: string }) => void;
   removeServer: (id: string) => void;
   setActiveServer: (id: string, options?: { auto?: boolean }) => void;
   getActiveServerUrl: () => string;
@@ -82,12 +89,13 @@ export const useServerStore = create<ServerStore>()(
       serverVersion: 0,
       urlVersion: 0,
 
-      addServer: (label: string, url: string) => {
+      addServer: (label: string, url: string, authToken?: string) => {
         const normalizedUrl = url.replace(/\/+$/, '');
         const newServer: ServerEntry = {
           id: generateId(),
           label: label || normalizedUrl.replace(/^https?:\/\//, ''),
           url: normalizedUrl,
+          ...(authToken ? { authToken } : {}),
         };
         set((state) => ({
           servers: [...state.servers, newServer],
@@ -95,7 +103,7 @@ export const useServerStore = create<ServerStore>()(
         return newServer;
       },
 
-      updateServer: (id: string, updates: Partial<Pick<ServerEntry, 'label' | 'url'>>) => {
+      updateServer: (id: string, updates: Partial<Pick<ServerEntry, 'label' | 'url' | 'authToken'>>) => {
         const state = get();
         const isActive = state.activeServerId === id;
         set((state) => ({
@@ -238,4 +246,13 @@ export function getActiveServer(): ServerEntry | null {
 export function getActiveServerMappedPort(containerPort: string): string | null {
   const server = getActiveServer();
   return server?.mappedPorts?.[containerPort] ?? null;
+}
+
+/**
+ * Get the auth token for the active server (if set).
+ * Returns null if no per-instance token is configured.
+ */
+export function getActiveServerAuthToken(): string | null {
+  const server = getActiveServer();
+  return server?.authToken ?? null;
 }

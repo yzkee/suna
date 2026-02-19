@@ -21,7 +21,7 @@ import { useConnectionToasts } from '@/components/dashboard/connecting-screen';
 import { TabBar } from '@/components/tabs/tab-bar';
 import { useTabStore } from '@/stores/tab-store';
 import { useServerStore } from '@/stores/server-store';
-import { getSandboxToken } from '@/stores/sandbox-auth-store';
+import { getSandboxToken, useSandboxAuthStore } from '@/stores/sandbox-auth-store';
 import { cn } from '@/lib/utils';
 
 function OpenCodeEventStreamProvider() {
@@ -45,6 +45,35 @@ function SandboxInitProvider() {
 function SandboxConnectionProvider() {
   useSandboxConnection();
   useConnectionToasts();
+  return null;
+}
+
+/**
+ * Syncs per-instance auth tokens to the global sandbox-auth-store when the
+ * active server changes. This ensures that switching between instances with
+ * different tokens works seamlessly — the token is loaded BEFORE any
+ * connection attempt, avoiding the 401→dialog dance.
+ */
+function ServerTokenSyncProvider() {
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const servers = useServerStore((s) => s.servers);
+
+  useEffect(() => {
+    const server = servers.find((s) => s.id === activeServerId);
+    if (!server) return;
+
+    const authStore = useSandboxAuthStore.getState();
+    if (server.authToken) {
+      // Load the per-instance token into the global store
+      authStore.setSandboxToken(server.authToken);
+    } else if (authStore.sandboxToken && !server.authToken) {
+      // Server has no token — clear the global store so we don't send
+      // the previous instance's token to a different server.
+      // BUT only clear if this is a genuine switch, not initial mount.
+      authStore.clearSandboxToken();
+    }
+  }, [activeServerId, servers]);
+
   return null;
 }
 
@@ -399,6 +428,7 @@ export default function DashboardLayoutContent({
       }
     >
       <SandboxInitProvider />
+      <ServerTokenSyncProvider />
       <SandboxConnectionProvider />
       <OpenCodeEventStreamProvider />
       <WebNotificationProvider />

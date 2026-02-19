@@ -14,8 +14,12 @@ import {
   Container,
   Loader2,
   ArrowDownToLine,
+  Eye,
+  EyeOff,
+  KeyRound,
 } from 'lucide-react';
 import { useServerStore, type ServerEntry } from '@/stores/server-store';
+import { useSandboxAuthStore } from '@/stores/sandbox-auth-store';
 import { useTabStore } from '@/stores/tab-store';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
@@ -239,6 +243,9 @@ function DialogInstanceRow({
             {hasCustomLabel ? server.label : displayUrl}
           </span>
 
+          {server.authToken && (
+            <KeyRound className="h-3 w-3 text-amber-500/60 flex-shrink-0" title="Token configured" />
+          )}
           {server.isDefault && (
             <span className="px-1.5 py-px text-[9px] font-medium text-muted-foreground/60 bg-muted/50 rounded-full uppercase tracking-wider leading-none flex-shrink-0">
               default
@@ -400,6 +407,8 @@ export function InstanceManagerDialog({
   // Form state
   const [formUrl, setFormUrl] = React.useState('');
   const [formLabel, setFormLabel] = React.useState('');
+  const [formToken, setFormToken] = React.useState('');
+  const [showFormToken, setShowFormToken] = React.useState(false);
   const urlInputRef = React.useRef<HTMLInputElement>(null);
 
   const filtered = React.useMemo(() => {
@@ -416,6 +425,8 @@ export function InstanceManagerDialog({
       setEditingId(null);
       setFormUrl('');
       setFormLabel('');
+      setFormToken('');
+      setShowFormToken(false);
       setSandboxError(null);
     }
   }, [open]);
@@ -431,6 +442,8 @@ export function InstanceManagerDialog({
   function startAdd() {
     setFormUrl('');
     setFormLabel('');
+    setFormToken('');
+    setShowFormToken(false);
     setMode('add');
   }
 
@@ -438,6 +451,8 @@ export function InstanceManagerDialog({
     setEditingId(server.id);
     setFormUrl(server.url);
     setFormLabel(server.label);
+    setFormToken(server.authToken || '');
+    setShowFormToken(false);
     setMode('edit');
   }
 
@@ -445,15 +460,24 @@ export function InstanceManagerDialog({
     const url = formUrl.trim();
     if (!url) return;
     const label = formLabel.trim();
+    const token = formToken.trim() || undefined;
 
     if (mode === 'add') {
-      const newServer = addServer(label, url);
+      const newServer = addServer(label, url, token);
+      // If a token was provided, load it into the sandbox-auth-store immediately
+      if (token) {
+        useSandboxAuthStore.getState().setSandboxToken(token);
+      }
       useTabStore.getState().swapForServer(newServer.id, activeServerId);
       setActiveServer(newServer.id);
       router.push('/dashboard');
       onOpenChange(false);
     } else if (mode === 'edit' && editingId) {
-      updateServer(editingId, { label: label || url.replace(/^https?:\/\//, ''), url });
+      updateServer(editingId, { label: label || url.replace(/^https?:\/\//, ''), url, authToken: token });
+      // If editing the active server and token changed, update sandbox-auth-store
+      if (editingId === activeServerId && token) {
+        useSandboxAuthStore.getState().setSandboxToken(token);
+      }
       setMode('list');
       setEditingId(null);
     }
@@ -735,6 +759,33 @@ export function InstanceManagerDialog({
                   onChange={(e) => setFormLabel(e.target.value)}
                   className="w-full h-9 px-3 text-sm rounded-lg bg-muted/30 border border-border/60 outline-none placeholder:text-muted-foreground/30 focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all"
                 />
+              </div>
+
+              {/* Access Token */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
+                  <KeyRound className="h-3 w-3" />
+                  Access Token <span className="text-muted-foreground/40">(optional)</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showFormToken ? 'text' : 'password'}
+                    placeholder="Enter SANDBOX_AUTH_TOKEN if the instance is protected"
+                    value={formToken}
+                    onChange={(e) => setFormToken(e.target.value)}
+                    className="w-full h-9 px-3 pr-10 text-sm font-mono rounded-lg bg-muted/30 border border-border/60 outline-none placeholder:text-muted-foreground/30 focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowFormToken(!showFormToken)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                  >
+                    {showFormToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+                <p className="text-[10px] text-muted-foreground/50">
+                  Only needed if the instance has <code className="text-[10px] bg-muted px-1 py-0.5 rounded">SANDBOX_AUTH_TOKEN</code> set.
+                </p>
               </div>
             </div>
 

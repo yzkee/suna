@@ -36,17 +36,21 @@ export function SandboxTokenDialog() {
     const token = value.trim();
     if (!token) return;
 
-    // Store the token
+    // Store the token in the global sandbox-auth-store
     setSandboxToken(token);
+
+    // Also persist the token to the active server entry so it survives
+    // page reloads and instance switches without re-prompting.
+    const store = useServerStore.getState();
+    const activeId = store.activeServerId;
+    store.updateServer(activeId, { authToken: token });
 
     // Force SDK client to recreate with the new token
     resetClient();
 
-    // Bump server version to trigger reconnect (health check + SSE)
-    const store = useServerStore.getState();
-    const activeId = store.activeServerId;
-    // This triggers serverVersion bump → useSandboxConnection re-checks
-    store.setActiveServer(activeId, { auto: true });
+    // Bump server version to trigger reconnect (health check + SSE).
+    // setActiveServer no-ops when the ID hasn't changed, so bump directly.
+    useServerStore.setState((s) => ({ serverVersion: s.serverVersion + 1 }));
   }, [value, setSandboxToken]);
 
   const handleKeyDown = useCallback(
