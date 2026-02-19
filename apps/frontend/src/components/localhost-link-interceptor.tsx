@@ -12,11 +12,13 @@
 
 import { useEffect } from 'react';
 import { useServerStore, getActiveOpenCodeUrl } from '@/stores/server-store';
-import { isProxiableLocalhostUrl, rewriteLocalhostUrl } from '@/lib/utils/sandbox-url';
+import {
+  isProxiableLocalhostUrl,
+  parseLocalhostUrl,
+  rewriteLocalhostUrl,
+  toInternalUrl,
+} from '@/lib/utils/sandbox-url';
 import { openTabAndNavigate } from '@/stores/tab-store';
-
-const LOCALHOST_HREF_RE =
-  /^https?:\/\/(?:localhost|127\.0\.0\.1):(\d{1,5})(\/[^\s)"'<>]*)?$/;
 
 export function LocalhostLinkInterceptor() {
   useEffect(() => {
@@ -37,11 +39,10 @@ export function LocalhostLinkInterceptor() {
         if (new URL(href).origin === window.location.origin) return;
       } catch { /* not a valid URL, skip */ }
 
-      const match = href.match(LOCALHOST_HREF_RE);
-      if (!match) return;
+      const parsed = parseLocalhostUrl(href);
+      if (!parsed) return;
 
-      const port = parseInt(match[1], 10);
-      const path = match[2] || '/';
+      const { port, path } = parsed;
 
       // Resolve the proxy URL using the active server
       const state = useServerStore.getState();
@@ -53,12 +54,15 @@ export function LocalhostLinkInterceptor() {
       e.preventDefault();
       e.stopPropagation();
 
+      // Build the internal URL (what the user sees in the browser bar)
+      const internalUrl = toInternalUrl(port, path);
+
       openTabAndNavigate({
         id: `preview:${port}`,
         title: `localhost:${port}`,
         type: 'preview',
         href: `/preview/${port}`,
-        metadata: { url: proxyUrl, port, originalUrl: href, path },
+        metadata: { url: proxyUrl, port, originalUrl: internalUrl, path },
       });
     }
 

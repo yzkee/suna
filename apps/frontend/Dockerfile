@@ -4,7 +4,7 @@
 # Build the frontend on the HOST first:
 #   cd apps/frontend && NEXT_OUTPUT=standalone pnpm run build
 # Then from repo root:
-#   docker build -f apps/frontend/Dockerfile -t kortixmarko/kortix-frontend:latest .
+#   docker build -f apps/frontend/Dockerfile -t kortix/kortix-frontend:latest .
 #
 FROM node:22-slim AS runner
 WORKDIR /app
@@ -14,6 +14,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
+
+# License
+COPY LICENSE /LICENSE
 
 # Copy pre-built standalone output from the host.
 COPY --chown=nextjs:nodejs apps/frontend/.next/standalone ./

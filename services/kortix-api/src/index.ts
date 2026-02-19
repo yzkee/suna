@@ -20,6 +20,8 @@ import { setupApp } from './setup';
 import { providersApp } from './providers/routes';
 import { secretsApp } from './secrets/routes';
 import { timingSafeStringEqual } from './shared/crypto';
+import { integrationsApp } from './integrations';
+import { queueApp, startDrainer, stopDrainer } from './queue';
 
 // ─── App Setup ──────────────────────────────────────────────────────────────
 
@@ -140,6 +142,7 @@ app.route('/v1/billing', billingApp);   // /v1/billing/account-state, /v1/billin
 app.route('/v1/platform', platformApp); // /v1/platform/providers, /v1/platform/sandbox/*, /v1/platform/sandbox/version
 app.route('/v1/cron', cronApp);         // /v1/cron/sandboxes/*, /v1/cron/triggers/*, /v1/cron/executions/*
 app.route('/v1/deployments', deploymentsApp); // /v1/deployments/*
+app.route('/v1/integrations', integrationsApp); // /v1/integrations/*
 app.route('/', channelsApp);                 // /v1/channels/*, /webhooks/*
 // Setup routes — local-only. Provides .env management and system status.
 if (config.isLocal()) {
@@ -147,6 +150,8 @@ if (config.isLocal()) {
   app.route('/v1/providers', providersApp);   // /v1/providers, /v1/providers/schema, /v1/providers/:id/connect, /v1/providers/:id/disconnect, /v1/providers/health
   app.route('/v1/secrets', secretsApp);       // /v1/secrets, /v1/secrets/:key (PUT/DELETE)
 }
+// Message queue — persists queued messages to filesystem and drains them server-side.
+app.route('/v1/queue', queueApp);            // /v1/queue/sessions/:id, /v1/queue/messages/:id, /v1/queue/all, /v1/queue/status
 
 // Preview Proxy — unified route for both cloud (Daytona) and local mode.
 // Cloud:  /v1/preview/{sandboxId}/{port}/* → Daytona SDK → sandbox
@@ -217,7 +222,9 @@ console.log(`
 ║    /v1/platform   (sandbox lifecycle)                      ║
 ║    /v1/cron       (scheduled triggers)                     ║
 ║    /v1/deployments (deploy lifecycle)                      ║
+║    /v1/integrations (OAuth integrations)                    ║
 ║    /v1/setup      (local setup & env management)           ║
+║    /v1/queue      (persistent message queue)               ║
 ║    /v1/preview    (sandbox proxy — local + cloud)           ║
 ╠═══════════════════════════════════════════════════════════╣
 ║  Database:   ${config.DATABASE_URL ? '✓ Configured'.padEnd(42) : '✗ NOT SET'.padEnd(42)}║
@@ -230,12 +237,14 @@ console.log(`
 
 startScheduler().catch((err) => console.error('[startup] Scheduler failed to start:', err));
 startChannelService();
+startDrainer();
 
 // Graceful shutdown
 function shutdown(signal: string) {
   console.log(`\n[${signal}] Shutting down gracefully...`);
   stopScheduler();
   stopChannelService();
+  stopDrainer();
   process.exit(0);
 }
 

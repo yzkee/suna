@@ -24,6 +24,15 @@ export interface DetectedLocalhostUrl {
   endIndex: number;
 }
 
+export interface ParsedLocalhostUrl {
+  /** Canonicalized localhost URL (http(s)://localhost:PORT/path?query#hash) */
+  originalUrl: string;
+  /** Parsed port number */
+  port: number;
+  /** Parsed path + query + hash (always starts with /) */
+  path: string;
+}
+
 /**
  * Regex to detect localhost URLs in text.
  * Matches: http://localhost:PORT, http://127.0.0.1:PORT, https://localhost:PORT
@@ -31,17 +40,88 @@ export interface DetectedLocalhostUrl {
  * Does NOT match bare localhost without a port (too ambiguous).
  */
 const LOCALHOST_URL_REGEX =
-  /https?:\/\/(?:localhost|127\.0\.0\.1):(\d{1,5})(\/[^\s)"'<>]*)?/g;
+  /https?:\/\/(?:localhost|127\.0\.0\.1):\d{1,5}[^\s)"'<>]*/g;
 
 /**
  * Ports that should NOT be rewritten — they're already exposed/handled natively
  * by the sandbox infrastructure (VNC, OpenCode Web, presentation viewer, etc.)
  */
 const EXCLUDED_PORTS = new Set([
-  3000,  // Next.js default dev port (the frontend itself)
+  parseInt(SANDBOX_PORTS.OPENCODE_UI, 10),  // Frontend UI (port 3111)
   4096,  // OpenCode API (proxied by Kortix Master)
   parseInt(SANDBOX_PORTS.KORTIX_MASTER, 10),  // Kortix Master itself
 ]);
+
+/**
+ * Check if a URL path indicates the URL has already been proxied.
+ * Prevents double-proxy issues like localhost:14000/proxy/14000/proxy/3210/...
+ */
+function isAlreadyProxied(path: string): boolean {
+  return /^\/proxy\/\d+/.test(path);
+}
+
+function normalizePath(path: string): string {
+  if (!path) return '/';
+
+  let normalized = path;
+
+  // Guard against markdown-link artifacts leaking into URL paths.
+  const markdownBoundary = normalized.indexOf('](');
+  if (markdownBoundary !== -1) {
+    normalized = normalized.slice(0, markdownBoundary);
+  }
+
+  // Same guard after browser-encoding (`]` -> `%5D`).
+  const encodedBoundary = normalized.toLowerCase().indexOf('%5d(');
+  if (encodedBoundary !== -1) {
+    normalized = normalized.slice(0, encodedBoundary);
+  }
+
+  if (!normalized) return '/';
+  return normalized.startsWith('/') ? normalized : `/${normalized}`;
+}
+
+/**
+ * Markdown/plain-text extraction can include trailing markdown syntax when the
+ * link label is itself a URL, e.g.:
+ *   [http://localhost:3210/viewer.html](http://localhost:3210/viewer.html)
+ * For the label URL token, regex extraction sees `...viewer.html](http://...`.
+ * Trim that markdown boundary before URL parsing.
+ */
+function stripMarkdownArtifacts(url: string): string {
+  const markerIndex = url.indexOf('](');
+  if (markerIndex === -1) return url;
+  return url.slice(0, markerIndex);
+}
+
+/**
+ * Parse a localhost URL in one place so all consumers share identical rules.
+ */
+export function parseLocalhostUrl(rawUrl: string | undefined): ParsedLocalhostUrl | null {
+  if (!rawUrl) return null;
+
+  const candidate = stripMarkdownArtifacts(rawUrl.trim());
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    if (parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1') return null;
+    if (!parsed.port) return null;
+
+    const port = parseInt(parsed.port, 10);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+
+    const path = normalizePath(`${parsed.pathname || '/'}${parsed.search}${parsed.hash}`);
+
+    return {
+      originalUrl: `${parsed.protocol}//${parsed.hostname}:${port}${path}`,
+      port,
+      path,
+    };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Detect all localhost URLs in a text string.
@@ -55,17 +135,20 @@ export function detectLocalhostUrls(text: string): DetectedLocalhostUrl[] {
 
   let match: RegExpExecArray | null;
   while ((match = LOCALHOST_URL_REGEX.exec(text)) !== null) {
-    const port = parseInt(match[1], 10);
+    const parsed = parseLocalhostUrl(match[0]);
+    if (!parsed) continue;
+
+    const { originalUrl, port, path } = parsed;
 
     // Skip invalid ports or excluded infrastructure ports
     if (port < 1 || port > 65535 || EXCLUDED_PORTS.has(port)) continue;
-
-    const originalUrl = match[0];
     // Deduplicate
     if (seen.has(originalUrl)) continue;
     seen.add(originalUrl);
 
-    const path = match[2] || '/';
+    // Skip URLs that are already proxied (e.g. http://localhost:14000/proxy/3210/...)
+    // to prevent double-proxy chains
+    if (isAlreadyProxied(path)) continue;
 
     results.push({
       originalUrl,
@@ -83,15 +166,7 @@ export function detectLocalhostUrls(text: string): DetectedLocalhostUrl[] {
  * Check if a string contains any localhost URLs worth rewriting.
  */
 export function hasLocalhostUrls(text: string): boolean {
-  LOCALHOST_URL_REGEX.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = LOCALHOST_URL_REGEX.exec(text)) !== null) {
-    const port = parseInt(match[1], 10);
-    if (port >= 1 && port <= 65535 && !EXCLUDED_PORTS.has(port)) {
-      return true;
-    }
-  }
-  return false;
+  return detectLocalhostUrls(text).length > 0;
 }
 
 /**
@@ -113,11 +188,9 @@ export function rewriteLocalhostUrl(
   path: string,
   serverUrl: string,
 ): string {
-  // The serverUrl always routes through the backend's unified preview proxy.
-  // Both local ({BACKEND_URL}/preview/local/8000) and cloud ({BACKEND_URL}/preview/{id}/8000)
-  // expose Kortix Master's /proxy/{port}/ endpoint.
+  const safePath = normalizePath(path);
   const base = serverUrl.replace(/\/+$/, '');
-  return `${base}/proxy/${port}${path}`;
+  return `${base}/proxy/${port}${safePath}`;
 }
 
 /**
@@ -135,18 +208,22 @@ export function getProxyBaseUrl(
  * Check if a URL is a localhost URL that we can proxy.
  * Excludes infrastructure ports AND the current app's own port so we never
  * rewrite the frontend's own navigation links.
+ * Also excludes URLs that are already proxied (path starts with /proxy/).
  */
 export function isProxiableLocalhostUrl(url: string): boolean {
-  const match = url.match(/^https?:\/\/(?:localhost|127\.0\.0\.1):(\d{1,5})/);
-  if (!match) return false;
-  const port = parseInt(match[1], 10);
-  if (port < 1 || port > 65535 || EXCLUDED_PORTS.has(port)) return false;
+  const parsed = parseLocalhostUrl(url);
+  if (!parsed) return false;
+
+  if (EXCLUDED_PORTS.has(parsed.port)) return false;
+
+  // Skip URLs whose path already contains /proxy/ (already rewritten)
+  if (isAlreadyProxied(parsed.path)) return false;
 
   // Never proxy URLs that point at the app itself
   if (typeof window !== 'undefined') {
     try {
       const appOrigin = window.location.origin;
-      const urlOrigin = new URL(url).origin;
+      const urlOrigin = new URL(parsed.originalUrl).origin;
       if (urlOrigin === appOrigin) return false;
     } catch { /* invalid URL, fall through */ }
   }
@@ -168,13 +245,72 @@ export function proxyLocalhostUrl(
   serverUrl: string,
 ): string | undefined {
   if (!url) return url;
-  // Don't rewrite URLs pointing at the app itself
-  if (!isProxiableLocalhostUrl(url)) return url;
-  const match = url.match(
-    /^https?:\/\/(?:localhost|127\.0\.0\.1):(\d{1,5})(\/[^\s)"'<>]*)?$/,
-  );
-  if (!match) return url;
-  const port = parseInt(match[1], 10);
-  const path = match[2] || '/';
-  return rewriteLocalhostUrl(port, path, serverUrl);
+
+  const parsed = parseLocalhostUrl(url);
+  if (!parsed) return url;
+
+  // Don't rewrite URLs pointing at the app itself or already-proxied URLs
+  if (!isProxiableLocalhostUrl(parsed.originalUrl)) return parsed.originalUrl;
+
+  return rewriteLocalhostUrl(parsed.port, parsed.path, serverUrl);
+}
+
+/**
+ * Build the internal (container-side) localhost URL for a given port + path.
+ * This is what the user sees as the "real" address inside the sandbox.
+ *
+ * @example toInternalUrl(8080, '/api/docs') → 'http://localhost:8080/api/docs'
+ */
+export function toInternalUrl(port: number, path: string = '/'): string {
+  return `http://localhost:${port}${path}`;
+}
+
+/**
+ * Try to reverse-map a proxy URL back to its internal localhost equivalent.
+ *
+ * Handles patterns like:
+ *   - `http://host:PORT/proxy/{containerPort}{path}` → `http://localhost:{containerPort}{path}`
+ *   - `{BACKEND_URL}/preview/{sandboxId}/{containerPort}{path}` → `http://localhost:{containerPort}{path}`
+ *   - Direct mapped port URLs (e.g. `http://localhost:14002/...`) → `http://localhost:6080/...`
+ *
+ * Returns null if the URL can't be reverse-mapped.
+ */
+export function proxyUrlToInternal(
+  proxyUrl: string,
+  mappedPorts?: Record<string, string>,
+): string | null {
+  try {
+    const url = new URL(proxyUrl);
+
+    // Pattern 1: /proxy/{containerPort}/... (the most common case)
+    const proxyMatch = url.pathname.match(/^\/proxy\/(\d+)(\/.*)?$/);
+    if (proxyMatch) {
+      const containerPort = proxyMatch[1];
+      const path = proxyMatch[2] || '/';
+      return `http://localhost:${containerPort}${path}`;
+    }
+
+    // Pattern 2: /preview/{sandboxId}/{containerPort}/... (cloud mode)
+    const previewMatch = url.pathname.match(/^\/(?:v1\/)?preview\/[^/]+\/(\d+)(\/.*)?$/);
+    if (previewMatch) {
+      const containerPort = previewMatch[1];
+      const path = previewMatch[2] || '/';
+      return `http://localhost:${containerPort}${path}`;
+    }
+
+    // Pattern 3: Direct mapped port URL (e.g. http://localhost:14002/path)
+    // Reverse-lookup: find which container port maps to this host port
+    if (mappedPorts) {
+      const hostPort = url.port;
+      for (const [containerPort, mappedHostPort] of Object.entries(mappedPorts)) {
+        if (mappedHostPort === hostPort) {
+          return `http://localhost:${containerPort}${url.pathname}${url.search}`;
+        }
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
 }

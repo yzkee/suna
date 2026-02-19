@@ -101,23 +101,8 @@ export function SidebarRight() {
   );
 
   const handleOpenDesktop = useCallback(() => {
-    const containerPort = SANDBOX_PORTS.DESKTOP;
-    // Route through the proxy — Kortix Master proxies to KasmVNC port.
-    // KasmVNC serves its own UI at the root and handles WebSocket internally.
-    const url = activeServer
-      ? (getDirectPortUrl(activeServer, containerPort) || getProxyBaseUrl(parseInt(containerPort, 10), serverUrl))
-      : getProxyBaseUrl(parseInt(containerPort, 10), serverUrl);
-
-    const tabId = `preview:${containerPort}`;
-    const tabHref = `/preview/${containerPort}`;
-    openTabAndNavigate({
-      id: tabId,
-      title: 'Desktop',
-      type: 'preview',
-      href: tabHref,
-      metadata: { url, port: parseInt(containerPort, 10), originalUrl: `http://localhost:${containerPort}/` },
-    });
-  }, [activeServer, serverUrl]);
+    openSandboxServiceTab(SANDBOX_PORTS.DESKTOP, 'Desktop');
+  }, [openSandboxServiceTab]);
 
   const handleOpenAgentBrowser = useCallback(() => {
     openSandboxServiceTab(SANDBOX_PORTS.BROWSER_VIEWER, 'Agent Browser');

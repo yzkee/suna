@@ -19,7 +19,8 @@ import { openTabAndNavigate } from '@/stores/tab-store';
 import { useServerStore, getActiveOpenCodeUrl } from '@/stores/server-store';
 import {
   detectLocalhostUrls,
-  rewriteLocalhostUrl,
+  proxyLocalhostUrl,
+  toInternalUrl,
   type DetectedLocalhostUrl,
 } from '@/lib/utils/sandbox-url';
 import { useAuthenticatedPreviewUrl } from '@/hooks/use-authenticated-preview-url';
@@ -217,7 +218,7 @@ function SandboxPreviewCard({
   proxyUrl: string;
 }) {
   const [copied, setCopied] = useState(false);
-  const [showInlinePreview, setShowInlinePreview] = useState(false);
+  const [showInlinePreview, setShowInlinePreview] = useState(true);
   const reachability = usePortReachability(proxyUrl);
 
   const isReachable = reachability === 'reachable';
@@ -225,6 +226,9 @@ function SandboxPreviewCard({
 
   const tabId = `preview:${detected.port}`;
   const tabHref = `/preview/${detected.port}`;
+
+  // The internal URL is what the user sees (the container-side address)
+  const internalUrl = toInternalUrl(detected.port, detected.path);
 
   /** Open (or activate) the preview tab and navigate to it. */
   const navigateToPreviewTab = useCallback(() => {
@@ -236,10 +240,10 @@ function SandboxPreviewCard({
       metadata: {
         url: proxyUrl,
         port: detected.port,
-        originalUrl: detected.originalUrl,
+        originalUrl: internalUrl,
       },
     });
-  }, [detected, proxyUrl, tabId, tabHref]);
+  }, [detected, proxyUrl, internalUrl, tabId, tabHref]);
 
   const handleOpenExternal = useCallback(() => {
     window.open(proxyUrl, '_blank', 'noopener,noreferrer');
@@ -427,7 +431,7 @@ export const SandboxUrlDetector: React.FC<SandboxUrlDetectorProps> = ({
   const detected = useMemo(() => detectLocalhostUrls(safeContent), [safeContent]);
 
   const proxyUrls = useMemo(
-    () => detected.map((d) => rewriteLocalhostUrl(d.port, d.path, serverUrl)),
+    () => detected.map((d) => proxyLocalhostUrl(d.originalUrl, serverUrl) ?? d.originalUrl),
     [detected, serverUrl],
   );
 

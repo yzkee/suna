@@ -113,14 +113,17 @@ export const config = {
   // ─── Frontend ────────────────────────────────────────────────────────────
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3000',
 
+  // ─── Integrations (OAuth Provider) ───────────────────────────────────────
+  INTEGRATION_AUTH_PROVIDER: process.env.INTEGRATION_AUTH_PROVIDER || 'pipedream',
+  PIPEDREAM_CLIENT_ID: process.env.PIPEDREAM_CLIENT_ID || '',
+  PIPEDREAM_CLIENT_SECRET: process.env.PIPEDREAM_CLIENT_SECRET || '',
+  PIPEDREAM_PROJECT_ID: process.env.PIPEDREAM_PROJECT_ID || '',
+  PIPEDREAM_ENVIRONMENT: process.env.PIPEDREAM_ENVIRONMENT || 'development',
+
   // ─── Slack (Platform App) ─────────────────────────────────────────────────
   SLACK_CLIENT_ID: process.env.SLACK_CLIENT_ID || '',
   SLACK_CLIENT_SECRET: process.env.SLACK_CLIENT_SECRET || '',
   SLACK_SIGNING_SECRET: process.env.SLACK_SIGNING_SECRET || '',
-
-  // ─── Legacy Backend (fallback) ─────────────────────────────────────────────
-  BACKEND_API_URL: process.env.BACKEND_API_URL || 'http://localhost:8000',
-  BACKEND_API_KEY: process.env.BACKEND_API_KEY || '',
 
   // ─── Helper Methods ────────────────────────────────────────────────────────
 
