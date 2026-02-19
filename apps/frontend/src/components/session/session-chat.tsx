@@ -1640,6 +1640,27 @@ function SessionTurn({
 		return msgs.length > 0 ? msgs[msgs.length - 1].info.id : undefined;
 	}, [turn.assistantMessages]);
 
+	// Whether the user message has any visible content (non-synthetic, non-ignored
+	// text, or attachments). Background task notifications inject synthetic-only
+	// user messages that should not render a user bubble.
+	const hasVisibleUserContent = useMemo(() => {
+		const parts = turn.userMessage.parts;
+		// Has any non-synthetic, non-ignored text?
+		const hasVisibleText = parts.some(
+			(p) =>
+				isTextPart(p) &&
+				(p as TextPart).text?.trim() &&
+				!(p as TextPart).synthetic &&
+				!(p as any).ignored,
+		);
+		if (hasVisibleText) return true;
+		// Has any attachment (image/PDF)?
+		if (parts.some(isAttachment)) return true;
+		// Has any agent part?
+		if (parts.some(isAgentPart)) return true;
+		return false;
+	}, [turn.userMessage.parts]);
+
 	// User message text — for copy action
 	const userMessageText = useMemo(() => {
 		const textParts = turn.userMessage.parts.filter(isTextPart) as TextPart[];
@@ -1802,6 +1823,9 @@ function SessionTurn({
 	return (
 		<div className="space-y-3 group/turn">
 			{/* ── User message ── */}
+			{/* Hide the user bubble when the user message has no visible content
+			    (e.g. background task notification with only synthetic parts). */}
+			{hasVisibleUserContent && (
 			<div>
 				<UserMessageRow
 					message={turn.userMessage}
@@ -1846,6 +1870,7 @@ function SessionTurn({
 					</div>
 				)}
 			</div>
+			)}
 
 			{/* Kortix logo header */}
 			{(working || hasSteps) && (
