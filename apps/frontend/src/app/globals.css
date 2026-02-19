@@ -2294,7 +2294,7 @@
 
 .kortix-markdown.streaming-active p:last-child,
 .kortix-markdown.streaming-active li:last-child,
-.kortix-markdown.streaming-active div:last-child {
+.kortix-markdown.streaming-active div:last-child:not(:has(table)) {
   display: inline;
 }
 

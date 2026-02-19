@@ -1426,11 +1426,12 @@ function trimIncompleteTableRow(text: string): string {
 	if (!text.includes("|")) return text;
 
 	const lines = text.split("\n");
-	// Walk backwards and remove incomplete table lines from the end
+	// Walk backwards and remove incomplete table lines from the end.
+	// A table row must start AND end with `|` to be considered complete.
 	while (lines.length > 0) {
 		const last = lines[lines.length - 1];
 		const trimmed = last.trim();
-		// Empty trailing line — skip but keep it
+		// Empty trailing line — stop
 		if (trimmed === "") break;
 		// A complete table row/separator ends with `|`
 		if (trimmed.startsWith("|") && !trimmed.endsWith("|")) {
