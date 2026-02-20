@@ -631,7 +631,8 @@ export function InstanceManagerDialog({
         serverId = newServer.id;
       }
 
-      queryClient.setQueryData(['platform', 'sandbox'], sandbox);
+      // Invalidate sandbox query so useSandbox picks up the latest state.
+      queryClient.invalidateQueries({ queryKey: ['platform', 'sandbox'] });
       useTabStore.getState().swapForServer(serverId, activeServerId);
       setActiveServer(serverId);
       router.push('/dashboard');

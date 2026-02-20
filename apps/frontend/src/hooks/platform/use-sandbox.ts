@@ -85,7 +85,7 @@ export function useSandbox() {
       return await getSandbox();
     },
     enabled: !!user,
-    staleTime: 5 * 60 * 1000, // 5 minutes — sandbox doesn't change often
+    staleTime: isLocalMode() ? 5 * 60 * 1000 : 0, // Local: 5min cache. Cloud: never cache — sandboxes are created/deleted frequently.
     retry: 2,
     refetchOnWindowFocus: false,
   });
