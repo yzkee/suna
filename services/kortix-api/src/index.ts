@@ -29,7 +29,7 @@ import { serversApp } from './servers';
 
 const app = new Hono();
 
-// === Global Middleware === 
+// === Global Middleware ===
 
 app.use(
   '*',
