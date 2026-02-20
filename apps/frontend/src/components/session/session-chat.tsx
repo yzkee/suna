@@ -1641,6 +1641,10 @@ function SessionTurn({
 		}
 		return result;
 	}, [questions, sessionId, turn.assistantMessages]);
+	const answeredQuestionIds = useMemo(
+		() => new Set(answeredQuestionParts.map(({ part }) => part.id)),
+		[answeredQuestionParts],
+	);
 
 	// Inline content parts — interleaves text and answered question parts in natural order.
 	// When a turn contains answered questions, we need to render text and questions
@@ -1649,7 +1653,6 @@ function SessionTurn({
 	// stay in the correct position while the AI continues responding.
 	const inlineContentParts = useMemo(() => {
 		if (answeredQuestionParts.length === 0) return null;
-		const answeredQuestionIds = new Set(answeredQuestionParts.map(({ part }) => part.id));
 		const items: Array<{ type: 'text'; part: TextPart; id: string } | { type: 'question'; part: ToolPart; id: string }> = [];
 		for (const { part } of allParts) {
 			if (isTextPart(part) && part.text?.trim()) {
@@ -1663,7 +1666,8 @@ function SessionTurn({
 		const hasQuestion = items.some(i => i.type === 'question');
 		if (!hasText || !hasQuestion) return null;
 		return items;
-	}, [allParts, answeredQuestionParts]);
+	}, [allParts, answeredQuestionIds, answeredQuestionParts.length]);
+	const shouldUseInlineContent = !hasSteps && !!inlineContentParts;
 
 	const taskToolParts = useMemo(() => {
 		return allParts.filter(({ part }) => isToolPart(part) && (part as ToolPart).tool === 'task');
@@ -1997,7 +2001,7 @@ function SessionTurn({
 
 						// When inline content rendering is active (text + answered questions in order),
 						// hide ALL text parts from steps since they render in the inline section
-						if (inlineContentParts && isTextPart(part) && part.text?.trim()) return null;
+						if (shouldUseInlineContent && isTextPart(part) && part.text?.trim()) return null;
 
 						// Text parts (intermediate + streaming response while working)
 						if (isTextPart(part)) {
@@ -2047,9 +2051,14 @@ function SessionTurn({
 							if (!shouldShowToolPart(part)) return null;
 							if (part.tool === "todowrite") return null;
 							if (part.tool === "task") return null;
-							// Questions are NEVER rendered inside steps — always shown
-							// standalone at the bottom of the turn (after the response).
-							if (part.tool === "question") return null;
+							if (part.tool === "question") {
+								if (answeredQuestionIds.has(part.id)) {
+									return (
+										<AnsweredQuestionCard key={part.id} part={part as ToolPart} />
+									);
+								}
+								return null;
+							}
 
 							const perm = getPermissionForTool(permissions, part.callID);
 
@@ -2112,17 +2121,17 @@ function SessionTurn({
 
 			{/* Inline content: text and answered questions rendered in natural order.
 			    Works both during streaming and after completion. */}
-			{inlineContentParts ? (
+			{shouldUseInlineContent ? (
 				<div className="space-y-3">
 					{(() => {
 						// Find the last text item index — it might still be streaming
 						let lastTextIdx = -1;
 						if (working) {
-							for (let i = inlineContentParts.length - 1; i >= 0; i--) {
-								if (inlineContentParts[i].type === 'text') { lastTextIdx = i; break; }
+							for (let i = inlineContentParts!.length - 1; i >= 0; i--) {
+								if (inlineContentParts![i].type === 'text') { lastTextIdx = i; break; }
 							}
 						}
-						return inlineContentParts.map((item, idx) => {
+						return inlineContentParts!.map((item, idx) => {
 							if (item.type === 'text') {
 								const isStreaming = idx === lastTextIdx;
 								const text = isStreaming ? item.part.text! : item.part.text!.trim();
@@ -2152,7 +2161,7 @@ function SessionTurn({
 					)}
 
 					{/* Answered question parts — collapsible, shown after the response text */}
-					{answeredQuestionParts.length > 0 && (
+					{!hasSteps && answeredQuestionParts.length > 0 && (
 						<div className="space-y-2 mt-3">
 							{answeredQuestionParts.map(({ part }) => (
 								<AnsweredQuestionCard key={part.id} part={part as ToolPart} />
@@ -2906,9 +2915,12 @@ export function SessionChat({
 	}, [messages?.length]);
 
 	// ---- Auto-scroll (replaces inline scroll logic) ----
+	const hasActiveQuestion = useOpenCodePendingStore((s) =>
+		Object.values(s.questions).some((q) => q.sessionID === sessionId),
+	);
 	const { scrollRef, contentRef, spacerElRef, showScrollButton, scrollToBottom, scrollToLastTurn, scrollToEnd } =
 		useAutoScroll({
-			working: isBusy,
+			working: isBusy && !hasActiveQuestion,
 		});
 
 	// Scroll to the last turn on initial load / session change.
