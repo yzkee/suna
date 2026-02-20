@@ -206,13 +206,12 @@ export const deployments = kortixSchema.table(
     // Source
     sourceType: deploymentSourceEnum('source_type').notNull(),
     sourceRef: text('source_ref'),
-    sourcePath: text('source_path'),
     framework: varchar('framework', { length: 50 }),
 
     // Config
     domains: jsonb('domains').default([]).$type<string[]>(),
     liveUrl: text('live_url'),
-    envVarKeys: jsonb('env_var_keys').default([]).$type<string[]>(),
+    envVars: jsonb('env_vars').default({}).$type<Record<string, string>>(),
     buildConfig: jsonb('build_config').$type<Record<string, unknown>>(),
     entrypoint: text('entrypoint'),
 
@@ -394,6 +393,28 @@ export const sandboxIntegrations = kortixSchema.table(
   (table) => [
     uniqueIndex('idx_sandbox_integration_unique').on(table.sandboxId, table.integrationId),
     index('idx_sandbox_integrations_sandbox').on(table.sandboxId),
+  ],
+);
+
+// ─── Server Entries ──────────────────────────────────────────────────────────
+// User-configured server/instance entries (persisted from the frontend).
+// Auth tokens are NOT stored — they remain in the browser's localStorage.
+
+export const serverEntries = kortixSchema.table(
+  'server_entries',
+  {
+    id: varchar('id', { length: 128 }).primaryKey(),
+    label: varchar('label', { length: 255 }).notNull(),
+    url: text('url').notNull(),
+    isDefault: boolean('is_default').default(false).notNull(),
+    provider: sandboxProviderEnum('provider'),
+    sandboxId: text('sandbox_id'),
+    mappedPorts: jsonb('mapped_ports').$type<Record<string, string>>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('idx_server_entries_default').on(table.isDefault),
   ],
 );
 

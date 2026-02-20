@@ -135,11 +135,10 @@ CREATE TABLE IF NOT EXISTS "kortix"."deployments" (
   "status" "kortix"."deployment_status" DEFAULT 'pending' NOT NULL,
   "source_type" "kortix"."deployment_source" NOT NULL,
   "source_ref" text,
-  "source_path" text,
   "framework" varchar(50),
   "domains" jsonb DEFAULT '[]'::jsonb,
   "live_url" text,
-  "env_var_keys" jsonb DEFAULT '[]'::jsonb,
+  "env_vars" jsonb DEFAULT '{}'::jsonb,
   "build_config" jsonb,
   "entrypoint" text,
   "error" text,
@@ -394,6 +393,27 @@ $$;
 
 ALTER TABLE kortix.triggers ADD COLUMN IF NOT EXISTS model_provider_id VARCHAR(255);
 ALTER TABLE kortix.triggers ADD COLUMN IF NOT EXISTS model_id VARCHAR(255);
+
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Migration: 0003_server_entries.sql
+-- Stores user-configured server/instance entries (URL, label, provider).
+-- Auth tokens are NOT stored — they stay in browser localStorage.
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS "kortix"."server_entries" (
+  "id" varchar(128) PRIMARY KEY NOT NULL,
+  "label" varchar(255) NOT NULL,
+  "url" text NOT NULL,
+  "is_default" boolean DEFAULT false NOT NULL,
+  "provider" "kortix"."sandbox_provider",
+  "sandbox_id" text,
+  "mapped_ports" jsonb,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS "idx_server_entries_default" ON "kortix"."server_entries" USING btree ("is_default");
 
 
 -- ═══════════════════════════════════════════════════════════════════════════════
