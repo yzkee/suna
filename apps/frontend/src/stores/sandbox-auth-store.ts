@@ -36,7 +36,7 @@ export const useSandboxAuthStore = create<SandboxAuthStore>()(
       isGenerating: false,
 
       setSandboxToken: (token: string) =>
-        set({ sandboxToken: token, needsAuth: false, isGenerating: false }),
+        set({ sandboxToken: token, needsAuth: false }),
 
       clearSandboxToken: () =>
         set({ sandboxToken: null, needsAuth: false }),

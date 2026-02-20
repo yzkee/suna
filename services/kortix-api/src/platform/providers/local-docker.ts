@@ -207,9 +207,9 @@ export class LocalDockerProvider implements SandboxProvider {
   // ── Cron / Endpoint resolution ───────────────────────────────────────
 
   async resolveEndpoint(externalId: string): Promise<ResolvedEndpoint> {
-    // Inside Docker: resolve via Docker DNS using the container name (externalId).
+    // Inside Docker (SANDBOX_NETWORK set): resolve via Docker DNS using the container name.
     // On host (pnpm dev): fall back to localhost with mapped ports.
-    const url = config.DOCKER_HOST
+    const url = config.SANDBOX_NETWORK
       ? `http://${externalId}:8000`
       : BASE_URL;
 
@@ -217,11 +217,13 @@ export class LocalDockerProvider implements SandboxProvider {
       'Content-Type': 'application/json',
     };
 
-    // In VPS/self-hosted mode with INTERNAL_SERVICE_KEY, the sandbox (kortix-master)
-    // requires Bearer auth on all routes. The cron executor and queue drainer call
-    // the sandbox directly (not through the proxy), so they need the service key.
-    if (config.INTERNAL_SERVICE_KEY) {
-      headers['Authorization'] = `Bearer ${config.INTERNAL_SERVICE_KEY}`;
+    // Use sandboxAuthStore.getServiceKey() to pick up dynamically generated sak_ keys,
+    // not just static INTERNAL_SERVICE_KEY from env. The cron executor calls the sandbox
+    // directly (not through the proxy), so it needs the service key if auth is configured.
+    const { sandboxAuthStore } = await import('../sandbox-auth-store');
+    const serviceKey = sandboxAuthStore.getServiceKey();
+    if (serviceKey) {
+      headers['Authorization'] = `Bearer ${serviceKey}`;
     }
 
     return { url, headers };
@@ -252,6 +254,14 @@ export class LocalDockerProvider implements SandboxProvider {
     const authToken = this._lastCreateOpts?.envVars?.KORTIX_TOKEN || generateSandboxToken();
     const sandboxEnvVars = readSandboxEnv();
 
+    // Resolve the unified service key for sandbox auth.
+    // Priority: explicit sandboxAuthToken param (from generate-token) > INTERNAL_SERVICE_KEY env > stored access key > none.
+    // When the user generates a sak_ key, it becomes the service key for everything:
+    //   - INTERNAL_SERVICE_KEY: sandbox validates incoming requests from proxy/cron
+    //   - KORTIX_TOKEN: sandbox uses this to call back to kortix-api (cron tools, integrations)
+    const { sandboxAuthStore } = await import('../sandbox-auth-store');
+    const serviceKey = opts?.sandboxAuthToken || config.INTERNAL_SERVICE_KEY || sandboxAuthStore.getAccessKey();
+
     const env = [
       'PUID=1000',
       'PGID=1000',
@@ -264,14 +274,16 @@ export class LocalDockerProvider implements SandboxProvider {
       'LSS_DIR=/workspace/.lss',
       'KORTIX_WORKSPACE=/workspace',
       `KORTIX_API_URL=${config.KORTIX_URL || ''}`,
-      `KORTIX_TOKEN=${authToken}`,
+      // KORTIX_TOKEN: sandbox → kortix-api auth.
+      // Uses the unified service key if available, otherwise a generated sbt_ token.
+      `KORTIX_TOKEN=${serviceKey || authToken}`,
       `SANDBOX_ID=${CONTAINER_NAME}`,
       'PROJECT_ID=local',
       'ENV_MODE=local',
       // Only set SANDBOX_AUTH_TOKEN if user explicitly generated one
       ...(opts?.sandboxAuthToken ? [`SANDBOX_AUTH_TOKEN=${opts.sandboxAuthToken}`] : []),
-      // Pass through INTERNAL_SERVICE_KEY from config if set (for sandbox-side auth)
-      ...(config.INTERNAL_SERVICE_KEY ? [`INTERNAL_SERVICE_KEY=${config.INTERNAL_SERVICE_KEY}`] : []),
+      // INTERNAL_SERVICE_KEY: proxy/cron → sandbox auth
+      ...(serviceKey ? [`INTERNAL_SERVICE_KEY=${serviceKey}`] : []),
       ...sandboxEnvVars,
     ];
 
