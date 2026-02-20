@@ -34,10 +34,12 @@ const NPM_REGISTRY_URL = `https://registry.npmjs.org/${NPM_PACKAGE}/latest`;
 // - Docker API image: /app/CHANGELOG.json (COPYed in Dockerfile)
 // - Sandbox global npm: /usr/lib/node_modules/@kortix/sandbox/CHANGELOG.json
 // - Sandbox global npm (alt): /usr/local/lib/node_modules/@kortix/sandbox/CHANGELOG.json
+// - Local dev: CWD is computer/services/kortix-api/, repo root is ../../
 const LOCAL_CHANGELOG_PATHS = [
   resolve('/app/CHANGELOG.json'),
   resolve('/usr/lib/node_modules/@kortix/sandbox/CHANGELOG.json'),
   resolve('/usr/local/lib/node_modules/@kortix/sandbox/CHANGELOG.json'),
+  resolve(process.cwd(), '../../sandbox/CHANGELOG.json'),
 ];
 
 // GitHub raw fallback (only works for public repos or with GITHUB_TOKEN)
