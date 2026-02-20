@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { useSandboxAuthStore } from '@/stores/sandbox-auth-store';
 import { isCloudMode } from '@/lib/config';
+import { authenticatedFetch } from '@/lib/auth-token';
 
 /**
  * SDK client reset callback — set by opencode-sdk.ts to break the circular
@@ -149,30 +150,32 @@ function toApiPayload(s: ServerEntry) {
 }
 
 function syncServerToApi(server: ServerEntry) {
-  fetch(`${SERVERS_API}`, {
+  authenticatedFetch(`${SERVERS_API}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(toApiPayload(server)),
-  }).catch(() => {}); // fire-and-forget
+  }, { handleSandboxAuth: false, retryOnAuthError: false }).catch(() => {}); // fire-and-forget
 }
 
 function deleteServerFromApi(id: string) {
-  fetch(`${SERVERS_API}/${id}`, { method: 'DELETE' }).catch(() => {});
+  authenticatedFetch(`${SERVERS_API}/${id}`, { method: 'DELETE' },
+    { handleSandboxAuth: false, retryOnAuthError: false }).catch(() => {});
 }
 
 /** Bulk sync all servers to API (used on initial hydration). */
 function syncAllToApi(servers: ServerEntry[]) {
-  fetch(`${SERVERS_API}/sync`, {
+  authenticatedFetch(`${SERVERS_API}/sync`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ servers: servers.map(toApiPayload) }),
-  }).catch(() => {});
+  }, { handleSandboxAuth: false, retryOnAuthError: false }).catch(() => {});
 }
 
 /** Load servers from API, merging authTokens from localStorage entries. */
 async function loadFromApi(localServers: ServerEntry[]): Promise<ServerEntry[] | null> {
   try {
-    const res = await fetch(SERVERS_API);
+    const res = await authenticatedFetch(SERVERS_API, undefined,
+      { handleSandboxAuth: false, retryOnAuthError: false });
     if (!res.ok) return null;
     const rows: Array<{
       id: string;
