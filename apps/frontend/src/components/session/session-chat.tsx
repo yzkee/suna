@@ -1471,8 +1471,6 @@ interface SessionTurnProps {
 	sessionStatus: import("@/ui").SessionStatus | undefined;
 	permissions: PermissionRequest[];
 	questions: QuestionRequest[];
-	stepsExpanded: boolean;
-	onToggleSteps: () => void;
 	agentNames?: string[];
 	/** Whether this is the first turn in the session */
 	isFirstTurn: boolean;
@@ -1510,8 +1508,6 @@ function SessionTurn({
 	sessionStatus,
 	permissions,
 	questions,
-	stepsExpanded,
-	onToggleSteps,
 	agentNames,
 	isFirstTurn,
 	isBusy,
@@ -1582,9 +1578,6 @@ function SessionTurn({
 		return texts.join("\n\n").trim();
 	}, [responseRaw, allParts, turn.assistantMessages]);
 	const response = working ? responseRaw : (responseRaw.trim() || abortedTextFallback);
-	// Match SolidJS: hideResponsePart filters the last text part from steps content
-	const responsePartId = lastTextPart?.id;
-	const hideResponsePart = !working && !!responsePartId;
 	// Retry info (only on last turn)
 	const retryInfo = useMemo(
 		() => (isLast ? getRetryInfo(sessionStatus) : undefined),
@@ -1647,7 +1640,7 @@ function SessionTurn({
 			}
 		}
 		return result;
-	}, [stepsExpanded, questions, sessionId, turn.assistantMessages]);
+	}, [questions, sessionId, turn.assistantMessages]);
 
 	// Inline content parts — interleaves text and answered question parts in natural order.
 	// When a turn contains answered questions, we need to render text and questions
@@ -1938,16 +1931,14 @@ function SessionTurn({
 				</div>
 			)}
 
-			{/* ── Steps trigger ── */}
+			{/* Status row (steps toggle temporarily disabled) */}
 			{(working || hasSteps) && (
-				<button
-					onClick={onToggleSteps}
-					aria-expanded={stepsExpanded}
+				<div
 					className={cn(
-						"flex items-center gap-2 text-xs transition-colors py-1 cursor-pointer",
+						"flex items-center gap-2 text-xs transition-colors py-1",
 						working
 							? "text-muted-foreground"
-							: "text-muted-foreground hover:text-foreground",
+							: "text-muted-foreground",
 					)}
 				>
 					{working ? (
@@ -1956,12 +1947,7 @@ function SessionTurn({
 							<span className="relative inline-flex rounded-full size-3 bg-muted-foreground/50" />
 						</span>
 					) : (
-						<ChevronRight
-							className={cn(
-								"size-3 transition-transform flex-shrink-0",
-								stepsExpanded && "rotate-90",
-							)}
-						/>
+						<Check className="size-3 text-muted-foreground/70" />
 					)}
 					<span>
 						{retryInfo
@@ -1970,9 +1956,7 @@ function SessionTurn({
 								: retryInfo.message
 							: working
 								? throttledStatus || "Working..."
-								: stepsExpanded
-									? "Hide steps"
-									: "Show steps"}
+								: "Completed"}
 					</span>
 					{retryInfo && (
 						<>
@@ -1999,24 +1983,17 @@ function SessionTurn({
 							</span>
 						</>
 					)}
-				</button>
+				</div>
 			)}
 
-			{/* ── Collapsible steps content ──
-          Shown when expanded. Renders ALL parts from all assistant messages,
-          EXCEPT: the response part (last text) is hidden when not working
-          (it renders separately below as the Response section).
-          Reasoning is hidden when not working (matches SolidJS hideReasoning). */}
-			{stepsExpanded && turn.assistantMessages.length > 0 && (
+			{/* ── Assistant parts content ──
+			  Renders ALL parts from all assistant messages,
+			  EXCEPT: the response part (last text) is hidden when not working
+			  (it renders separately below as the Response section).
+			  Reasoning is hidden when not working (matches SolidJS hideReasoning). */}
+			{(working || hasSteps) && turn.assistantMessages.length > 0 && (
 				<div className="space-y-2">
 					{allParts.map(({ part, message }) => {
-						// Hide the response part when done — it renders as the Response section below
-						if (
-							hideResponsePart &&
-							isTextPart(part) &&
-							part.id === responsePartId
-						)
-							return null;
 
 						// When inline content rendering is active (text + answered questions in order),
 						// hide ALL text parts from steps since they render in the inline section
@@ -2115,17 +2092,6 @@ function SessionTurn({
 					</div>
 			)}
 
-			{/* Streaming text fallback — when the turn is active but steps are collapsed
-			    (e.g. auto-expand race, stale SSE idle event between turns), the text
-			    would be invisible: it only renders inside the steps section (gated by
-			    stepsExpanded) during working, and the Response section only renders when
-			    !working. This fallback closes that gap so streaming text is always visible. */}
-			{working && !stepsExpanded && !inlineContentParts && responseRaw && (
-				<div className="text-sm">
-					<ThrottledMarkdown content={responseRaw} isStreaming={true} />
-				</div>
-			)}
-
 			{/* Kortix logo — shown when there are no steps and not working (otherwise logo is already above the steps trigger) */}
 			{!hasSteps && !working && (response || answeredQuestionParts.length > 0 || turnError) && (
 				<div className="flex items-center gap-2 mt-3 mb-3">
@@ -2178,8 +2144,8 @@ function SessionTurn({
 				</div>
 			) : (
 				<>
-					{/* Response section (shown when NOT working — while working, text streams inside steps above) */}
-					{!working && response && (
+					{/* Response section for text-only turns (no tools/steps content) */}
+					{!working && !hasSteps && response && (
 						<div className="text-sm">
 							<SandboxUrlDetector content={response} isStreaming={false} />
 						</div>
@@ -3035,45 +3001,8 @@ export function SessionChat({
 		[messages],
 	);
 
-	// ============================================================================
-	// Expanded state management (keyed by user message ID)
-	// ============================================================================
-
-	const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-	// Track turns the user explicitly collapsed — never auto-reopen these
-	const userCollapsedRef = useRef<Set<string>>(new Set());
-
-	// Auto-expand last turn when session is busy — but only if the user
-	// hasn't manually collapsed it. Without this guard, every new tool call
-	// or part update re-opens the steps the user just closed.
-	useEffect(() => {
-		if (!messages || messages.length === 0) return;
-		const lastUserId = [...messages]
-			.reverse()
-			.find((m) => m.info.role === "user")?.info.id;
-		if (lastUserId && (sessionStatus?.type !== "idle" || isBusy)) {
-			if (!userCollapsedRef.current.has(lastUserId)) {
-				setExpanded((prev) => ({ ...prev, [lastUserId]: true }));
-			}
-		}
-	}, [messages, sessionStatus, isBusy]);
-
-	const toggleExpanded = useCallback((id: string) => {
-		setExpanded((prev) => {
-			const next = !prev[id];
-			if (!next) {
-				userCollapsedRef.current.add(id);
-			} else {
-				userCollapsedRef.current.delete(id);
-			}
-			return { ...prev, [id]: next };
-		});
-	}, []);
-
 	// Reset on session change
 	useEffect(() => {
-		setExpanded({});
-		userCollapsedRef.current.clear();
 		setPollingActive(false);
 		setPendingUserMessage(null);
 		setPendingUserMessageId(null);
@@ -3571,10 +3500,6 @@ export function SessionChat({
 												sessionStatus={sessionStatus}
 												permissions={pendingPermissions}
 												questions={pendingQuestions}
-												stepsExpanded={!!expanded[turn.userMessage.info.id]}
-												onToggleSteps={() =>
-													toggleExpanded(turn.userMessage.info.id)
-												}
 												agentNames={agentNames}
 												isFirstTurn={turnIndex === 0}
 												isBusy={isBusy}

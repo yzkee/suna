@@ -2206,7 +2206,6 @@ function WebSearchTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 		() => queryResults.reduce((n, q) => n + q.sources.length, 0),
 		[queryResults],
 	);
-	const hasAnswers = queryResults.some((q) => q.answer);
 	const [expandedQuery, setExpandedQuery] = useState<number | null>(null);
 
 	// Compact trigger badge
@@ -2237,7 +2236,7 @@ function WebSearchTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 					)}
 				</div>
 			}
-			defaultOpen={defaultOpen || hasAnswers}
+			defaultOpen={defaultOpen}
 			forceOpen={forceOpen}
 			locked={locked}
 		>
@@ -2489,7 +2488,7 @@ function ScrapeWebpageTool({
 					)}
 				</div>
 			}
-			defaultOpen={defaultOpen ?? scrapeData !== null}
+			defaultOpen={defaultOpen}
 			forceOpen={forceOpen}
 			locked={locked}
 		>
@@ -3089,7 +3088,7 @@ function ShowUserTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 							)}
 						</div>
 					}
-					defaultOpen={defaultOpen ?? true}
+					defaultOpen={defaultOpen}
 					forceOpen={forceOpen}
 					locked={locked}
 				>
@@ -3410,7 +3409,7 @@ function TodoWriteTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 		<BasicTool
 			icon={<CheckSquare className="size-3.5 flex-shrink-0" />}
 			trigger={{ title: "Todos", subtitle }}
-			defaultOpen={defaultOpen ?? true}
+			defaultOpen={defaultOpen}
 			forceOpen={forceOpen}
 			locked={locked}
 		>
@@ -3606,7 +3605,7 @@ function BatchToolRenderer({
 		<BasicTool
 			icon={<Layers className="size-3.5 flex-shrink-0" />}
 			trigger={{ title: "Batch", subtitle }}
-			defaultOpen={defaultOpen ?? failed > 0}
+			defaultOpen={defaultOpen}
 			forceOpen={forceOpen}
 			locked={locked}
 		>
