@@ -10,11 +10,17 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import { isLocalMode } from '@/lib/config';
 import { LightRays } from '@/components/ui/light-rays';
-import { useCreateOpenCodeSession, useExecuteOpenCodeCommand } from '@/hooks/opencode/use-opencode-sessions';
+import {
+  useCreateOpenCodeSession,
+  useExecuteOpenCodeCommand,
+} from '@/hooks/opencode/use-opencode-sessions';
+import { SessionChat } from '@/components/session/session-chat';
+import { SidebarContext } from '@/components/ui/sidebar';
+import { OpenCodeEventStreamProvider } from '@/hooks/opencode/use-opencode-events';
 import { getClient } from '@/lib/opencode-sdk';
-import { openTabAndNavigate } from '@/stores/tab-store';
 import { useServerStore } from '@/stores/server-store';
 import { SecretsManager } from '@/components/secrets/secrets-manager';
+import { ProviderSettings } from '@/components/providers/provider-settings';
 import { Button } from '@/components/ui/button';
 import { WallpaperBackground } from '@/components/ui/wallpaper-background';
 
@@ -33,6 +39,18 @@ const BIOS_LINES: { text: string; bold?: boolean }[] = [
   { text: 'Starting KORTIX OS...' },
 ];
 
+/** No-op sidebar context so SessionChat's deep useSidebar() calls don't crash. */
+const _noop = () => {};
+const _sidebarStub = {
+  state: 'collapsed' as const,
+  open: false,
+  setOpen: _noop as (open: boolean) => void,
+  openMobile: false,
+  setOpenMobile: _noop as (open: boolean) => void,
+  isMobile: false,
+  toggleSidebar: _noop,
+};
+
 /** Get the sandbox instance URL (routed through backend at /v1/preview/{sandboxId}/8000) */
 function getInstanceUrl() {
   return useServerStore.getState().getActiveServerUrl();
@@ -40,19 +58,9 @@ function getInstanceUrl() {
 
 /* ─── Types ──────────────────────────────────────────────────── */
 
-type BootPhase = 'power' | 'bios' | 'logo' | 'login' | 'credentials' | 'onboarding';
+type BootPhase = 'power' | 'bios' | 'logo' | 'login' | 'credentials' | 'onboarding' | 'session';
 
 /* ─── Helpers ────────────────────────────────────────────────── */
-
-/** Mark onboarding as complete in the sandbox env store. */
-function markOnboardingComplete() {
-  const instanceUrl = getInstanceUrl();
-  return fetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ value: 'true' }),
-  }).catch(() => {}); // best effort
-}
 
 /** Persist the onboarding session ID to the sandbox instance (fire-and-forget). */
 function persistOnboardingSessionId(sessionId: string) {
@@ -127,6 +135,7 @@ export default function OnboardingPage() {
   const createSession = useCreateOpenCodeSession();
   const executeCommand = useExecuteOpenCodeCommand();
   const creatingRef = useRef(false);
+  const commandFiredRef = useRef(false);
   const retriesRef = useRef(0);
   const { resolvedTheme } = useTheme();
   const { user, isLoading, signOut } = useAuth();
@@ -156,7 +165,12 @@ export default function OnboardingPage() {
     const instanceUrl = getInstanceUrl();
 
     if (params.has('skip_onboarding')) {
-      markOnboardingComplete().finally(() => router.replace('/dashboard'));
+      // Directly mark complete and redirect — only allowed via query param
+      fetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: 'true' }),
+      }).catch(() => {}).finally(() => router.replace('/dashboard'));
       return;
     }
 
@@ -204,10 +218,13 @@ export default function OnboardingPage() {
 
   // ── Onboarding session lifecycle ──────────────────────────────
   // When we reach the 'onboarding' phase:
-  // 1. Resume existing session or create new one + fire /onboarding command
-  // 2. Mark onboarding as complete
-  // 3. Redirect to /sessions/{id} in the dashboard (no embedded chat)
+  // 1. Resume existing session or create a new one
+  // 2. Fire /onboarding command (fire-and-forget via mutation .mutate())
+  // 3. Transition to 'session' phase — renders SessionChat full-page
+  // 4. Poll ONBOARDING_COMPLETE — the onboarding AGENT sets it when done
+  // 5. When complete → redirect to /dashboard
   const MAX_RETRIES = 3;
+  const [onboardingSessionId, setOnboardingSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     if (phase !== 'onboarding') return;
@@ -221,13 +238,13 @@ export default function OnboardingPage() {
     (async () => {
       try {
         let finalSessionId: string | null = null;
+        let isNewSession = false;
 
         // 1. Try to resume an existing onboarding session
         const res = await fetch(`${instanceUrl}/env/ONBOARDING_SESSION_ID`).catch(() => null);
         const existingId = res?.ok ? (await res.json()).ONBOARDING_SESSION_ID : null;
 
         if (existingId && existingId !== '' && existingId !== null) {
-          // Validate the session actually exists before using it
           try {
             const client = getClient();
             const result = await client.session.get({ sessionID: existingId });
@@ -235,7 +252,6 @@ export default function OnboardingPage() {
               finalSessionId = existingId;
             }
           } catch {
-            // Session doesn't exist anymore — clear the stale ID
             fetch(`${instanceUrl}/env/ONBOARDING_SESSION_ID`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -244,25 +260,24 @@ export default function OnboardingPage() {
           }
         }
 
-        // 2. No valid session — create + persist + fire command
+        // 2. No valid session — create + persist
         if (!finalSessionId) {
           const session = await createSessionRef.current.mutateAsync({ title: 'Kortix Onboarding' });
           persistOnboardingSessionId(session.id);
-          await executeCommandRef.current.mutateAsync({ sessionId: session.id, command: 'onboarding' });
           finalSessionId = session.id;
+          isNewSession = true;
         }
 
-        // 3. Mark onboarding complete & redirect to session in dashboard
-        await markOnboardingComplete();
+        // 3. Fire /onboarding command ONLY once, ever.
+        //    commandFiredRef persists across re-renders/strict-mode remounts.
+        if (isNewSession && !commandFiredRef.current) {
+          commandFiredRef.current = true;
+          executeCommandRef.current.mutate({ sessionId: finalSessionId, command: 'onboarding' });
+        }
 
-        openTabAndNavigate({
-          id: finalSessionId,
-          title: 'Kortix Onboarding',
-          type: 'session',
-          href: `/sessions/${finalSessionId}`,
-          serverId: useServerStore.getState().activeServerId,
-        });
-        router.replace('/dashboard');
+        // 4. Show the session chat full-page
+        setOnboardingSessionId(finalSessionId);
+        setPhase('session');
       } catch {
         creatingRef.current = false;
         retriesRef.current += 1;
@@ -282,6 +297,26 @@ export default function OnboardingPage() {
 
     return () => clearTimeout(retryTimer);
   }, [phase, sessionError, retryTick, router]);
+
+  // ── Poll ONBOARDING_COMPLETE while in session phase ──────────
+  // The onboarding agent marks this true when it finishes.
+  useEffect(() => {
+    if (phase !== 'session') return;
+    const instanceUrl = getInstanceUrl();
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.ONBOARDING_COMPLETE === 'true') {
+            clearInterval(interval);
+            router.replace('/dashboard');
+          }
+        }
+      } catch { /* sandbox not reachable — keep polling */ }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [phase, router]);
 
   // ── Boot sequence audio ───────────────────────────────────────
   useEffect(() => {
@@ -500,14 +535,37 @@ export default function OnboardingPage() {
                   <ArrowLeft className="h-4 w-4" />
                 </Button>
                 <div>
-                  <h2 className="text-sm font-semibold">Configure your secrets</h2>
+                  <h2 className="text-sm font-semibold">Set up your workspace</h2>
                   <p className="text-[11px] text-muted-foreground">
-                    Set up API keys so your Kortix agent can function. You can change these anytime in Settings.
+                    Connect providers and configure secrets so your agent can work. You can change these anytime in Settings.
                   </p>
                 </div>
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto">
-                <SecretsManager />
+              <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-6">
+                {/* Providers */}
+                <div className="space-y-3">
+                  <div>
+                    <h3 className="text-sm font-semibold">Providers</h3>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Connect at least one LLM provider to power your agent.
+                    </p>
+                  </div>
+                  <div className="border rounded-lg p-4">
+                    <ProviderSettings variant="settings" />
+                  </div>
+                </div>
+                {/* Secrets */}
+                <div className="space-y-3">
+                  <div>
+                    <h3 className="text-sm font-semibold">Secrets</h3>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Environment variables and API keys for your sandbox.
+                    </p>
+                  </div>
+                  <div className="border rounded-lg">
+                    <SecretsManager />
+                  </div>
+                </div>
               </div>
               <div className="flex-shrink-0 border-t border-border/40 px-5 py-4">
                 <Button onClick={() => setPhase('onboarding')} className="w-full">
@@ -518,7 +576,7 @@ export default function OnboardingPage() {
           </motion.div>
         )}
 
-        {/* ═══ ONBOARDING — creating session then redirecting ═══ */}
+        {/* ═══ ONBOARDING — creating session, loading spinner ═══ */}
         {phase === 'onboarding' && (
           <motion.div
             key="onboarding"
@@ -552,6 +610,32 @@ export default function OnboardingPage() {
                 </div>
               )}
             </div>
+          </motion.div>
+        )}
+
+        {/* ═══ SESSION — full-screen chat with the onboarding agent ═══ */}
+        {phase === 'session' && onboardingSessionId && (
+          <motion.div
+            key="session"
+            className="absolute inset-0 z-10 flex flex-col"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.4 }}
+          >
+            {/* Floating KORTIX logo — absolutely positioned, no layout impact */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logomark-white.svg"
+              alt="Kortix"
+              className="absolute top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none invert dark:invert-0"
+              style={{ height: '16px', width: 'auto' }}
+            />
+            {/* SSE event stream — must be mounted for messages/questions to flow */}
+            <OpenCodeEventStreamProvider />
+            {/* Bare sidebar context (no wrapping div) so useSidebar() doesn't crash */}
+            <SidebarContext.Provider value={_sidebarStub}>
+              <SessionChat sessionId={onboardingSessionId} hideHeader />
+            </SidebarContext.Provider>
           </motion.div>
         )}
 

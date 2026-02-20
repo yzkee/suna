@@ -1,51 +1,49 @@
 /**
- * Ensures the database schema exists by running the idempotent init SQL.
+ * Ensures the database schema is up-to-date using Drizzle migrations.
  *
- * PostgreSQL's /docker-entrypoint-initdb.d/ scripts only run on first
- * database creation. If the postgres volume already has data (e.g. from a
- * previous install or upgrade), the init scripts are skipped and the schema
- * may be missing or outdated.
+ * In local mode (Docker installer), runs pending drizzle migrations on
+ * every API startup. This handles the case where the postgres volume
+ * already has data but is missing newer schema changes.
  *
- * This function runs the same idempotent SQL on every API startup, so the
- * schema is always up-to-date regardless of how postgres was initialized.
+ * In cloud mode, migrations are managed externally (CI/CD, Supabase
+ * dashboard) so this is a no-op.
  *
- * All statements use IF NOT EXISTS / DO $$ EXCEPTION WHEN duplicate_object,
- * so running this against an already-initialized database is a safe no-op.
+ * Single source of truth: packages/db/src/schema/kortix.ts + drizzle migrations.
  */
 
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 import { config } from './config';
 
 export async function ensureSchema(): Promise<void> {
   if (!config.DATABASE_URL) {
-    console.log('[migrate] No DATABASE_URL configured — skipping schema check');
+    console.log('[migrate] No DATABASE_URL configured — skipping');
     return;
   }
 
-  const sqlPath = join(import.meta.dir, 'migrate.sql');
-  let sql: string;
-  try {
-    sql = readFileSync(sqlPath, 'utf-8');
-  } catch (err) {
-    console.warn(`[migrate] Could not read ${sqlPath} — skipping schema migration`);
+  // Only run in local mode — cloud DB has its own migration pipeline
+  if (!config.isLocal()) {
     return;
   }
+
+  const migrationsFolder = join(import.meta.dir, '../../../packages/db/drizzle');
 
   const client = postgres(config.DATABASE_URL, {
     max: 1,
     idle_timeout: 5,
     connect_timeout: 10,
+    onnotice: () => {},
   });
 
+  const db = drizzle(client);
+
   try {
-    await client.unsafe(sql);
-    console.log('[migrate] Schema ensured (idempotent init SQL applied)');
+    await migrate(db, { migrationsFolder });
+    console.log('[migrate] Drizzle migrations applied');
   } catch (err: any) {
-    console.error('[migrate] Schema migration failed:', err.message || err);
-    // Don't crash the API — some features may still work without the full schema.
-    // The original behavior was to start without schema and fail on individual queries.
+    console.error('[migrate] Migration failed:', err.message || err);
   } finally {
     await client.end();
   }
