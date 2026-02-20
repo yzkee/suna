@@ -22,7 +22,10 @@ export {
  * Both set `userId` in context so downstream route handlers work identically.
  */
 async function cronAuth(c: Context, next: Next) {
-  // Local mode: skip auth, inject mock user — same as supabaseAuth
+  // Local mode: open access, inject mock user.
+  // These routes are called by the FRONTEND (scheduled tasks page), not by the sandbox.
+  // The frontend uses supabaseAuth (local-dev-token), not the sak_ service key.
+  // Service key auth for sandbox→API callbacks is handled separately by the tick router.
   if (config.isLocal()) {
     c.set('userId', '00000000-0000-0000-0000-000000000000');
     c.set('userEmail', 'local@localhost');

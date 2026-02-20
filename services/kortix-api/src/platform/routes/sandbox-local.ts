@@ -118,9 +118,13 @@ export function createLocalSandboxRouter(): Hono<{ Variables: AuthVariables }> {
   });
 
   // ─── POST /generate-token ───────────────────────────────────────────────
-  // Generate a sandbox access key. Recreates the container with the token
-  // baked in (workspace volume preserved). Returns the key — shown once.
-  // If a token already exists, this regenerates it (new key, old one invalid).
+  // Generate a sandbox access key (sak_xxx). This key protects the proxy:
+  //   - Frontend must send it as Bearer token to access the sandbox through the proxy.
+  //   - The proxy validates it (sandboxAuthStore.hasAuth/getAccessKey).
+  //   - The proxy→sandbox connection uses Docker networking and doesn't need this key.
+  //
+  // NO container restart needed! The proxy is the auth boundary.
+  // The key is stored in sandboxAuthStore (in-memory + disk) and returned to the user.
 
   router.post('/generate-token', async (c) => {
     try {
@@ -128,17 +132,25 @@ export function createLocalSandboxRouter(): Hono<{ Variables: AuthVariables }> {
       const { randomAlphanumeric } = await import('../../shared/crypto');
       const accessKey = `sak_${randomAlphanumeric(32)}`;
 
-      // Store in sandboxAuthStore (memory + disk). Instant — no container restart.
-      // The proxy middleware reads from this store on every request.
+      // Store the key — this instantly enables proxy auth.
+      // The proxy middleware checks sandboxAuthStore.hasAuth() on every request.
+      // From this moment, requests without the key will get 401.
+      // This is fine because:
+      //   1. This request itself doesn't go through the sandbox proxy
+      //   2. The response carries the key back to the frontend
+      //   3. The frontend stores it and sends it on subsequent requests
       sandboxAuthStore.setAccessKey(accessKey);
 
-      // Return sandbox info if available (for frontend to update)
+      // Get current sandbox info (no restart needed)
       const info = await provider.find();
+      if (!info) {
+        return c.json({ success: false, error: 'No sandbox found' }, 404);
+      }
 
-      console.log('[SANDBOX-LOCAL] Token generated and stored');
+      console.log('[SANDBOX-LOCAL] Token generated (no container restart)');
       return c.json({
         success: true,
-        data: info ? serialize(info) : null,
+        data: serialize(info),
         accessKey,
       });
     } catch (err) {

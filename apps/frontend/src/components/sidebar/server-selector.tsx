@@ -18,7 +18,6 @@ import {
   Copy,
 } from 'lucide-react';
 import { useServerStore, type ServerEntry } from '@/stores/server-store';
-import { useSandboxAuthStore } from '@/stores/sandbox-auth-store';
 import { useTabStore } from '@/stores/tab-store';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
@@ -567,11 +566,6 @@ export function InstanceManagerDialog({
     setIsRegenerating(true);
     setSandboxError(null);
 
-    // Suppress the SandboxTokenDialog while we're generating —
-    // the container will be down briefly and the health monitor
-    // would otherwise trigger the "enter your token" prompt.
-    useSandboxAuthStore.getState().setIsGenerating(true);
-
     try {
       const { accessKey } = await regenerateSandboxToken();
 
@@ -584,8 +578,6 @@ export function InstanceManagerDialog({
       setPendingAccessKey(accessKey);
     } catch (err: any) {
       setSandboxError(err?.message || 'Failed to generate token');
-      // Clear the generating flag so the token dialog can show if needed
-      useSandboxAuthStore.getState().setIsGenerating(false);
     } finally {
       setIsRegenerating(false);
     }

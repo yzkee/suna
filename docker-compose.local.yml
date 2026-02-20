@@ -155,6 +155,8 @@ services:
     volumes:
       - sandbox-workspace:/workspace
       - sandbox-secrets:/app/secrets
+      # Mount patched OpenCode tools (cron-triggers auth fix)
+      - ./sandbox/opencode/tools:/opt/opencode/tools:ro
     # All sandbox access goes through the backend proxy (kortix-api → sandbox:8000).
     # Only Kortix Master (14000) is exposed for direct debugging; all other services
     # are reached via /v1/sandbox/proxy/{port}/ through the backend.

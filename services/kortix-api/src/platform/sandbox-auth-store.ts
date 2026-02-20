@@ -59,9 +59,15 @@ class SandboxAuthTokenStore {
 
   /**
    * Get the service key (kortix-api → sandbox).
+   *
+   * Priority:
+   *   1. Explicit INTERNAL_SERVICE_KEY env var (VPS/manual setup)
+   *   2. Generated access key (sak_xxx) — in local mode, the access key
+   *      doubles as the service key so one token covers everything.
    */
   getServiceKey(): string {
-    return config.INTERNAL_SERVICE_KEY;
+    if (config.INTERNAL_SERVICE_KEY) return config.INTERNAL_SERVICE_KEY;
+    return this.getAccessKey();
   }
 
   /**

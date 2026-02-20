@@ -35,7 +35,11 @@ const localPreview = new Hono();
  * On host (pnpm dev): http://localhost:{SANDBOX_PORT_BASE} (fixed port mapping)
  */
 export function getSandboxBaseUrl(sandboxId: string): string {
-  if (config.DOCKER_HOST) {
+  // SANDBOX_NETWORK is only set when the API runs inside Docker (via docker-compose).
+  // In that case, Docker DNS resolves the container name directly.
+  // When running on the host (pnpm dev), even with DOCKER_HOST set for socket access,
+  // Docker DNS won't work — use localhost with mapped ports instead.
+  if (config.SANDBOX_NETWORK) {
     return `http://${sandboxId}:8000`;
   }
   return `http://localhost:${config.SANDBOX_PORT_BASE}`;

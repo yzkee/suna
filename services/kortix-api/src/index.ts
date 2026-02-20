@@ -230,6 +230,58 @@ app.notFound((c) => {
   );
 });
 
+// ─── Local-mode: auto-register sandbox in DB ───────────────────────────────
+// The cron system requires a sandbox record in the DB to create triggers.
+// In local mode, we upsert a single sandbox for the mock user on startup.
+
+async function ensureLocalSandboxRegistered() {
+  const { db } = await import('./shared/db');
+  const { sandboxes } = await import('@kortix/db');
+  const { eq, and } = await import('drizzle-orm');
+
+  const LOCAL_USER_ID = '00000000-0000-0000-0000-000000000000';
+  const CONTAINER_NAME = 'kortix-sandbox';
+  const portBase = config.SANDBOX_PORT_BASE;
+  const baseUrl = `http://localhost:${portBase}`;
+
+  // Check if already registered
+  const [existing] = await db
+    .select()
+    .from(sandboxes)
+    .where(and(eq(sandboxes.accountId, LOCAL_USER_ID), eq(sandboxes.externalId, CONTAINER_NAME)));
+
+  if (existing) {
+    // Ensure it's active with current baseUrl
+    if (existing.status !== 'active' || existing.baseUrl !== baseUrl) {
+      await db
+        .update(sandboxes)
+        .set({ status: 'active', baseUrl, updatedAt: new Date() })
+        .where(eq(sandboxes.sandboxId, existing.sandboxId));
+      console.log(`[startup] Updated local sandbox registration (${existing.sandboxId})`);
+    } else {
+      console.log(`[startup] Local sandbox already registered (${existing.sandboxId})`);
+    }
+    return;
+  }
+
+  // Insert new sandbox record
+  const [inserted] = await db
+    .insert(sandboxes)
+    .values({
+      accountId: LOCAL_USER_ID,
+      name: 'Local Sandbox',
+      provider: 'local_docker',
+      externalId: CONTAINER_NAME,
+      status: 'active',
+      baseUrl,
+      config: {},
+      metadata: { autoRegistered: true },
+    })
+    .returning();
+
+  console.log(`[startup] Registered local sandbox in DB (${inserted.sandboxId})`);
+}
+
 // === Start Server & Scheduler ===
 
 console.log(`
@@ -276,6 +328,14 @@ ensureSchema()
     startChannelService();
     startDrainer();
   });
+
+// In local mode, ensure the local Docker sandbox is registered in the DB
+// so cron triggers can discover it via GET /v1/cron/sandboxes.
+if (config.isLocal() && config.DATABASE_URL) {
+  ensureLocalSandboxRegistered().catch((err) =>
+    console.error('[startup] Failed to register local sandbox:', err),
+  );
+}
 
 // Graceful shutdown
 function shutdown(signal: string) {

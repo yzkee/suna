@@ -16,10 +16,8 @@ function getCronUrl(): string {
   return routerUrl.replace(/\/router\/?$/, "/cron");
 }
 
-function getToken(): string {
-  const token = process.env.KORTIX_TOKEN;
-  if (!token) throw new Error("KORTIX_TOKEN not set");
-  return token;
+function getToken(): string | undefined {
+  return process.env.KORTIX_TOKEN || undefined;
 }
 
 async function cronFetch(
@@ -29,9 +27,15 @@ async function cronFetch(
 ): Promise<unknown> {
   const url = `${getCronUrl()}${path}`;
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${getToken()}`,
     "Content-Type": "application/json",
   };
+  // Only add auth if a token is available.
+  // Local mode: API bypasses auth, so no token needed.
+  // Self-hosted: user's sak_xxx key is set as KORTIX_TOKEN.
+  const token = getToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
 
   const res = await fetch(url, {
     method,
