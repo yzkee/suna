@@ -1,5 +1,47 @@
 [
   {
+    "version": "0.6.1",
+    "date": "2026-02-22",
+    "title": "Fix Docker frontend runtime env vars",
+    "description": "Next.js bakes NEXT_PUBLIC_ env vars at build time, so Docker containers had placeholder Supabase URLs in server-side code (middleware, server actions). Added SUPABASE_URL, SUPABASE_ANON_KEY, and BACKEND_URL runtime env var fallbacks so server-side code works correctly in Docker containers.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Frontend server-side code (middleware, server actions) now reads SUPABASE_URL and SUPABASE_ANON_KEY runtime env vars instead of build-time baked NEXT_PUBLIC_ values"
+      },
+      {
+        "type": "fix",
+        "text": "Installer script (get-kortix.sh) now sets runtime env vars for frontend container in all modes (local, VPS, external)"
+      },
+      {
+        "type": "fix",
+        "text": "Docker compose uses extra_hosts: localhost:host-gateway for frontend container networking"
+      }
+    ],
+    "artifacts": [
+      {
+        "name": "@kortix/sandbox@0.6.1",
+        "target": "npm"
+      },
+      {
+        "name": "v0.6.1",
+        "target": "github-release"
+      },
+      {
+        "name": "kortix/sandbox:0.6.1",
+        "target": "docker-hub"
+      },
+      {
+        "name": "kortix/kortix-api:0.6.1",
+        "target": "docker-hub"
+      },
+      {
+        "name": "kortix/kortix-frontend:0.6.1",
+        "target": "docker-hub"
+      }
+    ]
+  },
+  {
     "version": "0.6.0",
     "date": "2026-02-21",
     "title": "Supabase everywhere, auth unification & security hardening",
