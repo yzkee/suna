@@ -25,7 +25,6 @@ import {
 import { useServerStore } from '@/stores/server-store';
 import { useTabStore } from '@/stores/tab-store';
 import { useAuth } from '@/components/AuthProvider';
-import { isLocalMode } from '@/lib/config';
 import { useEffect } from 'react';
 
 /**
@@ -47,21 +46,9 @@ function registerSandboxServer(sandbox: SandboxInfo) {
   const store = useServerStore.getState();
   const previousActiveId = store.activeServerId;
 
-  // In local mode, update the default entry metadata (single sandbox).
-  if (isLocalMode()) {
-    store.updateServerSilent('default', {
-      url,
-      label: sandbox.name || 'Local Sandbox',
-      provider: sandbox.provider,
-      sandboxId: sandbox.external_id,
-      mappedPorts: extractMappedPorts(sandbox),
-    });
-    return;
-  }
-
-  // Cloud mode: add (or deduplicate) by sandboxId.
+  // Add (or deduplicate) by sandboxId — provider-agnostic.
   const entry = store.addSandboxServer({
-    label: sandbox.name || 'Cloud Sandbox',
+    label: sandbox.name || 'Sandbox',
     url,
     provider: sandbox.provider,
     sandboxId: sandbox.external_id,
@@ -85,7 +72,7 @@ export function useSandbox() {
       return await getSandbox();
     },
     enabled: !!user,
-    staleTime: isLocalMode() ? 5 * 60 * 1000 : 0, // Local: 5min cache. Cloud: never cache — sandboxes are created/deleted frequently.
+    staleTime: 0, // Never cache — sandboxes are created/deleted frequently.
     retry: 2,
     refetchOnWindowFocus: false,
   });

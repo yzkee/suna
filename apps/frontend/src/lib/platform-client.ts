@@ -14,7 +14,7 @@
  * In local:      http://localhost:8008/v1/platform/*  (base URL includes /v1)
  */
 
-import { getSupabaseAccessToken, getAuthToken } from '@/lib/auth-token';
+import { getSupabaseAccessToken } from '@/lib/auth-token';
 import type { ServerEntry } from '@/stores/server-store';
 
 // ─── Sandbox Port Constants ──────────────────────────────────────────────────
@@ -68,10 +68,6 @@ function getPlatformUrl(): string {
 
 const PLATFORM_URL = getPlatformUrl();
 
-function isLocalMode(): boolean {
-  return process.env.NEXT_PUBLIC_ENV_MODE?.toLowerCase() === 'local';
-}
-
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type SandboxProviderName = 'daytona' | 'local_docker';
@@ -98,8 +94,6 @@ interface PlatformResponse<T> {
   data?: T;
   error?: string;
   created?: boolean;
-  /** One-time sandbox access key (sak_...) — only present when a new sandbox is created. */
-  accessKey?: string;
 }
 
 // ─── Fetch helper ────────────────────────────────────────────────────────────
@@ -108,19 +102,16 @@ async function platformFetch<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<PlatformResponse<T>> {
-  const local = isLocalMode();
-  const token = local ? null : await getSupabaseAccessToken();
-  if (!local && !token) {
+  const token = await getSupabaseAccessToken();
+  if (!token) {
     throw new Error('Not authenticated');
   }
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`,
     ...options.headers as Record<string, string>,
   };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
 
   const res = await fetch(`${PLATFORM_URL}${path}`, {
     ...options,
@@ -389,29 +380,6 @@ export async function getFullChangelog(): Promise<ChangelogEntry[]> {
   return data.changelog;
 }
 
-// ─── Sandbox Token Regeneration ─────────────────────────────────────────────
-
-/**
- * Generate (or regenerate) the sandbox access key.
- * Recreates the container with the token baked in (workspace volume preserved).
- * Returns the new access key — shown to user once.
- */
-export async function regenerateSandboxToken(): Promise<{
-  sandbox: SandboxInfo;
-  accessKey: string;
-}> {
-  const result = await platformFetch<SandboxInfo>('/platform/sandbox/generate-token', {
-    method: 'POST',
-  });
-
-  if (!result.success || !result.data || !result.accessKey) {
-    throw new Error(result.error || 'Failed to generate token');
-  }
-
-  return { sandbox: result.data, accessKey: result.accessKey };
-}
-
-
 /**
  * Trigger an update on a running sandbox.
  * Frontend passes the target version — sandbox doesn't need to fetch it.
@@ -421,7 +389,7 @@ export async function triggerSandboxUpdate(
   version: string,
 ): Promise<SandboxUpdateResult> {
   const url = getSandboxUrl(sandbox);
-  const token = await getAuthToken();
+  const token = await getSupabaseAccessToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'Accept': 'application/json',

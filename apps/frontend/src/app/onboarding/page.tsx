@@ -3,12 +3,12 @@
 import React, { useRef, useCallback, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import { ArrowLeft } from 'lucide-react';
+
 import { useTheme } from 'next-themes';
 import { useRouter } from 'next/navigation';
 
 import { useAuth } from '@/components/AuthProvider';
-import { isLocalMode } from '@/lib/config';
+
 import { LightRays } from '@/components/ui/light-rays';
 import {
   useCreateOpenCodeSession,
@@ -19,8 +19,6 @@ import { SidebarContext } from '@/components/ui/sidebar';
 import { OpenCodeEventStreamProvider } from '@/hooks/opencode/use-opencode-events';
 import { getClient } from '@/lib/opencode-sdk';
 import { useServerStore } from '@/stores/server-store';
-import { SecretsManager } from '@/components/secrets/secrets-manager';
-import { ProviderSettings } from '@/components/providers/provider-settings';
 import { Button } from '@/components/ui/button';
 import { WallpaperBackground } from '@/components/ui/wallpaper-background';
 
@@ -58,7 +56,7 @@ function getInstanceUrl() {
 
 /* ─── Types ──────────────────────────────────────────────────── */
 
-type BootPhase = 'power' | 'bios' | 'logo' | 'login' | 'credentials' | 'onboarding' | 'session';
+type BootPhase = 'power' | 'bios' | 'logo' | 'login' | 'onboarding' | 'session';
 
 /* ─── Helpers ────────────────────────────────────────────────── */
 
@@ -350,7 +348,7 @@ export default function OnboardingPage() {
     t.push(setTimeout(() => setPhase('login'), 3900));
   }, [phase]);
 
-  const nextAfterLogin = isLocalMode() ? 'credentials' : 'onboarding';
+  const nextAfterLogin = 'onboarding';
 
   if (isLoading) return null;
   if (!user) return null;
@@ -518,64 +516,6 @@ export default function OnboardingPage() {
         )}
         {phase === 'login' && <LoginKeyListener onEnter={() => setPhase(nextAfterLogin)} />}
 
-        {/* ═══ CREDENTIALS (local mode only) ═══ */}
-        {phase === 'credentials' && (
-          <motion.div
-            key="credentials"
-            className="absolute inset-0 z-10 flex items-center justify-center"
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
-          >
-            <WallpaperBackground />
-            <div className="relative z-10 w-full max-w-2xl mx-auto bg-background/95 backdrop-blur-xl rounded-xl border border-border/40 overflow-hidden flex flex-col max-h-[85vh]">
-              <div className="flex items-center gap-3 px-5 py-4 border-b border-border/40">
-                <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0" onClick={() => setPhase('login')}>
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
-                <div>
-                  <h2 className="text-sm font-semibold">Set up your workspace</h2>
-                  <p className="text-[11px] text-muted-foreground">
-                    Connect providers and configure secrets so your agent can work. You can change these anytime in Settings.
-                  </p>
-                </div>
-              </div>
-              <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-6">
-                {/* Providers */}
-                <div className="space-y-3">
-                  <div>
-                    <h3 className="text-sm font-semibold">Providers</h3>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">
-                      Connect at least one LLM provider to power your agent.
-                    </p>
-                  </div>
-                  <div className="border rounded-lg p-4">
-                    <ProviderSettings variant="settings" />
-                  </div>
-                </div>
-                {/* Secrets */}
-                <div className="space-y-3">
-                  <div>
-                    <h3 className="text-sm font-semibold">Secrets</h3>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">
-                      Environment variables and API keys for your sandbox.
-                    </p>
-                  </div>
-                  <div className="border rounded-lg">
-                    <SecretsManager />
-                  </div>
-                </div>
-              </div>
-              <div className="flex-shrink-0 border-t border-border/40 px-5 py-4">
-                <Button onClick={() => setPhase('onboarding')} className="w-full">
-                  Continue
-                </Button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-
         {/* ═══ ONBOARDING — creating session, loading spinner ═══ */}
         {phase === 'onboarding' && (
           <motion.div
@@ -642,7 +582,7 @@ export default function OnboardingPage() {
       </AnimatePresence>
 
       {/* Sign out (cloud only) */}
-      {(phase === 'login' || phase === 'credentials' || phase === 'onboarding') && !isLocalMode() && (
+      {(phase === 'login' || phase === 'onboarding') && (
         <button
           onClick={() => signOut()}
           className="absolute bottom-4 left-4 z-30 px-3 py-1 text-[10px] text-foreground/20 hover:text-foreground/40 transition-colors"

@@ -4,7 +4,6 @@ import { eq, and, ne } from 'drizzle-orm';
 import { sandboxes, accountUser } from '@kortix/db';
 import { getDaytona } from '../../shared/daytona';
 import { db } from '../../shared/db';
-import { config } from '../../config';
 
 interface DaytonaProxyContext {
   userId: string;
@@ -64,8 +63,9 @@ function setCachedPreviewLink(sandboxId: string, port: number, url: string, toke
 // === Ownership verification via kortix.sandboxes ===
 
 async function verifyOwnership(sandboxId: string, userId: string): Promise<boolean> {
-  // Local / self-hosted: single user, always allowed.
-  if (config.isLocal()) return true;
+  // If no userId is set, skip ownership check.
+  // The proxy auth already validated the token — the user has access.
+  if (!userId) return true;
 
   // Check cache first
   const cached = getCachedOwnership(sandboxId, userId);

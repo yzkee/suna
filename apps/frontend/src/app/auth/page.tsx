@@ -791,7 +791,103 @@ function LoginContent() {
   );
 }
 
+// ─── Self-hosted check ──────────────────────────────────────────────────────
+
+import { isSelfHosted } from '@/lib/config';
+import { SelfHostedForm, useInstallStatus } from '@/components/auth/self-hosted-auth';
+
+function SelfHostedLoginContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { user, isLoading, supabase } = useAuth();
+  const { installed, loading: statusLoading } = useInstallStatus();
+  const returnUrl = searchParams.get('returnUrl') || searchParams.get('redirect');
+  const [validatingSession, setValidatingSession] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
+
+  // Stale session handling: if bounced here by middleware with ?redirect=,
+  // validate the session — sign out if invalid so the form shows.
+  useEffect(() => {
+    if (isLoading || !user) return;
+    const redirectParam = searchParams.get('redirect');
+    if (!redirectParam) {
+      window.location.href = returnUrl || '/onboarding';
+      return;
+    }
+    setValidatingSession(true);
+    supabase.auth.getUser().then(({ error }) => {
+      if (error) {
+        supabase.auth.signOut().finally(() => setValidatingSession(false));
+      } else {
+        window.location.href = returnUrl || '/onboarding';
+      }
+    });
+  }, [user, isLoading, returnUrl, searchParams, supabase]);
+
+  if (isLoading || validatingSession || statusLoading || user) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <KortixLoader size="medium" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-[100dvh] bg-background relative">
+      <div className="absolute top-4 sm:top-6 left-4 sm:left-6 z-10">
+        <Link href="/" className="flex items-center space-x-2">
+          <KortixLogo size={24} className="sm:w-7 sm:h-7" />
+        </Link>
+      </div>
+      <div className="flex min-h-[100dvh]">
+        {/* Left panel — self-hosted form */}
+        <div className="relative flex-1 flex items-center justify-center px-4 py-16 sm:p-8">
+          <SelfHostedForm returnUrl={returnUrl} installed={installed} />
+        </div>
+        {/* Right panel — same showcase as cloud */}
+        <div className="hidden lg:flex flex-1 items-center justify-center relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-background via-background to-accent/10" />
+          <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+            <Suspense fallback={null}>
+              <AnimatedBg
+                variant="hero"
+                customArcs={{
+                  left: [
+                    { pos: { left: -120, top: 150 }, opacity: 0.15 },
+                    { pos: { left: -120, top: 400 }, opacity: 0.18 },
+                  ],
+                  right: [
+                    { pos: { right: -150, top: 50 }, opacity: 0.2 },
+                    { pos: { right: 10, top: 650 }, opacity: 0.17 },
+                  ]
+                }}
+              />
+            </Suspense>
+          </div>
+          <ExampleShowcase />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Login() {
+  if (isSelfHosted()) {
+    return (
+      <Suspense
+        fallback={
+          <div className="min-h-screen bg-background flex items-center justify-center">
+            <KortixLoader size="medium" />
+          </div>
+        }
+      >
+        <SelfHostedLoginContent />
+      </Suspense>
+    );
+  }
+
   return (
     <Suspense
       fallback={

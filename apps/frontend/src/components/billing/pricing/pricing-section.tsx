@@ -22,7 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { AccountState } from '@/lib/api/billing';
 import { createCheckoutSession, CreateCheckoutSessionRequest, CreateCheckoutSessionResponse } from '@/lib/api/billing';
 import { toast } from '@/lib/toast';
-import { isLocalMode } from '@/lib/config';
+import { isBillingEnabled } from '@/lib/config';
 import { useAccountState, useScheduleDowngrade, accountStateKeys, accountStateSelectors } from '@/hooks/billing';
 import { useAuth } from '@/components/AuthProvider';
 import { useQueryClient } from '@tanstack/react-query';
@@ -1239,7 +1239,7 @@ export function PricingSection({
 
 
 
-  if (isLocalMode()) {
+  if (!isBillingEnabled()) {
     return (
       <div className="p-4 bg-muted/30 border border-border rounded-lg text-center">
         <p className="text-sm text-muted-foreground">

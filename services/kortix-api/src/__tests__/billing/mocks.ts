@@ -66,7 +66,7 @@ export function registerGlobalMocks() {
     config: {
       STRIPE_WEBHOOK_SECRET: 'whsec_test',
       ENV_MODE: 'cloud',
-      STRIPE_ENV: 'staging',
+      INTERNAL_KORTIX_ENV: 'staging',
     },
   }));
 

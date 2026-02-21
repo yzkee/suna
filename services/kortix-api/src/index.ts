@@ -19,12 +19,10 @@ import { getSandboxBaseUrl } from './daytona-proxy/routes/local-preview';
 import { setupApp } from './setup';
 import { providersApp } from './providers/routes';
 import { secretsApp } from './secrets/routes';
-import { timingSafeStringEqual } from './shared/crypto';
-import { sandboxAuthStore } from './platform/sandbox-auth-store';
 import { integrationsApp } from './integrations';
 import { queueApp, startDrainer, stopDrainer } from './queue';
 import { serversApp } from './servers';
-import { bootstrapLocalIdentity } from './platform/local-identity';
+import { supabaseAuth, combinedAuth } from './middleware/auth';
 import { ensureSchema } from './ensure-schema';
 
 // ─── App Setup ──────────────────────────────────────────────────────────────
@@ -33,8 +31,7 @@ const app = new Hono();
 
 // === Global Middleware ===
 
-// CORS origins: cloud mode = production domains only, local mode = add localhost.
-// CORS_ALLOWED_ORIGINS env var can add extra origins in either mode (e.g. remapped Docker ports).
+// CORS origins: production domains + localhost for local dev + any extras from env.
 const cloudOrigins = [
   'https://www.kortix.com',
   'https://kortix.com',
@@ -55,7 +52,7 @@ const extraOrigins = process.env.CORS_ALLOWED_ORIGINS
 const corsOrigins = [
   ...new Set([
     ...cloudOrigins,
-    ...(config.isLocal() ? localOrigins : []),
+    ...localOrigins,  // Always include — needed for local dev and self-hosted
     ...extraOrigins,
   ]),
 ];
@@ -72,7 +69,8 @@ app.use(
 
 app.use('*', logger());
 
-if (config.isLocal()) {
+// Pretty JSON in dev mode for easier debugging
+if (config.INTERNAL_KORTIX_ENV === 'dev') {
   app.use('*', prettyJSON());
 }
 
@@ -120,37 +118,61 @@ app.post('/v1/prewarm', (c) => {
 });
 
 // GET /v1/accounts — returns user's accounts (Basejump-compatible shape).
-// In local mode: mock personal account. In cloud: would query Supabase.
-app.get('/v1/accounts', async (c) => {
-  if (config.isLocal()) {
-    return c.json([
-      {
-        account_id: '00000000-0000-0000-0000-000000000000',
-        name: 'Local User',
-        slug: 'local',
+// Requires Supabase JWT auth. Queries basejump.account_user if available.
+app.get('/v1/accounts', supabaseAuth, async (c: any) => {
+  const userId = c.get('userId') as string;
+  const userEmail = c.get('userEmail') as string;
+
+  try {
+    const { eq } = await import('drizzle-orm');
+    const { accountUser } = await import('@kortix/db');
+    const { db } = await import('./shared/db');
+
+    // Query basejump.account_user for this user's memberships
+    const memberships = await db
+      .select({
+        accountId: accountUser.accountId,
+        accountRole: accountUser.accountRole,
+      })
+      .from(accountUser)
+      .where(eq(accountUser.userId, userId));
+
+    if (memberships.length > 0) {
+      return c.json(memberships.map(m => ({
+        account_id: m.accountId,
+        name: userEmail || 'User',
+        slug: m.accountId.slice(0, 8),
         personal_account: true,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        account_role: 'owner',
-        is_primary_owner: true,
-      },
-    ]);
+        account_role: m.accountRole || 'owner',
+        is_primary_owner: m.accountRole === 'owner',
+      })));
+    }
+  } catch {
+    // basejump schema doesn't exist — fall through to default
   }
-  // Cloud mode: requires auth
-  const authHeader = c.req.header('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return c.json({ error: 'Unauthorized' }, 401);
-  }
-  // Return empty array — proper account management can be added later
-  return c.json([]);
+
+  // Fallback: return the userId as a personal account
+  return c.json([
+    {
+      account_id: userId,
+      name: userEmail || 'User',
+      slug: userId.slice(0, 8),
+      personal_account: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      account_role: 'owner',
+      is_primary_owner: true,
+    },
+  ]);
 });
 
 // GET /v1/user-roles — returns admin role status.
-// In local mode: always non-admin. In cloud: could check DB.
-app.get('/v1/user-roles', (c) => {
-  if (config.isLocal()) {
-    return c.json({ isAdmin: true, role: 'admin' });
-  }
+// TODO: implement proper role checking against DB
+app.get('/v1/user-roles', supabaseAuth, async (c: any) => {
+  // For now, all authenticated users are non-admin.
+  // Self-hosted single-owner mode will set this to admin.
   return c.json({ isAdmin: false, role: null });
 });
 
@@ -164,22 +186,28 @@ app.route('/v1/cron', cronApp);         // /v1/cron/sandboxes/*, /v1/cron/trigge
 app.route('/v1/deployments', deploymentsApp); // /v1/deployments/*
 app.route('/v1/integrations', integrationsApp); // /v1/integrations/*
 app.route('/', channelsApp);                 // /v1/channels/*, /webhooks/*
-// Setup routes — local-only. Provides .env management and system status.
-if (config.isLocal()) {
-  app.route('/v1/setup', setupApp);          // /v1/setup/status, /v1/setup/env, /v1/setup/schema, /v1/setup/health, /v1/setup/onboarding-*
-  app.route('/v1/providers', providersApp);   // /v1/providers, /v1/providers/schema, /v1/providers/:id/connect, /v1/providers/:id/disconnect, /v1/providers/health
-  app.route('/v1/secrets', secretsApp);       // /v1/secrets, /v1/secrets/:key (PUT/DELETE)
-}
-// Server entries — persists user-configured instances (URL, label, provider — NOT auth tokens).
+
+// Setup — install-status is public (needed before any user exists), rest requires auth.
+app.route('/v1/setup', setupApp);          // /v1/setup/install-status (public), rest (auth inside router)
+
+// All remaining routes require authentication (JWT or sbt_ token).
+app.use('/v1/providers/*', combinedAuth);
+app.route('/v1/providers', providersApp);   // /v1/providers, /v1/providers/schema, /v1/providers/:id/connect, /v1/providers/:id/disconnect, /v1/providers/health
+
+app.use('/v1/secrets/*', combinedAuth);
+app.route('/v1/secrets', secretsApp);       // /v1/secrets, /v1/secrets/:key (PUT/DELETE)
+
+app.use('/v1/servers/*', combinedAuth);
 app.route('/v1/servers', serversApp);        // /v1/servers, /v1/servers/:id, /v1/servers/sync
-// Message queue — persists queued messages to filesystem and drains them server-side.
+
+app.use('/v1/queue/*', combinedAuth);
 app.route('/v1/queue', queueApp);            // /v1/queue/sessions/:id, /v1/queue/messages/:id, /v1/queue/all, /v1/queue/status
 
 // Preview Proxy — unified route for both cloud (Daytona) and local mode.
 // Pattern: /v1/preview/{sandboxId}/{port}/* for ALL modes.
 // Cloud:  sandboxId = Daytona external ID → proxied via Daytona SDK
 // Local:  sandboxId = container name (e.g. 'kortix-sandbox') → Docker DNS resolution
-// Auth middleware is selected by config.isLocal() (see daytona-proxy/index.ts).
+// Auth: unified previewProxyAuth (accepts Supabase JWT and sbt_ tokens).
 // MUST be after all explicit routes (wildcard catch-all).
 app.route('/v1/preview', daytonaProxyApp);
 
@@ -230,16 +258,18 @@ app.notFound((c) => {
   );
 });
 
-// ─── Local-mode: auto-register sandbox in DB ───────────────────────────────
-// The cron system requires a sandbox record in the DB to create triggers.
-// In local mode, we upsert a single sandbox for the mock user on startup.
+// ─── Auto-register local Docker sandbox in DB ──────────────────────────────
+// When local_docker is an allowed provider, ensure there's a sandbox record
+// in the DB so cron triggers can discover it via GET /v1/cron/sandboxes.
 
 async function ensureLocalSandboxRegistered() {
   const { db } = await import('./shared/db');
   const { sandboxes } = await import('@kortix/db');
   const { eq, and } = await import('drizzle-orm');
 
-  const LOCAL_USER_ID = '00000000-0000-0000-0000-000000000000';
+  // Use a well-known account ID for the self-hosted single-owner case.
+  // When Supabase auth is active, the real user ID will be used via POST /init.
+  // This bootstrap is for the case where we need a sandbox before any user logs in.
   const CONTAINER_NAME = 'kortix-sandbox';
   const portBase = config.SANDBOX_PORT_BASE;
   const baseUrl = `http://localhost:${portBase}`;
@@ -248,7 +278,7 @@ async function ensureLocalSandboxRegistered() {
   const [existing] = await db
     .select()
     .from(sandboxes)
-    .where(and(eq(sandboxes.accountId, LOCAL_USER_ID), eq(sandboxes.externalId, CONTAINER_NAME)));
+    .where(eq(sandboxes.externalId, CONTAINER_NAME));
 
   if (existing) {
     // Ensure it's active with current baseUrl
@@ -264,22 +294,9 @@ async function ensureLocalSandboxRegistered() {
     return;
   }
 
-  // Insert new sandbox record
-  const [inserted] = await db
-    .insert(sandboxes)
-    .values({
-      accountId: LOCAL_USER_ID,
-      name: 'Local Sandbox',
-      provider: 'local_docker',
-      externalId: CONTAINER_NAME,
-      status: 'active',
-      baseUrl,
-      config: {},
-      metadata: { autoRegistered: true },
-    })
-    .returning();
-
-  console.log(`[startup] Registered local sandbox in DB (${inserted.sandboxId})`);
+  // No existing sandbox for this container name — skip auto-registration.
+  // The sandbox will be created via POST /v1/platform/init when the user first logs in.
+  console.log('[startup] No local sandbox registered yet — will be created on first login via POST /init');
 }
 
 // === Start Server & Scheduler ===
@@ -290,6 +307,7 @@ console.log(`
 ╠═══════════════════════════════════════════════════════════╣
 ║  Port: ${config.PORT.toString().padEnd(49)}║
 ║  Mode: ${config.ENV_MODE.padEnd(49)}║
+║  Env:  ${config.INTERNAL_KORTIX_ENV.padEnd(49)}║
 ╠═══════════════════════════════════════════════════════════╣
 ║  Services:                                                ║
 ║    /v1/router     (search, LLM, proxy)                    ║
@@ -298,15 +316,17 @@ console.log(`
 ║    /v1/cron       (scheduled triggers)                     ║
 ║    /v1/deployments (deploy lifecycle)                      ║
 ║    /v1/integrations (OAuth integrations)                    ║
-║    /v1/setup      (local setup & env management)           ║
+║    /v1/setup      (setup & env management)                 ║
 ║    /v1/queue      (persistent message queue)               ║
 ║    /v1/preview    (sandbox proxy — local + cloud)           ║
 ╠═══════════════════════════════════════════════════════════╣
 ║  Database:   ${config.DATABASE_URL ? '✓ Configured'.padEnd(42) : '✗ NOT SET'.padEnd(42)}║
 ║  Supabase:   ${config.SUPABASE_URL ? '✓ Configured'.padEnd(42) : '✗ NOT SET'.padEnd(42)}║
 ║  Stripe:     ${config.STRIPE_SECRET_KEY ? '✓ Configured'.padEnd(42) : '✗ NOT SET'.padEnd(42)}║
+║  Billing:    ${(config.KORTIX_BILLING_INTERNAL_ENABLED ? 'ENABLED' : 'DISABLED').padEnd(42)}║
 ║  Channels:   ${(config.CHANNELS_ENABLED ? 'ENABLED' : 'DISABLED').padEnd(42)}║
 ║  Scheduler:  ${(config.SCHEDULER_ENABLED ? 'ENABLED' : 'DISABLED').padEnd(42)}║
+║  Providers:  ${config.ALLOWED_SANDBOX_PROVIDERS.join(', ').padEnd(42)}║
 ╚═══════════════════════════════════════════════════════════╝
 `);
 
@@ -314,23 +334,19 @@ console.log(`
 // This is idempotent — safe to run on every startup.
 ensureSchema()
   .then(async () => {
-    // Bootstrap local identity AFTER schema push so the sandboxes table exists
-    await bootstrapLocalIdentity().catch((err) => console.error('[startup] Local identity bootstrap failed:', err));
     startScheduler().catch((err) => console.error('[startup] Scheduler failed to start:', err));
     startChannelService();
     startDrainer();
   })
   .catch(async (err) => {
     console.error('[startup] ensureSchema failed, starting services anyway:', err);
-    await bootstrapLocalIdentity().catch((e) => console.error('[startup] Local identity bootstrap failed:', e));
     startScheduler().catch((e) => console.error('[startup] Scheduler failed to start:', e));
     startChannelService();
     startDrainer();
   });
 
-// In local mode, ensure the local Docker sandbox is registered in the DB
-// so cron triggers can discover it via GET /v1/cron/sandboxes.
-if (config.isLocal() && config.DATABASE_URL) {
+// If local_docker is enabled and we have a DB, ensure the sandbox is registered
+if (config.isLocalDockerEnabled() && config.DATABASE_URL) {
   ensureLocalSandboxRegistered().catch((err) =>
     console.error('[startup] Failed to register local sandbox:', err),
   );
@@ -350,7 +366,7 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 
 // ─── WebSocket proxy for sandbox PTY ─────────────────────────────────────────
 // The Bun server needs to handle WebSocket upgrades at the top level.
-// We intercept WS upgrade requests for /v1/sandbox/pty/* and proxy them
+// We intercept WS upgrade requests for /v1/preview/{sandboxId}/* and proxy them
 // to the sandbox's Kortix Master (which further proxies to OpenCode).
 
 const WS_CONNECT_TIMEOUT_MS = 10_000;
@@ -387,27 +403,52 @@ export default {
 
   async fetch(req: Request, server: any): Promise<Response | undefined> {
     // ── WebSocket upgrade for /v1/preview/{sandboxId}/{port}/* ────────
-    // In local mode, ALL /v1/preview/* WebSocket connections go to local sandbox.
-    // Parses sandbox ID dynamically from the URL for Docker DNS resolution.
-    // Pattern: /v1/preview/{sandboxId}/{port}/{path} → ws://{sandboxId}:8000/{path}
-    //   (port 8000 = direct, other ports = through Kortix Master's /proxy/{port}/)
+    // For local_docker provider: proxy via Docker DNS.
+    // For daytona: WS is handled by Daytona's preview links (not proxied here).
     if (req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
       const url = new URL(req.url);
       const previewPrefix = '/v1/preview/';
-      const isLocalPreview = config.isLocal() && url.pathname.startsWith(previewPrefix);
+      // Local Docker WS proxy: only when NOT using Daytona (Daytona handles its own WS)
+      const isLocalDockerPreview = !config.isDaytonaEnabled() && url.pathname.startsWith(previewPrefix);
 
-      if (isLocalPreview) {
-        // Validate sandbox auth token if configured (WS can't set headers — use ?token=)
-        const hasAuth = await sandboxAuthStore.hasAuth();
-        if (hasAuth) {
-          const wsToken = url.searchParams.get('token');
-          const accessKey = await sandboxAuthStore.getAccessKey();
-          if (!wsToken || !accessKey || !timingSafeStringEqual(wsToken, accessKey)) {
-            return new Response(JSON.stringify({ error: 'Unauthorized', authType: 'sandbox_token' }), {
+      if (isLocalDockerPreview) {
+        // Auth: WebSocket can't set headers, so token comes via ?token= query param.
+        // Validate as Supabase JWT or sbt_ token.
+        const wsToken = url.searchParams.get('token');
+
+        if (wsToken?.startsWith('sbt_')) {
+          const { validateSandboxToken } = await import('./repositories/sandboxes');
+          const result = await validateSandboxToken(wsToken);
+          if (!result.isValid) {
+            return new Response(JSON.stringify({ error: 'Unauthorized' }), {
               status: 401,
               headers: { 'Content-Type': 'application/json' },
             });
           }
+        } else if (wsToken) {
+          // Try as Supabase JWT
+          try {
+            const { getSupabase } = await import('./shared/supabase');
+            const supabase = getSupabase();
+            const { data: { user }, error } = await supabase.auth.getUser(wsToken);
+            if (error || !user) {
+              return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+                status: 401,
+                headers: { 'Content-Type': 'application/json' },
+              });
+            }
+          } catch {
+            return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+              status: 401,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+        } else {
+          // No token at all — reject. All WS connections must authenticate.
+          return new Response(JSON.stringify({ error: 'Unauthorized: token required' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          });
         }
 
         // Parse: /v1/preview/{sandboxId}/{port}/{rest}
@@ -427,10 +468,10 @@ export default {
             ? remainingPath
             : `/proxy/${port}${remainingPath}`;
 
-          // Build upstream query string: strip user's token, inject service key
+          // Build upstream query string: strip user's auth token, inject service key for sandbox
           const upstreamParams = new URLSearchParams(url.searchParams);
-          upstreamParams.delete('token'); // remove user's sandbox token
-          const serviceKey = await sandboxAuthStore.getServiceKey();
+          upstreamParams.delete('token');
+          const serviceKey = config.INTERNAL_SERVICE_KEY;
           if (serviceKey) {
             upstreamParams.set('token', serviceKey);
           }

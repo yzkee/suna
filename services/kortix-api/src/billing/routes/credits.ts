@@ -18,8 +18,8 @@ creditsRouter.post('/deduct', async (c) => {
     return c.json({ success: true, cost: 0, new_balance: 0 });
   }
 
-  // Local mode: skip real deduction, credits are unlimited
-  if (config.isLocal()) {
+  // Billing disabled: skip real deduction, credits are unlimited
+  if (!config.KORTIX_BILLING_INTERNAL_ENABLED) {
     return c.json({ success: true, cost, new_balance: 999999 });
   }
 
@@ -45,8 +45,8 @@ creditsRouter.post('/deduct-usage', async (c) => {
     return c.json({ success: true, cost: 0, new_balance: 0 });
   }
 
-  // Local mode: skip real deduction, credits are unlimited
-  if (config.isLocal()) {
+  // Billing disabled: skip real deduction, credits are unlimited
+  if (!config.KORTIX_BILLING_INTERNAL_ENABLED) {
     return c.json({ success: true, cost: body.amount, new_balance: 999999 });
   }
 

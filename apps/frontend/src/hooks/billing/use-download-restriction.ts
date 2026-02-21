@@ -3,7 +3,7 @@
 import { useCallback } from 'react';
 import { useSubscriptionStore } from '@/stores/subscription-store';
 import { usePricingModalStore } from '@/stores/pricing-modal-store';
-import { isLocalMode } from '@/lib/config';
+import { isBillingEnabled } from '@/lib/config';
 import { toast } from '@/lib/toast';
 
 interface UseDownloadRestrictionOptions {
@@ -57,8 +57,8 @@ export function useDownloadRestriction(options?: UseDownloadRestrictionOptions):
     !accountState.subscription.tier_key
   );
 
-  // Downloads are restricted if user is on free tier and NOT in local mode
-  const isRestricted = isFreeTier && !isLocalMode();
+  // Downloads are restricted if user is on free tier and billing is enabled
+  const isRestricted = isFreeTier && isBillingEnabled();
 
   const showUpgradePrompt = useCallback(() => {
     const featureName = options?.featureName || 'files';

@@ -147,7 +147,22 @@ export function LightRays({
     if (!isVisible || !containerRef.current) return;
 
     const container = containerRef.current;
-    const renderer = new Renderer({ dpr: Math.min(window.devicePixelRatio, 2), alpha: true });
+
+    // Guard: check if WebGL is available before attempting to create the renderer
+    const testCanvas = document.createElement('canvas');
+    const testCtx = testCanvas.getContext('webgl') || testCanvas.getContext('experimental-webgl');
+    if (!testCtx) {
+      // WebGL not available (e.g. headless browser) — skip rendering silently
+      return;
+    }
+
+    let renderer: Renderer;
+    try {
+      renderer = new Renderer({ dpr: Math.min(window.devicePixelRatio, 2), alpha: true });
+    } catch {
+      // WebGL context creation failed — skip rendering silently
+      return;
+    }
     const gl = renderer.gl;
     gl.canvas.style.width = '100%';
     gl.canvas.style.height = '100%';

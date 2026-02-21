@@ -243,12 +243,16 @@ export async function signInWithPassword(prevState: any, formData: FormData) {
   const isNewUser = data.user && (Date.now() - new Date(data.user.created_at).getTime()) < 60000;
   const authEvent = isNewUser ? 'signup' : 'login';
   
-  // Return success - client will handle redirect with auth tracking params
+  // Return success — let the client redirect after auth state hydrates.
   const finalReturnUrl = returnUrl || '/dashboard';
   const redirectUrl = new URL(finalReturnUrl, 'http://localhost');
   redirectUrl.searchParams.set('auth_event', authEvent);
   redirectUrl.searchParams.set('auth_method', 'email');
-  redirect(`${redirectUrl.pathname}${redirectUrl.search}`);
+
+  return {
+    success: true,
+    redirectTo: `${redirectUrl.pathname}${redirectUrl.search}`,
+  };
 }
 
 export async function signUpWithPassword(prevState: any, formData: FormData) {
@@ -290,6 +294,79 @@ export async function signUpWithPassword(prevState: any, formData: FormData) {
   // Return success - client will handle redirect
   const finalReturnUrl = returnUrl || '/dashboard';
   redirect(finalReturnUrl);
+}
+
+/**
+ * Self-hosted installer: create the owner account + immediately sign in.
+ * Only works when email confirmations are disabled (self-hosted Supabase).
+ * After success, redirects to /onboarding.
+ */
+export async function installOwner(prevState: any, formData: FormData) {
+  const email = formData.get('email') as string;
+  const password = formData.get('password') as string;
+  const confirmPassword = formData.get('confirmPassword') as string;
+  const returnUrl = formData.get('returnUrl') as string | undefined;
+
+  if (!email || !email.includes('@')) {
+    return { message: 'Please enter a valid email address' };
+  }
+
+  if (!password || password.length < 6) {
+    return { message: 'Password must be at least 6 characters' };
+  }
+
+  if (password !== confirmPassword) {
+    return { message: 'Passwords do not match' };
+  }
+
+  const supabase = await createClient();
+
+  // Sign up (auto-confirmed when enable_confirmations = false)
+  const { error: signUpError } = await supabase.auth.signUp({
+    email: email.trim().toLowerCase(),
+    password,
+  });
+
+  if (signUpError) {
+    return { message: signUpError.message || 'Could not create account' };
+  }
+
+  // Immediately sign in to ensure session cookies are set
+  const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+    email: email.trim().toLowerCase(),
+    password,
+  });
+
+  if (signInError) {
+    return { message: signInError.message || 'Account created but could not sign in' };
+  }
+
+  // Wizard step: provision the sandbox for the owner.
+  // This is the self-hosted "install" — the first user gets a sandbox automatically.
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
+  const accessToken = signInData.session?.access_token;
+  if (accessToken) {
+    try {
+      await fetch(`${backendUrl}/platform/init`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      });
+    } catch (err) {
+      // Non-fatal — sandbox can be created later from the dashboard.
+      console.warn('[installOwner] Failed to provision sandbox:', err);
+    }
+  }
+
+  // Return success — let the client redirect after auth state hydrates.
+  // Using redirect() here causes a 303 that races with AuthProvider hydration.
+  return {
+    success: true,
+    redirectTo: returnUrl || '/onboarding',
+  };
 }
 
 export async function signOut() {

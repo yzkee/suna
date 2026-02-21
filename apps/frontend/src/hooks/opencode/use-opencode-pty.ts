@@ -3,7 +3,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getClient } from '@/lib/opencode-sdk';
 import { getActiveOpenCodeUrl } from '@/stores/server-store';
-import { getSandboxToken } from '@/stores/sandbox-auth-store';
 import type { Pty } from '@kortix/opencode-sdk/v2/client';
 
 export type { Pty };
@@ -117,8 +116,5 @@ export function useUpdatePty() {
 export function getPtyWebSocketUrl(ptyId: string, serverUrl?: string): string {
   const baseUrl = serverUrl || getActiveOpenCodeUrl();
   const wsUrl = baseUrl.replace('https://', 'wss://').replace('http://', 'ws://');
-  // Append sandbox token as query param (WebSocket can't set custom headers)
-  const sandboxToken = getSandboxToken();
-  const tokenParam = sandboxToken ? `?token=${encodeURIComponent(sandboxToken)}` : '';
-  return `${wsUrl}/pty/${ptyId}/connect${tokenParam}`;
+  return `${wsUrl}/pty/${ptyId}/connect`;
 }

@@ -1,30 +1,27 @@
 import { Hono } from 'hono';
 import { config } from '../config';
-import { sandboxTokenAuth, supabaseAuthWithQueryParam } from '../middleware/auth';
+import { previewProxyAuth } from '../middleware/auth';
 import { preview } from './routes/preview';
 import { localPreview } from './routes/local-preview';
 
 const daytonaProxyApp = new Hono();
 
-// Auth middleware for preview proxy:
-//   - Local/VPS mode (config.isLocal()) → validate SANDBOX_AUTH_TOKEN if configured, else passthrough
-//   - Cloud mode → validate Supabase JWT
-daytonaProxyApp.use('/:sandboxId/:port/*', async (c, next) => {
-  if (config.isLocal()) return sandboxTokenAuth(c, next);
-  return supabaseAuthWithQueryParam(c, next);
-});
-daytonaProxyApp.use('/:sandboxId/:port', async (c, next) => {
-  if (config.isLocal()) return sandboxTokenAuth(c, next);
-  return supabaseAuthWithQueryParam(c, next);
-});
+// Unified auth: accepts Supabase JWT and sbt_ sandbox tokens.
+// No more mode-split — works for cloud, local, and VPS alike.
+daytonaProxyApp.use('/:sandboxId/:port/*', previewProxyAuth);
+daytonaProxyApp.use('/:sandboxId/:port', previewProxyAuth);
 
-// Mount handler based on mode — only one is active per deployment.
-// Local mode: proxy directly to sandbox containers via Docker DNS.
-// Cloud mode: proxy through Daytona SDK.
-if (config.isLocal()) {
-  daytonaProxyApp.route('/', localPreview);
-} else {
+// Mount handler based on whether the provider supports Daytona.
+// local_docker: proxy directly to sandbox containers via Docker DNS.
+// daytona: proxy through Daytona SDK preview links.
+//
+// When ALLOWED_SANDBOX_PROVIDERS includes daytona, use the Daytona proxy
+// (which also handles ownership verification via the DB).
+// Otherwise use the local Docker proxy (direct container DNS).
+if (config.isDaytonaEnabled()) {
   daytonaProxyApp.route('/', preview);
+} else {
+  daytonaProxyApp.route('/', localPreview);
 }
 
 export { daytonaProxyApp };

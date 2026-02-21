@@ -1,9 +1,3 @@
-// Environment mode types — only two modes: local (Docker) and cloud (hosted)
-export enum EnvMode {
-  LOCAL = 'local',
-  CLOUD = 'cloud',
-}
-
 // Subscription tier structure - tier keys only, no price IDs
 export interface SubscriptionTierData {
   tierKey: string;  // Backend tier key like 'free', 'tier_2_20', etc.
@@ -24,10 +18,9 @@ export interface SubscriptionTiers {
 
 // Configuration object
 interface Config {
-  ENV_MODE: EnvMode;
-  IS_LOCAL: boolean;
-  IS_CLOUD: boolean;
   SUBSCRIPTION_TIERS: SubscriptionTiers;
+  /** Whether billing/payments are enabled (Stripe, credit tracking, etc.) */
+  BILLING_ENABLED: boolean;
 }
 
 // Tier keys - single source, no environment-specific price IDs
@@ -66,30 +59,27 @@ const TIERS: SubscriptionTiers = {
   },
 } as const;
 
-function getEnvironmentMode(): EnvMode {
-  const envMode = process.env.NEXT_PUBLIC_ENV_MODE?.toLowerCase();
-  if (envMode === 'local') {
-    return EnvMode.LOCAL;
-  }
-  // Everything else (cloud, production, staging, or unset) is cloud
-  return EnvMode.CLOUD;
-}
-
-const currentEnvMode = getEnvironmentMode();
-
 export const config: Config = {
-  ENV_MODE: currentEnvMode,
-  IS_LOCAL: currentEnvMode === EnvMode.LOCAL,
-  IS_CLOUD: currentEnvMode === EnvMode.CLOUD,
   SUBSCRIPTION_TIERS: TIERS,
+  BILLING_ENABLED: process.env.NEXT_PUBLIC_BILLING_ENABLED === 'true',
 };
 
-export const isLocalMode = (): boolean => {
-  return config.IS_LOCAL;
+/**
+ * Whether billing (Stripe, credit tracking, download restrictions) is enabled.
+ * Self-hosted deployments set NEXT_PUBLIC_BILLING_ENABLED=false (or omit it)
+ * to disable all billing UI and restrictions. Defaults to false.
+ */
+export const isBillingEnabled = (): boolean => {
+  return config.BILLING_ENABLED;
 };
 
-export const isCloudMode = (): boolean => {
-  return config.IS_CLOUD;
+/**
+ * Whether this is a self-hosted deployment.
+ * Derived from billing: if billing is disabled, it's self-hosted.
+ * Self-hosted mode uses email+password auth (no magic links, no OAuth).
+ * The first user to sign up becomes the owner.
+ */
+export const isSelfHosted = (): boolean => {
+  return !config.BILLING_ENABLED;
 };
-
 

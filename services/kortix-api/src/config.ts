@@ -1,11 +1,37 @@
-export type SandboxProviderType = 'daytona' | 'local_docker' | 'auto';
+export type SandboxProviderName = 'daytona' | 'local_docker';
+
+/** Parse comma-separated provider list (e.g. "daytona,local_docker") */
+function parseAllowedProviders(raw: string): SandboxProviderName[] {
+  if (!raw) return ['local_docker'];
+  const names = raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const valid: SandboxProviderName[] = [];
+  for (const n of names) {
+    if (n === 'daytona' || n === 'local_docker') {
+      if (!valid.includes(n)) valid.push(n);
+    } else {
+      console.warn(`[config] Unknown sandbox provider "${n}" in ALLOWED_SANDBOX_PROVIDERS — ignored`);
+    }
+  }
+  return valid.length > 0 ? valid : ['local_docker'];
+}
+
+export type InternalKortixEnv = 'dev' | 'staging' | 'prod';
 
 export const config = {
   PORT: parseInt(process.env.PORT || '8008', 10),
   // local | cloud — matches frontend's EnvMode
   ENV_MODE: process.env.ENV_MODE || 'local',
-  // staging | production — controls which Stripe price IDs to use (cloud only)
-  STRIPE_ENV: (process.env.STRIPE_ENV || 'production') as 'staging' | 'production',
+
+  // ─── Internal Deployment Controls ─────────────────────────────────────────
+  // dev | staging | prod — controls Stripe price IDs, analytics, log levels.
+  // Does NOT affect auth or routing. Replaces the old STRIPE_ENV.
+  INTERNAL_KORTIX_ENV: (process.env.INTERNAL_KORTIX_ENV || 'dev') as InternalKortixEnv,
+  // Enables Kortix Cloud internal router features (model routing, usage tracking, cost allocation).
+  // Default false — safe for self-hosted.
+  KORTIX_ROUTER_INTERNAL_ENABLED: process.env.KORTIX_ROUTER_INTERNAL_ENABLED === 'true',
+  // Enables billing features (Stripe integration, credit system, usage metering).
+  // Default false — safe for self-hosted.
+  KORTIX_BILLING_INTERNAL_ENABLED: process.env.KORTIX_BILLING_INTERNAL_ENABLED === 'true',
 
   // ─── Database ──────────────────────────────────────────────────────────────
   DATABASE_URL: process.env.DATABASE_URL || '',
@@ -76,7 +102,12 @@ export const config = {
 
   // ─── Sandbox Provisioning (Platform) ──────────────────────────────────────
   KORTIX_URL: process.env.KORTIX_URL || '',
-  SANDBOX_PROVIDER: (process.env.SANDBOX_PROVIDER || 'auto') as SandboxProviderType,
+  /**
+   * Comma-separated list of allowed sandbox providers.
+   * e.g. "daytona,local_docker" or just "local_docker"
+   * First entry is the default provider for new sandboxes.
+   */
+  ALLOWED_SANDBOX_PROVIDERS: parseAllowedProviders(process.env.ALLOWED_SANDBOX_PROVIDERS || ''),
   SANDBOX_IMAGE: process.env.SANDBOX_IMAGE || 'kortix/computer:latest',
   DOCKER_HOST: process.env.DOCKER_HOST || '',
   SANDBOX_NETWORK: process.env.SANDBOX_NETWORK || '',
@@ -85,14 +116,6 @@ export const config = {
    * The sandbox uses 7 contiguous ports starting at this base.
    */
   SANDBOX_PORT_BASE: parseInt(process.env.SANDBOX_PORT_BASE || '14000', 10),
-
-  /**
-   * Optional bearer token to protect sandbox proxy access in local/VPS mode.
-   * If set, all requests through /v1/preview/{sandboxId}/* must present this token
-   * via Authorization header or ?token= query param.
-   * If unset, sandbox proxy is open (backward compatible).
-   */
-  SANDBOX_AUTH_TOKEN: process.env.SANDBOX_AUTH_TOKEN || '',
 
   /**
    * Internal service key for kortix-api → sandbox communication.
@@ -140,21 +163,18 @@ export const config = {
   },
 
   isDaytonaEnabled(): boolean {
-    if (this.SANDBOX_PROVIDER === 'daytona') return true;
-    if (this.SANDBOX_PROVIDER === 'local_docker') return false;
-    return !!this.DAYTONA_API_KEY;
+    return this.ALLOWED_SANDBOX_PROVIDERS.includes('daytona') && !!this.DAYTONA_API_KEY;
   },
 
   isLocalDockerEnabled(): boolean {
-    if (this.SANDBOX_PROVIDER === 'local_docker') return true;
-    if (this.SANDBOX_PROVIDER === 'daytona') return false;
-    return true;
+    return this.ALLOWED_SANDBOX_PROVIDERS.includes('local_docker');
   },
 
-  /** True when a sandbox auth token is configured (local/VPS protection enabled). */
-  hasSandboxAuth(): boolean {
-    return !!this.SANDBOX_AUTH_TOKEN;
+  /** The first provider in ALLOWED_SANDBOX_PROVIDERS is the default. */
+  getDefaultProvider(): SandboxProviderName {
+    return this.ALLOWED_SANDBOX_PROVIDERS[0] ?? 'local_docker';
   },
+
 };
 
 // ─── Tool Pricing (Router) ──────────────────────────────────────────────────

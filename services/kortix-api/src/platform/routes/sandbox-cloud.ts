@@ -1,8 +1,7 @@
 /**
- * Cloud-mode sandbox router.
+ * Sandbox router (DB-backed).
  *
- * DB-backed sandbox lifecycle. Mounted at /v1/platform/sandbox in cloud mode.
- * Same route shape as sandbox-local.ts so the frontend has ONE interface.
+ * DB-backed sandbox lifecycle. Mounted at /v1/platform/sandbox.
  *
  * Routes:
  *   GET    /          → Get the user's active sandbox (or 404)

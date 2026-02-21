@@ -1,0 +1,67 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  Supabase Local Development Configuration                                  ║
+# ║                                                                             ║
+# ║  Used by `supabase start` to spin up the local Supabase stack.             ║
+# ║  pg_cron and pg_net are built into Supabase's local postgres image —       ║
+# ║  no custom compilation needed (replaces services/postgres/Dockerfile).     ║
+# ║                                                                             ║
+# ║  Usage:                                                                     ║
+# ║    supabase start          (first time — pulls images, ~2 min)             ║
+# ║    supabase status         (show URLs, keys, ports)                        ║
+# ║    supabase db reset       (re-run migrations from scratch)                ║
+# ║    supabase stop           (stop all containers)                           ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+project_id = "kortix-local"
+
+# ─── API (PostgREST) ─────────────────────────────────────────────────────────
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "kortix"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+# ─── Database ─────────────────────────────────────────────────────────────────
+[db]
+port = 54322
+major_version = 17
+
+[db.pooler]
+enabled = false
+
+# ─── Auth (GoTrue) ────────────────────────────────────────────────────────────
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+enable_confirmations = false
+
+# ─── Realtime ─────────────────────────────────────────────────────────────────
+[realtime]
+enabled = false
+
+# ─── Storage ──────────────────────────────────────────────────────────────────
+[storage]
+enabled = false
+
+# ─── Edge Functions ───────────────────────────────────────────────────────────
+[edge_runtime]
+enabled = false
+
+# ─── Studio (Dashboard UI) ───────────────────────────────────────────────────
+[studio]
+enabled = true
+port = 54323
+
+# ─── Inbucket (Email testing) ────────────────────────────────────────────────
+[inbucket]
+enabled = true
+port = 54324
+
+# ─── Analytics ────────────────────────────────────────────────────────────────
+[analytics]
+enabled = false

@@ -29,9 +29,7 @@ async function cronFetch(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  // Only add auth if a token is available.
-  // Local mode: API bypasses auth, so no token needed.
-  // Self-hosted: user's sak_xxx key is set as KORTIX_TOKEN.
+  // Auth is always required — sbt_ sandbox token or Supabase JWT.
   const token = getToken();
   if (token) {
     headers.Authorization = `Bearer ${token}`;

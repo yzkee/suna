@@ -12,7 +12,7 @@
     "general": { "disable": true }
     // compaction, title, summary are hidden infra agents -- leave them
   },
-  // "model": "anthropic/claude-sonnet-4-20250514",
+  "model": "anthropic/claude-sonnet-4-20250514",
   "provider": {
     "kortix": {
       "npm": "@ai-sdk/openai-compatible",

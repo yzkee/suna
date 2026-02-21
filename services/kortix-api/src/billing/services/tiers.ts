@@ -191,7 +191,7 @@ const STRIPE_PRICES_STAGING: StripePriceConfig = {
 };
 
 function getStripePrices(): StripePriceConfig {
-  return config.STRIPE_ENV === 'staging' ? STRIPE_PRICES_STAGING : STRIPE_PRICES_PROD;
+  return config.INTERNAL_KORTIX_ENV === 'staging' ? STRIPE_PRICES_STAGING : STRIPE_PRICES_PROD;
 }
 
 export function getProductId(): string {

@@ -340,7 +340,7 @@ providersApp.put('/:id/connect', async (c) => {
     }
   }
 
-  const rootData: Record<string, string> = { ...clean, ENV_MODE: 'local', SANDBOX_PROVIDER: 'local_docker' };
+  const rootData: Record<string, string> = { ...clean, ENV_MODE: 'local', ALLOWED_SANDBOX_PROVIDERS: 'local_docker' };
   writeEnvFile(rootEnvPath, rootData);
 
   // Also write to sandbox/.env for keys that should be in the sandbox

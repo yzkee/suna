@@ -238,15 +238,17 @@ export const supabaseMFAService = {
    * Get Authenticator Assurance Level
    */
   async getAAL(): Promise<AALResponse> {
-    // In local mode there is no real Supabase session, so MFA calls will
-    // fail with "Auth session missing!". Return a safe default instead.
-    if (process.env.NEXT_PUBLIC_ENV_MODE?.toLowerCase() === 'local') {
+    const supabase = createClient();
+
+    // If no active Supabase session (e.g. pre-login), return safe defaults.
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
       return {
         current_level: 'aal1',
         next_level: 'aal1',
         current_authentication_methods: [],
         action_required: 'none',
-        message: 'Local mode — MFA not applicable',
+        message: 'No active session — MFA not applicable',
         phone_verification_required: false,
         user_created_at: undefined,
         cutoff_date: PHONE_VERIFICATION_CUTOFF_DATE.toISOString(),
@@ -255,8 +257,6 @@ export const supabaseMFAService = {
         factors: [],
       };
     }
-
-    const supabase = createClient();
     
     try {
       const aalResponse = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();

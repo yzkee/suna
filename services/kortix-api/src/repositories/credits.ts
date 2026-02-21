@@ -60,15 +60,15 @@ export async function getCreditBalance(accountId: string): Promise<CreditBalance
 
 /**
  * Check if account has sufficient credits.
- * In local mode, credits are unlimited — always returns true.
+ * When billing is disabled (self-hosted), credits are unlimited — always returns true.
  */
 export async function checkCredits(
   accountId: string,
   minimumRequired: number = 0.01
 ): Promise<CreditCheckResult> {
-  // Local mode: unlimited credits (no billing)
-  if (config.isLocal()) {
-    return { hasCredits: true, balance: 999999, message: 'OK (local mode — unlimited)' };
+  // Billing disabled: unlimited credits
+  if (!config.KORTIX_BILLING_INTERNAL_ENABLED) {
+    return { hasCredits: true, balance: 999999, message: 'OK (billing disabled — unlimited)' };
   }
 
   const balance = await getCreditBalance(accountId);
@@ -99,15 +99,15 @@ export async function checkCredits(
 /**
  * Deduct credits atomically using database function.
  * Uses existing atomic_use_credits PostgreSQL function.
- * In local mode, always succeeds (no billing).
+ * When billing is disabled (self-hosted), always succeeds.
  */
 export async function deductCredits(
   accountId: string,
   amount: number,
   description: string,
 ): Promise<CreditDeductResult> {
-  // Local mode: no billing — always succeed
-  if (config.isLocal()) {
+  // Billing disabled: no deduction
+  if (!config.KORTIX_BILLING_INTERNAL_ENABLED) {
     return { success: true, amountDeducted: 0, newBalance: 999999 };
   }
 

@@ -19,6 +19,7 @@ build/
 .env.local
 .env*.local
 .env.production
+.env.prod
 .env.development
 .env.scripts
 .env.docker

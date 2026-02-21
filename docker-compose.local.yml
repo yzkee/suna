@@ -1,55 +1,32 @@
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║  Kortix Local — All-in-One Docker Compose                                 ║
+# ║  Kortix Local — Docker Compose                                             ║
 # ║                                                                            ║
-# ║  Starts all 4 services needed for local development:                       ║
-# ║    1. postgres   — PostgreSQL + pg_cron + pg_net  (localhost:54322)         ║
-# ║    2. frontend   — Next.js dashboard              (http://localhost:3000)   ║
-# ║    3. kortix-api — Backend API (Bun/Hono)         (http://localhost:8008)   ║
-# ║    4. sandbox    — AI agent environment (proxied via kortix-api)            ║
+# ║  Starts 3 services for local development:                                  ║
+# ║    1. frontend   — Next.js dashboard              (http://localhost:3000)   ║
+# ║    2. kortix-api — Backend API (Bun/Hono)         (http://localhost:8008)   ║
+# ║    3. sandbox    — AI agent environment (proxied via kortix-api)            ║
+# ║                                                                            ║
+# ║  Prerequisites:                                                            ║
+# ║    1. supabase start        (starts local Supabase — DB, Auth, etc.)       ║
+# ║    2. cp .env.example .env  (fill in at least one LLM API key)             ║
+# ║       Run `supabase status` and copy DB URL, API URL, keys into .env       ║
+# ║    3. cp sandbox/.env.example sandbox/.env  (fill in API keys)             ║
+# ║    4. ./scripts/setup-env.sh  (generates per-service .env files)           ║
+# ║                                                                            ║
+# ║  Database:                                                                 ║
+# ║    PostgreSQL is managed by Supabase CLI (`supabase start`).               ║
+# ║    It runs on localhost:54322 with pg_cron + pg_net built in.              ║
+# ║    Data is persisted in Supabase's Docker volumes.                         ║
+# ║    To reset: supabase db reset                                             ║
 # ║                                                                            ║
 # ║  Usage:                                                                    ║
 # ║    docker compose -f docker-compose.local.yml up                           ║
 # ║    docker compose -f docker-compose.local.yml up -d        (background)    ║
 # ║    docker compose -f docker-compose.local.yml down                         ║
 # ║    docker compose -f docker-compose.local.yml logs -f      (tail logs)     ║
-# ║                                                                            ║
-# ║  Prerequisites:                                                            ║
-# ║    1. cp .env.example .env   (fill in at least one LLM API key)            ║
-# ║    2. cp sandbox/.env.example sandbox/.env  (fill in API keys)             ║
-# ║    3. ./scripts/setup-env.sh  (generates per-service .env files)           ║
-# ║                                                                            ║
-# ║  Database:                                                                 ║
-# ║    PostgreSQL runs on localhost:54322 with pg_cron and pg_net extensions.   ║
-# ║    Data is persisted in the 'postgres-data' Docker volume.                 ║
-# ║    To reset: docker compose -f docker-compose.local.yml down -v            ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 services:
-  # ─── PostgreSQL (Local Database) ────────────────────────────────────────────
-  postgres:
-    build:
-      context: services/postgres
-      dockerfile: Dockerfile
-    ports:
-      - "54322:5432"    # Host port 54322 matches .env.example convention
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=postgres
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    command: >
-      postgres
-      -c shared_preload_libraries=pg_cron,pg_net
-      -c cron.database_name=postgres
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
-    restart: unless-stopped
-
   # ─── Frontend (Next.js Dashboard) ──────────────────────────────────────────
   frontend:
     build:
@@ -87,22 +64,29 @@ services:
     user: "0:0"
     ports:
       - "8008:8008"
+    extra_hosts:
+      # Ensures host.docker.internal resolves on Linux (already works on macOS/Windows)
+      - "host.docker.internal:host-gateway"
     environment:
       - ENV_MODE=local
       - PORT=8008
-      - SANDBOX_PROVIDER=local_docker
-      # Docker socket lets the API detect/manage the sandbox container
+      - ALLOWED_SANDBOX_PROVIDERS=local_docker
+      # Docker socket lets the API detect/manage sandbox containers
       - DOCKER_HOST=unix:///var/run/docker.sock
       # OrbStack on macOS: set DOCKER_SOCKET to ~/.orbstack/run/docker.sock
       # The API tells sandboxes to call back via the Docker network
       - KORTIX_URL=http://kortix-api:8008/v1/router
-      # Network to place the sandbox container on (must match this compose project's network)
+      # Network to place sandbox containers on (must match this compose project's network)
       - SANDBOX_NETWORK=computer_default
       # Optional: sandbox auth token (set in .env to protect sandbox access)
       - SANDBOX_AUTH_TOKEN=${SANDBOX_AUTH_TOKEN:-}
       - INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY:-}
-      # ─── Database (connects to the postgres service) ───────────────────
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/postgres
+      # ─── Database (connects to Supabase local DB via host) ─────────────
+      - DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:54322/postgres
+      # ─── Supabase (local instance via host) ────────────────────────────
+      - SUPABASE_URL=http://host.docker.internal:54321
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
+      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long}
       # ─── Integrations (Pipedream Connect — optional) ─────────────────
       - PIPEDREAM_CLIENT_ID=${PIPEDREAM_CLIENT_ID:-}
       - PIPEDREAM_CLIENT_SECRET=${PIPEDREAM_CLIENT_SECRET:-}
@@ -116,13 +100,10 @@ services:
       - path: services/kortix-api/.env
         required: false
     volumes:
-      # Mount Docker socket so the API can detect the sandbox container
+      # Mount Docker socket so the API can detect sandbox containers
       # Default: /var/run/docker.sock (Docker Desktop)
       # OrbStack: set DOCKER_SOCKET=~/.orbstack/run/docker.sock
       - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
-    depends_on:
-      postgres:
-        condition: service_healthy
     restart: unless-stopped
 
   # ─── Sandbox (AI Agent Environment) ────────────────────────────────────────
@@ -183,6 +164,5 @@ services:
       start_period: 30s
 
 volumes:
-  postgres-data:
   sandbox-workspace:
   sandbox-secrets:

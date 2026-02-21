@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { handleApiError } from '@/lib/error-handler';
-import { isLocalMode } from '@/lib/config';
+
 import { isBillingError } from '@/lib/api/errors';
 
 export function ReactQueryProvider({ children }: { children: React.ReactNode }) {
@@ -59,7 +59,7 @@ export function ReactQueryProvider({ children }: { children: React.ReactNode }) 
   return (
     <QueryClientProvider client={queryClient}>
       {children}
-      {isLocalMode() && <ReactQueryDevtools initialIsOpen={false} />}
+      {process.env.NODE_ENV === 'development' && <ReactQueryDevtools initialIsOpen={false} />}
     </QueryClientProvider>
   );
 }

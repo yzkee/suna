@@ -3,16 +3,15 @@
 import React, { useRef, useCallback, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import { ArrowLeft } from 'lucide-react';
+
 import { useTheme } from 'next-themes';
 
 import { useAuth } from '@/components/AuthProvider';
-import { isLocalMode } from '@/lib/config';
+
 import { LightRays } from '@/components/ui/light-rays';
 import { useCreateOpenCodeSession, useExecuteOpenCodeCommand } from '@/hooks/opencode/use-opencode-sessions';
 import { openTabAndNavigate } from '@/stores/tab-store';
 import { useServerStore } from '@/stores/server-store';
-import { SecretsManager } from '@/components/secrets/secrets-manager';
 import { SessionChat } from '@/components/session/session-chat';
 import { Button } from '@/components/ui/button';
 import { WallpaperBackground } from '@/components/ui/wallpaper-background';
@@ -45,7 +44,7 @@ interface SetupOverlayProps {
   existingSessionId?: string | null;
 }
 
-type BootPhase = 'power' | 'bios' | 'logo' | 'login' | 'credentials' | 'onboarding';
+type BootPhase = 'power' | 'bios' | 'logo' | 'login' | 'onboarding';
 
 /* ─── Helpers ────────────────────────────────────────────────── */
 
@@ -290,7 +289,7 @@ export function SetupOverlay({ onComplete, existingSessionId }: SetupOverlayProp
 
   // ── Phase routing helper ──────────────────────────────────────
 
-  const nextAfterLogin = isLocalMode() ? 'credentials' : 'onboarding';
+  const nextAfterLogin = 'onboarding';
 
   // ── Render ────────────────────────────────────────────────────
 
@@ -455,41 +454,6 @@ export function SetupOverlay({ onComplete, existingSessionId }: SetupOverlayProp
         )}
         {phase === 'login' && <LoginKeyListener onEnter={() => setPhase(nextAfterLogin)} />}
 
-        {/* ═══ CREDENTIALS (local mode only) ═══ */}
-        {phase === 'credentials' && (
-          <motion.div
-            key="credentials"
-            className="absolute inset-0 z-10 flex items-center justify-center"
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
-          >
-            <WallpaperBackground />
-            <div className="relative z-10 w-full max-w-2xl mx-auto bg-background/95 backdrop-blur-xl rounded-xl border border-border/40 overflow-hidden flex flex-col max-h-[85vh]">
-              <div className="flex items-center gap-3 px-5 py-4 border-b border-border/40">
-                <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0" onClick={() => setPhase('login')}>
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
-                <div>
-                  <h2 className="text-sm font-semibold">Configure your secrets</h2>
-                  <p className="text-[11px] text-muted-foreground">
-                    Set up API keys so your Kortix agent can function. You can change these anytime in Settings.
-                  </p>
-                </div>
-              </div>
-              <div className="flex-1 min-h-0 overflow-y-auto">
-                <SecretsManager />
-              </div>
-              <div className="flex-shrink-0 border-t border-border/40 px-5 py-4">
-                <Button onClick={() => setPhase('onboarding')} className="w-full">
-                  Continue
-                </Button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-
         {/* ═══ ONBOARDING — embedded chat session ═══ */}
         {phase === 'onboarding' && (
           <motion.div
@@ -539,7 +503,7 @@ export function SetupOverlay({ onComplete, existingSessionId }: SetupOverlayProp
       </AnimatePresence>
 
       {/* Sign out (cloud only) */}
-      {(phase === 'login' || phase === 'credentials' || phase === 'onboarding') && !isLocalMode() && (
+      {(phase === 'login' || phase === 'onboarding') && (
         <button
           onClick={() => signOut()}
           className="absolute bottom-4 left-4 z-30 px-3 py-1 text-[10px] text-foreground/20 hover:text-foreground/40 transition-colors"

@@ -59,7 +59,7 @@ echo ""
 write_env "services/kortix-api/.env" \
   "PORT=8008" \
   "$(kv ENV_MODE local)" \
-  "$(kv STRIPE_ENV production)" \
+  "$(kv INTERNAL_KORTIX_ENV dev)" \
   "" \
   "$(kv DATABASE_URL)" \
   "" \
@@ -81,7 +81,7 @@ write_env "services/kortix-api/.env" \
   "$(kv DAYTONA_SNAPSHOT)" \
   "" \
   "KORTIX_URL=http://localhost:8008/v1/router" \
-  "$(kv SANDBOX_PROVIDER auto)" \
+  "$(kv ALLOWED_SANDBOX_PROVIDERS local_docker)" \
   "$(kv SANDBOX_IMAGE kortix/computer:latest)" \
   "" \
   "$(kv OPENROUTER_API_KEY)" \
@@ -103,7 +103,7 @@ write_env "services/kortix-api/.env" \
   "$(kv CHANNELS_ENABLED true)"
 
 write_env "apps/frontend/.env" \
-  "$(kv NEXT_PUBLIC_ENV_MODE "$(e ENV_MODE local)")" \
+  "$(kv NEXT_PUBLIC_BILLING_ENABLED false)" \
   "" \
   "$(kv NEXT_PUBLIC_SUPABASE_URL "$(e SUPABASE_URL)")" \
   "$(kv NEXT_PUBLIC_SUPABASE_ANON_KEY "$(e SUPABASE_ANON_KEY)")" \

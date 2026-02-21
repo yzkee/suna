@@ -1,28 +1,22 @@
 /**
  * Shared account resolution: userId → accountId.
  *
- * In cloud mode, the basejump.account_user table maps Supabase users to
- * their team/personal account.  In **local / self-hosted** mode the basejump
- * schema does not exist, so we short-circuit and treat userId as accountId
- * (they're always the same fixed UUID).
+ * Queries `basejump.account_user` to find the account that owns the given user.
+ * If the basejump schema doesn't exist (fresh self-hosted DB without Supabase's
+ * basejump extension), gracefully falls back to treating userId as accountId.
  */
 
 import { eq } from 'drizzle-orm';
 import { accountUser } from '@kortix/db';
 import { db } from './db';
-import { config } from '../config';
 
 /**
  * Resolve the account ID for a given user.
  *
- * - **Local mode**: returns `userId` directly (no basejump schema).
- * - **Cloud mode**: queries `basejump.account_user`; falls back to `userId`
- *   if no membership row is found.
+ * Queries `basejump.account_user`; falls back to `userId` if no membership
+ * row is found or if the basejump schema doesn't exist.
  */
 export async function resolveAccountId(userId: string): Promise<string> {
-  // Local / self-hosted: basejump schema doesn't exist — skip the query.
-  if (config.isLocal()) return userId;
-
   try {
     const [membership] = await db
       .select({ accountId: accountUser.accountId })

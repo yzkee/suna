@@ -22,7 +22,6 @@
 
 import { Hono } from 'hono';
 import { config } from '../../config';
-import { sandboxAuthStore } from '../../platform/sandbox-auth-store';
 
 const KORTIX_MASTER_PORT = 8000;
 const FETCH_TIMEOUT_MS = 30_000;
@@ -87,11 +86,10 @@ localPreview.all('/:sandboxId/:port/*', async (c) => {
   }
 
   // Inject internal service key for sandbox-side auth (if configured).
-  // The user's SANDBOX_AUTH_TOKEN was already validated by the middleware;
+  // The user's JWT was already validated by the middleware;
   // now we forward the INTERNAL_SERVICE_KEY so the sandbox trusts the proxy.
-  const serviceKey = await sandboxAuthStore.getServiceKey();
-  if (serviceKey) {
-    headers.set('Authorization', `Bearer ${serviceKey}`);
+  if (config.INTERNAL_SERVICE_KEY) {
+    headers.set('Authorization', `Bearer ${config.INTERNAL_SERVICE_KEY}`);
   }
 
   // SSE detection for proper timeout/streaming handling

@@ -14,20 +14,17 @@ import {
   Container,
   Loader2,
   ArrowDownToLine,
-  KeyRound,
-  Copy,
 } from 'lucide-react';
 import { useServerStore, type ServerEntry } from '@/stores/server-store';
-import { useSandboxAuthStore } from '@/stores/sandbox-auth-store';
 import { useTabStore } from '@/stores/tab-store';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { authenticatedFetch } from '@/lib/auth-token';
-import { createSandbox, getSandboxUrl, extractMappedPorts, removeSandbox, regenerateSandboxToken, type SandboxProviderName, type ChangelogEntry } from '@/lib/platform-client';
+import { createSandbox, getSandboxUrl, extractMappedPorts, removeSandbox, type SandboxProviderName, type ChangelogEntry } from '@/lib/platform-client';
 
 import { useSandboxUpdate } from '@/hooks/platform/use-sandbox-update';
-import { isLocalMode, isCloudMode } from '@/lib/config';
+
 import {
   Dialog,
   DialogContent,
@@ -56,7 +53,7 @@ function useConnectionStatus(url: string, enabled: boolean) {
       await authenticatedFetch(`${url}/session`, {
         method: 'GET',
         signal: controller.signal,
-      }, { handleSandboxAuth: false, retryOnAuthError: false });
+      }, { retryOnAuthError: false });
       clearTimeout(timeout);
       setStatus('connected');
 
@@ -64,7 +61,7 @@ function useConnectionStatus(url: string, enabled: boolean) {
       try {
         const hres = await authenticatedFetch(`${url}/kortix/health`, {
           signal: AbortSignal.timeout(3000),
-        }, { handleSandboxAuth: false, retryOnAuthError: false });
+        }, { retryOnAuthError: false });
         if (hres.ok) {
           const data = await hres.json();
           if (data.version && data.version !== '0.0.0') {
@@ -177,9 +174,7 @@ function DialogInstanceRow({
   onSelect,
   onEdit,
   onDelete,
-  onGenerateToken,
   isDeleting,
-  isGeneratingToken,
   sandboxUpdate,
   onVersionDetected,
 }: {
@@ -188,9 +183,7 @@ function DialogInstanceRow({
   onSelect: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
-  onGenerateToken?: () => void;
   isDeleting?: boolean;
-  isGeneratingToken?: boolean;
   sandboxUpdate?: SandboxUpdateInfo;
   onVersionDetected?: (version: string) => void;
 }) {
@@ -250,9 +243,6 @@ function DialogInstanceRow({
             )}>
               {server.provider === 'local_docker' ? 'local' : 'cloud'}
             </span>
-          )}
-          {server.authToken && (
-            <KeyRound className="h-3 w-3 text-amber-500/60 flex-shrink-0" title="Token configured" />
           )}
           {server.isDefault && (
             <span className="px-1.5 py-px text-[9px] font-medium text-muted-foreground/60 bg-muted/50 rounded-full uppercase tracking-wider leading-none flex-shrink-0">
@@ -328,25 +318,9 @@ function DialogInstanceRow({
           {/* Spacer */}
           <div className="flex-1" />
 
-          {/* Key / Edit / Delete — visible on hover */}
+          {/* Edit / Delete — visible on hover */}
           {!confirmDelete && (
             <div className="flex items-center gap-0.5 opacity-0 group-hover/row:opacity-100 transition-opacity">
-              {onGenerateToken && (
-                <button
-                  type="button"
-                  disabled={isGeneratingToken}
-                  className="p-1.5 rounded-lg hover:bg-amber-500/10 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                  onClick={(e) => { e.stopPropagation(); onGenerateToken(); }}
-                  aria-label="Generate access key"
-                  title="Generate access key"
-                >
-                  {isGeneratingToken ? (
-                    <Loader2 className="h-3.5 w-3.5 text-amber-500 animate-spin" />
-                  ) : (
-                    <KeyRound className={cn('h-3.5 w-3.5', server.authToken ? 'text-amber-500' : 'text-muted-foreground')} />
-                  )}
-                </button>
-              )}
               {!server.isDefault && onEdit && (
                 <button
                   type="button"
@@ -405,65 +379,6 @@ function DialogInstanceRow({
 // Generated Key — inline display inside Instance Manager
 // ============================================================================
 
-function GeneratedKeyView({
-  accessKey,
-  onContinue,
-}: {
-  accessKey: string;
-  onContinue: () => void;
-}) {
-  const [copied, setCopied] = React.useState(false);
-
-  const handleCopy = React.useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(accessKey);
-    } catch {
-      const textarea = document.createElement('textarea');
-      textarea.value = accessKey;
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [accessKey]);
-
-  return (
-    <div className="flex flex-col px-5 pb-5 gap-4">
-      {/* Key display */}
-      <div className="flex items-center gap-2 p-3 rounded-lg border border-border bg-muted/30">
-        <code className="flex-1 text-sm font-mono break-all select-all">{accessKey}</code>
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="flex-shrink-0 p-1.5 rounded-md hover:bg-muted transition-colors cursor-pointer"
-          title="Copy to clipboard"
-        >
-          {copied ? (
-            <Check className="w-4 h-4 text-emerald-500" />
-          ) : (
-            <Copy className="w-4 h-4 text-muted-foreground" />
-          )}
-        </button>
-      </div>
-
-      {/* Info */}
-      <p className="text-xs text-muted-foreground">
-        This key is saved in your browser automatically. If you clear browser data or switch browsers, you&apos;ll need it to reconnect. You can always generate a new one from here.
-      </p>
-
-      {/* Continue */}
-      <button
-        type="button"
-        onClick={onContinue}
-        className="w-full py-2.5 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer"
-      >
-        Continue
-      </button>
-    </div>
-  );
-}
 
 // ============================================================================
 // Instance Manager Dialog
@@ -485,10 +400,6 @@ export function InstanceManagerDialog({
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [isCreatingSandbox, setIsCreatingSandbox] = React.useState(false);
   const [sandboxError, setSandboxError] = React.useState<string | null>(null);
-  /** One-time access key shown after sandbox creation. null = not showing. */
-  const [pendingAccessKey, setPendingAccessKey] = React.useState<string | null>(null);
-  const [isRegenerating, setIsRegenerating] = React.useState(false);
-
   // Track the cloud sandbox's current version (from /kortix/health, fetched by DialogInstanceRow)
   const [sandboxVersion, setSandboxVersion] = React.useState<string | null>(null);
 
@@ -501,14 +412,9 @@ export function InstanceManagerDialog({
   const urlInputRef = React.useRef<HTMLInputElement>(null);
 
   const filtered = React.useMemo(() => {
-    // In cloud mode, hide the hardcoded "Local Sandbox" default entry —
-    // it's only meaningful when running locally with Docker.
-    const base = isCloudMode()
-      ? servers.filter((s) => !(s.id === 'default' && s.provider === 'local_docker'))
-      : servers;
-    if (!search.trim()) return base;
+    if (!search.trim()) return servers;
     const q = search.toLowerCase();
-    return base.filter((s) => s.label.toLowerCase().includes(q) || s.url.toLowerCase().includes(q));
+    return servers.filter((s) => s.label.toLowerCase().includes(q) || s.url.toLowerCase().includes(q));
   }, [servers, search]);
 
   // Reset state when dialog opens
@@ -562,40 +468,6 @@ export function InstanceManagerDialog({
     }
   }
 
-  // ─── Generate Token ─────────────────────────────────────────────────────
-  async function handleGenerateToken() {
-    setIsRegenerating(true);
-    setSandboxError(null);
-
-    // Suppress the SandboxTokenDialog while the container restarts in the
-    // background — health checks may briefly 502 which would otherwise
-    // trigger the "enter your token" prompt.
-    useSandboxAuthStore.getState().setIsGenerating(true);
-
-    try {
-      const { accessKey } = await regenerateSandboxToken();
-
-      // Find the target server and persist via the centralized action
-      const server = servers.find((s) => s.provider === 'local_docker');
-      const store = useServerStore.getState();
-      store.persistToken(server?.id ?? activeServerId, accessKey);
-
-      // Show the key inline in the dialog
-      setPendingAccessKey(accessKey);
-
-      // The container is recreating in the background (~10-15s).
-      // Keep the dialog suppressed until it's back up.
-      setTimeout(() => {
-        useSandboxAuthStore.getState().setIsGenerating(false);
-      }, 15000);
-    } catch (err: any) {
-      setSandboxError(err?.message || 'Failed to generate token');
-      useSandboxAuthStore.getState().setIsGenerating(false);
-    } finally {
-      setIsRegenerating(false);
-    }
-  }
-
   async function handleCreateSandbox(provider?: SandboxProviderName) {
     setIsCreatingSandbox(true);
     setSandboxError(null);
@@ -613,28 +485,15 @@ export function InstanceManagerDialog({
       const store = useServerStore.getState();
       let serverId: string;
 
-      if (isLocalMode()) {
-        // Local mode: single sandbox — update the default entry.
-        store.updateServerSilent('default', {
-          url,
-          label,
-          provider: sandbox.provider,
-          sandboxId: sandbox.external_id,
-          mappedPorts: extractMappedPorts(sandbox),
-        });
-        serverId = 'default';
-      } else {
-        // Cloud mode: each sandbox gets its own entry.
-        // Deduplicates by sandboxId — won't double-add on refresh.
-        const newServer = store.addSandboxServer({
-          label,
-          url,
-          provider: sandbox.provider,
-          sandboxId: sandbox.external_id,
-          mappedPorts: extractMappedPorts(sandbox),
-        });
-        serverId = newServer.id;
-      }
+      // Add (or deduplicate) by sandboxId — provider-agnostic.
+      const newServer = store.addSandboxServer({
+        label,
+        url,
+        provider: sandbox.provider,
+        sandboxId: sandbox.external_id,
+        mappedPorts: extractMappedPorts(sandbox),
+      });
+      serverId = newServer.id;
 
       // Invalidate sandbox query so useSandbox picks up the latest state.
       queryClient.invalidateQueries({ queryKey: ['platform', 'sandbox'] });
@@ -699,12 +558,7 @@ export function InstanceManagerDialog({
       <DialogContent className="p-0 gap-0 overflow-hidden" aria-describedby="instance-dialog-desc">
         <DialogHeader className="px-5 pt-5 pb-3">
           <DialogTitle className="flex items-center gap-2 text-base">
-            {pendingAccessKey ? (
-              <>
-                <KeyRound className="h-4 w-4 text-emerald-500" />
-                Access Key Generated
-              </>
-            ) : mode === 'list' ? (
+            {mode === 'list' ? (
               <>
                 <Box className="h-4 w-4 text-muted-foreground" />
                 Instances
@@ -712,26 +566,16 @@ export function InstanceManagerDialog({
             ) : mode === 'add' ? 'Add Instance' : 'Edit Instance'}
           </DialogTitle>
           <DialogDescription id="instance-dialog-desc" className="text-xs">
-            {pendingAccessKey
-              ? 'Copy this key — it won\u2019t be shown again.'
-              : mode === 'list'
-                ? 'Manage your Kortix instances. Switch between local and remote servers.'
-                : mode === 'add'
-                  ? 'Connect to a new Kortix instance by entering its address.'
-                  : 'Update the connection details for this instance.'}
+            {mode === 'list'
+              ? 'Manage your Kortix instances. Switch between local and remote servers.'
+              : mode === 'add'
+                ? 'Connect to a new Kortix instance by entering its address.'
+                : 'Update the connection details for this instance.'}
           </DialogDescription>
         </DialogHeader>
 
-        {/* ---- Generated key view ---- */}
-        {pendingAccessKey && (
-          <GeneratedKeyView
-            accessKey={pendingAccessKey}
-            onContinue={() => setPendingAccessKey(null)}
-          />
-        )}
-
         {/* ---- List view ---- */}
-        {mode === 'list' && !pendingAccessKey && (
+        {mode === 'list' && (
           <div className="flex flex-col">
             {/* Search + Add bar */}
             <div className="flex items-center gap-2 px-4 pb-3">
@@ -769,9 +613,7 @@ export function InstanceManagerDialog({
                     onSelect={() => handleSelect(server.id)}
                     onEdit={() => startEdit(server)}
                     onDelete={() => handleRemove(server.id)}
-                    onGenerateToken={server.provider === 'local_docker' ? handleGenerateToken : undefined}
                     isDeleting={isRemovingSandbox}
-                    isGeneratingToken={isRegenerating}
                     sandboxUpdate={server.provider === 'daytona' ? sandboxUpdate : undefined}
                     onVersionDetected={server.provider === 'daytona' ? setSandboxVersion : undefined}
                   />
@@ -784,68 +626,44 @@ export function InstanceManagerDialog({
               {sandboxError && (
                 <p className="text-xs text-destructive mb-2">{sandboxError}</p>
               )}
-              {isLocalMode() ? (
-                /* Local mode: single "Start Local Sandbox" button */
-                <>
+              {/* Provider buttons — backend's ALLOWED_SANDBOX_PROVIDERS controls availability */}
+              <>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleCreateSandbox('daytona')}
+                    disabled={isCreatingSandbox}
+                    className="flex items-center justify-center gap-2 flex-1 h-9 text-sm font-medium text-foreground bg-muted/50 hover:bg-muted/80 border border-border/50 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isCreatingSandbox ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <>
+                        <Cloud className="h-3.5 w-3.5" />
+                        Cloud
+                      </>
+                    )}
+                  </button>
                   <button
                     type="button"
                     onClick={() => handleCreateSandbox('local_docker')}
                     disabled={isCreatingSandbox}
-                    className="flex items-center justify-center gap-2 w-full h-9 text-sm font-medium text-foreground bg-muted/50 hover:bg-muted/80 border border-border/50 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex items-center justify-center gap-2 flex-1 h-9 text-sm font-medium text-foreground bg-muted/50 hover:bg-muted/80 border border-border/50 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isCreatingSandbox ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     ) : (
                       <>
                         <Container className="h-3.5 w-3.5" />
-                        Start Local Sandbox
+                        Local Docker
                       </>
                     )}
                   </button>
-                  <p className="text-[10px] text-muted-foreground/50 mt-1.5 text-center">
-                    Creates or starts the local Docker sandbox on your machine.
-                  </p>
-                </>
-              ) : (
-                /* Cloud mode: Cloud + Local Docker buttons */
-                <>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleCreateSandbox('daytona')}
-                      disabled={isCreatingSandbox}
-                      className="flex items-center justify-center gap-2 flex-1 h-9 text-sm font-medium text-foreground bg-muted/50 hover:bg-muted/80 border border-border/50 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isCreatingSandbox ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <>
-                          <Cloud className="h-3.5 w-3.5" />
-                          Cloud
-                        </>
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleCreateSandbox('local_docker')}
-                      disabled={isCreatingSandbox}
-                      className="flex items-center justify-center gap-2 flex-1 h-9 text-sm font-medium text-foreground bg-muted/50 hover:bg-muted/80 border border-border/50 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isCreatingSandbox ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <>
-                          <Container className="h-3.5 w-3.5" />
-                          Local Docker
-                        </>
-                      )}
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground/50 mt-1.5 text-center">
-                    Cloud uses Daytona. Local Docker runs on your machine.
-                  </p>
-                </>
-              )}
+                </div>
+                <p className="text-[10px] text-muted-foreground/50 mt-1.5 text-center">
+                  Cloud uses Daytona. Local Docker runs on your machine.
+                </p>
+              </>
             </div>
           </div>
         )}
@@ -924,13 +742,7 @@ export function ServerSelector() {
   const router = useRouter();
   const [dialogOpen, setDialogOpen] = React.useState(false);
 
-  // In cloud mode, hide the hardcoded "Local Sandbox" default entry
-  const visibleServers = React.useMemo(() => {
-    if (isCloudMode()) {
-      return servers.filter((s) => !(s.id === 'default' && s.provider === 'local_docker'));
-    }
-    return servers;
-  }, [servers]);
+  const visibleServers = servers;
 
   const handleSelect = (id: string) => {
     if (id === activeServerId) return;

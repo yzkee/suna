@@ -3,11 +3,6 @@ import { HTTPException } from 'hono/http-exception';
 import { validateSecretKey } from '../repositories/api-keys';
 import { validateSandboxToken } from '../repositories/sandboxes';
 import { getSupabase } from '../shared/supabase';
-import { config } from '../config';
-import { timingSafeStringEqual } from '../shared/crypto';
-import { sandboxAuthStore } from '../platform/sandbox-auth-store';
-import { LOCAL_SANDBOX_ID } from '../platform/local-identity';
-import { hasDatabase } from '../shared/db';
 
 /**
  * API key auth (sk_/sbt_ for search, LLM routes).
@@ -15,28 +10,9 @@ import { hasDatabase } from '../shared/db';
  * Auth Flow:
  * - Token "sk_xxx"  = validate against api_keys table via Drizzle, get account_id
  * - Token "sbt_xxx" = validate against kortix.sandboxes table, get account_id
- * - Other tokens    = treat as account_id directly (backward compat / fallback)
+ * - No valid prefix = 401
  */
 export async function apiKeyAuth(c: Context, next: Next) {
-  if (config.isLocal()) {
-    const authHeader = c.req.header('Authorization');
-    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-    if (token?.startsWith('sbt_') && config.DATABASE_URL) {
-      const result = await validateSandboxToken(token);
-      if (result.isValid) {
-        c.set('accountId', result.accountId);
-        c.set('sandboxId', result.sandboxId);
-        await next();
-        return;
-      }
-    }
-
-    c.set('accountId', '00000000-0000-0000-0000-000000000000');
-    c.set('sandboxId', hasDatabase ? LOCAL_SANDBOX_ID : 'local');
-    await next();
-    return;
-  }
-
   const authHeader = c.req.header('Authorization');
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -54,7 +30,7 @@ export async function apiKeyAuth(c: Context, next: Next) {
   }
 
   // API key validation (sk_xxx format)
-  if (token.startsWith('sk_') && config.DATABASE_URL) {
+  if (token.startsWith('sk_')) {
     const result = await validateSecretKey(token);
 
     if (!result.isValid) {
@@ -73,7 +49,7 @@ export async function apiKeyAuth(c: Context, next: Next) {
   }
 
   // Sandbox token validation (sbt_xxx format)
-  if (token.startsWith('sbt_') && config.DATABASE_URL) {
+  if (token.startsWith('sbt_')) {
     const result = await validateSandboxToken(token);
 
     if (!result.isValid) {
@@ -89,33 +65,16 @@ export async function apiKeyAuth(c: Context, next: Next) {
   }
 
   // No valid token format matched — reject
-  if (config.DATABASE_URL) {
-    throw new HTTPException(401, {
-      message: 'Invalid token format. Use sk_ (API key) or sbt_ (sandbox token)',
-    });
-  }
-
-  // Fallback: treat token as account_id directly (only when no DB — local dev)
-  c.set('accountId', token);
-  await next();
+  throw new HTTPException(401, {
+    message: 'Invalid token format. Use sk_ (API key) or sbt_ (sandbox token)',
+  });
 }
 
 /**
  * Supabase JWT auth (for billing, platform, cron routes).
  * Sets userId and userEmail in context on success.
- *
- * In local mode, auth is bypassed and a fixed
- * mock user is injected — matching the frontend's AuthProvider behavior.
  */
 export async function supabaseAuth(c: Context, next: Next) {
-  // Local mode: skip Supabase, inject mock user matching frontend's LOCAL_USER
-  if (config.isLocal()) {
-    c.set('userId', '00000000-0000-0000-0000-000000000000');
-    c.set('userEmail', 'local@localhost');
-    await next();
-    return;
-  }
-
   const authHeader = c.req.header('Authorization');
 
   if (!authHeader?.startsWith('Bearer ')) {
@@ -162,59 +121,7 @@ export async function dualAuth(c: Context, next: Next) {
  * Supabase JWT from header OR query param (for daytona-proxy SSE).
  * EventSource/SSE can't set headers, so we also check ?token=<token>.
  */
-/**
- * Sandbox token auth (for local/VPS sandbox proxy protection).
- *
- * If SANDBOX_AUTH_TOKEN is configured, validates the token from:
- *   1. Authorization: Bearer <token> header
- *   2. ?token=<token> query parameter (for SSE/EventSource which can't set headers)
- *
- * If SANDBOX_AUTH_TOKEN is NOT set, passes through (no auth — backward compatible).
- *
- * Returns 401 with { authType: 'sandbox_token' } so the frontend can distinguish
- * this from Supabase auth failures and show the correct dialog.
- */
-export async function sandboxTokenAuth(c: Context, next: Next) {
-  // Check if sandbox auth is enabled (env var or auto-generated in container)
-  const hasAuth = await sandboxAuthStore.hasAuth();
-  if (!hasAuth) {
-    await next();
-    return;
-  }
-
-  // Extract token from header or query param
-  const authHeader = c.req.header('Authorization');
-  let token: string | undefined;
-
-  if (authHeader?.startsWith('Bearer ')) {
-    token = authHeader.slice(7);
-  }
-
-  if (!token) {
-    token = c.req.query('token') || undefined;
-  }
-
-  if (!token) {
-    return c.json({ error: 'Unauthorized', authType: 'sandbox_token' }, 401);
-  }
-
-  const accessKey = await sandboxAuthStore.getAccessKey();
-  if (!accessKey || !timingSafeStringEqual(token, accessKey)) {
-    return c.json({ error: 'Invalid token', authType: 'sandbox_token' }, 401);
-  }
-
-  await next();
-}
-
 export async function supabaseAuthWithQueryParam(c: Context, next: Next) {
-  // Local mode: skip auth, inject mock user
-  if (config.isLocal()) {
-    c.set('userId', '00000000-0000-0000-0000-000000000000');
-    c.set('userEmail', 'local@localhost');
-    await next();
-    return;
-  }
-
   const authHeader = c.req.header('Authorization');
   let token: string | undefined;
 
@@ -255,4 +162,103 @@ export async function supabaseAuthWithQueryParam(c: Context, next: Next) {
       message: 'Authentication failed',
     });
   }
+}
+
+/**
+ * Combined auth for preview proxy routes.
+ *
+ * Accepts EITHER:
+ *   1. Supabase JWT (from header or ?token= query param) — sets userId
+ *   2. Sandbox token (sbt_xxx) from header or ?token= — sets userId from account lookup
+ *
+ * All requests go through kortix-api which authenticates via Supabase JWT
+ * or sbt_ token. No additional sak_ sandbox lock needed.
+ */
+export async function previewProxyAuth(c: Context, next: Next) {
+  // Skip auth for CORS preflight — OPTIONS never carries auth tokens.
+  if (c.req.method === 'OPTIONS') {
+    await next();
+    return;
+  }
+
+  // Extract token from header or query param
+  const authHeader = c.req.header('Authorization');
+  let token: string | undefined;
+
+  if (authHeader?.startsWith('Bearer ')) {
+    token = authHeader.slice(7);
+  }
+
+  if (!token) {
+    token = c.req.query('token') || undefined;
+  }
+
+  if (!token) {
+    throw new HTTPException(401, { message: 'Missing authentication token' });
+  }
+
+  // 1. Try sandbox token (sbt_xxx) — used by agents inside the sandbox
+  if (token.startsWith('sbt_')) {
+    const result = await validateSandboxToken(token);
+    if (result.isValid) {
+      c.set('userId', result.accountId);
+      c.set('userEmail', '');
+      await next();
+      return;
+    }
+    throw new HTTPException(401, { message: result.error || 'Invalid sandbox token' });
+  }
+
+  // 2. Try Supabase JWT — used by the frontend
+  try {
+    const supabase = getSupabase();
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+
+    if (error || !user) {
+      throw new HTTPException(401, { message: 'Invalid or expired token' });
+    }
+
+    c.set('userId', user.id);
+    c.set('userEmail', user.email || '');
+    await next();
+  } catch (err) {
+    if (err instanceof HTTPException) throw err;
+    console.error('[PREVIEW-AUTH] Error:', err);
+    throw new HTTPException(401, { message: 'Authentication failed' });
+  }
+}
+
+/**
+ * Combined auth for cron/deployment routes.
+ *
+ * Accepts EITHER:
+ *   1. Supabase JWT (from frontend) — sets userId, userEmail
+ *   2. Sandbox token (sbt_xxx from agents) — sets userId from accountId lookup
+ */
+export async function combinedAuth(c: Context, next: Next) {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    throw new HTTPException(401, { message: 'Missing or invalid Authorization header' });
+  }
+
+  const token = authHeader.slice(7);
+  if (!token) {
+    throw new HTTPException(401, { message: 'Missing token' });
+  }
+
+  // Sandbox token (sbt_) — used by agents inside the sandbox
+  if (token.startsWith('sbt_')) {
+    const result = await validateSandboxToken(token);
+    if (!result.isValid) {
+      throw new HTTPException(401, { message: result.error || 'Invalid sandbox token' });
+    }
+    // Map accountId → userId so route handlers work unchanged
+    c.set('userId', result.accountId);
+    c.set('userEmail', '');
+    await next();
+    return;
+  }
+
+  // Otherwise, fall through to Supabase JWT auth
+  await supabaseAuth(c, next);
 }

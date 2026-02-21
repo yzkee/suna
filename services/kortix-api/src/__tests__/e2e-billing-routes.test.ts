@@ -148,13 +148,15 @@ mock.module('../config', () => ({
   config: {
     STRIPE_WEBHOOK_SECRET: 'whsec_test',
     ENV_MODE: 'cloud',
-    STRIPE_ENV: 'staging',
+    INTERNAL_KORTIX_ENV: 'staging',
     DATABASE_URL: '',
     FRONTEND_URL: 'http://localhost:3000',
+    ALLOWED_SANDBOX_PROVIDERS: ['local_docker'],
     isLocal: () => false,
     isCloud: () => true,
     isDaytonaEnabled: () => false,
     isLocalDockerEnabled: () => false,
+    getDefaultProvider: () => 'local_docker',
   },
 }));
 

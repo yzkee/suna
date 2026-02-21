@@ -32,7 +32,7 @@ INSTALL_DIR="${KORTIX_HOME:-$HOME/.kortix}"
 FRONTEND_IMAGE="kortix/kortix-frontend:latest"
 API_IMAGE="kortix/kortix-api:latest"
 SANDBOX_IMAGE="kortix/computer:latest"
-POSTGRES_IMAGE="kortix/postgres:latest"
+POSTGRES_IMAGE="supabase/postgres:15.6.1.143"
 CADDY_IMAGE="caddy:2-alpine"
 
 # Installer state (set during interactive prompts)
@@ -610,6 +610,10 @@ ${postgres_ports}
       - POSTGRES_DB=postgres
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_cron,pg_net
+      -c cron.database_name=postgres
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -636,7 +640,7 @@ ${api_ports}
     environment:
       - ENV_MODE=local
       - PORT=8008
-      - SANDBOX_PROVIDER=local_docker
+      - ALLOWED_SANDBOX_PROVIDERS=local_docker
       - DOCKER_HOST=unix:///var/run/docker.sock
       - KORTIX_URL=http://kortix-api:8008/v1/router
       - SANDBOX_NETWORK=kortix_default

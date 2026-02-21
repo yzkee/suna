@@ -15,31 +15,6 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { clearUserLocalStorage } from '@/lib/utils/clear-local-storage';
 // Auth tracking moved to AuthEventTracker component (handles OAuth redirects)
 
-const IS_LOCAL = process.env.NEXT_PUBLIC_ENV_MODE?.toLowerCase() === 'local';
-
-// Stable mock user for local mode — no Supabase, no login required.
-// The ID is a fixed UUID so that anything keyed on user.id behaves consistently.
-const LOCAL_USER: User = {
-  id: '00000000-0000-0000-0000-000000000000',
-  aud: 'authenticated',
-  role: 'authenticated',
-  email: 'local@localhost',
-  email_confirmed_at: new Date().toISOString(),
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-  app_metadata: { provider: 'local' },
-  user_metadata: { full_name: 'Local User' },
-} as User;
-
-const LOCAL_SESSION: Session = {
-  access_token: 'local-mode-no-token',
-  refresh_token: 'local-mode-no-token',
-  expires_in: 999999,
-  expires_at: Math.floor(Date.now() / 1000) + 999999,
-  token_type: 'bearer',
-  user: LOCAL_USER,
-};
-
 type AuthContextType = {
   supabase: SupabaseClient;
   session: Session | null;
@@ -52,35 +27,6 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const supabase = createClient();
-
-  // ── Local mode: skip Supabase entirely, provide mock user ────────────
-  if (IS_LOCAL) {
-    const value: AuthContextType = {
-      supabase,
-      session: LOCAL_SESSION,
-      user: LOCAL_USER,
-      isLoading: false,
-      signOut: async () => {},
-    };
-    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-  }
-
-  // ── Cloud mode (staging / production): real Supabase auth ────────────
-  return <CloudAuthProvider supabase={supabase}>{children}</CloudAuthProvider>;
-};
-
-/**
- * Real auth provider — only rendered in staging/production.
- * Extracted to its own component so the hooks (useState, useEffect) are
- * never called conditionally; the local-mode path returns early above.
- */
-function CloudAuthProvider({
-  supabase,
-  children,
-}: {
-  supabase: SupabaseClient;
-  children: ReactNode;
-}) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -146,7 +92,7 @@ function CloudAuthProvider({
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
+};
 
 export const useAuth = () => {
   const context = useContext(AuthContext);

@@ -2,7 +2,6 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { backendApi } from '@/lib/api-client';
-import { isLocalMode } from '@/lib/config';
 import { toast } from '@/lib/toast';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -49,7 +48,7 @@ export function useProviders() {
       const res = await backendApi.get('/providers');
       return res.data.providers;
     },
-    enabled: isLocalMode(),
+    enabled: true,
   });
 }
 
@@ -61,7 +60,7 @@ export function useProviderSchema() {
       const res = await backendApi.get('/providers/schema');
       return res.data;
     },
-    enabled: isLocalMode(),
+    enabled: true,
   });
 }
 
@@ -73,7 +72,7 @@ export function useProviderHealth() {
       const res = await backendApi.get('/providers/health');
       return res.data;
     },
-    enabled: isLocalMode(),
+    enabled: true,
     refetchInterval: 30000,
   });
 }

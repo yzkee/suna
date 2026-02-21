@@ -40,7 +40,7 @@ import {
 } from '@/components/ui/tooltip';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from '@/lib/toast';
-import { isLocalMode } from '@/lib/config';
+import { isBillingEnabled } from '@/lib/config';
 import { backendApi } from '@/lib/api-client';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Switch } from '@/components/ui/switch';
@@ -128,7 +128,7 @@ export function UserSettingsModal({
     const isMobile = useIsMobile();
     const [activeTab, setActiveTab] = useState<TabId>(defaultTab);
     const [showPlanModal, setShowPlanModal] = useState(false);
-    const isLocal = isLocalMode();
+    const billingActive = isBillingEnabled();
     const tabs: Tab[] = [
         { id: 'general', label: 'General', icon: Settings },
         { id: 'appearance', label: 'Appearance', icon: Palette },
@@ -139,7 +139,7 @@ export function UserSettingsModal({
         { id: 'billing', label: 'Billing', icon: CreditCard },
         { id: 'transactions', label: 'Transactions', icon: Receipt },
 
-        ...(!isLocal ? [{ id: 'referrals' as TabId, label: 'Referrals', icon: Users }] : []),
+        ...(billingActive ? [{ id: 'referrals' as TabId, label: 'Referrals', icon: Users }] : []),
         { id: 'integrations', label: 'Secrets Manager', icon: Plug },
         { id: 'api-keys', label: 'API Keys', icon: Key },
     ];
@@ -602,7 +602,7 @@ function GeneralTab({ onClose }: { onClose: () => void }) {
                 </Button>
             </div>
 
-            {!isLocalMode() && (
+            {isBillingEnabled() && (
                 <>
                     <div className="pt-8 space-y-4">
                         <div>
@@ -1177,7 +1177,7 @@ function BillingTab({ returnUrl, onOpenPlanModal, isActive }: { returnUrl: strin
     const [showCancelDialog, setShowCancelDialog] = useState(false);
     const queryClient = useQueryClient();
 
-    const isLocal = isLocalMode();
+    const billingActive = isBillingEnabled();
 
     // Use unified account state hook
     const {
@@ -1197,7 +1197,7 @@ function BillingTab({ returnUrl, onOpenPlanModal, isActive }: { returnUrl: strin
     const reactivateSubscriptionMutation = useReactivateSubscription();
 
     const planName = accountStateSelectors.planName(accountState);
-    const planIcon = getPlanIcon(planName, isLocal);
+    const planIcon = getPlanIcon(planName, !billingActive);
     
     // Get scheduled change from account state
     const hasScheduledChange = accountState?.subscription.has_scheduled_change && accountState?.subscription.scheduled_change;
@@ -1336,13 +1336,13 @@ function BillingTab({ returnUrl, onOpenPlanModal, isActive }: { returnUrl: strin
         );
     }
 
-    if (isLocalMode()) {
+    if (!billingActive) {
         return (
             <div className="p-4 sm:p-6 min-w-0 max-w-full overflow-x-hidden">
                 <Alert className="border-blue-500/50 bg-blue-500/10">
                     <Shield className="h-4 w-4 text-blue-500" />
                     <AlertDescription>
-                        <div className="font-medium mb-1">Local Mode Active</div>
+                        <div className="font-medium mb-1">Self-Hosted</div>
                         <div className="text-sm text-muted-foreground">
                             All premium features are available in this environment
                         </div>

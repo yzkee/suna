@@ -53,7 +53,7 @@ import { createClient } from '@/lib/supabase/client';
 import { openTabAndNavigate } from '@/stores/tab-store';
 import { useTheme } from 'next-themes';
 import { Palette } from 'lucide-react';
-import { isLocalMode } from '@/lib/config';
+import { isBillingEnabled } from '@/lib/config';
 
 
 import { clearUserLocalStorage } from '@/lib/utils/clear-local-storage';
@@ -99,8 +99,8 @@ export function UserMenu({ user }: UserMenuProps) {
   const t = useTranslations('sidebar');
   const router = useRouter();
   const { isMobile } = useSidebar();
-  const isLocal = isLocalMode();
-  const { data: accountState } = useAccountState({ enabled: !isLocal });
+  const billingActive = isBillingEnabled();
+  const { data: accountState } = useAccountState({ enabled: billingActive });
   const [showSettingsModal, setShowSettingsModal] = React.useState(false);
   const [showPlanModal, setShowPlanModal] = React.useState(false);
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('general');
@@ -108,7 +108,7 @@ export function UserMenu({ user }: UserMenuProps) {
   const { theme, setTheme } = useTheme();
 
 
-  const isFreeTier = !isLocal && (
+  const isFreeTier = billingActive && (
     accountState?.subscription?.tier_key === 'free' ||
     accountState?.tier?.name === 'free' ||
     !accountState?.subscription?.tier_key
@@ -129,31 +129,22 @@ export function UserMenu({ user }: UserMenuProps) {
   const getInitials = (name: string) =>
     name.split(' ').map((p) => p.charAt(0)).join('').toUpperCase().substring(0, 2);
 
-  // Data-driven menu items — cloud-only items filtered out in local mode
-  const generalItems: MenuItemConfig[] = isLocal
-    ? [
-        { icon: KeyRound, label: 'Secrets Manager', href: '/settings/credentials' },
-        { icon: Settings, label: 'Settings', onClick: () => openSettings('general') },
-        { icon: SlidersHorizontal, label: 'Configuration', href: '/configuration' },
-        { icon: Sparkles, label: 'Skills', href: '/skills' },
-        { icon: MessageSquare, label: 'Channels', href: '/channels' },
-        { icon: Calendar, label: 'Scheduled Tasks', href: '/scheduled-tasks' },
-        { icon: BookOpen, label: 'Tutorials', href: '/tutorials' },
-      ]
-    : [
-        { icon: Zap, label: 'Plan', onClick: () => { trackCtaUpgrade(); setShowPlanModal(true); } },
-        { icon: LifeBuoy, label: 'Support', href: '/support' },
-        { icon: CreditCard, label: 'Billing', onClick: () => openSettings('billing') },
-
-        { icon: KeyRound, label: 'Secrets Manager', href: '/settings/credentials' },
-        { icon: Key, label: 'API Keys', href: '/settings/api-keys' },
-        { icon: Settings, label: 'Settings', onClick: () => openSettings('general') },
-        { icon: SlidersHorizontal, label: 'Configuration', href: '/configuration' },
-        { icon: Sparkles, label: 'Skills', href: '/skills' },
-        { icon: MessageSquare, label: 'Channels', href: '/channels' },
-        { icon: Calendar, label: 'Scheduled Tasks', href: '/scheduled-tasks' },
-        { icon: BookOpen, label: 'Tutorials', href: '/tutorials' },
-      ];
+  // Data-driven menu items — billing items only shown when billing is enabled
+  const generalItems: MenuItemConfig[] = [
+    ...(billingActive ? [
+      { icon: Zap, label: 'Plan', onClick: () => { trackCtaUpgrade(); setShowPlanModal(true); } },
+      { icon: LifeBuoy, label: 'Support', href: '/support' },
+      { icon: CreditCard, label: 'Billing', onClick: () => openSettings('billing') },
+    ] : []),
+    { icon: KeyRound, label: 'Secrets Manager', href: '/settings/credentials' },
+    { icon: Key, label: 'API Keys', href: '/settings/api-keys' },
+    { icon: Settings, label: 'Settings', onClick: () => openSettings('general') },
+    { icon: SlidersHorizontal, label: 'Configuration', href: '/configuration' },
+    { icon: Sparkles, label: 'Skills', href: '/skills' },
+    { icon: MessageSquare, label: 'Channels', href: '/channels' },
+    { icon: Calendar, label: 'Scheduled Tasks', href: '/scheduled-tasks' },
+    { icon: BookOpen, label: 'Tutorials', href: '/tutorials' },
+  ];
 
   const adminItems: MenuItemConfig[] = [
     { icon: MessageSquare, label: 'User Feedback', href: '/admin/feedback' },
@@ -197,8 +188,8 @@ export function UserMenu({ user }: UserMenuProps) {
     <>
       <SidebarMenu>
         <SidebarMenuItem className="relative">
-          {/* Referral + Upgrade above user card (cloud only) */}
-          {!isLocal && (
+          {/* Referral + Upgrade above user card (billing only) */}
+          {billingActive && (
             <div className="absolute bottom-full left-0 right-0 mb-2 px-0 group-data-[collapsible=icon]:hidden z-50 flex flex-col gap-2">
               <SpotlightCard className="bg-zinc-200/60 dark:bg-zinc-800/60 backdrop-blur-md cursor-pointer">
                 <div onClick={openReferralDialog} className="flex items-center gap-3 px-3 py-2.5">
@@ -311,15 +302,11 @@ export function UserMenu({ user }: UserMenuProps) {
                 </div>
               </div>
 
-              {!isLocal && (
-                <>
-                  <DropdownMenuSeparator className="my-1" />
-                  <DropdownMenuItem onClick={handleLogout} className="gap-2 p-2">
-                    <LogOut className="h-4 w-4" />
-                    <span>{t('logout')}</span>
-                  </DropdownMenuItem>
-                </>
-              )}
+              <DropdownMenuSeparator className="my-1" />
+              <DropdownMenuItem onClick={handleLogout} className="gap-2 p-2">
+                <LogOut className="h-4 w-4" />
+                <span>{t('logout')}</span>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </SidebarMenuItem>

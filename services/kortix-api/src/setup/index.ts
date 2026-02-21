@@ -1,9 +1,10 @@
 /**
- * Setup routes — local mode only.
+ * Setup routes — self-hosted instance management.
  *
  * Provides API endpoints for managing .env configuration and
- * system status after the initial wizard setup. These are
- * mounted at /v1/setup/* and only available in local mode.
+ * system status after the initial wizard setup. Mounted at /v1/setup/*.
+ *
+ * Auth: All routes require Supabase JWT except /install-status (public).
  */
 
 import { Hono } from 'hono';
@@ -13,8 +14,21 @@ import { resolve, dirname } from 'path';
 import { execSync } from 'child_process';
 import { config } from '../config';
 import { ALL_SANDBOX_ENV_KEYS, toLegacySchema } from '../providers/registry';
+import { supabaseAuth } from '../middleware/auth';
 
 export const setupApp = new Hono<AppEnv>();
+
+// ─── Auth ───────────────────────────────────────────────────────────────────
+// All setup routes require Supabase JWT auth EXCEPT /install-status which must
+// remain public (the installer/login page calls it before any user exists).
+setupApp.use('/*', async (c, next) => {
+  // Allow /install-status without auth
+  if (c.req.path.endsWith('/install-status')) {
+    return next();
+  }
+  // Everything else requires a valid Supabase JWT
+  return supabaseAuth(c, next);
+});
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -176,6 +190,49 @@ const SYSTEM_KEYS = ['ONBOARDING_COMPLETE'];
 // ─── Routes ─────────────────────────────────────────────────────────────────
 
 /**
+ * GET /v1/setup/install-status
+ *
+ * Public (no auth) — the installer/login page calls this before any user exists.
+ * Returns whether the instance has been set up (i.e. an owner user exists).
+ *
+ * Response: { installed: boolean }
+ *   installed=false → show "Create Owner Account" installer form
+ *   installed=true  → show "Sign In" form
+ */
+setupApp.get('/install-status', async (c) => {
+  try {
+    // Use Supabase admin API to count users
+    const supabaseUrl = config.SUPABASE_URL;
+    const serviceRoleKey = config.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      // Supabase not configured — treat as not installed
+      return c.json({ installed: false });
+    }
+
+    const res = await fetch(`${supabaseUrl}/auth/v1/admin/users?page=1&per_page=1`, {
+      headers: {
+        'apikey': serviceRoleKey,
+        'Authorization': `Bearer ${serviceRoleKey}`,
+      },
+    });
+
+    if (!res.ok) {
+      console.error(`[setup] install-status: Supabase admin API returned ${res.status}`);
+      return c.json({ installed: false });
+    }
+
+    const data = await res.json();
+    const hasUsers = Array.isArray(data.users) && data.users.length > 0;
+
+    return c.json({ installed: hasUsers });
+  } catch (err) {
+    console.error('[setup] install-status error:', err);
+    return c.json({ installed: false });
+  }
+});
+
+/**
  * GET /v1/setup/status
  * System status — Docker, .env files, services
  */
@@ -321,7 +378,7 @@ setupApp.post('/env', async (c) => {
   }
 
   rootData.ENV_MODE = 'local';
-  rootData.SANDBOX_PROVIDER = 'local_docker';
+  rootData.ALLOWED_SANDBOX_PROVIDERS = 'local_docker';
   writeEnvFile(rootEnvPath, rootData);
 
   // Sandbox .env

@@ -12,6 +12,8 @@ import { LocalDockerProvider } from './local-docker';
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type ProviderName = 'daytona' | 'local_docker';
+// Re-export from config for convenience — same type
+export type { SandboxProviderName } from '../../config';
 
 export interface CreateSandboxOpts {
   accountId: string;
@@ -66,18 +68,24 @@ export function getProvider(name: ProviderName): SandboxProvider {
 
   let provider: SandboxProvider;
 
+  // Verify the requested provider is in the allowed list
+  if (!config.ALLOWED_SANDBOX_PROVIDERS.includes(name)) {
+    throw new Error(
+      `Sandbox provider '${name}' is not allowed. ` +
+      `Allowed: ${config.ALLOWED_SANDBOX_PROVIDERS.join(', ')}. ` +
+      `Set ALLOWED_SANDBOX_PROVIDERS in your .env.`
+    );
+  }
+
   switch (name) {
     case 'daytona':
-      if (!config.isDaytonaEnabled()) {
-        throw new Error('Daytona provider is not configured. Set DAYTONA_API_KEY.');
+      if (!config.DAYTONA_API_KEY) {
+        throw new Error('Daytona provider is allowed but not configured. Set DAYTONA_API_KEY.');
       }
       provider = new DaytonaProvider();
       break;
 
     case 'local_docker':
-      if (!config.isLocalDockerEnabled()) {
-        throw new Error('Local Docker provider is not enabled. Set SANDBOX_PROVIDER=local_docker or auto.');
-      }
       provider = new LocalDockerProvider();
       break;
 
@@ -90,18 +98,16 @@ export function getProvider(name: ProviderName): SandboxProvider {
 }
 
 /**
- * Get the default provider based on config.
- * In 'auto' mode, prefers Daytona if configured, else falls back to local_docker.
+ * Get the default provider — first entry in ALLOWED_SANDBOX_PROVIDERS.
  */
 export function getDefaultProviderName(): ProviderName {
-  if (config.SANDBOX_PROVIDER === 'daytona') return 'daytona';
-  if (config.SANDBOX_PROVIDER === 'local_docker') return 'local_docker';
-  // auto — prefer daytona if configured
-  return config.isDaytonaEnabled() ? 'daytona' : 'local_docker';
+  return config.getDefaultProvider();
 }
 
 /**
- * List which providers are available.
+ * List which providers are allowed and actually configured.
+ * A provider must be in ALLOWED_SANDBOX_PROVIDERS AND have its
+ * required credentials set (e.g. Daytona needs DAYTONA_API_KEY).
  */
 export function getAvailableProviders(): ProviderName[] {
   const available: ProviderName[] = [];

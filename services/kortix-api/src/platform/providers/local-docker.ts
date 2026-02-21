@@ -217,13 +217,10 @@ export class LocalDockerProvider implements SandboxProvider {
       'Content-Type': 'application/json',
     };
 
-    // Use sandboxAuthStore.getServiceKey() to pick up dynamically generated sak_ keys,
-    // not just static INTERNAL_SERVICE_KEY from env. The cron executor calls the sandbox
+    // Use INTERNAL_SERVICE_KEY for sandbox auth. The cron executor calls the sandbox
     // directly (not through the proxy), so it needs the service key if auth is configured.
-    const { sandboxAuthStore } = await import('../sandbox-auth-store');
-    const serviceKey = sandboxAuthStore.getServiceKey();
-    if (serviceKey) {
-      headers['Authorization'] = `Bearer ${serviceKey}`;
+    if (config.INTERNAL_SERVICE_KEY) {
+      headers['Authorization'] = `Bearer ${config.INTERNAL_SERVICE_KEY}`;
     }
 
     return { url, headers };
@@ -246,21 +243,12 @@ export class LocalDockerProvider implements SandboxProvider {
 
   private _lastCreateOpts?: CreateSandboxOpts;
 
-  /**
-   * @param opts.sandboxAuthToken - If provided, bake this as SANDBOX_AUTH_TOKEN into the container.
-   *   Used by the generate-token endpoint. If omitted, no auth token is set (open access).
-   */
-  private async createContainer(opts?: { sandboxAuthToken?: string }): Promise<void> {
+  private async createContainer(): Promise<void> {
     const authToken = this._lastCreateOpts?.envVars?.KORTIX_TOKEN || generateSandboxToken();
     const sandboxEnvVars = readSandboxEnv();
 
-    // Resolve the unified service key for sandbox auth.
-    // Priority: explicit sandboxAuthToken param (from generate-token) > INTERNAL_SERVICE_KEY env > stored access key > none.
-    // When the user generates a sak_ key, it becomes the service key for everything:
-    //   - INTERNAL_SERVICE_KEY: sandbox validates incoming requests from proxy/cron
-    //   - KORTIX_TOKEN: sandbox uses this to call back to kortix-api (cron tools, integrations)
-    const { sandboxAuthStore } = await import('../sandbox-auth-store');
-    const serviceKey = opts?.sandboxAuthToken || config.INTERNAL_SERVICE_KEY || sandboxAuthStore.getAccessKey();
+    // INTERNAL_SERVICE_KEY: used for proxy/cron → sandbox auth
+    const serviceKey = config.INTERNAL_SERVICE_KEY;
 
     const env = [
       'PUID=1000',
@@ -275,13 +263,11 @@ export class LocalDockerProvider implements SandboxProvider {
       'KORTIX_WORKSPACE=/workspace',
       `KORTIX_API_URL=${config.KORTIX_URL || ''}`,
       // KORTIX_TOKEN: sandbox → kortix-api auth.
-      // Uses the unified service key if available, otherwise a generated sbt_ token.
+      // Uses the service key if available, otherwise a generated sbt_ token.
       `KORTIX_TOKEN=${serviceKey || authToken}`,
       `SANDBOX_ID=${CONTAINER_NAME}`,
       'PROJECT_ID=local',
       'ENV_MODE=local',
-      // Only set SANDBOX_AUTH_TOKEN if user explicitly generated one
-      ...(opts?.sandboxAuthToken ? [`SANDBOX_AUTH_TOKEN=${opts.sandboxAuthToken}`] : []),
       // INTERNAL_SERVICE_KEY: proxy/cron → sandbox auth
       ...(serviceKey ? [`INTERNAL_SERVICE_KEY=${serviceKey}`] : []),
       ...sandboxEnvVars,
@@ -319,56 +305,8 @@ export class LocalDockerProvider implements SandboxProvider {
   }
 
   /**
-   * Recreate the container with a SANDBOX_AUTH_TOKEN baked in.
-   * Used by the generate-token endpoint. Removes old container, creates new one.
-   * Workspace volume is preserved.
-   *
-   * Waits for the container's HTTP server to be ready before returning,
-   * so the frontend can immediately use the new token.
-   */
-  async recreateWithToken(sandboxAuthToken: string): Promise<SandboxInfo> {
-    // Remove existing container if any
-    try {
-      await this.remove();
-    } catch {
-      // May not exist
-    }
-    await this.createContainer({ sandboxAuthToken });
-
-    // Wait for the container's HTTP server to actually be ready.
-    // The container starts but internal services (kortix-master) take time to boot.
-    const maxWait = 60_000; // 60 seconds max
-    const pollInterval = 1_000; // 1 second
-    const start = Date.now();
-
-    while (Date.now() - start < maxWait) {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3000);
-        const res = await fetch(`http://${CONTAINER_NAME}:8000/session`, {
-          signal: controller.signal,
-          headers: {
-            'Authorization': `Bearer ${sandboxAuthToken}`,
-          },
-        });
-        clearTimeout(timeout);
-        if (res.ok || res.status === 200) {
-          console.log(`[LOCAL-DOCKER] Container ready after ${Date.now() - start}ms`);
-          break;
-        }
-      } catch {
-        // Not ready yet — keep polling
-      }
-      await new Promise((r) => setTimeout(r, pollInterval));
-    }
-
-    return this.getSandboxInfo();
-  }
-
-  /**
    * Read environment variables from the running container via Docker inspect.
-   * Returns a map of VAR_NAME → value. Used by SandboxAuthTokenStore to
-   * discover the auto-generated tokens without storing them locally.
+   * Returns a map of VAR_NAME → value.
    */
   async getContainerEnv(): Promise<Record<string, string>> {
     try {

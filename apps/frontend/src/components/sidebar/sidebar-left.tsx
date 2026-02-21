@@ -81,7 +81,7 @@ import { useIsMobile } from '@/hooks/utils';
 import { cn } from '@/lib/utils';
 import { useAdminRole } from '@/hooks/admin';
 import { useDocumentModalStore } from '@/stores/use-document-modal-store';
-import { isLocalMode } from '@/lib/config';
+import { isBillingEnabled } from '@/lib/config';
 import { useAccountState, accountStateSelectors } from '@/hooks/billing';
 import { getPlanIcon } from '@/components/billing/plan-utils';
 import { useCreateOpenCodeSession, useOpenCodeSessions, useOpenCodeProjects } from '@/hooks/opencode/use-opencode-sessions';
@@ -421,16 +421,15 @@ function SidebarUpdateIndicator({ collapsed }: { collapsed: boolean }) {
 }
 
 function UserProfileSection({ user }: { user: { name: string; email: string; avatar: string; isAdmin?: boolean } }) {
-  const isLocal = isLocalMode();
-  const { data: accountState } = useAccountState({ enabled: !isLocal });
+  const billingActive = isBillingEnabled();
+  const { data: accountState } = useAccountState({ enabled: billingActive });
 
-  // In local mode, skip cloud plan info entirely
-  if (isLocal) {
-    return <UserMenu user={{ ...user, planName: 'Local', planIcon: undefined }} />;
+  if (!billingActive) {
+    return <UserMenu user={{ ...user, planName: 'Self-Hosted', planIcon: undefined }} />;
   }
 
   const planName = accountStateSelectors.planName(accountState);
-  return <UserMenu user={{ ...user, planName, planIcon: getPlanIcon(planName, isLocal) ?? undefined }} />;
+  return <UserMenu user={{ ...user, planName, planIcon: getPlanIcon(planName) ?? undefined }} />;
 }
 
 // ============================================================================
@@ -461,22 +460,14 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
   const { data: adminRoleData } = useAdminRole();
   const isAdmin = adminRoleData?.isAdmin ?? false;
 
-  const isLocal = isLocalMode();
-
   const [user, setUser] = useState<{
     name: string;
     email: string;
     avatar: string;
     isAdmin?: boolean;
-  }>(() =>
-    isLocal
-      ? { name: 'Local User', email: '', avatar: '', isAdmin: false }
-      : { name: 'Loading...', email: '', avatar: '', isAdmin: false },
-  );
+  }>({ name: 'Loading...', email: '', avatar: '', isAdmin: false });
 
   useEffect(() => {
-    if (isLocal) return; // No Supabase auth in local mode
-
     const fetchUserData = async () => {
       const supabase = createClient();
       const { data } = await supabase.auth.getUser();
@@ -490,7 +481,7 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
       }
     };
     fetchUserData();
-  }, [isAdmin, isLocal]);
+  }, [isAdmin]);
 
   const createSession = useCreateOpenCodeSession();
 

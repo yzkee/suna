@@ -3,13 +3,13 @@
  *
  * This is the Prisma-style "declarative" approach: the schema definitions
  * in packages/db/src/schema/ are the single source of truth.
- * On every local-mode startup, we diff the live DB against the schema
- * and apply any changes — no migration files needed.
+ * On startup, we diff the live DB against the schema and apply any changes.
  *
  * drizzle.config.ts has schemaFilter: ['kortix', 'public'] so it pushes
  * both the kortix schema tables AND the public schema billing tables.
  *
- * In cloud mode, migrations are managed externally so this is a no-op.
+ * In production (INTERNAL_KORTIX_ENV=prod), schema is managed by external
+ * migration pipelines, so this is a no-op.
  */
 
 import { join } from 'node:path';
@@ -21,8 +21,9 @@ export async function ensureSchema(): Promise<void> {
     return;
   }
 
-  // Only run in local mode — cloud DB has its own migration pipeline
-  if (!config.isLocal()) {
+  // Production: schema managed externally (CI/CD migrations)
+  if (config.INTERNAL_KORTIX_ENV === 'prod') {
+    console.log('[schema] Production mode — skipping auto-push (managed externally)');
     return;
   }
 

@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { useSandboxAuthStore } from '@/stores/sandbox-auth-store';
-import { isCloudMode } from '@/lib/config';
+
 import { authenticatedFetch } from '@/lib/auth-token';
 
 /**
@@ -37,13 +36,6 @@ export interface ServerEntry {
    * For Daytona, ports are accessed via subdomain routing, so this is unused.
    */
   mappedPorts?: Record<string, string>;
-  /**
-   * Optional per-instance sandbox auth token (SANDBOX_AUTH_TOKEN).
-   * Set by the user in the Add/Edit Instance form or auto-saved when
-   * the SandboxTokenDialog is submitted. Loaded into sandbox-auth-store
-   * on instance switch.
-   */
-  authToken?: string;
 }
 
 interface ServerStore {
@@ -63,7 +55,7 @@ interface ServerStore {
    * nuking cached data.
    */
   urlVersion: number;
-  addServer: (label: string, url: string, authToken?: string) => ServerEntry;
+  addServer: (label: string, url: string) => ServerEntry;
   /**
    * Add a new managed sandbox as a server entry. Deduplicates by sandboxId —
    * if a server with the same sandboxId already exists, returns it instead.
@@ -76,13 +68,13 @@ interface ServerStore {
     sandboxId: string;
     mappedPorts?: Record<string, string>;
   }) => ServerEntry;
-  updateServer: (id: string, updates: Partial<Pick<ServerEntry, 'label' | 'url' | 'authToken'>>) => void;
+  updateServer: (id: string, updates: Partial<Pick<ServerEntry, 'label' | 'url'>>) => void;
   /**
    * Silently update a server's URL, ports, provider, and/or sandboxId
    * without triggering a full reconnect (no serverVersion bump). Only
    * bumps urlVersion so the connection monitor re-verifies.
    */
-  updateServerSilent: (id: string, updates: Partial<Pick<ServerEntry, 'url' | 'provider' | 'sandboxId' | 'authToken'>> & { mappedPorts?: Record<string, string>; label?: string }) => void;
+  updateServerSilent: (id: string, updates: Partial<Pick<ServerEntry, 'url' | 'provider' | 'sandboxId'>> & { mappedPorts?: Record<string, string>; label?: string }) => void;
   removeServer: (id: string) => void;
   setActiveServer: (id: string, options?: { auto?: boolean }) => void;
   getActiveServerUrl: () => string;
@@ -118,18 +110,6 @@ interface ServerStore {
     isLocal?: boolean;
   }) => string;
 
-  /**
-   * Persist an auth token to BOTH the server entry AND the global
-   * sandbox-auth-store, then reset the SDK client and bump serverVersion
-   * so all connections pick up the new token.
-   *
-   * Replaces the scattered pattern of:
-   *   sandboxAuthStore.setSandboxToken(token)
-   *   updateServer(id, { authToken: token })
-   *   resetSDKClient()
-   *   bumpServerVersion()
-   */
-  persistToken: (serverId: string, token: string) => void;
 }
 
 /**
@@ -163,7 +143,6 @@ function isManagedEntry(s: ServerEntry | string): boolean {
   return MANAGED_IDS.has(id);
 }
 
-/** Strip authToken before sending to API — tokens stay in localStorage only. */
 function toApiPayload(s: ServerEntry) {
   return {
     id: s.id,
@@ -182,13 +161,13 @@ function syncServerToApi(server: ServerEntry) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(toApiPayload(server)),
-  }, { handleSandboxAuth: false, retryOnAuthError: false }).catch(() => {}); // fire-and-forget
+  }, { retryOnAuthError: false }).catch(() => {}); // fire-and-forget
 }
 
 function deleteServerFromApi(id: string) {
   if (isManagedEntry(id)) return;
   authenticatedFetch(`${SERVERS_API}/${id}`, { method: 'DELETE' },
-    { handleSandboxAuth: false, retryOnAuthError: false }).catch(() => {});
+    { retryOnAuthError: false }).catch(() => {});
 }
 
 /** Bulk sync all servers to API (used on initial hydration). */
@@ -199,14 +178,14 @@ function syncAllToApi(servers: ServerEntry[]) {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ servers: custom.map(toApiPayload) }),
-  }, { handleSandboxAuth: false, retryOnAuthError: false }).catch(() => {});
+  }, { retryOnAuthError: false }).catch(() => {});
 }
 
 /** Load servers from API, merging authTokens from localStorage entries. */
 async function loadFromApi(localServers: ServerEntry[]): Promise<ServerEntry[] | null> {
   try {
     const res = await authenticatedFetch(SERVERS_API, undefined,
-      { handleSandboxAuth: false, retryOnAuthError: false });
+      { retryOnAuthError: false });
     if (!res.ok) return null;
     const rows: Array<{
       id: string;
@@ -219,12 +198,6 @@ async function loadFromApi(localServers: ServerEntry[]): Promise<ServerEntry[] |
     }> = await res.json();
     if (!rows.length) return null;
 
-    // Build a lookup for local authTokens
-    const tokenMap = new Map<string, string>();
-    for (const s of localServers) {
-      if (s.authToken) tokenMap.set(s.id, s.authToken);
-    }
-
     return rows.map((r) => ({
       id: r.id,
       label: r.label,
@@ -233,7 +206,6 @@ async function loadFromApi(localServers: ServerEntry[]): Promise<ServerEntry[] |
       provider: r.provider ?? undefined,
       sandboxId: r.sandboxId ?? undefined,
       mappedPorts: r.mappedPorts ?? undefined,
-      authToken: tokenMap.get(r.id),
     }));
   } catch {
     return null;
@@ -251,21 +223,19 @@ const createDefaultServer = (): ServerEntry => ({
 export const useServerStore = create<ServerStore>()(
   persist(
     (set, get) => ({
-      // Local mode starts with the default local sandbox entry.
-      // Cloud mode starts empty — sandboxes are loaded via useSandbox hook.
-      servers: isCloudMode() ? [] : [createDefaultServer()],
-      activeServerId: isCloudMode() ? '' : DEFAULT_SERVER_ID,
+      // Starts empty — sandboxes are loaded via useSandbox hook after auth.
+      servers: [],
+      activeServerId: '',
       userSelected: false,
       serverVersion: 0,
       urlVersion: 0,
 
-      addServer: (label: string, url: string, authToken?: string) => {
+      addServer: (label: string, url: string) => {
         const normalizedUrl = url.replace(/\/+$/, '');
         const newServer: ServerEntry = {
           id: generateId(),
           label: label || normalizedUrl.replace(/^https?:\/\//, ''),
           url: normalizedUrl,
-          ...(authToken ? { authToken } : {}),
         };
         set((state) => ({
           servers: [...state.servers, newServer],
@@ -297,7 +267,7 @@ export const useServerStore = create<ServerStore>()(
         return newServer;
       },
 
-      updateServer: (id: string, updates: Partial<Pick<ServerEntry, 'label' | 'url' | 'authToken'>>) => {
+      updateServer: (id: string, updates: Partial<Pick<ServerEntry, 'label' | 'url'>>) => {
         const state = get();
         const isActive = state.activeServerId === id;
         set((state) => ({
@@ -382,19 +352,7 @@ export const useServerStore = create<ServerStore>()(
         const state = get();
         if (state.activeServerId === id) return; // no-op
 
-        // Sync per-instance auth token → global sandbox-auth-store.
-        // This ensures getAuthToken() returns the correct token for the
-        // target instance immediately, before any health check fires.
-        const target = state.servers.find((s) => s.id === id);
-        if (target?.authToken) {
-          useSandboxAuthStore.getState().setSandboxToken(target.authToken);
-        } else {
-          // Target has no token — clear the global store so we don't
-          // accidentally send the previous instance's token.
-          useSandboxAuthStore.getState().clearSandboxToken();
-        }
-
-        // Force SDK client to recreate for the new server URL + token
+        // Force SDK client to recreate for the new server URL
         resetSDKClient();
 
         set({
@@ -476,19 +434,6 @@ export const useServerStore = create<ServerStore>()(
         return targetId;
       },
 
-      persistToken: (serverId, token) => {
-        // 1. Store in the global sandbox-auth-store (used by getAuthToken())
-        useSandboxAuthStore.getState().setSandboxToken(token);
-
-        // 2. Persist to the server entry (survives page reloads + instance switches)
-        get().updateServer(serverId, { authToken: token });
-
-        // 3. Force SDK client to recreate with the new token
-        resetSDKClient();
-
-        // 4. Bump serverVersion so health check + SSE restart with the new token
-        set((state) => ({ serverVersion: state.serverVersion + 1 }));
-      },
     }),
     {
       name: 'opencode-servers-v4', // v4: dynamic sandbox ID (e.g. /preview/kortix-sandbox/{port}) replaces hardcoded /preview/local/
@@ -500,64 +445,33 @@ export const useServerStore = create<ServerStore>()(
       onRehydrateStorage: () => (state) => {
         if (!state) return;
 
-        if (isCloudMode()) {
-          // ── Cloud mode ────────────────────────────────────────────────
-          // Remove stale local-only entries (default, cloud-sandbox) from
-          // localStorage — they don't belong in cloud mode.
-          state.servers = state.servers.filter(
-            (s) => s.id !== DEFAULT_SERVER_ID && s.id !== CLOUD_SANDBOX_SERVER_ID,
-          );
+        // Remove stale legacy entries (default, cloud-sandbox) from
+        // localStorage — sandboxes are loaded via useSandbox hook.
+        state.servers = state.servers.filter(
+          (s) => s.id !== DEFAULT_SERVER_ID && s.id !== CLOUD_SANDBOX_SERVER_ID,
+        );
 
-          // Active server will be set by useSandbox hook once it loads.
-          // If current activeServerId was a removed entry, clear it.
-          if (state.activeServerId && !state.servers.some((s) => s.id === state.activeServerId)) {
-            state.activeServerId = state.servers[0]?.id ?? '';
-          }
-
-          // Load custom entries from API (user-added URLs).
-          // Sandbox entries come from useSandbox hook, not from here.
-          const localServers = [...state.servers];
-          loadFromApi(localServers).then((apiEntries) => {
-            if (apiEntries && apiEntries.length > 0) {
-              // Merge: keep sandbox entries from zustand + custom entries from API
-              const currentState = useServerStore.getState();
-              const sandboxEntries = currentState.servers.filter((s) => s.provider);
-              const apiIds = new Set(apiEntries.map((s) => s.id));
-              const kept = sandboxEntries.filter((s) => !apiIds.has(s.id));
-              useServerStore.setState({ servers: [...kept, ...apiEntries] });
-            } else {
-              syncAllToApi(localServers);
-            }
-          });
-        } else {
-          // ── Local mode ────────────────────────────────────────────────
-          // Ensure the default local sandbox entry exists.
-          const hasDefault = state.servers.some((s) => s.id === DEFAULT_SERVER_ID);
-          if (!hasDefault) {
-            state.servers = [createDefaultServer(), ...state.servers];
-          } else {
-            // Reset the default entry's URL and provider to current values.
-            // Preserves authToken if set by the user.
-            state.servers = state.servers.map((s) =>
-              s.id === DEFAULT_SERVER_ID
-                ? { ...s, url: DEFAULT_SANDBOX_URL, label: 'Local Sandbox', provider: 'local_docker' }
-                : s,
-            );
-          }
-
-          // Clean up stale cloud-sandbox duplicates that share the default URL.
-          state.servers = state.servers.filter((s) => {
-            if (s.id === CLOUD_SANDBOX_SERVER_ID) {
-              const def = state.servers.find((d) => d.id === DEFAULT_SERVER_ID);
-              if (def && s.url === def.url) return false;
-            }
-            return true;
-          });
-
-          if (!state.servers.some((s) => s.id === state.activeServerId)) {
-            state.activeServerId = DEFAULT_SERVER_ID;
-          }
+        // Active server will be set by useSandbox hook once it loads.
+        // If current activeServerId was a removed entry, clear it.
+        if (state.activeServerId && !state.servers.some((s) => s.id === state.activeServerId)) {
+          state.activeServerId = state.servers[0]?.id ?? '';
         }
+
+        // Load custom entries from API (user-added URLs).
+        // Sandbox entries come from useSandbox hook, not from here.
+        const localServers = [...state.servers];
+        loadFromApi(localServers).then((apiEntries) => {
+          if (apiEntries && apiEntries.length > 0) {
+            // Merge: keep sandbox entries from zustand + custom entries from API
+            const currentState = useServerStore.getState();
+            const sandboxEntries = currentState.servers.filter((s) => s.provider);
+            const apiIds = new Set(apiEntries.map((s) => s.id));
+            const kept = sandboxEntries.filter((s) => !apiIds.has(s.id));
+            useServerStore.setState({ servers: [...kept, ...apiEntries] });
+          } else {
+            syncAllToApi(localServers);
+          }
+        });
       },
     },
   ),
@@ -587,15 +501,6 @@ export function getActiveServer(): ServerEntry | null {
 export function getActiveServerMappedPort(containerPort: string): string | null {
   const server = getActiveServer();
   return server?.mappedPorts?.[containerPort] ?? null;
-}
-
-/**
- * Get the auth token for the active server (if set).
- * Returns null if no per-instance token is configured.
- */
-export function getActiveServerAuthToken(): string | null {
-  const server = getActiveServer();
-  return server?.authToken ?? null;
 }
 
 /** Stable server IDs for managed sandbox entries */
