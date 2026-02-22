@@ -18,7 +18,7 @@ function toRegistryName(tool: string): string {
   return `oc-${tool}`;
 }
 
-function adaptToolState(state: ToolState): ToolResultData | undefined {
+function adaptToolState(state: ToolState, sessionIdle?: boolean): ToolResultData | undefined {
   switch (state.status) {
     case 'completed':
       return {
@@ -34,13 +34,13 @@ function adaptToolState(state: ToolState): ToolResultData | undefined {
         timestamp: state.time?.end ? new Date(state.time.end).toISOString() : undefined,
       };
     case 'pending': {
-      // A "stale pending" tool has empty input — the backend never followed
-      // up with a running/completed state (session ended abruptly). Treat it
-      // as a completed-but-empty result so the side panel doesn't show an
+      // A "stale pending" tool: the backend never followed up with
+      // running/completed (session ended abruptly). Treat it as a
+      // completed-but-empty result so the side panel doesn't show an
       // infinite spinner.
       const hasInput = Object.keys(state.input ?? {}).length > 0;
       const hasRaw = !!(state as any).raw;
-      if (!hasInput && !hasRaw) {
+      if (sessionIdle || (!hasInput && !hasRaw)) {
         return {
           success: false,
           output: 'Tool call was not completed',
@@ -51,6 +51,14 @@ function adaptToolState(state: ToolState): ToolResultData | undefined {
       return undefined;
     }
     case 'running':
+      // Session is idle but tool is still "running" — treat as stale
+      if (sessionIdle) {
+        return {
+          success: false,
+          output: 'Tool execution was interrupted',
+          error: 'Tool execution was interrupted',
+        };
+      }
       // No result yet — tool is still in progress
       return undefined;
     default:
@@ -58,7 +66,7 @@ function adaptToolState(state: ToolState): ToolResultData | undefined {
   }
 }
 
-function adaptToolPart(part: ToolPart): ToolCallInput {
+function adaptToolPart(part: ToolPart, sessionIdle?: boolean): ToolCallInput {
   const toolCallData: ToolCallData = {
     tool_call_id: part.callID,
     function_name: toRegistryName(part.tool),
@@ -71,7 +79,7 @@ function adaptToolPart(part: ToolPart): ToolCallInput {
     source: 'native',
   };
 
-  const toolResult = adaptToolState(part.state);
+  const toolResult = adaptToolState(part.state, sessionIdle);
 
   const assistantTimestamp = ('time' in part.state && part.state.time)
     ? new Date((part.state.time as any).start).toISOString()
@@ -92,13 +100,13 @@ function adaptToolPart(part: ToolPart): ToolCallInput {
  * Extract all ToolParts from OpenCode messages and convert them to
  * the ToolCallInput[] format used by KortixComputer.
  */
-export function adaptMessagesToToolCalls(messages: MessageWithParts[]): ToolCallInput[] {
+export function adaptMessagesToToolCalls(messages: MessageWithParts[], sessionIdle?: boolean): ToolCallInput[] {
   const toolCalls: ToolCallInput[] = [];
 
   for (const msg of messages) {
     for (const part of msg.parts) {
       if (part.type === 'tool') {
-        toolCalls.push(adaptToolPart(part as ToolPart));
+        toolCalls.push(adaptToolPart(part as ToolPart, sessionIdle));
       }
     }
   }

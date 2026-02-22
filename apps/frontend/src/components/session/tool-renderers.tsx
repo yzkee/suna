@@ -1171,6 +1171,7 @@ function BashTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 	const metadata = partMetadata(part);
 	const output = partOutput(part);
 	const status = partStatus(part);
+	const running = useContext(ToolRunningContext);
 	const command =
 		(input.command as string) || (metadata.command as string) || "";
 	const description = (input.description as string) || "";
@@ -1206,12 +1207,13 @@ function BashTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 	const hasOutput =
 		!!sessionMeta || !!sessionMessages || !!structuredSections || !!outputBlock;
 
-	const isWaiting = !command && (status === "pending" || status === "running");
+	const isWaiting = !command && running;
+	const isStalePending = !command && !running && (status === "pending" || status === "running");
 
 	return (
 		<BasicTool
 			icon={<Terminal className="size-3.5 flex-shrink-0" />}
-			trigger={{ title: "Shell", subtitle: description || (isWaiting ? "Preparing command..." : undefined) }}
+			trigger={{ title: "Shell", subtitle: description || (isWaiting ? "Preparing command..." : isStalePending ? "Not completed" : undefined) }}
 			defaultOpen={defaultOpen}
 			forceOpen={forceOpen}
 			locked={locked}
@@ -1225,6 +1227,10 @@ function BashTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 								<Loader2 className="size-3 animate-spin" />
 								<span>Preparing command...</span>
 							</div>
+						</div>
+					) : isStalePending ? (
+						<div className="px-3 py-2 text-muted-foreground/60 text-[11px] italic">
+							Tool call was not completed
 						</div>
 					) : (
 						<HighlightedCode code={`$ ${command}`} language="bash">
@@ -3627,6 +3633,7 @@ function BatchToolRenderer({
 	const input = partInput(part);
 	const metadata = partMetadata(part);
 	const status = partStatus(part);
+	const running = useContext(ToolRunningContext);
 
 	const totalCalls = (metadata.totalCalls as number) || 0;
 	const successful = (metadata.successful as number) || 0;
@@ -3661,9 +3668,9 @@ function BatchToolRenderer({
 					{toolCalls.map(
 						(call: { tool: string; success?: boolean }, i: number) => (
 							<div key={i} className="flex items-center gap-2 text-xs">
-								{status === "running" || status === "pending" ? (
-									<Loader2 className="size-2.5 text-muted-foreground animate-spin shrink-0" />
-								) : call.success !== false ? (
+							{running ? (
+								<Loader2 className="size-2.5 text-muted-foreground animate-spin shrink-0" />
+							) : call.success !== false ? (
 									<Check className="size-2.5 text-emerald-500 shrink-0" />
 								) : (
 									<CircleAlert className="size-2.5 text-muted-foreground shrink-0" />
@@ -3726,6 +3733,7 @@ function QuestionToolRenderer({
 	const input = partInput(part);
 	const metadata = partMetadata(part);
 	const status = partStatus(part);
+	const running = useContext(ToolRunningContext);
 
 	const questions = useMemo(
 		() =>
@@ -3743,14 +3751,13 @@ function QuestionToolRenderer({
 	);
 
 	const isAnswered = answers.length > 0;
-	const isRunning = status === "running" || status === "pending";
-	const isWaiting = isRunning && questions.length > 0 && !hasActiveQuestion;
+	const isWaiting = running && questions.length > 0 && !hasActiveQuestion;
 	const subtitle =
 		questions.length > 0
 			? isAnswered
 				? `${answers.length} answered`
 				: `${questions.length} ${questions.length > 1 ? "questions" : "question"}`
-			: isRunning
+			: running
 				? "Preparing..."
 				: "";
 
@@ -5185,7 +5192,7 @@ ToolRegistry.register("memory_timeline", MemTimelineTool);
 function DCPPruneTool({ part }: ToolProps) {
 	const input = partInput(part);
 	const output = partOutput(part);
-	const isRunning = part.state.status === "running";
+	const isRunning = useContext(ToolRunningContext);
 	const ids = input.ids;
 	const reason = input.reason;
 
@@ -5231,7 +5238,7 @@ ToolRegistry.register("prune", DCPPruneTool);
 function DCPDistillTool({ part }: ToolProps) {
 	const input = partInput(part);
 	const output = partOutput(part);
-	const isRunning = part.state.status === "running";
+	const isRunning = useContext(ToolRunningContext);
 	const ids = input.ids;
 
 	return (
@@ -5271,7 +5278,7 @@ ToolRegistry.register("distill", DCPDistillTool);
 function DCPCompressTool({ part }: ToolProps) {
 	const input = partInput(part);
 	const output = partOutput(part);
-	const isRunning = part.state.status === "running";
+	const isRunning = useContext(ToolRunningContext);
 	const topic = input.topic;
 
 	return (
@@ -5630,7 +5637,7 @@ function parseToolName(tool: string): {
 export function GenericTool({ part }: ToolProps) {
 	const output = partOutput(part);
 	const strippedGenericOutput = output ? stripAnsi(output) : "";
-	const status = partStatus(part);
+	const running = useContext(ToolRunningContext);
 	const input = partInput(part);
 	const { server, display } = useMemo(
 		() => parseToolName(part.tool),
@@ -5661,7 +5668,7 @@ export function GenericTool({ part }: ToolProps) {
 					{genericStructuredSections.type}
 				</span>
 			)}
-			{status === "running" && (
+			{running && (
 				<Loader2 className="size-3 animate-spin text-muted-foreground ml-auto flex-shrink-0" />
 			)}
 		</div>
@@ -5767,6 +5774,9 @@ interface ToolPartRendererProps {
 	onQuestionReply?: (requestId: string, answers: string[][]) => void;
 	onQuestionReject?: (requestId: string) => void;
 	defaultOpen?: boolean;
+	/** Whether the session/turn is still actively working. When false,
+	 *  any pending/running tool parts are treated as stale (no spinner). */
+	sessionWorking?: boolean;
 }
 
 export function ToolPartRenderer({
@@ -5778,6 +5788,7 @@ export function ToolPartRenderer({
 	onQuestionReply,
 	onQuestionReject,
 	defaultOpen,
+	sessionWorking,
 }: ToolPartRendererProps & { sessionId?: string }) {
 	// Skip todoread
 	if (part.tool === "todoread") return null;
@@ -5828,16 +5839,19 @@ export function ToolPartRenderer({
 	const forceOpen = !!permission || !!question;
 	const isLocked = !!permission || !!question;
 
-	// A tool part is "stale pending" when the backend sent a pending state
-	// with empty input/raw and never followed up with running/completed.
-	// This happens when the session ends abruptly. Don't show a spinner for these.
-	const isStalePending =
-		part.state.status === "pending" &&
-		Object.keys(part.state.input ?? {}).length === 0 &&
-		!(part.state as any).raw;
+	// A tool part is "stale" (should not show a spinner) when:
+	// 1. The session is no longer working but the tool is still pending/running, OR
+	// 2. The backend sent a pending state with empty input/raw and never followed
+	//    up with running/completed (session ended abruptly).
+	const isStale =
+		(sessionWorking === false &&
+			(part.state.status === "pending" || part.state.status === "running")) ||
+		(part.state.status === "pending" &&
+			Object.keys(part.state.input ?? {}).length === 0 &&
+			!(part.state as any).raw);
 
 	const isRunning =
-		!isStalePending &&
+		!isStale &&
 		(part.state.status === "running" || part.state.status === "pending");
 
 	const toolElement = RegisteredComponent ? (
