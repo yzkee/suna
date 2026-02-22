@@ -407,6 +407,64 @@ function isTriggerTitle(val: unknown): val is TriggerTitle {
 }
 
 // ============================================================================
+// ToolEmptyState — subtle empty-state body for tools with no results.
+// Ensures BasicTool still sees non-null children so the chevron renders.
+// ============================================================================
+
+function ToolEmptyState({ message }: { message: string }) {
+	return (
+		<div className="flex items-center justify-center gap-1.5 px-3 py-3 text-muted-foreground/40">
+			<Search className="size-3" />
+			<span className="text-[11px]">{message}</span>
+		</div>
+	);
+}
+
+// ============================================================================
+// ToolOutputFallback — smart fallback for raw tool output.
+// Detects error-like text and renders it via ToolError; otherwise renders
+// as UnifiedMarkdown (or plain pre for mono output).
+// ============================================================================
+
+/** Heuristic: does this output look like an error message? */
+function looksLikeError(text: string): boolean {
+	const t = text.trim();
+	if (t.length > 500) return false; // long output is probably real content
+	if (/^Error:\s/i.test(t)) return true;
+	if (/^([\w._-]+Error|[\w._-]+Exception):\s/i.test(t)) return true;
+	if (/Traceback \(most recent call last\)/i.test(t)) return true;
+	if (/^\s*\[\s*\{[\s\S]*"message"\s*:/.test(t)) return true; // JSON validation
+	return false;
+}
+
+function ToolOutputFallback({
+	output,
+	isStreaming = false,
+	toolName,
+}: {
+	output: string;
+	isStreaming?: boolean;
+	toolName?: string;
+}) {
+	if (!isStreaming && looksLikeError(output)) {
+		return (
+			<div className="p-0">
+				<ToolError error={output} toolName={toolName} />
+			</div>
+		);
+	}
+
+	return (
+		<div
+			data-scrollable
+			className={`p-2 max-h-72 overflow-auto ${MD_FLUSH_CLASSES}`}
+		>
+			<UnifiedMarkdown content={output} isStreaming={isStreaming} />
+		</div>
+	);
+}
+
+// ============================================================================
 // BasicTool — collapsible wrapper
 // ============================================================================
 
@@ -1851,13 +1909,10 @@ function GlobTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 						toDisplayPath={toDisplayPath}
 					/>
 				</div>
-			) : !isNoResults && output ? (
-				<div
-					data-scrollable
-					className={`p-2 max-h-72 overflow-auto ${MD_FLUSH_CLASSES}`}
-				>
-					<UnifiedMarkdown content={output} isStreaming={false} />
-				</div>
+			) : isNoResults ? (
+				<ToolEmptyState message="No matching files found" />
+			) : output ? (
+				<ToolOutputFallback output={output} toolName="glob" />
 			) : null}
 		</BasicTool>
 	);
@@ -1868,6 +1923,7 @@ ToolRegistry.register("glob", GlobTool);
 function GrepTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 	const input = partInput(part);
 	const output = partOutput(part);
+	const status = partStatus(part);
 	const { openFile, toDisplayPath } = useOcFileOpen();
 	const directory = getDirectory(input.path as string) || undefined;
 	const args: string[] = [];
@@ -1875,16 +1931,18 @@ function GrepTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 	if (input.include) args.push("include=" + String(input.include));
 
 	const grepResult = useMemo(() => parseGrepOutput(output), [output]);
+	const hasResults = !!grepResult;
+	const isNoResults = !hasResults && status === "completed" && !!output;
 
 	return (
 		<BasicTool
 			icon={<Search className="size-3.5 flex-shrink-0" />}
-			trigger={{ title: "Grep", subtitle: directory, args }}
+			trigger={{ title: "Grep", subtitle: directory, args: [...args, ...(hasResults ? [`${grepResult.groups.length} ${grepResult.groups.length === 1 ? "file" : "files"}`] : isNoResults ? ["no matches"] : [])] }}
 			defaultOpen={defaultOpen}
 			forceOpen={forceOpen}
 			locked={locked}
 		>
-			{grepResult ? (
+			{hasResults ? (
 				<div data-scrollable className="max-h-72 overflow-auto">
 					<InlineGrepResults
 						groups={grepResult.groups}
@@ -1892,13 +1950,10 @@ function GrepTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 						toDisplayPath={toDisplayPath}
 					/>
 				</div>
+			) : isNoResults ? (
+				<ToolEmptyState message="No matching results found" />
 			) : output ? (
-				<div
-					data-scrollable
-					className={`p-2 max-h-72 overflow-auto ${MD_FLUSH_CLASSES}`}
-				>
-					<UnifiedMarkdown content={output} isStreaming={false} />
-				</div>
+				<ToolOutputFallback output={output} toolName="grep" />
 			) : null}
 		</BasicTool>
 	);
@@ -1909,21 +1964,24 @@ ToolRegistry.register("grep", GrepTool);
 function ListTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 	const input = partInput(part);
 	const output = partOutput(part);
+	const status = partStatus(part);
 	const { openFile, openFileWithList, toDisplayPath } = useOcFileOpen();
 	const directory =
 		getDirectory(input.path as string) || (input.path as string) || undefined;
 
 	const filePaths = useMemo(() => parseFilePaths(output), [output]);
+	const hasResults = filePaths && filePaths.length > 0;
+	const isNoResults = !hasResults && status === "completed" && !!output;
 
 	return (
 		<BasicTool
 			icon={<ListTree className="size-3.5 flex-shrink-0" />}
-			trigger={{ title: "List", subtitle: directory }}
+			trigger={{ title: "List", subtitle: directory, args: hasResults ? [`${filePaths.length} ${filePaths.length === 1 ? "file" : "files"}`] : isNoResults ? ["empty"] : undefined }}
 			defaultOpen={defaultOpen}
 			forceOpen={forceOpen}
 			locked={locked}
 		>
-			{filePaths && filePaths.length > 0 ? (
+			{hasResults ? (
 				<div data-scrollable className="max-h-72 overflow-auto">
 					<InlineFileList
 						paths={filePaths}
@@ -1931,13 +1989,10 @@ function ListTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 						toDisplayPath={toDisplayPath}
 					/>
 				</div>
+			) : isNoResults ? (
+				<ToolEmptyState message="Directory is empty" />
 			) : output ? (
-				<div
-					data-scrollable
-					className={`p-2 max-h-72 overflow-auto ${MD_FLUSH_CLASSES}`}
-				>
-					<UnifiedMarkdown content={output} isStreaming={false} />
-				</div>
+				<ToolOutputFallback output={output} toolName="list" />
 			) : null}
 		</BasicTool>
 	);
@@ -1979,12 +2034,7 @@ function WebFetchTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 			locked={locked}
 		>
 			{output && (
-				<div
-					data-scrollable
-					className={`p-2 max-h-72 overflow-auto ${MD_FLUSH_CLASSES}`}
-				>
-					<UnifiedMarkdown content={output} isStreaming={false} />
-				</div>
+				<ToolOutputFallback output={output} toolName="web_fetch" />
 			)}
 		</BasicTool>
 	);
@@ -2361,15 +2411,7 @@ function WebSearchTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 					})}
 				</div>
 			) : output ? (
-				<div
-					data-scrollable
-					className={`p-2 max-h-72 overflow-auto ${MD_FLUSH_CLASSES}`}
-				>
-					<UnifiedMarkdown
-						content={output}
-						isStreaming={status === "running"}
-					/>
-				</div>
+				<ToolOutputFallback output={output} isStreaming={status === "running"} toolName="web_search" />
 			) : null}
 		</BasicTool>
 	);
@@ -2569,15 +2611,7 @@ function ScrapeWebpageTool({
 					</div>
 				</div>
 			) : output ? (
-				<div
-					data-scrollable
-					className={`p-2 max-h-72 overflow-auto ${MD_FLUSH_CLASSES}`}
-				>
-					<UnifiedMarkdown
-						content={output.slice(0, 3000)}
-						isStreaming={status === "running"}
-					/>
-				</div>
+				<ToolOutputFallback output={output.slice(0, 3000)} isStreaming={status === "running"} toolName="scrape_webpage" />
 			) : null}
 		</BasicTool>
 	);
@@ -2725,15 +2759,7 @@ function ImageSearchTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 					</div>
 				</div>
 			) : output ? (
-				<div
-					data-scrollable
-					className={`p-2 max-h-72 overflow-auto ${MD_FLUSH_CLASSES}`}
-				>
-					<UnifiedMarkdown
-						content={output.slice(0, 3000)}
-						isStreaming={status === "running"}
-					/>
-				</div>
+				<ToolOutputFallback output={output.slice(0, 3000)} isStreaming={status === "running"} toolName="image_search" />
 			) : null}
 		</BasicTool>
 	);
@@ -4167,7 +4193,7 @@ function MemSearchTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 			forceOpen={forceOpen}
 			locked={locked}
 		>
-			{status === "completed" && parsed ? (
+			{status === "completed" && parsed && hasResults ? (
 				<div data-scrollable className="max-h-[400px] overflow-auto">
 					<div className="px-3 pb-2.5">
 						{/* Section label */}
@@ -4243,6 +4269,8 @@ function MemSearchTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 						)}
 					</div>
 				</div>
+			) : status === "completed" && !hasResults ? (
+				<ToolEmptyState message="No matching memories found" />
 			) : status === "completed" && output ? (
 				<div data-scrollable className="p-2 max-h-72 overflow-auto">
 					<pre className="font-mono text-[11px] whitespace-pre-wrap text-muted-foreground/60">
@@ -5626,11 +5654,7 @@ export function GenericTool({ part }: ToolProps) {
 			<StructuredOutput sections={genericStructuredSections.sections} />
 		</div>
 	) : output ? (
-		<div className="p-2.5 max-h-72 overflow-auto">
-			<pre className="font-mono text-[11px] whitespace-pre-wrap text-muted-foreground/80 leading-relaxed">
-				{output}
-			</pre>
-		</div>
+		<ToolOutputFallback output={output} toolName={part.tool} />
 	) : null;
 
 	return (
