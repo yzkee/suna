@@ -28,9 +28,9 @@ fatal()   { error "$*"; exit 1; }
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 INSTALL_DIR="${KORTIX_HOME:-$HOME/.kortix}"
-FRONTEND_IMAGE="kortix/kortix-frontend:0.6.1"
-API_IMAGE="kortix/kortix-api:0.6.1"
-SANDBOX_IMAGE="kortix/sandbox:0.6.1"
+FRONTEND_IMAGE="kortix/kortix-frontend:0.6.2"
+API_IMAGE="kortix/kortix-api:0.6.2"
+SANDBOX_IMAGE="kortix/sandbox:0.6.2"
 SUPABASE_POSTGRES_IMAGE="supabase/postgres:15.8.1.085"
 SUPABASE_GOTRUE_IMAGE="supabase/gotrue:v2.186.0"
 SUPABASE_KONG_IMAGE="kong:2.8.1"
@@ -1096,7 +1096,7 @@ cd "$DIR"
 
 G=$'\033[0;32m'; R=$'\033[0;31m'; C=$'\033[0;36m'; Y=$'\033[1;33m'
 B=$'\033[1m'; D=$'\033[2m'; N=$'\033[0m'
-VERSION="0.6.1"
+VERSION="0.6.2"
 
 _open() {
   if command -v open &>/dev/null; then open "$1" 2>/dev/null

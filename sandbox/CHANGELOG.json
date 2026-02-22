@@ -1,5 +1,33 @@
 [
   {
+    "version": "0.6.2",
+    "date": "2026-02-22",
+    "title": "Fix auth redirect loop and Docker entrypoint rewrite",
+    "description": "Fixes a critical auth redirect loop caused by middleware discarding cookie updates on public routes, and rewrites the Docker entrypoint to dynamically detect and replace baked Supabase URL/key values without hardcoding. Also fixes installer cookie name mismatch between server-side and client-side Supabase clients.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Middleware now returns supabaseResponse (not NextResponse.next()) for public routes, preserving auth cookie updates from token refresh and eliminating the sign-in redirect loop"
+      },
+      {
+        "type": "fix",
+        "text": "Docker entrypoint dynamically detects baked Supabase URL and anon key from the Next.js bundle via grep, replacing them with runtime env vars using a sed script file (no hardcoded keys, no eval)"
+      },
+      {
+        "type": "fix",
+        "text": "Installer ensures server-side SUPABASE_URL matches client-side NEXT_PUBLIC_SUPABASE_URL for consistent cookie names (both use localhost:13740 in local mode, public URL in VPS mode)"
+      },
+      {
+        "type": "fix",
+        "text": "Installer adds NODE_TLS_REJECT_UNAUTHORIZED=0 for VPS mode with self-signed certs"
+      },
+      {
+        "type": "fix",
+        "text": "Installer Caddyfile includes /auth/v1/* and /rest/v1/* reverse proxy routes to supabase-kong"
+      }
+    ]
+  },
+  {
     "version": "0.6.1",
     "date": "2026-02-22",
     "title": "Fix Docker frontend runtime env vars",
