@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
 import { AlertCircle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { SubmitButton } from '@/components/ui/submit-button';
+import { Button } from '@/components/ui/button';
 import { KortixLoader } from '@/components/ui/kortix-loader';
 import { toast } from '@/lib/toast';
-import { signInWithPassword, installOwner } from '@/app/auth/actions';
+import { createClient } from '@/lib/supabase/client';
 
 /* ─── Install Status Hook ──────────────────────────────────────────────────── */
 
@@ -32,8 +33,6 @@ export function useInstallStatus() {
 }
 
 /* ─── Self-Hosted Form Panel ───────────────────────────────────────────────── */
-// This renders JUST the form content — no full-page wrapper, no layout.
-// It's meant to slot into the left panel of the auth page layout.
 
 interface SelfHostedFormProps {
   returnUrl: string | null;
@@ -42,6 +41,8 @@ interface SelfHostedFormProps {
 
 export function SelfHostedForm({ returnUrl, installed }: SelfHostedFormProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const router = useRouter();
 
   if (installed === null) {
     return <KortixLoader size="medium" />;
@@ -49,35 +50,82 @@ export function SelfHostedForm({ returnUrl, installed }: SelfHostedFormProps) {
 
   const isInstaller = !installed;
 
-  const handleAuth = async (prevState: any, formData: FormData) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
     setErrorMessage(null);
+    setPending(true);
 
-    formData.set('returnUrl', returnUrl || '/onboarding');
-    formData.set('origin', typeof window !== 'undefined' ? window.location.origin : '');
+    const form = e.currentTarget;
+    const email = (form.elements.namedItem('email') as HTMLInputElement).value.trim().toLowerCase();
+    const password = (form.elements.namedItem('password') as HTMLInputElement).value;
+
+    if (!email || !email.includes('@')) {
+      setErrorMessage('Please enter a valid email address');
+      setPending(false);
+      return;
+    }
+
+    if (!password || password.length < 6) {
+      setErrorMessage('Password must be at least 6 characters');
+      setPending(false);
+      return;
+    }
+
+    const supabase = createClient();
 
     try {
-      const result = isInstaller
-        ? await installOwner(prevState, formData)
-        : await signInWithPassword(prevState, formData);
+      if (isInstaller) {
+        // Installer: sign up + sign in
+        const confirmPassword = (form.elements.namedItem('confirmPassword') as HTMLInputElement).value;
+        if (password !== confirmPassword) {
+          setErrorMessage('Passwords do not match');
+          setPending(false);
+          return;
+        }
 
-      if (result && typeof result === 'object') {
-        if ('success' in result && result.success && 'redirectTo' in result) {
-          window.location.href = result.redirectTo as string;
-          return result;
+        const { error: signUpError } = await supabase.auth.signUp({ email, password });
+        if (signUpError) {
+          setErrorMessage(signUpError.message);
+          setPending(false);
+          return;
         }
-        if ('message' in result) {
-          setErrorMessage(result.message as string);
-          toast.error(result.message as string);
-          return result;
+
+        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+        if (signInError) {
+          setErrorMessage(signInError.message);
+          setPending(false);
+          return;
+        }
+
+        // Provision sandbox (fire-and-forget)
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          fetch(`${backendUrl}/platform/init`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({}),
+          }).catch(() => {});
+        }
+      } else {
+        // Returning user: just sign in
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) {
+          setErrorMessage(error.message);
+          setPending(false);
+          return;
         }
       }
-    } catch (error: any) {
-      if (error?.digest?.startsWith('NEXT_REDIRECT')) {
-        return;
-      }
-      const errorMsg = error?.message || 'An unexpected error occurred';
-      setErrorMessage(errorMsg);
-      toast.error(errorMsg);
+
+      // Auth succeeded — AuthProvider will pick up the session via onAuthStateChange.
+      // Navigate to onboarding/dashboard.
+      router.push(returnUrl || '/onboarding');
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'An unexpected error occurred');
+      setPending(false);
     }
   };
 
@@ -126,7 +174,7 @@ export function SelfHostedForm({ returnUrl, installed }: SelfHostedFormProps) {
           </div>
         )}
 
-        <form className="space-y-3 sm:space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
           <Input
             id="email"
             name="email"
@@ -155,13 +203,13 @@ export function SelfHostedForm({ returnUrl, installed }: SelfHostedFormProps) {
             className="h-10 sm:h-11 text-[16px] sm:text-sm"
           />
 
-          <SubmitButton
-            formAction={handleAuth}
+          <Button
+            type="submit"
+            disabled={pending}
             className="w-full h-10 sm:h-11 text-sm sm:text-base"
-            pendingText="Setting up..."
           >
-            Create account & continue
-          </SubmitButton>
+            {pending ? 'Setting up...' : 'Create account & continue'}
+          </Button>
         </form>
 
         <p className="text-[11px] sm:text-xs text-muted-foreground text-center mt-6 leading-relaxed">
@@ -190,7 +238,7 @@ export function SelfHostedForm({ returnUrl, installed }: SelfHostedFormProps) {
         </div>
       )}
 
-      <form className="space-y-3 sm:space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
         <Input
           id="email"
           name="email"
@@ -210,13 +258,13 @@ export function SelfHostedForm({ returnUrl, installed }: SelfHostedFormProps) {
           className="h-10 sm:h-11 text-[16px] sm:text-sm"
         />
 
-        <SubmitButton
-          formAction={handleAuth}
+        <Button
+          type="submit"
+          disabled={pending}
           className="w-full h-10 sm:h-11 text-sm sm:text-base"
-          pendingText="Signing in..."
         >
-          Sign in
-        </SubmitButton>
+          {pending ? 'Signing in...' : 'Sign in'}
+        </Button>
       </form>
 
       <p className="text-[11px] sm:text-xs text-muted-foreground text-center mt-6 leading-relaxed">

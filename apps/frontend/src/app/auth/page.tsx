@@ -813,7 +813,7 @@ function SelfHostedLoginContent() {
     if (isLoading || !user) return;
     const redirectParam = searchParams.get('redirect');
     if (!redirectParam) {
-      window.location.href = returnUrl || '/onboarding';
+      router.push(returnUrl || '/onboarding');
       return;
     }
     setValidatingSession(true);
@@ -821,10 +821,10 @@ function SelfHostedLoginContent() {
       if (error) {
         supabase.auth.signOut().finally(() => setValidatingSession(false));
       } else {
-        window.location.href = returnUrl || '/onboarding';
+        router.push(returnUrl || '/onboarding');
       }
     });
-  }, [user, isLoading, returnUrl, searchParams, supabase]);
+  }, [user, isLoading, returnUrl, searchParams, supabase, router]);
 
   if (isLoading || validatingSession || statusLoading || user) {
     return (
