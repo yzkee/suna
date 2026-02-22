@@ -85,7 +85,7 @@ import {
 	proxyLocalhostUrl,
 } from "@/lib/utils/sandbox-url";
 import { useOpenCodePendingStore } from "@/stores/opencode-pending-store";
-import { useServerStore } from "@/stores/server-store";
+import { useServerStore, getActiveOpenCodeUrl } from "@/stores/server-store";
 import { openTabAndNavigate } from "@/stores/tab-store";
 
 import {
@@ -126,7 +126,7 @@ function useProxyUrl(localhostUrl: string): { proxyUrl: string; port: number } |
 	const activeServer = useServerStore((s) => {
 		return s.servers.find((srv) => srv.id === s.activeServerId) ?? null;
 	});
-	const serverUrl = activeServer?.url || "http://localhost:4096";
+	const serverUrl = activeServer?.url || getActiveOpenCodeUrl();
 	const mappedPorts = activeServer?.mappedPorts;
 
 	return useMemo(() => {
@@ -2936,7 +2936,7 @@ function PresentationGenTool({
 	);
 	const viewerProxyUrl = useMemo(() => {
 		if (!parsed?.viewer_url) return undefined;
-		const sUrl = activeServer?.url || "http://localhost:4096";
+		const sUrl = activeServer?.url || getActiveOpenCodeUrl();
 		return proxyLocalhostUrl(parsed.viewer_url, sUrl, activeServer?.mappedPorts);
 	}, [parsed?.viewer_url, activeServer?.url, activeServer?.mappedPorts]);
 

@@ -26,7 +26,7 @@ import {
   parseLocalhostUrl,
   proxyLocalhostUrl,
 } from '@/lib/utils/sandbox-url';
-import { useServerStore } from '@/stores/server-store';
+import { useServerStore, getActiveOpenCodeUrl } from '@/stores/server-store';
 import { openTabAndNavigate } from '@/stores/tab-store';
 import { cn } from '@/lib/utils';
 
@@ -38,7 +38,7 @@ function SidePanelIframePreview({ url, title }: { url: string; title?: string })
   const activeServer = useServerStore((s) => {
     return s.servers.find((srv) => srv.id === s.activeServerId) ?? null;
   });
-  const serverUrl = activeServer?.url || 'http://localhost:4096';
+  const serverUrl = activeServer?.url || getActiveOpenCodeUrl();
   const mappedPorts = activeServer?.mappedPorts;
 
   const proxy = useMemo(() => {
@@ -203,7 +203,7 @@ export function OcShowUserToolView({
   const activeServer = useServerStore((s) => {
     return s.servers.find((srv) => srv.id === s.activeServerId) ?? null;
   });
-  const serverUrl = activeServer?.url || 'http://localhost:4096';
+  const serverUrl = activeServer?.url || getActiveOpenCodeUrl();
   const mappedPorts = activeServer?.mappedPorts;
   const resolvedUrl = useMemo(
     () => proxyLocalhostUrl(url, serverUrl, mappedPorts) ?? url,

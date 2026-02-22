@@ -19,7 +19,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { ToolViewIconTitle } from '../shared/ToolViewIconTitle';
 import { ToolViewFooter } from '../shared/ToolViewFooter';
 import { LoadingState } from '../shared/LoadingState';
-import { useServerStore } from '@/stores/server-store';
+import { useServerStore, getActiveOpenCodeUrl } from '@/stores/server-store';
 import { proxyLocalhostUrl } from '@/lib/utils/sandbox-url';
 
 // ============================================================================
@@ -113,7 +113,7 @@ export function OcPresentationGenToolView({
   const activeServer = useServerStore((s) =>
     s.servers.find((srv) => srv.id === s.activeServerId) ?? null,
   );
-  const serverUrl = activeServer?.url || 'http://localhost:4096';
+  const serverUrl = activeServer?.url || getActiveOpenCodeUrl();
   const mappedPorts = activeServer?.mappedPorts;
 
   const viewerUrl = useMemo(() => {

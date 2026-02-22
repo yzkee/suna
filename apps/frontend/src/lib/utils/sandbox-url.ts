@@ -57,9 +57,15 @@ const EXCLUDED_PORTS = new Set([
 /**
  * Check if a URL path indicates the URL has already been proxied.
  * Prevents double-proxy issues like localhost:14000/proxy/14000/proxy/3210/...
+ *
+ * Catches both forms:
+ *   - /proxy/{port}/...            (Kortix Master direct)
+ *   - /v1/preview/{id}/{port}/...  (backend preview proxy)
+ *   - /preview/{id}/{port}/...     (legacy/short form)
  */
 function isAlreadyProxied(path: string): boolean {
-  return /^\/proxy\/\d+/.test(path);
+  return /^\/proxy\/\d+/.test(path) ||
+    /^\/(?:v1\/)?preview\//.test(path);
 }
 
 function normalizePath(path: string): string {
@@ -250,7 +256,7 @@ export function getProxyBaseUrl(
  * Check if a URL is a localhost URL that we can proxy.
  * Excludes infrastructure ports AND the current app's own port so we never
  * rewrite the frontend's own navigation links.
- * Also excludes URLs that are already proxied (path starts with /proxy/).
+ * Also excludes URLs that are already proxied (path starts with /proxy/ or /v1/preview/).
  */
 export function isProxiableLocalhostUrl(url: string): boolean {
   const parsed = parseLocalhostUrl(url);
@@ -258,10 +264,14 @@ export function isProxiableLocalhostUrl(url: string): boolean {
 
   if (EXCLUDED_PORTS.has(parsed.port)) return false;
 
-  // Skip URLs whose path already contains /proxy/ (already rewritten)
+  // Skip URLs whose path already contains /proxy/ or /preview/ (already rewritten)
   if (isAlreadyProxied(parsed.path)) return false;
 
-  // Never proxy URLs that point at the app itself
+  // Never proxy URLs that point at the app itself or the backend API.
+  // The backend typically runs on a different port (e.g., 8008) than the app (e.g., 3000),
+  // but a URL like localhost:8008/v1/preview/.../proxy/3210/ is already proxied and
+  // should NOT be re-proxied. The path check above catches this, but we also
+  // guard by origin to be safe.
   if (typeof window !== 'undefined') {
     try {
       const appOrigin = window.location.origin;
