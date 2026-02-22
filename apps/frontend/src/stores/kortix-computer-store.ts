@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { HIDE_BROWSER_TAB } from '@/components/thread/utils';
 import { useFilesStore } from '@/features/files';
+import { openTabAndNavigate } from '@/stores/tab-store';
 
 export type ViewType = 'tools' | 'files' | 'browser' | 'desktop' | 'terminal' | 'changes';
 
@@ -91,19 +92,15 @@ export const useKortixComputerStore = create<KortixComputerState>()(
         set({ activeView: finalView });
       },
       
-      openFileInComputer: (filePath: string, filePathList?: string[], targetLine?: number) => {
-        // Delegate file state to the unified files store
-        const filesStore = useFilesStore.getState();
-        if (filePathList && filePathList.length > 0) {
-          const index = filePathList.indexOf(filePath);
-          filesStore.openFileWithList(filePath, filePathList, Math.max(0, index));
-        } else {
-          filesStore.openFile(filePath, targetLine);
-        }
-        
-        set({
-          activeView: 'tools',
-          shouldOpenPanel: true,
+      openFileInComputer: (filePath: string, _filePathList?: string[], _targetLine?: number) => {
+        // Open the file as a new tab (same as clicking a file in the explorer)
+        const fileName = filePath.split('/').pop() || filePath;
+        const tabId = `file:${filePath}`;
+        openTabAndNavigate({
+          id: tabId,
+          title: fileName,
+          type: 'file',
+          href: `/files/${encodeURIComponent(filePath)}`,
         });
       },
       

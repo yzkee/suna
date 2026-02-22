@@ -101,15 +101,55 @@ export const SessionLayout = memo(function SessionLayout({
 
   const mainPanelRef = useRef<ResizablePrimitive.ImperativePanelHandle>(null);
   const sidePanelRef = useRef<ResizablePrimitive.ImperativePanelHandle>(null);
+  const panelGroupRef = useRef<HTMLDivElement>(null);
+  const prevExpandedRef = useRef(isExpanded);
 
   // Side panel shows for tool calls only now (terminal/desktop moved to right sidebar)
   const shouldShowPanel = isSidePanelOpen && hasToolCalls;
+
+  // Track whether we're mid-animation so we can use relaxed constraints
+  // that allow intermediate sizes (e.g. 75%) during the transition.
+  const [isAnimating, setIsAnimating] = useState(false);
+
+  // Enable smooth CSS transition on panel flex properties during expand/collapse.
+  // react-resizable-panels uses flex-basis internally; adding a transition on
+  // the flex shorthand makes the imperative resize() calls animate smoothly.
+  const enablePanelTransition = useCallback(() => {
+    const el = panelGroupRef.current;
+    if (!el) return;
+    const panels = el.querySelectorAll<HTMLElement>('[data-slot="resizable-panel"]');
+    panels.forEach((panel) => {
+      panel.style.transition = 'flex 300ms cubic-bezier(0.4, 0, 0.2, 1)';
+    });
+  }, []);
+
+  const disablePanelTransition = useCallback(() => {
+    const el = panelGroupRef.current;
+    if (!el) return;
+    const panels = el.querySelectorAll<HTMLElement>('[data-slot="resizable-panel"]');
+    panels.forEach((panel) => {
+      panel.style.transition = 'none';
+    });
+  }, []);
 
   // Imperatively resize panels when visibility, expand state, or session changes.
   // Including sessionId ensures panels are correctly sized after navigating
   // between sessions (e.g. fork → parent), since the ResizablePanelGroup may
   // retain stale sizes from the previous session's layout.
   useEffect(() => {
+    const expandChanged = prevExpandedRef.current !== isExpanded;
+    prevExpandedRef.current = isExpanded;
+
+    // Only animate when the expand state toggles (not on initial mount or
+    // session switch). Panel open/close has its own flow.
+    const shouldAnimate = expandChanged && shouldShowPanel;
+
+    if (shouldAnimate) {
+      // Relax constraints first so intermediate sizes are allowed,
+      // then enable CSS transition and trigger the resize.
+      setIsAnimating(true);
+    }
+
     if (shouldShowPanel) {
       if (isExpanded) {
         sidePanelRef.current?.resize(100);
@@ -122,7 +162,37 @@ export const SessionLayout = memo(function SessionLayout({
       sidePanelRef.current?.resize(0);
       mainPanelRef.current?.resize(100);
     }
-  }, [shouldShowPanel, isExpanded, sessionId]);
+
+    if (shouldAnimate) {
+      const timer = setTimeout(() => {
+        disablePanelTransition();
+        setIsAnimating(false);
+      }, 320);
+      return () => clearTimeout(timer);
+    }
+  }, [shouldShowPanel, isExpanded, sessionId, disablePanelTransition]);
+
+  // Enable the CSS transition once isAnimating flips to true and the relaxed
+  // constraints have been applied to the DOM (i.e. after React re-renders).
+  // We use a layout-effect–like pattern with requestAnimationFrame to ensure
+  // the browser has committed the constraint update before we add the
+  // transition and trigger the resize.
+  useEffect(() => {
+    if (!isAnimating) return;
+    // Wait one frame so the relaxed min/max sizes are painted,
+    // then enable the transition and imperatively trigger the resize.
+    const raf = requestAnimationFrame(() => {
+      enablePanelTransition();
+      if (isExpanded) {
+        sidePanelRef.current?.resize(100);
+        mainPanelRef.current?.resize(0);
+      } else {
+        sidePanelRef.current?.resize(50);
+        mainPanelRef.current?.resize(50);
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [isAnimating, enablePanelTransition, isExpanded]);
 
   const renderAssistantMessage = useCallback(() => null, []);
   const renderToolResult = useCallback(() => null, []);
@@ -158,7 +228,7 @@ export const SessionLayout = memo(function SessionLayout({
   // Desktop: resizable split panel
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex-1 min-h-0 flex overflow-hidden">
+      <div ref={panelGroupRef} className="flex-1 min-h-0 flex overflow-hidden">
         <ResizablePanelGroup
           direction="horizontal"
           className="h-full"
@@ -168,12 +238,12 @@ export const SessionLayout = memo(function SessionLayout({
           <ResizablePanel
             ref={mainPanelRef}
             defaultSize={shouldShowPanel ? 50 : 100}
-            minSize={shouldShowPanel ? (isExpanded ? 0 : 30) : 100}
-            maxSize={shouldShowPanel ? (isExpanded ? 0 : 65) : 100}
-            collapsible={isExpanded}
+            minSize={shouldShowPanel ? (isAnimating ? 0 : isExpanded ? 0 : 30) : 100}
+            maxSize={shouldShowPanel ? (isAnimating ? 100 : isExpanded ? 0 : 65) : 100}
+            collapsible={isExpanded || isAnimating}
             className={cn(
               "flex flex-col overflow-hidden relative bg-transparent pl-3 pr-1.5",
-              isExpanded && "hidden"
+              isExpanded && !isAnimating && "opacity-0 pointer-events-none"
             )}
           >
             <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
@@ -182,28 +252,29 @@ export const SessionLayout = memo(function SessionLayout({
           </ResizablePanel>
 
           {/* Resizable handle */}
-          {!isExpanded && (
-            <ResizableHandle
-              withHandle={shouldShowPanel}
-              disabled={!shouldShowPanel}
-              className={cn('z-20', shouldShowPanel ? 'w-0' : 'w-0 opacity-0')}
-            />
-          )}
+          <ResizableHandle
+            withHandle={shouldShowPanel && !isExpanded}
+            disabled={!shouldShowPanel || isExpanded}
+            className={cn(
+              'z-20 transition-opacity duration-300',
+              shouldShowPanel && !isExpanded ? 'w-0 opacity-100' : 'w-0 opacity-0 pointer-events-none'
+            )}
+          />
 
           {/* Side panel (KortixComputer — Actions only) */}
           <ResizablePanel
             ref={sidePanelRef}
             defaultSize={shouldShowPanel ? 50 : 0}
-            minSize={shouldShowPanel ? (isExpanded ? 100 : 35) : 0}
-            maxSize={shouldShowPanel ? (isExpanded ? 100 : 70) : 0}
-            collapsible={!isExpanded}
+            minSize={shouldShowPanel ? (isAnimating ? 0 : isExpanded ? 100 : 35) : 0}
+            maxSize={shouldShowPanel ? (isAnimating ? 100 : isExpanded ? 100 : 70) : 0}
+            collapsible={!isExpanded || isAnimating}
             className={cn(
               'relative overflow-hidden',
               !shouldShowPanel && 'hidden',
             )}
           >
             <div className={cn(
-              "h-full",
+              "h-full transition-[padding] duration-300 ease-out",
               isExpanded ? "p-0" : "pt-3 pb-5 pr-3 pl-1.5"
             )}>
               <KortixComputer

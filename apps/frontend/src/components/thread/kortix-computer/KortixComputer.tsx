@@ -749,7 +749,8 @@ export const KortixComputer = memo(function KortixComputer({
     <div
       className={cn(
         "h-full w-full flex flex-col bg-card overflow-hidden min-w-0 min-h-0",
-        isExpanded ? "rounded-none border-0" : "border rounded-2xl"
+        "transition-[border-radius,border-color] duration-300 ease-out",
+        isExpanded ? "rounded-none border-transparent" : "border rounded-2xl"
       )}
       style={{ contain: 'strict' }}
     >
