@@ -33,7 +33,23 @@ function adaptToolState(state: ToolState): ToolResultData | undefined {
         error: state.error,
         timestamp: state.time?.end ? new Date(state.time.end).toISOString() : undefined,
       };
-    case 'pending':
+    case 'pending': {
+      // A "stale pending" tool has empty input — the backend never followed
+      // up with a running/completed state (session ended abruptly). Treat it
+      // as a completed-but-empty result so the side panel doesn't show an
+      // infinite spinner.
+      const hasInput = Object.keys(state.input ?? {}).length > 0;
+      const hasRaw = !!(state as any).raw;
+      if (!hasInput && !hasRaw) {
+        return {
+          success: false,
+          output: 'Tool call was not completed',
+          error: 'Tool call was not completed',
+        };
+      }
+      // Genuine pending — tool is still streaming input
+      return undefined;
+    }
     case 'running':
       // No result yet — tool is still in progress
       return undefined;

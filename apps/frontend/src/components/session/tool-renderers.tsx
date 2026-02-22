@@ -1585,6 +1585,7 @@ ToolRegistry.register("morph_edit", EditTool);
 function WriteTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 	const input = partInput(part);
 	const metadata = partMetadata(part);
+	const status = partStatus(part);
 	const filePath = input.filePath as string | undefined;
 	const filename = getFilename(filePath) || "";
 	const directory = filePath ? getDirectory(filePath) : undefined;
@@ -1595,6 +1596,11 @@ function WriteTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 		filePath,
 	);
 
+	// Detect stale pending: no input was ever received
+	const isStalePending =
+		status === "pending" &&
+		Object.keys(input).length === 0;
+
 	return (
 		<BasicTool
 			icon={<FileCode2 className="size-3.5 flex-shrink-0" />}
@@ -1603,21 +1609,29 @@ function WriteTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 					<span className="font-medium text-xs text-foreground whitespace-nowrap">
 						Write
 					</span>
-					<span className="text-xs text-foreground font-mono truncate">
-						{filename}
-					</span>
-					{directory && (
-						<span className="text-muted-foreground text-[10px] font-mono truncate hidden sm:inline">
-							{directory}
+					{filename ? (
+						<>
+							<span className="text-xs text-foreground font-mono truncate">
+								{filename}
+							</span>
+							{directory && (
+								<span className="text-muted-foreground text-[10px] font-mono truncate hidden sm:inline">
+									{directory}
+								</span>
+							)}
+						</>
+					) : isStalePending ? (
+						<span className="text-muted-foreground text-xs italic">
+							Not completed
 						</span>
-					)}
+					) : null}
 				</div>
 			}
 			defaultOpen={defaultOpen}
 			forceOpen={forceOpen}
 			locked={locked}
 		>
-			{content && (
+			{content ? (
 				<div
 					data-scrollable
 					className={`max-h-96 overflow-auto ${MD_FLUSH_CLASSES}`}
@@ -1629,7 +1643,11 @@ function WriteTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 						/>
 					</div>
 				</div>
-			)}
+			) : isStalePending ? (
+				<div className="px-3 py-2 text-muted-foreground/60 text-[11px] italic">
+					Tool call was not completed
+				</div>
+			) : null}
 			<DiagnosticsDisplay diagnostics={diagnostics} />
 		</BasicTool>
 	);
@@ -5793,12 +5811,11 @@ export function ToolPartRenderer({
 							</span>
 						)}
 						<span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted/60 text-muted-foreground font-medium ml-auto flex-shrink-0">
-							Error
-						</span>
-					</div>
-				}
-				defaultOpen
-			>
+						Error
+					</span>
+				</div>
+			}
+		>
 				<div className="p-0">
 					<ToolError error={errorStr} toolName={part.tool} />
 				</div>
@@ -5810,8 +5827,18 @@ export function ToolPartRenderer({
 	const RegisteredComponent = ToolRegistry.get(part.tool);
 	const forceOpen = !!permission || !!question;
 	const isLocked = !!permission || !!question;
+
+	// A tool part is "stale pending" when the backend sent a pending state
+	// with empty input/raw and never followed up with running/completed.
+	// This happens when the session ends abruptly. Don't show a spinner for these.
+	const isStalePending =
+		part.state.status === "pending" &&
+		Object.keys(part.state.input ?? {}).length === 0 &&
+		!(part.state as any).raw;
+
 	const isRunning =
-		part.state.status === "running" || part.state.status === "pending";
+		!isStalePending &&
+		(part.state.status === "running" || part.state.status === "pending");
 
 	const toolElement = RegisteredComponent ? (
 		<RegisteredComponent
