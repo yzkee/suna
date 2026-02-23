@@ -718,9 +718,9 @@ export const UnifiedMarkdown = React.memo<UnifiedMarkdownProps>(({
     // PARAGRAPHS - Optimal line height for readability
     // ═══════════════════════════════════════════════════════════════
     p: ({ children }: { children?: React.ReactNode }) => (
-      <p className="text-sm text-foreground leading-relaxed my-4 first:mt-0 last:mb-0 [&:has(img)]:my-0">
+      <div className="text-sm text-foreground leading-relaxed my-4 first:mt-0 last:mb-0 [&:has(img)]:my-0">
         {children}
-      </p>
+      </div>
     ),
 
     // ═══════════════════════════════════════════════════════════════
