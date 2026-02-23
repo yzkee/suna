@@ -264,15 +264,80 @@ The release script auto-stamps these files:
 
 You do NOT need to manually edit versions in these files.
 
-## Upstream CLI Version
+## Upstream OpenCode Version Control
 
-The OpenCode CLI version is pinned in `sandbox/package.json` under `dependencies.opencode-ai`.
-To update the CLI version:
+The OpenCode CLI and SDK are **upstream packages** published by anomalyco — we do not
+publish our own fork. We control which version runs in every sandbox via exact pins.
 
-1. Check what's available: `npm view opencode-ai versions --json`
-2. Update `sandbox/package.json`: `"opencode-ai": "1.2.10"`
-3. The Dockerfile reads this version and installs it during build
-4. The `postinstall.sh` reads this version and installs it during live updates
+### Single source of truth
+
+```
+sandbox/package.json
+  "dependencies": {
+    "opencode-ai": "1.2.10"        ← CLI version (exact pin, no ^ or ~)
+  }
+
+sandbox/opencode/package.json
+  "dependencies": {
+    "@opencode-ai/plugin": "1.2.10" ← plugin version (exact pin, SDK is transitive dep)
+  }
+```
+
+### Why it will never auto-update
+
+1. **Exact pin** — `"1.2.10"` not `"^1.2.10"`. npm will never resolve a different version.
+2. **Explicit version check** — `postinstall.sh` compares `opencode --version` against the
+   pinned value. If they match, it skips installation entirely.
+3. **No background updater** — there is no cron, watcher, or auto-update mechanism for the
+   CLI anywhere in the sandbox. It only changes when you publish a new `@kortix/sandbox`
+   with a different pin.
+4. **Release script doesn't touch it** — Step 3 (bump versions) only stamps the top-level
+   `"version"` field in `sandbox/package.json`. It does **not** modify `dependencies.opencode-ai`.
+
+### Two paths consume the pin
+
+| Path | When | Behavior |
+|------|------|----------|
+| **Dockerfile** (line ~107) | Docker image build | Reads pin, installs exactly that version. Falls back to `latest` only if the pinned version doesn't exist on npm yet. |
+| **postinstall.sh** (line ~73) | Live sandbox update | Reads pin, compares with current `opencode --version`, installs only if different. |
+
+### How to bump the CLI version
+
+```bash
+# 1. Check available versions
+npm view opencode-ai versions --json
+
+# 2. Update the pin in sandbox/package.json
+#    "opencode-ai": "1.2.10"  →  "opencode-ai": "1.3.0"
+
+# 3. Release as usual — the new sandbox package will carry the new pin
+./sandbox/release.sh 0.8.0
+```
+
+When running sandboxes update to `@kortix/sandbox@0.8.0`, `postinstall.sh` sees the
+version mismatch and installs `opencode-ai@1.3.0`.
+
+### How to bump the SDK / plugin version
+
+The SDK (`@opencode-ai/sdk`) is a **transitive dependency** of `@opencode-ai/plugin`.
+To update:
+
+```bash
+# 1. Update sandbox/opencode/package.json
+#    "@opencode-ai/plugin": "1.2.10"  →  "@opencode-ai/plugin": "1.3.0"
+
+# 2. Update apps/frontend/package.json (if SDK types changed)
+#    "@opencode-ai/sdk": "^1.2.10"  →  "@opencode-ai/sdk": "^1.3.0"
+#    Then: pnpm install --filter Kortix-Computer-Frontend
+
+# 3. Release as usual
+```
+
+### How to keep OpenCode the same across a release
+
+Just don't touch the `"opencode-ai"` or `"@opencode-ai/plugin"` values. A sandbox-only
+release (new agents, skills, tools, configs, etc.) will ship with the exact same CLI and
+SDK versions as before.
 
 ## Artifact Tracking
 
