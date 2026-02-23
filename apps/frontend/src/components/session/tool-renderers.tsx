@@ -537,10 +537,15 @@ export function BasicTool({
 								<span className="font-medium text-xs text-foreground whitespace-nowrap">
 									{trigger.title}
 								</span>
-								{trigger.subtitle && (
+							{trigger.subtitle && (
+								running ? (
+									<TextShimmer duration={1} spread={2} className="text-xs truncate font-mono">
+										{trigger.subtitle}
+									</TextShimmer>
+								) : (
 									<span
 										className={cn(
-											"text-muted-foreground text-xs truncate font-mono",
+											"text-xs truncate font-mono inline-flex",
 											onSubtitleClick &&
 												"cursor-pointer hover:text-foreground underline-offset-2 hover:underline",
 										)}
@@ -553,9 +558,12 @@ export function BasicTool({
 												: undefined
 										}
 									>
-										{trigger.subtitle}
+										<TextShimmer duration={1} spread={2} repeat={1} className="text-xs font-mono">
+											{trigger.subtitle}
+										</TextShimmer>
 									</span>
-								)}
+								)
+							)}
 								{trigger.args &&
 									trigger.args.length > 0 &&
 									trigger.args.map((arg, i) => (

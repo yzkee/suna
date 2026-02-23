@@ -10,6 +10,8 @@ export type TextShimmerProps = {
   className?: string;
   duration?: number;
   spread?: number;
+  /** Number of times to play. Defaults to Infinity (loop forever). Use 1 for a single sweep. */
+  repeat?: number;
 };
 
 function TextShimmerComponent({
@@ -18,6 +20,7 @@ function TextShimmerComponent({
   className,
   duration = 2,
   spread = 2,
+  repeat = Infinity,
 }: TextShimmerProps) {
   const MotionComponent = motion.create(
     Component as keyof JSX.IntrinsicElements
@@ -39,10 +42,10 @@ function TextShimmerComponent({
       initial={{ backgroundPosition: '100% center' }}
       animate={{ backgroundPosition: '0% center' }}
       transition={{
-        repeat: Infinity,
+        repeat: repeat === Infinity ? Infinity : repeat - 1,
         duration,
         ease: 'linear',
-        repeatDelay: 0.5,
+        repeatDelay: repeat === Infinity ? 0.5 : 0,
       }}
       style={
         {

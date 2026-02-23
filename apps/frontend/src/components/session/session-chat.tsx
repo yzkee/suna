@@ -58,6 +58,7 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { KortixLoader } from "@/components/ui/kortix-loader";
+import { TextShimmer } from "@/components/ui/text-shimmer";
 import { Textarea } from "@/components/ui/textarea";
 import {
 	Tooltip,
@@ -1958,15 +1959,19 @@ function SessionTurn({
 					) : (
 						<Check className="size-3 text-muted-foreground/70" />
 					)}
+				{working ? (
+					<TextShimmer duration={1} spread={2} className="text-xs">
+						{throttledStatus || "Working..."}
+					</TextShimmer>
+				) : (
 					<span>
 						{retryInfo
 							? retryInfo.message.length > 60
 								? retryInfo.message.slice(0, 60) + "..."
 								: retryInfo.message
-							: working
-								? throttledStatus || "Working..."
-								: "Completed"}
+							: "Completed"}
 					</span>
+				)}
 					{retryInfo && (
 						<>
 							<span className="text-muted-foreground/50">·</span>
