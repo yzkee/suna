@@ -119,6 +119,20 @@ function resolveRouteTab(pathname: string): Omit<Tab, 'openedAt'> | null {
     };
   }
 
+  // File viewer routes: /files/<encoded-file-path>
+  // Next.js decodes %2F in the URL, so the pathname arrives as /files/path/to/file.ext
+  const fileMatch = pathname.match(/^\/files\/(.+)$/);
+  if (fileMatch) {
+    const filePath = fileMatch[1];
+    const fileName = filePath.split('/').pop() || filePath;
+    return {
+      id: `file:${filePath}`,
+      title: fileName,
+      type: 'file',
+      href: `/files/${encodeURIComponent(filePath)}`,
+    };
+  }
+
   return null;
 }
 
@@ -702,8 +716,9 @@ export function TabBar() {
       }
     });
 
-    // If the current URL matches an existing tab, activate it
-    const matchingTab = orderedTabs.find((t) => t.href === pathname);
+    // If the current URL matches an existing tab, activate it.
+    // Compare both raw and decoded hrefs since Next.js decodes %2F in pathnames.
+    const matchingTab = orderedTabs.find((t) => t.href === pathname || decodeURIComponent(t.href) === pathname);
     if (matchingTab && matchingTab.id !== activeTabId) {
       setActiveTab(matchingTab.id);
       return;

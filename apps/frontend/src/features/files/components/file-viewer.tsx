@@ -5,7 +5,9 @@ import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
+  Code,
   Download,
+  Eye,
   FileWarning,
   GitBranch,
   History,
@@ -20,6 +22,7 @@ import { useFileContent } from '../hooks';
 import { downloadFile, uploadFile, readFileAsBlob } from '../api/opencode-files';
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
+import { UnifiedMarkdown } from '@/components/markdown';
 
 // Lazy-load heavy renderers to keep initial bundle small
 const PdfRenderer = lazy(() =>
@@ -237,8 +240,11 @@ export function FileViewer() {
   const language = getLanguageFromExt(fileName);
   const fileCategory = getFileCategory(fileName, fileContent?.mimeType);
   const [isEditing, setIsEditing] = useState(false);
+  const [isMarkdownPreview, setIsMarkdownPreview] = useState(false);
   const [highlightedHtml, setHighlightedHtml] = useState<string>('');
   const { resolvedTheme } = useTheme();
+
+  const isMarkdownFile = language === 'markdown';
 
   // Scroll to target line when set (after Shiki render completes)
   useEffect(() => {
@@ -291,6 +297,7 @@ export function FileViewer() {
   // Reset editing mode when file changes
   useEffect(() => {
     setIsEditing(false);
+    setIsMarkdownPreview(false);
     setHighlightedHtml('');
   }, [selectedFilePath]);
 
@@ -448,6 +455,26 @@ export function FileViewer() {
             </Button>
           )}
 
+          {/* Markdown preview toggle */}
+          {isMarkdownFile && fileContent?.type === 'text' && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn('h-7 w-7', isMarkdownPreview && 'text-primary')}
+              onClick={() => {
+                setIsMarkdownPreview((v) => !v);
+                setIsEditing(false);
+              }}
+              title={isMarkdownPreview ? 'View source' : 'Preview markdown'}
+            >
+              {isMarkdownPreview ? (
+                <Code className="h-3.5 w-3.5" />
+              ) : (
+                <Eye className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          )}
+
           <Button
             variant="ghost"
             size="icon"
@@ -590,7 +617,11 @@ export function FileViewer() {
                   File has uncommitted changes
                 </div>
               )}
-              {isEditing ? (
+              {isMarkdownPreview && isMarkdownFile ? (
+                <div className="w-full h-full overflow-auto p-6">
+                  <UnifiedMarkdown content={displayContent} />
+                </div>
+              ) : isEditing ? (
                 <textarea
                   autoFocus
                   value={displayContent}

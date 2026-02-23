@@ -2,7 +2,9 @@
 
 import { useMemo, useCallback, useState, useEffect, lazy, Suspense } from 'react';
 import {
+  Code,
   Download,
+  Eye,
   FileWarning,
   GitBranch,
   Loader2,
@@ -16,6 +18,7 @@ import { downloadFile, uploadFile, readFileAsBlob } from '@/features/files/api/o
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
 import { useTabStore } from '@/stores/tab-store';
+import { UnifiedMarkdown } from '@/components/markdown';
 
 // Lazy-load heavy renderers
 const PdfRenderer = lazy(() =>
@@ -191,11 +194,13 @@ export function FileTabContent({ tabId, filePath }: FileTabContentProps) {
   const [editedContent, setEditedContent] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [isMarkdownPreview, setIsMarkdownPreview] = useState(false);
   const [highlightedHtml, setHighlightedHtml] = useState<string>('');
   const { resolvedTheme } = useTheme();
 
   const fileName = filePath.split('/').pop() || '';
   const language = getLanguageFromExt(fileName);
+  const isMarkdownFile = language === 'markdown';
   const fileCategory = getFileCategory(fileName, fileContent?.mimeType);
 
   const { blobUrl, blob: docxBlob, blobLoading, blobError } = useBinaryBlob(filePath, fileCategory);
@@ -211,6 +216,7 @@ export function FileTabContent({ tabId, filePath }: FileTabContentProps) {
   // Reset editing mode when file changes
   useEffect(() => {
     setIsEditing(false);
+    setIsMarkdownPreview(false);
     setHighlightedHtml('');
     setEditedContent(null);
   }, [filePath]);
@@ -302,6 +308,26 @@ export function FileTabContent({ tabId, filePath }: FileTabContentProps) {
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
                 <Save className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          )}
+
+          {/* Markdown preview toggle */}
+          {isMarkdownFile && fileContent?.type === 'text' && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn('h-7 w-7', isMarkdownPreview && 'text-primary')}
+              onClick={() => {
+                setIsMarkdownPreview((v) => !v);
+                setIsEditing(false);
+              }}
+              title={isMarkdownPreview ? 'View source' : 'Preview markdown'}
+            >
+              {isMarkdownPreview ? (
+                <Code className="h-3.5 w-3.5" />
+              ) : (
+                <Eye className="h-3.5 w-3.5" />
               )}
             </Button>
           )}
@@ -416,7 +442,11 @@ export function FileTabContent({ tabId, filePath }: FileTabContentProps) {
                 File has uncommitted changes
               </div>
             )}
-            {isEditing ? (
+            {isMarkdownPreview && isMarkdownFile ? (
+              <div className="w-full h-full overflow-auto p-6">
+                <UnifiedMarkdown content={displayContent} />
+              </div>
+            ) : isEditing ? (
               <textarea
                 autoFocus
                 value={displayContent}
