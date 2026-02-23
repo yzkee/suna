@@ -497,6 +497,18 @@ export function BasicTool({
 	const running = useContext(ToolRunningContext);
 	const [open, setOpen] = useState(defaultOpen);
 
+	// Track if this tool just finished (running → not running) so we can
+	// play a single completion shimmer. If it was already completed on mount
+	// (e.g. reopening a session), don't shimmer.
+	const wasRunningRef = useRef(running);
+	const [justCompleted, setJustCompleted] = useState(false);
+	useEffect(() => {
+		if (wasRunningRef.current && !running) {
+			setJustCompleted(true);
+		}
+		wasRunningRef.current = running;
+	}, [running]);
+
 	useEffect(() => {
 		if (forceOpen) setOpen(true);
 	}, [forceOpen]);
@@ -545,7 +557,7 @@ export function BasicTool({
 								) : (
 									<span
 										className={cn(
-											"text-xs truncate font-mono inline-flex",
+											"text-muted-foreground text-xs truncate font-mono",
 											onSubtitleClick &&
 												"cursor-pointer hover:text-foreground underline-offset-2 hover:underline",
 										)}
@@ -558,9 +570,11 @@ export function BasicTool({
 												: undefined
 										}
 									>
-										<TextShimmer duration={1} spread={2} repeat={1} className="text-xs font-mono">
-											{trigger.subtitle}
-										</TextShimmer>
+										{justCompleted ? (
+											<TextShimmer duration={1} spread={2} repeat={1} className="text-xs font-mono">
+												{trigger.subtitle}
+											</TextShimmer>
+										) : trigger.subtitle}
 									</span>
 								)
 							)}
