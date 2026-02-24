@@ -50,6 +50,22 @@
       {
         "name": "v0.7.1",
         "target": "github-release"
+      },
+      {
+        "name": "kortix/sandbox:0.7.1",
+        "target": "docker-hub"
+      },
+      {
+        "name": "kortix-sandbox-v0.7.1",
+        "target": "daytona"
+      },
+      {
+        "name": "kortix/kortix-api:0.7.1",
+        "target": "docker-hub"
+      },
+      {
+        "name": "kortix/kortix-frontend:0.7.1",
+        "target": "docker-hub"
       }
     ]
   },
