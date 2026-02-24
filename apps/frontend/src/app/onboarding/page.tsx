@@ -242,7 +242,7 @@ export default function OnboardingPage() {
     (async () => {
       try {
         let finalSessionId: string | null = null;
-        let isNewSession = false;
+        let needsCommand = false;
 
         // 1. Try to resume an existing onboarding session
         const res = await authenticatedFetch(`${instanceUrl}/env/ONBOARDING_SESSION_ID`).catch(() => null);
@@ -254,6 +254,14 @@ export default function OnboardingPage() {
             const result = await client.session.get({ sessionID: existingId });
             if (result.data) {
               finalSessionId = existingId;
+              // Check if the session has any messages — if empty, the
+              // /onboarding command was never sent or was lost (e.g. aborted
+              // before it started). Fire it again so the user isn't stuck on
+              // a blank chat.
+              const msgs = await client.session.messages({ sessionID: existingId });
+              if (!msgs.data || msgs.data.length === 0) {
+                needsCommand = true;
+              }
             }
           } catch {
             authenticatedFetch(`${instanceUrl}/env/ONBOARDING_SESSION_ID`, {
@@ -269,12 +277,13 @@ export default function OnboardingPage() {
           const session = await createSessionRef.current.mutateAsync({ title: 'Kortix Onboarding' });
           persistOnboardingSessionId(session.id);
           finalSessionId = session.id;
-          isNewSession = true;
+          needsCommand = true;
         }
 
-        // 3. Fire /onboarding command ONLY once, ever.
-        //    commandFiredRef persists across re-renders/strict-mode remounts.
-        if (isNewSession && !commandFiredRef.current) {
+        // 3. Fire /onboarding command if this is a new session or a resumed
+        //    session with no messages. commandFiredRef guards against
+        //    duplicate fires across re-renders / strict-mode remounts.
+        if (needsCommand && !commandFiredRef.current) {
           commandFiredRef.current = true;
           executeCommandRef.current.mutate({ sessionId: finalSessionId, command: 'onboarding' });
         }
