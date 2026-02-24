@@ -1,7 +1,7 @@
 export type SandboxProviderName = 'daytona' | 'local_docker';
 
 /** Single source of truth for the sandbox version. Update on each release. */
-export const SANDBOX_VERSION = '0.6.3';
+export const SANDBOX_VERSION = '0.7.0';
 
 /** Parse comma-separated provider list (e.g. "daytona,local_docker") */
 function parseAllowedProviders(raw: string): SandboxProviderName[] {
@@ -202,6 +202,18 @@ export const config = {
   },
 
 };
+
+// ─── Billing Markup Constants ────────────────────────────────────────────────
+//
+// Two pricing modes based on whose API key is used:
+//   • Kortix keys (user uses our keys):  1.2x provider cost (20% markup)
+//   • User's own keys (passthrough):     0.1x provider cost (10% platform fee)
+
+/** Markup when Kortix provides the API key. */
+export const KORTIX_MARKUP = 1.2;
+
+/** Platform fee when user provides their own API key. */
+export const PLATFORM_FEE_MARKUP = 0.1;
 
 // ─── Tool Pricing (Router) ──────────────────────────────────────────────────
 

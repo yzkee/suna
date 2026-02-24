@@ -1,9 +1,13 @@
-import { config } from '../../config';
+import { config, KORTIX_MARKUP } from '../../config';
 import { getModel, getAllModels, resolveOpenRouterId, type ModelConfig } from '../config/models';
 
 /**
  * Calculate cost based on token usage and model pricing.
  * When cache metrics are available, uses differential pricing for cached/written tokens.
+ *
+ * @param markup - Multiplier applied to the raw provider cost.
+ *   Defaults to KORTIX_MARKUP (1.2× = 20% markup) when Kortix provides the key.
+ *   Pass PLATFORM_FEE_MARKUP (0.1× = 10% platform fee) for user-owned keys.
  */
 export function calculateCost(
   modelConfig: ModelConfig,
@@ -11,6 +15,7 @@ export function calculateCost(
   completionTokens: number,
   cachedTokens: number = 0,
   cacheWriteTokens: number = 0,
+  markup: number = KORTIX_MARKUP,
 ): number {
   // When we have cache metrics and the model has cache pricing, compute differential cost
   if ((cachedTokens > 0 || cacheWriteTokens > 0) && modelConfig.cacheReadPer1M != null) {
@@ -19,13 +24,13 @@ export function calculateCost(
     const cacheReadCost = (cachedTokens / 1_000_000) * modelConfig.cacheReadPer1M;
     const cacheWriteCost = (cacheWriteTokens / 1_000_000) * (modelConfig.cacheWritePer1M ?? modelConfig.inputPer1M);
     const outputCost = (completionTokens / 1_000_000) * modelConfig.outputPer1M;
-    return (regularInputCost + cacheReadCost + cacheWriteCost + outputCost) * 1.2;
+    return (regularInputCost + cacheReadCost + cacheWriteCost + outputCost) * markup;
   }
 
   // Fallback: flat input pricing (no cache breakdown)
   const inputCost = (promptTokens / 1_000_000) * modelConfig.inputPer1M;
   const outputCost = (completionTokens / 1_000_000) * modelConfig.outputPer1M;
-  return (inputCost + outputCost) * 1.2; // 20% markup
+  return (inputCost + outputCost) * markup;
 }
 
 /**

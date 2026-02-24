@@ -80,6 +80,7 @@ import {
 	parseStructuredOutput,
 } from "@/lib/utils/structured-output";
 import { useAuthenticatedPreviewUrl } from "@/hooks/use-authenticated-preview-url";
+import { useFileContent } from "@/features/files/hooks/use-file-content";
 import {
 	isProxiableLocalhostUrl,
 	parseLocalhostUrl,
@@ -143,6 +144,22 @@ function useProxyUrl(localhostUrl: string): { proxyUrl: string; port: number } |
 			port: parsed.port,
 		};
 	}, [localhostUrl, serverUrl, mappedPorts, subdomainOpts]);
+}
+
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
+
+function normalizeWorkspacePath(path: string): string {
+	const trimmed = path.trim();
+	if (trimmed.startsWith('/workspace/')) return trimmed;
+	if (trimmed === 'workspace') return '/workspace';
+	if (trimmed.startsWith('workspace/')) return `/${trimmed}`;
+	return trimmed;
+}
+
+function isLocalSandboxFilePath(value: string): boolean {
+	if (!value) return false;
+	if (/^(https?:|data:|blob:)/i.test(value)) return false;
+	return value.startsWith('/');
 }
 
 function InlineServicePreview({
@@ -2844,18 +2861,70 @@ function ImageGenTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 	const prompt = input.prompt;
 	const action = input.action;
 
-	// Try to extract image path from output
-	const imagePath = useMemo(() => {
-		if (!output) return null;
+
+
+	// Extract image info from output
+	const { imagePath, directUrl } = useMemo(() => {
+		if (!output) return { imagePath: null, directUrl: null };
+		const trimmed = output.trim();
+
+		// 1. Try JSON parse
 		try {
-			const parsed = JSON.parse(output);
-			return parsed.path || parsed.image_path || parsed.output_path || null;
+			const parsed = JSON.parse(trimmed);
+			const p = parsed.path || parsed.image_path || parsed.output_path || null;
+			const url = parsed.replicate_url || parsed.url || parsed.image_url || null;
+			return {
+				imagePath: p ? String(p).trim() : null,
+				directUrl: url ? String(url).trim() : null,
+			};
 		} catch {
-			// Check if output itself is a path
-			if (output.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i)) return output.trim();
+			// not JSON
+		}
+
+		// 2. Check if output itself is a file path
+		const cleaned = trimmed.replace(/^["']+|["']+$/g, '').trim();
+		if (IMAGE_EXT_RE.test(cleaned)) {
+			const normalized = (cleaned.startsWith('/workspace/') || cleaned.startsWith('workspace/'))
+				? normalizeWorkspacePath(cleaned) : cleaned;
+			return { imagePath: normalized, directUrl: null };
+		}
+
+		// 3. Extract path from surrounding text
+		const extractedPath = trimmed.match(/\/workspace\/[^\s"']+\.(?:png|jpe?g|gif|webp|svg|bmp|ico)/i);
+		if (extractedPath?.[0]) {
+			return { imagePath: extractedPath[0], directUrl: null };
+		}
+
+		return { imagePath: null, directUrl: null };
+	}, [output]);
+
+	// If we have a direct HTTPS URL (e.g. replicate_url), use it directly — no need to fetch via sandbox
+	// If we have a local sandbox path, use useFileContent to get base64 (same as ImagePreview.tsx)
+	// Strip /workspace/ prefix since the SDK expects paths relative to project root
+	const isLocalPath = imagePath ? isLocalSandboxFilePath(imagePath) : false;
+	const fileContentPath = useMemo(() => {
+		if (!isLocalPath || !imagePath || directUrl) return null;
+		return imagePath.replace(/^\/workspace\//, '');
+	}, [isLocalPath, imagePath, directUrl]);
+	const { data: fileContentData, isLoading: isImageLoading } = useFileContent(
+		fileContentPath,
+		{ enabled: !!fileContentPath },
+	);
+
+	// Convert base64 to blob URL (same as ImagePreview.tsx)
+	const imageUrl = useMemo(() => {
+		if (fileContentData?.encoding === 'base64' && fileContentData?.content) {
+			const binary = atob(fileContentData.content);
+			const bytes = new Uint8Array(binary.length);
+			for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+			const blob = new Blob([bytes], { type: fileContentData.mimeType || 'image/webp' });
+			return URL.createObjectURL(blob);
 		}
 		return null;
-	}, [output]);
+	}, [fileContentData]);
+
+	// Priority: direct URL > blob from sandbox > local path fallback
+	const displayImageSrc = directUrl || imageUrl || '';
 
 	const titleMap: Record<string, string> = {
 		generate: "Generate Image",
@@ -2875,17 +2944,24 @@ function ImageGenTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 			forceOpen={forceOpen}
 			locked={locked}
 		>
-			{imagePath ? (
+			{(imagePath || directUrl) ? (
 				<div className="p-2">
-					{/* eslint-disable-next-line @next/next/no-img-element */}
-					<img
-						src={imagePath}
-						alt={prompt}
-						className="rounded border border-border/30 max-h-64 object-contain"
-						onError={(e) => {
-							(e.target as HTMLImageElement).style.display = "none";
-						}}
-					/>
+					{displayImageSrc ? (
+						/* eslint-disable-next-line @next/next/no-img-element */
+						<img
+							src={displayImageSrc}
+							alt={String(prompt || 'Generated image')}
+							className="rounded border border-border/30 max-h-64 object-contain"
+						/>
+					) : isImageLoading ? (
+						<div className="rounded border border-border/30 bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
+							Loading image preview...
+						</div>
+					) : (
+						<div className="rounded border border-border/30 bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground font-mono break-all">
+							{imagePath}
+						</div>
+					)}
 				</div>
 			) : output ? (
 				<div data-scrollable className="p-2 max-h-72 overflow-auto">
@@ -3179,6 +3255,31 @@ function ShowUserTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 		type === "image" || /\.(png|jpe?g|gif|webp|svg)$/i.test(path);
 	const hasLocalhostUrl = !!parseLocalhostUrl(url);
 
+	// Use same approach as ImagePreview.tsx — useFileContent returns base64
+	// Strip /workspace/ prefix since the SDK expects paths relative to project root
+	const isLocalPath = isImage && path ? isLocalSandboxFilePath(path) : false;
+	const fileContentPath = useMemo(() => {
+		if (!isLocalPath || !path) return null;
+		return path.replace(/^\/workspace\//, '');
+	}, [isLocalPath, path]);
+	const { data: fileContentData, isLoading: isImageLoading } = useFileContent(
+		fileContentPath,
+		{ enabled: !!fileContentPath },
+	);
+
+	const imageUrl = useMemo(() => {
+		if (fileContentData?.encoding === 'base64' && fileContentData?.content) {
+			const binary = atob(fileContentData.content);
+			const bytes = new Uint8Array(binary.length);
+			for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+			const blob = new Blob([bytes], { type: fileContentData.mimeType || 'image/webp' });
+			return URL.createObjectURL(blob);
+		}
+		return null;
+	}, [fileContentData]);
+
+	const displayImageSrc = isLocalPath ? (imageUrl || '') : (path || '');
+
 	// For URLs — show a rich preview card with embedded iframe
 	if (hasLocalhostUrl) {
 		return (
@@ -3223,15 +3324,22 @@ function ShowUserTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 		>
 			{isImage && path && (
 				<div className="flex justify-center p-3">
-					{/* eslint-disable-next-line @next/next/no-img-element */}
-					<img
-						src={path}
-						alt={title || "Output image"}
-						className="max-w-full max-h-[300px] rounded-lg border border-border object-contain"
-						onError={(e) => {
-							(e.target as HTMLImageElement).style.display = "none";
-						}}
-					/>
+					{displayImageSrc ? (
+						/* eslint-disable-next-line @next/next/no-img-element */
+						<img
+							src={displayImageSrc}
+							alt={title || "Output image"}
+							className="max-w-full max-h-[300px] rounded-lg border border-border object-contain"
+						/>
+					) : isImageLoading ? (
+						<div className="w-full rounded-lg border border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
+							Loading image preview...
+						</div>
+					) : (
+						<div className="w-full rounded-lg border border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground font-mono break-all">
+							{path}
+						</div>
+					)}
 				</div>
 			)}
 			{content && (
