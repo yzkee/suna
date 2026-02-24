@@ -28,7 +28,17 @@ import {
 } from '@/lib/utils/sandbox-url';
 import { useServerStore, getActiveOpenCodeUrl, deriveSubdomainOpts } from '@/stores/server-store';
 import { openTabAndNavigate } from '@/stores/tab-store';
+import { enrichPreviewMetadata } from '@/lib/utils/session-context';
 import { cn } from '@/lib/utils';
+import { useFileContent } from '@/features/files';
+
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
+
+function isLocalSandboxFilePath(value: string): boolean {
+  if (!value) return false;
+  if (/^(https?:|data:|blob:)/i.test(value)) return false;
+  return value.startsWith('/');
+}
 
 // ---------------------------------------------------------------------------
 // Embedded iframe preview for localhost URLs in the side-panel
@@ -82,11 +92,11 @@ function SidePanelIframePreview({ url, title }: { url: string; title?: string })
       title: `localhost:${proxy.port}`,
       type: 'preview',
       href: `/preview/${proxy.port}`,
-      metadata: {
+      metadata: enrichPreviewMetadata({
         url: proxy.proxyUrl,
         port: proxy.port,
         originalUrl: url,
-      },
+      }),
     });
   }, [proxy, url]);
 
@@ -198,7 +208,7 @@ export function OcShowUserToolView({
   const content = (args.content as string) || (ocState?.input?.content as string) || '';
 
   const isError = toolResult?.success === false || !!toolResult?.error;
-  const isImage = type === 'image' || !!path.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i);
+  const isImage = type === 'image' || IMAGE_EXT_RE.test(path);
   const hasLocalhostUrl = !!parseLocalhostUrl(url);
 
   const activeServer = useServerStore((s) => {
@@ -211,6 +221,30 @@ export function OcShowUserToolView({
     () => proxyLocalhostUrl(url, serverUrl, mappedPorts, subdomainOpts2) ?? url,
     [url, serverUrl, mappedPorts, subdomainOpts2],
   );
+  // Use same approach as ImagePreview.tsx — useFileContent returns base64
+  // Strip /workspace/ prefix since the SDK expects paths relative to project root
+  const isLocalPath = isImage && path ? isLocalSandboxFilePath(path) : false;
+  const fileContentPath = useMemo(() => {
+    if (!isLocalPath || !path) return null;
+    return path.replace(/^\/workspace\//, '');
+  }, [isLocalPath, path]);
+  const { data: fileContentData, isLoading: isImageLoading } = useFileContent(
+    fileContentPath,
+    { enabled: !!fileContentPath },
+  );
+
+  const imageUrl = useMemo(() => {
+    if (fileContentData?.encoding === 'base64' && fileContentData?.content) {
+      const binary = atob(fileContentData.content);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: fileContentData.mimeType || 'image/webp' });
+      return URL.createObjectURL(blob);
+    }
+    return null;
+  }, [fileContentData]);
+
+  const displayImageSrc = isLocalPath ? (imageUrl || '') : (path || '');
 
   const displayTitle = title || description || 'Output';
 
@@ -285,13 +319,22 @@ export function OcShowUserToolView({
             {/* Image preview */}
             {isImage && path && (
               <div className="flex justify-center">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={path}
-                  alt={title || 'Output image'}
-                  className="max-w-full max-h-[400px] rounded-lg border border-border object-contain"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                />
+                {displayImageSrc ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={displayImageSrc}
+                    alt={title || 'Output image'}
+                    className="max-w-full max-h-[400px] rounded-lg border border-border object-contain"
+                  />
+                ) : isImageLoading ? (
+                  <div className="w-full rounded-lg border border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
+                    Loading image preview...
+                  </div>
+                ) : (
+                  <div className="w-full rounded-lg border border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground font-mono break-all">
+                    {path}
+                  </div>
+                )}
               </div>
             )}
 
