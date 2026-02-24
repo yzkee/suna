@@ -17,6 +17,13 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plug,
+  MessageSquare,
+  Calendar,
+  Sparkles,
+  Bug,
+  Zap,
+  X,
+  Loader2,
 } from 'lucide-react';
 import posthog from 'posthog-js';
 
@@ -292,9 +299,37 @@ function SessionsFlyout() {
 // Sidebar Update Indicator
 // ============================================================================
 
+const changeTypeIcon: Record<string, typeof Sparkles> = {
+  feature: Sparkles,
+  fix: Bug,
+  improvement: Zap,
+};
+const changeTypeColor: Record<string, string> = {
+  feature: 'text-emerald-500',
+  fix: 'text-red-400',
+  improvement: 'text-blue-400',
+};
+
 function SidebarUpdateIndicator({ collapsed }: { collapsed: boolean }) {
-  const { updateAvailable, latestVersion, changelog } = useGlobalSandboxUpdate();
+  const { updateAvailable, latestVersion, changelog, update, isUpdating, updateResult } = useGlobalSandboxUpdate();
   const router = useRouter();
+  const [dismissed, setDismissed] = React.useState(false);
+  const [mounted, setMounted] = React.useState(false);
+
+  const dismissKey = `sidebar-update-dismissed-${latestVersion}`;
+
+  React.useEffect(() => {
+    setMounted(true);
+    try {
+      if (localStorage.getItem(dismissKey) === 'true') setDismissed(true);
+    } catch {}
+  }, [dismissKey]);
+
+  const handleDismiss = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDismissed(true);
+    try { localStorage.setItem(dismissKey, 'true'); } catch {}
+  };
 
   const navigateToChangelog = () => {
     openTabAndNavigate(
@@ -303,15 +338,16 @@ function SidebarUpdateIndicator({ collapsed }: { collapsed: boolean }) {
     );
   };
 
-  if (!updateAvailable) return null;
+  if (!mounted || !updateAvailable || dismissed || updateResult?.success) return null;
 
+  // ── Collapsed state: icon with pulse dot ──
   if (collapsed) {
     return (
       <div className="flex justify-center">
         <button
           onClick={navigateToChangelog}
           className="relative p-2 rounded-lg hover:bg-primary/10 transition-colors cursor-pointer"
-          title={`Update v${latestVersion} available`}
+          title={`v${latestVersion} available`}
         >
           <ArrowDownToLine className="h-4 w-4 text-primary" />
           <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-primary animate-pulse" />
@@ -320,22 +356,80 @@ function SidebarUpdateIndicator({ collapsed }: { collapsed: boolean }) {
     );
   }
 
+  // ── Expanded state: rich card ──
+  const changes = changelog?.changes ?? [];
+  const previewChanges = changes.slice(0, 3);
+  const remaining = changes.length - 3;
+
   return (
-    <button
-      onClick={navigateToChangelog}
-      className="flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-xs bg-primary/5 hover:bg-primary/10 border border-primary/10 transition-colors cursor-pointer"
-    >
-      <div className="relative">
-        <ArrowDownToLine className="h-4 w-4 text-primary" />
-        <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary animate-pulse" />
-      </div>
-      <div className="flex-1 min-w-0 text-left">
-        <span className="font-medium text-foreground">v{latestVersion} available</span>
+    <div className="rounded-xl border border-primary/15 bg-primary/[0.03] overflow-hidden">
+      {/* Header row */}
+      <div className="flex items-center gap-2 px-3 pt-2.5 pb-1.5">
+        <span className="relative flex h-2 w-2 flex-shrink-0">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/60" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+        </span>
+        <span className="text-xs font-semibold text-foreground">v{latestVersion}</span>
         {changelog?.title && (
-          <p className="text-muted-foreground truncate text-[10px]">{changelog.title}</p>
+          <span className="text-[10px] text-muted-foreground truncate flex-1 min-w-0">{changelog.title}</span>
         )}
+        <button
+          onClick={handleDismiss}
+          className="p-0.5 rounded hover:bg-muted/80 transition-colors cursor-pointer flex-shrink-0 -mr-0.5"
+          aria-label="Dismiss"
+        >
+          <X className="h-3 w-3 text-muted-foreground/60" />
+        </button>
       </div>
-    </button>
+
+      {/* Change list */}
+      {previewChanges.length > 0 && (
+        <div className="px-3 pb-1.5 space-y-0.5">
+          {previewChanges.map((change, i) => {
+            const Icon = changeTypeIcon[change.type] ?? Zap;
+            const color = changeTypeColor[change.type] ?? 'text-muted-foreground';
+            return (
+              <div key={i} className="flex items-start gap-1.5">
+                <Icon className={cn('h-3 w-3 mt-[1px] flex-shrink-0', color)} />
+                <span className="text-[11px] text-muted-foreground leading-tight line-clamp-1">{change.text}</span>
+              </div>
+            );
+          })}
+          {remaining > 0 && (
+            <button
+              onClick={navigateToChangelog}
+              className="text-[10px] text-primary/70 hover:text-primary font-medium pl-[18px] cursor-pointer transition-colors"
+            >
+              +{remaining} more
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex items-center gap-1.5 px-2.5 pb-2.5 pt-1">
+        {!isUpdating ? (
+          <button
+            onClick={() => update()}
+            className="flex-1 flex items-center justify-center gap-1.5 h-7 text-[11px] font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-lg transition-colors cursor-pointer"
+          >
+            <ArrowDownToLine className="h-3 w-3" />
+            Update
+          </button>
+        ) : (
+          <div className="flex-1 flex items-center justify-center gap-1.5 h-7 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Updating...
+          </div>
+        )}
+        <button
+          onClick={navigateToChangelog}
+          className="flex items-center justify-center h-7 px-2.5 text-[11px] font-medium text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted/60 transition-colors cursor-pointer"
+        >
+          Details
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -609,6 +703,30 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
               }, router);
             }}
           />
+          <CollapsedIconButton
+            icon={<MessageSquare className="h-4 w-4" />}
+            label="Channels"
+            onClick={() => {
+              openTabAndNavigate({
+                id: 'page:/channels',
+                title: 'Channels',
+                type: 'page',
+                href: '/channels',
+              }, router);
+            }}
+          />
+          <CollapsedIconButton
+            icon={<Calendar className="h-4 w-4" />}
+            label="Scheduled Tasks"
+            onClick={() => {
+              openTabAndNavigate({
+                id: 'page:/scheduled-tasks',
+                title: 'Scheduled Tasks',
+                type: 'page',
+                href: '/scheduled-tasks',
+              }, router);
+            }}
+          />
         </div>
 
         {/* --- Expanded layout --- */}
@@ -701,6 +819,46 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
             >
               <Plug className="h-4 w-4 flex-shrink-0" />
               <span>Integrations</span>
+            </button>
+            <button
+              onClick={() => {
+                openTabAndNavigate({
+                  id: 'page:/channels',
+                  title: 'Channels',
+                  type: 'page',
+                  href: '/channels',
+                }, router);
+                if (isMobile) setOpenMobile(false);
+              }}
+              className={cn(
+                'flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] transition-colors duration-150 cursor-pointer',
+                pathname === '/channels'
+                  ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+                  : 'text-sidebar-foreground hover:bg-sidebar-accent',
+              )}
+            >
+              <MessageSquare className="h-4 w-4 flex-shrink-0" />
+              <span>Channels</span>
+            </button>
+            <button
+              onClick={() => {
+                openTabAndNavigate({
+                  id: 'page:/scheduled-tasks',
+                  title: 'Scheduled Tasks',
+                  type: 'page',
+                  href: '/scheduled-tasks',
+                }, router);
+                if (isMobile) setOpenMobile(false);
+              }}
+              className={cn(
+                'flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] transition-colors duration-150 cursor-pointer',
+                pathname === '/scheduled-tasks'
+                  ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+                  : 'text-sidebar-foreground hover:bg-sidebar-accent',
+              )}
+            >
+              <Calendar className="h-4 w-4 flex-shrink-0" />
+              <span>Scheduled Tasks</span>
             </button>
           </nav>
 
