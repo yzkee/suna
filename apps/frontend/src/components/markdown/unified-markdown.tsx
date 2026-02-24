@@ -152,6 +152,7 @@ function InlineLocalhostPreview({
   proxyUrl: string;
 }) {
   const authenticatedUrl = useAuthenticatedPreviewUrl(proxyUrl);
+  const isAuthReady = authenticatedUrl !== null;
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -294,11 +295,11 @@ function InlineLocalhostPreview({
                 expanded ? 'h-[520px]' : 'h-[300px]',
               )}
             >
-              {isLoading && (
+              {(isLoading || !isAuthReady) && (
                 <div className="absolute inset-0 flex items-center justify-center bg-background/60 z-10">
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                    <span className="text-[11px]">Loading preview...</span>
+                    <span className="text-[11px]">{!isAuthReady ? 'Authenticating...' : 'Loading preview...'}</span>
                   </div>
                 </div>
               )}
@@ -320,16 +321,18 @@ function InlineLocalhostPreview({
                 className="absolute inset-0 z-[5] cursor-pointer"
                 onClick={navigateToPreviewTab}
               />
-              <iframe
-                key={refreshKey}
-                src={authenticatedUrl}
-                title={`Preview :${port}`}
-                className="w-full h-full border-0 bg-white pointer-events-none"
-                sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-downloads allow-modals"
-                onLoad={handleLoad}
-                onError={handleError}
-                tabIndex={-1}
-              />
+              {isAuthReady && (
+                <iframe
+                  key={refreshKey}
+                  src={authenticatedUrl}
+                  title={`Preview :${port}`}
+                  className="w-full h-full border-0 bg-white pointer-events-none"
+                  sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-downloads allow-modals"
+                  onLoad={handleLoad}
+                  onError={handleError}
+                  tabIndex={-1}
+                />
+              )}
             </div>
           </div>
         </div>

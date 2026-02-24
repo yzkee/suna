@@ -15,6 +15,7 @@ import {
 	ChevronRight,
 	CircleAlert,
 
+	Code2,
 	Cpu,
 	ExternalLink,
 	FileCode2,
@@ -31,12 +32,15 @@ import {
 	MessageCircle,
 	Minimize2,
 	MonitorPlay,
+	Music,
 	Presentation,
 	RefreshCw,
 	Scissors,
 	Search,
 	SquareKanban,
 	Terminal,
+	Type,
+	Video,
 } from "lucide-react";
 import React, {
 	type ComponentType,
@@ -3345,8 +3349,44 @@ function PresentationGenTool({
 }
 ToolRegistry.register("presentation-gen", PresentationGenTool);
 
-// --- ShowUser ---
-function ShowUserTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
+// --- Show (output to user) — variant-aware renderer ---
+
+const SHOW_THEME_STYLES: Record<string, { border: string; badge: string; icon: string }> = {
+	default: { border: "border-border/40", badge: "bg-muted", icon: "text-muted-foreground" },
+	success: { border: "border-emerald-500/30", badge: "bg-emerald-500/10", icon: "text-emerald-500" },
+	warning: { border: "border-amber-500/30", badge: "bg-amber-500/10", icon: "text-amber-500" },
+	info: { border: "border-blue-500/30", badge: "bg-blue-500/10", icon: "text-blue-500" },
+	danger: { border: "border-red-500/30", badge: "bg-red-500/10", icon: "text-red-500" },
+};
+
+function showAspectRatioToCSS(ar: string | undefined): string | undefined {
+	if (!ar || ar === "auto") return undefined;
+	const [w, h] = ar.split(":").map(Number);
+	if (w && h) return `${w}/${h}`;
+	return undefined;
+}
+
+function showTypeIcon(type: string) {
+	switch (type) {
+		case "image": return <ImageIcon className="size-3.5 flex-shrink-0" />;
+		case "video": return <Video className="size-3.5 flex-shrink-0" />;
+		case "audio": return <Music className="size-3.5 flex-shrink-0" />;
+		case "code": return <Code2 className="size-3.5 flex-shrink-0" />;
+		case "markdown": return <Type className="size-3.5 flex-shrink-0" />;
+		case "html": return <Globe className="size-3.5 flex-shrink-0" />;
+		case "pdf": return <FileText className="size-3.5 flex-shrink-0" />;
+		case "url": return <Globe className="size-3.5 flex-shrink-0" />;
+		case "error": return <AlertTriangle className="size-3.5 flex-shrink-0" />;
+		case "file": return <FileIcon className="size-3.5 flex-shrink-0" />;
+		default: return <ExternalLink className="size-3.5 flex-shrink-0" />;
+	}
+}
+
+const SHOW_VIDEO_EXT_RE = /\.(mp4|webm|mov|avi|mkv|ogv)$/i;
+const SHOW_AUDIO_EXT_RE = /\.(mp3|wav|ogg|aac|flac|m4a|opus)$/i;
+const SHOW_PDF_EXT_RE = /\.pdf$/i;
+
+function ShowTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 	const input = partInput(part);
 	const title = (input.title as string) || "";
 	const description = (input.description as string) || "";
@@ -3354,38 +3394,54 @@ function ShowUserTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 	const path = (input.path as string) || "";
 	const url = (input.url as string) || "";
 	const content = (input.content as string) || "";
+	const variant = (input.variant as string) || "";
+	const aspectRatio = (input.aspect_ratio as string) || "";
+	const theme = (input.theme as string) || "default";
+	const language = (input.language as string) || "";
+
+	const themeStyle = SHOW_THEME_STYLES[theme] || SHOW_THEME_STYLES.default;
+	const arCSS = showAspectRatioToCSS(aspectRatio);
 
 	const subtitle = title || description || path || url || type;
-	const isImage =
-		type === "image" || /\.(png|jpe?g|gif|webp|svg)$/i.test(path);
+	const isImage = type === "image" || IMAGE_EXT_RE.test(path);
+	const isVideo = type === "video" || SHOW_VIDEO_EXT_RE.test(path);
+	const isAudio = type === "audio" || SHOW_AUDIO_EXT_RE.test(path);
+	const isPdf = type === "pdf" || SHOW_PDF_EXT_RE.test(path);
+	const isCode = type === "code";
+	const isMarkdown = type === "markdown";
+	const isHtml = type === "html";
 	const hasLocalhostUrl = !!parseLocalhostUrl(url);
 
-	// Use same approach as ImagePreview.tsx — useFileContent returns base64
-	// Strip /workspace/ prefix since the SDK expects paths relative to project root
+	// Image loading
 	const isLocalPath = isImage && path ? isLocalSandboxFilePath(path) : false;
 	const fileContentPath = useMemo(() => {
 		if (!isLocalPath || !path) return null;
-		return path.replace(/^\/workspace\//, '');
+		return path.replace(/^\/workspace\//, "");
 	}, [isLocalPath, path]);
 	const { data: fileContentData, isLoading: isImageLoading } = useFileContent(
 		fileContentPath,
 		{ enabled: !!fileContentPath },
 	);
-
 	const imageUrl = useMemo(() => {
-		if (fileContentData?.encoding === 'base64' && fileContentData?.content) {
+		if (fileContentData?.encoding === "base64" && fileContentData?.content) {
 			const binary = atob(fileContentData.content);
 			const bytes = new Uint8Array(binary.length);
 			for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-			const blob = new Blob([bytes], { type: fileContentData.mimeType || 'image/webp' });
+			const blob = new Blob([bytes], { type: fileContentData.mimeType || "image/webp" });
 			return URL.createObjectURL(blob);
 		}
 		return null;
 	}, [fileContentData]);
+	const displayImageSrc = isLocalPath ? (imageUrl || "") : (path || "");
 
-	const displayImageSrc = isLocalPath ? (imageUrl || '') : (path || '');
+	// HTML blob URL (unconditional for hooks rules)
+	const htmlBlobUrl = useMemo(() => {
+		if (!isHtml || !content) return null;
+		const blob = new Blob([content], { type: "text/html" });
+		return URL.createObjectURL(blob);
+	}, [isHtml, content]);
 
-	// For URLs — show a rich preview card with embedded iframe
+	// ── URL preview — localhost uses proxied InlineServicePreview, external gets direct iframe ──
 	if (hasLocalhostUrl) {
 		return (
 			<div className="space-y-1">
@@ -3418,26 +3474,83 @@ function ShowUserTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 		);
 	}
 
-	// Fallback — non-localhost: show file paths, images, text content
-	return (
-		<BasicTool
-			icon={<ExternalLink className="size-3.5 flex-shrink-0" />}
-			trigger={{ title: "Output", subtitle: (subtitle || "").slice(0, 60) }}
-			defaultOpen={defaultOpen}
-			forceOpen={forceOpen}
-			locked={locked}
-		>
-			{isImage && path && (
-				<div className="flex justify-center p-3">
+	// ── External URL — embedded iframe with toolbar ──
+	if (type === "url" && url) {
+		return (
+			<BasicTool
+				icon={<Globe className="size-3.5 flex-shrink-0" />}
+				trigger={
+					<div className="flex items-center gap-1.5 min-w-0 flex-1">
+						<span className="font-medium text-xs text-foreground whitespace-nowrap">
+							{title || "Web Preview"}
+						</span>
+						<span className="text-muted-foreground text-xs truncate font-mono">
+							{description || url}
+						</span>
+					</div>
+				}
+				defaultOpen={defaultOpen ?? true}
+				forceOpen={forceOpen}
+				locked={locked}
+			>
+				<div className="overflow-hidden rounded-b-lg">
+					{/* Mini toolbar */}
+					<div className="flex items-center gap-1.5 h-7 px-2.5 bg-muted/40 border-t border-b border-border/30">
+						<Globe className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+						<span className="text-[10px] text-muted-foreground font-mono truncate flex-1">{url}</span>
+						<a
+							href={url}
+							target="_blank"
+							rel="noopener noreferrer"
+							className="p-0.5 rounded hover:bg-muted/60 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+						>
+							<ExternalLink className="h-3 w-3" />
+						</a>
+					</div>
+					<iframe
+						src={url}
+						title={title || url}
+						className="w-full border-0 bg-white"
+						style={{ height: arCSS ? undefined : "280px", aspectRatio: arCSS || undefined }}
+						sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+					/>
+				</div>
+				{description && title && (
+					<div className="px-3 py-2">
+						<p className="text-[11px] text-muted-foreground">{description}</p>
+					</div>
+				)}
+			</BasicTool>
+		);
+	}
+
+	// ── Image — gallery with aspect ratio ──
+	if (isImage && path) {
+		const isGallery = variant === "gallery" || !variant;
+		return (
+			<BasicTool
+				icon={showTypeIcon("image")}
+				trigger={{ title: title || "Image", subtitle: (description || path).slice(0, 60) }}
+				defaultOpen={defaultOpen ?? true}
+				forceOpen={forceOpen}
+				locked={locked}
+			>
+				<div className={cn("flex justify-center p-3", isGallery && "bg-muted/10")}>
 					{displayImageSrc ? (
 						/* eslint-disable-next-line @next/next/no-img-element */
 						<img
 							src={displayImageSrc}
 							alt={title || "Output image"}
-							className="max-w-full max-h-[300px] rounded-lg border border-border object-contain"
+							className={cn(
+								"max-w-full rounded-lg border object-contain",
+								themeStyle.border,
+								arCSS ? "" : "max-h-[400px]",
+							)}
+							style={arCSS ? { aspectRatio: arCSS, maxHeight: "500px", width: "auto" } : undefined}
 						/>
 					) : isImageLoading ? (
-						<div className="w-full rounded-lg border border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
+						<div className="w-full rounded-lg border border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground flex items-center gap-2">
+							<Loader2 className="size-3 animate-spin" />
 							Loading image preview...
 						</div>
 					) : (
@@ -3446,18 +3559,227 @@ function ShowUserTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 						</div>
 					)}
 				</div>
-			)}
+				{description && title && (
+					<div className="px-3 pb-2">
+						<p className="text-[11px] text-muted-foreground">{description}</p>
+					</div>
+				)}
+			</BasicTool>
+		);
+	}
+
+	// ── Video — native player ──
+	if (isVideo && path) {
+		return (
+			<BasicTool
+				icon={showTypeIcon("video")}
+				trigger={{ title: title || "Video", subtitle: (description || path).slice(0, 60) }}
+				defaultOpen={defaultOpen ?? true}
+				forceOpen={forceOpen}
+				locked={locked}
+			>
+			<div className={cn("p-3 bg-black/5 dark:bg-white/5 rounded-b-lg", themeStyle.border)}>
+				<video
+						src={path}
+						controls
+						className="w-full rounded-lg"
+						style={arCSS ? { aspectRatio: arCSS } : { aspectRatio: "16/9" }}
+						preload="metadata"
+					/>
+				</div>
+				{description && (
+					<div className="px-3 py-2">
+						<p className="text-[11px] text-muted-foreground">{description}</p>
+					</div>
+				)}
+			</BasicTool>
+		);
+	}
+
+	// ── Audio — native player, compact ──
+	if (isAudio && path) {
+		return (
+			<BasicTool
+				icon={showTypeIcon("audio")}
+				trigger={{ title: title || "Audio", subtitle: (description || path).slice(0, 60) }}
+				defaultOpen={defaultOpen ?? true}
+				forceOpen={forceOpen}
+				locked={locked}
+			>
+			<div className="px-3 py-3">
+				<audio src={path} controls className="w-full" preload="metadata" />
+				</div>
+				{description && (
+					<div className="px-3 pb-2">
+						<p className="text-[11px] text-muted-foreground">{description}</p>
+					</div>
+				)}
+			</BasicTool>
+		);
+	}
+
+	// ── Code — syntax-highlighted block ──
+	if (isCode && content) {
+		return (
+			<BasicTool
+				icon={showTypeIcon("code")}
+				trigger={{ title: title || "Code", subtitle: language ? language : (description || "").slice(0, 40) }}
+				defaultOpen={defaultOpen ?? true}
+				forceOpen={forceOpen}
+				locked={locked}
+			>
+				<div className={cn("overflow-hidden rounded-b-lg border-t", themeStyle.border)}>
+					{language ? (
+						<HighlightedCode code={content} language={language}>
+							<code>{content}</code>
+						</HighlightedCode>
+					) : (
+						<pre className="p-3 text-xs font-mono overflow-x-auto bg-muted/30 max-h-96">
+							<code>{content}</code>
+						</pre>
+					)}
+				</div>
+				{description && (
+					<div className="px-3 py-2">
+						<p className="text-[11px] text-muted-foreground">{description}</p>
+					</div>
+				)}
+			</BasicTool>
+		);
+	}
+
+	// ── Markdown — rendered markdown ──
+	if (isMarkdown && content) {
+		return (
+			<BasicTool
+				icon={showTypeIcon("markdown")}
+				trigger={{ title: title || "Document", subtitle: (description || "").slice(0, 60) }}
+				defaultOpen={defaultOpen ?? true}
+				forceOpen={forceOpen}
+				locked={locked}
+			>
+				<div data-scrollable className={cn("px-3 py-3 max-h-96 overflow-auto prose-sm", themeStyle.border)}>
+					<UnifiedMarkdown content={content} />
+				</div>
+			</BasicTool>
+		);
+	}
+
+	// ── HTML — sandboxed iframe ──
+	if (isHtml && content && htmlBlobUrl) {
+		return (
+			<BasicTool
+				icon={showTypeIcon("html")}
+				trigger={{ title: title || "HTML Preview", subtitle: (description || "").slice(0, 60) }}
+				defaultOpen={defaultOpen ?? true}
+				forceOpen={forceOpen}
+				locked={locked}
+			>
+				<div className={cn("overflow-hidden rounded-b-lg", themeStyle.border)}>
+					<iframe
+						src={htmlBlobUrl}
+						title={title || "HTML Preview"}
+						className="w-full border-0 bg-white"
+						style={{ height: arCSS ? undefined : "320px", aspectRatio: arCSS || undefined }}
+						sandbox="allow-scripts allow-same-origin"
+					/>
+				</div>
+				{description && (
+					<div className="px-3 py-2">
+						<p className="text-[11px] text-muted-foreground">{description}</p>
+					</div>
+				)}
+			</BasicTool>
+		);
+	}
+
+	// ── PDF — file card ──
+	if (isPdf && path) {
+		return (
+			<BasicTool
+				icon={showTypeIcon("pdf")}
+				trigger={{ title: title || "PDF Document", subtitle: (description || path).slice(0, 60) }}
+				defaultOpen={defaultOpen}
+				forceOpen={forceOpen}
+				locked={locked}
+			>
+				<div className="flex items-center gap-3 px-3 py-3">
+					<div className={cn("flex items-center justify-center w-10 h-10 rounded-lg", themeStyle.badge)}>
+						<FileText className={cn("size-5", themeStyle.icon)} />
+					</div>
+					<div className="flex-1 min-w-0">
+						<div className="text-xs font-medium text-foreground truncate">{title || "PDF Document"}</div>
+						<div className="text-[10px] text-muted-foreground font-mono truncate">{path}</div>
+					</div>
+				</div>
+				{description && (
+					<div className="px-3 pb-2">
+						<p className="text-[11px] text-muted-foreground">{description}</p>
+					</div>
+				)}
+			</BasicTool>
+		);
+	}
+
+	// ── Error — themed alert ──
+	if (type === "error") {
+		const errTheme = SHOW_THEME_STYLES.danger;
+		return (
+			<BasicTool
+				icon={<AlertTriangle className={cn("size-3.5 flex-shrink-0", errTheme.icon)} />}
+				trigger={{ title: title || "Error", subtitle: (description || content || "").slice(0, 60) }}
+				defaultOpen={defaultOpen ?? true}
+				forceOpen={forceOpen}
+				locked={locked}
+			>
+				<div className={cn("px-3 py-2.5 border-t", errTheme.border, errTheme.badge)}>
+					<p className="text-xs text-foreground whitespace-pre-wrap">{content}</p>
+				</div>
+			</BasicTool>
+		);
+	}
+
+	// ── Text — detail with theme accents ──
+	if (type === "text" && content) {
+		return (
+			<BasicTool
+				icon={showTypeIcon("text")}
+				trigger={{ title: title || "Output", subtitle: (subtitle || "").slice(0, 60) }}
+				defaultOpen={defaultOpen ?? true}
+				forceOpen={forceOpen}
+				locked={locked}
+			>
+				<div className={cn("px-3 py-2.5 border-t", themeStyle.border, theme !== "default" && themeStyle.badge)}>
+					<p className="text-xs text-foreground whitespace-pre-wrap">{content}</p>
+				</div>
+				{description && title && (
+					<div className="px-3 pb-2">
+						<p className="text-[11px] text-muted-foreground">{description}</p>
+					</div>
+				)}
+			</BasicTool>
+		);
+	}
+
+	// ── Fallback — generic file / url / unknown ──
+	return (
+		<BasicTool
+			icon={showTypeIcon(type)}
+			trigger={{ title: title || "Output", subtitle: (subtitle || "").slice(0, 60) }}
+			defaultOpen={defaultOpen}
+			forceOpen={forceOpen}
+			locked={locked}
+		>
 			{content && (
 				<div className="px-3 py-2">
-					<p className="text-xs text-foreground whitespace-pre-wrap">
-						{content}
-					</p>
+					<p className="text-xs text-foreground whitespace-pre-wrap">{content}</p>
 				</div>
 			)}
 			{(path || url) && (
 				<div className="px-3 py-2 text-xs">
-					{path && !isImage && (
-						<div className="text-muted-foreground font-mono text-[10px] truncate">
+					{path && (
+						<div className="flex items-center gap-1.5 text-muted-foreground font-mono text-[10px] truncate">
+							<FileIcon className="size-2.5 shrink-0" />
 							{path}
 						</div>
 					)}
@@ -3477,7 +3799,8 @@ function ShowUserTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 		</BasicTool>
 	);
 }
-ToolRegistry.register("show-user", ShowUserTool);
+ToolRegistry.register("show", ShowTool);
+ToolRegistry.register("show-user", ShowTool); // backward compat
 
 // --- Task (sub-agent) — matches TUI: BasicTool with child tool list ---
 function TaskTool({
