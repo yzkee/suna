@@ -15,6 +15,7 @@ import { useServerStore, getActiveOpenCodeUrl, deriveSubdomainOpts } from '@/sto
 import { proxyLocalhostUrl, parseLocalhostUrl, toInternalUrl } from '@/lib/utils/sandbox-url';
 import { openTabAndNavigate } from '@/stores/tab-store';
 import { useAuthenticatedPreviewUrl } from '@/hooks/use-authenticated-preview-url';
+import { enrichPreviewMetadata } from '@/lib/utils/session-context';
 
 // Helper to check if a URL is internal (same origin)
 function isInternalUrl(href: string | undefined): boolean {
@@ -116,12 +117,12 @@ function InlineLocalhostPreview({
       title: `localhost:${port}`,
       type: 'preview',
       href: tabHref,
-      metadata: {
+      metadata: enrichPreviewMetadata({
         url: proxyUrl,
         port,
         originalUrl: internalUrl,
         path,
-      },
+      }),
     });
   }, [tabId, port, tabHref, proxyUrl, internalUrl, path]);
 

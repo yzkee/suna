@@ -18,6 +18,7 @@ import {
   Plus,
   Globe,
   TerminalSquare,
+  Activity,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTabStore, type Tab, type TabType, DASHBOARD_TAB_ID } from '@/stores/tab-store';
@@ -49,6 +50,7 @@ const TAB_ICONS: Record<TabType, typeof MessageCircle> = {
   page: PanelTop,
   preview: Globe,
   terminal: TerminalSquare,
+  services: Activity,
 };
 
 /** Map a pathname to a tab config. Returns null for routes that shouldn't auto-open tabs (e.g. /auth). */

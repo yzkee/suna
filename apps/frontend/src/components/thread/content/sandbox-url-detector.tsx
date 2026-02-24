@@ -24,6 +24,7 @@ import {
   type DetectedLocalhostUrl,
 } from '@/lib/utils/sandbox-url';
 import { useAuthenticatedPreviewUrl } from '@/hooks/use-authenticated-preview-url';
+import { enrichPreviewMetadata } from '@/lib/utils/session-context';
 
 interface SandboxUrlDetectorProps {
   content: string;
@@ -237,11 +238,11 @@ function SandboxPreviewCard({
       title: `localhost:${detected.port}`,
       type: 'preview',
       href: tabHref,
-      metadata: {
+      metadata: enrichPreviewMetadata({
         url: proxyUrl,
         port: detected.port,
         originalUrl: internalUrl,
-      },
+      }),
     });
   }, [detected, proxyUrl, internalUrl, tabId, tabHref]);
 
@@ -434,11 +435,11 @@ function SandboxUrlChip({
       title: `localhost:${detected.port}`,
       type: 'preview',
       href: tabHref,
-      metadata: {
+      metadata: enrichPreviewMetadata({
         url: proxyUrl,
         port: detected.port,
         originalUrl: internalUrl,
-      },
+      }),
     });
   }, [detected, proxyUrl, internalUrl, tabId, tabHref]);
 

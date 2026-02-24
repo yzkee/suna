@@ -25,6 +25,7 @@ import {
   toInternalUrl,
 } from '@/lib/utils/sandbox-url';
 import { openTabAndNavigate } from '@/stores/tab-store';
+import { enrichPreviewMetadata } from '@/lib/utils/session-context';
 
 export function LocalhostLinkInterceptor() {
   useEffect(() => {
@@ -69,7 +70,7 @@ export function LocalhostLinkInterceptor() {
           title: `localhost:${port}`,
           type: 'preview',
           href: `/preview/${port}`,
-          metadata: { url: proxyUrl, port, originalUrl: internalUrl, path },
+          metadata: enrichPreviewMetadata({ url: proxyUrl, port, originalUrl: internalUrl, path }),
         });
         return;
       }
@@ -95,7 +96,7 @@ export function LocalhostLinkInterceptor() {
               title: `localhost:${port}`,
               type: 'preview',
               href: `/preview/${port}`,
-              metadata: { url: proxyUrl, port, originalUrl: internalUrl, path },
+              metadata: enrichPreviewMetadata({ url: proxyUrl, port, originalUrl: internalUrl, path }),
             });
             return;
           }

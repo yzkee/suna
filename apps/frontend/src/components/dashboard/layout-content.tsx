@@ -151,6 +151,11 @@ const PageTabContent = lazy(() =>
 		default: mod.PageTabContent,
 	})),
 );
+const RunningServicesPanel = lazy(() =>
+	import("@/components/tabs/running-services-panel").then((mod) => ({
+		default: mod.RunningServicesPanel,
+	})),
+);
 
 // Skeleton shell that renders immediately for FCP
 function DashboardSkeleton() {
@@ -194,6 +199,7 @@ function SessionTabsContainer({ children }: { children: React.ReactNode }) {
 	const fileTabIds = tabOrder.filter((id) => tabs[id]?.type === "file");
 	const previewTabIds = tabOrder.filter((id) => tabs[id]?.type === "preview");
 	const terminalTabIds = tabOrder.filter((id) => tabs[id]?.type === "terminal");
+	const servicesTabIds = tabOrder.filter((id) => tabs[id]?.type === "services");
 	const pageTabIds = tabOrder.filter((id) => {
 		const t = tabs[id]?.type;
 		return t === "settings" || t === "page" || t === "project" || t === "dashboard";
@@ -283,6 +289,21 @@ function SessionTabsContainer({ children }: { children: React.ReactNode }) {
 					</div>
 				);
 			})}
+
+			{/* Services tabs — Running Services panel */}
+			{servicesTabIds.map((id) => (
+				<div
+					key={id}
+					className={cn(
+						"absolute inset-0 flex flex-col",
+						id !== activeTabId && "hidden",
+					)}
+				>
+					<Suspense fallback={null}>
+						<RunningServicesPanel />
+					</Suspense>
+				</div>
+			))}
 
 			{/* Page/settings/dashboard tabs — pre-mounted, shown/hidden via CSS */}
 			{pageTabIds.map((id) => {
