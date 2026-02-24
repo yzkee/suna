@@ -854,9 +854,10 @@ function TodoChip({ sessionId }: { sessionId: string }) {
 
   if (!todos || todos.length === 0) return null;
 
-  const completed = todos.filter((t: any) => t.status === 'completed').length;
-  const total = todos.length;
-  const inProgress = todos.find((t: any) => t.status === 'in_progress');
+  const nonCancelled = todos.filter((t: any) => t.status !== 'cancelled');
+  const completed = nonCancelled.filter((t: any) => t.status === 'completed').length;
+  const total = nonCancelled.length;
+  const inProgress = nonCancelled.find((t: any) => t.status === 'in_progress');
 
   // Sort: in_progress first, then pending, then completed/cancelled
   const sorted = [...todos].sort((a: any, b: any) => {
