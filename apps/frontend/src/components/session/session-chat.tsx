@@ -18,6 +18,7 @@ import {
 	Loader2,
 	MessageSquare,
 	Pencil,
+	Reply,
 	Scissors,
 	Send,
 	Terminal,
@@ -149,6 +150,15 @@ import {
 	type Turn,
 	type TurnCostInfo,
 } from "@/ui";
+
+// ============================================================================
+// Reply-to context (select & reply feature)
+// ============================================================================
+
+/** Selected text the user wants to reference in their next message. */
+export interface ReplyToContext {
+	text: string;
+}
 
 // ============================================================================
 // Sub-Session / Fork Breadcrumb
@@ -488,6 +498,21 @@ function parseSessionReferences(text: string): {
 		)
 		.trim();
 	return { cleanText: cleaned, sessions };
+}
+
+// ============================================================================
+// Parse <reply_context> XML from select-and-reply feature
+// ============================================================================
+
+function parseReplyContext(text: string): {
+	cleanText: string;
+	replyContext: string | null;
+} {
+	const match = text.match(/<reply_context>([\s\S]*?)<\/reply_context>/);
+	if (!match) return { cleanText: text, replyContext: null };
+	const replyContext = match[1].trim();
+	const cleanText = text.replace(/<reply_context>[\s\S]*?<\/reply_context>\s*/, "").trim();
+	return { cleanText, replyContext };
 }
 
 // ============================================================================
@@ -1099,9 +1124,13 @@ function UserMessageRow({
 				!(p as any).ignored,
 		);
 	const rawText = textParts.map((p) => (p as TextPart).text).join("\n");
-	const { cleanText: textAfterFiles, files: uploadedFiles } = useMemo(
-		() => parseFileReferences(rawText),
+	const { cleanText: textAfterReply, replyContext } = useMemo(
+		() => parseReplyContext(rawText),
 		[rawText],
+	);
+	const { cleanText: textAfterFiles, files: uploadedFiles } = useMemo(
+		() => parseFileReferences(textAfterReply),
+		[textAfterReply],
 	);
 	const { cleanText: text, sessions: sessionRefs } = useMemo(
 		() => parseSessionReferences(textAfterFiles),
@@ -1250,6 +1279,7 @@ function UserMessageRow({
 	// If the message is purely DCP notifications (no real user content), render only the cards
 	const hasUserContent = !!(
 		text ||
+		replyContext ||
 		uploadedFiles.length > 0 ||
 		sessionRefs.length > 0 ||
 		attachments.length > 0
@@ -1360,6 +1390,16 @@ function UserMessageRow({
 								</span>
 							</div>
 						))}
+					</div>
+				)}
+
+				{/* Reply context banner */}
+				{replyContext && (
+					<div className="flex items-center gap-2 mx-3 mt-3 mb-0 px-3 py-1.5 rounded-xl bg-primary/5 border border-primary/10">
+						<Reply className="size-3 text-primary/60 flex-shrink-0" />
+						<span className="text-[11px] text-muted-foreground truncate">
+							{replyContext.length > 150 ? `${replyContext.slice(0, 150)}...` : replyContext}
+						</span>
 					</div>
 				)}
 
@@ -2500,6 +2540,68 @@ export function SessionChat({
 	// ---- Context modal ----
 	const [contextModalOpen, setContextModalOpen] = useState(false);
 
+	// ---- Reply-to state (text selection → reply) ----
+	const [replyTo, setReplyTo] = useState<ReplyToContext | null>(null);
+	const handleClearReply = useCallback(() => setReplyTo(null), []);
+
+	// Floating "Reply" popup — shown near selected text in the chat area
+	const [selectionPopup, setSelectionPopup] = useState<{
+		x: number;
+		y: number;
+		text: string;
+	} | null>(null);
+	const chatAreaRef = useRef<HTMLDivElement>(null);
+
+	// On mouseup inside the chat area, check for text selection
+	const handleChatMouseUp = useCallback(() => {
+		// Small delay so the selection is finalized
+		requestAnimationFrame(() => {
+			const sel = window.getSelection();
+			const selectedText = sel?.toString().trim();
+			if (!selectedText || selectedText.length < 2) {
+				setSelectionPopup(null);
+				return;
+			}
+			// Make sure the selection is inside the chat area
+			if (
+				!sel?.rangeCount ||
+				!chatAreaRef.current?.contains(sel.anchorNode)
+			) {
+				setSelectionPopup(null);
+				return;
+			}
+			const range = sel.getRangeAt(0);
+			const rect = range.getBoundingClientRect();
+			const containerRect = chatAreaRef.current.getBoundingClientRect();
+			setSelectionPopup({
+				x: rect.left + rect.width / 2 - containerRect.left,
+				y: rect.top - containerRect.top - 8,
+				text: selectedText.slice(0, 500),
+			});
+		});
+	}, []);
+
+	// Dismiss popup on mousedown (new click) unless clicking the popup itself
+	const handleChatMouseDown = useCallback((e: React.MouseEvent) => {
+		// If clicking inside the popup, don't dismiss
+		const target = e.target as HTMLElement;
+		if (target.closest("[data-reply-popup]")) return;
+		setSelectionPopup(null);
+	}, []);
+
+	// Dismiss popup on scroll
+	const handleChatScroll = useCallback(() => {
+		setSelectionPopup(null);
+	}, []);
+
+	// When user clicks "Reply" in the popup
+	const handleSelectionReply = useCallback(() => {
+		if (!selectionPopup) return;
+		setReplyTo({ text: selectionPopup.text });
+		setSelectionPopup(null);
+		window.getSelection()?.removeAllRanges();
+	}, [selectionPopup]);
+
 	// ---- KortixComputer side panel ----
 	const { isSidePanelOpen, setIsSidePanelOpen, openFileInComputer } =
 		useKortixComputerStore();
@@ -3354,10 +3456,17 @@ export function SessionChat({
 
 	const handleSend = useCallback(
 		async (
-			text: string,
+			rawText: string,
 			files?: AttachedFile[],
 			mentions?: TrackedMention[],
 		) => {
+			// Wrap reply context in XML if present, then clear it
+			let text = rawText;
+			if (replyTo) {
+				text = `<reply_context>${replyTo.text}</reply_context>\n\n${rawText}`;
+				setReplyTo(null);
+			}
+
 			// Play send sound
 			playSound("send");
 			const messageID = ascendingId("msg");
@@ -3508,6 +3617,7 @@ export function SessionChat({
 			addOptimisticUserMessage,
 			removeOptimisticUserMessage,
 			scrollToBottom,
+			replyTo,
 		],
 	);
 
@@ -3664,10 +3774,13 @@ export function SessionChat({
 					Session not found
 				</div>
 			) : hasMessages || showOptimistic ? (
-				<div className="relative flex-1 min-h-0">
+				<div ref={chatAreaRef} className="relative flex-1 min-h-0">
 					<div
 						ref={scrollContainerCallbackRef}
 						className="flex-1 overflow-y-auto scrollbar-hide px-4 py-4 bg-background h-full [scroll-behavior:auto]"
+						onMouseUp={handleChatMouseUp}
+						onMouseDown={handleChatMouseDown}
+						onScroll={handleChatScroll}
 					>
 						<div
 							ref={contentRef}
@@ -3686,11 +3799,20 @@ export function SessionChat({
 									<div className="flex justify-end">
 											<div className="flex flex-col max-w-[90%] rounded-3xl rounded-br-lg bg-card border overflow-hidden">
 												{(() => {
-													const { cleanText, files } = parseFileReferences(
+													const { cleanText: afterReply, replyContext: optReply } = parseReplyContext(
 														optimisticPrompt || "",
 													);
+													const { cleanText, files } = parseFileReferences(afterReply);
 													return (
 														<>
+															{optReply && (
+																<div className="flex items-center gap-2 mx-3 mt-3 mb-0 px-3 py-1.5 rounded-xl bg-primary/5 border border-primary/10">
+																	<Reply className="size-3 text-primary/60 flex-shrink-0" />
+																	<span className="text-[11px] text-muted-foreground truncate">
+																		{optReply.length > 150 ? `${optReply.slice(0, 150)}...` : optReply}
+																	</span>
+																</div>
+															)}
 															{files.length > 0 && (
 																<div className="flex gap-2 p-3 pb-0 flex-wrap">
 																	{files.map((f, i) => (
@@ -3809,6 +3931,27 @@ export function SessionChat({
 						</div>
 					</div>
 
+					{/* Selection "Reply" popup — floats near selected text */}
+					{selectionPopup && (
+						<div
+							data-reply-popup
+							className="absolute z-50 animate-in fade-in-0 slide-in-from-bottom-1 duration-150"
+							style={{
+								left: `${selectionPopup.x}px`,
+								top: `${selectionPopup.y}px`,
+								transform: "translate(-50%, -100%)",
+							}}
+						>
+							<button
+								onClick={handleSelectionReply}
+								className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-popover border border-border shadow-md text-xs font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
+							>
+								<Reply className="size-3.5" />
+								Reply
+							</button>
+						</div>
+					)}
+
 					{/* Scroll to bottom FAB */}
 					<div
 						className={cn(
@@ -3858,6 +4001,8 @@ export function SessionChat({
 				providers={providers}
 				threadContext={threadContext}
 				onContextClick={() => setContextModalOpen(true)}
+				replyTo={replyTo}
+				onClearReply={handleClearReply}
 				inputSlot={
 					queuedMessages.length > 0 ? (
 						<div className="rounded-xl bg-muted/50 overflow-hidden">
