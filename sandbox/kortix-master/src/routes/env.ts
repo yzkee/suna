@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { mkdir, rm } from 'fs/promises'
 import { existsSync, readFileSync, readdirSync } from 'fs'
 import { SecretStore } from '../services/secret-store'
+import { syncSecretToAuth } from '../services/auth-sync'
 
 const envRouter = new Hono()
 const secretStore = new SecretStore()
@@ -134,6 +135,7 @@ envRouter.post('/', async (c) => {
       if (typeof value !== 'string') continue
       await secretStore.setEnv(key, value)
       await writeS6Env(key, value)
+      await syncSecretToAuth(key, value)  // sync provider keys → auth.json
       updated++
     }
     if (restart) await restartServices()
@@ -197,6 +199,7 @@ envRouter.post('/:key', async (c) => {
     }
     await secretStore.setEnv(key, body.value)
     await writeS6Env(key, body.value)
+    await syncSecretToAuth(key, body.value)  // sync provider keys → auth.json
     if (restart) await restartServices()
     return c.json({ ok: true, key, restarted: restart })
   } catch (error) {
@@ -217,6 +220,7 @@ envRouter.put('/:key', async (c) => {
     }
     await secretStore.setEnv(key, body.value)
     await writeS6Env(key, body.value)
+    await syncSecretToAuth(key, body.value)  // sync provider keys → auth.json
     if (restart) await restartServices()
     return c.json({ ok: true, key, restarted: restart })
   } catch (error) {
@@ -232,6 +236,7 @@ envRouter.delete('/:key', async (c) => {
     const key = c.req.param('key')
     await secretStore.deleteEnv(key)
     await deleteS6Env(key)
+    await syncSecretToAuth(key, '')  // clear provider key from auth.json
     await restartServices()
     return c.json({ ok: true, key })
   } catch (error) {
