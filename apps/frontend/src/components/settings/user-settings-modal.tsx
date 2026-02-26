@@ -14,8 +14,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
-    Settings,
-    CreditCard,
     X,
     Trash2,
 
@@ -26,7 +24,6 @@ import {
     Mail,
     Smartphone,
     AppWindow,
-    Users,
     Key,
     Camera,
     Upload,
@@ -94,7 +91,7 @@ import { LanguageSwitcher } from './language-switcher';
 import { useTranslations } from 'next-intl';
 import { ReferralsTab } from '@/components/referrals/referrals-tab';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Keyboard, Receipt, Palette, CheckCircle2, HelpCircle, ShieldCheck, Volume2, EyeOff, Globe } from 'lucide-react';
+import { Keyboard, CheckCircle2, HelpCircle, ShieldCheck, Volume2, EyeOff, Globe } from 'lucide-react';
 import { useUserPreferencesStore, type TabSwitchModifier } from '@/stores/user-preferences-store';
 import CreditTransactions from '@/components/billing/credit-transactions';
 import { AppearanceTab } from '@/components/settings/appearance-tab';
@@ -102,7 +99,13 @@ import { useWebNotificationStore } from '@/stores/web-notification-store';
 import { isNotificationSupported, sendWebNotification } from '@/lib/web-notifications';
 import { useSoundStore, type SoundPack, type SoundEvent } from '@/stores/sound-store';
 import { previewSound } from '@/lib/sounds';
-type TabId = 'general' | 'appearance' | 'sounds' | 'notifications' | 'plan' | 'billing' | 'transactions' | 'referrals' | 'shortcuts';
+import {
+    getPreferenceTabs,
+    getAccountTabs,
+    type SettingsTabId,
+} from '@/lib/menu-registry';
+
+type TabId = SettingsTabId;
 
 interface Tab {
     id: TabId;
@@ -130,20 +133,9 @@ export function UserSettingsModal({
     const [showPlanModal, setShowPlanModal] = useState(false);
     const billingActive = isBillingEnabled();
 
-    const preferenceTabs: Tab[] = [
-        { id: 'general', label: 'General', icon: Settings },
-        { id: 'appearance', label: 'Appearance', icon: Palette },
-        { id: 'sounds', label: 'Sounds', icon: Volume2 },
-        { id: 'notifications', label: 'Notifications', icon: Bell },
-        { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
-    ];
-
-    const accountTabs: Tab[] = [
-        { id: 'plan', label: 'Plan', icon: Zap },
-        { id: 'billing', label: 'Billing', icon: CreditCard },
-        { id: 'transactions', label: 'Transactions', icon: Receipt },
-        ...(billingActive ? [{ id: 'referrals' as TabId, label: 'Referrals', icon: Users }] : []),
-    ];
+    // Tab definitions from the central menu registry (single source of truth)
+    const preferenceTabs: Tab[] = getPreferenceTabs();
+    const accountTabs: Tab[] = getAccountTabs(billingActive);
 
     const tabGroups = [
         { label: 'Preferences', tabs: preferenceTabs },

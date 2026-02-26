@@ -3,44 +3,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import {
-  Plus,
-  LayoutDashboard,
-  PanelLeftClose,
-  PanelLeftIcon,
   Loader2,
-  Settings,
   MessageCircle,
   FileCode,
   Folder,
-  TerminalSquare,
   Sparkles,
   Search,
-  Layers,
-  GitCompareArrows,
   TextSearch,
   ArrowRightLeft,
-  Blocks,
-  KeyRound,
-  MessageSquare,
-  Calendar,
-  ScrollText,
   FileText,
-  FolderOpen,
-  Plug,
-  LogOut,
-  Palette,
-  Volume2,
-  Bell,
-  Keyboard,
-  Receipt,
-  Zap,
-  CreditCard,
-  Users,
-  Sun,
-  Moon,
-  Monitor,
-  Rocket,
+  PanelLeftClose,
+  PanelLeftIcon,
 } from 'lucide-react';
+
+import {
+  getItemsForSurface,
+  type MenuItemDef,
+  type SettingsTabId,
+} from '@/lib/menu-registry';
 
 import {
   CommandDialog,
@@ -78,6 +58,7 @@ import { createClient } from '@/lib/supabase/client';
 import { isBillingEnabled } from '@/lib/config';
 import { useTheme } from 'next-themes';
 import { clearUserLocalStorage } from '@/lib/utils/clear-local-storage';
+import { useAuth } from '@/components/AuthProvider';
 
 // ============================================================================
 // Helpers
@@ -222,7 +203,7 @@ export function CommandPalette() {
   const [compactOpen, setCompactOpen] = useState(false);
   const [diffOpen, setDiffOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'general' | 'appearance' | 'sounds' | 'notifications' | 'shortcuts' | 'billing' | 'transactions' | 'referrals'>('general');
+  const [settingsTab, setSettingsTab] = useState<SettingsTabId>('general');
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
@@ -231,6 +212,23 @@ export function CommandPalette() {
   const createPty = useCreatePty();
   const { theme, setTheme } = useTheme();
   const billingEnabled = isBillingEnabled();
+  const { user: authUser } = useAuth();
+
+  // Derive user's first name for personalized greeting
+  const firstName = useMemo(() => {
+    if (!authUser) return '';
+    const fullName = authUser.user_metadata?.name || authUser.email?.split('@')[0] || '';
+    return fullName.split(' ')[0] || '';
+  }, [authUser]);
+
+  // Personalized greeting based on time of day
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours();
+    const name = firstName ? `, ${firstName}` : '';
+    if (hour >= 5 && hour < 12) return `Good morning${name}`;
+    if (hour >= 12 && hour < 17) return `Good afternoon${name}`;
+    return `Good evening${name}`;
+  }, [firstName]);
 
   // Worktree management — disabled for now
   // const [worktreeBrowsePath, setWorktreeBrowsePath] = useState<string | null>(null);
@@ -555,7 +553,7 @@ export function CommandPalette() {
     close();
   }, [toggleSidebar, close]);
 
-  const handleOpenSettings = useCallback((tab: 'general' | 'appearance' | 'sounds' | 'notifications' | 'shortcuts' | 'billing' | 'transactions' | 'referrals') => {
+  const handleOpenSettings = useCallback((tab: SettingsTabId) => {
     close();
     setSettingsTab(tab);
     setSettingsOpen(true);
@@ -599,6 +597,45 @@ export function CommandPalette() {
 
   // View tasks is now shown in the chat input todo panel — no modal needed
 
+  // ── Registry action dispatcher ──
+  const actionHandlers: Record<string, () => void> = useMemo(() => ({
+    newSession: handleNewSession,
+    openTerminal: handleOpenTerminal,
+    compactSession: handleCompactSession,
+    viewChanges: handleViewChanges,
+    toggleSidebar: handleToggleSidebar,
+    logout: handleLogout,
+    openPlan: handleOpenPlan,
+  }), [handleNewSession, handleOpenTerminal, handleCompactSession, handleViewChanges, handleToggleSidebar, handleLogout, handleOpenPlan]);
+
+  const handleRegistryItem = useCallback((item: MenuItemDef) => {
+    switch (item.kind) {
+      case 'navigate':
+        handleNavigate(item.href!, item.label);
+        break;
+      case 'settings':
+        handleOpenSettings(item.settingsTab!);
+        break;
+      case 'theme':
+        handleSetTheme(item.themeValue!);
+        break;
+      case 'action': {
+        const handler = actionHandlers[item.actionId!];
+        if (handler) handler();
+        break;
+      }
+    }
+  }, [handleNavigate, handleOpenSettings, handleSetTheme, actionHandlers]);
+
+  // ── All registry items visible in the palette (filtered by runtime conditions) ──
+  const allPaletteItems = useMemo(() => {
+    return getItemsForSurface('commandPalette').filter((item) => {
+      if (item.requiresBilling && !billingEnabled) return false;
+      if (item.requiresSession && !currentSessionId) return false;
+      return true;
+    });
+  }, [billingEnabled, currentSessionId]);
+
   // Group headings
   const lssHeading = (
     <span className="inline-flex items-center gap-1.5">
@@ -622,397 +659,356 @@ export function CommandPalette() {
 
   return (
     <>
-      <CommandDialog open={open} onOpenChange={setOpen}>
+      <CommandDialog open={open} onOpenChange={setOpen} className="sm:max-w-2xl">
         <CommandInput
-          placeholder="Search files, text, sessions… or type / for commands"
+          placeholder={hasQuery ? 'Search files, sessions, commands...' : 'What would you like to do?'}
           value={query}
           onValueChange={setQuery}
         />
-        <CommandList>
-          {/* Global loading — only when absolutely nothing else is visible */}
-          {showGlobalLoading && (
-            <CommandEmpty>
-              <div className="flex items-center justify-center gap-2 py-4">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                <span className="text-muted-foreground">Searching...</span>
-              </div>
-            </CommandEmpty>
-          )}
 
-          {/* No results — all fetches done, nothing found */}
-          {showNoResults && (
-            <div className="flex flex-col items-center gap-1.5 py-6" cmdk-empty="">
-              <Search className="h-5 w-5 text-muted-foreground/50" />
-              <span className="text-sm text-muted-foreground">
-                No results found for &ldquo;{query.trim()}&rdquo;
-              </span>
+        {/* ── IDLE STATE: Personalized home ── */}
+        {!hasQuery && (
+          <div className="px-5 pb-5 pt-2">
+            {/* Personalized greeting */}
+            <div className="text-center mb-5">
+              <h2 className="text-xl font-semibold tracking-tight text-foreground">
+                {greeting}
+              </h2>
+              <p className="text-[13px] text-muted-foreground mt-1">
+                Search anything or pick a shortcut below
+              </p>
             </div>
-          )}
 
-          {/* Session title matches (instant, client-side) */}
-          {hasQuery && hasSessionResults && (
-            <CommandGroup heading="Sessions" forceMount>
-              {filteredSessions.map((session) => (
-                <CommandItem
-                  key={session.id}
-                  value={`session-${session.id}`}
-                  onSelect={() =>
-                    handleSelectSession(
-                      session.id,
-                      session.title || session.slug || 'Untitled',
-                    )
-                  }
-                >
-                  <MessageCircle className="mr-2 h-4 w-4 flex-shrink-0" />
-                  <div className="flex flex-col overflow-hidden flex-1 min-w-0">
-                    <span className="truncate">
-                      {session.title || session.slug || 'Untitled'}
-                    </span>
-                    <span className="text-xs text-muted-foreground truncate">
-                      {formatRelativeTime(session.time.updated)}
-                      {session.summary && session.summary.files > 0 && (
-                        <span className="ml-1.5">
-                          · {session.summary.files} file
-                          {session.summary.files !== 1 ? 's' : ''} changed
-                        </span>
+            {/* Quick nav grid — from registry */}
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-4">
+              {allPaletteItems
+                .filter((item) =>
+                  item.group === 'actions' ||
+                  item.group === 'navigation'
+                )
+                .slice(0, 8)
+                .map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => handleRegistryItem(item)}
+                      disabled={item.id === 'new-session' && isCreating}
+                      className="flex flex-col items-center gap-1.5 px-2 py-3 rounded-xl text-[12px] text-foreground/70 hover:bg-foreground/[0.06] hover:text-foreground transition-all duration-150 cursor-pointer group disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-foreground/[0.05] group-hover:bg-foreground/[0.08] transition-colors duration-150">
+                        {item.id === 'new-session' && isCreating ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        ) : (
+                          <Icon className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors duration-150" />
+                        )}
+                      </div>
+                      <span className="truncate max-w-full">{item.label}</span>
+                      {item.shortcut && (
+                        <span className="text-[10px] text-muted-foreground/60">{item.shortcut}</span>
                       )}
-                    </span>
-                  </div>
-                  <ArrowRightLeft className="h-3 w-3 text-muted-foreground/40 flex-shrink-0" />
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          )}
+                    </button>
+                  );
+                })}
+            </div>
 
-          {/* File name search results (fastest — 300ms debounce) */}
-          {hasQuery && hasFileResults && (
-            <CommandGroup heading="Files" forceMount>
-              {fileResults.map((filePath) => {
-                const FileIcon = getFileIcon(filePath);
-                const fileName = filePath.split('/').pop() || filePath;
-                const dirPath = filePath.split('/').slice(0, -1).join('/');
+            {/* Recent sessions */}
+            {recentSessions.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 px-1 mb-2">
+                  <span className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider">
+                    Recent sessions
+                  </span>
+                </div>
+                <div className="space-y-0.5">
+                  {recentSessions.slice(0, 5).map((session) => (
+                    <button
+                      key={session.id}
+                      onClick={() => {
+                        handleSelectSession(
+                          session.id,
+                          session.title || session.slug || 'Untitled',
+                        );
+                      }}
+                      className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] text-foreground/80 hover:bg-foreground/[0.06] hover:text-foreground transition-all duration-150 cursor-pointer group"
+                    >
+                      <MessageCircle className="h-3.5 w-3.5 text-muted-foreground/50 flex-shrink-0" />
+                      <span className="truncate flex-1 text-left">
+                        {session.title || session.slug || 'Untitled'}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground/40 flex-shrink-0">
+                        {formatRelativeTime(session.time.updated)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Settings & preferences row */}
+            <div className="mt-3 pt-3 border-t border-border/40">
+              <div className="flex flex-wrap gap-1.5">
+                {allPaletteItems
+                  .filter((item) =>
+                    item.group === 'preferences' ||
+                    item.group === 'settingsPages' ||
+                    item.group === 'theme' ||
+                    item.group === 'view'
+                  )
+                  .map((item) => {
+                    const Icon = item.icon;
+                    // Dynamic sidebar toggle
+                    const isToggleSidebar = item.id === 'toggle-sidebar';
+                    const displayLabel = isToggleSidebar
+                      ? (sidebarOpen ? 'Collapse Sidebar' : 'Expand Sidebar')
+                      : item.label;
+                    const DisplayIcon = isToggleSidebar
+                      ? (sidebarOpen ? PanelLeftClose : PanelLeftIcon)
+                      : Icon;
+                    const isActiveTheme = item.kind === 'theme' && theme === item.themeValue;
+
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => handleRegistryItem(item)}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] transition-all duration-150 cursor-pointer ${
+                          isActiveTheme
+                            ? 'bg-foreground/[0.1] text-foreground font-medium'
+                            : 'text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground'
+                        }`}
+                      >
+                        <DisplayIcon className="h-3 w-3" />
+                        <span>{displayLabel}</span>
+                        {item.shortcut && (
+                          <span className="text-[10px] text-muted-foreground/50 ml-0.5">{item.shortcut}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── SEARCH STATE: Results ── */}
+        {hasQuery && (
+          <CommandList>
+            {/* Global loading — only when absolutely nothing else is visible */}
+            {showGlobalLoading && (
+              <CommandEmpty>
+                <div className="flex items-center justify-center gap-2 py-4">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  <span className="text-muted-foreground">Searching...</span>
+                </div>
+              </CommandEmpty>
+            )}
+
+            {/* No results — all fetches done, nothing found */}
+            {showNoResults && (
+              <div className="flex flex-col items-center gap-1.5 py-6" cmdk-empty="">
+                <Search className="h-5 w-5 text-muted-foreground/50" />
+                <span className="text-sm text-muted-foreground">
+                  No results found for &ldquo;{query.trim()}&rdquo;
+                </span>
+              </div>
+            )}
+
+            {/* Session title matches (instant, client-side) */}
+            {hasSessionResults && (
+              <CommandGroup heading="Sessions" forceMount>
+                {filteredSessions.map((session) => (
+                  <CommandItem
+                    key={session.id}
+                    value={`session-${session.id}`}
+                    onSelect={() =>
+                      handleSelectSession(
+                        session.id,
+                        session.title || session.slug || 'Untitled',
+                      )
+                    }
+                  >
+                    <MessageCircle className="mr-2 h-4 w-4 flex-shrink-0" />
+                    <div className="flex flex-col overflow-hidden flex-1 min-w-0">
+                      <span className="truncate">
+                        {session.title || session.slug || 'Untitled'}
+                      </span>
+                      <span className="text-xs text-muted-foreground truncate">
+                        {formatRelativeTime(session.time.updated)}
+                        {session.summary && session.summary.files > 0 && (
+                          <span className="ml-1.5">
+                            · {session.summary.files} file
+                            {session.summary.files !== 1 ? 's' : ''} changed
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <ArrowRightLeft className="h-3 w-3 text-muted-foreground/40 flex-shrink-0" />
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+
+            {/* File name search results (fastest — 300ms debounce) */}
+            {hasFileResults && (
+              <CommandGroup heading="Files" forceMount>
+                {fileResults.map((filePath) => {
+                  const FileIcon = getFileIcon(filePath);
+                  const fileName = filePath.split('/').pop() || filePath;
+                  const dirPath = filePath.split('/').slice(0, -1).join('/');
+                  return (
+                    <CommandItem
+                      key={filePath}
+                      value={`file-${filePath}`}
+                      onSelect={() => handleSelectFile(filePath)}
+                    >
+                      <FileIcon className="mr-2 h-4 w-4 flex-shrink-0" />
+                      <div className="flex flex-col overflow-hidden flex-1 min-w-0">
+                        <span className="truncate">{fileName}</span>
+                        {dirPath && (
+                          <span className="text-xs text-muted-foreground truncate">
+                            {dirPath}
+                          </span>
+                        )}
+                      </div>
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            )}
+
+            {/* Text content search (ripgrep — 600ms debounce) */}
+            {showTextSection && (hasTextResults || showTextSkeletons) && (
+              <CommandGroup heading={textSearchHeading} forceMount>
+                {hasTextResults &&
+                  filteredTextResults.map((match, index) => {
+                    const FileIcon = getFileIcon(match.path);
+                    const fileName = match.path.split('/').pop() || match.path;
+                    const dirPath = match.path.split('/').slice(0, -1).join('/');
+                    const linePreview = match.lines.trim().slice(0, 120);
+
+                    return (
+                      <CommandItem
+                        key={`text-${match.path}-${match.line_number}-${index}`}
+                        value={`text-${match.path}-${match.line_number}-${index}`}
+                        onSelect={() => handleSelectTextResult(match)}
+                      >
+                        <FileIcon className="mr-2 h-4 w-4 flex-shrink-0 mt-0.5" />
+                        <div className="flex flex-col overflow-hidden flex-1 min-w-0 gap-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate font-medium text-sm">
+                              {fileName}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground/50 flex-shrink-0 tabular-nums font-mono">
+                              L{match.line_number}
+                            </span>
+                          </div>
+                          <span className="text-xs text-muted-foreground/80 line-clamp-1 leading-relaxed font-mono">
+                            {linePreview}
+                          </span>
+                          {dirPath && (
+                            <span className="text-[11px] text-muted-foreground/50 truncate">
+                              {dirPath}
+                            </span>
+                          )}
+                        </div>
+                      </CommandItem>
+                    );
+                  })}
+
+                {showTextSkeletons && (
+                  <SearchSkeletons count={3} variant="content" />
+                )}
+              </CommandGroup>
+            )}
+
+            {/* Semantic file search (LSS — BM25 + embeddings, slowest — 500ms debounce) */}
+            {showLssSection && (hasLssResults || showLssSkeletons) && (
+              <CommandGroup heading={lssHeading} forceMount>
+                {hasLssResults &&
+                  filteredLssResults.map((hit) => {
+                    const relativePath = stripWorkspacePrefix(hit.file_path);
+                    const FileIcon = getFileIcon(relativePath);
+                    const fileName =
+                      relativePath.split('/').pop() || relativePath;
+                    const dirPath = relativePath
+                      .split('/')
+                      .slice(0, -1)
+                      .join('/');
+                    const snippet = cleanSnippet(hit.snippet);
+
+                    return (
+                      <CommandItem
+                        key={`lss-${hit.file_path}-${hit.score}`}
+                        value={`lss-${relativePath}-${snippet.slice(0, 30)}`}
+                        onSelect={() => handleSelectLssResult(hit.file_path)}
+                      >
+                        <FileIcon className="mr-2 h-4 w-4 flex-shrink-0 mt-0.5" />
+                        <div className="flex flex-col overflow-hidden flex-1 min-w-0 gap-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate font-medium text-sm">
+                              {fileName}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground/50 flex-shrink-0 tabular-nums">
+                              {formatRelevance(hit.score)}
+                            </span>
+                          </div>
+                          {snippet && (
+                            <span className="text-xs text-muted-foreground/80 line-clamp-1 leading-relaxed">
+                              {snippet}
+                            </span>
+                          )}
+                          {dirPath && (
+                            <span className="text-[11px] text-muted-foreground/50 truncate">
+                              {dirPath}
+                            </span>
+                          )}
+                        </div>
+                      </CommandItem>
+                    );
+                  })}
+
+                {showLssSkeletons && (
+                  <SearchSkeletons count={3} variant="content" />
+                )}
+              </CommandGroup>
+            )}
+
+            {/* ── All registry commands (filterable by search) ── */}
+            <CommandGroup heading="Commands">
+              {allPaletteItems.map((item) => {
+                const Icon = item.icon;
+                const isToggleSidebar = item.id === 'toggle-sidebar';
+                const SidebarIcon = isToggleSidebar
+                  ? (sidebarOpen ? PanelLeftClose : PanelLeftIcon)
+                  : Icon;
+                const displayLabel = isToggleSidebar
+                  ? (sidebarOpen ? 'Collapse Sidebar' : 'Expand Sidebar')
+                  : item.label;
+                const isActiveTheme = item.kind === 'theme' && theme === item.themeValue;
+
                 return (
                   <CommandItem
-                    key={filePath}
-                    value={`file-${filePath}`}
-                    onSelect={() => handleSelectFile(filePath)}
+                    key={item.id}
+                    value={item.keywords || `${item.group} ${item.label} ${item.id}`}
+                    onSelect={() => handleRegistryItem(item)}
+                    disabled={item.id === 'new-session' && isCreating}
                   >
-                    <FileIcon className="mr-2 h-4 w-4 flex-shrink-0" />
-                    <div className="flex flex-col overflow-hidden flex-1 min-w-0">
-                      <span className="truncate">{fileName}</span>
-                      {dirPath && (
-                        <span className="text-xs text-muted-foreground truncate">
-                          {dirPath}
-                        </span>
-                      )}
-                    </div>
+                    {item.id === 'new-session' && isCreating ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <SidebarIcon className="mr-2 h-4 w-4" />
+                    )}
+                    <span>{displayLabel}</span>
+                    {item.shortcut && <CommandShortcut>{item.shortcut}</CommandShortcut>}
+                    {isActiveTheme && (
+                      <span className="ml-auto text-xs text-muted-foreground">Active</span>
+                    )}
                   </CommandItem>
                 );
               })}
             </CommandGroup>
-          )}
-
-          {/* Text content search (ripgrep — 600ms debounce) */}
-          {showTextSection && (hasTextResults || showTextSkeletons) && (
-            <CommandGroup heading={textSearchHeading} forceMount>
-              {hasTextResults &&
-                filteredTextResults.map((match, index) => {
-                  const FileIcon = getFileIcon(match.path);
-                  const fileName = match.path.split('/').pop() || match.path;
-                  const dirPath = match.path.split('/').slice(0, -1).join('/');
-                  const linePreview = match.lines.trim().slice(0, 120);
-
-                  return (
-                    <CommandItem
-                      key={`text-${match.path}-${match.line_number}-${index}`}
-                      value={`text-${match.path}-${match.line_number}-${index}`}
-                      onSelect={() => handleSelectTextResult(match)}
-                    >
-                      <FileIcon className="mr-2 h-4 w-4 flex-shrink-0 mt-0.5" />
-                      <div className="flex flex-col overflow-hidden flex-1 min-w-0 gap-0.5">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate font-medium text-sm">
-                            {fileName}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground/50 flex-shrink-0 tabular-nums font-mono">
-                            L{match.line_number}
-                          </span>
-                        </div>
-                        <span className="text-xs text-muted-foreground/80 line-clamp-1 leading-relaxed font-mono">
-                          {linePreview}
-                        </span>
-                        {dirPath && (
-                          <span className="text-[11px] text-muted-foreground/50 truncate">
-                            {dirPath}
-                          </span>
-                        )}
-                      </div>
-                    </CommandItem>
-                  );
-                })}
-
-              {showTextSkeletons && (
-                <SearchSkeletons count={3} variant="content" />
-              )}
-            </CommandGroup>
-          )}
-
-          {/* Semantic file search (LSS — BM25 + embeddings, slowest — 500ms debounce) */}
-          {showLssSection && (hasLssResults || showLssSkeletons) && (
-            <CommandGroup heading={lssHeading} forceMount>
-              {hasLssResults &&
-                filteredLssResults.map((hit) => {
-                  const relativePath = stripWorkspacePrefix(hit.file_path);
-                  const FileIcon = getFileIcon(relativePath);
-                  const fileName =
-                    relativePath.split('/').pop() || relativePath;
-                  const dirPath = relativePath
-                    .split('/')
-                    .slice(0, -1)
-                    .join('/');
-                  const snippet = cleanSnippet(hit.snippet);
-
-                  return (
-                    <CommandItem
-                      key={`lss-${hit.file_path}-${hit.score}`}
-                      value={`lss-${relativePath}-${snippet.slice(0, 30)}`}
-                      onSelect={() => handleSelectLssResult(hit.file_path)}
-                    >
-                      <FileIcon className="mr-2 h-4 w-4 flex-shrink-0 mt-0.5" />
-                      <div className="flex flex-col overflow-hidden flex-1 min-w-0 gap-0.5">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate font-medium text-sm">
-                            {fileName}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground/50 flex-shrink-0 tabular-nums">
-                            {formatRelevance(hit.score)}
-                          </span>
-                        </div>
-                        {snippet && (
-                          <span className="text-xs text-muted-foreground/80 line-clamp-1 leading-relaxed">
-                            {snippet}
-                          </span>
-                        )}
-                        {dirPath && (
-                          <span className="text-[11px] text-muted-foreground/50 truncate">
-                            {dirPath}
-                          </span>
-                        )}
-                      </div>
-                    </CommandItem>
-                  );
-                })}
-
-              {showLssSkeletons && (
-                <SearchSkeletons count={3} variant="content" />
-              )}
-            </CommandGroup>
-          )}
-
-          {/* Actions — always rendered so cmdk filtering can find them */}
-          <CommandGroup heading="Actions">
-                <CommandItem onSelect={handleNewSession} disabled={isCreating}>
-                  {isCreating ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Plus className="mr-2 h-4 w-4" />
-                  )}
-                  <span>New Session</span>
-                  <CommandShortcut>⌘J</CommandShortcut>
-                </CommandItem>
-                <CommandItem onSelect={handleOpenTerminal}>
-                  <TerminalSquare className="mr-2 h-4 w-4" />
-                  <span>Open Terminal</span>
-                </CommandItem>
-                {currentSessionId && (
-                  <CommandItem onSelect={handleCompactSession}>
-                    <Layers className="mr-2 h-4 w-4" />
-                    <span>Compact Session</span>
-                  </CommandItem>
-                )}
-                {currentSessionId && (
-                  <CommandItem onSelect={handleViewChanges}>
-                    <GitCompareArrows className="mr-2 h-4 w-4" />
-                    <span>View Changes</span>
-                  </CommandItem>
-                )}
-              </CommandGroup>
-
-              <CommandSeparator />
-
-              {/* Worktrees management — disabled for now, will be re-enabled later */}
-
-              {/* Session switching — show recent sessions (idle state) or all matches (search) */}
-              {!hasQuery && recentSessions.length > 0 && (
-                <>
-                  <CommandGroup heading="Recent Sessions">
-                    {recentSessions.map((session) => (
-                        <CommandItem
-                          key={`recent-${session.id}`}
-                          value={`recent-session-${session.id}`}
-                          onSelect={() =>
-                            handleSelectSession(
-                              session.id,
-                              session.title || session.slug || 'Untitled',
-                            )
-                          }
-                        >
-                          <MessageCircle className="mr-2 h-4 w-4 flex-shrink-0" />
-                          <div className="flex flex-col overflow-hidden flex-1 min-w-0">
-                            <span className="truncate">
-                              {session.title || session.slug || 'Untitled'}
-                            </span>
-                            <span className="text-xs text-muted-foreground truncate">
-                              {formatRelativeTime(session.time.updated)}
-                            </span>
-                          </div>
-                          <ArrowRightLeft className="h-3 w-3 text-muted-foreground/40 flex-shrink-0" />
-                        </CommandItem>
-                      ))}
-                  </CommandGroup>
-                  <CommandSeparator />
-                </>
-              )}
-
-              <CommandGroup heading="Navigation">
-                <CommandItem onSelect={() => handleNavigate('/dashboard', 'Dashboard')}>
-                  <LayoutDashboard className="mr-2 h-4 w-4" />
-                  <span>Dashboard</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleNavigate('/workspace', 'Workspace')}>
-                  <Blocks className="mr-2 h-4 w-4" />
-                  <span>Workspace</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleNavigate('/files', 'Files')}>
-                  <FolderOpen className="mr-2 h-4 w-4" />
-                  <span>Files</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleNavigate('/integrations', 'Integrations')}>
-                  <Plug className="mr-2 h-4 w-4" />
-                  <span>Integrations</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleNavigate('/channels', 'Channels')}>
-                  <MessageSquare className="mr-2 h-4 w-4" />
-                  <span>Channels</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleNavigate('/scheduled-tasks', 'Scheduled Tasks')}>
-                  <Calendar className="mr-2 h-4 w-4" />
-                  <span>Scheduled Tasks</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleNavigate('/deployments', 'Deployments')}>
-                  <Rocket className="mr-2 h-4 w-4" />
-                  <span>Deployments</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleNavigate('/changelog', 'Changelog')}>
-                  <ScrollText className="mr-2 h-4 w-4" />
-                  <span>Changelog</span>
-                </CommandItem>
-              </CommandGroup>
-
-              <CommandSeparator />
-
-              <CommandGroup heading="Settings">
-                <CommandItem
-                  onSelect={() => handleNavigate('/settings/credentials', 'Secrets Manager')}
-                  value="secrets manager credentials env environment variables integrations keys"
-                >
-                  <KeyRound className="mr-2 h-4 w-4" />
-                  <span>Secrets Manager</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleNavigate('/settings/api-keys', 'API Keys')}>
-                  <Settings className="mr-2 h-4 w-4" />
-                  <span>API Keys</span>
-                </CommandItem>
-              </CommandGroup>
-
-              <CommandSeparator />
-
-              <CommandGroup heading="Preferences">
-                <CommandItem onSelect={() => handleOpenSettings('general')} value="settings preferences general profile name email language">
-                  <Settings className="mr-2 h-4 w-4" />
-                  <span>General</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleOpenSettings('appearance')} value="appearance theme colors font size density">
-                  <Palette className="mr-2 h-4 w-4" />
-                  <span>Appearance</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleOpenSettings('sounds')} value="sounds audio volume notification sound effects mute">
-                  <Volume2 className="mr-2 h-4 w-4" />
-                  <span>Sounds</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleOpenSettings('notifications')} value="notifications alerts push web browser desktop">
-                  <Bell className="mr-2 h-4 w-4" />
-                  <span>Notifications</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleOpenSettings('shortcuts')} value="shortcuts keyboard hotkeys keybindings keys">
-                  <Keyboard className="mr-2 h-4 w-4" />
-                  <span>Shortcuts</span>
-                </CommandItem>
-              </CommandGroup>
-
-              <CommandSeparator />
-
-              <CommandGroup heading="Account">
-                <CommandItem onSelect={handleOpenPlan} value="plan subscription upgrade pricing tier free pro">
-                  <Zap className="mr-2 h-4 w-4" />
-                  <span>Plan</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleOpenSettings('billing')} value="billing payment credit card subscription manage">
-                  <CreditCard className="mr-2 h-4 w-4" />
-                  <span>Billing</span>
-                </CommandItem>
-                <CommandItem onSelect={() => handleOpenSettings('transactions')} value="transactions credits history purchases receipts">
-                  <Receipt className="mr-2 h-4 w-4" />
-                  <span>Transactions</span>
-                </CommandItem>
-                {billingEnabled && (
-                  <CommandItem onSelect={() => handleOpenSettings('referrals')} value="referrals invite share friends earn">
-                    <Users className="mr-2 h-4 w-4" />
-                    <span>Referrals</span>
-                  </CommandItem>
-                )}
-              </CommandGroup>
-
-              <CommandSeparator />
-
-              <CommandGroup heading="Theme">
-                <CommandItem onSelect={() => handleSetTheme('light')} value="theme light mode bright day">
-                  <Sun className="mr-2 h-4 w-4" />
-                  <span>Light Theme</span>
-                  {theme === 'light' && <span className="ml-auto text-xs text-muted-foreground">Active</span>}
-                </CommandItem>
-                <CommandItem onSelect={() => handleSetTheme('dark')} value="theme dark mode night">
-                  <Moon className="mr-2 h-4 w-4" />
-                  <span>Dark Theme</span>
-                  {theme === 'dark' && <span className="ml-auto text-xs text-muted-foreground">Active</span>}
-                </CommandItem>
-                <CommandItem onSelect={() => handleSetTheme('system')} value="theme system auto default os">
-                  <Monitor className="mr-2 h-4 w-4" />
-                  <span>System Theme</span>
-                  {theme === 'system' && <span className="ml-auto text-xs text-muted-foreground">Active</span>}
-                </CommandItem>
-              </CommandGroup>
-
-              <CommandSeparator />
-
-              <CommandGroup heading="View">
-                <CommandItem onSelect={() => handleToggleSidebar()}>
-                  {sidebarOpen ? (
-                    <PanelLeftClose className="mr-2 h-4 w-4" />
-                  ) : (
-                    <PanelLeftIcon className="mr-2 h-4 w-4" />
-                  )}
-                  <span>
-                    {sidebarOpen ? 'Collapse Sidebar' : 'Expand Sidebar'}
-                  </span>
-                  <CommandShortcut>⌘B</CommandShortcut>
-                </CommandItem>
-                <CommandItem onSelect={handleLogout} value="log out sign out logout signout disconnect">
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>Log Out</span>
-                </CommandItem>
-              </CommandGroup>
-        </CommandList>
+          </CommandList>
+        )}
       </CommandDialog>
 
       {currentSessionId && (
