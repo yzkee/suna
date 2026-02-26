@@ -3,7 +3,7 @@ import { Deployer } from '../services/deployer'
 import type { DeploymentConfig } from '../services/deployer'
 
 const deployRouter = new Hono()
-const deployer = new Deployer()
+export const deployer = new Deployer()
 
 // POST / — Deploy an app
 deployRouter.post('/', async (c) => {

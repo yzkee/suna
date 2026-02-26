@@ -8,6 +8,7 @@ import lssRouter from './routes/lss'
 import proxyRouter from './routes/proxy'
 import updateRouter from './routes/update'
 import deployRouter from './routes/deploy'
+import servicesRouter from './routes/services'
 import integrationsRouter from './routes/integrations'
 import { config } from './config'
 
@@ -139,6 +140,9 @@ app.route('/lss', lssRouter)
 
 // Deployment management
 app.route('/kortix/deploy', deployRouter)
+
+// Services — unified "what's running" for the frontend
+app.route('/kortix/services', servicesRouter)
 
 // Integration proxy — /api/integrations/* forwards to kortix-api
 app.route('/api/integrations', integrationsRouter)
