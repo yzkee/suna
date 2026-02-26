@@ -17,7 +17,6 @@ import {
   getSandbox,
   ensureSandbox,
   getProviders,
-  getSandboxUrl,
   extractMappedPorts,
   type SandboxInfo,
   type SandboxProviderName,
@@ -36,21 +35,17 @@ import { useEffect } from 'react';
  * Auto-switches to the sandbox if the user hasn't manually picked a server.
  */
 function registerSandboxServer(sandbox: SandboxInfo) {
-  let url: string;
-  try {
-    url = getSandboxUrl(sandbox);
-  } catch (err) {
-    console.warn('[useSandbox] Cannot build sandbox URL, skipping registration:', err);
+  if (!sandbox.external_id) {
+    console.warn('[useSandbox] Sandbox missing external_id, skipping registration');
     return;
   }
 
   const store = useServerStore.getState();
   const previousActiveId = store.activeServerId;
 
-  // Add (or deduplicate) by sandboxId — provider-agnostic.
+  // Add (or deduplicate) by sandboxId — URL is derived at runtime by the store.
   const entry = store.addSandboxServer({
     label: sandbox.name || 'Sandbox',
-    url,
     provider: sandbox.provider,
     sandboxId: sandbox.external_id,
     mappedPorts: extractMappedPorts(sandbox),

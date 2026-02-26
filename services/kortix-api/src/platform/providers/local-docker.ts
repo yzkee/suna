@@ -315,6 +315,18 @@ export class LocalDockerProvider implements SandboxProvider {
    * If any differ from what kortix-api has, inject via s6 env dir and restart
    * kortix-master so the sandbox picks them up without a full container recreate.
    */
+  /**
+   * Sync the 3 core env vars to the sandbox via the secrets manager API.
+   *
+   * Uses kortix-master's /env endpoint which does triple-write:
+   *   1. SecretStore (.secrets.json — encrypted at rest)
+   *   2. s6 env dir  (/run/s6/container_environment/ — tools read this on every call)
+   *   3. process.env (kortix-master's own process)
+   *
+   * Since getEnv() reads s6 first (always fresh from disk), updated values
+   * take effect immediately — no service restart needed.
+   * Only POSTs when values actually differ from what's currently set.
+   */
   async syncCoreEnvVars(): Promise<void> {
     if (this._serviceKeySynced) return;
 
@@ -333,10 +345,19 @@ export class LocalDockerProvider implements SandboxProvider {
       INTERNAL_SERVICE_KEY: config.INTERNAL_SERVICE_KEY,  // triggers auto-generation if empty
     };
 
-    // Check which vars need updating
+    // Read current values from the secrets manager to compare
+    let currentEnv: Record<string, string> = {};
+    try {
+      currentEnv = await this.fetchMasterEnv();
+    } catch {
+      // Sandbox may not be ready yet — fall back to Docker env comparison
+      currentEnv = containerEnv;
+    }
+
+    // Only sync vars that actually differ
     const stale: Record<string, string> = {};
     for (const [key, val] of Object.entries(desired)) {
-      if (val && containerEnv[key] !== val) {
+      if (val && currentEnv[key] !== val) {
         stale[key] = val;
       }
     }
@@ -347,30 +368,77 @@ export class LocalDockerProvider implements SandboxProvider {
       return;
     }
 
-    console.log(`[LOCAL-DOCKER] Syncing ${Object.keys(stale).join(', ')} to sandbox container...`);
+    console.log(`[LOCAL-DOCKER] Syncing ${Object.keys(stale).join(', ')} via secrets manager...`);
     try {
-      // Ensure DOCKER_HOST has the unix:// prefix for the docker CLI
-      const env = { ...process.env };
-      if (config.DOCKER_HOST && !config.DOCKER_HOST.includes('://')) {
-        env.DOCKER_HOST = `unix://${config.DOCKER_HOST}`;
-      }
-
-      // Write each stale var to s6 env dir
-      const writes = Object.entries(stale)
-        .map(([key, val]) => `printf '%s' '${val}' > /run/s6/container_environment/${key}`)
-        .join(' && ');
-
-      const cmd =
-        `docker exec ${CONTAINER_NAME} bash -c ` +
-        `"mkdir -p /run/s6/container_environment && ${writes} && ` +
-        `sudo s6-svc -r /run/service/svc-kortix-master"`;
-
-      execSync(cmd, { timeout: 15_000, stdio: 'pipe', env });
+      // POST to kortix-master /env API — no restart needed since getEnv() reads s6 directly
+      await this.postMasterEnv(stale);
       this._serviceKeySynced = true;
-      console.log(`[LOCAL-DOCKER] Core env vars synced and kortix-master restarted: ${Object.keys(stale).join(', ')}`);
+      console.log(`[LOCAL-DOCKER] Core env vars synced: ${Object.keys(stale).join(', ')}`);
     } catch (err: any) {
-      console.error('[LOCAL-DOCKER] Failed to sync core env vars:', err.message || err);
+      console.error('[LOCAL-DOCKER] Failed to sync core env vars via /env API, falling back to docker exec:', err.message || err);
+      // Fallback: write directly to s6 env dir if the /env API is unreachable
+      try {
+        this.syncCoreEnvVarsFallback(stale);
+        this._serviceKeySynced = true;
+      } catch (fallbackErr: any) {
+        console.error('[LOCAL-DOCKER] Fallback sync also failed:', fallbackErr.message || fallbackErr);
+      }
     }
+  }
+
+  /**
+   * GET /env from kortix-master — returns all current env vars.
+   */
+  private async fetchMasterEnv(): Promise<Record<string, string>> {
+    const url = `http://localhost:${config.SANDBOX_PORT_BASE || 14000}/env`;
+    const res = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${config.INTERNAL_SERVICE_KEY}`,
+      },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) throw new Error(`GET /env returned ${res.status}`);
+    return (await res.json()) as Record<string, string>;
+  }
+
+  /**
+   * POST /env to kortix-master — sets env vars via the secrets manager.
+   * No restart needed: getEnv() reads s6 env dir directly on every call.
+   */
+  private async postMasterEnv(keys: Record<string, string>): Promise<void> {
+    const url = `http://localhost:${config.SANDBOX_PORT_BASE || 14000}/env`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.INTERNAL_SERVICE_KEY}`,
+      },
+      body: JSON.stringify({ keys, restart: false }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) throw new Error(`POST /env returned ${res.status}`);
+  }
+
+  /**
+   * Fallback: write directly to s6 env dir via docker exec.
+   * Used only when the /env API is unreachable (e.g. kortix-master not ready yet).
+   */
+  private syncCoreEnvVarsFallback(stale: Record<string, string>): void {
+    const env = { ...process.env };
+    if (config.DOCKER_HOST && !config.DOCKER_HOST.includes('://')) {
+      env.DOCKER_HOST = `unix://${config.DOCKER_HOST}`;
+    }
+
+    const writes = Object.entries(stale)
+      .map(([key, val]) => `printf '%s' '${val}' > /run/s6/container_environment/${key}`)
+      .join(' && ');
+
+    const cmd =
+      `docker exec ${CONTAINER_NAME} bash -c ` +
+      `"mkdir -p /run/s6/container_environment && ${writes}"`;
+
+    execSync(cmd, { timeout: 15_000, stdio: 'pipe', env });
+    console.log(`[LOCAL-DOCKER] Core env vars synced via fallback (docker exec): ${Object.keys(stale).join(', ')}`);
   }
 
   // ── Private ─────────────────────────────────────────────────────────────

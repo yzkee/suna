@@ -27,7 +27,7 @@ import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { authenticatedFetch } from '@/lib/auth-token';
-import { createSandbox, getSandboxUrl, extractMappedPorts, removeSandbox, setupSSH, type SandboxProviderName, type ChangelogEntry, type SSHSetupResult } from '@/lib/platform-client';
+import { createSandbox, extractMappedPorts, removeSandbox, setupSSH, type SandboxProviderName, type ChangelogEntry, type SSHSetupResult } from '@/lib/platform-client';
 import { toast } from '@/lib/toast';
 import { isBillingEnabled } from '@/lib/config';
 
@@ -500,25 +500,16 @@ export function InstanceManagerDialog({
       const { sandbox } = await createSandbox(provider ? { provider } : undefined);
       const label = sandbox.name || (provider === 'local_docker' ? 'Local Sandbox' : 'Cloud Sandbox');
 
-      let url: string;
-      try {
-        url = getSandboxUrl(sandbox);
-      } catch (err) {
-        throw new Error(`Failed to build sandbox URL: ${err}`);
-      }
-
       const store = useServerStore.getState();
-      let serverId: string;
 
-      // Add (or deduplicate) by sandboxId — provider-agnostic.
+      // Add (or deduplicate) by sandboxId — URL is derived at runtime by the store.
       const newServer = store.addSandboxServer({
         label,
-        url,
         provider: sandbox.provider,
         sandboxId: sandbox.external_id,
         mappedPorts: extractMappedPorts(sandbox),
       });
-      serverId = newServer.id;
+      const serverId = newServer.id;
 
       // Invalidate sandbox query so useSandbox picks up the latest state.
       queryClient.invalidateQueries({ queryKey: ['platform', 'sandbox'] });
