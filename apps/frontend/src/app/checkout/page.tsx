@@ -71,7 +71,7 @@ function CheckoutContent() {
     const initCheckout = async () => {
       try {
         const stripeKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || 
-                         "pk_test_51R5BVvG6l1KZGqIrmU0aQRSS8Bgdp2ciuw0YyGhABeK7HgH2GxHvNy8d1inB2dU33lda2uj9JR4Ij46aFVbW8oge008y1RWpDB";
+                         "pk_test_51T56EcG6CaZppiKclbyh1QgEJqJNKD99TZ974ClCNbqjWjLgabv5QgmNP4MDvuSwclHbo1Ty2vHImjZKQIcsph1l00tebJWkC3";
         
         console.log('🔄 Initializing Stripe checkout...');
         console.log('🔑 Stripe key:', stripeKey?.substring(0, 20) + '...');
