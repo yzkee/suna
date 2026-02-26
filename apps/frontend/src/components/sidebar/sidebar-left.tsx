@@ -103,33 +103,6 @@ import { createClient } from '@/lib/supabase/client';
 // ============================================================================
 // Floating Mobile Menu Button
 // ============================================================================
-
-function FloatingMobileMenuButton() {
-  const { setOpenMobile, openMobile, setOpen } = useSidebar();
-  const isMobile = useIsMobile();
-  const pathname = usePathname();
-
-  const isDashboard = pathname === '/dashboard';
-  const isThreadPage = pathname?.includes('/thread/') || pathname?.match(/^\/agents\/[^/]+\/[^/]+$/);
-  const hasInlineMenu = isDashboard || isThreadPage;
-
-  if (!isMobile || openMobile || hasInlineMenu) return null;
-
-  return (
-    <div className="fixed top-3 left-3 z-50 safe-area-top">
-      <Button
-        onClick={() => { setOpen(true); setOpenMobile(true); }}
-        size="icon"
-        className="h-9 w-9 rounded-full bg-background/80 backdrop-blur-sm text-foreground border border-border shadow-md hover:bg-background transition-all duration-200 active:scale-95 touch-manipulation"
-        aria-label="Open menu"
-      >
-        <Menu className="h-4 w-4" />
-      </Button>
-    </div>
-  );
-}
-
-// ============================================================================
 // Collapsed Icon Button with optional hover flyout
 // ============================================================================
 
@@ -762,4 +735,4 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
   );
 }
 
-export { FloatingMobileMenuButton };
+
