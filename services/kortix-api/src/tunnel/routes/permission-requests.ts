@@ -11,6 +11,7 @@ import { Hono } from 'hono';
 import { eq, and, desc } from 'drizzle-orm';
 import { tunnelPermissionRequests, tunnelPermissions, tunnelConnections } from '@kortix/db';
 import { db } from '../../shared/db';
+import { tunnelRelay } from '../core/relay';
 import { tunnelRateLimiter } from '../core/rate-limiter';
 import { isValidCapability, validateScope as validateScopeInput } from '../core/scope-validator';
 import type { TunnelCapability } from '../types';
@@ -171,6 +172,13 @@ export function createPermissionRequestsRouter(): Hono {
         expiresAt,
       })
       .returning();
+
+    tunnelRelay.sendNotification(request.tunnelId, 'tunnel.permission.granted', {
+      permissionId: permission.permissionId,
+      capability: permission.capability,
+      scope: permission.scope,
+      expiresAt: permission.expiresAt?.toISOString() ?? undefined,
+    });
 
     return c.json({ success: true, permission });
   });

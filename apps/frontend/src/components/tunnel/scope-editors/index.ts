@@ -4,11 +4,6 @@ export { NetworkScopeEditor } from './network-scope-editor';
 
 import type { PermissionScope } from '../types';
 
-/**
- * Returns the appropriate scope editor component key for a capability.
- * Capabilities without scope editors (apps, hardware, desktop, gpu)
- * return null — they just toggle on/off with empty scope.
- */
 export function getScopeEditorCapability(capability: string): 'filesystem' | 'shell' | 'network' | null {
   switch (capability) {
     case 'filesystem':
@@ -22,7 +17,6 @@ export function getScopeEditorCapability(capability: string): 'filesystem' | 'sh
   }
 }
 
-/** Human-readable summary of a scope for display in active rule badges. */
 export function summarizeScope(capability: string, scope: PermissionScope): string {
   if (!scope || Object.keys(scope).length === 0) return 'Unrestricted access';
 

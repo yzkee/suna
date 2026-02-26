@@ -40,8 +40,7 @@ export function TunnelSettingsDialog({ tunnel, open, onOpenChange }: TunnelSetti
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col p-0 gap-0">
-        {/* Header */}
-        <DialogHeader className="px-6 pt-6 pb-4 border-b space-y-2">
+        <DialogHeader className="px-6 pt-6 pb-4 space-y-2">
           <div className="flex items-center gap-3">
             <div className={cn(
               'flex items-center justify-center w-10 h-10 rounded-xl border shrink-0',
@@ -70,11 +69,9 @@ export function TunnelSettingsDialog({ tunnel, open, onOpenChange }: TunnelSetti
             </Badge>
           </div>
         </DialogHeader>
-
-        {/* Tabs */}
-        <Tabs defaultValue="permissions" className="flex-1 flex flex-col min-h-0">
+        <Tabs defaultValue="permissions" className="w-full flex-1 flex flex-col min-h-0">
           <div className="px-6 pt-2">
-            <TabsList className="w-full">
+            <TabsList className="">
               <TabsTrigger value="permissions" className="flex-1">
                 <Shield className="h-3.5 w-3.5" />
                 Permissions

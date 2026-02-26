@@ -1,8 +1,3 @@
-/**
- * Shared tunnel permission types, capability registry, and expiry options.
- * Mirrors the DB scope types from packages/db/src/schema/kortix.ts.
- */
-
 import {
   HardDrive,
   Terminal,
@@ -13,8 +8,6 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react';
-
-// ─── Scope Types ────────────────────────────────────────────────────────────
 
 export interface FilesystemScope {
   paths: string[];
@@ -36,8 +29,6 @@ export interface NetworkScope {
 }
 
 export type PermissionScope = FilesystemScope | ShellScope | NetworkScope | Record<string, unknown>;
-
-// ─── Capability Registry ────────────────────────────────────────────────────
 
 export interface CapabilityInfo {
   key: string;
@@ -99,12 +90,31 @@ export const CAPABILITY_REGISTRY: CapabilityInfo[] = [
   },
 ];
 
-// ─── Expiry Options ─────────────────────────────────────────────────────────
+export interface ScopeInfo {
+  key: string;  
+  capability: string;    
+  label: string;         
+  description: string;   
+  category: string;      
+}
+
+export const SCOPE_REGISTRY: ScopeInfo[] = [
+  { key: 'files:read',            capability: 'filesystem', label: 'Read files',          description: 'Read local files and directories',             category: 'Filesystem' },
+  { key: 'files:write',           capability: 'filesystem', label: 'Write files',         description: 'Create and modify local files',                category: 'Filesystem' },
+  { key: 'files:delete',          capability: 'filesystem', label: 'Delete files',        description: 'Delete local files and directories',           category: 'Filesystem' },
+  { key: 'shell:exec',            capability: 'shell',      label: 'Execute commands',    description: 'Run shell commands in terminal',               category: 'Shell' },
+  { key: 'network:http',          capability: 'network',    label: 'HTTP requests',       description: 'Make HTTP requests to local services',         category: 'Network' },
+  { key: 'network:tcp',           capability: 'network',    label: 'TCP connections',     description: 'Open TCP connections to local ports',          category: 'Network' },
+  { key: 'desktop:screenshot',    capability: 'desktop',    label: 'Screen capture',      description: 'Take screenshots of the desktop',              category: 'Desktop' },
+  { key: 'desktop:input',         capability: 'desktop',    label: 'Mouse & keyboard',    description: 'Control mouse and keyboard',                   category: 'Desktop' },
+  { key: 'desktop:clipboard',     capability: 'desktop',    label: 'Clipboard access',    description: 'Read and write clipboard',                     category: 'Desktop' },
+  { key: 'desktop:accessibility', capability: 'desktop',    label: 'Accessibility tree',  description: 'Read and interact with UI elements',           category: 'Desktop' },
+];
 
 export interface ExpiryOption {
   label: string;
-  value: string; // ISO duration key or 'never'
-  ms: number | null; // null = never expires
+  value: string; 
+  ms: number | null; 
 }
 
 export const EXPIRY_OPTIONS: ExpiryOption[] = [
@@ -115,8 +125,6 @@ export const EXPIRY_OPTIONS: ExpiryOption[] = [
   { label: 'Never', value: 'never', ms: null },
 ];
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 export function getExpiresAt(option: ExpiryOption): string | undefined {
   if (option.ms === null) return undefined;
   return new Date(Date.now() + option.ms).toISOString();
@@ -126,7 +134,6 @@ export function getCapabilityInfo(key: string): CapabilityInfo | undefined {
   return CAPABILITY_REGISTRY.find((c) => c.key === key);
 }
 
-/** Default scope for a capability when adding a new rule. */
 export function getDefaultScope(capability: string): PermissionScope {
   switch (capability) {
     case 'filesystem':

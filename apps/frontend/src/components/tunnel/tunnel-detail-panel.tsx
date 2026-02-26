@@ -1,9 +1,5 @@
 'use client';
 
-/**
- * TunnelDetailPanel — slide-in panel for managing a single tunnel.
- * Matches the channel-detail-panel / task-detail-panel pattern.
- */
 
 import React, { useState } from 'react';
 import { X, Monitor, Wifi, WifiOff, Shield, ScrollText } from 'lucide-react';
@@ -23,7 +19,6 @@ interface TunnelDetailPanelProps {
 export function TunnelDetailPanel({ tunnel, open, onClose }: TunnelDetailPanelProps) {
   const [activeTab, setActiveTab] = useState<'permissions' | 'audit'>('permissions');
 
-  // Refetch live data for the selected tunnel
   const { data: liveData } = useTunnelConnection(tunnel?.tunnelId || '');
   const conn = liveData || tunnel;
 
@@ -34,7 +29,6 @@ export function TunnelDetailPanel({ tunnel, open, onClose }: TunnelDetailPanelPr
 
   return (
     <>
-      {/* Backdrop (mobile) */}
       {open && (
         <div
           className="fixed inset-0 bg-black/40 z-30 2xl:hidden"
@@ -42,7 +36,6 @@ export function TunnelDetailPanel({ tunnel, open, onClose }: TunnelDetailPanelPr
         />
       )}
 
-      {/* Panel */}
       <div
         className={cn(
           'h-screen transition-all duration-300 ease-in-out bg-background border-l',
@@ -52,7 +45,6 @@ export function TunnelDetailPanel({ tunnel, open, onClose }: TunnelDetailPanelPr
         )}
       >
         <div className="flex flex-col h-full w-[580px]">
-          {/* Header */}
           <div className="flex items-center justify-between p-4 border-b">
             <div className="flex items-center gap-3">
               <div className={cn(
@@ -83,7 +75,6 @@ export function TunnelDetailPanel({ tunnel, open, onClose }: TunnelDetailPanelPr
             </Button>
           </div>
 
-          {/* Capabilities */}
           {conn.capabilities.length > 0 && (
             <div className="flex flex-wrap gap-1 px-4 py-2 border-b">
               {conn.capabilities.map((cap) => (
@@ -92,7 +83,6 @@ export function TunnelDetailPanel({ tunnel, open, onClose }: TunnelDetailPanelPr
             </div>
           )}
 
-          {/* Tabs */}
           <div className="flex border-b">
             <button
               onClick={() => setActiveTab('permissions')}
@@ -119,8 +109,6 @@ export function TunnelDetailPanel({ tunnel, open, onClose }: TunnelDetailPanelPr
               Audit Log
             </button>
           </div>
-
-          {/* Tab Content */}
           <div className="flex-1 overflow-y-auto p-4">
             {activeTab === 'permissions' ? (
               <TunnelPermissionManager tunnelId={conn.tunnelId} />

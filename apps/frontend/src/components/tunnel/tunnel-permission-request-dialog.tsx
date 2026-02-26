@@ -1,15 +1,5 @@
 'use client';
 
-/**
- * TunnelPermissionRequestDialog — smart 3-mode dialog for incoming
- * permission requests from sandbox agents.
- *
- * Modes:
- *  1. "Allow this once"       — exact requested scope + 1h expiry
- *  2. "Add to permissions"    — ScopeEditor pre-filled from request, user can widen + pick expiry
- *  3. "Allow all [capability]" — empty scope (unrestricted) + selected expiry
- */
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { Shield, AlertTriangle, X, Clock, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -78,16 +68,13 @@ export function TunnelPermissionRequestDialog() {
       let expiresAt: string | undefined;
 
       if (mode === 'once') {
-        // Exact requested scope + 1h expiry
         scope = currentRequest.requestedScope;
-        expiresAt = getExpiresAt(EXPIRY_OPTIONS[0]!); // 1h
+        expiresAt = getExpiresAt(EXPIRY_OPTIONS[0]!); 
       } else if (mode === 'scoped') {
-        // Custom scope + selected expiry
         scope = customScope as Record<string, unknown>;
         const expiry = EXPIRY_OPTIONS.find((o) => o.value === expiryValue);
         expiresAt = expiry ? getExpiresAt(expiry) : undefined;
       } else {
-        // "Allow all" — empty scope + selected expiry
         scope = {};
         const expiry = EXPIRY_OPTIONS.find((o) => o.value === expiryValue);
         expiresAt = expiry ? getExpiresAt(expiry) : undefined;
@@ -127,7 +114,6 @@ export function TunnelPermissionRequestDialog() {
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          {/* Capability + Reason */}
           <div className="flex items-center gap-2">
             <Shield className="h-4 w-4 text-muted-foreground" />
             <Badge variant="secondary">{currentRequest.capability}</Badge>
@@ -142,7 +128,6 @@ export function TunnelPermissionRequestDialog() {
             </div>
           )}
 
-          {/* Mode Selection */}
           <div className="space-y-1.5">
             <ModeOption
               active={mode === 'once'}
@@ -165,7 +150,6 @@ export function TunnelPermissionRequestDialog() {
             />
           </div>
 
-          {/* Scope Editor (only for "scoped" mode + capabilities with editors) */}
           {mode === 'scoped' && scopeEditorType && (
             <Collapsible open={scopeExpanded} onOpenChange={setScopeExpanded}>
               <CollapsibleTrigger className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors w-full">
@@ -197,7 +181,6 @@ export function TunnelPermissionRequestDialog() {
             </Collapsible>
           )}
 
-          {/* Expiry selector (for scoped and all modes) */}
           {mode !== 'once' && (
             <div className="flex items-center gap-2">
               <Clock className="h-3.5 w-3.5 text-muted-foreground" />
@@ -215,7 +198,6 @@ export function TunnelPermissionRequestDialog() {
             </div>
           )}
 
-          {/* Queue indicator */}
           {pendingRequests.length > 1 && (
             <p className="text-xs text-muted-foreground">
               +{pendingRequests.length - 1} more request{pendingRequests.length > 2 ? 's' : ''} pending
@@ -245,8 +227,6 @@ export function TunnelPermissionRequestDialog() {
     </Dialog>
   );
 }
-
-// ─── Sub-components ─────────────────────────────────────────────────────────
 
 function ModeOption({
   active,
@@ -283,8 +263,6 @@ function ModeOption({
     </button>
   );
 }
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function extractScopeFromRequest(request: TunnelPermissionRequest): PermissionScope {
   const base = getDefaultScope(request.capability);

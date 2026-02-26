@@ -103,6 +103,13 @@ export function createPermissionsRouter(): Hono {
       })
       .returning();
 
+    tunnelRelay.sendNotification(tunnelId, 'tunnel.permission.granted', {
+      permissionId: permission.permissionId,
+      capability: permission.capability,
+      scope: permission.scope,
+      expiresAt: permission.expiresAt?.toISOString() ?? undefined,
+    });
+
     return c.json(permission, 201);
   });
 

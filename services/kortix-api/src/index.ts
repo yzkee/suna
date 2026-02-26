@@ -31,6 +31,7 @@ import { initModelPricing, stopModelPricing } from './router/config/model-pricin
 import { tunnelApp, startTunnelService, stopTunnelService, getTunnelServiceStatus } from './tunnel';
 import { tunnelRelay } from './tunnel/core/relay';
 import { heartbeatManager } from './tunnel/core/heartbeat';
+import { notifyTunnelEvent } from './tunnel/routes/permission-requests';
 
 // ─── App Setup ──────────────────────────────────────────────────────────────
 
@@ -774,7 +775,6 @@ export default {
         const wsPort = parseInt(wsPathMatch[2], 10);
         const wsRemainingPath = wsPathMatch[3] || '/';
 
-        // Auth: header → query param → cookie (same as subdomain handler)
         const wsAuthHeader = req.headers.get('Authorization');
         const wsBearerToken = wsAuthHeader?.startsWith('Bearer ') ? wsAuthHeader.slice(7) : null;
         const wsQueryToken = url.searchParams.get('token');
@@ -799,29 +799,26 @@ export default {
       }
     }
 
-    // ── HTTP / SSE — delegate to Hono ──────────────────────────────────
     return app.fetch(req, server);
   },
 
   websocket: {
     open(ws: { data: any; send: (data: any) => void; close: (code?: number, reason?: string) => void }) {
-      // ── Tunnel Agent WebSocket ──────────────────────────────────────
       if (ws.data?.type === 'tunnel-agent') {
         const { tunnelId, accountId, signingKey } = ws.data;
         tunnelRelay.registerAgent(tunnelId, ws as any, signingKey, accountId);
         heartbeatManager.register(tunnelId);
 
-        // Update DB status (fire-and-forget)
+        notifyTunnelEvent(accountId, 'tunnel_connected', { tunnelId });
+
         import('drizzle-orm').then(({ eq, and: andOp }) =>
           import('@kortix/db').then(({ tunnelConnections, tunnelPermissions }) =>
             import('./shared/db').then(async ({ db }) => {
-              // Update connection status
               db.update(tunnelConnections)
                 .set({ status: 'online', lastHeartbeatAt: new Date(), updatedAt: new Date() })
                 .where(eq(tunnelConnections.tunnelId, tunnelId))
                 .catch((err: any) => console.warn(`[tunnel-ws] DB update failed:`, err));
 
-              // Send permission sync — bulk-load active permissions to the agent
               try {
                 const activePerms = await db
                   .select({
@@ -855,7 +852,6 @@ export default {
         return;
       }
 
-      // ── Preview Proxy WebSocket ─────────────────────────────────────
       activeWsConnections++;
       resetIdleTimer(ws);
 
@@ -905,22 +901,31 @@ export default {
     },
 
     message(ws: { data: any; close: (code?: number, reason?: string) => void }, message: string | Buffer) {
-      // ── Tunnel Agent Message ────────────────────────────────────────
       if (ws.data?.type === 'tunnel-agent') {
         const { tunnelId } = ws.data;
 
-        // Check message size limit
         const msgSize = typeof message === 'string' ? message.length : (message as Buffer).byteLength;
         if (msgSize > config.TUNNEL_MAX_WS_MESSAGE_SIZE) {
           console.warn(`[tunnel-ws] Oversized message from ${tunnelId}: ${msgSize} bytes (limit: ${config.TUNNEL_MAX_WS_MESSAGE_SIZE})`);
-          return; // Drop oversized messages
+          return;
         }
-
-        // Check for pong
         try {
           const parsed = JSON.parse(typeof message === 'string' ? message : message.toString('utf-8'));
           if (parsed.method === 'tunnel.pong') {
             heartbeatManager.recordPong(tunnelId);
+            const mi = parsed.params?.machineInfo;
+            if (mi && typeof mi === 'object' && mi.hostname) {
+              import('drizzle-orm').then(({ eq }) =>
+                import('@kortix/db').then(({ tunnelConnections }) =>
+                  import('./shared/db').then(({ db }) =>
+                    db.update(tunnelConnections)
+                      .set({ machineInfo: mi, updatedAt: new Date() })
+                      .where(eq(tunnelConnections.tunnelId, tunnelId))
+                      .catch(() => {})
+                  )
+                )
+              );
+            }
             return;
           }
         } catch {}
@@ -929,7 +934,6 @@ export default {
         return;
       }
 
-      // ── Preview Proxy Message ───────────────────────────────────────
       resetIdleTimer(ws);
       const upstream = ws.data.upstream;
       if (upstream && upstream.readyState === WebSocket.OPEN) {
@@ -947,13 +951,15 @@ export default {
     },
 
     close(ws: { data: any }) {
-      // ── Tunnel Agent Close ──────────────────────────────────────────
       if (ws.data?.type === 'tunnel-agent') {
-        const { tunnelId } = ws.data;
+        const { tunnelId, accountId } = ws.data;
         tunnelRelay.unregisterAgent(tunnelId);
         heartbeatManager.unregister(tunnelId);
 
-        // Update DB status (fire-and-forget)
+        if (accountId) {
+          notifyTunnelEvent(accountId, 'tunnel_disconnected', { tunnelId });
+        }
+
         import('drizzle-orm').then(({ eq }) =>
           import('@kortix/db').then(({ tunnelConnections }) =>
             import('./shared/db').then(({ db }) =>
@@ -967,7 +973,6 @@ export default {
         return;
       }
 
-      // ── Preview Proxy Close ─────────────────────────────────────────
       activeWsConnections--;
       ws.data.closed = true;
       clearWsTimers(ws.data);

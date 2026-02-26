@@ -12,6 +12,7 @@
  *   - Handle token rotation notifications
  */
 
+import { hostname, platform, arch, release } from 'os';
 import type { TunnelConfig } from './config';
 import { CapabilityRegistry, type RpcHandler } from './capabilities/index';
 import { PermissionGuard } from './security/permission-guard';
@@ -185,6 +186,16 @@ export class TunnelAgent {
       return;
     }
 
+    // ── Permission granted notification ────────────────────────────
+    if ('method' in msg && msg.method === 'tunnel.permission.granted') {
+      const p = msg.params as LocalPermission | undefined;
+      if (p?.permissionId) {
+        this.permissionGuard.addPermission(p);
+        log(`${c.green}+${c.reset}`, `Permission granted: ${p.capability} (${p.permissionId.slice(0, 12)}…)`);
+      }
+      return;
+    }
+
     // ── Permission revocation notification ──────────────────────────
     if ('method' in msg && msg.method === 'tunnel.permission.revoked') {
       const permissionId = msg.params?.permissionId as string;
@@ -282,6 +293,13 @@ export class TunnelAgent {
       params: {
         uptime: this.uptime,
         capabilities: this.registry.getCapabilityNames(),
+        machineInfo: {
+          hostname: hostname(),
+          platform: platform(),
+          arch: arch(),
+          osVersion: release(),
+          agentVersion: '0.1.0',
+        },
       },
     });
   }
