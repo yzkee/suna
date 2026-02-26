@@ -5,27 +5,28 @@
  *   1. Calls GET /platform/sandbox to check for an existing sandbox
  *   2. If one exists, registers it as a server in the server-store
  *      so the OpenCode SDK automatically connects to it
- *   3. If none exists, returns null — the user must explicitly create
- *      one via the Instance Manager dialog
- *
- * NOTE: This hook does NOT auto-create sandboxes. Creation only happens
- * when the user clicks "Cloud" or "Local Docker" in the Instance Manager,
- * which calls ensureSandbox() directly.
+ *   3. If none exists AND billing is enabled (cloud mode), auto-creates
+ *      one via POST /platform/init so the user doesn't have to manually
+ *      provision a sandbox
+ *   4. If none exists AND billing is disabled (self-hosted), returns null
+ *      — the user creates one via the Instance Manager dialog
  */
 
 import { useQuery } from '@tanstack/react-query';
 import {
   getSandbox,
+  ensureSandbox,
   getProviders,
   getSandboxUrl,
   extractMappedPorts,
   type SandboxInfo,
   type SandboxProviderName,
 } from '@/lib/platform-client';
+import { isBillingEnabled } from '@/lib/config';
 import { useServerStore } from '@/stores/server-store';
 import { useTabStore } from '@/stores/tab-store';
 import { useAuth } from '@/components/AuthProvider';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 /**
  * Register the sandbox as a server entry in the server store on boot.
@@ -67,11 +68,12 @@ function registerSandboxServer(sandbox: SandboxInfo) {
 
 export function useSandbox() {
   const { user } = useAuth();
+  const autoCreating = useRef(false);
+
   const query = useQuery({
     queryKey: ['platform', 'sandbox'],
     queryFn: async () => {
       // Read-only check — returns null if no sandbox exists.
-      // Does NOT create one. Creation is explicit via the Instance Manager.
       return await getSandbox();
     },
     enabled: !!user,
@@ -86,6 +88,35 @@ export function useSandbox() {
       registerSandboxServer(query.data);
     }
   }, [query.data]);
+
+  // Auto-create sandbox in cloud mode if none exists.
+  // In cloud mode (billing enabled), users shouldn't have to manually
+  // provision a sandbox — it should just be there after signup.
+  useEffect(() => {
+    if (
+      !query.isLoading &&
+      !query.data &&
+      !query.isError &&
+      user &&
+      isBillingEnabled() &&
+      !autoCreating.current
+    ) {
+      autoCreating.current = true;
+      console.log('[useSandbox] No sandbox found in cloud mode — auto-creating...');
+      ensureSandbox()
+        .then(({ sandbox }) => {
+          console.log('[useSandbox] Sandbox auto-created:', sandbox.external_id);
+          registerSandboxServer(sandbox);
+          query.refetch();
+        })
+        .catch((err) => {
+          console.error('[useSandbox] Auto-create failed:', err);
+        })
+        .finally(() => {
+          autoCreating.current = false;
+        });
+    }
+  }, [query.isLoading, query.data, query.isError, user]);
 
   return {
     sandbox: query.data ?? null,
