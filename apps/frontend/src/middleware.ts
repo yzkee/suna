@@ -305,7 +305,9 @@ export async function middleware(request: NextRequest) {
       }
 
       try {
-        const accountStateRes = await fetch(`${backendUrl}/v1/billing/account-state`, {
+        // NEXT_PUBLIC_BACKEND_URL may already include /v1 (e.g. https://api.kortix.com/v1)
+        const apiBase = backendUrl.replace(/\/v1\/?$/, '');
+        const accountStateRes = await fetch(`${apiBase}/v1/billing/account-state`, {
           headers: {
             'Authorization': `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
@@ -314,8 +316,10 @@ export async function middleware(request: NextRequest) {
         });
 
         if (!accountStateRes.ok) {
-          // Backend unreachable or error — let the request through
-          return supabaseResponse;
+          // Backend error (not network) — redirect to setting-up as fallback
+          const url = request.nextUrl.clone();
+          url.pathname = '/setting-up';
+          return NextResponse.redirect(url);
         }
 
         const accountState = await accountStateRes.json() as {
@@ -333,13 +337,15 @@ export async function middleware(request: NextRequest) {
           return supabaseResponse;
         }
 
-        // No active subscription — redirect to subscription page
+        // No subscription at all — redirect to setting-up (triggers account initialization)
         const url = request.nextUrl.clone();
-        url.pathname = '/subscription';
+        url.pathname = '/setting-up';
         return NextResponse.redirect(url);
       } catch {
-        // Network error / timeout — let the request through, don't block users
-        return supabaseResponse;
+        // Network error / timeout — redirect to setting-up as fallback
+        const url = request.nextUrl.clone();
+        url.pathname = '/setting-up';
+        return NextResponse.redirect(url);
       }
     }
 
