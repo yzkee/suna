@@ -122,9 +122,12 @@ export const config = {
   /**
    * Internal service key for kortix-api → sandbox communication.
    * Injected into proxied requests so the sandbox can validate the caller.
-   * In VPS mode this is auto-generated; in local mode defaults to empty (no auth).
+   * Auto-generated at startup if not provided. Always present.
+   *
+   * Uses a getter so that runtime generation (by local-docker provider)
+   * is visible to all call sites that read config.INTERNAL_SERVICE_KEY.
    */
-  INTERNAL_SERVICE_KEY: process.env.INTERNAL_SERVICE_KEY || '',
+  get INTERNAL_SERVICE_KEY() { return process.env.INTERNAL_SERVICE_KEY || ''; },
 
   // ─── Scheduler (Cron) ─────────────────────────────────────────────────────
   SCHEDULER_ENABLED: process.env.SCHEDULER_ENABLED !== 'false',

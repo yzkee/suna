@@ -10,6 +10,7 @@
  */
 
 import Docker from 'dockerode';
+import { randomBytes } from 'crypto';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { config } from '../../config';
@@ -55,11 +56,11 @@ const EXPOSED_PORTS: Record<string, {}> = Object.fromEntries(
   Object.keys(PORT_MAP).map((p) => [`${p}/tcp`, {}]),
 );
 
-/** PortBindings for Docker HostConfig. */
-const PORT_BINDINGS: Record<string, { HostPort: string }[]> = Object.fromEntries(
+/** PortBindings for Docker HostConfig — bound to 127.0.0.1 (localhost only). */
+const PORT_BINDINGS: Record<string, { HostPort: string; HostIp: string }[]> = Object.fromEntries(
   Object.entries(PORT_MAP).map(([container, host]) => [
     `${container}/tcp`,
-    [{ HostPort: host }],
+    [{ HostPort: host, HostIp: '127.0.0.1' }],
   ]),
 );
 
@@ -349,7 +350,12 @@ export class LocalDockerProvider implements SandboxProvider {
     }
     const sandboxEnvVars = readSandboxEnv();
 
-    // INTERNAL_SERVICE_KEY: used for proxy/cron → sandbox auth
+    // INTERNAL_SERVICE_KEY: used for proxy/cron → sandbox auth.
+    // Auto-generate if not set — every sandbox must have a service key.
+    if (!config.INTERNAL_SERVICE_KEY) {
+      process.env.INTERNAL_SERVICE_KEY = randomBytes(32).toString('hex');
+      console.log('[LOCAL-DOCKER] Auto-generated INTERNAL_SERVICE_KEY for sandbox auth');
+    }
     const serviceKey = config.INTERNAL_SERVICE_KEY;
 
     // Vars we set explicitly — sandbox/.env must NOT override these
@@ -382,16 +388,15 @@ export class LocalDockerProvider implements SandboxProvider {
       'SECRET_FILE_PATH=/workspace/.secrets/.secrets.json',
       'SALT_FILE_PATH=/workspace/.secrets/.salt',
       `KORTIX_API_URL=${config.KORTIX_URL || ''}`,
-      // KORTIX_TOKEN: sandbox → kortix-api auth.
-      // Uses the service key if available, otherwise the sandbox's kortix_sb_ key.
-      `KORTIX_TOKEN=${serviceKey || authToken}`,
+      // KORTIX_TOKEN: sandbox → kortix-api auth (kortix_sb_ key from DB).
+      `KORTIX_TOKEN=${authToken}`,
       `SANDBOX_ID=${CONTAINER_NAME}`,
       'PROJECT_ID=local',
       // Cloud mode when billing is enabled — routes LLM traffic through the proxy for metering.
       // Local mode otherwise — SDKs call providers directly (no billing).
       `ENV_MODE=${config.KORTIX_BILLING_INTERNAL_ENABLED ? 'cloud' : 'local'}`,
-      // INTERNAL_SERVICE_KEY: proxy/cron → sandbox auth
-      ...(serviceKey ? [`INTERNAL_SERVICE_KEY=${serviceKey}`] : []),
+      // INTERNAL_SERVICE_KEY: proxy/cron → sandbox auth (always present)
+      `INTERNAL_SERVICE_KEY=${serviceKey}`,
       // Extra env from sandbox/.env (API keys, etc.) — managed vars already filtered out
       ...filteredSandboxEnv,
     ];
