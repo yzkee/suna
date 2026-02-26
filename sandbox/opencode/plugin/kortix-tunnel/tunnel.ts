@@ -14,87 +14,7 @@
  */
 
 import { tool } from "@opencode-ai/plugin"
-
-// ─── Shared RPC Caller ──────────────────────────────────────────────────────
-
-async function tunnelRpc(
-	tunnelId: string,
-	method: string,
-	params: Record<string, unknown>,
-): Promise<unknown> {
-	const apiUrl = process.env.KORTIX_API_URL || "http://localhost:8008"
-	const token = process.env.KORTIX_TOKEN || ""
-
-	const res = await fetch(`${apiUrl}/v1/tunnel/rpc/${tunnelId}`, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			Authorization: `Bearer ${token}`,
-		},
-		body: JSON.stringify({ method, params }),
-	})
-
-	const data = (await res.json()) as Record<string, unknown>
-
-	if (!res.ok) {
-		const error = data.error || `HTTP ${res.status}`
-		const code = data.code || -1
-
-		if (res.status === 403 && data.requestId) {
-			return `Permission required. A permission request (${data.requestId}) has been sent to the user for approval. The user needs to approve this request in the Kortix dashboard before you can access their local machine. Please inform the user and try again after they approve.`
-		}
-
-		throw new Error(`Tunnel RPC failed: ${error} (code: ${code})`)
-	}
-
-	return data.result
-}
-
-/** Cache the auto-discovered tunnel ID for the session. */
-let cachedTunnelId: string | null = null
-
-async function resolveTunnelId(args: { tunnel_id?: string }): Promise<string> {
-	// 1. Explicit arg
-	if (args.tunnel_id) return args.tunnel_id
-
-	// 2. Environment variable
-	if (process.env.KORTIX_TUNNEL_ID) return process.env.KORTIX_TUNNEL_ID
-
-	// 3. Cached from previous auto-discovery
-	if (cachedTunnelId) return cachedTunnelId
-
-	// 4. Auto-discover: find the first online tunnel for this account
-	const apiUrl = process.env.KORTIX_API_URL || "http://localhost:8008"
-	const token = process.env.KORTIX_TOKEN || ""
-
-	try {
-		const res = await fetch(`${apiUrl}/v1/tunnel/connections`, {
-			headers: { Authorization: `Bearer ${token}` },
-		})
-		if (res.ok) {
-			const connections = (await res.json()) as Array<{ tunnelId: string; isLive: boolean; name: string }>
-			const online = connections.find((c) => c.isLive)
-			if (online) {
-				cachedTunnelId = online.tunnelId
-				return online.tunnelId
-			}
-			if (connections.length > 0) {
-				// No online tunnel — use the most recent one and let the RPC fail with a clear message
-				cachedTunnelId = connections[0].tunnelId
-				return connections[0].tunnelId
-			}
-		}
-	} catch {
-		// Discovery failed — fall through to error
-	}
-
-	throw new Error(
-		"No tunnel connection found. The user needs to set up Kortix Tunnel first:\n" +
-		"1. Go to the Tunnel page in Kortix dashboard\n" +
-		"2. Create a new connection\n" +
-		"3. Run the connect command on their local machine"
-	)
-}
+import { tunnelRpc, resolveTunnelId, getTunnelBase, getToken } from "./rpc"
 
 // ─── Tool Definitions ────────────────────────────────────────────────────────
 
@@ -105,10 +25,9 @@ export const tunnelStatusTool = tool({
 	},
 	async execute(args) {
 		const tunnelId = await resolveTunnelId(args)
-		const apiUrl = process.env.KORTIX_API_URL || "http://localhost:8008"
-		const token = process.env.KORTIX_TOKEN || ""
+		const token = getToken()
 
-		const res = await fetch(`${apiUrl}/v1/tunnel/connections/${tunnelId}`, {
+		const res = await fetch(`${getTunnelBase()}/connections/${tunnelId}`, {
 			headers: { Authorization: `Bearer ${token}` },
 		})
 
@@ -136,7 +55,7 @@ export const tunnelStatusTool = tool({
 		}
 
 		if (!data.isLive) {
-			lines.push("", "The tunnel agent is not currently connected. Ask the user to run `kortix-tunnel connect` on their local machine.")
+			lines.push("", "The tunnel agent is not currently connected. Ask the user to run `npx @kortix/tunnel connect` on their local machine.")
 		}
 
 		return lines.join("\n")

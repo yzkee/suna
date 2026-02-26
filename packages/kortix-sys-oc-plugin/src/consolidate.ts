@@ -13,6 +13,7 @@
  */
 
 import type { Database } from "bun:sqlite"
+import { getEnv } from "../../../tools/lib/get-env"
 import {
 	getObservationsBySession,
 	getAllLTM,
@@ -184,12 +185,12 @@ interface LLMConfig {
 
 function resolveLLMConfig(opts?: ConsolidateOptions): LLMConfig | null {
 	// Priority 1: Kortix router
-	const kortixUrl = opts?.kortixUrl ?? process.env.KORTIX_API_URL
-	const kortixToken = opts?.kortixToken ?? process.env.KORTIX_TOKEN
+	const kortixUrl = opts?.kortixUrl ?? getEnv("KORTIX_API_URL")
+	const kortixToken = opts?.kortixToken ?? getEnv("KORTIX_TOKEN")
 	if (kortixUrl && kortixToken) {
 		return {
 			type: "kortix",
-			baseURL: kortixUrl.replace(/\/+$/, ""),
+			baseURL: `${kortixUrl.replace(/\/+$/, "")}/v1/router`,
 			apiKey: kortixToken,
 			model: opts?.model ?? KORTIX_MODEL,
 		}

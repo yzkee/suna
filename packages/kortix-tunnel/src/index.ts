@@ -1,7 +1,7 @@
 /**
- * kortix-tunnel — public API for programmatic usage.
+ * @kortix/tunnel — public API for programmatic usage.
  *
- * Primary usage is via CLI (`kortix-tunnel connect`),
+ * Primary usage is via CLI (`npx @kortix/tunnel connect`),
  * but this module can also be imported directly.
  */
 

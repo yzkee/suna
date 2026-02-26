@@ -28,7 +28,7 @@ integrationsRouter.post('/token',
   async (c) => {
     try {
       const body = await c.req.json()
-      const apiUrl = config.KORTIX_API_URL.replace(/\/v1\/router\/?$/, '/v1')
+      const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
       const res = await fetch(`${apiUrl}/integrations/token`, {
         method: 'POST',
         headers: {
@@ -68,7 +68,7 @@ integrationsRouter.post('/proxy',
   async (c) => {
     try {
       const body = await c.req.json()
-      const apiUrl = config.KORTIX_API_URL.replace(/\/v1\/router\/?$/, '/v1')
+      const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
       const res = await fetch(`${apiUrl}/integrations/proxy`, {
         method: 'POST',
         headers: {
@@ -107,7 +107,7 @@ integrationsRouter.get('/list',
   }),
   async (c) => {
     try {
-      const apiUrl = config.KORTIX_API_URL.replace(/\/v1\/router\/?$/, '/v1')
+      const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
       const res = await fetch(`${apiUrl}/integrations/list`, {
         headers: {
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
@@ -151,7 +151,7 @@ integrationsRouter.get('/actions',
       if (query) params.set('q', query)
       if (limit) params.set('limit', limit)
 
-      const apiUrl = config.KORTIX_API_URL.replace(/\/v1\/router\/?$/, '/v1')
+      const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
       const res = await fetch(`${apiUrl}/integrations/actions?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
@@ -187,7 +187,7 @@ integrationsRouter.post('/connect',
   async (c) => {
     try {
       const body = await c.req.json()
-      const apiUrl = config.KORTIX_API_URL.replace(/\/v1\/router\/?$/, '/v1')
+      const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
       const res = await fetch(`${apiUrl}/integrations/connect`, {
         method: 'POST',
         headers: {
@@ -232,7 +232,7 @@ integrationsRouter.get('/search-apps',
       if (query) params.set('q', query)
       if (limit) params.set('limit', limit)
 
-      const apiUrl = config.KORTIX_API_URL.replace(/\/v1\/router\/?$/, '/v1')
+      const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
       const res = await fetch(`${apiUrl}/integrations/search-apps?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
@@ -268,7 +268,7 @@ integrationsRouter.post('/run-action',
   async (c) => {
     try {
       const body = await c.req.json()
-      const apiUrl = config.KORTIX_API_URL.replace(/\/v1\/router\/?$/, '/v1')
+      const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
       const res = await fetch(`${apiUrl}/integrations/run-action`, {
         method: 'POST',
         headers: {

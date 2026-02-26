@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 /**
- * kortix-tunnel CLI — local agent for Kortix reverse-tunnel.
+ * @kortix/tunnel CLI — local agent for Kortix reverse-tunnel.
  *
  * Usage:
- *   kortix-tunnel connect --token <token> --tunnel-id <id> [--api-url <url>]
- *   kortix-tunnel status  --token <token> --tunnel-id <id> [--api-url <url>]
- *   kortix-tunnel permissions --token <token> --tunnel-id <id> [--api-url <url>]
+ *   npx @kortix/tunnel connect --token <token> --tunnel-id <id> [--api-url <url>]
+ *   npx @kortix/tunnel status  --token <token> --tunnel-id <id> [--api-url <url>]
+ *   npx @kortix/tunnel permissions --token <token> --tunnel-id <id> [--api-url <url>]
  */
 
 import { loadConfig } from './config';
@@ -192,7 +192,7 @@ function showHelp(): void {
   console.log(`${c.bold}${c.cyan}  | ' </ _ \\| '_|  _| \\ \\ / ${c.reset} ${c.dim}v0.1.0${c.reset}`);
   console.log(`${c.bold}${c.cyan}  |_|\\_\\___/|_|  \\__|_/_\\_\\ ${c.reset}`);
   console.log('');
-  console.log(`  ${c.bold}Usage${c.reset}   ${c.dim}kortix-tunnel <command> [options]${c.reset}`);
+  console.log(`  ${c.bold}Usage${c.reset}   ${c.dim}npx @kortix/tunnel <command> [options]${c.reset}`);
   console.log('');
   console.log(`${c.gray}  ── Commands ────────────────────────────────────────${c.reset}`);
   console.log(`  ${c.cyan}connect${c.reset}       Connect and start handling RPC requests`);

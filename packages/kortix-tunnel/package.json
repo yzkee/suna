@@ -1,35 +1,27 @@
 {
-  "name": "kortix-tunnel",
-  "version": "0.1.0",
-  "description": "Kortix Tunnel — local agent CLI that bridges your machine to Kortix cloud sandboxes via secure reverse-tunnel",
-  "main": "dist/cli.js",
-  "types": "src/cli.ts",
+  "name": "@kortix/tunnel",
+  "version": "0.1.1",
+  "type": "module",
+  "description": "Kortix Tunnel — local agent CLI that bridges your machine to Kortix cloud sandboxes",
   "bin": {
-    "kortix-tunnel": "./src/cli.ts"
-  },
-  "exports": {
-    ".": "./src/index.ts"
+    "kortix-tunnel": "dist/cli.js"
   },
   "files": [
-    "dist/",
-    "src/"
+    "dist/"
   ],
   "scripts": {
-    "build": "bun build src/cli.ts --outdir dist --target node",
-    "dev": "bun run src/cli.ts",
-    "typecheck": "bun x tsc --noEmit"
+    "build": "bun build src/cli.ts --outfile dist/cli.js --target node --minify && node -e \"const f=require('fs');let c=f.readFileSync('dist/cli.js','utf8');c=c.replace('#!/usr/bin/env bun','#!/usr/bin/env node').replace('// @bun\\n','');f.writeFileSync('dist/cli.js',c)\"",
+    "prepublishOnly": "npm run build"
   },
-  "devDependencies": {
-    "@types/bun": "latest",
-    "@types/node": "^25.3.0",
-    "typescript": "^5.7.0"
+  "engines": {
+    "node": ">=22.0.0"
   },
-  "keywords": [
-    "kortix",
-    "tunnel",
-    "reverse-tunnel",
-    "cli",
-    "local-agent"
-  ],
+  "keywords": ["kortix", "tunnel", "cli", "reverse-tunnel", "sandbox"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kortix-ai/computer.git",
+    "directory": "packages/kortix-tunnel"
+  },
+  "author": "Kortix AI",
   "license": "MIT"
 }

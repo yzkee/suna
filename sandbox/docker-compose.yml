@@ -54,7 +54,7 @@ services:
       - SECRET_FILE_PATH=/workspace/.secrets/.secrets.json
       - SALT_FILE_PATH=/workspace/.secrets/.salt
       # Default: API on host (pnpm run dev). Override for Docker-to-Docker.
-      - KORTIX_API_URL=${KORTIX_API_URL:-http://host.docker.internal:8008/v1/router}
+      - KORTIX_API_URL=${KORTIX_API_URL:-http://host.docker.internal:8008}
       - KORTIX_TOKEN=${KORTIX_TOKEN:-}
       - SANDBOX_ID=${SANDBOX_ID:-local}
       - PROJECT_ID=${PROJECT_ID:-local}
