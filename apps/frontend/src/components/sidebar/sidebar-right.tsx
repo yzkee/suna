@@ -17,6 +17,7 @@ import {
   Plug,
   MessageSquare,
   Calendar,
+  Cable,
 } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -358,6 +359,24 @@ export function SidebarRight() {
                   Scheduled Tasks
                 </TooltipContent>
               </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => openTabAndNavigate({ id: 'page:/tunnel', title: 'Tunnel', type: 'page', href: '/tunnel' }, router)}
+                    className={cn(
+                      'flex items-center justify-center w-full py-2 rounded-lg cursor-pointer transition-colors duration-150',
+                      pathname === '/tunnel'
+                        ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                        : 'text-sidebar-foreground hover:bg-sidebar-accent',
+                    )}
+                  >
+                    <Cable className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="left" sideOffset={12} className="text-xs">
+                  Tunnel
+                </TooltipContent>
+              </Tooltip>
 
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -498,6 +517,18 @@ export function SidebarRight() {
                 >
                   <Calendar className="h-4 w-4 flex-shrink-0" />
                   <span>Scheduled Tasks</span>
+                </button>
+                <button
+                  onClick={() => openTabAndNavigate({ id: 'page:/tunnel', title: 'Tunnel', type: 'page', href: '/tunnel' }, router)}
+                  className={cn(
+                    'flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] transition-colors duration-150 cursor-pointer',
+                    pathname === '/tunnel'
+                      ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+                      : 'text-sidebar-foreground hover:bg-sidebar-accent',
+                  )}
+                >
+                  <Cable className="h-4 w-4 flex-shrink-0" />
+                  <span>Tunnel</span>
                 </button>
 
                 <button
