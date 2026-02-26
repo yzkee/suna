@@ -33,6 +33,9 @@ export interface ExtractionResult {
 export const SKIP_TOOLS = new Set([
 	"mem_search",
 	"mem_save",
+	"ltm_search",
+	"observation_search",
+	"get_mem",
 	"TodoWrite",
 	"TodoRead",
 	"todowrite",

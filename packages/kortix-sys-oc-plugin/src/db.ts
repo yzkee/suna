@@ -490,6 +490,115 @@ export function unifiedSearch(
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// RANKED FTS SEARCH (for hybrid search engine)
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Return observation candidates with raw FTS5 rank for score normalization.
+ * Supports additional filters: toolName, concepts (LIKE on JSON column).
+ */
+export function searchObservationsFtsRanked(
+	db: Database,
+	query: string,
+	opts?: {
+		limit?: number
+		type?: string
+		sessionId?: string
+		toolName?: string
+		concepts?: string[]
+	},
+): Array<{ id: number; rank: number; createdAt: string }> {
+	const limit = Math.min(opts?.limit ?? 60, 200)
+	try {
+		const ftsQuery = escapeFts5(query)
+		let sql = `
+			SELECT o.id, fts.rank, o.created_at
+			FROM observations_fts fts
+			JOIN observations o ON o.id = fts.rowid
+			WHERE observations_fts MATCH ?
+		`
+		const params: (string | number)[] = [ftsQuery]
+
+		if (opts?.type) { sql += ` AND o.type = ?`; params.push(opts.type) }
+		if (opts?.sessionId) { sql += ` AND o.session_id = ?`; params.push(opts.sessionId) }
+		if (opts?.toolName) { sql += ` AND o.tool_name = ?`; params.push(opts.toolName) }
+		if (opts?.concepts?.length) {
+			const clauses = opts.concepts.map(() => `o.concepts LIKE ?`)
+			sql += ` AND (${clauses.join(" OR ")})`
+			for (const c of opts.concepts) params.push(`%${c}%`)
+		}
+
+		sql += ` ORDER BY fts.rank LIMIT ?`
+		params.push(limit)
+
+		const rows = db.query(sql).all(...params) as Record<string, unknown>[]
+		return rows.map(r => ({
+			id: r.id as number,
+			rank: r.rank as number,
+			createdAt: r.created_at as string,
+		}))
+	} catch {
+		return []
+	}
+}
+
+/**
+ * Return LTM candidates with raw FTS5 rank for score normalization.
+ */
+export function searchLTMFtsRanked(
+	db: Database,
+	query: string,
+	opts?: { limit?: number; type?: string },
+): Array<{ id: number; rank: number; createdAt: string }> {
+	const limit = Math.min(opts?.limit ?? 60, 200)
+	try {
+		const ftsQuery = escapeFts5(query)
+		let sql = `
+			SELECT l.id, fts.rank, l.created_at
+			FROM ltm_fts fts
+			JOIN long_term_memories l ON l.id = fts.rowid
+			WHERE ltm_fts MATCH ?
+		`
+		const params: (string | number)[] = [ftsQuery]
+		if (opts?.type) { sql += ` AND l.type = ?`; params.push(opts.type) }
+		sql += ` ORDER BY fts.rank LIMIT ?`
+		params.push(limit)
+
+		const rows = db.query(sql).all(...params) as Record<string, unknown>[]
+		return rows.map(r => ({
+			id: r.id as number,
+			rank: r.rank as number,
+			createdAt: r.created_at as string,
+		}))
+	} catch {
+		return []
+	}
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SINGLE-RECORD GETTERS
+// ═════════════════════════════════════════════════════════════════════════════
+
+export function getObservationById(db: Database, id: number): Observation | null {
+	const row = db.query(`SELECT * FROM observations WHERE id = ?`).get(id) as Record<string, unknown> | null
+	return row ? rowToObservation(row) : null
+}
+
+export function getLTMById(db: Database, id: number): LTMEntry | null {
+	const row = db.query(`SELECT * FROM long_term_memories WHERE id = ?`).get(id) as Record<string, unknown> | null
+	return row ? rowToLTM(row) : null
+}
+
+export function getLTMByIds(db: Database, ids: number[]): LTMEntry[] {
+	if (ids.length === 0) return []
+	const placeholders = ids.map(() => "?").join(",")
+	const rows = db.query(
+		`SELECT * FROM long_term_memories WHERE id IN (${placeholders}) ORDER BY id ASC`,
+	).all(...ids) as Record<string, unknown>[]
+	return rows.map(rowToLTM)
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // OBSERVATION ENRICHMENT UPDATE
 // ═════════════════════════════════════════════════════════════════════════════
 
