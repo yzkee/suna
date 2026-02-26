@@ -16,7 +16,7 @@ import type { TunnelConfig } from './config';
 import { CapabilityRegistry, type RpcHandler } from './capabilities/index';
 import { PermissionGuard } from './security/permission-guard';
 import type { LocalPermission } from './security/permission-guard';
-import { deriveSigningKey, verifyMessageSignature } from './security/message-signer';
+import { deriveSigningKey, verifyMessageSignature } from './security/signature';
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -36,6 +36,23 @@ interface JsonRpcNotification {
 }
 
 type IncomingMessage = JsonRpcRequest | JsonRpcNotification;
+
+// ─── ANSI helpers ────────────────────────────────────────────────────────────
+const c = {
+  reset:   '\x1b[0m',
+  bold:    '\x1b[1m',
+  dim:     '\x1b[2m',
+  cyan:    '\x1b[36m',
+  green:   '\x1b[32m',
+  yellow:  '\x1b[33m',
+  red:     '\x1b[31m',
+  white:   '\x1b[97m',
+  gray:    '\x1b[90m',
+};
+
+function log(icon: string, msg: string) {
+  console.log(`  ${icon} ${c.dim}${msg}${c.reset}`);
+}
 
 export class TunnelAgent {
   private ws: WebSocket | null = null;
@@ -67,13 +84,13 @@ export class TunnelAgent {
     }
 
     const wsUrl = this.buildWsUrl();
-    console.log(`[tunnel-agent] Connecting to ${wsUrl}...`);
+    log(`${c.cyan}◆${c.reset}`, `Connecting…`);
 
     try {
       this.ws = new WebSocket(wsUrl);
       this.setupWsHandlers();
     } catch (err) {
-      console.error(`[tunnel-agent] Connection failed:`, err);
+      log(`${c.red}✗${c.reset}`, `Connection failed`);
       this.scheduleReconnect();
     }
   }
@@ -97,7 +114,7 @@ export class TunnelAgent {
     }
 
     this.permissionGuard.clear();
-    console.log('[tunnel-agent] Disconnected');
+    log(`${c.gray}○${c.reset}`, `Disconnected`);
   }
 
   isConnected(): boolean {
@@ -113,7 +130,7 @@ export class TunnelAgent {
       this.lastNonce = 0; // Reset nonce on each new connection
       this.uptimeInterval = setInterval(() => { this.uptime++; }, 1000);
 
-      console.log(`[tunnel-agent] Connected (capabilities: ${this.registry.getCapabilityNames().join(', ')})`);
+      log(`${c.green}●${c.reset}`, `Connected ${c.reset}${c.gray}(${this.registry.getCapabilityNames().join(', ')})${c.reset}`);
     });
 
     this.ws.addEventListener('message', (event) => {
@@ -127,13 +144,13 @@ export class TunnelAgent {
       }
 
       if (!this.isShuttingDown) {
-        console.log(`[tunnel-agent] Disconnected (code: ${event.code}, reason: ${event.reason || 'none'})`);
+        log(`${c.yellow}○${c.reset}`, `Disconnected ${c.gray}(code: ${event.code})${c.reset}`);
         this.scheduleReconnect();
       }
     });
 
     this.ws.addEventListener('error', (event) => {
-      console.error(`[tunnel-agent] WebSocket error`);
+      log(`${c.red}✗${c.reset}`, `WebSocket error`);
     });
   }
 
@@ -142,7 +159,7 @@ export class TunnelAgent {
     try {
       msg = JSON.parse(raw);
     } catch {
-      console.warn('[tunnel-agent] Received invalid JSON');
+      log(`${c.yellow}!${c.reset}`, `Received invalid JSON`);
       return;
     }
 
@@ -164,7 +181,7 @@ export class TunnelAgent {
     if ('method' in msg && msg.method === 'tunnel.permissions.sync') {
       const permissions = (msg.params?.permissions || []) as LocalPermission[];
       this.permissionGuard.syncPermissions(permissions);
-      console.log(`[tunnel-agent] Synced ${permissions.length} permissions`);
+      log(`${c.green}●${c.reset}`, `Synced ${c.reset}${c.white}${permissions.length}${c.dim} permissions`);
       return;
     }
 
@@ -173,14 +190,14 @@ export class TunnelAgent {
       const permissionId = msg.params?.permissionId as string;
       if (permissionId) {
         this.permissionGuard.revokePermission(permissionId);
-        console.log(`[tunnel-agent] Permission revoked: ${permissionId}`);
+        log(`${c.yellow}○${c.reset}`, `Permission revoked: ${permissionId.slice(0, 12)}…`);
       }
       return;
     }
 
     // ── Token rotation notification ─────────────────────────────────
     if ('method' in msg && msg.method === 'tunnel.token.rotated') {
-      console.log('[tunnel-agent] Token rotated — must reconnect with new token');
+      log(`${c.yellow}!${c.reset}`, `Token rotated — reconnecting with new token`);
       // The server will close the WS shortly; the reconnect logic handles the rest.
       // Caller must update config.token before reconnect succeeds.
       return;
@@ -202,13 +219,13 @@ export class TunnelAgent {
     const nonce = (msg as any)._nonce as number | undefined;
 
     if (sig === undefined || nonce === undefined) {
-      console.warn('[tunnel-agent] Message missing signature fields');
+      log(`${c.yellow}!${c.reset}`, `Message missing signature fields`);
       return false;
     }
 
     // Replay protection: nonce must be strictly increasing
     if (nonce <= this.lastNonce) {
-      console.warn(`[tunnel-agent] Replay detected: nonce ${nonce} <= lastNonce ${this.lastNonce}`);
+      log(`${c.red}✗${c.reset}`, `Replay detected: nonce ${nonce} <= ${this.lastNonce}`);
       return false;
     }
 
@@ -217,7 +234,7 @@ export class TunnelAgent {
     const payload = JSON.stringify(payloadObj);
 
     if (!verifyMessageSignature(this.signingKey, payload, nonce, sig)) {
-      console.warn('[tunnel-agent] Invalid HMAC signature');
+      log(`${c.red}✗${c.reset}`, `Invalid HMAC signature`);
       return false;
     }
 
@@ -274,7 +291,7 @@ export class TunnelAgent {
       try {
         this.ws.send(JSON.stringify(data));
       } catch (err) {
-        console.error('[tunnel-agent] Failed to send:', err);
+        log(`${c.red}✗${c.reset}`, `Send failed`);
       }
     }
   }
@@ -288,7 +305,7 @@ export class TunnelAgent {
       this.maxReconnectDelay,
     );
 
-    console.log(`[tunnel-agent] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})...`);
+    log(`${c.cyan}◆${c.reset}`, `Reconnecting in ${c.reset}${c.white}${(delay / 1000).toFixed(1)}s${c.dim} (attempt ${this.reconnectAttempts})`);
 
     this.reconnectTimer = setTimeout(() => {
       this.connect();

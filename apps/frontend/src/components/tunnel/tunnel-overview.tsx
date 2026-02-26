@@ -15,7 +15,7 @@ import { SpotlightCard } from '@/components/ui/spotlight-card';
 import { Ripple } from '@/components/ui/ripple';
 import { PageHeader } from '@/components/ui/page-header';
 import { useTunnelConnections, useDeleteTunnelConnection, type TunnelConnection } from '@/hooks/tunnel/use-tunnel';
-import { TunnelSetupWizard } from './tunnel-setup-wizard';
+import { TunnelCreateDialog } from './tunnel-create-dialog';
 import { TunnelSettingsDialog } from './tunnel-settings-dialog';
 import { TunnelPermissionRequestDialog } from './tunnel-permission-request-dialog';
 import { toast } from 'sonner';
@@ -168,7 +168,7 @@ export function TunnelOverview() {
   const { data: connections = [], isLoading } = useTunnelConnections();
   const deleteMutation = useDeleteTunnelConnection();
 
-  const [showSetup, setShowSetup] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [selectedTunnel, setSelectedTunnel] = useState<TunnelConnection | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -215,15 +215,8 @@ export function TunnelOverview() {
       </div>
 
       <div className="container mx-auto max-w-7xl px-3 sm:px-4">
-        {/* Setup Wizard Dialog */}
-        {showSetup && (
-          <div className="mb-6 animate-in fade-in-0 slide-in-from-bottom-4 duration-300">
-            <TunnelSetupWizard onDone={() => setShowSetup(false)} />
-          </div>
-        )}
-
         {/* Search + Actions */}
-        {hasConnections && !showSetup && (
+        {hasConnections && (
           <div className="flex items-center gap-3 mb-4 animate-in fade-in-0 slide-in-from-bottom-4 duration-500 delay-50 fill-mode-both">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -243,7 +236,7 @@ export function TunnelOverview() {
                 </button>
               )}
             </div>
-            <Button onClick={() => setShowSetup(true)}>
+            <Button onClick={() => setCreateDialogOpen(true)}>
               <Plus className="h-4 w-4" />
               New Connection
             </Button>
@@ -254,9 +247,9 @@ export function TunnelOverview() {
         <div className="animate-in fade-in-0 slide-in-from-bottom-4 duration-500 delay-100 fill-mode-both">
           {isLoading ? (
             <LoadingSkeleton />
-          ) : !hasConnections && !showSetup ? (
-            <EmptyState onCreateClick={() => setShowSetup(true)} />
-          ) : hasConnections && (
+          ) : !hasConnections ? (
+            <EmptyState onCreateClick={() => setCreateDialogOpen(true)} />
+          ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               <AnimatePresence>
                 {filtered.map((conn, i) => (
@@ -273,6 +266,12 @@ export function TunnelOverview() {
           )}
         </div>
       </div>
+
+      {/* Create Dialog (multi-step) */}
+      <TunnelCreateDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+      />
 
       {/* Settings Dialog */}
       <TunnelSettingsDialog

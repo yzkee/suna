@@ -72,7 +72,8 @@ export function createRpcRouter(): Hono {
       return c.json({ error: `Invalid capability: ${capability}` }, 400);
     }
 
-    const operation = method.split('.').pop() || method;
+    const capPrefix = method.indexOf('.');
+    const operation = capPrefix !== -1 ? method.slice(capPrefix + 1) : method;
     const permCheck = await checkPermission(tunnelId, capability, operation, params);
 
     if (!permCheck.allowed) {

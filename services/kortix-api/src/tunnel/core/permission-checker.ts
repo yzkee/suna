@@ -24,6 +24,10 @@ interface TunnelNetworkScope {
   protocols?: string[];
 }
 
+interface TunnelDesktopScope {
+  features?: string[];
+}
+
 export async function checkPermission(
   tunnelId: string,
   capability: TunnelCapability,
@@ -77,6 +81,8 @@ function validateScope(
       return validateShellScope(scope as TunnelShellScope, operation, args);
     case 'network':
       return validateNetworkScope(scope as TunnelNetworkScope, operation, args);
+    case 'desktop':
+      return validateDesktopScope(scope as TunnelDesktopScope, operation, args);
     default:
       return { allowed: false, reason: `No scope validator for capability "${capability}"` };
   }
@@ -171,6 +177,52 @@ function validateNetworkScope(
     if (protocol && !scope.protocols.includes(protocol)) {
       return { allowed: false, reason: `Protocol "${protocol}" not in allowed protocols` };
     }
+  }
+
+  return { allowed: true };
+}
+
+const DESKTOP_METHOD_FEATURES: Record<string, string> = {
+  'desktop.screenshot': 'screenshot',
+  'desktop.cursor.image': 'screenshot',
+  'desktop.screen.info': 'screenshot',
+  'desktop.mouse.click': 'mouse',
+  'desktop.mouse.move': 'mouse',
+  'desktop.mouse.drag': 'mouse',
+  'desktop.mouse.scroll': 'mouse',
+  'desktop.mouse.position': 'mouse',
+  'desktop.keyboard.type': 'keyboard',
+  'desktop.keyboard.key': 'keyboard',
+  'desktop.window.list': 'windows',
+  'desktop.window.focus': 'windows',
+  'desktop.window.resize': 'windows',
+  'desktop.window.close': 'windows',
+  'desktop.window.minimize': 'windows',
+  'desktop.app.launch': 'apps',
+  'desktop.app.quit': 'apps',
+  'desktop.app.list': 'apps',
+  'desktop.clipboard.read': 'clipboard',
+  'desktop.clipboard.write': 'clipboard',
+};
+
+function validateDesktopScope(
+  scope: TunnelDesktopScope,
+  operation: string,
+  _args: Record<string, unknown>,
+): PermissionCheckResult {
+  if (!scope.features || scope.features.length === 0) {
+    return { allowed: true };
+  }
+
+  const method = `desktop.${operation}`;
+  const feature = DESKTOP_METHOD_FEATURES[method];
+
+  if (!feature) {
+    return { allowed: false, reason: `Unknown desktop method: "${method}"` };
+  }
+
+  if (!scope.features.includes(feature)) {
+    return { allowed: false, reason: `Feature "${feature}" not in allowed features` };
   }
 
   return { allowed: true };

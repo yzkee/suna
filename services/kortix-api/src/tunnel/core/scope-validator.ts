@@ -19,6 +19,7 @@ const VALID_CAPABILITIES = new Set<string>([
 
 const VALID_FS_OPERATIONS = new Set(['read', 'write', 'list', 'delete']);
 const VALID_NET_PROTOCOLS = new Set(['http', 'tcp']);
+const VALID_DESKTOP_FEATURES = new Set(['screenshot', 'mouse', 'keyboard', 'windows', 'apps', 'clipboard']);
 
 export interface ScopeValidationResult {
   valid: boolean;
@@ -49,9 +50,10 @@ export function validateScope(
       return validateShellScope(scope);
     case 'network':
       return validateNetworkScope(scope);
+    case 'desktop':
+      return validateDesktopScope(scope);
     case 'apps':
     case 'hardware':
-    case 'desktop':
     case 'gpu':
       return {
         valid: false,
@@ -123,6 +125,24 @@ function validateShellScope(scope: Record<string, unknown>): ScopeValidationResu
       return { valid: false, error: 'scope.maxTimeout must be a positive number' };
     }
     sanitized.maxTimeout = scope.maxTimeout;
+  }
+
+  return { valid: true, sanitized };
+}
+
+function validateDesktopScope(scope: Record<string, unknown>): ScopeValidationResult {
+  const sanitized: Record<string, unknown> = {};
+
+  if ('features' in scope) {
+    if (!Array.isArray(scope.features) || !scope.features.every((f) => typeof f === 'string')) {
+      return { valid: false, error: 'scope.features must be an array of strings' };
+    }
+    for (const feature of scope.features) {
+      if (!VALID_DESKTOP_FEATURES.has(feature as string)) {
+        return { valid: false, error: `Invalid desktop feature: "${feature}"` };
+      }
+    }
+    sanitized.features = scope.features;
   }
 
   return { valid: true, sanitized };
