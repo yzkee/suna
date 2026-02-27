@@ -158,6 +158,9 @@ const languageMap: Record<string, () => any> = {
   // Mobile
   swift: () => getLangExtension('swift'),
   
+  // Properties / config (KEY=value with # comments) — used for .env, .ini, .properties, .conf
+  properties: () => getLangExtension('properties'),
+  
   // Other
   vue: () => getLangExtension('vue'),
   svelte: () => getLangExtension('svelte'),
@@ -169,9 +172,9 @@ export function getLanguageFromExtension(fileName: string): string {
   const extension = fileName.split('.').pop()?.toLowerCase() || '';
   const fileNameLower = fileName.toLowerCase();
   
-  // Check for common plain text file patterns first
+  // .env files use properties syntax (KEY=value with # comments)
   if (fileNameLower.includes('.env') || fileNameLower.startsWith('.env')) {
-    return 'text';
+    return 'properties';
   }
   if (fileNameLower.includes('gitignore') || 
       fileNameLower.includes('editorconfig') ||
@@ -263,11 +266,16 @@ export function getLanguageFromExtension(fileName: string): string {
     svelte: 'svelte',
     nix: 'nix',
     
+    // Properties / config (KEY=value with # comments)
+    env: 'properties',
+    ini: 'properties',
+    properties: 'properties',
+    conf: 'properties',
+    cfg: 'properties',
+    
     // Plain text (no syntax highlighting)
     txt: 'text',
     log: 'text',
-    env: 'text',
-    ini: 'text',
     gitignore: 'text',
     editorconfig: 'text',
     dockerignore: 'text',

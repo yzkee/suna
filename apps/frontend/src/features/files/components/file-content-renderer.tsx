@@ -89,6 +89,13 @@ export function getFileCategory(filename: string, mimeType?: string): FileCatego
 
 export function getLanguageFromExt(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
+  const fileNameLower = filename.toLowerCase();
+  
+  // .env files (e.g., .env, .env.local, .env.production)
+  if (fileNameLower.includes('.env') || fileNameLower.startsWith('.env')) {
+    return 'properties';
+  }
+  
   const map: Record<string, string> = {
     ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
     py: 'python', rb: 'ruby', go: 'go', rs: 'rust',
@@ -100,6 +107,8 @@ export function getLanguageFromExt(filename: string): string {
     md: 'markdown', mdx: 'markdown', txt: 'plaintext',
     dockerfile: 'dockerfile', makefile: 'makefile',
     vue: 'vue', svelte: 'svelte',
+    env: 'properties', ini: 'properties', conf: 'properties',
+    cfg: 'properties', properties: 'properties',
   };
   return map[ext] || 'plaintext';
 }
