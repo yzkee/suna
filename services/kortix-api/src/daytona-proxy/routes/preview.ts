@@ -25,8 +25,14 @@ interface PreviewLinkEntry {
   expiresAt: number;
 }
 
+interface ServiceKeyEntry {
+  key: string | null;
+  expiresAt: number;
+}
+
 const ownershipCache = new Map<string, OwnershipEntry>();
 const previewLinkCache = new Map<string, PreviewLinkEntry>();
+const serviceKeyCache = new Map<string, ServiceKeyEntry>();
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -43,6 +49,19 @@ function getCachedOwnership(sandboxId: string, userId: string): boolean | null {
 function setCachedOwnership(sandboxId: string, userId: string, allowed: boolean) {
   const key = `${sandboxId}:${userId}`;
   ownershipCache.set(key, { allowed, expiresAt: Date.now() + CACHE_TTL_MS });
+}
+
+function getCachedServiceKey(sandboxId: string): string | null | undefined {
+  const entry = serviceKeyCache.get(sandboxId);
+  if (!entry || Date.now() > entry.expiresAt) {
+    serviceKeyCache.delete(sandboxId);
+    return undefined; // cache miss
+  }
+  return entry.key; // null = no key stored, string = key
+}
+
+function setCachedServiceKey(sandboxId: string, key: string | null) {
+  serviceKeyCache.set(sandboxId, { key, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
 function getCachedPreviewLink(sandboxId: string, port: number): PreviewLinkEntry | null {
@@ -142,6 +161,27 @@ async function verifyOwnership(sandboxId: string, userId: string): Promise<boole
   }
 }
 
+// === Service key resolution (for authenticating proxy → sandbox) ===
+
+async function resolveServiceKey(sandboxId: string): Promise<string | null> {
+  const cached = getCachedServiceKey(sandboxId);
+  if (cached !== undefined) return cached;
+
+  try {
+    const [row] = await db
+      .select({ config: sandboxes.config })
+      .from(sandboxes)
+      .where(eq(sandboxes.externalId, sandboxId))
+      .limit(1);
+
+    const key = (row?.config as Record<string, unknown>)?.serviceKey as string | null ?? null;
+    setCachedServiceKey(sandboxId, key);
+    return key;
+  } catch {
+    return null;
+  }
+}
+
 // === Preview link resolution (no state checking -- let proxy detect if sandbox is down) ===
 
 async function resolvePreviewLink(
@@ -194,8 +234,11 @@ export async function proxyToDaytona(
   body: ArrayBuffer | undefined,
   origin: string,
 ): Promise<Response> {
-  // 1. Verify ownership (cached after first check)
-  const allowed = await verifyOwnership(sandboxId, userId);
+  // 1. Verify ownership + resolve service key (both cached after first check)
+  const [allowed, serviceKey] = await Promise.all([
+    verifyOwnership(sandboxId, userId),
+    resolveServiceKey(sandboxId),
+  ]);
   if (!allowed) {
     throw new HTTPException(403, {
       message: `Not authorized to access this sandbox, userId: ${userId}, sandboxId: ${sandboxId}`,
@@ -213,7 +256,7 @@ export async function proxyToDaytona(
       const { url: previewUrl, token: previewToken } = await resolvePreviewLink(sandboxId, port);
       const targetUrl = previewUrl.replace(/\/$/, '') + remainingPath + queryString;
 
-      // Build forwarding headers
+      // Build forwarding headers — strip user's JWT, inject sandbox service key
       const headers = new Headers();
       for (const [key, value] of incomingHeaders.entries()) {
         const lower = key.toLowerCase();
@@ -224,6 +267,11 @@ export async function proxyToDaytona(
       headers.set('X-Daytona-Disable-CORS', 'true');
       if (previewToken) {
         headers.set('X-Daytona-Preview-Token', previewToken);
+      }
+      // Authenticate to the sandbox using the stored service key (= KORTIX_TOKEN).
+      // This replaces the user's Supabase JWT with the sandbox's INTERNAL_SERVICE_KEY.
+      if (serviceKey) {
+        headers.set('Authorization', `Bearer ${serviceKey}`);
       }
 
       console.log(
