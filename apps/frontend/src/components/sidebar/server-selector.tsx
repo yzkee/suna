@@ -22,7 +22,7 @@ import {
   Download,
   Globe,
 } from 'lucide-react';
-import { useServerStore, type ServerEntry } from '@/stores/server-store';
+import { useServerStore, resolveServerUrl, type ServerEntry } from '@/stores/server-store';
 import { useTabStore } from '@/stores/tab-store';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
@@ -42,18 +42,6 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-
-// ============================================================================
-// Helpers
-// ============================================================================
-
-const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1').replace(/\/+$/, '');
-
-/** Resolve the effective URL for a server entry. Sandbox entries store url='' and derive it at runtime. */
-function getServerUrl(server: ServerEntry): string {
-  if (server.sandboxId) return `${BACKEND_URL}/p/${server.sandboxId}/8000`;
-  return server.url;
-}
 
 // ============================================================================
 // Connection status
@@ -141,7 +129,7 @@ function CompactInstanceRow({
   isActive: boolean;
   onSelect: () => void;
 }) {
-  const resolvedUrl = getServerUrl(server);
+  const resolvedUrl = resolveServerUrl(server);
   const { status } = useConnectionStatus(resolvedUrl, isActive);
   const displayUrl = resolvedUrl.replace(/^https?:\/\//, '');
   const hasCustomLabel = server.label && server.label !== displayUrl;
@@ -211,7 +199,7 @@ function DialogInstanceRow({
   onVersionDetected?: (version: string) => void;
 }) {
   const [confirmDelete, setConfirmDelete] = React.useState(false);
-  const resolvedUrl = getServerUrl(server);
+  const resolvedUrl = resolveServerUrl(server);
   const { status, version } = useConnectionStatus(resolvedUrl, true);
 
   // Report version back to parent when detected

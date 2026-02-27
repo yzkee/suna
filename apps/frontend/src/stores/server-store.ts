@@ -128,6 +128,16 @@ function getSandboxServerUrl(sandboxId: string): string {
   return `${BACKEND_URL}/p/${sandboxId}/8000`;
 }
 
+/**
+ * Resolve the effective URL for any server entry.
+ * Sandbox entries store url='' — their URL is derived from sandboxId.
+ * Custom entries use the user-provided URL directly.
+ */
+export function resolveServerUrl(server: ServerEntry): string {
+  if (server.sandboxId) return getSandboxServerUrl(server.sandboxId);
+  return server.url || DEFAULT_SANDBOX_URL;
+}
+
 const DEFAULT_SERVER_ID = 'default';
 const CLOUD_SANDBOX_SERVER_ID = 'cloud-sandbox';
 
