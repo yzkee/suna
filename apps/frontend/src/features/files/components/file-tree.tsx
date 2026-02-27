@@ -220,6 +220,8 @@ function TreeNode({
       className="flex items-center gap-1.5 w-full py-1"
       style={{ paddingLeft }}
     >
+      {/* Spacer matching the chevron width so the icon stays aligned */}
+      <span className="w-3.5 shrink-0" />
       {getFileIcon(node.name, { isDirectory: isDir, className: 'h-4 w-4 shrink-0' })}
       <input
         type="text"
@@ -231,7 +233,7 @@ function TreeNode({
           if (e.key === 'Escape') { setIsRenaming(false); setRenameName(''); }
         }}
         onBlur={() => confirmRename()}
-        className="flex-1 text-sm bg-transparent border border-primary/50 rounded px-1.5 py-0.5 outline-none min-w-0"
+        className="flex-1 text-sm bg-transparent border border-primary/50 rounded px-1.5 py-0.5 outline-none min-w-0 selection:bg-primary/25 selection:text-foreground"
       />
     </div>
   ) : (
@@ -506,7 +508,7 @@ function InlineCreateInput({
           if (e.key === 'Escape') onCancel();
         }}
         onBlur={handleBlur}
-        className="flex-1 text-sm bg-transparent border border-primary/50 rounded px-1.5 py-0.5 outline-none min-w-0"
+        className="flex-1 text-sm bg-transparent border border-primary/50 rounded px-1.5 py-0.5 outline-none min-w-0 selection:bg-primary/25 selection:text-foreground"
       />
     </div>
   );

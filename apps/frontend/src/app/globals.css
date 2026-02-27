@@ -2422,6 +2422,31 @@
   animation: text-shimmer 1.2s ease-in-out infinite;
 }
 
+/* Radix UI menu item hover/highlight — Radix sets data-highlighted on the
+   focused item but relies on the consumer to style it.  Using a global rule
+   so it works regardless of Tailwind JIT detection. */
+[data-slot="context-menu-item"][data-highlighted],
+[data-slot="context-menu-sub-trigger"][data-highlighted],
+[data-slot="context-menu-checkbox-item"][data-highlighted],
+[data-slot="context-menu-radio-item"][data-highlighted],
+[data-slot="dropdown-menu-item"][data-highlighted],
+[data-slot="dropdown-menu-sub-trigger"][data-highlighted],
+[data-slot="dropdown-menu-checkbox-item"][data-highlighted],
+[data-slot="dropdown-menu-radio-item"][data-highlighted] {
+  background-color: var(--accent);
+  color: var(--accent-foreground);
+}
+
+[data-slot="context-menu-item"][data-variant="destructive"][data-highlighted],
+[data-slot="dropdown-menu-item"][data-variant="destructive"][data-highlighted] {
+  color: var(--destructive);
+}
+
+:is(.dark, .dark *) [data-slot="context-menu-item"][data-variant="destructive"][data-highlighted],
+:is(.dark, .dark *) [data-slot="dropdown-menu-item"][data-variant="destructive"][data-highlighted] {
+  background-color: color-mix(in oklab, var(--destructive) 20%, transparent);
+}
+
 /* CookieYes consent button - right side on desktop, left side on mobile */
 .cky-btn-revisit-wrapper {
   left: auto !important;
