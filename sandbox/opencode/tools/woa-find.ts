@@ -11,9 +11,9 @@ import { tool } from "@opencode-ai/plugin";
 function getWoaUrl(): string {
   const apiUrl = process.env.KORTIX_API_URL;
   if (!apiUrl) throw new Error("KORTIX_API_URL not set");
-  // KORTIX_API_URL is the base URL (e.g. https://new-api.kortix.com)
-  // WoA API is mounted at /v1/woa on the same server.
-  return apiUrl.replace(/\/+$/, "") + "/v1/woa";
+  // KORTIX_API_URL is the base (e.g. https://new-api.kortix.com).
+  // WoA lives under the router: /v1/router/woa
+  return apiUrl.replace(/\/+$/, "") + "/v1/router/woa";
 }
 
 async function woaFetch(path: string): Promise<unknown> {
