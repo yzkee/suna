@@ -135,57 +135,108 @@ async function checkSandboxHealth(): Promise<void> {
 }
 
 /**
- * Attempt to sync INTERNAL_SERVICE_KEY to the sandbox container.
- * Uses docker exec CLI with progressive backoff.
+ * Attempt to sync all 3 core env vars to the sandbox container.
+ * Syncs KORTIX_API_URL, KORTIX_TOKEN (if set), and INTERNAL_SERVICE_KEY.
+ * Tries the secrets manager /env API first (preferred — triple-write + no restart needed).
+ * Falls back to docker exec if the API is unreachable (e.g. kortix-master down).
  */
 async function attemptKeySync(baseUrl: string): Promise<boolean> {
-  // Only available in local docker mode (not in Docker-to-Docker network mode)
-  if (config.SANDBOX_NETWORK) {
-    console.warn('[sandbox-health] Cannot sync key in network mode (no docker exec access)');
-    return false;
-  }
-
-  const { execSync } = require('child_process');
   const ourKey = config.INTERNAL_SERVICE_KEY;
   if (!ourKey) return false;
 
-  const env: Record<string, string> = { ...process.env as Record<string, string> };
-  if (config.DOCKER_HOST && !config.DOCKER_HOST.includes('://')) {
-    env.DOCKER_HOST = `unix://${config.DOCKER_HOST}`;
+  // Compute the correct internal API URL for the sandbox (same logic as local-docker.ts)
+  let internalApiUrl = `http://host.docker.internal:${config.PORT}`;
+  if (config.KORTIX_URL) {
+    try {
+      const parsed = new URL(config.KORTIX_URL);
+      if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+        parsed.hostname = 'host.docker.internal';
+        internalApiUrl = parsed.toString().replace(/\/$/, '');
+      } else {
+        internalApiUrl = config.KORTIX_URL.replace(/\/$/, '');
+      }
+    } catch {}
   }
+
+  const keysToSync: Record<string, string> = {
+    INTERNAL_SERVICE_KEY: ourKey,
+    KORTIX_API_URL: internalApiUrl,
+  };
 
   for (let attempt = 0; attempt < MAX_SYNC_RETRIES; attempt++) {
     try {
       state.syncAttempts++;
-      console.log(`[sandbox-health] Key sync attempt ${attempt + 1}/${MAX_SYNC_RETRIES}...`);
+      console.log(`[sandbox-health] Core env sync attempt ${attempt + 1}/${MAX_SYNC_RETRIES}...`);
 
-      execSync(
-        `docker exec kortix-sandbox bash -c "mkdir -p /run/s6/container_environment && ` +
-        `printf '%s' '${ourKey}' > /run/s6/container_environment/INTERNAL_SERVICE_KEY && ` +
-        `sudo s6-svc -r /run/service/svc-kortix-master"`,
-        { timeout: 15_000, stdio: 'pipe', env },
-      );
-
-      // Wait for kortix-master to restart
-      const backoff = SYNC_BACKOFF_MS[attempt] || 10_000;
-      await new Promise(r => setTimeout(r, backoff));
-
-      // Verify the sync worked
-      const verifyRes = await fetch(`${baseUrl}/kortix/ports`, {
-        headers: { Authorization: `Bearer ${ourKey}` },
-        signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+      // Preferred: use secrets manager /env API (triple-write, no restart needed)
+      const envApiUrl = `${baseUrl}/env`;
+      const res = await fetch(envApiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${ourKey}`,
+        },
+        body: JSON.stringify({ keys: keysToSync, restart: false }),
+        signal: AbortSignal.timeout(10_000),
       });
 
-      if (verifyRes.ok) {
-        console.log(`[sandbox-health] Key sync successful (attempt ${attempt + 1})`);
+      if (res.ok) {
+        console.log(`[sandbox-health] Core env sync successful via /env API (attempt ${attempt + 1})`);
         return true;
       }
 
-      console.warn(`[sandbox-health] Key sync attempt ${attempt + 1} — verify returned ${verifyRes.status}`);
+      // Auth failure on the /env API itself — fall back to docker exec
+      if (res.status === 401 || res.status === 403) {
+        console.warn(`[sandbox-health] /env API returned ${res.status}, falling back to docker exec...`);
+        if (await attemptKeySyncFallback(keysToSync)) return true;
+      }
+
+      console.warn(`[sandbox-health] /env API returned ${res.status}, retrying...`);
     } catch (err: any) {
-      console.error(`[sandbox-health] Key sync attempt ${attempt + 1} failed:`, err.message || err);
+      console.warn(`[sandbox-health] /env API unreachable (attempt ${attempt + 1}), trying docker exec fallback...`);
+      // /env API not reachable — try docker exec fallback
+      if (await attemptKeySyncFallback(keysToSync)) return true;
     }
+
+    // Backoff before retry
+    const backoff = SYNC_BACKOFF_MS[attempt] || 10_000;
+    await new Promise(r => setTimeout(r, backoff));
   }
 
   return false;
+}
+
+/**
+ * Fallback: write core env vars directly to s6 env dir via docker exec.
+ * Used when the /env API is unreachable (e.g. kortix-master auth mismatch).
+ */
+async function attemptKeySyncFallback(keys: Record<string, string>): Promise<boolean> {
+  // Only works in local docker mode (not network mode)
+  if (config.SANDBOX_NETWORK) {
+    console.warn('[sandbox-health] Cannot use docker exec fallback in network mode');
+    return false;
+  }
+
+  try {
+    const { execSync } = require('child_process');
+    const env: Record<string, string> = { ...process.env as Record<string, string> };
+    if (config.DOCKER_HOST && !config.DOCKER_HOST.includes('://')) {
+      env.DOCKER_HOST = `unix://${config.DOCKER_HOST}`;
+    }
+
+    const writes = Object.entries(keys)
+      .map(([key, val]) => `printf '%s' '${val}' > /run/s6/container_environment/${key}`)
+      .join(' && ');
+
+    execSync(
+      `docker exec kortix-sandbox bash -c "mkdir -p /run/s6/container_environment && ${writes}"`,
+      { timeout: 15_000, stdio: 'pipe', env },
+    );
+
+    console.log(`[sandbox-health] Core env sync successful via docker exec fallback`);
+    return true;
+  } catch (err: any) {
+    console.error(`[sandbox-health] Docker exec fallback failed:`, err.message || err);
+    return false;
+  }
 }

@@ -27,7 +27,7 @@ import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { authenticatedFetch } from '@/lib/auth-token';
-import { createSandbox, getSandboxUrl, extractMappedPorts, removeSandbox, setupSSH, type SandboxProviderName, type ChangelogEntry, type SSHSetupResult } from '@/lib/platform-client';
+import { createSandbox, extractMappedPorts, removeSandbox, setupSSH, type SandboxProviderName, type ChangelogEntry, type SSHSetupResult } from '@/lib/platform-client';
 import { toast } from '@/lib/toast';
 import { isBillingEnabled } from '@/lib/config';
 
@@ -500,25 +500,16 @@ export function InstanceManagerDialog({
       const { sandbox } = await createSandbox(provider ? { provider } : undefined);
       const label = sandbox.name || (provider === 'local_docker' ? 'Local Sandbox' : 'Cloud Sandbox');
 
-      let url: string;
-      try {
-        url = getSandboxUrl(sandbox);
-      } catch (err) {
-        throw new Error(`Failed to build sandbox URL: ${err}`);
-      }
-
       const store = useServerStore.getState();
-      let serverId: string;
 
-      // Add (or deduplicate) by sandboxId — provider-agnostic.
+      // Add (or deduplicate) by sandboxId — URL is derived at runtime by the store.
       const newServer = store.addSandboxServer({
         label,
-        url,
         provider: sandbox.provider,
         sandboxId: sandbox.external_id,
         mappedPorts: extractMappedPorts(sandbox),
       });
-      serverId = newServer.id;
+      const serverId = newServer.id;
 
       // Invalidate sandbox query so useSandbox picks up the latest state.
       queryClient.invalidateQueries({ queryKey: ['platform', 'sandbox'] });
@@ -797,14 +788,14 @@ export function InstanceManagerDialog({
                 </label>
                 <input
                   ref={urlInputRef}
-                   placeholder="http://localhost:8008/v1/preview/kortix-sandbox/8000"
+                   placeholder="http://localhost:8008/v1/p/kortix-sandbox/8000"
                   value={formUrl}
                   onChange={(e) => setFormUrl(e.target.value)}
                   className="w-full h-9 px-3 text-sm font-mono rounded-lg bg-muted/30 border border-border/60 outline-none placeholder:text-muted-foreground/30 focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all"
                   required
                 />
                 <p className="text-[10px] text-muted-foreground/50">
-                  The full URL of the Kortix server, e.g. http://192.168.1.50:8008/v1/preview/kortix-sandbox/8000
+                  The full URL of the Kortix server, e.g. http://192.168.1.50:8008/v1/p/kortix-sandbox/8000
                 </p>
               </div>
 

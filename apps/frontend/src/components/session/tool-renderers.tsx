@@ -11,6 +11,7 @@ import {
 	Check,
 	CheckCircle,
 	CheckSquare,
+	Clock,
 	ChevronDown,
 	ChevronRight,
 	CircleAlert,
@@ -93,6 +94,7 @@ import { useOpenCodePendingStore } from "@/stores/opencode-pending-store";
 import { useServerStore, getActiveOpenCodeUrl, deriveSubdomainOpts } from "@/stores/server-store";
 import { openTabAndNavigate } from "@/stores/tab-store";
 import { enrichPreviewMetadata } from "@/lib/utils/session-context";
+import { PreWithPaths } from "@/components/common/clickable-path";
 
 import {
 	type ApplyPatchFile,
@@ -215,7 +217,7 @@ function InlineServicePreview({
 			id: `preview:${proxy.port}`,
 			title: `localhost:${proxy.port}`,
 			type: "preview",
-			href: `/preview/${proxy.port}`,
+			href: `/p/${proxy.port}`,
 			metadata: {
 				url: proxy.proxyUrl,
 				port: proxy.port,
@@ -1597,9 +1599,10 @@ function PtyReadTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 		>
 			{parsed.content && (
 				<div data-scrollable className="max-h-96 overflow-auto">
-					<pre className="p-2.5 font-mono text-[11px] leading-relaxed text-foreground/80 whitespace-pre-wrap">
-						{parsed.content}
-					</pre>
+					<PreWithPaths
+						text={parsed.content}
+						className="p-2.5 font-mono text-[11px] leading-relaxed text-foreground/80 whitespace-pre-wrap"
+					/>
 					{parsed.bufferInfo && (
 						<div className="px-2.5 pb-2 text-[10px] text-muted-foreground/50 italic">
 							{parsed.bufferInfo}
@@ -3403,7 +3406,7 @@ function useShowOpenInTab(props: { type: string; url: string; path: string; titl
 				id: `preview:${proxy.port}`,
 				title: title || `localhost:${proxy.port}`,
 				type: "preview",
-				href: `/preview/${proxy.port}`,
+				href: `/p/${proxy.port}`,
 				metadata: enrichPreviewMetadata({
 					url: proxy.proxyUrl,
 					port: proxy.port,

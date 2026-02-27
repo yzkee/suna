@@ -20,6 +20,7 @@ import { useServerStore } from "@/stores/server-store";
 import { useTabStore } from "@/stores/tab-store";
 import { AnnouncementDialog } from "../announcements/announcement-dialog";
 import { NovuInboxProvider } from "../notifications/novu-inbox-provider";
+import { FilePreviewDialog } from "../common/file-preview-dialog";
 
 /** Monitors session status transitions and fires browser notifications. Renders nothing. */
 function WebNotificationProvider() {
@@ -41,11 +42,7 @@ function SandboxConnectionProvider() {
 }
 
 // Lazy load heavy components that aren't needed for initial render
-const FloatingMobileMenuButton = lazy(() =>
-	import("@/components/sidebar/sidebar-left").then((mod) => ({
-		default: mod.FloatingMobileMenuButton,
-	})),
-);
+
 const MaintenancePage = lazy(() =>
 	import("@/components/maintenance/maintenance-page").then((mod) => ({
 		default: mod.MaintenancePage,
@@ -482,8 +479,7 @@ export default function DashboardLayoutContent({
 					<Suspense fallback={null}>
 						{/* Status overlay for deletion operations */}
 						<StatusOverlay />
-						{/* Floating mobile menu button */}
-						<FloatingMobileMenuButton />
+
 					</Suspense>
 				}
 			>
@@ -503,6 +499,8 @@ export default function DashboardLayoutContent({
 					<Suspense fallback={null}>
 						<AnnouncementDialog />
 					</Suspense>
+
+					<FilePreviewDialog />
 
 					<Suspense fallback={null}>
 						<CommandPalette />

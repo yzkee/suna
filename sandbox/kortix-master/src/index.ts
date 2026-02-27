@@ -1,4 +1,5 @@
 import { timingSafeEqual, createHash } from 'crypto'
+import { existsSync, mkdirSync } from 'fs'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
@@ -48,6 +49,32 @@ const app = new Hono()
 // Initialize secret store and load ENV variables
 const secretStore = new SecretStore()
 await secretStore.loadIntoProcessEnv()
+
+// ─── Guarantee KORTIX_TOKEN + KORTIX_API_URL in s6 env dir ──────────────────
+// These are injected as Docker env vars at container creation but never written
+// to the s6 env directory. Tools use getEnv() which falls back to reading
+// /run/s6/container_environment/{KEY} — so we must write them there on boot
+// to ensure they're always available regardless of how the process was started.
+{
+  const S6_ENV_DIR = process.env.S6_ENV_DIR || '/run/s6/container_environment'
+  const CORE_VARS = ['KORTIX_TOKEN', 'KORTIX_API_URL', 'INTERNAL_SERVICE_KEY'] as const
+  let synced = 0
+  for (const key of CORE_VARS) {
+    const val = process.env[key]
+    if (val) {
+      try {
+        if (!existsSync(S6_ENV_DIR)) mkdirSync(S6_ENV_DIR, { recursive: true })
+        await Bun.write(`${S6_ENV_DIR}/${key}`, val)
+        synced++
+      } catch (err) {
+        console.warn(`[Kortix Master] Failed to write ${key} to s6 env dir:`, err)
+      }
+    }
+  }
+  if (synced > 0) {
+    console.log(`[Kortix Master] Synced ${synced} core env var(s) to s6 env dir`)
+  }
+}
 
 // Two-way sync: OpenCode auth.json ↔ SecretStore (provider API keys)
 // Boot sync: pull any keys from auth.json into SecretStore + s6 env

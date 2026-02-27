@@ -68,6 +68,44 @@ const PORT_BINDINGS: Record<string, { HostPort: string; HostIp: string }[]> = Ob
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
+ * Compute the URL the sandbox container should use to reach kortix-api.
+ *
+ * This is the INTERNAL url — how the sandbox talks to kortix-api from inside Docker.
+ * NOT the external/browser-facing URL.
+ *
+ * - Shared Docker network (SANDBOX_NETWORK set):  http://kortix-api:{PORT}  (Docker DNS)
+ * - Default bridge (sandbox on host ports):        http://host.docker.internal:{PORT}
+ *
+ * If KORTIX_URL is set to something other than localhost (e.g. a real domain),
+ * we use it as-is since the sandbox can reach it directly.
+ */
+function getSandboxInternalApiUrl(): string {
+  // Shared Docker network: both containers resolve each other by name
+  if (config.SANDBOX_NETWORK) {
+    return `http://kortix-api:${config.PORT}`;
+  }
+
+  const externalUrl = config.KORTIX_URL;
+  if (externalUrl) {
+    try {
+      const parsed = new URL(externalUrl);
+      // localhost/127.0.0.1 is unreachable from inside Docker — swap to host.docker.internal
+      if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+        parsed.hostname = 'host.docker.internal';
+        return parsed.toString().replace(/\/$/, '');
+      }
+      // Real domain or IP — sandbox can reach it directly
+      return externalUrl.replace(/\/$/, '');
+    } catch {
+      // Invalid URL — fall through to default
+    }
+  }
+
+  // Fallback: host.docker.internal on the default port
+  return `http://host.docker.internal:${config.PORT}`;
+}
+
+/**
  * Read key=value pairs from the sandbox/.env file.
  * API keys and credentials that OpenCode needs inside the container.
  */
@@ -140,13 +178,13 @@ export class LocalDockerProvider implements SandboxProvider {
 
     if (existing) {
       if (existing.status === 'running') {
-        await this.syncServiceKey();
+        await this.syncCoreEnvVars();
         return existing;
       }
       console.log(`[LOCAL-DOCKER] Starting stopped sandbox...`);
       const container = this.docker.getContainer(existing.containerId);
       await container.start();
-      await this.syncServiceKey();
+      await this.syncCoreEnvVars();
       return this.getSandboxInfo();
     }
 
@@ -254,14 +292,14 @@ export class LocalDockerProvider implements SandboxProvider {
   async ensureRunning(_externalId: string): Promise<void> {
     const info = await this.find();
     if (info && info.status === 'running') {
-      await this.syncServiceKey();
+      await this.syncCoreEnvVars();
       return;
     }
     if (info) {
       console.log('[LOCAL-DOCKER] Container stopped, starting for cron execution...');
       const container = this.docker.getContainer(CONTAINER_NAME);
       await container.start();
-      await this.syncServiceKey();
+      await this.syncCoreEnvVars();
       return;
     }
     console.log('[LOCAL-DOCKER] No container found, creating for cron execution...');
@@ -269,47 +307,138 @@ export class LocalDockerProvider implements SandboxProvider {
   }
 
   /**
-   * Ensure the running container's INTERNAL_SERVICE_KEY matches ours.
-   * If missing or different, inject via s6 env dir and restart kortix-master.
-   * Uses `docker exec` CLI (more reliable than dockerode exec across Docker setups).
+   * Ensure the running container has the correct values for all 3 core env vars:
+   *   - KORTIX_API_URL        (how sandbox reaches kortix-api)
+   *   - KORTIX_TOKEN           (sandbox → kortix-api auth)
+   *   - INTERNAL_SERVICE_KEY   (kortix-api → sandbox auth)
+   *
+   * If any differ from what kortix-api has, inject via s6 env dir and restart
+   * kortix-master so the sandbox picks them up without a full container recreate.
    */
-  async syncServiceKey(): Promise<void> {
+  /**
+   * Sync the 3 core env vars to the sandbox via the secrets manager API.
+   *
+   * Uses kortix-master's /env endpoint which does triple-write:
+   *   1. SecretStore (.secrets.json — encrypted at rest)
+   *   2. s6 env dir  (/run/s6/container_environment/ — tools read this on every call)
+   *   3. process.env (kortix-master's own process)
+   *
+   * Since getEnv() reads s6 first (always fresh from disk), updated values
+   * take effect immediately — no service restart needed.
+   * Only POSTs when values actually differ from what's currently set.
+   */
+  async syncCoreEnvVars(): Promise<void> {
     if (this._serviceKeySynced) return;
 
     const info = await this.find();
     if (!info || info.status !== 'running') {
-      console.log('[LOCAL-DOCKER] syncServiceKey: no running container found, skipping');
+      console.log('[LOCAL-DOCKER] syncCoreEnvVars: no running container found, skipping');
       return;
     }
 
-    const ourKey = config.INTERNAL_SERVICE_KEY; // triggers auto-generation if empty
     const containerEnv = await this.getContainerEnv();
-    const containerKey = containerEnv['INTERNAL_SERVICE_KEY'] || '';
-    console.log(`[LOCAL-DOCKER] syncServiceKey: container has key=${containerKey ? 'yes' : 'no'}, ours=${ourKey ? 'yes' : 'no'}, match=${containerKey === ourKey}`);
 
-    if (containerKey === ourKey) {
-      this._serviceKeySynced = true;
-      return; // already in sync
-    }
+    // The 3 core vars kortix-api is the source of truth for
+    const desired: Record<string, string> = {
+      KORTIX_API_URL: getSandboxInternalApiUrl(),
+      KORTIX_TOKEN: containerEnv['KORTIX_TOKEN'] || '',  // keep existing token (generated at creation)
+      INTERNAL_SERVICE_KEY: config.INTERNAL_SERVICE_KEY,  // triggers auto-generation if empty
+    };
 
-    console.log('[LOCAL-DOCKER] Syncing INTERNAL_SERVICE_KEY to sandbox container...');
+    // Read current values from the secrets manager to compare
+    let currentEnv: Record<string, string> = {};
     try {
-      // Ensure DOCKER_HOST has the unix:// prefix for the docker CLI
-      const env = { ...process.env };
-      if (config.DOCKER_HOST && !config.DOCKER_HOST.includes('://')) {
-        env.DOCKER_HOST = `unix://${config.DOCKER_HOST}`;
-      }
-      const cmd =
-        `docker exec ${CONTAINER_NAME} bash -c ` +
-        `"mkdir -p /run/s6/container_environment && ` +
-        `printf '%s' '${ourKey}' > /run/s6/container_environment/INTERNAL_SERVICE_KEY && ` +
-        `sudo s6-svc -r /run/service/svc-kortix-master"`;
-      execSync(cmd, { timeout: 15_000, stdio: 'pipe', env });
-      this._serviceKeySynced = true;
-      console.log('[LOCAL-DOCKER] INTERNAL_SERVICE_KEY synced and kortix-master restarted');
-    } catch (err: any) {
-      console.error('[LOCAL-DOCKER] Failed to sync INTERNAL_SERVICE_KEY:', err.message || err);
+      currentEnv = await this.fetchMasterEnv();
+    } catch {
+      // Sandbox may not be ready yet — fall back to Docker env comparison
+      currentEnv = containerEnv;
     }
+
+    // Only sync vars that actually differ
+    const stale: Record<string, string> = {};
+    for (const [key, val] of Object.entries(desired)) {
+      if (val && currentEnv[key] !== val) {
+        stale[key] = val;
+      }
+    }
+
+    if (Object.keys(stale).length === 0) {
+      this._serviceKeySynced = true;
+      console.log('[LOCAL-DOCKER] syncCoreEnvVars: all 3 core vars in sync');
+      return;
+    }
+
+    console.log(`[LOCAL-DOCKER] Syncing ${Object.keys(stale).join(', ')} via secrets manager...`);
+    try {
+      // POST to kortix-master /env API — no restart needed since getEnv() reads s6 directly
+      await this.postMasterEnv(stale);
+      this._serviceKeySynced = true;
+      console.log(`[LOCAL-DOCKER] Core env vars synced: ${Object.keys(stale).join(', ')}`);
+    } catch (err: any) {
+      console.error('[LOCAL-DOCKER] Failed to sync core env vars via /env API, falling back to docker exec:', err.message || err);
+      // Fallback: write directly to s6 env dir if the /env API is unreachable
+      try {
+        this.syncCoreEnvVarsFallback(stale);
+        this._serviceKeySynced = true;
+      } catch (fallbackErr: any) {
+        console.error('[LOCAL-DOCKER] Fallback sync also failed:', fallbackErr.message || fallbackErr);
+      }
+    }
+  }
+
+  /**
+   * GET /env from kortix-master — returns all current env vars.
+   */
+  private async fetchMasterEnv(): Promise<Record<string, string>> {
+    const url = `http://localhost:${config.SANDBOX_PORT_BASE || 14000}/env`;
+    const res = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${config.INTERNAL_SERVICE_KEY}`,
+      },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) throw new Error(`GET /env returned ${res.status}`);
+    return (await res.json()) as Record<string, string>;
+  }
+
+  /**
+   * POST /env to kortix-master — sets env vars via the secrets manager.
+   * No restart needed: getEnv() reads s6 env dir directly on every call.
+   */
+  private async postMasterEnv(keys: Record<string, string>): Promise<void> {
+    const url = `http://localhost:${config.SANDBOX_PORT_BASE || 14000}/env`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.INTERNAL_SERVICE_KEY}`,
+      },
+      body: JSON.stringify({ keys, restart: false }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) throw new Error(`POST /env returned ${res.status}`);
+  }
+
+  /**
+   * Fallback: write directly to s6 env dir via docker exec.
+   * Used only when the /env API is unreachable (e.g. kortix-master not ready yet).
+   */
+  private syncCoreEnvVarsFallback(stale: Record<string, string>): void {
+    const env = { ...process.env };
+    if (config.DOCKER_HOST && !config.DOCKER_HOST.includes('://')) {
+      env.DOCKER_HOST = `unix://${config.DOCKER_HOST}`;
+    }
+
+    const writes = Object.entries(stale)
+      .map(([key, val]) => `printf '%s' '${val}' > /run/s6/container_environment/${key}`)
+      .join(' && ');
+
+    const cmd =
+      `docker exec ${CONTAINER_NAME} bash -c ` +
+      `"mkdir -p /run/s6/container_environment && ${writes}"`;
+
+    execSync(cmd, { timeout: 15_000, stdio: 'pipe', env });
+    console.log(`[LOCAL-DOCKER] Core env vars synced via fallback (docker exec): ${Object.keys(stale).join(', ')}`);
   }
 
   // ── Private ─────────────────────────────────────────────────────────────
@@ -440,16 +569,18 @@ export class LocalDockerProvider implements SandboxProvider {
       'KORTIX_WORKSPACE=/workspace',
       'SECRET_FILE_PATH=/workspace/.secrets/.secrets.json',
       'SALT_FILE_PATH=/workspace/.secrets/.salt',
-      `KORTIX_API_URL=${config.KORTIX_URL || ''}`,
-      // KORTIX_TOKEN: sandbox → kortix-api auth (kortix_sb_ key from DB).
+      // ── 3 core vars managed by kortix-api (source of truth) ──
+      // KORTIX_API_URL: how the sandbox reaches kortix-api (internal Docker URL).
+      `KORTIX_API_URL=${getSandboxInternalApiUrl()}`,
+      // KORTIX_TOKEN (sandbox → kortix-api): sandbox identity + SecretStore encryption key.
       `KORTIX_TOKEN=${authToken}`,
+      // INTERNAL_SERVICE_KEY (kortix-api → sandbox): platform authenticates to sandbox.
+      `INTERNAL_SERVICE_KEY=${serviceKey}`,
       `SANDBOX_ID=${CONTAINER_NAME}`,
       'PROJECT_ID=local',
       // Cloud mode when billing is enabled — routes LLM traffic through the proxy for metering.
       // Local mode otherwise — SDKs call providers directly (no billing).
       `ENV_MODE=${config.KORTIX_BILLING_INTERNAL_ENABLED ? 'cloud' : 'local'}`,
-      // INTERNAL_SERVICE_KEY: proxy/cron → sandbox auth (always present)
-      `INTERNAL_SERVICE_KEY=${serviceKey}`,
       // CORS: tell the sandbox which origins to allow (includes frontend URL)
       `CORS_ALLOWED_ORIGINS=${[config.FRONTEND_URL, config.KORTIX_URL].filter(Boolean).join(',')}`,
       // Extra env from sandbox/.env (API keys, etc.) — managed vars already filtered out

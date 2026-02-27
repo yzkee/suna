@@ -3,6 +3,7 @@ import { writeFileSync, mkdirSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
 import { randomBytes } from "crypto"
+import { tunnelRpc, resolveTunnelId } from "./rpc"
 
 function saveImage(base64: string, format: string): string {
 	const ext = format === "jpeg" || format === "jpg" ? "jpg" : "png"
@@ -11,70 +12,6 @@ function saveImage(base64: string, format: string): string {
 	const path = join(dir, `screenshot-${randomBytes(4).toString("hex")}.${ext}`)
 	writeFileSync(path, Buffer.from(base64, "base64"))
 	return path
-}
-
-async function tunnelRpc(
-	tunnelId: string,
-	method: string,
-	params: Record<string, unknown>,
-): Promise<unknown> {
-	const apiUrl = process.env.KORTIX_API_URL || "http://localhost:8008"
-	const token = process.env.KORTIX_TOKEN || ""
-
-	const res = await fetch(`${apiUrl}/v1/tunnel/rpc/${tunnelId}`, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			Authorization: `Bearer ${token}`,
-		},
-		body: JSON.stringify({ method, params }),
-	})
-
-	const data = (await res.json()) as Record<string, unknown>
-
-	if (!res.ok) {
-		const error = data.error || `HTTP ${res.status}`
-		const code = data.code || -1
-
-		if (res.status === 403 && data.requestId) {
-			return `Permission required. A permission request (${data.requestId}) has been sent to the user for approval. The user needs to approve this request in the Kortix dashboard before you can access their local machine. Please inform the user and try again after they approve.`
-		}
-
-		throw new Error(`Tunnel RPC failed: ${error} (code: ${code})`)
-	}
-
-	return data.result
-}
-
-let cachedTunnelId: string | null = null
-
-async function resolveTunnelId(args: { tunnel_id?: string }): Promise<string> {
-	if (args.tunnel_id) return args.tunnel_id
-	if (process.env.KORTIX_TUNNEL_ID) return process.env.KORTIX_TUNNEL_ID
-	if (cachedTunnelId) return cachedTunnelId
-
-	const apiUrl = process.env.KORTIX_API_URL || "http://localhost:8008"
-	const token = process.env.KORTIX_TOKEN || ""
-
-	try {
-		const res = await fetch(`${apiUrl}/v1/tunnel/connections`, {
-			headers: { Authorization: `Bearer ${token}` },
-		})
-		if (res.ok) {
-			const connections = (await res.json()) as Array<{ tunnelId: string; isLive: boolean }>
-			const online = connections.find((c) => c.isLive)
-			if (online) {
-				cachedTunnelId = online.tunnelId
-				return online.tunnelId
-			}
-			if (connections.length > 0) {
-				cachedTunnelId = connections[0].tunnelId
-				return connections[0].tunnelId
-			}
-		}
-	} catch {}
-
-	throw new Error("No tunnel connection found. The user needs to set up Kortix Tunnel first.")
 }
 
 const tunnelIdArg = tool.schema.string().optional().describe("Tunnel connection ID (auto-discovered if omitted)")
