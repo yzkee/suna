@@ -476,15 +476,16 @@ export function FileContentRenderer({
                 </div>
               )}
               {isJsonTreeView && isJsonFile ? (
-                <div className="w-full h-full overflow-auto">
+                <div key={filePath} className="w-full h-full overflow-auto">
                   <JsonTreeView content={hasUnsavedChanges ? latestContentRef.current : displayContent} />
                 </div>
               ) : isMarkdownPreview && isMarkdownFile ? (
-                <div className="w-full h-full overflow-auto p-6">
+                <div key={filePath} className="w-full h-full overflow-auto p-6">
                   <UnifiedMarkdown content={hasUnsavedChanges ? latestContentRef.current : displayContent} />
                 </div>
               ) : (
                 <CodeEditor
+                  key={filePath}
                   content={hasUnsavedChanges ? latestContentRef.current : fileContent.content}
                   originalContent={fileContent.content}
                   fileName={fileName}
