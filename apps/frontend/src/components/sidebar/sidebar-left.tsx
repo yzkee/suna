@@ -14,8 +14,7 @@ import {
   Search,
   Blocks,
   ArrowDownToLine,
-  PanelLeftClose,
-  PanelLeftOpen,
+
   Plug,
   MessageSquare,
   Calendar,
@@ -579,7 +578,7 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
                   className="flex-shrink-0"
                 />
               </Link>
-              <PanelLeftOpen className="h-5 w-5 text-sidebar-foreground hidden group-hover/collapsed:block" />
+              <ChevronRight className="h-3.5 w-3.5 text-sidebar-foreground hidden group-hover/collapsed:block" />
             </div>
           )}
           <div className={cn(
@@ -613,7 +612,7 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
             onClick={() => isMobile ? setOpenMobile(false) : setOpen(false)}
             aria-label="Collapse sidebar"
           >
-            <PanelLeftClose className="h-5 w-5" />
+            <ChevronLeft className="h-3.5 w-3.5" />
           </button>
         </div>
       </SidebarHeader>
