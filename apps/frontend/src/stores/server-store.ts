@@ -434,9 +434,15 @@ export const useServerStore = create<ServerStore>()(
           // they come from the sandboxes table via useSandbox hook.
         }
 
-        // Auto-switch to the sandbox if the user hasn't manually picked a server
-        if (autoSwitch && !state.userSelected && state.activeServerId === DEFAULT_SERVER_ID) {
-          get().setActiveServer(targetId, { auto: true });
+        // Auto-switch to the sandbox if the user hasn't manually picked a server.
+        // Covers: empty activeServerId (after rehydration stripped managed entries),
+        // DEFAULT_SERVER_ID (local mode), or the same targetId (no-op in setActiveServer).
+        if (autoSwitch && !state.userSelected) {
+          const currentId = state.activeServerId;
+          const noActiveServer = !currentId || !state.servers.some((s) => s.id === currentId);
+          if (noActiveServer || currentId === DEFAULT_SERVER_ID) {
+            get().setActiveServer(isLocal ? DEFAULT_SERVER_ID : targetId, { auto: true });
+          }
         }
 
         return targetId;
@@ -453,10 +459,14 @@ export const useServerStore = create<ServerStore>()(
       onRehydrateStorage: () => (state) => {
         if (!state) return;
 
-        // Remove stale legacy entries (default, cloud-sandbox) from
-        // localStorage — sandboxes are loaded via useSandbox hook.
+        // Remove ALL managed sandbox entries from localStorage — sandboxes
+        // are loaded fresh via useSandbox hook on every page load. This strips:
+        //   - Well-known IDs (default, cloud-sandbox)
+        //   - Stale random-ID entries (srv_xxx) that have a provider set
+        //     (leaked from addSandboxServer calls in older code)
+        // Only custom user-added entries (no provider) survive rehydration.
         state.servers = state.servers.filter(
-          (s) => s.id !== DEFAULT_SERVER_ID && s.id !== CLOUD_SANDBOX_SERVER_ID,
+          (s) => !isManagedEntry(s) && !s.provider,
         );
 
         // Active server will be set by useSandbox hook once it loads.

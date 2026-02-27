@@ -44,6 +44,18 @@ import {
 } from '@/components/ui/dialog';
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1').replace(/\/+$/, '');
+
+/** Resolve the effective URL for a server entry. Sandbox entries store url='' and derive it at runtime. */
+function getServerUrl(server: ServerEntry): string {
+  if (server.sandboxId) return `${BACKEND_URL}/p/${server.sandboxId}/8000`;
+  return server.url;
+}
+
+// ============================================================================
 // Connection status
 // ============================================================================
 
@@ -129,8 +141,9 @@ function CompactInstanceRow({
   isActive: boolean;
   onSelect: () => void;
 }) {
-  const { status } = useConnectionStatus(server.url, isActive);
-  const displayUrl = server.url.replace(/^https?:\/\//, '');
+  const resolvedUrl = getServerUrl(server);
+  const { status } = useConnectionStatus(resolvedUrl, isActive);
+  const displayUrl = resolvedUrl.replace(/^https?:\/\//, '');
   const hasCustomLabel = server.label && server.label !== displayUrl;
 
   return (
@@ -198,13 +211,14 @@ function DialogInstanceRow({
   onVersionDetected?: (version: string) => void;
 }) {
   const [confirmDelete, setConfirmDelete] = React.useState(false);
-  const { status, version } = useConnectionStatus(server.url, true);
+  const resolvedUrl = getServerUrl(server);
+  const { status, version } = useConnectionStatus(resolvedUrl, true);
 
   // Report version back to parent when detected
   React.useEffect(() => {
     if (version && onVersionDetected) onVersionDetected(version);
   }, [version, onVersionDetected]);
-  const displayUrl = server.url.replace(/^https?:\/\//, '');
+  const displayUrl = resolvedUrl.replace(/^https?:\/\//, '');
   const hasCustomLabel = server.label && server.label !== displayUrl;
 
   React.useEffect(() => {
@@ -497,17 +511,21 @@ export function InstanceManagerDialog({
         : await createSandbox({ provider });
 
       const label = sandbox.name || (provider === 'local_docker' ? 'Local Sandbox' : 'Cloud Sandbox');
+      const isLocal = sandbox.provider === 'local_docker';
 
       const store = useServerStore.getState();
 
-      // Add (or deduplicate) by sandboxId — URL is derived at runtime by the store.
-      const newServer = store.addSandboxServer({
-        label,
-        provider: sandbox.provider,
-        sandboxId: sandbox.external_id,
-        mappedPorts: extractMappedPorts(sandbox),
-      });
-      const serverId = newServer.id;
+      // Use the centralized registerOrUpdateSandbox which uses stable IDs
+      // ('default' for local, 'cloud-sandbox' for cloud) — no duplicates.
+      const serverId = store.registerOrUpdateSandbox(
+        {
+          label,
+          provider: sandbox.provider,
+          sandboxId: sandbox.external_id,
+          mappedPorts: extractMappedPorts(sandbox),
+        },
+        { autoSwitch: false, isLocal },
+      );
 
       // Invalidate sandbox query so useSandbox picks up the latest state.
       queryClient.invalidateQueries({ queryKey: ['platform', 'sandbox'] });

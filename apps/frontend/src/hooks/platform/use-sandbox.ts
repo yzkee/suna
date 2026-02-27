@@ -41,23 +41,29 @@ function registerSandboxServer(sandbox: SandboxInfo) {
   }
 
   const store = useServerStore.getState();
-  const previousActiveId = store.activeServerId;
+  const isLocal = sandbox.provider === 'local_docker';
 
-  // Add (or deduplicate) by sandboxId — URL is derived at runtime by the store.
-  const entry = store.addSandboxServer({
-    label: sandbox.name || 'Sandbox',
-    provider: sandbox.provider,
-    sandboxId: sandbox.external_id,
-    mappedPorts: extractMappedPorts(sandbox),
-  });
+  // Use the centralized registerOrUpdateSandbox which uses stable IDs
+  // ('default' for local, 'cloud-sandbox' for cloud) — no random IDs,
+  // no duplicates across refreshes.
+  const serverId = store.registerOrUpdateSandbox(
+    {
+      label: sandbox.name || (isLocal ? 'Local Sandbox' : 'Cloud Sandbox'),
+      provider: sandbox.provider,
+      sandboxId: sandbox.external_id,
+      mappedPorts: extractMappedPorts(sandbox),
+    },
+    { autoSwitch: true, isLocal },
+  );
 
   // Auto-switch if the user hasn't manually selected a server, or if there's
   // no active server (e.g. after rehydration cleared stale managed entries).
+  const previousActiveId = store.activeServerId;
   const shouldAutoSwitch = !store.userSelected || !previousActiveId ||
     !store.servers.some((s: any) => s.id === previousActiveId);
-  if (shouldAutoSwitch) {
-    store.setActiveServer(entry.id, { auto: true });
-    useTabStore.getState().swapForServer(entry.id, previousActiveId);
+  if (shouldAutoSwitch && store.activeServerId !== serverId) {
+    store.setActiveServer(serverId, { auto: true });
+    useTabStore.getState().swapForServer(serverId, previousActiveId);
   }
 }
 
