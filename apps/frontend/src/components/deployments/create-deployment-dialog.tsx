@@ -16,6 +16,11 @@ import {
   FileCode2,
   Files,
   Archive,
+  FolderOpen,
+  Folder,
+  File,
+  ChevronRight,
+  Check,
   Plus,
   Trash2,
   ChevronDown,
@@ -26,6 +31,9 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useCreateDeployment, type Deployment, type DeploymentSource, type CreateDeploymentData } from '@/hooks/deployments/use-deployments';
+import { useFileList } from '@/features/files/hooks/use-file-list';
+import { listFiles, readFile } from '@/features/files/api/opencode-files';
+import type { FileNode } from '@/features/files/types';
 import { toast } from 'sonner';
 
 function generateSubdomain(): string {
@@ -39,17 +47,202 @@ function generateSubdomain(): string {
 
 // ─── Source type config ─────────────────────────────────────────────────────
 
+type UISourceType = DeploymentSource | 'workspace';
+
 const sourceTypes: Array<{
-  value: DeploymentSource;
+  value: UISourceType;
   label: string;
   icon: React.ElementType;
   description: string;
 }> = [
+  { value: 'workspace', label: 'Workspace', icon: FolderOpen, description: 'Deploy from your workspace' },
   { value: 'git', label: 'Git', icon: GitBranch, description: 'Deploy from a Git repository' },
   { value: 'code', label: 'Code', icon: FileCode2, description: 'Deploy inline code' },
   { value: 'files', label: 'Files', icon: Files, description: 'Deploy from file contents' },
   { value: 'tar', label: 'Tar', icon: Archive, description: 'Deploy from a tarball URL' },
 ];
+
+// ─── Workspace folder picker helpers ────────────────────────────────────────
+
+/** Recursively collect all text files from a directory */
+async function collectFilesRecursively(
+  dirPath: string,
+  basePath: string,
+): Promise<Array<{ path: string; content: string; encoding?: string }>> {
+  const nodes = await listFiles(dirPath);
+  const result: Array<{ path: string; content: string; encoding?: string }> = [];
+
+  for (const node of nodes) {
+    // Skip hidden files/dirs and common non-deployable paths
+    if (node.name.startsWith('.')) continue;
+    if (node.name === 'node_modules' || node.name === '__pycache__' || node.name === '.git') continue;
+
+    if (node.type === 'directory') {
+      const children = await collectFilesRecursively(
+        node.absolute || node.path,
+        basePath,
+      );
+      result.push(...children);
+    } else {
+      try {
+        const content = await readFile(node.absolute || node.path);
+        // Get relative path from the selected folder
+        const absolutePath = node.absolute || node.path;
+        const relativePath = absolutePath.startsWith(basePath)
+          ? absolutePath.slice(basePath.length).replace(/^\//, '')
+          : node.name;
+
+        if (content.type === 'binary' && content.encoding === 'base64') {
+          result.push({ path: relativePath, content: content.content, encoding: 'base64' });
+        } else {
+          result.push({ path: relativePath, content: content.content });
+        }
+      } catch {
+        // Skip files that can't be read
+      }
+    }
+  }
+
+  return result;
+}
+
+/** Simple folder browser row component */
+function FolderBrowserItem({
+  node,
+  isSelected,
+  isExpanded,
+  onToggleExpand,
+  onSelect,
+  depth,
+}: {
+  node: FileNode;
+  isSelected: boolean;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+  onSelect: () => void;
+  depth: number;
+}) {
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm transition-colors cursor-pointer',
+        isSelected
+          ? 'bg-primary/10 text-primary'
+          : 'text-foreground hover:bg-muted/50',
+      )}
+      style={{ paddingLeft: `${depth * 16 + 8}px` }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect();
+      }}
+    >
+      {node.type === 'directory' && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleExpand();
+          }}
+          className="p-0.5 rounded hover:bg-muted/50 cursor-pointer shrink-0"
+        >
+          <ChevronRight
+            className={cn(
+              'h-3 w-3 transition-transform',
+              isExpanded && 'rotate-90',
+            )}
+          />
+        </button>
+      )}
+      {node.type === 'directory' ? (
+        <Folder className="h-4 w-4 text-muted-foreground shrink-0" />
+      ) : (
+        <File className="h-4 w-4 text-muted-foreground shrink-0 ml-4" />
+      )}
+      <span className="truncate flex-1">{node.name}</span>
+      {isSelected && node.type === 'directory' && (
+        <Check className="h-3.5 w-3.5 text-primary shrink-0" />
+      )}
+    </div>
+  );
+}
+
+/** Recursive folder browser */
+function FolderBrowser({
+  dirPath,
+  selectedPath,
+  onSelectPath,
+  depth = 0,
+}: {
+  dirPath: string;
+  selectedPath: string | null;
+  onSelectPath: (path: string, name: string) => void;
+  depth?: number;
+}) {
+  const { data: nodes, isLoading } = useFileList(dirPath);
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
+
+  const toggleExpand = useCallback((path: string) => {
+    setExpandedDirs((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+
+  if (isLoading && depth === 0) {
+    return (
+      <div className="flex items-center justify-center py-6 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+        Loading workspace...
+      </div>
+    );
+  }
+
+  const dirs = (nodes ?? []).filter(
+    (n) => n.type === 'directory' && !n.name.startsWith('.') && n.name !== 'node_modules' && n.name !== '__pycache__',
+  );
+
+  if (dirs.length === 0 && depth === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-6 text-sm text-muted-foreground">
+        <FolderOpen className="h-6 w-6 mb-2 opacity-40" />
+        No folders found in workspace
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {dirs.map((node) => {
+        const nodePath = node.absolute || node.path;
+        const isExpanded = expandedDirs.has(nodePath);
+        const isSelected = selectedPath === nodePath;
+
+        return (
+          <div key={nodePath}>
+            <FolderBrowserItem
+              node={node}
+              isSelected={isSelected}
+              isExpanded={isExpanded}
+              onToggleExpand={() => toggleExpand(nodePath)}
+              onSelect={() => onSelectPath(nodePath, node.name)}
+              depth={depth}
+            />
+            {isExpanded && (
+              <FolderBrowser
+                dirPath={nodePath}
+                selectedPath={selectedPath}
+                onSelectPath={onSelectPath}
+                depth={depth + 1}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
@@ -71,7 +264,7 @@ export function CreateDeploymentDialog({
 
   // Form state
   const defaultDomain = useMemo(() => generateSubdomain(), []);
-  const [sourceType, setSourceType] = useState<DeploymentSource>('code');
+  const [sourceType, setSourceType] = useState<UISourceType>('code');
   const [domains, setDomains] = useState(defaultDomain);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -91,6 +284,12 @@ export function CreateDeploymentDialog({
   // Tar field
   const [tarUrl, setTarUrl] = useState('');
 
+  // Workspace fields
+  const [workspacePath, setWorkspacePath] = useState<string | null>(null);
+  const [workspaceFolderName, setWorkspaceFolderName] = useState<string>('');
+  const [workspaceFiles, setWorkspaceFiles] = useState<Array<{ path: string; content: string; encoding?: string }>>([]);
+  const [isCollectingFiles, setIsCollectingFiles] = useState(false);
+
   // Advanced config
   const [entrypoint, setEntrypoint] = useState('');
   const [framework, setFramework] = useState('');
@@ -108,6 +307,10 @@ export function CreateDeploymentDialog({
     setCode('');
     setFiles([{ path: '', content: '' }]);
     setTarUrl('');
+    setWorkspacePath(null);
+    setWorkspaceFolderName('');
+    setWorkspaceFiles([]);
+    setIsCollectingFiles(false);
     setEntrypoint('');
     setFramework('');
     setBuildCommand('');
@@ -117,12 +320,33 @@ export function CreateDeploymentDialog({
     setShowAdvanced(false);
   }, []);
 
+  // When a workspace folder is selected, collect all its files
+  const handleSelectWorkspaceFolder = useCallback(async (path: string, name: string) => {
+    setWorkspacePath(path);
+    setWorkspaceFolderName(name);
+    setWorkspaceFiles([]);
+    setIsCollectingFiles(true);
+    try {
+      const collected = await collectFilesRecursively(path, path);
+      setWorkspaceFiles(collected);
+      if (collected.length === 0) {
+        toast.error('No files found in the selected folder');
+      }
+    } catch (err) {
+      toast.error('Failed to read workspace files');
+      setWorkspacePath(null);
+      setWorkspaceFolderName('');
+    } finally {
+      setIsCollectingFiles(false);
+    }
+  }, []);
+
   // Pre-fill form from an existing deployment (Edit & Redeploy)
   useEffect(() => {
     if (!prefillFrom || !open) return;
     const d = prefillFrom;
 
-    setSourceType(d.sourceType);
+    setSourceType(d.sourceType as UISourceType);
     setDomains(d.domains?.join(', ') || generateSubdomain());
     setEntrypoint(d.entrypoint || '');
     setFramework(d.framework || '');
@@ -175,14 +399,23 @@ export function CreateDeploymentDialog({
       return;
     }
 
+    // Resolve the actual API source type (workspace maps to 'files')
+    const apiSourceType: DeploymentSource = sourceType === 'workspace' ? 'files' : sourceType;
+
     // Build payload
     const payload: CreateDeploymentData = {
-      source_type: sourceType,
+      source_type: apiSourceType,
       domains: domainList,
     };
 
     // Source-specific fields
-    if (sourceType === 'git') {
+    if (sourceType === 'workspace') {
+      if (workspaceFiles.length === 0) {
+        toast.error('Please select a workspace folder with files');
+        return;
+      }
+      payload.files = workspaceFiles;
+    } else if (sourceType === 'git') {
       if (!sourceRef) {
         toast.error('Repository URL is required');
         return;
@@ -288,7 +521,7 @@ export function CreateDeploymentDialog({
           {/* Source Type Selector */}
           <div>
             <label className={labelClass}>Source Type</label>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-5 gap-2">
               {sourceTypes.map((st) => {
                 const Icon = st.icon;
                 return (
@@ -339,6 +572,68 @@ export function CreateDeploymentDialog({
           </div>
 
           {/* Source-specific fields */}
+          {sourceType === 'workspace' && (
+            <div>
+              <label className={labelClass}>
+                Select Folder <span className="text-red-500">*</span>
+              </label>
+              <div className="rounded-xl border overflow-hidden">
+                {/* Selected folder indicator */}
+                {workspacePath && (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 border-b">
+                    <FolderOpen className="h-4 w-4 text-primary shrink-0" />
+                    <span className="text-sm font-medium text-foreground truncate">
+                      {workspaceFolderName}
+                    </span>
+                    {isCollectingFiles ? (
+                      <Badge variant="beta" className="text-xs ml-auto shrink-0">
+                        <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                        Scanning...
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-xs ml-auto shrink-0">
+                        {workspaceFiles.length} {workspaceFiles.length === 1 ? 'file' : 'files'}
+                      </Badge>
+                    )}
+                  </div>
+                )}
+                {/* Folder tree browser */}
+                <div className="max-h-[240px] overflow-y-auto p-1">
+                  <FolderBrowser
+                    dirPath="/workspace"
+                    selectedPath={workspacePath}
+                    onSelectPath={handleSelectWorkspaceFolder}
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1.5">
+                Select a project folder from your workspace. All files will be collected for deployment.
+              </p>
+
+              {/* File preview (collapsed) */}
+              {workspaceFiles.length > 0 && !isCollectingFiles && (
+                <details className="mt-3">
+                  <summary className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
+                    Preview files ({workspaceFiles.length})
+                  </summary>
+                  <div className="mt-2 rounded-lg border bg-muted/20 max-h-[160px] overflow-y-auto">
+                    <div className="p-2 space-y-0.5">
+                      {workspaceFiles.map((f) => (
+                        <div
+                          key={f.path}
+                          className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground"
+                        >
+                          <File className="h-3 w-3 shrink-0" />
+                          <span className="truncate font-mono">{f.path}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </details>
+              )}
+            </div>
+          )}
+
           {sourceType === 'git' && (
             <div className="space-y-4">
               <div>
@@ -585,7 +880,7 @@ export function CreateDeploymentDialog({
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={createMutation.isPending}
+            disabled={createMutation.isPending || isCollectingFiles}
           >
             {createMutation.isPending ? (
               <>
