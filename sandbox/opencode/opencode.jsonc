@@ -21,7 +21,8 @@
       "name": "Kortix",
       "options": {
         "baseURL": "{env:KORTIX_API_URL}/v1/router",
-        "apiKey": "{env:KORTIX_TOKEN}"
+        "apiKey": "{env:KORTIX_TOKEN}",
+        "headers": { "X-Session-ID": "{env:SANDBOX_ID}" }
       },
       "models": {
         "kortix/basic": {

@@ -37,7 +37,12 @@ llm.post('/chat/completions', async (c) => {
 
   const modelId = body.model as string;
   const isStreaming = body.stream === true;
-  const sessionId = typeof body.session_id === 'string' ? body.session_id : undefined;
+  // Session identity: explicit body field → X-Session-ID header (from OpenCode) → auth context fallback
+  const sessionId =
+    (typeof body.session_id === 'string' ? body.session_id : undefined) ??
+    c.req.header('X-Session-ID') ??
+    c.get('sandboxId') ??
+    c.get('keyId');
 
   // Check credits
   const creditCheck = await checkCredits(accountId);
