@@ -3096,7 +3096,8 @@ export function SessionChat({
 	// has its own retry loop with 3-30s backoff where events are silently
 	// dropped). On success the sync store is hydrated and the missing
 	// assistant content appears without requiring a page reload.
-	// First check after 3s, then every 5s while stuck.
+	// First check after 5s (gives SSE time to deliver the normal swap),
+	// then every 5s while stuck.
 	useEffect(() => {
 		if (!isServerBusy || !messages || messages.length === 0) return;
 		// Only act when the last message is a user message — if an assistant
@@ -3124,7 +3125,7 @@ export function SessionChat({
 			}
 		};
 
-		const initialTimer = setTimeout(fetchMessages, 3_000);
+		const initialTimer = setTimeout(fetchMessages, 5_000);
 		const interval = setInterval(fetchMessages, 5_000);
 		return () => {
 			clearTimeout(initialTimer);

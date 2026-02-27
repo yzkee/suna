@@ -386,6 +386,14 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 			const merged: typeof existing = [];
 			const seen = new Set<string>();
 
+			// Check if incoming messages contain real user messages. When the
+			// server already has the user message, any optimistic (client-
+			// generated) user messages are duplicates and must be removed.
+			// Without this, hydrate() + optimistic coexist → visual double bubble.
+			const incomingHasUserMessage = incoming.some(
+				(m) => m.role === "user" && !optimisticIds.has(m.id),
+			);
+
 			// Start with all incoming messages
 			for (const m of incoming) {
 				merged.push(m);
@@ -395,17 +403,28 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 			// Optimistic messages go at the end to avoid clock-skew sorting issues;
 			// non-optimistic ones are inserted at their sorted position.
 			const deferredOptimistic: typeof existing = [];
+			const supersededOptimistic: string[] = [];
 			for (const m of existing) {
 				if (!seen.has(m.id)) {
 					if (optimisticIds.has(m.id)) {
-						deferredOptimistic.push(m);
+						// If the server already has a real user message, this
+						// optimistic user message is a duplicate — drop it.
+						if (incomingHasUserMessage && m.role === "user") {
+							supersededOptimistic.push(m.id);
+						} else {
+							deferredOptimistic.push(m);
+						}
 					} else {
 						const r = Binary.search(merged, m.id, (x) => x.id);
 						merged.splice(r.index, 0, m);
 					}
 				}
 			}
-			// Append optimistic messages at the end
+			// Clean up superseded optimistic IDs
+			for (const id of supersededOptimistic) {
+				optimisticIds.delete(id);
+			}
+			// Append surviving optimistic messages at the end
 			for (const m of deferredOptimistic) {
 				merged.push(m);
 			}
@@ -416,6 +435,10 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 			// Otherwise, incoming parts win (server is authoritative), but keep
 			// any extra parts from SSE that aren't in the fetch response.
 			const newParts = { ...s.parts };
+			// Clean up parts for superseded optimistic messages
+			for (const id of supersededOptimistic) {
+				delete newParts[id];
+			}
 			for (const m of msgs) {
 				if (!m?.info?.id) continue;
 				const mid = m.info.id;
