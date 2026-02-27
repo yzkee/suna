@@ -29,7 +29,7 @@ export function useServerHealth(options?: { enabled?: boolean }) {
 
   return {
     data,
-    isLoading: (status === 'connecting' || status === 'starting') && healthy === null,
+    isLoading: status === 'connecting' && healthy === null,
     isError: status === 'unreachable',
     error: status === 'unreachable' ? new Error('Server unreachable') : null,
     refetch: async () => {
