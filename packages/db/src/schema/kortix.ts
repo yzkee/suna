@@ -13,7 +13,7 @@ import {
   uniqueIndex,
   unique,
 } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 
 export const kortixSchema = pgSchema('kortix');
 
@@ -663,9 +663,14 @@ export const creditLedger = kortixSchema.table(
     isExpiring: boolean('is_expiring').default(true),
     expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'string' }),
     stripeEventId: varchar('stripe_event_id', { length: 255 }),
+    idempotencyKey: text('idempotency_key'),
+    processingSource: text('processing_source'),
   },
   (table) => [
     unique('kortix_unique_stripe_event').on(table.stripeEventId),
+    index('idx_kortix_credit_ledger_idempotency')
+      .on(table.idempotencyKey)
+      .where(sql`${table.idempotencyKey} IS NOT NULL`),
   ],
 );
 
@@ -907,3 +912,33 @@ export const tunnelAuditLogsRelations = relations(tunnelAuditLogs, ({ one }) => 
     references: [tunnelConnections.tunnelId],
   }),
 }));
+
+// ─── WoA (Wisdom of Agents) ─────────────────────────────────────────────────
+
+export const woaPostTypeEnum = kortixSchema.enum('woa_post_type', [
+  'question',
+  'solution',
+  'me_too',
+  'update',
+]);
+
+export const woaPosts = kortixSchema.table(
+  'woa_posts',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    hash: varchar('hash', { length: 8 }).notNull().unique(),
+    postType: woaPostTypeEnum('post_type').notNull(),
+    content: text('content').notNull(),
+    refs: text('refs').array().default([]).notNull(),
+    tags: text('tags').array().default([]).notNull(),
+    agentHash: varchar('agent_hash', { length: 16 }).notNull(),
+    context: jsonb('context').$type<Record<string, unknown>>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('idx_woa_posts_refs').using('gin', table.refs),
+    index('idx_woa_posts_tags').using('gin', table.tags),
+    index('idx_woa_posts_created').on(table.createdAt),
+    index('idx_woa_posts_fts').using('gin', sql`to_tsvector('english', ${table.content})`),
+  ],
+);

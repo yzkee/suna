@@ -4,31 +4,9 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  Bell,
-  BookOpen,
   ChevronsUpDown,
-  CreditCard,
-  Key,
-  LogOut,
-  Monitor,
-  Settings,
-  Sparkles,
-  Sun,
-  Moon,
-  Plug,
-  Zap,
-  BarChart3,
-
-  MessageSquare,
-  Calendar,
   Heart,
   ChevronRight,
-  LifeBuoy,
-  AlertTriangle,
-  Server,
-  TestTube,
-  Database,
-  KeyRound,
 } from 'lucide-react';
 import { useAccountState } from '@/hooks/billing';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -51,9 +29,7 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { openTabAndNavigate } from '@/stores/tab-store';
 import { useTheme } from 'next-themes';
-import { Palette } from 'lucide-react';
 import { isBillingEnabled } from '@/lib/config';
-
 
 import { clearUserLocalStorage } from '@/lib/utils/clear-local-storage';
 import { UserSettingsModal } from '@/components/settings/user-settings-modal';
@@ -65,6 +41,12 @@ import { ReferralDialog } from '@/components/referrals/referral-dialog';
 import { SpotlightCard } from '@/components/ui/spotlight-card';
 import { trackCtaUpgrade } from '@/lib/analytics/gtm';
 import { ServerSelector } from '@/components/sidebar/server-selector';
+import {
+  getItemsByGroup,
+  themeOptions,
+  type MenuItemDef,
+  type SettingsTabId,
+} from '@/lib/menu-registry';
 
 // ============================================================================
 // Types
@@ -81,14 +63,7 @@ interface UserMenuProps {
   };
 }
 
-type SettingsTab = 'general' | 'appearance' | 'billing';
-
-interface MenuItemConfig {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  href?: string;
-  onClick?: () => void;
-}
+type SettingsTab = SettingsTabId;
 
 // ============================================================================
 // Component
@@ -128,24 +103,25 @@ export function UserMenu({ user }: UserMenuProps) {
   const getInitials = (name: string) =>
     name.split(' ').map((p) => p.charAt(0)).join('').toUpperCase().substring(0, 2);
 
-  // Data-driven menu items — billing items only shown when billing is enabled
-  const generalItems: MenuItemConfig[] = [
-    ...(billingActive ? [
-      { icon: Zap, label: 'Plan', onClick: () => { trackCtaUpgrade(); setShowPlanModal(true); } },
-      { icon: CreditCard, label: 'Billing', onClick: () => openSettings('billing') },
-    ] : []),
-    { icon: Settings, label: 'Settings', onClick: () => openSettings('general') },
-  ];
+  // ── Registry-driven menu items ──
+  const generalItems = getItemsByGroup('userMenu', 'preferences').filter((item) => {
+    if (item.requiresBilling && !billingActive) return false;
+    return true;
+  });
 
-  const adminItems: MenuItemConfig[] = [
-    { icon: MessageSquare, label: 'User Feedback', href: '/admin/feedback' },
-    { icon: BarChart3, label: 'Analytics', href: '/admin/analytics' },
-    { icon: Bell, label: 'Notifications', href: '/admin/notifications' },
-    { icon: AlertTriangle, label: 'Admin Utils', href: '/admin/utils' },
-    { icon: Database, label: 'Sandbox Pool', href: '/admin/sandbox-pool' },
-    { icon: Server, label: 'Stateless', href: '/admin/stateless' },
-    { icon: TestTube, label: 'Stress Test', href: '/admin/stress-test' },
-  ];
+  const accountItems = getItemsByGroup('userMenu', 'account').filter((item) => {
+    if (item.requiresBilling && !billingActive) return false;
+    return true;
+  });
+
+  const adminItems = getItemsByGroup('userMenu', 'admin').filter((item) => {
+    if (item.requiresAdmin && !user.isAdmin) return false;
+    return true;
+  });
+
+  const viewItems = getItemsByGroup('userMenu', 'view').filter(
+    (item) => item.id !== 'toggle-sidebar',
+  );
 
   const handleMenuNav = (href: string, label: string) => {
     const type = href.startsWith('/settings') ? 'settings' as const : 'page' as const;
@@ -157,18 +133,25 @@ export function UserMenu({ user }: UserMenuProps) {
     }, router);
   };
 
-  const renderMenuItem = (item: MenuItemConfig) => {
-    const Icon = item.icon;
-    if (item.href) {
-      return (
-        <DropdownMenuItem key={item.label} onClick={() => handleMenuNav(item.href!, item.label)} className="gap-2 p-2 cursor-pointer">
-          <Icon className="h-4 w-4" />
-          <span>{item.label}</span>
-        </DropdownMenuItem>
-      );
+  const handleRegistryItem = (item: MenuItemDef) => {
+    switch (item.kind) {
+      case 'navigate':
+        handleMenuNav(item.href!, item.label);
+        break;
+      case 'settings':
+        openSettings(item.settingsTab!);
+        break;
+      case 'action':
+        if (item.actionId === 'logout') handleLogout();
+        if (item.actionId === 'openPlan') { trackCtaUpgrade(); setShowPlanModal(true); }
+        break;
     }
+  };
+
+  const renderRegistryItem = (item: MenuItemDef) => {
+    const Icon = item.icon;
     return (
-      <DropdownMenuItem key={item.label} onClick={item.onClick} className="gap-2 p-2">
+      <DropdownMenuItem key={item.id} onClick={() => handleRegistryItem(item)} className="gap-2 p-2 cursor-pointer">
         <Icon className="h-4 w-4" />
         <span>{item.label}</span>
       </DropdownMenuItem>
@@ -237,38 +220,27 @@ export function UserMenu({ user }: UserMenuProps) {
               <ServerSelector />
               <DropdownMenuSeparator className="my-1" />
 
-              {/* General */}
+              {/* Account (Plan, Billing) + Settings */}
               <DropdownMenuLabel className="text-muted-foreground text-xs px-2 py-1.5">General</DropdownMenuLabel>
               <DropdownMenuGroup>
-                {generalItems.map(renderMenuItem)}
+                {accountItems.map(renderRegistryItem)}
+                {generalItems.map(renderRegistryItem)}
               </DropdownMenuGroup>
 
               {/* Admin */}
-              {user.isAdmin && (
+              {adminItems.length > 0 && (
                 <>
                   <DropdownMenuSeparator className="my-1" />
                   <DropdownMenuLabel className="text-muted-foreground text-xs px-2 py-1.5">Advanced</DropdownMenuLabel>
                   <DropdownMenuGroup>
-                    {adminItems.map(renderMenuItem)}
+                    {adminItems.map(renderRegistryItem)}
                   </DropdownMenuGroup>
                 </>
               )}
 
-              {/* Appearance + theme toggle */}
-              <DropdownMenuItem
-                onClick={() => openSettings('appearance')}
-                className="gap-2 p-2"
-              >
-                <Palette className="h-4 w-4" />
-                <span className="flex-1">Appearance</span>
-              </DropdownMenuItem>
               <div className="px-2 py-1.5">
                 <div className="flex gap-0.5 p-0.5 bg-muted/50 rounded-md w-fit">
-                  {([
-                    { value: 'light', icon: Sun },
-                    { value: 'dark', icon: Moon },
-                    { value: 'system', icon: Monitor },
-                  ] as const).map((mode) => {
+                  {themeOptions.map((mode) => {
                     const Icon = mode.icon;
                     const isActive = theme === mode.value;
                     return (
@@ -294,10 +266,7 @@ export function UserMenu({ user }: UserMenuProps) {
               </div>
 
               <DropdownMenuSeparator className="my-1" />
-              <DropdownMenuItem onClick={handleLogout} className="gap-2 p-2">
-                <LogOut className="h-4 w-4" />
-                <span>{t('logout')}</span>
-              </DropdownMenuItem>
+              {viewItems.map(renderRegistryItem)}
             </DropdownMenuContent>
           </DropdownMenu>
         </SidebarMenuItem>

@@ -82,6 +82,7 @@ export interface SandboxInfo {
   provider: SandboxProviderName;
   base_url: string;
   status: string;
+  version?: string | null;
   metadata?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -252,7 +253,13 @@ export async function createSandbox(opts?: {
   provider?: SandboxProviderName;
   name?: string;
 }): Promise<{ sandbox: SandboxInfo }> {
-  const result = await platformFetch<SandboxInfo>('/platform/sandbox', {
+  // local_docker uses /platform/init/local (handles image pull + token sync).
+  // Everything else uses /platform/sandbox (cloud provisioning).
+  const endpoint = opts?.provider === 'local_docker'
+    ? '/platform/init/local'
+    : '/platform/sandbox';
+
+  const result = await platformFetch<SandboxInfo>(endpoint, {
     method: 'POST',
     body: JSON.stringify({
       ...(opts?.provider ? { provider: opts.provider } : {}),

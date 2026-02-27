@@ -25,6 +25,7 @@ import { secretsApp } from './secrets/routes';
 import { integrationsApp } from './integrations';
 import { queueApp, startDrainer, stopDrainer } from './queue';
 import { serversApp } from './servers';
+import { woaApp } from './woa';
 import { supabaseAuth, combinedAuth } from './middleware/auth';
 import { ensureSchema } from './ensure-schema';
 import { initModelPricing, stopModelPricing } from './router/config/model-pricing';
@@ -246,7 +247,10 @@ app.use('/v1/queue/*', combinedAuth);
 app.route('/v1/queue', queueApp);            // /v1/queue/sessions/:id, /v1/queue/messages/:id, /v1/queue/all, /v1/queue/status
 
 app.use('/v1/tunnel/*', combinedAuth);
-app.route('/v1/tunnel', tunnelApp);          // /v1/tunnel/connections, /v1/tunnel/permissions, /v1/tunnel/rpc, /v1/tunnel/audit
+app.route('/v1/tunnel', tunnelApp);
+
+app.use('/v1/woa/*', combinedAuth);
+app.route('/v1/woa', woaApp);          // /v1/tunnel/connections, /v1/tunnel/permissions, /v1/tunnel/rpc, /v1/tunnel/audit
 
 // Preview Proxy — unified route for both cloud (Daytona) and local mode.
 // Pattern: /v1/p/{sandboxId}/{port}/* for ALL modes.
@@ -413,6 +417,16 @@ ensureSchema()
     startChannelService();
     startDrainer();
     startTunnelService();
+
+    // If local_docker is enabled and we have a DB, ensure the sandbox is registered
+    // and start the health monitor for self-healing connectivity.
+    // Must run AFTER schema push so the sandboxes table exists.
+    if (config.isLocalDockerEnabled() && config.DATABASE_URL) {
+      ensureLocalSandboxRegistered().catch((err) =>
+        console.error('[startup] Failed to register local sandbox:', err),
+      );
+      startSandboxHealthMonitor();
+    }
   })
   .catch(async (err) => {
     console.error('[startup] ensureSchema failed, starting services anyway:', err);
@@ -420,17 +434,15 @@ ensureSchema()
     startChannelService();
     startDrainer();
     startTunnelService();
-  });
 
-// If local_docker is enabled and we have a DB, ensure the sandbox is registered
-// and start the health monitor for self-healing connectivity.
-if (config.isLocalDockerEnabled() && config.DATABASE_URL) {
-  ensureLocalSandboxRegistered().catch((err) =>
-    console.error('[startup] Failed to register local sandbox:', err),
-  );
-  // Start health monitor — proactively syncs keys and detects connectivity issues
-  startSandboxHealthMonitor();
-}
+    // Still try to register sandbox even if schema push fails — the table may already exist
+    if (config.isLocalDockerEnabled() && config.DATABASE_URL) {
+      ensureLocalSandboxRegistered().catch((e) =>
+        console.error('[startup] Failed to register local sandbox:', e),
+      );
+      startSandboxHealthMonitor();
+    }
+  });
 
 // Graceful shutdown
 function shutdown(signal: string) {
@@ -583,6 +595,24 @@ export default {
     if (subdomain) {
       const { port, sandboxId } = subdomain;
 
+      // ── CORS preflight must be handled BEFORE auth ──────────────────
+      // Browsers send OPTIONS without Authorization headers. If we block
+      // the preflight with 401, the browser can never send the actual
+      // request that carries the Bearer token to authenticate the subdomain.
+      if (req.method === 'OPTIONS') {
+        const origin = req.headers.get('Origin') || '';
+        return new Response(null, {
+          status: 204,
+          headers: {
+            'Access-Control-Allow-Origin': origin || '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS',
+            'Access-Control-Allow-Headers': req.headers.get('Access-Control-Request-Headers') || '*',
+            'Access-Control-Allow-Credentials': 'true',
+            'Access-Control-Max-Age': '86400',
+          },
+        });
+      }
+
       // ── Auth: first request validates, then the subdomain is "open" ──
       // Bearer header or cookie on first load proves you're legit,
       // then all subsequent requests (sub-resources, WS, etc.) pass through.
@@ -632,19 +662,7 @@ export default {
         body = await req.arrayBuffer();
       }
 
-      // Handle CORS preflight
-      if (req.method === 'OPTIONS') {
-        return new Response(null, {
-          status: 204,
-          headers: {
-            'Access-Control-Allow-Origin': origin || '*',
-            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
-            'Access-Control-Allow-Headers': req.headers.get('Access-Control-Request-Headers') || '*',
-            'Access-Control-Allow-Credentials': 'true',
-            'Access-Control-Max-Age': '86400',
-          },
-        });
-      }
+      // NOTE: CORS preflight (OPTIONS) is handled above, before the auth check.
 
       try {
         return await proxyToSandbox(
