@@ -24,8 +24,12 @@ COPY packages/ ./packages/
 # Install pnpm and deps for this service + workspace packages it depends on.
 # --shamefully-hoist flattens node_modules (no symlinks) so COPY works on all Docker versions.
 # Include devDeps so drizzle-kit is available for schema push at runtime.
+# Then build opencode-channels (it ships as TS source; its package.json points to dist/).
 RUN corepack enable pnpm && \
-    pnpm install --filter ./services/${SERVICE}... --shamefully-hoist --prod=false
+    pnpm install --filter ./services/${SERVICE}... --shamefully-hoist --prod=false && \
+    if [ -f packages/opencode-channels/package.json ]; then \
+      ./node_modules/.bin/tsc -p packages/opencode-channels/tsconfig.build.json; \
+    fi
 
 # ---- Runner Stage ----
 FROM base AS runner
@@ -56,6 +60,7 @@ COPY --from=deps /app/packages/db/drizzle.config.ts ./packages/db/drizzle.config
 COPY --from=deps /app/packages/db/package.json ./packages/db/package.json
 COPY --from=deps /app/packages/db/tsconfig.json ./packages/db/tsconfig.json
 COPY --from=deps /app/packages/opencode-channels/src ./packages/opencode-channels/src
+COPY --from=deps /app/packages/opencode-channels/dist ./packages/opencode-channels/dist
 COPY --from=deps /app/packages/opencode-channels/package.json ./packages/opencode-channels/package.json
 COPY --from=deps /app/packages/opencode-channels/tsconfig.json ./packages/opencode-channels/tsconfig.json
 COPY --from=deps /app/packages/opencode-channels/tsconfig.build.json ./packages/opencode-channels/tsconfig.build.json
