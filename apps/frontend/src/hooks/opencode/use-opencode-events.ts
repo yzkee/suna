@@ -13,6 +13,7 @@ import { clearConfigOverrides } from "@/hooks/opencode/use-opencode-config";
 import { getSupabaseAccessToken, invalidateTokenCache } from "@/lib/auth-token";
 import { logger } from "@/lib/logger";
 import { getClient, resetClient } from "@/lib/opencode-sdk";
+import { authenticatedFetch } from "@/lib/auth-token";
 import { toast } from "@/lib/toast";
 import {
 	notifyPermissionRequest,
@@ -20,11 +21,11 @@ import {
 	notifySessionError,
 	notifyTaskComplete,
 } from "@/lib/web-notifications";
-import { useDiagnosticsStore } from "@/stores/diagnostics-store";
+import { useDiagnosticsStore, parseDiagnosticsFromToolOutput } from "@/stores/diagnostics-store";
 import { useOpenCodePendingStore } from "@/stores/opencode-pending-store";
 import { useOpenCodeSessionStatusStore } from "@/stores/opencode-session-status-store";
 import { useSyncStore } from "@/stores/opencode-sync-store";
-import { useServerStore } from "@/stores/server-store";
+import { useServerStore, getActiveOpenCodeUrl } from "@/stores/server-store";
 import { ptyKeys } from "./use-opencode-pty";
 import { opencodeKeys, type Session, type MessageWithParts } from "./use-opencode-sessions";
 
@@ -99,6 +100,41 @@ export function useOpenCodeEventStream() {
 		}
 		return normalized;
 	});
+
+	/**
+	 * Debounced fetch of all LSP diagnostics from the backend.
+	 *
+	 * The `lsp.client.diagnostics` SSE event only carries { serverID, path }
+	 * (no actual diagnostic data). Multiple events fire in rapid succession
+	 * as the language server reports diagnostics for different files, so we
+	 * debounce and fetch the full diagnostics map from GET /lsp/diagnostics.
+	 */
+	const fetchLspDiagnosticsDebounced = useRef((() => {
+		let timer: ReturnType<typeof setTimeout> | null = null;
+		return () => {
+			if (timer) clearTimeout(timer);
+			timer = setTimeout(async () => {
+				timer = null;
+				try {
+					const baseUrl = getActiveOpenCodeUrl();
+					const resp = await authenticatedFetch(`${baseUrl}/lsp/diagnostics`);
+					if (!resp.ok) return;
+					const data = await resp.json() as Record<string, any[]>;
+					if (data && typeof data === "object") {
+						const normalized = normalizeDiagnosticPaths.current(data);
+						// The endpoint returns the *complete* diagnostics state,
+						// so clear stale entries before applying the fresh data.
+						const store = useDiagnosticsStore.getState();
+						store.clearAll();
+						store.setFromLspEvent(normalized);
+					}
+				} catch {
+					// Silently ignore — diagnostics are non-critical and the
+					// endpoint may not be available on older OpenCode versions.
+				}
+			}, 250);
+		};
+	})());
 
 	useEffect(() => {
 		// Only nuke caches on actual server switches (not URL/port updates)
@@ -397,9 +433,41 @@ export function useOpenCodeEventStream() {
 					break;
 
 				case "message.part.updated": {
-					// Extract diagnostics from tool part metadata if present
+					// Extract diagnostics from tool output and/or metadata
 					const part = (event.properties as any).part as Part;
-					const partMeta = (part as any)?.metadata;
+					const partState = (part as any)?.state;
+
+					// --- Primary path: parse diagnostics from tool output text ---
+					// The OpenCode backend embeds diagnostics as plain text inside
+					// <file_diagnostics> / <project_diagnostics> XML tags in the
+					// tool's text output (e.g. after write, edit, diagnostics tools).
+					if (partState?.status === "completed" && partState.output) {
+						const output = partState.output as string;
+						if (output.includes("<file_diagnostics>") || output.includes("<project_diagnostics>")) {
+							const parsed = parseDiagnosticsFromToolOutput(output);
+							const fileCount = Object.keys(parsed).length;
+							if (fileCount > 0) {
+								// Normalize absolute sandbox paths to project-relative
+								const normalized = normalizeDiagnosticPaths.current(parsed);
+								// Convert LspDiagnostic[] to RawDiagnostic[] format for the store
+								const asRaw: Record<string, any[]> = {};
+								for (const [file, diags] of Object.entries(normalized)) {
+									asRaw[file] = diags.map((d) => ({
+										range: {
+											start: { line: d.line, character: d.column },
+										},
+										severity: d.severity,
+										message: d.message,
+										source: d.source,
+									}));
+								}
+								useDiagnosticsStore.getState().setFromLspEvent(asRaw);
+							}
+						}
+					}
+
+					// --- Fallback: check metadata.diagnostics (legacy / fork path) ---
+					const partMeta = partState?.metadata;
 					if (
 						partMeta?.diagnostics &&
 						typeof partMeta.diagnostics === "object"
@@ -414,10 +482,8 @@ export function useOpenCodeEventStream() {
 							}
 						}
 						if (hasValid) {
-							// Normalize absolute paths to project-relative before storing
-							useDiagnosticsStore.getState().setFromLspEvent(
-								normalizeDiagnosticPaths.current(validEntries),
-							);
+							const normalized = normalizeDiagnosticPaths.current(validEntries);
+							useDiagnosticsStore.getState().setFromLspEvent(normalized);
 						}
 					}
 					break;
@@ -716,47 +782,18 @@ export function useOpenCodeEventStream() {
 				// ---- LSP updated ----
 				case "lsp.updated": {
 					queryClient.invalidateQueries({ queryKey: ["opencode", "lsp"], type: 'active' });
-					// Push diagnostics data into the diagnostics store if the event
-					// contains file-keyed diagnostic arrays.
-					const lspProps = event.properties as Record<string, unknown>;
-					if (lspProps) {
-						// The lsp.updated event may carry diagnostics as
-						// { [filePath]: Diagnostic[] } in its properties.
-						const diagEntries: Record<string, any[]> = {};
-						let hasDiags = false;
-						for (const [key, value] of Object.entries(lspProps)) {
-							if (Array.isArray(value)) {
-								diagEntries[key] = value;
-								hasDiags = true;
-							}
-						}
-						if (hasDiags) {
-							// Normalize absolute paths to project-relative before storing
-							useDiagnosticsStore.getState().setFromLspEvent(
-								normalizeDiagnosticPaths.current(diagEntries),
-							);
-						}
-					}
+					// A new LSP client connected — fetch diagnostics after a short
+					// delay to give the language server time to produce initial results.
+					fetchLspDiagnosticsDebounced.current();
 					break;
 				}
 
 				// ---- LSP client diagnostics (per-file notification) ----
 				case "lsp.client.diagnostics": {
 					// This event signals diagnostics changed for a specific file.
-					// The properties contain { serverID, path } and potentially
-					// inline diagnostic data.
-					const diagProps = event.properties as Record<string, unknown>;
-					const diagPath = diagProps?.path as string | undefined;
-					if (diagPath) {
-						const diagnostics = diagProps?.diagnostics;
-						if (Array.isArray(diagnostics)) {
-							// Normalize the path from absolute to project-relative
-							const relPath = normalizeLspPath.current(diagPath);
-							useDiagnosticsStore.getState().setFromLspEvent({
-								[relPath]: diagnostics,
-							});
-						}
-					}
+					// The event only carries { serverID, path } — actual diagnostic
+					// data must be fetched from the /lsp/diagnostics endpoint.
+					fetchLspDiagnosticsDebounced.current();
 					break;
 				}
 

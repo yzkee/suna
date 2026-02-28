@@ -194,6 +194,92 @@ export function getRelativePath(absPath: string): string {
 }
 
 // ============================================================================
+// Parse diagnostics from tool output text
+// ============================================================================
+
+/**
+ * Parse diagnostics from OpenCode tool output text.
+ *
+ * The Go backend embeds diagnostics as plain text in `<file_diagnostics>`
+ * and `<project_diagnostics>` XML tags within the tool result. Each line
+ * follows the format:
+ *
+ *   Severity: /path/to/file.ts:line:col [source][code] (tags) message
+ *
+ * Examples:
+ *   Error: /workspace/src/server.js:4:1 [typescript] Cannot find module './utils/nonexistent'
+ *   Warn: /workspace/src/server.js:5:7 [typescript][6133] (unnecessary) 'unused_import' is declared but never read
+ */
+export function parseDiagnosticsFromToolOutput(
+  output: string,
+): Record<string, LspDiagnostic[]> {
+  const result: Record<string, LspDiagnostic[]> = {};
+
+  // Extract content from both tag types
+  const tagPattern = /<(?:file_diagnostics|project_diagnostics)>([\s\S]*?)<\/(?:file_diagnostics|project_diagnostics)>/g;
+  let tagMatch;
+  const allLines: string[] = [];
+
+  while ((tagMatch = tagPattern.exec(output)) !== null) {
+    const content = tagMatch[1].trim();
+    if (content) {
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('...')) {
+          allLines.push(trimmed);
+        }
+      }
+    }
+  }
+
+  if (allLines.length === 0) return result;
+
+  // Parse each diagnostic line
+  // Format: Severity: /path/to/file:line:col [source][code] (tags) message
+  const linePattern = /^(Error|Warn|Info|Hint):\s+(.+?):(\d+):(\d+)\s+\[([^\]]*)\](.*)$/;
+
+  for (const line of allLines) {
+    const match = linePattern.exec(line);
+    if (!match) continue;
+
+    const [, severityStr, filePath, lineStr, colStr, source, rest] = match;
+
+    const severity: DiagnosticSeverity =
+      severityStr === 'Error' ? 1 :
+      severityStr === 'Warn' ? 2 :
+      severityStr === 'Hint' ? 4 : 3;
+
+    // Parse optional [code] and message from the rest
+    // rest might be: [6133] (unnecessary) message text
+    //            or: message text
+    let message = rest.trim();
+    // Strip optional [code] prefix
+    message = message.replace(/^\[\w+\]\s*/, '');
+    // Strip optional (tags) prefix
+    message = message.replace(/^\([^)]*\)\s*/, '');
+
+    const lineNum = parseInt(lineStr, 10) - 1; // Convert to 0-indexed
+    const colNum = parseInt(colStr, 10) - 1;
+
+    const diag: LspDiagnostic = {
+      file: filePath,
+      line: Math.max(0, lineNum),
+      column: Math.max(0, colNum),
+      severity,
+      message: message || `${severityStr} at ${lineStr}:${colStr}`,
+      source: source || undefined,
+    };
+
+    if (!result[filePath]) {
+      result[filePath] = [];
+    }
+    result[filePath].push(diag);
+  }
+
+  return result;
+}
+
+// ============================================================================
 // Helpers
 // ============================================================================
 

@@ -95,6 +95,7 @@ import { useServerStore, getActiveOpenCodeUrl, deriveSubdomainOpts } from "@/sto
 import { openTabAndNavigate } from "@/stores/tab-store";
 import { enrichPreviewMetadata } from "@/lib/utils/session-context";
 import { PreWithPaths } from "@/components/common/clickable-path";
+import { parseDiagnosticsFromToolOutput, type LspDiagnostic } from "@/stores/diagnostics-store";
 
 import {
 	type ApplyPatchFile,
@@ -834,6 +835,62 @@ function InlineDiffView({
 }
 
 // ============================================================================
+// Extract diagnostics from tool output OR metadata
+// ============================================================================
+
+/**
+ * Extract diagnostics for a specific file from tool part data.
+ *
+ * Tries two sources:
+ * 1. Parse from tool output text (primary — backend embeds in XML tags)
+ * 2. Read from metadata.diagnostics (legacy / fork path)
+ */
+function getToolDiagnostics(
+	part: ToolPart,
+	filePath: string | undefined,
+): Diagnostic[] {
+	if (!filePath) return [];
+
+	// 1. Parse from tool output text
+	const output = partOutput(part);
+	if (output && (output.includes("<file_diagnostics>") || output.includes("<project_diagnostics>"))) {
+		const parsed = parseDiagnosticsFromToolOutput(output);
+		// Find diagnostics matching this file (by exact match or suffix)
+		let diags: LspDiagnostic[] | undefined;
+		for (const [key, value] of Object.entries(parsed)) {
+			if (key === filePath || key.endsWith("/" + filePath) || filePath.endsWith("/" + key)) {
+				diags = value;
+				break;
+			}
+		}
+		// If no file-specific match, collect all
+		if (!diags) {
+			diags = Object.values(parsed).flat();
+		}
+		if (diags && diags.length > 0) {
+			return diags
+				.filter((d) => d.severity === 1 || d.severity === 2)
+				.slice(0, 5)
+				.map((d) => ({
+					range: {
+						start: { line: d.line, character: d.column },
+						end: { line: d.endLine ?? d.line, character: d.endColumn ?? d.column },
+					},
+					message: d.message,
+					severity: d.severity,
+				}));
+		}
+	}
+
+	// 2. Fallback: metadata.diagnostics (legacy)
+	const metadata = partMetadata(part);
+	return getDiagnostics(
+		metadata.diagnostics as Record<string, Diagnostic[]> | undefined,
+		filePath,
+	);
+}
+
+// ============================================================================
 // DiagnosticsDisplay
 // ============================================================================
 
@@ -856,19 +913,32 @@ function DiagnosticsDisplay({ diagnostics, filePath }: { diagnostics: Diagnostic
 
 	return (
 		<div className="space-y-1 px-2 pb-2">
-			{diagnostics.map((d, i) => (
-				<button
-					type="button"
-					key={i}
-					className="flex items-start gap-1.5 text-[10px] text-red-500 hover:text-red-400 transition-colors cursor-pointer text-left w-full group"
-					onClick={() => handleClick(d)}
-				>
-					<CircleAlert className="size-3 flex-shrink-0 mt-0.5" />
-					<span className="group-hover:underline">
-						[{d.range.start.line + 1}:{d.range.start.character + 1}] {d.message}
-					</span>
-				</button>
-			))}
+			{diagnostics.map((d, i) => {
+				const isError = d.severity === 1;
+				const isWarning = d.severity === 2;
+				return (
+					<button
+						type="button"
+						key={i}
+						className={cn(
+							"flex items-start gap-1.5 text-[10px] transition-colors cursor-pointer text-left w-full group",
+							isError && "text-red-500 hover:text-red-400",
+							isWarning && "text-yellow-500 hover:text-yellow-400",
+							!isError && !isWarning && "text-blue-400 hover:text-blue-300",
+						)}
+						onClick={() => handleClick(d)}
+					>
+						{isError ? (
+							<CircleAlert className="size-3 flex-shrink-0 mt-0.5" />
+						) : (
+							<AlertTriangle className="size-3 flex-shrink-0 mt-0.5" />
+						)}
+						<span className="group-hover:underline">
+							[{d.range.start.line + 1}:{d.range.start.character + 1}] {d.message}
+						</span>
+					</button>
+				);
+			})}
 		</div>
 	);
 }
@@ -1707,10 +1777,7 @@ function EditTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 	const filePath = (input.filePath as string) || (streamingInput.filePath as string) || (streamingInput.target_filepath as string) || undefined;
 	const filename = getFilename(filePath) || "";
 	const directory = filePath ? getDirectory(filePath) : undefined;
-	const diagnostics = getDiagnostics(
-		metadata.diagnostics as Record<string, Diagnostic[]> | undefined,
-		filePath,
-	);
+	const diagnostics = getToolDiagnostics(part, filePath);
 
 	const additions = (filediff?.additions as number) ?? 0;
 	const deletions = (filediff?.deletions as number) ?? 0;
@@ -1792,10 +1859,7 @@ function WriteTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 	const directory = filePath ? getDirectory(filePath) : undefined;
 	const content = (input.content as string) || (streamingInput.content as string) || "";
 	const ext = filename.split(".").pop() || "";
-	const diagnostics = getDiagnostics(
-		metadata.diagnostics as Record<string, Diagnostic[]> | undefined,
-		filePath,
-	);
+	const diagnostics = getToolDiagnostics(part, filePath);
 
 	// Detect stale pending: tool part is pending/running but no longer actively
 	// loading (ToolRunningContext is false) and no filename was received.
