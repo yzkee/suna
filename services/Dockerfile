@@ -24,8 +24,9 @@ COPY packages/ ./packages/
 # Install pnpm and deps for this service + workspace packages it depends on.
 # --shamefully-hoist flattens node_modules (no symlinks) so COPY works on all Docker versions.
 # Include devDeps so drizzle-kit is available for schema push at runtime.
+# The second filter ensures opencode-channels' own deps (chat, @chat-adapter/*) are installed.
 RUN corepack enable pnpm && \
-    pnpm install --filter ./services/${SERVICE}... --shamefully-hoist --prod=false
+    pnpm install --filter ./services/${SERVICE}... --filter ./packages/opencode-channels... --shamefully-hoist --prod=false
 
 # ---- Runner Stage ----
 FROM base AS runner
