@@ -16,7 +16,7 @@
  *   ltm_search                 — hybrid search across long-term memories
  *   observation_search         — hybrid search across observations
  *   get_mem                    — fetch full record by ID (LTM or observation)
- *   mem_save                   — manually persist an LTM entry
+ *   ltm_save                   — manually persist an LTM entry
  *   session_list               — browse past sessions with metadata
  *   session_get                — retrieve a session's conversation (TTC-compressed)
  */
@@ -280,7 +280,7 @@ export const KortixMemoryPlugin: Plugin = async ({ client }) => {
 						`- Soft-trimmed: "[Tool result trimmed: kept first X and last Y of Z chars.]" — head + tail preserved, middle removed`,
 						`- Hard-cleared: "[Old tool result content cleared]" — entire output replaced`,
 						`When you need the full output: use observation_search to find the observation, then call get_tool_output(observation_id).`,
-						`If a trimmed result has important info, save it via mem_save before it gets hard-cleared.`,
+						`If a trimmed result has important info, save it via ltm_save before it gets hard-cleared.`,
 						`</context_pruning_awareness>`,
 					].join("\n"))
 				}
@@ -510,7 +510,7 @@ ${content}`
 			}),
 
 			// Manually save an LTM entry
-			mem_save: tool({
+			ltm_save: tool({
 				description: `Manually save an important fact, insight, or workflow to long-term memory. Use this when you discover something worth remembering permanently — a codebase pattern, deployment process, architectural decision, or user preference. The memory persists across all future sessions.`,
 				args: {
 					text: tool.schema.string().describe("The memory content to save"),

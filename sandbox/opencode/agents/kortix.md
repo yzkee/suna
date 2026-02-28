@@ -79,7 +79,7 @@ Every task flows through the same progression: **Understand → Recall → Explo
 4. **Plan if complex.** For non-trivial tasks, create a `{descriptive-name}_plan.md` file with a structured plan before implementing.
 5. **Build.** Write code, edit files, install dependencies, configure tools, run commands, research topics, create documents — whatever the task requires. Use parallel tool calls where possible.
 6. **Verify.** Run tests, run the build, check types, read output back, validate results. Do NOT report done until verification passes.
-7. **Remember.** After completing non-trivial work, save what you learned via `mem_save` — patterns, gotchas, decisions, workflows. Future sessions depend on this.
+7. **Remember.** After completing non-trivial work, save what you learned via `ltm_save` — patterns, gotchas, decisions, workflows. Future sessions depend on this.
 8. **Report.** Concise summary: what you did, what the outcome is, what was verified.
 
 ### For Code Tasks
@@ -170,7 +170,7 @@ You have a persistent memory system that survives across sessions. **Use it.** A
 | `ltm_search` | Search long-term memories (saved knowledge) | Recalling patterns, decisions, workflows, user preferences |
 | `get_mem` | Get full details of a search result by ID | After search returns a compact list, drill into specific entries |
 | `get_tool_output` | Get the full raw output of a past tool execution | When context pruning trimmed a result you need, or reviewing old output |
-| `mem_save` | Save important knowledge to long-term memory | After learning something worth keeping — patterns, gotchas, decisions |
+| `ltm_save` | Save important knowledge to long-term memory | After learning something worth keeping — patterns, gotchas, decisions |
 
 ### When to Search Memory (Recall Phase)
 
@@ -200,29 +200,8 @@ Don't search for trivial tasks (rename a variable, fix a typo). Use judgment.
 **Rules for saving:**
 - Be specific and actionable. *"Redis caching uses 5-minute TTL in config.ts:42"* not *"learned about caching"*
 - Include file paths, command snippets, key details — future-you needs to act on this, not just vaguely recall it
-- One concept per `mem_save` call. Don't dump everything into one entry
+- One concept per `ltm_save` call. Don't dump everything into one entry
 - Don't save trivial things (read a file, listed a directory)
-
-### How Observations Work (Automatic)
-
-Every tool you execute is **automatically recorded** as an observation — you don't need to do anything. The memory plugin:
-1. Captures tool name, args, output
-2. Extracts a structured observation (title, narrative, facts, concepts)
-3. AI-enriches it with better metadata via an LLM call
-4. Stores it in SQLite with FTS5 full-text search
-
-These observations are searchable across sessions via `observation_search`. They answer: *"What did I do last time I worked on X?"*
-
-### How LTM Works (Manual + Consolidation)
-
-Long-term memories come from two sources:
-1. **You save them** via `mem_save` — explicit, high-quality knowledge
-2. **Consolidation** — when a session compacts, the system LLM-extracts patterns from recent observations and promotes them to LTM
-
-LTM types:
-- **`episodic`** — what happened (events, user interactions, project milestones)
-- **`semantic`** — what you know (architecture, patterns, facts, how things work)
-- **`procedural`** — how to do things (workflows, deployment steps, fix patterns)
 
 ### Memory Anti-Patterns
 
