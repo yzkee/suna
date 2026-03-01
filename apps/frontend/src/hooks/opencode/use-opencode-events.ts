@@ -306,14 +306,12 @@ export function useOpenCodeEventStream() {
 					const { stream } = result;
 					streamConnectedAt = Date.now();
 
-				// On reconnect, only re-hydrate if the gap was significant (>5s).
-				// Quick reconnects (<5s) don't need full re-hydration because SSE
-				// events will catch up. This prevents unnecessary HTTP requests on
-				// the frequent ERR_INCOMPLETE_CHUNKED_ENCODING reconnects.
-				// On reconnect, only re-hydrate if the gap was significant (>5s).
-				// Quick reconnects (<5s) don't need full re-hydration because SSE
-				// events will catch up. Uses the consolidated hydrateCore() function
-				// to avoid code duplication with the initial hydration above.
+				// On reconnect, re-hydrate if the gap was significant (>5s).
+				// Short reconnects (<5s) don't call hydrate because it would
+				// clobber SSE-driven streaming state with a stale server
+				// snapshot — causing visible content resets. The stale content
+				// watchdog in session-chat.tsx handles recovery for short gaps
+				// by polling when the last message is still a user message.
 				if (retryCount > 0) {
 					const reconnectGap = Date.now() - lastEventTime;
 					if (reconnectGap > 5000) {

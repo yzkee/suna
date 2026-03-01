@@ -3129,50 +3129,6 @@ export function SessionChat({
 		};
 	}, [isServerBusy, sessionId]);
 
-	// Stale content watchdog: when the session is busy and the last message
-	// is still a user message (no assistant response has appeared), poll
-	// messages from the server. This catches the case where SSE message/part
-	// events were lost during an internal SDK reconnection (the SSE client
-	// has its own retry loop with 3-30s backoff where events are silently
-	// dropped). On success the sync store is hydrated and the missing
-	// assistant content appears without requiring a page reload.
-	// First check after 5s (gives SSE time to deliver the normal swap),
-	// then every 5s while stuck.
-	useEffect(() => {
-		if (!isServerBusy || !messages || messages.length === 0) return;
-		// Only act when the last message is a user message — if an assistant
-		// message already exists, SSE events are flowing fine.
-		const lastMsg = messages[messages.length - 1];
-		if (lastMsg?.info.role !== "user") return;
-
-		const fetchMessages = async () => {
-			// Re-check conditions: still busy and still no assistant response
-			const currentMsgs = useSyncStore.getState().getMessages(sessionId);
-			if (currentMsgs.length === 0) return;
-			const currentLast = currentMsgs[currentMsgs.length - 1];
-			if (currentLast?.info.role !== "user") return;
-			const currentStatus = useSyncStore.getState().sessionStatus[sessionId];
-			if (currentStatus?.type === "idle") return;
-
-			try {
-				const client = getClient();
-				const res = await client.session.messages({ sessionID: sessionId });
-				if (res.data) {
-					useSyncStore.getState().hydrate(sessionId, res.data as any);
-				}
-			} catch {
-				// ignore — next interval will retry
-			}
-		};
-
-		const initialTimer = setTimeout(fetchMessages, 5_000);
-		const interval = setInterval(fetchMessages, 5_000);
-		return () => {
-			clearTimeout(initialTimer);
-			clearInterval(interval);
-		};
-	}, [isServerBusy, messages, sessionId]);
-
 	// Message-based idle detection: if the last assistant message has
 	// time.completed set, the server marked the message as completed but we never got the
 	// idle event — force the session to idle after a grace period.
@@ -3227,6 +3183,35 @@ export function SessionChat({
 		}, 5_000);
 		return () => clearTimeout(timer);
 	}, [isServerBusy, messages, sessionId, messageCountForIdle]);
+
+	// Post-idle recovery: when the session transitions from busy to idle,
+	// check if the last message is still a user message. If so, the assistant
+	// response was lost (SSE events dropped during a disconnect). Re-fetch
+	// messages from the server to recover the missing response.
+	const prevBusyForRecoveryRef = useRef(isServerBusy);
+	useEffect(() => {
+		const wasBusy = prevBusyForRecoveryRef.current;
+		prevBusyForRecoveryRef.current = isServerBusy;
+
+		// Only act on busy→idle transitions
+		if (!wasBusy || isServerBusy) return;
+		if (!messages || messages.length === 0) return;
+
+		const lastMsg = messages[messages.length - 1];
+		if (lastMsg?.info.role !== "user") return;
+
+		// The session went idle but the last message is a user message —
+		// the assistant response was never delivered via SSE.
+		const client = getClient();
+		client.session
+			.messages({ sessionID: sessionId })
+			.then((res) => {
+				if (res.data) {
+					useSyncStore.getState().hydrate(sessionId, res.data as any);
+				}
+			})
+			.catch(() => {});
+	}, [isServerBusy, messages, sessionId]);
 
 	// Clear pending user message when we can confirm the message is in cache
 	// (by ID), or when new messages arrive (fallback for command sends).
