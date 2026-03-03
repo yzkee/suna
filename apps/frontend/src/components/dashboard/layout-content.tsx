@@ -392,16 +392,8 @@ export default function DashboardLayoutContent({
 			return;
 		}
 
-		const checkOnboarding = async () => {
+		const checkOnboarding = async (instanceUrl: string) => {
 			try {
-				const instanceUrl = useServerStore.getState().getActiveServerUrl();
-				if (!instanceUrl) {
-					// Sandbox URL not ready yet (cloud rehydration) — skip and
-					// assume onboarded. useSandbox will set it shortly and the
-					// next navigation will re-check.
-					setOnboardingChecked(true);
-					return;
-				}
 				const { authenticatedFetch } = await import("@/lib/auth-token");
 				const res = await authenticatedFetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`, undefined, { retryOnAuthError: false });
 
@@ -425,7 +417,24 @@ export default function DashboardLayoutContent({
 			}
 			setOnboardingChecked(true);
 		};
-		checkOnboarding();
+
+		// Try immediately — if URL is ready, check now
+		const url = useServerStore.getState().getActiveServerUrl();
+		if (url) {
+			checkOnboarding(url);
+			return;
+		}
+
+		// URL not ready (cloud rehydration gap) — subscribe to store and
+		// check as soon as useSandbox registers the sandbox URL.
+		const unsub = useServerStore.subscribe((state) => {
+			const serverUrl = state.getActiveServerUrl();
+			if (serverUrl) {
+				unsub();
+				checkOnboarding(serverUrl);
+			}
+		});
+		return () => unsub();
 	}, [router]);
 
 	const isMaintenanceActive = (() => {
