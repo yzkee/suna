@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { TunnelRelay } from './relay';
 import { TunnelRelayError } from './relay';
-import { TunnelErrorCode } from './types';
+import { TunnelErrorCode } from '../shared/types';
 
 export function createTunnelRouter(relay: TunnelRelay): Hono {
   const router = new Hono();

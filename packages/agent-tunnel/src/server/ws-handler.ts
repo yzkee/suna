@@ -1,6 +1,5 @@
 import type { TunnelRelay } from './relay';
 import type { HeartbeatManager } from './heartbeat';
-import type { TunnelRelayConfig } from './types';
 
 export interface WsHandlerOptions {
   heartbeat?: HeartbeatManager;

@@ -14,8 +14,8 @@ import { TunnelRelay } from './relay';
 import { HeartbeatManager } from './heartbeat';
 import { createTunnelRouter } from './routes';
 import { createWsHandlers } from './ws-handler';
-import { deriveSigningKey } from './crypto';
-import type { TunnelServerConfig } from './types';
+import { deriveSigningKey } from '../shared/crypto';
+import type { TunnelServerConfig } from '../shared/types';
 
 export interface TunnelServer {
   /** Hono app — mount additional routes if needed. */

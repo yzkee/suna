@@ -1,5 +1,5 @@
 import type { TunnelRelay } from './relay';
-import type { HeartbeatConfig } from './types';
+import type { HeartbeatConfig } from '../shared/types';
 
 interface HeartbeatState {
   missedPongs: number;

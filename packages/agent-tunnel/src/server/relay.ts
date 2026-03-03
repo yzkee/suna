@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { signMessage } from './crypto';
+import { signMessage } from '../shared/crypto';
 import {
   type JsonRpcRequest,
   type JsonRpcResponse,
@@ -10,7 +10,7 @@ import {
   type TunnelRelayConfig,
   type TunnelRelayEvents,
   TunnelErrorCode,
-} from './types';
+} from '../shared/types';
 
 interface AgentConnection {
   ws: WebSocket;

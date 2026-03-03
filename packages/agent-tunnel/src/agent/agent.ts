@@ -17,7 +17,7 @@ import type { TunnelConfig } from './config';
 import { CapabilityRegistry, type RpcHandler } from './capabilities/index';
 import { PermissionGuard } from './security/permission-guard';
 import type { LocalPermission } from './security/permission-guard';
-import { deriveSigningKey, verifyMessageSignature } from './crypto';
+import { deriveSigningKey, verifyMessageSignature } from '../shared/crypto';
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';

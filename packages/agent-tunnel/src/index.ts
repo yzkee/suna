@@ -1,26 +1,4 @@
-// ─── Server: Relay ───────────────────────────────────────────────────────────
-export { TunnelRelay, TunnelRelayError } from './relay';
-export { HeartbeatManager } from './heartbeat';
-export { createWsHandlers } from './ws-handler';
-export type { WsHandlers, WsHandlerOptions } from './ws-handler';
-export { createTunnelRouter } from './routes';
-export { startTunnelServer } from './server';
-export type { TunnelServer } from './server';
-
-// ─── Client: Agent ───────────────────────────────────────────────────────────
-export { TunnelAgent } from './agent';
-export { loadConfig, type TunnelConfig } from './config';
-export { CapabilityRegistry } from './capabilities/index';
-export type { Capability, RpcHandler } from './capabilities/index';
-export { createFilesystemCapability } from './capabilities/filesystem';
-export { createShellCapability } from './capabilities/shell';
-export { createDesktopCapability } from './capabilities/desktop';
-export { PermissionGuard } from './security/permission-guard';
-export type { LocalPermission } from './security/permission-guard';
-export { validateCommand } from './security/command-validator';
-export { validatePath } from './security/path-validator';
-
-// ─── Crypto ──────────────────────────────────────────────────────────────────
+// ─── Shared: Types + Crypto ─────────────────────────────────────────────────
 export {
   deriveSigningKey,
   signMessage,
@@ -28,9 +6,10 @@ export {
   generateToken,
   hashToken,
   timingSafeStringEqual,
-} from './crypto';
+  TunnelErrorCode,
+  TunnelMethods,
+} from './shared';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
 export type {
   JsonRpcRequest,
   JsonRpcSuccessResponse,
@@ -52,6 +31,32 @@ export type {
   TunnelCapability,
   TunnelMethod,
   TunnelErrorCodeValue,
-} from './types';
+} from './shared';
 
-export { TunnelErrorCode, TunnelMethods } from './types';
+// ─── Server: Relay ──────────────────────────────────────────────────────────
+export { TunnelRelay, TunnelRelayError } from './server';
+export { HeartbeatManager } from './server';
+export { createWsHandlers } from './server';
+export type { WsHandlers, WsHandlerOptions } from './server';
+export { createTunnelRouter } from './server';
+export { startTunnelServer } from './server';
+export type { TunnelServer } from './server';
+
+// ─── Client: SDK ────────────────────────────────────────────────────────────
+export { TunnelClient, TunnelClientError } from './client';
+export type { TunnelClientConfig, AXElement } from './client';
+export { createTunnelTools } from './client';
+export type { TunnelToolDefinition, TunnelToolParameter } from './client';
+
+// ─── Agent: Local Machine ───────────────────────────────────────────────────
+export { TunnelAgent } from './agent';
+export { loadConfig, type TunnelConfig } from './agent';
+export { CapabilityRegistry } from './agent';
+export type { Capability, RpcHandler } from './agent';
+export { createFilesystemCapability } from './agent';
+export { createShellCapability } from './agent';
+export { createDesktopCapability } from './agent';
+export { PermissionGuard } from './agent';
+export type { LocalPermission } from './agent';
+export { validateCommand } from './agent';
+export { validatePath } from './agent';
