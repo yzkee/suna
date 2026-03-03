@@ -2432,6 +2432,21 @@
   animation: text-shimmer 1.2s ease-in-out infinite;
 }
 
+/* AnimatedThinkingText shimmer sweep */
+@keyframes thinking-shimmer {
+  0% { background-position: 100% center; }
+  100% { background-position: 0% center; }
+}
+
+/* Blinking cursor for typing animation */
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.animate-cursor-blink {
+  animation: cursor-blink 0.8s step-end infinite;
+}
+
 /* CookieYes consent button - right side on desktop, left side on mobile */
 .cky-btn-revisit-wrapper {
   left: auto !important;

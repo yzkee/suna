@@ -58,7 +58,7 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { KortixLoader } from "@/components/ui/kortix-loader";
-import { TextShimmer } from "@/components/ui/text-shimmer";
+import { AnimatedThinkingText } from "@/components/ui/animated-thinking-text";
 import { Textarea } from "@/components/ui/textarea";
 import {
 	Tooltip,
@@ -2108,29 +2108,15 @@ function SessionTurn({
 				</div>
 			)}
 
-			{/* Status row (steps toggle temporarily disabled) */}
-			{(working || hasSteps) && (
+			{/* Completed status row (only when done) */}
+			{!working && hasSteps && (
 				<div
 					className={cn(
 						"flex items-center gap-2 text-xs transition-colors py-1",
-						working
-							? "text-muted-foreground"
-							: "text-muted-foreground",
+						"text-muted-foreground",
 					)}
 				>
-					{working ? (
-						<span className="relative flex size-3">
-							<span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-muted-foreground/30" />
-							<span className="relative inline-flex rounded-full size-3 bg-muted-foreground/50" />
-						</span>
-					) : (
-						<Check className="size-3 text-muted-foreground/70" />
-					)}
-				{working ? (
-					<TextShimmer duration={1} spread={2} className="text-xs">
-						{throttledStatus || "Working..."}
-					</TextShimmer>
-				) : (
+					<Check className="size-3 text-muted-foreground/70" />
 					<span>
 						{retryInfo
 							? retryInfo.message.length > 60
@@ -2138,7 +2124,6 @@ function SessionTurn({
 								: retryInfo.message
 							: "Completed"}
 					</span>
-				)}
 					{retryInfo && (
 						<>
 							<span className="text-muted-foreground/50">·</span>
@@ -2152,7 +2137,7 @@ function SessionTurn({
 					)}
 					<span className="text-muted-foreground/50">·</span>
 					<span className="text-muted-foreground/70">{duration}</span>
-					{costInfo && !working && (
+					{costInfo && (
 						<>
 							<span className="text-muted-foreground/50">·</span>
 							<span className="text-muted-foreground/70">
@@ -2378,6 +2363,38 @@ function SessionTurn({
 							/>
 						);
 					})}
+				</div>
+			)}
+
+			{/* ── Working status indicator (always at the end while working) ── */}
+			{working && (
+				<div
+					className={cn(
+						"flex items-center gap-2 text-xs transition-colors py-1",
+						"text-muted-foreground",
+					)}
+				>
+					<span className="relative flex size-3">
+						<span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-muted-foreground/30" />
+						<span className="relative inline-flex rounded-full size-3 bg-muted-foreground/50" />
+					</span>
+					<AnimatedThinkingText
+						statusText={throttledStatus || undefined}
+						className="text-xs"
+					/>
+					{retryInfo && (
+						<>
+							<span className="text-muted-foreground/50">·</span>
+							<span className="text-amber-500">
+								Retrying{retrySecondsLeft > 0 ? ` in ${retrySecondsLeft}s` : ""}
+							</span>
+							<span className="text-muted-foreground/50">
+								(#{retryInfo.attempt})
+							</span>
+						</>
+					)}
+					<span className="text-muted-foreground/50">·</span>
+					<span className="text-muted-foreground/70">{duration}</span>
 				</div>
 			)}
 
