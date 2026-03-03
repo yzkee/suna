@@ -157,6 +157,7 @@ export default function OnboardingPage() {
   const createSession = useCreateOpenCodeSession();
   const creatingRef = useRef(false);
   const commandFiredRef = useRef(false);
+  const commandRetryRef = useRef(false);
   const retriesRef = useRef(0);
   const { resolvedTheme } = useTheme();
   const { user, isLoading, signOut } = useAuth();
@@ -290,14 +291,16 @@ export default function OnboardingPage() {
             const result = await client.session.get({ sessionID: existingId });
             if (result.data) {
               finalSessionId = existingId;
-              // Only check messages if the command was never fired. If the
-              // persisted flag says it was fired, trust that — the messages
-              // might just not have arrived yet (race condition).
-              if (!commandFiredRef.current) {
-                const msgs = await client.session.messages({ sessionID: existingId });
-                if (!msgs.data || msgs.data.length === 0) {
-                  needsCommand = true;
-                }
+              // Always inspect messages for liveness. A stale persisted
+              // ONBOARDING_COMMAND_FIRED=true can exist even if the command
+              // never actually started (network/proxy failure). In that case,
+              // re-fire the onboarding command to guarantee progress.
+              const msgs = await client.session.messages({ sessionID: existingId });
+              const hasAssistantMessage = (msgs.data ?? []).some(
+                (m) => m.info?.role === 'assistant',
+              );
+              if (!hasAssistantMessage) {
+                needsCommand = true;
               }
             }
           } catch {
@@ -335,10 +338,12 @@ export default function OnboardingPage() {
             // Command POST failed or timed out — the agent may still be
             // processing server-side. Do NOT retry; the SSE stream will
             // deliver updates if processing is underway.
+            commandFiredRef.current = false;
           });
         }
 
         // 5. Show the session chat full-page
+        commandRetryRef.current = false;
         setOnboardingSessionId(finalSessionId);
         setPhase('session');
       } catch {
@@ -360,6 +365,40 @@ export default function OnboardingPage() {
 
     return () => clearTimeout(retryTimer);
   }, [phase, sessionError, retryTick, router]);
+
+  // ── Liveness fallback: if session is mounted but assistant never starts ──
+  // This recovers from transient command delivery failures that can leave the
+  // chat blank (input visible, but no onboarding messages/questions).
+  useEffect(() => {
+    if (phase !== 'session') return;
+    if (!onboardingSessionId) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        const client = getClient();
+        const msgs = await client.session.messages({ sessionID: onboardingSessionId });
+        const hasAssistantMessage = (msgs.data ?? []).some(
+          (m) => m.info?.role === 'assistant',
+        );
+        if (hasAssistantMessage || commandRetryRef.current) return;
+
+        commandRetryRef.current = true;
+        commandFiredRef.current = true;
+        persistCommandFired();
+        void client.session.command({
+          sessionID: onboardingSessionId,
+          command: 'onboarding',
+          arguments: '',
+        }).catch(() => {
+          commandFiredRef.current = false;
+        });
+      } catch {
+        // ignore — normal session startup flow/polling continues
+      }
+    }, 8000);
+
+    return () => clearTimeout(timer);
+  }, [phase, onboardingSessionId]);
 
   // ── Poll ONBOARDING_COMPLETE while in session phase ──────────
   // The onboarding agent marks this true when it finishes.

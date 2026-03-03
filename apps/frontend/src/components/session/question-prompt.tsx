@@ -212,7 +212,11 @@ export function QuestionPrompt({
 	const headerSummary = (() => {
 		if (isSingle) {
 			const q = questions[0];
-			return q.question;
+			const trimmedHeader = q.header?.trim();
+			if (trimmedHeader && trimmedHeader !== q.question.trim()) {
+				return trimmedHeader;
+			}
+			return "Question";
 		}
 		const answered = answers.filter((a) => a.length > 0).length;
 		return `${answered} of ${questions.length} answered`;
