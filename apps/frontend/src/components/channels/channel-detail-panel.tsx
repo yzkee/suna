@@ -13,13 +13,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Trash2,
   Power,
   PowerOff,
@@ -45,7 +38,6 @@ import {
   useLinkChannel,
   useUnlinkChannel,
   type ChannelConfig,
-  type SessionStrategy,
 } from '@/hooks/channels';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -57,6 +49,7 @@ import { WhatsAppIcon } from '@/components/ui/icons/whatsapp';
 
 const getChannelIcon = (channelType: string): React.ComponentType<{ className?: string }> => {
   switch (channelType) {
+    case 'opencode': return Radio;
     case 'telegram': return TelegramIcon;
     case 'slack': return SlackIcon;
     case 'discord': return DiscordIcon;
@@ -71,19 +64,13 @@ const getChannelIcon = (channelType: string): React.ComponentType<{ className?: 
 
 const getChannelLabel = (channelType: string) => {
   const labels: Record<string, string> = {
+    opencode: 'OpenCode',
     telegram: 'Telegram', slack: 'Slack', discord: 'Discord',
     whatsapp: 'WhatsApp', teams: 'Teams', voice: 'Voice',
     email: 'Email', sms: 'SMS',
   };
   return labels[channelType] || channelType;
 };
-
-const SESSION_STRATEGIES: { value: SessionStrategy; label: string }[] = [
-  { value: 'per-user', label: 'Per User' },
-  { value: 'single', label: 'Single' },
-  { value: 'per-thread', label: 'Per Thread' },
-  { value: 'per-message', label: 'Per Message' },
-];
 
 interface ChannelEditDialogProps {
   channel: ChannelConfig;
@@ -94,7 +81,6 @@ interface ChannelEditDialogProps {
 export function ChannelEditDialog({ channel, open, onOpenChange }: ChannelEditDialogProps) {
   const [tab, setTab] = useState<'settings' | 'messages'>('settings');
   const [name, setName] = useState(channel.name);
-  const [sessionStrategy, setSessionStrategy] = useState<SessionStrategy>(channel.sessionStrategy);
   const [systemPrompt, setSystemPrompt] = useState(channel.systemPrompt || '');
   const [isDirty, setIsDirty] = useState(false);
 
@@ -113,10 +99,9 @@ export function ChannelEditDialog({ channel, open, onOpenChange }: ChannelEditDi
   // Sync state when channel prop changes
   React.useEffect(() => {
     setName(channel.name);
-    setSessionStrategy(channel.sessionStrategy);
     setSystemPrompt(channel.systemPrompt || '');
     setIsDirty(false);
-  }, [channel.channelConfigId, channel.name, channel.sessionStrategy, channel.systemPrompt]);
+  }, [channel.channelConfigId, channel.name, channel.systemPrompt]);
 
   const handleSave = async () => {
     try {
@@ -124,7 +109,6 @@ export function ChannelEditDialog({ channel, open, onOpenChange }: ChannelEditDi
         id: channel.channelConfigId,
         data: {
           name,
-          session_strategy: sessionStrategy,
           system_prompt: systemPrompt || null,
         },
       });
@@ -190,7 +174,6 @@ export function ChannelEditDialog({ channel, open, onOpenChange }: ChannelEditDi
   };
 
   const markDirty = () => setIsDirty(true);
-
   const Icon = getChannelIcon(channel.channelType);
 
   return (
@@ -258,22 +241,6 @@ export function ChannelEditDialog({ channel, open, onOpenChange }: ChannelEditDi
                   onChange={(e) => { setName(e.target.value); markDirty(); }}
                   className="h-9 rounded-xl focus:ring-2 focus:ring-primary/50"
                 />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Session Strategy</Label>
-                <Select
-                  value={sessionStrategy}
-                  onValueChange={(v) => { setSessionStrategy(v as SessionStrategy); markDirty(); }}
-                >
-                  <SelectTrigger className="h-9 rounded-xl">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SESSION_STRATEGIES.map(({ value, label }) => (
-                      <SelectItem key={value} value={value}>{label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               </div>
               <div className="rounded-xl border p-4 space-y-2">
                 <div className="flex items-center justify-between">

@@ -21,7 +21,6 @@ import {
   Mail,
   X,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { SpotlightCard } from '@/components/ui/spotlight-card';
 import { Ripple } from '@/components/ui/ripple';
 import { PageHeader } from '@/components/ui/page-header';
@@ -31,10 +30,11 @@ import { DiscordIcon } from '@/components/ui/icons/discord';
 import { WhatsAppIcon } from '@/components/ui/icons/whatsapp';
 import { ChannelConfigDialog } from './channel-config-dialog';
 import { ChannelEditDialog } from './channel-detail-panel';
-import { ChannelCredentialsTab } from './channel-credentials-tab';
 
 const getChannelIcon = (channelType: string): React.ComponentType<{ className?: string }> => {
   switch (channelType) {
+    case 'opencode':
+      return Radio;
     case 'telegram':
       return TelegramIcon;
     case 'slack':
@@ -58,6 +58,7 @@ const getChannelIcon = (channelType: string): React.ComponentType<{ className?: 
 
 const getChannelLabel = (channelType: string) => {
   const labels: Record<string, string> = {
+    opencode: 'OpenCode',
     telegram: 'Telegram',
     slack: 'Slack',
     discord: 'Discord',
@@ -68,16 +69,6 @@ const getChannelLabel = (channelType: string) => {
     sms: 'SMS',
   };
   return labels[channelType] || channelType;
-};
-
-const getStrategyLabel = (strategy: string) => {
-  const labels: Record<string, string> = {
-    single: 'Single session',
-    'per-thread': 'Per thread',
-    'per-user': 'Per user',
-    'per-message': 'Per message',
-  };
-  return labels[strategy] || strategy;
 };
 
 const ChannelListItem = ({
@@ -118,7 +109,7 @@ const ChannelListItem = ({
             </div>
           </div>
           <p className="text-xs text-muted-foreground mb-2">
-            {getChannelLabel(channel.channelType)} &middot; {getStrategyLabel(channel.sessionStrategy)}
+            {getChannelLabel(channel.channelType)}
           </p>
           <p className="text-xs text-muted-foreground/70 truncate mb-3">
             {channel.sandbox?.name || 'Not linked to instance'}
@@ -179,7 +170,6 @@ export function ChannelsPage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'channels' | 'credentials'>('channels');
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -273,33 +263,7 @@ export function ChannelsPage() {
       </div>
 
       <div className="container mx-auto max-w-7xl px-3 sm:px-4">
-        <div className="flex items-center gap-1 border-b border-border/50 mb-4 animate-in fade-in-0 slide-in-from-bottom-4 duration-500 fill-mode-both delay-50">
-          <button
-            onClick={() => setActiveTab('channels')}
-            className={cn(
-              'px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px',
-              activeTab === 'channels'
-                ? 'border-primary text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground',
-            )}
-          >
-            Channels
-          </button>
-          <button
-            onClick={() => setActiveTab('credentials')}
-            className={cn(
-              'px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px',
-              activeTab === 'credentials'
-                ? 'border-primary text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground',
-            )}
-          >
-            Credentials
-          </button>
-        </div>
-
-        {activeTab === 'channels' && (
-          <>
+        <>
             <div className="flex items-center justify-between gap-2 sm:gap-4 pb-3 sm:pb-4 pt-2 sm:pt-3 animate-in fade-in-0 slide-in-from-bottom-4 duration-500 fill-mode-both delay-75">
               <div className="flex-1 max-w-md">
                 <div className="relative group">
@@ -370,13 +334,6 @@ export function ChannelsPage() {
               )}
             </div>
           </>
-        )}
-
-        {activeTab === 'credentials' && (
-          <div className="pb-6 sm:pb-8 animate-in fade-in-0 slide-in-from-bottom-4 duration-300">
-            <ChannelCredentialsTab />
-          </div>
-        )}
       </div>
 
       {selectedChannel && (
