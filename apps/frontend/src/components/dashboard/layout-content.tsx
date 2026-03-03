@@ -392,33 +392,52 @@ export default function DashboardLayoutContent({
 			return;
 		}
 
-		const checkOnboarding = async () => {
+		let cancelled = false;
+
+		const checkOnboarding = async (instanceUrl: string) => {
 			try {
-				const instanceUrl = useServerStore.getState().getActiveServerUrl();
 				const { authenticatedFetch } = await import("@/lib/auth-token");
 				const res = await authenticatedFetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`, undefined, { retryOnAuthError: false });
 
 				if (res.ok) {
 					const data = await res.json();
 					if (data.ONBOARDING_COMPLETE !== "true") {
-						router.replace("/onboarding");
+						if (!cancelled) router.replace("/onboarding");
 						return;
 					}
 					// Cache the successful result for this browser session
 					sessionStorage.setItem("onboarding_complete", "true");
 				} else if (res.status >= 500) {
 					// Server error — treat as not onboarded
-					router.replace("/onboarding");
+					if (!cancelled) router.replace("/onboarding");
 					return;
 				}
 			} catch {
 				// Sandbox not reachable — treat as not onboarded
-				router.replace("/onboarding");
+				if (!cancelled) router.replace("/onboarding");
 				return;
 			}
-			setOnboardingChecked(true);
+			if (!cancelled) setOnboardingChecked(true);
 		};
-		checkOnboarding();
+
+		// Try immediately — if URL is ready, check now
+		const url = useServerStore.getState().getActiveServerUrl();
+		if (url) {
+			checkOnboarding(url);
+			return;
+		}
+
+		// URL not ready (cloud rehydration gap) — poll until useSandbox
+		// registers the sandbox and getActiveServerUrl() returns a real URL.
+		// Polls every 500ms. useSandbox typically resolves within 1-2s.
+		const interval = setInterval(() => {
+			const serverUrl = useServerStore.getState().getActiveServerUrl();
+			if (serverUrl) {
+				clearInterval(interval);
+				checkOnboarding(serverUrl);
+			}
+		}, 500);
+		return () => { cancelled = true; clearInterval(interval); };
 	}, [router]);
 
 	const isMaintenanceActive = (() => {
@@ -450,7 +469,15 @@ export default function DashboardLayoutContent({
 	})();
 
 	if (isLoading || !onboardingChecked) {
-		return <DashboardSkeleton />;
+		return (
+			<>
+				{/* SandboxInitProvider must mount even while checking onboarding —
+				    the onboarding check polls getActiveServerUrl() which only returns
+				    a real URL after useSandbox() registers the sandbox. */}
+				<SandboxInitProvider />
+				<DashboardSkeleton />
+			</>
+		);
 	}
 
 	if (!user) {

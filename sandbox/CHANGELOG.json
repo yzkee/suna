@@ -1,5 +1,87 @@
 [
   {
+    "version": "0.7.7",
+    "date": "2026-03-03",
+    "title": "ACID sandbox updates, cloud 403 fix & release safety",
+    "description": "Sandbox updates are now atomic and crash-safe — new versions are staged in isolation and committed via symlink swap instead of live in-place mutations. Fixes the cloud 403 error caused by the frontend falling back to the Docker container name 'kortix-sandbox' during store rehydration. Release script now uses GitHub Release as a distributed version lock to prevent concurrent releases.",
+    "changes": [
+      {
+        "type": "feature",
+        "text": "ACID symlink-based sandbox update system — new versions staged at /opt/kortix-staging-{version}/, verified, then atomically committed by swapping symlinks. Includes crash recovery on boot and old staging cleanup."
+      },
+      {
+        "type": "fix",
+        "text": "Cloud 403 error — getActiveSandboxId() and deriveSubdomainOpts() no longer fall back to 'kortix-sandbox' (Docker container name) in cloud mode during zustand rehydration"
+      },
+      {
+        "type": "fix",
+        "text": "ShareViewer uses getActiveOpenCodeUrl() instead of hardcoded OPENCODE_BASE_URL"
+      },
+      {
+        "type": "fix",
+        "text": "Preview tab content no longer falls back to 'kortix-sandbox' when sandboxId is missing"
+      },
+      {
+        "type": "improvement",
+        "text": "Release script uses GitHub Release as a distributed lock — hard aborts if version already exists, preventing concurrent releases from colliding"
+      },
+      {
+        "type": "improvement",
+        "text": "Release publish order changed: GitHub Release created first (as lock), then npm publish, then Docker"
+      },
+      {
+        "type": "fix",
+        "text": "Per-message cost display now applies 1.2x markup correctly and updates pricing transparency"
+      },
+      {
+        "type": "fix",
+        "text": "Streaming and scroll issues during AI responses"
+      },
+      {
+        "type": "fix",
+        "text": "Questions rendering and onboarding screen fixes"
+      },
+      {
+        "type": "fix",
+        "text": "Account setup — initialize balance on setup, lazy daily credit refresh, one-shot subscription + sandbox creation"
+      },
+      {
+        "type": "improvement",
+        "text": "Queued messages UX improvements"
+      },
+      {
+        "type": "improvement",
+        "text": "Removed legacy channel session strategy, credentials tab, and platform credentials DB table"
+      }
+    ],
+    "artifacts": [
+      {
+        "name": "v0.7.7",
+        "target": "github-release"
+      },
+      {
+        "name": "@kortix/sandbox@0.7.7",
+        "target": "npm"
+      },
+      {
+        "name": "kortix/sandbox:0.7.7",
+        "target": "docker-hub"
+      },
+      {
+        "name": "kortix-sandbox-v0.7.7",
+        "target": "daytona"
+      },
+      {
+        "name": "kortix/kortix-api:0.7.7",
+        "target": "docker-hub"
+      },
+      {
+        "name": "kortix/kortix-frontend:0.7.7",
+        "target": "docker-hub"
+      }
+    ]
+  },
+  {
     "version": "0.7.6",
     "date": "2026-03-01",
     "title": "Kortix-only provider routing, cloud billing auto-setup & channels",
