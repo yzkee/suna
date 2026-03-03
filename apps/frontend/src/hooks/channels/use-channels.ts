@@ -4,6 +4,7 @@ import { backendApi } from '@/lib/api-client';
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export type ChannelType =
+  | 'opencode'
   | 'telegram'
   | 'slack'
   | 'discord'
