@@ -174,6 +174,7 @@ const languageMap: Record<string, () => any> = {
 export function getLanguageFromExtension(fileName: string): string {
   const extension = fileName.split('.').pop()?.toLowerCase() || '';
   const fileNameLower = fileName.toLowerCase();
+  const baseName = fileNameLower.split('/').pop() || fileNameLower;
   
   // .env files use properties syntax (KEY=value with # comments)
   if (fileNameLower.includes('.env') || fileNameLower.startsWith('.env')) {
@@ -186,6 +187,19 @@ export function getLanguageFromExtension(fileName: string): string {
       fileNameLower.includes('prettierignore') ||
       fileNameLower.includes('eslintignore')) {
     return 'text';
+  }
+  if (
+    baseName === '.bashrc' ||
+    baseName === '.bash_profile' ||
+    baseName === '.bash_aliases' ||
+    baseName === '.bash_login' ||
+    baseName === '.profile' ||
+    baseName === '.zshrc' ||
+    baseName === '.zprofile' ||
+    baseName === '.zlogin' ||
+    baseName === '.zshenv'
+  ) {
+    return 'shell';
   }
   
   const extensionToLanguage: Record<string, string> = {
@@ -765,5 +779,4 @@ export function CodeEditor({
     </div>
   );
 }
-
 
