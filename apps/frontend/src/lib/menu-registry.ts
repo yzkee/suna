@@ -130,17 +130,21 @@ export type MenuGroup =
  * without changing the overall group structure.
  */
 export type NavSubGroup =
-  | 'workspace'
+  | 'core'
+  | 'tools'
   | 'security'
   | 'automation'
-  | 'infrastructure';
+  | 'runtime'
+  | 'browsers';
 
 /** Human-readable labels for sub-groups (used in expanded sidebar) */
 export const navSubGroupLabels: Record<NavSubGroup, string> = {
-  workspace: 'Workspace',
+  core: 'Core',
+  tools: 'Tools',
   security: 'Security',
   automation: 'Automation',
-  infrastructure: 'Infrastructure',
+  runtime: 'Runtime',
+  browsers: 'Browsers',
 };
 
 export interface MenuItemDef {
@@ -259,7 +263,7 @@ export const menuRegistry: MenuItemDef[] = [
     label: 'Files',
     icon: FolderOpen,
     group: 'quickActions',
-    subGroup: 'workspace',
+    subGroup: 'tools',
     showIn: ['rightSidebar'],
     kind: 'navigate',
     href: '/files',
@@ -270,7 +274,7 @@ export const menuRegistry: MenuItemDef[] = [
     label: 'New Terminal',
     icon: TerminalSquare,
     group: 'quickActions',
-    subGroup: 'workspace',
+    subGroup: 'tools',
     showIn: ['rightSidebar'],
     kind: 'action',
     actionId: 'newTerminal',
@@ -306,7 +310,7 @@ export const menuRegistry: MenuItemDef[] = [
     label: 'Workspace',
     icon: Blocks,
     group: 'navigation',
-    subGroup: 'workspace',
+    subGroup: 'core',
     showIn: ['commandPalette', 'rightSidebar'],
     kind: 'navigate',
     href: '/workspace',
@@ -317,7 +321,7 @@ export const menuRegistry: MenuItemDef[] = [
     label: 'Files',
     icon: FolderOpen,
     group: 'navigation',
-    subGroup: 'workspace',
+    subGroup: 'core',
     showIn: ['commandPalette'],
     kind: 'navigate',
     href: '/files',
@@ -327,7 +331,7 @@ export const menuRegistry: MenuItemDef[] = [
     label: 'Memory',
     icon: Brain,
     group: 'navigation',
-    subGroup: 'workspace',
+    subGroup: 'core',
     showIn: ['rightSidebar'],
     kind: 'navigate',
     href: '/memory',
@@ -337,7 +341,7 @@ export const menuRegistry: MenuItemDef[] = [
     label: 'Integrations',
     icon: Plug,
     group: 'navigation',
-    subGroup: 'workspace',
+    subGroup: 'core',
     showIn: ['commandPalette', 'rightSidebar'],
     kind: 'navigate',
     href: '/integrations',
@@ -347,7 +351,7 @@ export const menuRegistry: MenuItemDef[] = [
     label: 'Channels',
     icon: MessageSquare,
     group: 'navigation',
-    subGroup: 'workspace',
+    subGroup: 'core',
     showIn: ['commandPalette', 'rightSidebar'],
     kind: 'navigate',
     href: '/channels',
@@ -367,7 +371,7 @@ export const menuRegistry: MenuItemDef[] = [
     label: 'Tunnel',
     icon: Cable,
     group: 'navigation',
-    subGroup: 'infrastructure',
+    subGroup: 'runtime',
     showIn: ['rightSidebar'],
     kind: 'navigate',
     href: '/tunnel',
@@ -400,7 +404,7 @@ export const menuRegistry: MenuItemDef[] = [
     label: 'Agent Browser',
     icon: Globe,
     group: 'navigation',
-    subGroup: 'infrastructure',
+    subGroup: 'browsers',
     showIn: ['rightSidebar'],
     kind: 'sandboxService',
     actionId: 'openAgentBrowser',
@@ -410,7 +414,7 @@ export const menuRegistry: MenuItemDef[] = [
     label: 'Browser',
     icon: Compass,
     group: 'navigation',
-    subGroup: 'infrastructure',
+    subGroup: 'browsers',
     showIn: ['rightSidebar'],
     kind: 'navigate',
     href: '/p/browser',
@@ -422,7 +426,7 @@ export const menuRegistry: MenuItemDef[] = [
     label: 'Running Services',
     icon: Activity,
     group: 'navigation',
-    subGroup: 'infrastructure',
+    subGroup: 'runtime',
     showIn: ['rightSidebar'],
     kind: 'navigate',
     href: '/services/running',
