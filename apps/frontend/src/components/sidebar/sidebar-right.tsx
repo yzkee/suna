@@ -136,7 +136,7 @@ export function SidebarRight() {
   const [sshDialogOpen, setSSHDialogOpen] = useState(false);
 
   // Get registry items for the right sidebar
-  const quickActionItems = getItemsByGroup('rightSidebar', 'quickActions');
+  const quickActionClusters = getNavItemsClustered('rightSidebar', 'quickActions');
   const navClusters = getNavItemsClustered('rightSidebar', 'navigation');
 
   if (isMobile) return null;
@@ -215,33 +215,38 @@ export function SidebarRight() {
               'absolute inset-0 px-2 pt-2 flex flex-col items-center overflow-visible',
               state === 'collapsed' ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
             )}>
-              {/* Quick actions cluster */}
-              <div className="w-full space-y-0.5">
-                {quickActionItems.map((item) => {
-                  const Icon = item.icon;
-                  const isTerminal = item.actionId === 'newTerminal';
-                  return (
-                    <Tooltip key={item.id}>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={() => handleItemAction(item)}
-                          disabled={isTerminal && createPty.isPending}
-                          className={cn(
-                            'flex items-center justify-center w-full py-2 rounded-lg cursor-pointer',
-                            'text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150',
-                            'disabled:opacity-50 disabled:cursor-not-allowed',
-                          )}
-                        >
-                          <Icon className="h-4 w-4" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="left" sideOffset={12} className="text-xs">
-                        {item.label}
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                })}
-              </div>
+              {/* Quick action clusters */}
+              {quickActionClusters.map((cluster, clusterIdx) => (
+                <div key={cluster[0]?.subGroup ?? clusterIdx} className="w-full">
+                  {clusterIdx > 0 && <div className="mx-auto my-2 h-px w-6 bg-sidebar-border/60" />}
+                  <div className="space-y-0.5">
+                    {cluster.map((item) => {
+                      const Icon = item.icon;
+                      const isTerminal = item.actionId === 'newTerminal';
+                      return (
+                        <Tooltip key={item.id}>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={() => handleItemAction(item)}
+                              disabled={isTerminal && createPty.isPending}
+                              className={cn(
+                                'flex items-center justify-center w-full py-2 rounded-lg cursor-pointer',
+                                'text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150',
+                                'disabled:opacity-50 disabled:cursor-not-allowed',
+                              )}
+                            >
+                              <Icon className="h-4 w-4" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="left" sideOffset={12} className="text-xs">
+                            {item.label}
+                          </TooltipContent>
+                        </Tooltip>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
 
               {/* Navigation clusters with separators */}
               {navClusters.map((cluster, clusterIdx) => (
@@ -301,28 +306,43 @@ export function SidebarRight() {
               state === 'collapsed' ? 'opacity-0 pointer-events-none' : 'opacity-100 pointer-events-auto',
             )}>
               <nav className="flex-1 px-3 pt-2 overflow-y-auto">
-                {/* Quick actions */}
-                <div className="space-y-0.5">
-                  {quickActionItems.map((item) => {
-                    const Icon = item.icon;
-                    const isTerminal = item.actionId === 'newTerminal';
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => handleItemAction(item)}
-                        disabled={isTerminal && createPty.isPending}
-                        className={cn(
-                          'flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] cursor-pointer',
-                          'text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150',
-                          'disabled:opacity-50 disabled:cursor-not-allowed',
-                        )}
-                      >
-                        <Icon className="h-4 w-4 flex-shrink-0" />
-                        <span>{isTerminal && createPty.isPending ? 'Creating...' : item.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                {/* Quick action clusters with section labels */}
+                {quickActionClusters.map((cluster, clusterIdx) => {
+                  const subGroup = cluster[0]?.subGroup as NavSubGroup | undefined;
+                  const label = subGroup ? navSubGroupLabels[subGroup] : undefined;
+                  return (
+                    <div key={subGroup ?? clusterIdx} className={clusterIdx === 0 ? 'mt-0' : 'mt-2'}>
+                      {label && (
+                        <div className="px-3 pb-1.5 pt-1">
+                          <span className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider select-none">
+                            {label}
+                          </span>
+                        </div>
+                      )}
+                      <div className="space-y-0.5">
+                        {cluster.map((item) => {
+                          const Icon = item.icon;
+                          const isTerminal = item.actionId === 'newTerminal';
+                          return (
+                            <button
+                              key={item.id}
+                              onClick={() => handleItemAction(item)}
+                              disabled={isTerminal && createPty.isPending}
+                              className={cn(
+                                'flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] cursor-pointer',
+                                'text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150',
+                                'disabled:opacity-50 disabled:cursor-not-allowed',
+                              )}
+                            >
+                              <Icon className="h-4 w-4 flex-shrink-0" />
+                              <span>{isTerminal && createPty.isPending ? 'Creating...' : item.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
 
                 {/* Navigation clusters with section labels */}
                 {navClusters.map((cluster, clusterIdx) => {
