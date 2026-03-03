@@ -215,11 +215,17 @@ TITLE=$(node -e "console.log(JSON.parse(process.argv[1]).title)" "$ENTRY_JSON")
 ok "Changelog: \"$TITLE\""
 
 # ─── Step 2: Check availability ─────────────────────────────────────────────
-# Instead of failing on conflicts, detect already-published artifacts and skip them.
+# The GitHub Release is the version lock — if it exists and we're NOT resuming
+# a previous run, someone else already released this version. Hard abort.
 info "Checking existing artifacts..."
 
 SANDBOX_EXISTS=false
 GH_EXISTS=false
+IS_RESUMING=false
+if [ -f "$STATE_FILE" ]; then
+  RESUME_VER=$(node -e "try{console.log(require('$STATE_FILE').version)}catch{}" 2>/dev/null || true)
+  [ "$RESUME_VER" = "$VERSION" ] && IS_RESUMING=true
+fi
 
 if npm view "@kortix/sandbox@$VERSION" version &>/dev/null 2>&1; then
   SANDBOX_EXISTS=true
@@ -227,7 +233,16 @@ if npm view "@kortix/sandbox@$VERSION" version &>/dev/null 2>&1; then
 fi
 if gh release view "v$VERSION" --repo kortix-ai/computer &>/dev/null 2>&1; then
   GH_EXISTS=true
-  warn "GitHub release v$VERSION already exists — will skip"
+  if $IS_RESUMING; then
+    warn "GitHub release v$VERSION already exists — resuming previous run"
+  elif $DRY_RUN; then
+    warn "GitHub release v$VERSION already exists"
+  else
+    fail "GitHub release v$VERSION already exists!"
+    fail "This version was already released (possibly by someone else)."
+    fail "If you need to re-release, delete it first: gh release delete v$VERSION --repo kortix-ai/computer -y"
+    exit 1
+  fi
 fi
 
 # Daytona snapshot
@@ -285,10 +300,49 @@ else
   ok "Versions already bumped (resuming)"
 fi
 
-# ─── Step 4: Publish @kortix/sandbox ─────────────────────────────────────────
-# Note: Steps 4 and 5 used to be CLI and SDK fork publishing. Those are removed
-# since we now use upstream opencode-ai from npm directly. The sandbox package
-# is the only Kortix-published npm artifact.
+# ─── Step 4: GitHub Release (version lock) ──────────────────────────────────
+# Created FIRST — acts as a distributed lock. If two people race, only one
+# `gh release create` will succeed. The other will see it in step 2 and abort.
+if $GH_EXISTS; then
+  info "GitHub release already exists — skipping"
+  add_artifact "v$VERSION" "github-release"
+elif ! step_done "github"; then
+  info "Creating GitHub Release v$VERSION (locks this version)..."
+
+  RELEASE_NOTES=$(node -e "
+    const e = JSON.parse(process.argv[1]);
+    const icons = { feature:'✨', fix:'🐛', improvement:'⚡', breaking:'💥', upstream:'🔄', security:'🔒', deprecation:'⚠️' };
+    let md = '## ' + e.title + '\n\n' + e.description + '\n\n### Changes\n\n';
+    for (const c of e.changes) md += (icons[c.type]||'•') + ' **' + c.type + ':** ' + c.text + '\n';
+    md += '\n### Install / Update\n\nRunning sandboxes auto-detect this version. Click **Update** in the sidebar.\n\n';
+    md += '\`\`\`bash\nnpm install -g @kortix/sandbox@$VERSION\n\`\`\`\n';
+    process.stdout.write(md);
+  " "$ENTRY_JSON")
+
+  if $DRY_RUN; then
+    ok "(dry-run) Would create GitHub release v$VERSION"
+    echo ""
+    echo "${DIM}--- Release notes preview ---${NC}"
+    echo "$RELEASE_NOTES" | head -20
+    echo "${DIM}...${NC}"
+    echo ""
+  else
+    echo "$RELEASE_NOTES" | gh release create "v$VERSION" \
+      --repo kortix-ai/computer \
+      --title "v$VERSION — $TITLE" \
+      --notes-file - \
+      --latest
+    ok "GitHub release v$VERSION created — version is now locked"
+    add_artifact "v$VERSION" "github-release"
+    step_complete "github"
+  fi
+else
+  ok "GitHub release already created (resuming)"
+  add_artifact "v$VERSION" "github-release"
+fi
+
+# ─── Step 5: Publish @kortix/sandbox ─────────────────────────────────────────
+# Published AFTER the GitHub Release lock is acquired.
 if $SANDBOX_EXISTS; then
   info "Sandbox already on npm — skipping"
   add_artifact "@kortix/sandbox@$VERSION" "npm"
@@ -318,45 +372,6 @@ elif ! step_done "sandbox"; then
 else
   ok "Sandbox already published (resuming)"
   add_artifact "@kortix/sandbox@$VERSION" "npm"
-fi
-
-# ─── Step 5: GitHub Release ─────────────────────────────────────────────────
-if $GH_EXISTS; then
-  info "GitHub release already exists — skipping"
-  add_artifact "v$VERSION" "github-release"
-elif ! step_done "github"; then
-  info "Creating GitHub Release v$VERSION..."
-
-  RELEASE_NOTES=$(node -e "
-    const e = JSON.parse(process.argv[1]);
-    const icons = { feature:'✨', fix:'🐛', improvement:'⚡', breaking:'💥', upstream:'🔄', security:'🔒', deprecation:'⚠️' };
-    let md = '## ' + e.title + '\n\n' + e.description + '\n\n### Changes\n\n';
-    for (const c of e.changes) md += (icons[c.type]||'•') + ' **' + c.type + ':** ' + c.text + '\n';
-    md += '\n### Install / Update\n\nRunning sandboxes auto-detect this version. Click **Update** in the sidebar.\n\n';
-    md += '\`\`\`bash\nnpm install -g @kortix/sandbox@$VERSION\n\`\`\`\n';
-    process.stdout.write(md);
-  " "$ENTRY_JSON")
-
-  if $DRY_RUN; then
-    ok "(dry-run) Would create GitHub release v$VERSION"
-    echo ""
-    echo "${DIM}--- Release notes preview ---${NC}"
-    echo "$RELEASE_NOTES" | head -20
-    echo "${DIM}...${NC}"
-    echo ""
-  else
-    echo "$RELEASE_NOTES" | gh release create "v$VERSION" \
-      --repo kortix-ai/computer \
-      --title "v$VERSION — $TITLE" \
-      --notes-file - \
-      --latest
-    ok "GitHub release v$VERSION created"
-    add_artifact "v$VERSION" "github-release"
-    step_complete "github"
-  fi
-else
-  ok "GitHub release already created (resuming)"
-  add_artifact "v$VERSION" "github-release"
 fi
 
 # ─── Step 6: Docker (optional) ──────────────────────────────────────────────

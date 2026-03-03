@@ -1,5 +1,11 @@
 # Releasing a New Version
 
+## Next Version: `0.7.7`
+
+Current released version is `0.7.6`. The next release should be `0.7.7`.
+
+Update this section after every release so the next person knows what version to use.
+
 ## Overview
 
 Kortix Computer uses **one version number** across all artifacts. The release
@@ -136,10 +142,10 @@ The script does everything in order:
 |------|-------------|
 | **0. Prerequisites** | Checks `node`, `bun`, `npm`, `gh` on PATH. Verifies npm + gh auth. Checks Docker daemon, buildx builder, and daytona CLI **upfront**. |
 | **1. Validate changelog** | Reads `CHANGELOG.json`, ensures entry for this version exists with `title` and `changes`. |
-| **2. Check existing** | Detects already-published artifacts (npm, GitHub, Daytona) and auto-skips them. This makes re-runs after partial failure safe. |
+| **2. Version lock check** | Checks if a GitHub Release for this version already exists. If it does and we're NOT resuming a previous run, **hard aborts** — someone else already released this version. This prevents two people from releasing the same version simultaneously. |
 | **3. Bump versions** | Stamps `sandbox/package.json` (version), `scripts/get-kortix.sh` (VERSION line), and `services/kortix-api/src/config.ts` (SANDBOX_VERSION). |
-| **4. Publish sandbox** | `npm publish` for `@kortix/sandbox@{version}`. This triggers live auto-update on all running sandboxes. Waits 5s and verifies on npm registry. |
-| **5. GitHub Release** | Creates `v{version}` release on `kortix-ai/computer` with formatted release notes from the changelog entry. |
+| **4. GitHub Release (lock)** | Creates `v{version}` release on `kortix-ai/computer` — this **locks** the version. If two people race, only one `gh release create` succeeds. The loser will see it in step 2 next time they run. |
+| **5. Publish sandbox** | `npm publish` for `@kortix/sandbox@{version}`. This triggers live auto-update on all running sandboxes. Waits 5s and verifies on npm registry. |
 | **6. Docker images** | Builds all 3 images (sandbox, API, frontend) multi-platform and pushes to Docker Hub. Then creates the Daytona snapshot from the sandbox image. |
 | **7. Write artifacts** | Records every successful publish step in the `artifacts[]` array of the `CHANGELOG.json` entry. |
 | **8. Validate** | Checks every expected artifact actually exists on npm, GitHub, Docker Hub, Daytona. Reports pass/fail for each. |
@@ -242,13 +248,22 @@ Both scripts auto-detect OrbStack's non-standard Docker socket at
 Both scripts use a buildx builder named `multiarch`. If it doesn't exist, they create
 it automatically with `docker buildx create --name multiarch --use --bootstrap`.
 
-## Publish Order
+## Publish Order & Version Locking
 
 The script publishes in this specific order:
 
-1. **Sandbox first** — this triggers live updates on all running sandboxes. The sandbox's `postinstall.sh` handles installing the correct upstream CLI version (`opencode-ai`) declared in `sandbox/package.json`.
-2. **GitHub Release second** — creates the tagged release with formatted notes.
+1. **GitHub Release first (version lock)** — acts as a distributed lock. If two
+   people try to release the same version, only one `gh release create` succeeds.
+   The other person's next run will see the release in step 2 and hard abort.
+2. **Sandbox second** — `npm publish` triggers live updates on all running sandboxes.
+   The sandbox's `postinstall.sh` handles installing the correct upstream CLI version
+   (`opencode-ai`) declared in `sandbox/package.json`.
 3. **Docker last** — only when `--docker` is passed.
+
+**Why GitHub Release is the lock:** npm publish is irreversible (npm doesn't allow
+re-publishing the same version without `unpublish` + wait). By creating the GH release
+first, we ensure only one person proceeds to npm publish. If the release crashes after
+the GH release but before npm, you can safely re-run — the state file tracks progress.
 
 ## Resumability
 
@@ -413,10 +428,17 @@ npm unpublish @kortix/sandbox@0.7.0
 # Then re-run the release script
 ```
 
-### GitHub release already exists
+### GitHub release already exists (version lock)
+
+The release script now **hard aborts** if a GitHub Release for the version already
+exists and you're not resuming a previous run. This is by design — it prevents two
+people from releasing the same version.
+
+If you genuinely need to re-release (e.g. the previous release was broken):
 
 ```bash
 gh release delete v0.7.0 --repo kortix-ai/computer -y
+rm -f .release-state.json
 # Then re-run the release script
 ```
 
