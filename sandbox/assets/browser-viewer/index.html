@@ -9,15 +9,15 @@
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
     :root {
-      --bg: #0a0a0a;
-      --bg-surface: #111111;
-      --bg-elevated: #181818;
-      --border: #222222;
-      --border-subtle: #1a1a1a;
-      --text: #e8e8e8;
-      --text-secondary: #888888;
-      --text-tertiary: #555555;
-      --text-dim: #333333;
+      --bg: #f5f6f8;
+      --bg-surface: #ffffff;
+      --bg-elevated: #f0f1f4;
+      --border: #d8dbe2;
+      --border-subtle: #e7e9ee;
+      --text: #111827;
+      --text-secondary: #4b5563;
+      --text-tertiary: #6b7280;
+      --text-dim: #9ca3af;
       --accent: #ffffff;
       --green: #22c55e;
       --amber: #f59e0b;
@@ -27,10 +27,49 @@
       --radius-pill: 100px;
     }
 
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0a0a0a;
+        --bg-surface: #111111;
+        --bg-elevated: #181818;
+        --border: #222222;
+        --border-subtle: #1a1a1a;
+        --text: #e8e8e8;
+        --text-secondary: #888888;
+        --text-tertiary: #555555;
+        --text-dim: #333333;
+      }
+    }
+
+    :root[data-theme="light"] {
+      --bg: #f5f6f8;
+      --bg-surface: #ffffff;
+      --bg-elevated: #f0f1f4;
+      --border: #d8dbe2;
+      --border-subtle: #e7e9ee;
+      --text: #111827;
+      --text-secondary: #4b5563;
+      --text-tertiary: #6b7280;
+      --text-dim: #9ca3af;
+    }
+
+    :root[data-theme="dark"] {
+      --bg: #0a0a0a;
+      --bg-surface: #111111;
+      --bg-elevated: #181818;
+      --border: #222222;
+      --border-subtle: #1a1a1a;
+      --text: #e8e8e8;
+      --text-secondary: #888888;
+      --text-tertiary: #555555;
+      --text-dim: #333333;
+    }
+
     body {
       background: var(--bg);
-      display: flex; flex-direction: column; align-items: center;
+      display: flex; flex-direction: column; align-items: stretch;
       min-height: 100vh;
+      width: 100%;
       font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
       color: var(--text); padding: 12px;
       -webkit-font-smoothing: antialiased;
@@ -39,74 +78,171 @@
 
     /* ── Header ───────────────────────────────────────────────── */
     header {
-      display: flex; align-items: center; gap: 10px;
-      margin-bottom: 8px; width: 100%; max-width: 1300px;
+      width: 100%;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 10px;
     }
 
-    .logo-group {
-      display: flex; align-items: center; gap: 8px;
-      white-space: nowrap; flex-shrink: 0;
+    .back-btn {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--border);
+      background: var(--bg-surface);
+      color: var(--text-secondary);
+      border-radius: 8px;
+      font-size: 11px;
+      padding: 6px 10px;
+      cursor: pointer;
+      white-space: nowrap;
     }
 
-    .logo-group svg {
-      width: 18px; height: 18px; opacity: 0.7;
-    }
-
-    .logo-group h1 {
-      font-size: 13px; font-weight: 500; color: var(--text-secondary);
-      letter-spacing: -0.01em;
-    }
-
-    .header-divider {
-      width: 1px; height: 16px; background: var(--border);
-      flex-shrink: 0;
-    }
-
-    /* ── Session Tabs ─────────────────────────────────────────── */
-    #session-tabs {
-      display: flex; gap: 4px; overflow-x: auto; flex: 1;
-      scrollbar-width: none;
-    }
-    #session-tabs::-webkit-scrollbar { display: none; }
-
-    .tab {
-      font-size: 12px; padding: 5px 12px; border-radius: var(--radius-sm);
-      background: transparent; border: 1px solid transparent; color: var(--text-tertiary);
-      cursor: pointer; white-space: nowrap; transition: all 0.15s ease;
-      display: flex; align-items: center; gap: 6px;
-      font-weight: 450; letter-spacing: -0.01em;
-    }
-    .tab:hover { color: var(--text-secondary); background: var(--bg-elevated); }
-    .tab.active {
-      background: var(--bg-elevated); border-color: var(--border);
+    .back-btn:hover {
+      background: var(--bg-elevated);
       color: var(--text);
     }
-    .tab.stale { opacity: 0.4; }
 
-    .tab .dot {
-      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
-      flex-shrink: 0;
-    }
-    .tab .dot.live { background: var(--green); box-shadow: 0 0 6px rgba(34, 197, 94, 0.4); }
-    .tab .dot.dead { background: var(--text-dim); }
-    .tab .dot.stale { background: var(--amber); }
-
-    .tab .label {
-      max-width: 180px; overflow: hidden; text-overflow: ellipsis;
+    .title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      letter-spacing: 0;
     }
 
-    .tab .badge {
-      font-size: 9px; padding: 1px 6px; border-radius: var(--radius-pill);
-      background: var(--bg-surface); border: 1px solid var(--border);
-      color: var(--text-tertiary); font-weight: 600;
-      text-transform: uppercase; letter-spacing: 0.03em;
+    .header-right {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      min-width: 0;
     }
 
-    .tab .close-btn {
-      font-size: 14px; color: var(--text-dim); cursor: pointer; margin-left: 2px;
-      line-height: 1; transition: color 0.15s;
+    /* ── Session Grid ─────────────────────────────────────────── */
+    #session-tabs {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 12px;
+      margin-bottom: 10px;
     }
-    .tab .close-btn:hover { color: var(--red); }
+
+    .session-card {
+      border: 1px solid var(--border);
+      background: var(--bg-surface);
+      border-radius: 10px;
+      padding: 10px;
+      cursor: pointer;
+      transition: border-color 0.15s ease, background 0.15s ease, transform 0.12s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 248px;
+    }
+
+    .session-card:hover {
+      background: var(--bg-elevated);
+      border-color: #2e2e2e;
+      transform: translateY(-1px);
+    }
+
+    .session-card.active {
+      border-color: #4b4b4b;
+      background: var(--bg-elevated);
+      box-shadow: 0 0 0 1px rgba(120,120,120,0.22) inset;
+    }
+
+    .session-preview {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #0b0b0b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #9ca3af;
+      font-size: 12px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+
+    .session-preview img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .session-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .session-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .session-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--text-tertiary);
+      font-size: 11px;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-secondary);
+    }
+
+    .status-pill::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--text-dim);
+      box-shadow: 0 0 0 transparent;
+    }
+
+    .status-pill.live::before {
+      background: var(--green);
+      box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
+    }
+
+    .status-pill.ready::before {
+      background: #3b82f6;
+      box-shadow: 0 0 6px rgba(59, 130, 246, 0.4);
+    }
+
+    .status-pill.stale::before {
+      background: var(--amber);
+      box-shadow: 0 0 6px rgba(245, 158, 11, 0.35);
+    }
+
+    .status-pill.dead::before {
+      background: var(--text-dim);
+    }
 
     /* ── Status Badge ─────────────────────────────────────────── */
     #status {
@@ -127,6 +263,8 @@
     #status.disconnected::before { background: var(--red); }
     #status.connecting { color: var(--amber); }
     #status.connecting::before { background: var(--amber); animation: pulse-dot 1.5s ease-in-out infinite; }
+    #status.idle { color: var(--text-secondary); }
+    #status.idle::before { background: var(--text-dim); box-shadow: none; animation: none; }
 
     @keyframes pulse-dot {
       0%, 100% { opacity: 1; }
@@ -138,67 +276,67 @@
       font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
       font-weight: 400; letter-spacing: 0.02em;
       flex-shrink: 0;
+      text-align: right;
     }
 
     /* ── Viewport ─────────────────────────────────────────────── */
     #viewport-wrap {
-      position: relative; background: #000; border-radius: var(--radius);
+      position: relative; background: var(--bg-surface); border-radius: var(--radius);
       border: 1px solid var(--border); overflow: hidden;
       max-width: 95vw; max-height: calc(100vh - 70px);
+    }
+
+    body.focused {
+      padding: 4px;
+    }
+
+    body.focused .back-btn {
+      display: inline-flex;
+    }
+
+    body.focused #session-tabs {
+      display: none;
+    }
+
+    body.focused #viewport-wrap {
+      width: calc(100vw - 8px);
+      max-width: calc(100vw - 8px);
+      max-height: calc(100vh - 48px);
+      border-radius: 8px;
+    }
+
+    body.focused #viewport-wrap {
+      background: #000;
     }
 
     canvas {
       display: block; width: 100%; height: 100%;
       cursor: default;
+      outline: none;
     }
 
     /* ── Empty State ──────────────────────────────────────────── */
     #empty-state {
       display: flex; flex-direction: column; align-items: center;
-      justify-content: center; gap: 20px; padding: 80px 40px;
+      justify-content: center; gap: 16px; padding: 72px 28px;
       text-align: center;
-    }
-
-    #empty-state .icon-wrap {
-      width: 56px; height: 56px; border-radius: 14px;
-      background: var(--bg-elevated); border: 1px solid var(--border);
-      display: flex; align-items: center; justify-content: center;
-      position: relative;
-    }
-
-    #empty-state .icon-wrap svg {
-      width: 24px; height: 24px; opacity: 0.5;
-    }
-
-    #empty-state .icon-badge {
-      position: absolute; bottom: -4px; right: -4px;
-      width: 20px; height: 20px; border-radius: 50%;
-      background: var(--bg); border: 1px solid var(--border);
-      display: flex; align-items: center; justify-content: center;
-    }
-
-    #empty-state .icon-badge svg {
-      width: 10px; height: 10px; opacity: 0.35;
+      background: linear-gradient(180deg, var(--bg-surface) 0%, var(--bg-elevated) 100%);
     }
 
     #empty-state h2 {
-      font-size: 14px; font-weight: 600; color: var(--text);
+      font-size: 15px; font-weight: 600; color: var(--text);
       letter-spacing: -0.02em;
     }
 
     #empty-state .hint {
-      font-size: 13px; max-width: 360px; line-height: 1.6;
+      font-size: 13px; max-width: 420px; line-height: 1.6;
       color: var(--text-tertiary);
     }
 
     #empty-state .cmd-block {
       display: flex; align-items: center; gap: 10px;
       padding: 10px 16px; border-radius: 8px;
-      background: var(--bg-elevated); border: 1px solid var(--border);
-    }
-
-    #empty-state .cmd-block .cmd-icon {
-      width: 14px; height: 14px; opacity: 0.3; flex-shrink: 0;
+      background: var(--bg); border: 1px solid var(--border);
     }
 
     #empty-state .cmd-block code {
@@ -210,48 +348,26 @@
 </head>
 <body>
   <header>
-    <div class="logo-group">
-      <!-- Kortix Symbol (inline SVG) -->
-      <svg viewBox="0 0 30 25" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M25.5614 24.916H29.8268C29.8268 19.6306 26.9378 15.0039 22.6171 12.4587C26.9377 9.91355 29.8267 5.28685 29.8267 0.00146484H25.5613C25.5613 5.00287 21.8906 9.18692 17.0654 10.1679V0.00146484H12.8005V10.1679C7.9526 9.20401 4.3046 5.0186 4.3046 0.00146484H0.0391572C0.0391572 5.28685 2.92822 9.91355 7.24884 12.4587C2.92818 15.0039 0.0390625 19.6306 0.0390625 24.916H4.30451C4.30451 19.8989 7.95259 15.7135 12.8005 14.7496V24.9206H17.0654V14.7496C21.9133 15.7134 25.5614 19.8989 25.5614 24.916Z" fill="white"/>
-      </svg>
-      <h1>Agent Browser</h1>
+    <button id="back-btn" class="back-btn" type="button">Back</button>
+    <div class="title">Agent Browser Live Sessions</div>
+    <div class="header-right">
+      <div id="status" class="connecting">connecting…</div>
+      <div id="frame-info"></div>
     </div>
-
-    <div class="header-divider"></div>
-
-    <div id="session-tabs"></div>
-    <div id="status" class="connecting">connecting…</div>
-    <div id="frame-info"></div>
   </header>
+
+  <div id="session-tabs"></div>
 
   <div id="viewport-wrap">
     <div id="empty-state">
-      <div class="icon-wrap">
-        <!-- Kortix Symbol -->
-        <svg viewBox="0 0 30 25" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M25.5614 24.916H29.8268C29.8268 19.6306 26.9378 15.0039 22.6171 12.4587C26.9377 9.91355 29.8267 5.28685 29.8267 0.00146484H25.5613C25.5613 5.00287 21.8906 9.18692 17.0654 10.1679V0.00146484H12.8005V10.1679C7.9526 9.20401 4.3046 5.0186 4.3046 0.00146484H0.0391572C0.0391572 5.28685 2.92822 9.91355 7.24884 12.4587C2.92818 15.0039 0.0390625 19.6306 0.0390625 24.916H4.30451C4.30451 19.8989 7.95259 15.7135 12.8005 14.7496V24.9206H17.0654V14.7496C21.9133 15.7134 25.5614 19.8989 25.5614 24.916Z" fill="white"/>
-        </svg>
-        <div class="icon-badge">
-          <!-- Globe icon -->
-          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>
-          </svg>
-        </div>
-      </div>
-
       <h2>No browser session active</h2>
 
       <div class="hint">
-        Start a session from the sandbox terminal to view the agent's browser in real-time.
+        Start a browser session and click a session card to focus it.
       </div>
 
       <div class="cmd-block">
-        <!-- Terminal icon -->
-        <svg class="cmd-icon" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
-        </svg>
-        <code>agent-browser --session kortix open https://example.com</code>
+        <code>AGENT_BROWSER_STREAM_PORT=9223 agent-browser --session my-task --headed open https://example.com</code>
       </div>
     </div>
     <canvas id="viewport" width="1280" height="720" style="display:none" tabindex="0"></canvas>
@@ -264,6 +380,8 @@
     const frameInfo = document.getElementById('frame-info');
     const emptyState = document.getElementById('empty-state');
     const tabsEl = document.getElementById('session-tabs');
+    const backBtn = document.getElementById('back-btn');
+    const viewportWrap = document.getElementById('viewport-wrap');
 
     const PRIMARY_SESSION = 'kortix';
     let ws = null;
@@ -273,12 +391,28 @@
     let activeSession = PRIMARY_SESSION;
     let sessions = [];
     let previousSessionNames = new Set();
+    let isFocusMode = false;
+    let lastFrameMeta = null;
+    const sessionPreviewData = {};
+    const previewStreams = new Map();
+    const previewRetryTimers = new Map();
 
     // ── Proxy detection ──────────────────────────────────────────
-    const PREVIEW_PATH_RE = /^(.*\/preview\/[^/]+)\/\d+/;
+    // Detect if we're accessed through a proxy:
+    //   1. Path-based: /v1/p/{sandboxId}/9224/...
+    //   2. Subdomain: p9224-{sandboxId}.localhost:8008
+    //   3. Direct: localhost:9224 (no proxy)
+    // When proxied, we can't directly WS to port 9223 inside the container.
+    // Instead, use same-origin SSE bridge endpoints (/stream, /input)
+    // which the Bun server on port 9224 handles internally.
+    const PREVIEW_PATH_RE = /^(.*\/(?:preview|v1\/p)\/[^/]+)\/\d+/;
+    const SUBDOMAIN_RE = /^p(\d+)-([^.]+)\./;
     const proxyMatch = window.location.pathname.match(PREVIEW_PATH_RE);
+    const subdomainMatch = window.location.hostname.match(SUBDOMAIN_RE);
+    const isProxied = !!proxyMatch || !!subdomainMatch;
+    // For path-based proxy, prefix API calls with the proxy base path.
+    // For subdomain proxy, API calls go to same origin (no prefix needed).
     const proxyBase = proxyMatch ? proxyMatch[1] : null;
-    const isProxied = !!proxyBase;
     const proxyToken = isProxied ? new URLSearchParams(window.location.search).get('token') : null;
 
     // Track which sessions have received frames recently (for stale detection)
@@ -300,16 +434,58 @@
     const urlSession = getUrlSession();
     if (urlSession) {
       activeSession = urlSession;
+      isFocusMode = true;
+    }
+
+    function setFocusMode(focused) {
+      isFocusMode = focused;
+      document.body.classList.toggle('focused', focused);
+      updateViewportVisibility();
+    }
+
+    function updateViewportVisibility() {
+      const hasSessions = sessions.length > 0;
+      if (isFocusMode || !hasSessions) {
+        viewportWrap.style.display = '';
+      } else {
+        viewportWrap.style.display = 'none';
+      }
+    }
+
+    backBtn.addEventListener('click', () => {
+      setFocusMode(false);
+    });
+
+    // ── API URL helper ──────────────────────────────────────────
+    // Returns the correct URL for viewer API endpoints (/sessions, /stream, /input)
+    // depending on whether we're direct, subdomain-proxied, or path-proxied.
+    function apiUrl(endpoint, params) {
+      const qs = new URLSearchParams(params || {});
+      if (proxyToken) qs.set('token', proxyToken);
+      const search = qs.toString() ? '?' + qs.toString() : '';
+      if (proxyBase) {
+        // Path-based proxy: /v1/p/{sandboxId}/9224/endpoint
+        return `${proxyBase}/9224${endpoint}${search}`;
+      }
+      // Direct or subdomain proxy: same-origin endpoint
+      return `${endpoint}${search}`;
     }
 
     // ── Session discovery ─────────────────────────────────────────
     async function pollSessions() {
       try {
-        const sessionsUrl = isProxied
-          ? `${proxyBase}/9224/sessions${proxyToken ? '?token=' + encodeURIComponent(proxyToken) : ''}`
-          : '/sessions';
+        const sessionsUrl = apiUrl('/sessions');
         const res = await fetch(sessionsUrl);
-        const newSessions = await res.json();
+        let newSessions = await res.json();
+
+        // Avoid showing duplicate "default" when primary exists.
+        // In Kortix, primary session is typically "kortix" and "default"
+        // may be a secondary daemon session not intended for UI focus.
+        const hasPrimary = newSessions.some((s) => s.name === PRIMARY_SESSION);
+        if (hasPrimary) {
+          newSessions = newSessions.filter((s) => s.name !== 'default');
+        }
+
         const newNames = new Set(newSessions.map(s => s.name));
 
         if (!urlSession) {
@@ -335,19 +511,44 @@
         previousSessionNames = newNames;
         sessions = newSessions;
 
+        if (sessions.length === 0) {
+          if (ws) { ws.onclose = null; ws.close(); ws = null; }
+          if (eventSource) { eventSource.close(); eventSource = null; }
+          clearPreviewStreams();
+          connected = false;
+          statusEl.textContent = 'idle';
+          statusEl.className = 'idle';
+          frameInfo.textContent = '';
+          renderTabs();
+          return;
+        }
+
+        if (!sessions.find(s => s.name === activeSession)) {
+          activeSession = sessions[0].name;
+          activePort = sessions[0].port;
+          setUrlSession(activeSession);
+          reconnect();
+        }
+
         const active = sessions.find(s => s.name === activeSession);
         if (active && active.port !== activePort) {
           activePort = active.port;
           reconnect();
         }
+
+        ensurePreviewStreams();
       } catch(e) {
         sessions = [];
+        clearPreviewStreams();
+        connected = false;
+        statusEl.textContent = 'idle';
+        statusEl.className = 'idle';
       }
       renderTabs();
     }
 
     function renderTabs() {
-      const list = sessions.length > 0 ? sessions : [{ name: PRIMARY_SESSION, port: 9223 }];
+      const list = sessions.length > 0 ? sessions : [];
       const now = Date.now();
 
       const sorted = [...list].sort((a, b) => {
@@ -356,48 +557,127 @@
         return a.name.localeCompare(b.name);
       });
 
+      if (sorted.length === 0) {
+        tabsEl.innerHTML = '';
+        updateViewportVisibility();
+        return;
+      }
+
       tabsEl.innerHTML = sorted.map(s => {
         const isActive = s.name === activeSession;
-        const isConnected = connected && s.port === activePort && isActive;
         const isPrimary = s.name === PRIMARY_SESSION;
         const lastFrame = sessionLastFrame[s.name] || 0;
         const isStale = lastFrame > 0 && (now - lastFrame) > STALE_THRESHOLD_MS;
-        const dotClass = isConnected ? 'live' : (isStale ? 'stale' : 'dead');
-        const tabClass = 'tab' + (isActive ? ' active' : '') + (isStale && !isActive ? ' stale' : '');
+        const preview = sessionPreviewData[s.name] || '';
 
-        let label = s.name;
-        let badge = '';
-        if (isPrimary) {
-          badge = '<span class="badge">primary</span>';
+        let stateClass = 'ready';
+        let stateLabel = 'ready';
+        if (isActive && connected) {
+          stateClass = 'live';
+          stateLabel = 'live';
+        } else if (isStale) {
+          stateClass = 'stale';
+          stateLabel = 'stale';
         }
 
-        return `<div class="${tabClass}" data-port="${s.port}" data-name="${s.name}">` +
-          `<span class="dot ${dotClass}"></span>` +
-          `<span class="label">${label}</span>` +
-          badge +
-          `</div>`;
+        const cardClass = 'session-card' + (isActive ? ' active' : '');
+        const displayName = isPrimary ? `${s.name} (primary)` : s.name;
+
+        return `<button class="${cardClass}" data-port="${s.port}" data-name="${s.name}">` +
+          `<div class="session-top">` +
+            `<span class="session-name">${displayName}</span>` +
+            `<span class="status-pill ${stateClass}">${stateLabel}</span>` +
+          `</div>` +
+          `<div class="session-preview">` +
+            (preview ? `<img src="${preview}" alt="${displayName} preview" />` : '<span>waiting for preview</span>') +
+          `</div>` +
+          `<div class="session-meta">` +
+            `<span>${isActive ? 'active session' : 'click to open'}</span>` +
+            `<span>${s.name}</span>` +
+          `</div>` +
+          `</button>`;
       }).join('');
 
-      tabsEl.querySelectorAll('.tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-          const port = parseInt(tab.dataset.port, 10);
-          const name = tab.dataset.name;
+      tabsEl.querySelectorAll('.session-card').forEach(card => {
+        card.addEventListener('click', () => {
+          const port = parseInt(card.dataset.port, 10);
+          const name = card.dataset.name;
+
+          setFocusMode(true);
+          setUrlSession(name);
+
           if (port !== activePort || name !== activeSession) {
             activePort = port;
             activeSession = name;
             frameCount = 0;
             lastFrameTime = 0;
-            setUrlSession(name);
             canvas.style.display = 'none';
             emptyState.style.display = '';
             emptyState.querySelector('h2').textContent = 'Connecting…';
-            emptyState.querySelector('.hint').textContent =
-              `Switching to session ${name}`;
+            emptyState.querySelector('.hint').textContent = `Switching to session ${name}`;
             reconnect();
             renderTabs();
           }
         });
       });
+
+      updateViewportVisibility();
+    }
+
+    function clearPreviewStreams() {
+      for (const [, es] of previewStreams) {
+        try { es.close(); } catch {}
+      }
+      previewStreams.clear();
+      for (const [, t] of previewRetryTimers) {
+        clearTimeout(t);
+      }
+      previewRetryTimers.clear();
+    }
+
+    function ensurePreviewStreams() {
+      const keys = new Set(sessions.map(s => `${s.name}:${s.port}`));
+
+      for (const [key, es] of previewStreams) {
+        if (!keys.has(key)) {
+          try { es.close(); } catch {}
+          previewStreams.delete(key);
+        }
+      }
+
+      for (const s of sessions) {
+        const key = `${s.name}:${s.port}`;
+        if (previewStreams.has(key)) continue;
+
+        const connectPreview = () => {
+          const streamUrl = apiUrl('/stream', { port: s.port });
+          const es = new EventSource(streamUrl);
+          previewStreams.set(key, es);
+
+          es.onmessage = (event) => {
+            try {
+              const msg = JSON.parse(event.data);
+              if (msg.type === 'frame' && msg.data) {
+                sessionPreviewData[s.name] = 'data:image/jpeg;base64,' + msg.data;
+                if (!isFocusMode) renderTabs();
+              }
+            } catch {}
+          };
+
+          es.onerror = () => {
+            try { es.close(); } catch {}
+            previewStreams.delete(key);
+            if (previewRetryTimers.has(key)) clearTimeout(previewRetryTimers.get(key));
+            const t = setTimeout(() => {
+              previewRetryTimers.delete(key);
+              if (sessions.some(x => x.name === s.name && x.port === s.port)) connectPreview();
+            }, 1200);
+            previewRetryTimers.set(key, t);
+          };
+        };
+
+        connectPreview();
+      }
     }
 
     // ── Connection (WS direct or SSE proxied) ─────────────────────
@@ -415,6 +695,7 @@
       try {
         const msg = JSON.parse(raw);
         if (msg.type === 'frame' && msg.data) {
+          lastFrameMeta = msg.metadata || null;
           frameCount++;
           const now = performance.now();
           const fps = lastFrameTime ? Math.round(1000 / (now - lastFrameTime)) : 0;
@@ -440,17 +721,25 @@
     }
 
     function connect() {
+      if (!sessions.length) {
+        statusEl.textContent = 'idle';
+        statusEl.className = 'idle';
+        return;
+      }
+
       statusEl.textContent = 'connecting…';
       statusEl.className = 'connecting';
 
       if (isProxied) {
-        const tokenParam = proxyToken ? '&token=' + encodeURIComponent(proxyToken) : '';
-        const streamUrl = `${proxyBase}/9224/stream?port=${activePort}${tokenParam}`;
+        // When behind a proxy (subdomain or path-based), use the SSE bridge.
+        // The Bun server on port 9224 connects to the WS stream internally.
+        const streamUrl = apiUrl('/stream', { port: activePort });
         eventSource = new EventSource(streamUrl);
         eventSource.onopen = () => {
           connected = true;
           statusEl.textContent = activeSession;
           statusEl.className = 'connected';
+          if (isFocusMode) canvas.focus();
           renderTabs();
         };
         eventSource.onmessage = (event) => {
@@ -458,6 +747,11 @@
         };
         eventSource.addEventListener('close', () => {
           connected = false;
+          if (!sessions.length) {
+            statusEl.textContent = 'idle';
+            statusEl.className = 'idle';
+            return;
+          }
           statusEl.textContent = 'disconnected';
           statusEl.className = 'disconnected';
           renderTabs();
@@ -467,6 +761,11 @@
         });
         eventSource.onerror = () => {
           connected = false;
+          if (!sessions.length) {
+            statusEl.textContent = 'idle';
+            statusEl.className = 'idle';
+            return;
+          }
           statusEl.textContent = 'disconnected';
           statusEl.className = 'disconnected';
           renderTabs();
@@ -475,6 +774,7 @@
           setTimeout(connect, 3000);
         };
       } else {
+        // Direct access (localhost:9224) — connect WS to stream port directly
         const wsHost = window.location.hostname || 'localhost';
         const wsUrl = `ws://${wsHost}:${activePort}`;
 
@@ -487,11 +787,17 @@
           connected = true;
           statusEl.textContent = activeSession;
           statusEl.className = 'connected';
+          if (isFocusMode) canvas.focus();
           renderTabs();
         };
         ws.onmessage = (event) => handleMessage(event.data);
         ws.onclose = () => {
           connected = false;
+          if (!sessions.length) {
+            statusEl.textContent = 'idle';
+            statusEl.className = 'idle';
+            return;
+          }
           statusEl.textContent = 'disconnected';
           statusEl.className = 'disconnected';
           renderTabs();
@@ -505,32 +811,52 @@
     function sendInput(payload) {
       const json = JSON.stringify(payload);
       if (isProxied) {
-        const tokenParam = proxyToken ? '&token=' + encodeURIComponent(proxyToken) : '';
-        const inputUrl = `${proxyBase}/9224/input?port=${activePort}${tokenParam}`;
+        // Use HTTP POST to the SSE bridge's input endpoint
+        const inputUrl = apiUrl('/input', { port: activePort });
         fetch(inputUrl, { method: 'POST', body: json, keepalive: true }).catch(() => {});
       } else {
         if (ws && ws.readyState === 1) ws.send(json);
       }
     }
 
-    function getScale() {
+    function mapPointerToPage(clientX, clientY) {
       const rect = canvas.getBoundingClientRect();
-      return { sx: canvas.width / rect.width, sy: canvas.height / rect.height, rect };
+      const localX = Math.max(0, Math.min(rect.width, clientX - rect.left));
+      const localY = Math.max(0, Math.min(rect.height, clientY - rect.top));
+
+      if (!lastFrameMeta) {
+        return {
+          x: Math.round(localX * (canvas.width / rect.width)),
+          y: Math.round(localY * (canvas.height / rect.height)),
+        };
+      }
+
+      const deviceWidth = lastFrameMeta.deviceWidth || canvas.width;
+      const deviceHeight = lastFrameMeta.deviceHeight || canvas.height;
+
+      return {
+        x: Math.round(localX * (deviceWidth / rect.width)),
+        y: Math.round(localY * (deviceHeight / rect.height)),
+      };
     }
 
     function sendMouse(eventType, e, clickCount) {
       if (!connected) return;
-      const { sx, sy, rect } = getScale();
+      const mapped = mapPointerToPage(e.clientX, e.clientY);
       sendInput({
         type: 'input_mouse', eventType,
-        x: Math.round((e.clientX - rect.left) * sx),
-        y: Math.round((e.clientY - rect.top) * sy),
+        x: mapped.x,
+        y: mapped.y,
         button: ['left', 'middle', 'right'][e.button] || 'left',
         clickCount: clickCount || 1,
       });
     }
 
-    canvas.addEventListener('mousedown', e => { e.preventDefault(); sendMouse('mousePressed', e); });
+    canvas.addEventListener('mousedown', e => {
+      e.preventDefault();
+      canvas.focus();
+      sendMouse('mousePressed', e);
+    });
     canvas.addEventListener('mouseup', e => sendMouse('mouseReleased', e));
     canvas.addEventListener('mousemove', e => sendMouse('mouseMoved', e));
     canvas.addEventListener('dblclick', e => { e.preventDefault(); sendMouse('mousePressed', e, 2); });
@@ -539,10 +865,9 @@
     canvas.addEventListener('touchstart', e => {
       if (!connected) return;
       e.preventDefault();
-      const { sx, sy, rect } = getScale();
+      canvas.focus();
       const points = Array.from(e.touches).map(t => ({
-        x: Math.round((t.clientX - rect.left) * sx),
-        y: Math.round((t.clientY - rect.top) * sy),
+        ...mapPointerToPage(t.clientX, t.clientY),
       }));
       sendInput({ type: 'input_touch', eventType: 'touchStart', touchPoints: points });
     }, { passive: false });
@@ -554,24 +879,33 @@
 
     function sendKey(eventType, e) {
       if (!connected) return;
+      const modifiers = (e.altKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.metaKey ? 4 : 0) | (e.shiftKey ? 8 : 0);
+      const isPrintable = e.key && e.key.length === 1;
       sendInput({
         type: 'input_keyboard', eventType,
         key: e.key, code: e.code,
-        modifiers: (e.altKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.metaKey ? 4 : 0) | (e.shiftKey ? 8 : 0),
+        text: eventType === 'keyDown' && isPrintable && !e.ctrlKey && !e.metaKey && !e.altKey ? e.key : undefined,
+        modifiers,
       });
     }
 
-    canvas.addEventListener('keydown', e => sendKey('keyDown', e));
-    canvas.addEventListener('keyup', e => sendKey('keyUp', e));
+    canvas.addEventListener('keydown', e => {
+      e.preventDefault();
+      sendKey('keyDown', e);
+    });
+    canvas.addEventListener('keyup', e => {
+      e.preventDefault();
+      sendKey('keyUp', e);
+    });
 
     canvas.addEventListener('wheel', e => {
       if (!connected) return;
       e.preventDefault();
-      const { sx, sy, rect } = getScale();
+      const mapped = mapPointerToPage(e.clientX, e.clientY);
       sendInput({
         type: 'input_mouse', eventType: 'mouseWheel',
-        x: Math.round((e.clientX - rect.left) * sx),
-        y: Math.round((e.clientY - rect.top) * sy),
+        x: mapped.x,
+        y: mapped.y,
         deltaX: Math.round(e.deltaX), deltaY: Math.round(e.deltaY),
       });
     }, { passive: false });
@@ -579,7 +913,30 @@
     // ── Init ──────────────────────────────────────────────────────
     pollSessions();
     setInterval(pollSessions, 3000);
+    setFocusMode(isFocusMode);
     connect();
+
+    function applyThemePreference() {
+      try {
+        const storedTheme = localStorage.getItem('theme');
+        if (storedTheme === 'dark' || storedTheme === 'light') {
+          document.documentElement.setAttribute('data-theme', storedTheme);
+          return;
+        }
+        // system/default mode
+        document.documentElement.removeAttribute('data-theme');
+      } catch {
+        // Ignore storage access issues and fall back to media query theme.
+      }
+    }
+
+    applyThemePreference();
+
+    try {
+      window.addEventListener('storage', (e) => {
+        if (e.key === 'theme') applyThemePreference();
+      });
+    } catch {}
   </script>
 </body>
 </html>

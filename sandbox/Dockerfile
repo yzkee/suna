@@ -90,8 +90,9 @@ RUN AB_VERSION=$(node -e "const p=require('/tmp/sandbox-pkg-versions.json');cons
 COPY sandbox/patch-agent-browser.js /tmp/patch-agent-browser.js
 RUN node /tmp/patch-agent-browser.js && rm /tmp/patch-agent-browser.js
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium-browser
-ENV AGENT_BROWSER_PRIMARY_SESSION=kortix
+ENV AGENT_BROWSER_PRIMARY_SESSION=default
 ENV AGENT_BROWSER_STREAM_PORT=9223
+ENV AGENT_BROWSER_HEADED=1
 ENV AGENT_BROWSER_PROFILE=/workspace/.browser-profile
 ENV AGENT_BROWSER_SOCKET_DIR=/workspace/.agent-browser
 ENV AGENT_BROWSER_ARGS="--no-sandbox,--disable-setuid-sandbox,--disable-gpu,--disable-dev-shm-usage,--disable-blink-features=AutomationControlled,--disable-features=VizDisplayCompositor"
