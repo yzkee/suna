@@ -723,11 +723,8 @@ export function FileBrowser() {
                         }}
                         onBlur={() => {
                           if (!folderInputReadyRef.current) return;
-                          if (!folderNameExists) handleCreateFolder();
-                          else {
-                            setIsCreatingFolder(false);
-                            setNewFolderName('');
-                          }
+                          setIsCreatingFolder(false);
+                          setNewFolderName('');
                         }}
                         className={cn(
                           'flex-1 text-sm bg-transparent border rounded px-1.5 py-0.5 outline-none selection:bg-primary/15 selection:text-foreground',
@@ -763,11 +760,8 @@ export function FileBrowser() {
                           }
                         }}
                         onBlur={() => {
-                          if (!fileNameExists) handleCreateFile();
-                          else {
-                            setIsCreatingFile(false);
-                            setNewFileName('');
-                          }
+                          setIsCreatingFile(false);
+                          setNewFileName('');
                         }}
                         className={cn(
                           'flex-1 text-sm bg-transparent border rounded px-1.5 py-0.5 outline-none selection:bg-primary/15 selection:text-foreground',

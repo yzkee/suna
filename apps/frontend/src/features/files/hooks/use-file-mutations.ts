@@ -15,6 +15,11 @@ import { fileContentKeys } from './use-file-content';
 import { useServerStore } from '@/stores/server-store';
 import type { FileNode } from '../types';
 
+type OptimisticListContext = {
+  previousData?: FileNode[];
+  queryKey: ReturnType<typeof fileListKeys.dir>;
+};
+
 // ---------------------------------------------------------------------------
 // Upload
 // ---------------------------------------------------------------------------
@@ -56,9 +61,42 @@ export function useFileDelete() {
 
 export function useFileMkdir() {
   const queryClient = useQueryClient();
+  const serverUrl = useServerStore((s) => s.getActiveServerUrl());
 
-  return useMutation<boolean, Error, { dirPath: string }>({
+  return useMutation<boolean, Error, { dirPath: string }, OptimisticListContext>({
     mutationFn: ({ dirPath }) => mkdirFile(dirPath),
+    onMutate: async ({ dirPath }) => {
+      const path = dirPath.trim();
+      const parentPath = path.substring(0, path.lastIndexOf('/')) || '/workspace';
+      const name = path.split('/').pop() || path;
+      const queryKey = fileListKeys.dir(serverUrl, parentPath);
+
+      await queryClient.cancelQueries({ queryKey });
+      const previousData = queryClient.getQueryData<FileNode[]>(queryKey);
+
+      if (previousData) {
+        const exists = previousData.some((n) => n.name.toLowerCase() === name.toLowerCase());
+        if (!exists) {
+          queryClient.setQueryData<FileNode[]>(queryKey, [
+            ...previousData,
+            {
+              name,
+              path,
+              absolute: path,
+              type: 'directory',
+              ignored: false,
+            },
+          ]);
+        }
+      }
+
+      return { previousData, queryKey };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previousData) {
+        queryClient.setQueryData(context.queryKey, context.previousData);
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: fileListKeys.all });
     },
@@ -73,7 +111,7 @@ export function useFileRename() {
   const queryClient = useQueryClient();
   const serverUrl = useServerStore((s) => s.getActiveServerUrl());
 
-  return useMutation<boolean, Error, { from: string; to: string }>({
+  return useMutation<boolean, Error, { from: string; to: string }, OptimisticListContext>({
     mutationFn: ({ from, to }) => renameFile(from, to),
     onMutate: async ({ from, to }) => {
       // Optimistically update the file list cache for the parent directory
@@ -126,9 +164,42 @@ export function useFileRename() {
 
 export function useFileCreate() {
   const queryClient = useQueryClient();
+  const serverUrl = useServerStore((s) => s.getActiveServerUrl());
 
-  return useMutation<UploadResult[], Error, { filePath: string }>({
+  return useMutation<UploadResult[], Error, { filePath: string }, OptimisticListContext>({
     mutationFn: ({ filePath }) => createFile(filePath),
+    onMutate: async ({ filePath }) => {
+      const path = filePath.trim();
+      const parentPath = path.substring(0, path.lastIndexOf('/')) || '/workspace';
+      const name = path.split('/').pop() || path;
+      const queryKey = fileListKeys.dir(serverUrl, parentPath);
+
+      await queryClient.cancelQueries({ queryKey });
+      const previousData = queryClient.getQueryData<FileNode[]>(queryKey);
+
+      if (previousData) {
+        const exists = previousData.some((n) => n.name.toLowerCase() === name.toLowerCase());
+        if (!exists) {
+          queryClient.setQueryData<FileNode[]>(queryKey, [
+            ...previousData,
+            {
+              name,
+              path,
+              absolute: path,
+              type: 'file',
+              ignored: false,
+            },
+          ]);
+        }
+      }
+
+      return { previousData, queryKey };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previousData) {
+        queryClient.setQueryData(context.queryKey, context.previousData);
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: fileListKeys.all });
     },
