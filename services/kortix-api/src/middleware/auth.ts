@@ -15,7 +15,9 @@ const PREVIEW_SESSION_COOKIE = '__preview_session';
 //   2. supabaseAuth    — Supabase JWT only (header)
 //   3. combinedAuth    — Kortix OR Supabase (header + cookie fallback)
 //
-// Token is NEVER read from query parameters. SSE clients use fetch() with
+// Token is read from query parameters ONLY as a last resort for preview proxy
+// routes (/v1/p/*) — browser WebSocket API can't set custom headers, so PTY
+// terminals pass the token as ?token=<jwt>. SSE clients use fetch() with
 // Authorization headers; preview iframes use cookies set via POST /v1/p/auth.
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -130,7 +132,7 @@ export async function combinedAuth(c: Context, next: Next) {
     return;
   }
 
-  // Extract token: header → cookie (never query params)
+  // Extract token: header → cookie → query param (for WS upgrades)
   const authHeader = c.req.header('Authorization');
   let token: string | undefined;
 
@@ -144,6 +146,17 @@ export async function combinedAuth(c: Context, next: Next) {
     const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${PREVIEW_SESSION_COOKIE}=([^;]+)`));
     if (match) {
       token = decodeURIComponent(match[1]);
+    }
+  }
+
+  if (!token) {
+    // Last resort: check query param for preview proxy routes.
+    // Browser WebSocket API can't set custom headers, so PTY terminals
+    // and other WS clients pass the token as ?token=<jwt>.
+    const url = new URL(c.req.url);
+    const queryToken = url.searchParams.get('token');
+    if (queryToken && c.req.path.startsWith('/v1/p/')) {
+      token = queryToken;
     }
   }
 

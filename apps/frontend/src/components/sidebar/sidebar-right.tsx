@@ -76,13 +76,21 @@ export function SidebarRight() {
   /**
    * Open a well-known sandbox service as a preview tab.
    * All modes route through the backend proxy — no direct localhost access.
+   *
+   * For local mode: prefer subdomain URLs (p{port}-{sandboxId}.localhost:8008)
+   * because they use the in-memory authenticatedSubdomains map and avoid
+   * cookie/auth timing issues with path-based proxy URLs.
    */
   const openSandboxServiceTab = useCallback(
     (containerPort: string, title: string) => {
       const subdomainOpts = getSubdomainOpts();
-      const url = activeServer
-        ? (getDirectPortUrl(activeServer, containerPort) || getProxyBaseUrl(parseInt(containerPort, 10), serverUrl, subdomainOpts))
-        : getProxyBaseUrl(parseInt(containerPort, 10), serverUrl, subdomainOpts);
+      // Prefer subdomain URL for local mode (more reliable auth flow).
+      // Fall back to path-based URL for cloud/Daytona mode.
+      const url = subdomainOpts
+        ? getProxyBaseUrl(parseInt(containerPort, 10), serverUrl, subdomainOpts)
+        : activeServer
+          ? (getDirectPortUrl(activeServer, containerPort) || getProxyBaseUrl(parseInt(containerPort, 10), serverUrl, subdomainOpts))
+          : getProxyBaseUrl(parseInt(containerPort, 10), serverUrl, subdomainOpts);
 
       const tabId = `preview:${containerPort}`;
       const tabHref = `/p/${containerPort}`;

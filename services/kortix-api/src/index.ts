@@ -617,7 +617,10 @@ export default {
         const authHeader = req.headers.get('Authorization');
         const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
         const cookieToken = extractCookieToken(req);
-        const token = bearerToken || cookieToken;
+        // Also accept ?token= query param — browser WebSocket API can't set
+        // custom headers, and initial page loads may not have cookies yet.
+        const queryToken = url.searchParams.get('token');
+        const token = bearerToken || cookieToken || queryToken;
 
         if (!token || !(await validatePreviewToken(token))) {
           return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -793,7 +796,10 @@ export default {
         const wsAuthHeader = req.headers.get('Authorization');
         const wsBearerToken = wsAuthHeader?.startsWith('Bearer ') ? wsAuthHeader.slice(7) : null;
         const wsCookieToken = extractCookieToken(req);
-        const wsToken = wsBearerToken || wsCookieToken;
+        // Also check query param — browser WebSocket API can't set custom headers,
+        // so the frontend passes the token as ?token=<jwt> (same as tunnel WS).
+        const wsQueryToken = url.searchParams.get('token');
+        const wsToken = wsBearerToken || wsCookieToken || wsQueryToken;
 
         if (wsToken && (await validatePreviewToken(wsToken))) {
           const targetUrl = buildWsTargetUrl(wsSandboxId, wsPort, wsRemainingPath, url.searchParams);
