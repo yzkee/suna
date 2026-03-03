@@ -274,20 +274,19 @@ export function useAutoScroll({ working, hasContent = false }: UseAutoScrollOpti
     const el = scrollRef.current;
     if (!el) return;
     const handle = (e: WheelEvent) => {
-      if ((e.target as HTMLElement | null)?.closest?.('[data-scrollable]')) return;
-      if (e.deltaY < 0) {
-        // Scrolling up → immediately suppress auto-scroll so the RAF loop
-        // stops fighting the user. Show the FAB once they're far enough.
+      if (e.deltaY !== 0) {
+        // Any wheel intent means the user is trying to control scroll.
+        // Immediately pause RAF follow so it never fights manual scrolling
+        // (trackpads can report inverted/ambiguous delta signs).
         userScrolledRef.current = true;
         requestAnimationFrame(() => {
           if (isFarFromBottom(el, spacerValRef.current)) {
             setShowScrollButton(true);
           }
         });
-      } else if (e.deltaY > 0) {
-        // Scrolling down → resume auto-scroll only if the user reached
-        // the absolute bottom of the scrollable area (classic check).
-        // This avoids false positives from measureTarget.
+      }
+      if (e.deltaY > 0) {
+        // Resume only when the user has manually reached absolute bottom.
         requestAnimationFrame(() => {
           if (isNearScrollEnd(el)) {
             userScrolledRef.current = false;
@@ -307,18 +306,18 @@ export function useAutoScroll({ working, hasContent = false }: UseAutoScrollOpti
     let startY = 0;
     const onStart = (e: TouchEvent) => { startY = e.touches[0]?.clientY ?? 0; };
     const onMove = (e: TouchEvent) => {
-      if ((e.target as HTMLElement | null)?.closest?.('[data-scrollable]')) return;
       const dy = startY - (e.touches[0]?.clientY ?? 0);
-      if (dy < -10) {
-        // Swiping up → immediately suppress auto-scroll so the RAF loop
-        // stops fighting the user. Show the FAB once they're far enough.
+      if (Math.abs(dy) > 6) {
+        // Any touch move intent should pause RAF follow so the user can
+        // freely scroll while streaming.
         userScrolledRef.current = true;
         requestAnimationFrame(() => {
           if (isFarFromBottom(el, spacerValRef.current)) {
             setShowScrollButton(true);
           }
         });
-      } else if (dy > 10) {
+      }
+      if (dy > 10) {
         // Swiping down → resume only at absolute bottom
         requestAnimationFrame(() => {
           if (isNearScrollEnd(el)) {

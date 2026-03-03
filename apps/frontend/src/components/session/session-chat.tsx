@@ -2896,6 +2896,111 @@ export function SessionChat({
 		return () => clearTimeout(busyTimerRef.current);
 	}, [effectiveBusy]);
 
+	// Recovery polling should run while the server says busy, OR when we still
+	// expect an assistant response but status signals are stale (common around
+	// refresh/reconnect races).
+	const shouldRecoveryPoll =
+		isServerBusy || hasPendingUserReply || hasIncompleteAssistant || pendingSendInFlight;
+
+	const streamCacheKey = `opencode_stream_cache:${sessionId}`;
+
+	// Persist latest assistant text during active streaming so a hard refresh can
+	// restore the already-generated prefix even if the backend snapshot lags.
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		if (!messages || messages.length === 0) return;
+
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const msg = messages[i];
+			if (msg.info.role !== "assistant") continue;
+			let bestPart: { id: string; text: string } | null = null;
+			for (const p of msg.parts) {
+				if ((p as any)?.type !== "text") continue;
+				const text = typeof (p as any)?.text === "string" ? (p as any).text : "";
+				if (!text) continue;
+				if (!bestPart || text.length > bestPart.text.length) {
+					bestPart = { id: (p as any).id, text };
+				}
+			}
+			if (!bestPart) return;
+			try {
+				sessionStorage.setItem(
+					streamCacheKey,
+					JSON.stringify({
+						messageID: msg.info.id,
+						parentID: (msg.info as any).parentID,
+						partID: bestPart.id,
+						text: bestPart.text,
+						updatedAt: Date.now(),
+					}),
+				);
+			} catch {
+				// ignore storage failures
+			}
+			return;
+		}
+	}, [messages, streamCacheKey]);
+
+	// Restore cached streaming prefix after refresh when SSE resumes from the
+	// current point but backend hydrate has not yet returned the in-progress text.
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		if (!shouldRecoveryPoll) return;
+		if (!messages || messages.length === 0) return;
+
+		let cached: {
+			messageID: string;
+			parentID?: string;
+			partID: string;
+			text: string;
+			updatedAt: number;
+		} | null = null;
+		try {
+			const raw = sessionStorage.getItem(streamCacheKey);
+			cached = raw ? JSON.parse(raw) : null;
+		} catch {
+			cached = null;
+		}
+		if (!cached || !cached.messageID || !cached.partID || !cached.text) return;
+		// Ignore stale cache entries.
+		if (Date.now() - (cached.updatedAt || 0) > 30 * 60 * 1000) return;
+
+		const store = useSyncStore.getState();
+		const currentMsgs = store.getMessages(sessionId);
+		const hasMsg = currentMsgs.some((m) => m.info.id === cached!.messageID);
+		const hasAnyUser = currentMsgs.some((m) => m.info.role === "user");
+
+		if (!hasMsg) {
+			// Only create a synthetic assistant message if we can safely attach
+			// it to an existing user turn.
+			if (!hasAnyUser) return;
+			if (cached.parentID) {
+				const parentExists = currentMsgs.some((m) => m.info.id === cached!.parentID);
+				if (!parentExists) return;
+			}
+			store.upsertMessage(sessionId, {
+				id: cached.messageID,
+				sessionID: sessionId,
+				role: "assistant",
+				parentID: cached.parentID,
+			} as any);
+		}
+
+		const currentParts = store.parts[cached.messageID] ?? [];
+		const existing = currentParts.find((p) => p.id === cached!.partID) as any;
+		const existingText = typeof existing?.text === "string" ? existing.text : "";
+		if (cached.text.length <= existingText.length) return;
+
+		store.upsertPart(cached.messageID, {
+			...(existing ?? {}),
+			id: cached.partID,
+			messageID: cached.messageID,
+			sessionID: sessionId,
+			type: "text",
+			text: cached.text,
+		} as any);
+	}, [messages, sessionId, shouldRecoveryPoll, streamCacheKey]);
+
 	// ---- Message Queue ----
 	// Hydrate queue state on first mount (local client storage).
 	const queueHydrated = useMessageQueueStore((s) => s.hydrated);
@@ -3145,6 +3250,80 @@ export function SessionChat({
 			clearInterval(interval);
 		};
 	}, [isServerBusy, sessionId]);
+
+	// Streaming recovery poll (active session only): while active or likely
+	// active, periodically
+	// fetch messages when assistant text appears stalled or missing. This covers
+	// transient SSE drops and refresh timing races where deltas arrive but the
+	// initial in-progress text snapshot is not present yet.
+	useEffect(() => {
+		if (!shouldRecoveryPoll) return;
+
+		let cancelled = false;
+		let inFlight = false;
+		let lastLen = 0;
+		let lastProgressAt = Date.now();
+
+		const getLastAssistantTextLen = () => {
+			const current = useSyncStore.getState().getMessages(sessionId);
+			if (!current || current.length === 0) return 0;
+			for (let i = current.length - 1; i >= 0; i--) {
+				const msg = current[i];
+				if (msg.info.role !== "assistant") continue;
+				let maxLen = 0;
+				for (const part of msg.parts) {
+					if ((part as any)?.type === "text" && typeof (part as any)?.text === "string") {
+						maxLen = Math.max(maxLen, (part as any).text.length);
+					}
+				}
+				return maxLen;
+			}
+			return 0;
+		};
+
+		const tick = async () => {
+			if (cancelled || inFlight) return;
+
+			const len = getLastAssistantTextLen();
+			if (len > lastLen) {
+				lastLen = len;
+				lastProgressAt = Date.now();
+				return;
+			}
+
+			const stalledMs = Date.now() - lastProgressAt;
+			// Poll when text hasn't advanced for a short period or when no text
+			// has appeared yet during busy state.
+			if (stalledMs < 1500 && len > 0) return;
+
+			inFlight = true;
+			try {
+				const res = await getClient().session.messages({ sessionID: sessionId });
+				if (!cancelled && res.data) {
+					useSyncStore.getState().hydrate(sessionId, res.data as any);
+					// Reset progress marker using post-hydrate length.
+					const nextLen = getLastAssistantTextLen();
+					if (nextLen > lastLen) {
+						lastLen = nextLen;
+						lastProgressAt = Date.now();
+					}
+				}
+			} catch {
+				// ignore — interval retries
+			} finally {
+				inFlight = false;
+			}
+		};
+
+		const t0 = setTimeout(tick, 400);
+		const interval = setInterval(tick, 1200);
+
+		return () => {
+			cancelled = true;
+			clearTimeout(t0);
+			clearInterval(interval);
+		};
+	}, [shouldRecoveryPoll, sessionId]);
 
 	// Message-based idle detection: if the last assistant message has
 	// time.completed set, the server marked the message as completed but we never got the

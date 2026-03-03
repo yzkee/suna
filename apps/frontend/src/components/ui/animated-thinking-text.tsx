@@ -109,6 +109,13 @@ function AnimatedThinkingTextComponent({ statusText, className }: AnimatedThinki
     setOpacity(1);
     setBlur(0);
 
+    const hasPersistentStatus = Boolean(statusText);
+
+    if (hasPersistentStatus) {
+      setShimmerActive(true);
+      return;
+    }
+
     let cancelled = false;
 
     const runSweep = () => {
@@ -125,10 +132,6 @@ function AnimatedThinkingTextComponent({ statusText, className }: AnimatedThinki
 
         if (shimmersDone.current < SHIMMER_COUNT) {
           // pause then sweep again
-          timerRef.current = setTimeout(runSweep, SHIMMER_GAP);
-        } else if (statusText) {
-          // real status → loop shimmers indefinitely
-          shimmersDone.current = 0;
           timerRef.current = setTimeout(runSweep, SHIMMER_GAP);
         } else {
           // ambient → clear and move on
@@ -177,7 +180,7 @@ function AnimatedThinkingTextComponent({ statusText, className }: AnimatedThinki
         WebkitBackgroundClip: 'text',
         backgroundClip: 'text',
         color: 'transparent',
-        animation: `thinking-shimmer ${SHIMMER_DURATION}ms linear forwards`,
+        animation: `thinking-shimmer ${SHIMMER_DURATION}ms linear ${statusText ? 'infinite' : 'forwards'}`,
         // CSS vars consumed by the gradient
         '--spread': `${(fullText.current.length || 10) * 2}px`,
         '--base': 'var(--shimmer-base)',

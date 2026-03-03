@@ -234,15 +234,9 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 	applyPartDelta: (messageID, partID, field, delta) =>
 		set((s) => {
 			const list = s.parts[messageID];
-			if (!list) {
-				console.warn("[sync-store] applyPartDelta: no parts list for message", messageID);
-				return s;
-			}
+			if (!list) return s;
 			const result = Binary.search(list, partID, (p) => p.id);
-			if (!result.found) {
-				console.warn("[sync-store] applyPartDelta: part not found", { messageID, partID, field });
-				return s;
-			}
+			if (!result.found) return s;
 			const next = [...list];
 			const part = { ...next[result.index] };
 			const existing = (part as Record<string, unknown>)[field] as
@@ -378,21 +372,6 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 
 	hydrate: (sessionID, msgs) =>
 		set((s) => {
-			// Debug: log what the server returned (remove after debugging)
-			console.log("[sync-store] hydrate", {
-				sessionID,
-				msgCount: msgs.length,
-				messages: msgs.map((m) => ({
-					id: m.info?.id,
-					role: m.info?.role,
-					partCount: m.parts?.length,
-					parts: m.parts?.map((p) => ({
-						id: p?.id,
-						type: p?.type,
-						textLen: typeof (p as any)?.text === "string" ? (p as any).text.length : undefined,
-					})),
-				})),
-			});
 			const cmp = (a: string, b: string) =>
 				a < b ? -1 : a > b ? 1 : 0;
 			const incoming = msgs
@@ -473,11 +452,31 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 					newParts[mid] = inParts;
 					continue;
 				}
-				// Reconcile by key: incoming parts are authoritative, but
-				// keep any extra existing parts (from SSE) not in incoming.
+				// Reconcile by key: incoming parts are generally authoritative,
+				// but for text parts during active streaming, SSE-accumulated
+				// parts may have MORE content than the server snapshot (the
+				// server may return empty/stale text for in-progress parts).
+				// In that case, prefer the existing (SSE) version.
+				const exById = new Map(exParts.map((p) => [p.id, p]));
 				const inIds = new Set(inParts.map((p) => p.id));
 				const extras = exParts.filter((p) => !inIds.has(p.id));
-				const reconciled = [...inParts];
+				const reconciled = inParts.map((inP) => {
+					const exP = exById.get(inP.id);
+					if (!exP) return inP;
+					// For text parts: prefer whichever has more text content.
+					// This prevents hydrate from clobbering SSE-streamed text
+					// with an empty/stale server snapshot during active streaming.
+					const inText = (inP as any).text;
+					const exText = (exP as any).text;
+					if (
+						typeof exText === "string" &&
+						typeof inText === "string" &&
+						exText.length > inText.length
+					) {
+						return exP;
+					}
+					return inP;
+				});
 				for (const ep of extras) {
 					const r = Binary.search(reconciled, ep.id, (p) => p.id);
 					if (!r.found) reconciled.splice(r.index, 0, ep);
