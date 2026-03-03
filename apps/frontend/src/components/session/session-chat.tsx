@@ -2910,34 +2910,59 @@ export function SessionChat({
 		if (typeof window === "undefined") return;
 		if (!messages || messages.length === 0) return;
 
+		// Cache only the ACTIVE assistant response (incomplete message).
+		// Never overwrite cache with the previous completed turn while waiting
+		// for a new assistant message to appear.
+		let activeAssistant: (typeof messages)[number] | null = null;
 		for (let i = messages.length - 1; i >= 0; i--) {
 			const msg = messages[i];
 			if (msg.info.role !== "assistant") continue;
-			let bestPart: { id: string; text: string } | null = null;
-			for (const p of msg.parts) {
-				if ((p as any)?.type !== "text") continue;
-				const text = typeof (p as any)?.text === "string" ? (p as any).text : "";
-				if (!text) continue;
-				if (!bestPart || text.length > bestPart.text.length) {
-					bestPart = { id: (p as any).id, text };
-				}
+			const completed = !!(msg.info as any).time?.completed;
+			if (!completed) {
+				activeAssistant = msg;
+				break;
 			}
-			if (!bestPart) return;
-			try {
-				sessionStorage.setItem(
-					streamCacheKey,
-					JSON.stringify({
-						messageID: msg.info.id,
-						parentID: (msg.info as any).parentID,
-						partID: bestPart.id,
-						text: bestPart.text,
-						updatedAt: Date.now(),
-					}),
-				);
-			} catch {
-				// ignore storage failures
+		}
+		if (!activeAssistant) return;
+
+		let bestPart: { id: string; text: string } | null = null;
+		for (const p of activeAssistant.parts) {
+			if ((p as any)?.type !== "text") continue;
+			const text = typeof (p as any)?.text === "string" ? (p as any).text : "";
+			if (!text) continue;
+			if (!bestPart || text.length > bestPart.text.length) {
+				bestPart = { id: (p as any).id, text };
 			}
-			return;
+		}
+		if (!bestPart) return;
+
+		try {
+			let existing: { messageID?: string; partID?: string; text?: string } | null = null;
+			const raw = sessionStorage.getItem(streamCacheKey);
+			existing = raw ? JSON.parse(raw) : null;
+			// Monotonic cache: never overwrite with shorter text for the same part.
+			if (
+				existing &&
+				existing.messageID === activeAssistant.info.id &&
+				existing.partID === bestPart.id &&
+				typeof existing.text === "string" &&
+				existing.text.length >= bestPart.text.length
+			) {
+				return;
+			}
+
+			sessionStorage.setItem(
+				streamCacheKey,
+				JSON.stringify({
+					messageID: activeAssistant.info.id,
+					parentID: (activeAssistant.info as any).parentID,
+					partID: bestPart.id,
+					text: bestPart.text,
+					updatedAt: Date.now(),
+				}),
+			);
+		} catch {
+			// ignore storage failures
 		}
 	}, [messages, streamCacheKey]);
 
@@ -2967,6 +2992,17 @@ export function SessionChat({
 
 		const store = useSyncStore.getState();
 		const currentMsgs = store.getMessages(sessionId);
+		let latestUserId: string | undefined;
+		for (let i = currentMsgs.length - 1; i >= 0; i--) {
+			if (currentMsgs[i].info.role === "user") {
+				latestUserId = currentMsgs[i].info.id;
+				break;
+			}
+		}
+		if (hasPendingUserReply && cached.parentID && latestUserId && cached.parentID !== latestUserId) {
+			// Cache belongs to an older turn; don't inject it into the new pending turn.
+			return;
+		}
 		const hasMsg = currentMsgs.some((m) => m.info.id === cached!.messageID);
 		const hasAnyUser = currentMsgs.some((m) => m.info.role === "user");
 
@@ -2974,15 +3010,16 @@ export function SessionChat({
 			// Only create a synthetic assistant message if we can safely attach
 			// it to an existing user turn.
 			if (!hasAnyUser) return;
-			if (cached.parentID) {
-				const parentExists = currentMsgs.some((m) => m.info.id === cached!.parentID);
+			const parentID = cached.parentID ?? latestUserId;
+			if (parentID) {
+				const parentExists = currentMsgs.some((m) => m.info.id === parentID);
 				if (!parentExists) return;
 			}
 			store.upsertMessage(sessionId, {
 				id: cached.messageID,
 				sessionID: sessionId,
 				role: "assistant",
-				parentID: cached.parentID,
+				parentID,
 			} as any);
 		}
 
@@ -2999,7 +3036,7 @@ export function SessionChat({
 			type: "text",
 			text: cached.text,
 		} as any);
-	}, [messages, sessionId, shouldRecoveryPoll, streamCacheKey]);
+	}, [messages, sessionId, shouldRecoveryPoll, streamCacheKey, hasPendingUserReply]);
 
 	// ---- Message Queue ----
 	// Hydrate queue state on first mount (local client storage).

@@ -20,6 +20,7 @@ const TYPING_SPEED = 24;       // ms per character
 const SHIMMER_DURATION = 900;  // ms per shimmer sweep
 const SHIMMER_COUNT = 2;       // number of shimmer sweeps
 const SHIMMER_GAP = 400;       // ms gap between shimmer sweeps
+const SHIMMER_CYCLE = SHIMMER_DURATION + SHIMMER_GAP;
 const CLEAR_DURATION = 300;    // ms for fade-out
 const PAUSE_AFTER_CLEAR = 150; // ms pause before next message
 
@@ -174,17 +175,21 @@ function AnimatedThinkingTextComponent({ statusText, className }: AnimatedThinki
   const shimmerStyle: React.CSSProperties = shimmerActive
     ? {
         backgroundImage:
-          'linear-gradient(90deg, transparent calc(50% - var(--spread)), var(--highlight), transparent calc(50% + var(--spread))), linear-gradient(var(--base), var(--base))',
-        backgroundSize: '250% 100%, auto',
+          'linear-gradient(90deg, transparent calc(50% - var(--spread)), var(--highlight-soft) calc(50% - var(--spread-soft)), var(--highlight), var(--highlight-soft) calc(50% + var(--spread-soft)), transparent calc(50% + var(--spread))), linear-gradient(var(--base), var(--base))',
+        backgroundSize: '220% 100%, auto',
         backgroundRepeat: 'no-repeat, padding-box',
         WebkitBackgroundClip: 'text',
         backgroundClip: 'text',
         color: 'transparent',
-        animation: `thinking-shimmer ${SHIMMER_DURATION}ms linear ${statusText ? 'infinite' : 'forwards'}`,
+        animation: statusText
+          ? `thinking-shimmer-pause ${SHIMMER_CYCLE}ms linear infinite`
+          : `thinking-shimmer ${SHIMMER_DURATION}ms linear forwards`,
         // CSS vars consumed by the gradient
-        '--spread': `${(fullText.current.length || 10) * 2}px`,
+        '--spread': `${Math.max((fullText.current.length || 10) * 1.3, 14)}px`,
+        '--spread-soft': `${Math.max((fullText.current.length || 10) * 0.45, 6)}px`,
         '--base': 'var(--shimmer-base)',
         '--highlight': 'var(--shimmer-highlight)',
+        '--highlight-soft': 'var(--shimmer-highlight-soft)',
       } as React.CSSProperties
     : {};
 
@@ -193,8 +198,8 @@ function AnimatedThinkingTextComponent({ statusText, className }: AnimatedThinki
       className={cn(
         'relative inline-flex items-center min-h-[1.2em]',
         // CSS custom props for light/dark shimmer colours
-        '[--shimmer-base:#a1a1aa] [--shimmer-highlight:#000]',
-        'dark:[--shimmer-base:#71717a] dark:[--shimmer-highlight:#fff]',
+        '[--shimmer-base:#a1a1aa] [--shimmer-highlight:#27272a] [--shimmer-highlight-soft:#3f3f46]',
+        'dark:[--shimmer-base:#71717a] dark:[--shimmer-highlight:#f4f4f5] dark:[--shimmer-highlight-soft:#d4d4d8]',
         className,
       )}
     >
@@ -213,12 +218,6 @@ function AnimatedThinkingTextComponent({ statusText, className }: AnimatedThinki
       >
         {visibleText || '\u00A0'}
       </span>
-      {/* Blinking cursor during typing */}
-      {phase === 'typing' && visibleText.length > 0 && (
-        <span
-          className="inline-block w-[1px] h-[0.85em] bg-muted-foreground/70 ml-[1px] align-text-bottom animate-cursor-blink"
-        />
-      )}
     </span>
   );
 }

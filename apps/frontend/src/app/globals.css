@@ -2438,6 +2438,11 @@
   100% { background-position: 0% center; }
 }
 
+@keyframes thinking-shimmer-pause {
+  0%, 28% { background-position: 120% center; }
+  72%, 100% { background-position: -20% center; }
+}
+
 /* Blinking cursor for typing animation */
 @keyframes cursor-blink {
   0%, 100% { opacity: 1; }
