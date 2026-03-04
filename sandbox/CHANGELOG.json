@@ -1,5 +1,51 @@
 [
   {
+    "version": "0.7.12",
+    "date": "2026-03-04",
+    "title": "DNS-first provider routing with passthrough billing headers",
+    "description": "Switches LLM provider routing to DNS/network-managed upstream resolution while keeping provider UX native (Anthropic/OpenAI/xAI/Google/Groq) and preserving Kortix passthrough billing attribution via X-Kortix-Token headers.",
+    "changes": [
+      {
+        "type": "improvement",
+        "text": "Removed explicit LLM baseURL rewrites from sandbox env setup so providers use normal upstream endpoints by default and can be redirected by managed DNS/network rules"
+      },
+      {
+        "type": "improvement",
+        "text": "Configured native provider entries (anthropic/openai/xai/google/groq) in opencode.jsonc with X-Kortix-Token header injection for passthrough billing attribution"
+      },
+      {
+        "type": "fix",
+        "text": "Pinned @opencode-ai/plugin to 1.2.16 in sandbox/opencode/package.json to avoid release/build failures caused by unavailable 1.2.17"
+      }
+    ],
+    "artifacts": [
+      {
+        "name": "v0.7.12",
+        "target": "github-release"
+      },
+      {
+        "name": "@kortix/sandbox@0.7.12",
+        "target": "npm"
+      },
+      {
+        "name": "kortix/sandbox:0.7.12",
+        "target": "docker-hub"
+      },
+      {
+        "name": "kortix-sandbox-v0.7.12",
+        "target": "daytona"
+      },
+      {
+        "name": "kortix/kortix-api:0.7.12",
+        "target": "docker-hub"
+      },
+      {
+        "name": "kortix/kortix-frontend:0.7.12",
+        "target": "docker-hub"
+      }
+    ]
+  },
+  {
     "version": "0.7.11",
     "date": "2026-03-04",
     "title": "Fix ACID update on Daytona — agent-tunnel bundling & ownership",
