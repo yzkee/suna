@@ -932,7 +932,7 @@ export function useOpenCodeEventStream() {
 				visibilityTimer = null;
 				// Only rehydrate if the last SSE event was >3s ago — if events
 				// are still flowing normally, the stream is healthy.
-				if (Date.now() - lastEventTime > 3000) {
+				if (Date.now() - lastStreamActivityTime > 3000) {
 					hydrateCore({ rehydrateMessages: true });
 				}
 			}, 500);
@@ -950,12 +950,12 @@ export function useOpenCodeEventStream() {
 			if (typeof document !== "undefined" && document.visibilityState !== "visible") {
 				return;
 			}
-			if (Date.now() - lastEventTime < 12_000) return;
+			if (Date.now() - lastStreamActivityTime < 12_000) return;
 
 			if (stallRecoveryInFlight) return;
 
 			stallRecoveryInFlight = true;
-			lastEventTime = Date.now();
+			lastStreamActivityTime = Date.now();
 
 			void (async () => {
 				const collectLocalCandidates = () => {
