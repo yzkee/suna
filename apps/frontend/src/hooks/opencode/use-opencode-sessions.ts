@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getClient } from '@/lib/opencode-sdk';
+import { useOpenCodeCompactionStore } from '@/stores/opencode-compaction-store';
 import { useOpenCodeSessionStatusStore } from '@/stores/opencode-session-status-store';
 import { useSyncStore } from '@/stores/opencode-sync-store';
 import type {
@@ -613,6 +614,8 @@ export function useExecuteOpenCodeCommand() {
 
 export function useSummarizeOpenCodeSession() {
   const queryClient = useQueryClient();
+  const startCompaction = useOpenCodeCompactionStore((s) => s.startCompaction);
+  const stopCompaction = useOpenCodeCompactionStore((s) => s.stopCompaction);
   return useMutation({
     mutationFn: async (params: { sessionId: string; providerID?: string; modelID?: string }) => {
       const client = getClient();
@@ -688,6 +691,12 @@ export function useSummarizeOpenCodeSession() {
       });
       unwrap(result);
       return params.sessionId;
+    },
+    onMutate: ({ sessionId }) => {
+      startCompaction(sessionId);
+    },
+    onError: (_err, { sessionId }) => {
+      stopCompaction(sessionId);
     },
     onSuccess: (_sessionId) => {
       // SSE session.compacted event handles rehydration of messages and

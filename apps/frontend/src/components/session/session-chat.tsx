@@ -95,6 +95,7 @@ import { cn } from "@/lib/utils";
 import { useKortixComputerStore } from "@/stores/kortix-computer-store";
 import { useMessageQueueStore } from "@/stores/message-queue-store";
 import { useOpenCodePendingStore } from "@/stores/opencode-pending-store";
+import { useOpenCodeCompactionStore } from "@/stores/opencode-compaction-store";
 import { useOpenCodeSessionStatusStore } from "@/stores/opencode-session-status-store";
 import { useSyncStore } from "@/stores/opencode-sync-store";
 import { useServerStore } from "@/stores/server-store";
@@ -3012,6 +3013,9 @@ export function SessionChat({
 	const legacyStatus = useOpenCodeSessionStatusStore(
 		(s) => s.statuses[sessionId],
 	);
+	const isOptimisticCompacting = useOpenCodeCompactionStore(
+		(s) => Boolean(s.compactingBySession[sessionId]),
+	);
 	const sessionStatus = syncStatus ?? legacyStatus;
 	const isServerBusy =
 		sessionStatus?.type === "busy" || sessionStatus?.type === "retry";
@@ -3051,7 +3055,11 @@ export function SessionChat({
 	// Effective busy: server says busy, OR the assistant message is incomplete
 	// or we're still waiting for the first assistant response.
 	const effectiveBusy =
-		isServerBusy || hasIncompleteAssistant || hasPendingUserReply || pendingSendInFlight;
+		isServerBusy ||
+		hasIncompleteAssistant ||
+		hasPendingUserReply ||
+		pendingSendInFlight ||
+		isOptimisticCompacting;
 
 	// Debounced busy state: goes true immediately, but stays true for 2s
 	// after BOTH signals say idle. This prevents flickering between agentic
@@ -3764,6 +3772,17 @@ export function SessionChat({
 		() => (messages ? groupMessagesIntoTurns(messages) : []),
 		[messages],
 	);
+	const hasCompactionTurn = useMemo(
+		() =>
+			turns.some(
+				(turn) =>
+					turn.assistantMessages.some((msg) => (msg.info as any).summary === true) ||
+					turn.assistantMessages.some((msg) =>
+						msg.parts.some((p) => p.type === "compaction"),
+					),
+			),
+		[turns],
+	);
 
 	// Reset on session change
 	useEffect(() => {
@@ -4326,10 +4345,37 @@ export function SessionChat({
 											)}
 										</div>
 								</div>
-								)}
+										)}
 
-								{/* Turn-based message rendering */}
-								{turns.map((turn, turnIndex) => {
+										{isOptimisticCompacting && !hasCompactionTurn && (
+											<div className="space-y-3">
+												<div className="flex items-center gap-3 py-4 my-3">
+													<div className="flex-1 h-px bg-border" />
+													<div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-muted/80 border border-border/60">
+														<Layers className="size-3.5 text-muted-foreground" />
+														<span className="text-[11px] font-semibold text-muted-foreground tracking-wide">
+															Compaction
+														</span>
+													</div>
+													<div className="flex-1 h-px bg-border" />
+												</div>
+												<div className="flex items-center gap-3">
+													{/* eslint-disable-next-line @next/next/no-img-element */}
+													<img
+														src="/kortix-logomark-white.svg"
+														alt="Kortix"
+														className="dark:invert-0 invert flex-shrink-0"
+														style={{ height: "14px", width: "auto" }}
+													/>
+													<div className="text-sm text-muted-foreground">
+														Compacting session...
+													</div>
+												</div>
+											</div>
+										)}
+
+										{/* Turn-based message rendering */}
+										{turns.map((turn, turnIndex) => {
 									// Check if this turn is a compaction summary
 									// The server sets `summary: true` on assistant messages that are compaction summaries
 									const hasCompaction =

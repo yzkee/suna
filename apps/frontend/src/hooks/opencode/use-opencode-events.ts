@@ -22,6 +22,7 @@ import {
 	notifyTaskComplete,
 } from "@/lib/web-notifications";
 import { useDiagnosticsStore, parseDiagnosticsFromToolOutput } from "@/stores/diagnostics-store";
+import { useOpenCodeCompactionStore } from "@/stores/opencode-compaction-store";
 import { useOpenCodePendingStore } from "@/stores/opencode-pending-store";
 import { useOpenCodeSessionStatusStore } from "@/stores/opencode-session-status-store";
 import { useSyncStore } from "@/stores/opencode-sync-store";
@@ -46,6 +47,7 @@ export function useOpenCodeEventStream() {
 	const addQuestion = useOpenCodePendingStore((s) => s.addQuestion);
 	const removeQuestion = useOpenCodePendingStore((s) => s.removeQuestion);
 	const clearPending = useOpenCodePendingStore((s) => s.clear);
+	const stopCompaction = useOpenCodeCompactionStore((s) => s.stopCompaction);
 	const applySyncEvent = useSyncStore((s) => s.applyEvent);
 	const serverVersion = useServerStore((s) => s.serverVersion);
 	const activeServerUrl = useServerStore((s) => s.getActiveServerUrl());
@@ -583,6 +585,7 @@ export function useOpenCodeEventStream() {
 			case "session.compacted": {
 				const sessionID = (event.properties as any).sessionID;
 				if (sessionID) {
+					stopCompaction(sessionID);
 					// Full refetch after compaction since messages changed significantly.
 					// Rehydrate the sync store (the single source of truth for messages).
 					const client = getClient();
@@ -651,11 +654,12 @@ export function useOpenCodeEventStream() {
 				}
 
 				// ---- Session errors ----
-				case "session.error": {
-					const props = event.properties as { sessionID?: string; error?: any };
-					console.log("[sse-handler] session.error event received", { sessionID: props.sessionID, error: props.error });
-					if (props.sessionID && props.error) {
-						// Fire browser notification
+			case "session.error": {
+				const props = event.properties as { sessionID?: string; error?: any };
+				console.log("[sse-handler] session.error event received", { sessionID: props.sessionID, error: props.error });
+				if (props.sessionID && props.error) {
+					stopCompaction(props.sessionID);
+					// Fire browser notification
 						const errorTitle =
 							props.error?.name ||
 							props.error?.data?.message ||
@@ -1067,6 +1071,7 @@ export function useOpenCodeEventStream() {
 		serverVersion,
 		activeServerUrl,
 		applySyncEvent,
+		stopCompaction,
 	]);
 }
 
