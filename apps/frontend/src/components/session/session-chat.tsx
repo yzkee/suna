@@ -1485,6 +1485,19 @@ function trimIncompleteTableRow(text: string): string {
 	return lines.join("\n");
 }
 
+function closeUnterminatedCodeFence(text: string): string {
+	if (!text) return text;
+	const lines = text.split("\n");
+	let fenceCount = 0;
+	for (const line of lines) {
+		if (line.trimStart().startsWith("```")) {
+			fenceCount++;
+		}
+	}
+	if (fenceCount % 2 === 0) return text;
+	return `${text}\n\n\`\`\``;
+}
+
 function ThrottledMarkdown({
 	content,
 	isStreaming,
@@ -1492,7 +1505,9 @@ function ThrottledMarkdown({
 	content: string;
 	isStreaming: boolean;
 }) {
-	const displayContent = isStreaming ? trimIncompleteTableRow(content) : content;
+	const displayContent = isStreaming
+		? closeUnterminatedCodeFence(trimIncompleteTableRow(content))
+		: content;
 	return (
 		<UnifiedMarkdown
 			content={displayContent}
@@ -1595,6 +1610,21 @@ function SessionTurn({
 		() => getWorkingState(sessionStatus, isLast) || (isLast && isBusy),
 		[sessionStatus, isLast, isBusy],
 	);
+	const activeAssistantMessage = useMemo(() => {
+		if (turn.assistantMessages.length === 0) return undefined;
+		for (let i = turn.assistantMessages.length - 1; i >= 0; i--) {
+			const msg = turn.assistantMessages[i];
+			if (!(msg.info as any)?.time?.completed) return msg;
+		}
+		return turn.assistantMessages[turn.assistantMessages.length - 1];
+	}, [turn.assistantMessages]);
+	const streamingResponseRaw = useMemo(() => {
+		if (!activeAssistantMessage) return "";
+		return activeAssistantMessage.parts
+			.filter(isTextPart)
+			.map((p) => p.text ?? "")
+			.join("");
+	}, [activeAssistantMessage]);
 	const lastTextPart = useMemo(() => findLastTextPart(allParts), [allParts]);
 	const responseRaw = lastTextPart?.text ?? "";
 	// Fallback: when aborted, collect ALL non-empty text parts if the
@@ -1616,7 +1646,18 @@ function SessionTurn({
 		}
 		return texts.join("\n\n").trim();
 	}, [responseRaw, allParts, turn.assistantMessages]);
-	const response = working ? responseRaw : (responseRaw.trim() || abortedTextFallback);
+	const completedTextParts = useMemo(
+		() =>
+			allParts
+				.map(({ part }) => (isTextPart(part) ? part.text?.trim() : ""))
+				.filter((text): text is string => Boolean(text)),
+		[allParts],
+	);
+	const response = working
+		? (streamingResponseRaw || responseRaw)
+		: !hasSteps && completedTextParts.length > 0
+			? completedTextParts.join("\n\n")
+			: responseRaw.trim() || abortedTextFallback;
 	// Retry info (only on last turn)
 	const retryInfo = useMemo(
 		() => (isLast ? getRetryInfo(sessionStatus) : undefined),
@@ -2167,6 +2208,11 @@ function SessionTurn({
 						// Text parts (intermediate + streaming response while working)
 						if (isTextPart(part)) {
 							if (!part.text?.trim()) return null;
+							// For text-only streaming turns, render a single aggregated
+							// stream block below from the active assistant message only.
+							if (working && !hasSteps) {
+								return null;
+							}
 							return (
 								<div key={part.id} className="text-sm">
 									<ThrottledMarkdown
@@ -2290,6 +2336,11 @@ function SessionTurn({
 
 			{/* Inline content: text and answered questions rendered in natural order.
 			    Works both during streaming and after completion. */}
+			{working && !hasSteps && !shouldUseInlineContent && response && (
+				<div className="text-sm">
+					<ThrottledMarkdown content={response} isStreaming />
+				</div>
+			)}
 			{shouldUseInlineContent ? (
 				<div className="space-y-3">
 					{(() => {
@@ -2872,13 +2923,13 @@ export function SessionChat({
 		}
 		return true;
 	}, [messages]);
+	const expectAssistantResponse =
+		isServerBusy || hasPendingUserReply || hasIncompleteAssistant || pendingSendInFlight;
 
 	// Effective busy: server says busy, OR the assistant message is incomplete
-	// AND the server hasn't explicitly reported idle. The server is authoritative —
-	// if it says idle, the session is done even if the message's time.completed
-	// hasn't arrived via SSE yet (can happen after abort).
-	const serverExplicitlyIdle = sessionStatus?.type === "idle";
-	const effectiveBusy = isServerBusy || (hasIncompleteAssistant && !serverExplicitlyIdle);
+	// or we're still waiting for the first assistant response.
+	const effectiveBusy =
+		isServerBusy || hasIncompleteAssistant || hasPendingUserReply || pendingSendInFlight;
 
 	// Debounced busy state: goes true immediately, but stays true for 2s
 	// after BOTH signals say idle. This prevents flickering between agentic
@@ -2899,7 +2950,7 @@ export function SessionChat({
 	// expect an assistant response but status signals are stale (common around
 	// refresh/reconnect races).
 	const shouldRecoveryPoll =
-		isServerBusy || hasPendingUserReply || hasIncompleteAssistant || pendingSendInFlight;
+		expectAssistantResponse;
 
 	const streamCacheKey = `opencode_stream_cache:${sessionId}`;
 
@@ -2936,9 +2987,13 @@ export function SessionChat({
 				break;
 			}
 		}
-		if (hasPendingUserReply && cached.parentID && latestUserId && cached.parentID !== latestUserId) {
-			// Cache belongs to an older turn; don't inject it into the new pending turn.
-			return;
+		if (hasPendingUserReply) {
+			// For a fresh pending turn we must have an exact parent match.
+			// If cached parentID is missing or mismatched, the cache likely
+			// belongs to an older turn and would prepend stale mid-stream text.
+			if (!cached.parentID || !latestUserId || cached.parentID !== latestUserId) {
+				return;
+			}
 		}
 		const hasMsg = currentMsgs.some((m) => m.info.id === cached!.messageID);
 		const hasAnyUser = currentMsgs.some((m) => m.info.role === "user");
@@ -2948,6 +3003,7 @@ export function SessionChat({
 			// it to an existing user turn.
 			if (!hasAnyUser) return;
 			const parentID = cached.parentID ?? latestUserId;
+			if (hasPendingUserReply && !parentID) return;
 			if (parentID) {
 				const parentExists = currentMsgs.some((m) => m.info.id === parentID);
 				if (!parentExists) return;
@@ -3223,8 +3279,10 @@ export function SessionChat({
 			}
 		};
 
-		// First check after 10s (give SSE time), then every 30s (reduced frequency)
-		const initialTimer = setTimeout(check, 10_000);
+		// First check after 5s, then every 30s.
+		// This shortens recovery time when SSE disconnects mid-response and
+		// the client misses the final status/message events.
+		const initialTimer = setTimeout(check, 5_000);
 		const interval = setInterval(check, 30_000);
 		return () => {
 			clearTimeout(initialTimer);

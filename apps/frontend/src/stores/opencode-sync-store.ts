@@ -246,7 +246,32 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 			const result = Binary.search(list, part.id, (p) => p.id);
 			const next = [...list];
 			if (result.found) {
-				next[result.index] = part;
+				const prev = next[result.index] as any;
+				const incoming = part as any;
+				const prevText = typeof prev?.text === "string" ? prev.text : null;
+				const incomingText =
+					typeof incoming?.text === "string" ? incoming.text : null;
+
+				// Guard against out-of-order/stale part snapshots that can cause
+				// the stream to jump or start from the middle.
+				// For existing text parts, only accept full-text replacements that
+				// are monotonic prefix growth (incoming starts with previous).
+				// Otherwise keep the existing streamed text and let delta events
+				// continue appending naturally.
+				if (
+					prevText !== null &&
+					incomingText !== null &&
+					prevText.length > 0
+				) {
+					const isPrefixGrowth = incomingText.startsWith(prevText);
+					if (!isPrefixGrowth) {
+						next[result.index] = { ...part, text: prevText } as Part;
+					} else {
+						next[result.index] = part;
+					}
+				} else {
+					next[result.index] = part;
+				}
 			} else {
 				next.splice(result.index, 0, part);
 			}
