@@ -3,6 +3,8 @@
 import { lazy, Suspense, type ComponentType } from 'react';
 import { KortixLoader } from '@/components/ui/kortix-loader';
 
+const DEPLOYMENTS_ENABLED = process.env.NEXT_PUBLIC_KORTIX_DEPLOYMENTS_ENABLED === 'true';
+
 // ---------------------------------------------------------------------------
 // Lazy-load every route-based page component so they can be pre-mounted in the
 // DOM and kept alive when the user switches tabs (CSS show/hide).
@@ -124,7 +126,7 @@ const PAGE_COMPONENTS: Record<string, ComponentType> = {
 	'/files': FilesPage,
 	'/tunnel': TunnelOverviewPage,
 	'/memory': MemoryPage,
-	'/deployments': DeploymentsPage,
+	...(DEPLOYMENTS_ENABLED ? { '/deployments': DeploymentsPage } : {}),
 	// Admin
 	'/admin/analytics': AdminAnalyticsPage,
 	'/admin/feedback': AdminFeedbackPage,

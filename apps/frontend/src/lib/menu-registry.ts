@@ -75,6 +75,8 @@ import {
   TestTube,
 } from 'lucide-react';
 
+const DEPLOYMENTS_ENABLED = process.env.NEXT_PUBLIC_KORTIX_DEPLOYMENTS_ENABLED === 'true';
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -376,16 +378,18 @@ export const menuRegistry: MenuItemDef[] = [
     kind: 'navigate',
     href: '/tunnel',
   },
-  {
-    id: 'deployments',
-    label: 'Deployments',
-    icon: Rocket,
-    group: 'navigation',
-    subGroup: 'automation',
-    showIn: ['commandPalette', 'rightSidebar'],
-    kind: 'navigate',
-    href: '/deployments',
-  },
+  ...(DEPLOYMENTS_ENABLED
+    ? [{
+      id: 'deployments',
+      label: 'Deployments',
+      icon: Rocket,
+      group: 'navigation',
+      subGroup: 'automation',
+      showIn: ['commandPalette', 'rightSidebar'],
+      kind: 'navigate',
+      href: '/deployments',
+    }]
+    : []),
   {
     id: 'changelog',
     label: 'Changelog',

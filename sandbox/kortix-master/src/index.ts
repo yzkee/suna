@@ -286,8 +286,10 @@ app.route('/env', envRouter)
 // LSS semantic search — /lss/search?q=<query> runs local semantic search
 app.route('/lss', lssRouter)
 
-// Deployment management
-app.route('/kortix/deploy', deployRouter)
+// Deployment management (feature-flagged)
+if (config.KORTIX_DEPLOYMENTS_ENABLED) {
+  app.route('/kortix/deploy', deployRouter)
+}
 
 // Services — unified "what's running" for the frontend
 app.route('/kortix/services', servicesRouter)

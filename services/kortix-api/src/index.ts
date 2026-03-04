@@ -14,7 +14,6 @@ import { platformApp } from './platform';
 import { cronApp, startScheduler, stopScheduler, getSchedulerStatus } from './cron';
 import { channelsApp, startChannelService, stopChannelService, getChannelServiceStatus } from './channels';
 import { daytonaProxyApp } from './daytona-proxy';
-import { deploymentsApp } from './deployments';
 import { getSandboxBaseUrl, proxyToSandbox } from './daytona-proxy/routes/local-preview';
 import { validateSecretKey } from './repositories/api-keys';
 import { isKortixToken } from './shared/crypto';
@@ -223,7 +222,10 @@ app.route('/v1/router', router);        // /v1/router/chat/completions, /v1/rout
 app.route('/v1/billing', billingApp);   // /v1/billing/account-state, /v1/billing/webhooks/*, /v1/billing/setup/*
 app.route('/v1/platform', platformApp); // /v1/platform/providers, /v1/platform/sandbox/*, /v1/platform/sandbox/version
 app.route('/v1/cron', cronApp);         // /v1/cron/sandboxes/*, /v1/cron/triggers/*, /v1/cron/executions/*
-app.route('/v1/deployments', deploymentsApp); // /v1/deployments/*
+if (config.KORTIX_DEPLOYMENTS_ENABLED) {
+  const { deploymentsApp } = await import('./deployments');
+  app.route('/v1/deployments', deploymentsApp); // /v1/deployments/*
+}
 app.route('/v1/integrations', integrationsApp); // /v1/integrations/*
 app.route('/', channelsApp);                 // /v1/channels/*, /webhooks/*
 
@@ -381,8 +383,7 @@ console.log(`
 ║    /v1/billing    (subscriptions, credits, webhooks)       ║
 ║    /v1/platform   (sandbox lifecycle)                      ║
 ║    /v1/cron       (scheduled triggers)                     ║
-║    /v1/deployments (deploy lifecycle)                      ║
-║    /v1/integrations (OAuth integrations)                    ║
+${config.KORTIX_DEPLOYMENTS_ENABLED ? '║    /v1/deployments (deploy lifecycle)                      ║\n' : ''}║    /v1/integrations (OAuth integrations)                    ║
 ║    /v1/setup      (setup & env management)                 ║
 ║    /v1/queue      (persistent message queue)               ║
 ║    /v1/tunnel     (reverse-tunnel to local machines)         ║

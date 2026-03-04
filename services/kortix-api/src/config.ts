@@ -6,7 +6,7 @@ export type SandboxProviderName = 'daytona' | 'local_docker';
 export type InternalKortixEnv = 'dev' | 'staging' | 'prod';
 
 /** Single source of truth for the sandbox version. Update on each release. */
-export const SANDBOX_VERSION = '0.7.6';
+export const SANDBOX_VERSION = '0.7.8';
 
 // ─── Zod Helpers ────────────────────────────────────────────────────────────
 
@@ -72,6 +72,7 @@ const envSchema = z.object({
   INTERNAL_KORTIX_ENV:              z.enum(['dev', 'staging', 'prod']).optional().default('dev'),
   KORTIX_ROUTER_INTERNAL_ENABLED:   optBoolFalse,  // NOTE: currently unused in codebase
   KORTIX_BILLING_INTERNAL_ENABLED:  optBoolFalse,
+  KORTIX_DEPLOYMENTS_ENABLED:       optBoolFalse,
 
   // ── Search Providers (optional — features degrade gracefully) ────────────
   TAVILY_API_URL:              optUrl('https://api.tavily.com'),
