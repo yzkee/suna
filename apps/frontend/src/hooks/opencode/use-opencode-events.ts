@@ -48,9 +48,10 @@ export function useOpenCodeEventStream() {
 	const clearPending = useOpenCodePendingStore((s) => s.clear);
 	const applySyncEvent = useSyncStore((s) => s.applyEvent);
 	const serverVersion = useServerStore((s) => s.serverVersion);
-	const hasServerUrl = useServerStore((s) => Boolean(s.getActiveServerUrl()));
+	const activeServerUrl = useServerStore((s) => s.getActiveServerUrl());
 	const abortRef = useRef<AbortController | null>(null);
 	const prevServerVersionRef = useRef(serverVersion);
+	const prevServerUrlRef = useRef(activeServerUrl);
 
 	/**
 	 * Resolve an absolute sandbox path to a project-relative path by stripping
@@ -141,6 +142,8 @@ export function useOpenCodeEventStream() {
 		// Only nuke caches on actual server switches (not URL/port updates)
 		const isServerSwitch = prevServerVersionRef.current !== serverVersion;
 		prevServerVersionRef.current = serverVersion;
+		const didServerUrlChange = prevServerUrlRef.current !== activeServerUrl;
+		prevServerUrlRef.current = activeServerUrl;
 
 		// Only reset the SDK client on actual server switches — NOT on URL/port
 		// updates. Resetting on every urlVersion change tears down the client
@@ -154,11 +157,16 @@ export function useOpenCodeEventStream() {
 			useSyncStore.getState().reset();
 			useDiagnosticsStore.getState().clearAll();
 			queryClient.removeQueries({ queryKey: opcodeKeys.all });
+		} else if (didServerUrlChange) {
+			// URL changed on the same logical server (e.g. sandbox/proxy refresh).
+			// Recreate the SDK client so SSE reconnects to the new endpoint, but
+			// keep caches/status intact to avoid loading flashes.
+			resetClient();
 		}
 
 		// During initial cloud bootstrap, the active server URL may be unresolved
 		// briefly (rehydration gap). Skip SSE setup until a URL exists.
-		if (!hasServerUrl) return;
+		if (!activeServerUrl) return;
 
 		const client = getClient();
 
@@ -241,10 +249,11 @@ export function useOpenCodeEventStream() {
 		const abortController = new AbortController();
 		abortRef.current = abortController;
 
-		// Track when the last SSE event arrived — used to gate reconnect hydration.
-		// Quick reconnects (<5s) don't need to re-fetch permissions/questions/status
-		// because no events were missed or only a few were (SSE will catch up).
-		let lastEventTime = Date.now();
+		// Track last stream activity (connect or event) to gate reconnect hydration.
+		// Using only "last event" causes hydrate storms when the server rotates
+		// idle SSE connections that carried no events.
+		let lastStreamActivityTime = Date.now();
+		let lastReconnectHydrateAt = 0;
 		// Track when the stream connected and whether it delivered any events.
 		// We reset reconnect backoff only after a healthy connection (events received
 		// or sustained >10s). Brief connect→drop loops keep backoff growth.
@@ -283,7 +292,7 @@ export function useOpenCodeEventStream() {
 			queue = [];
 			coalesced.clear();
 			lastFlush = Date.now();
-			lastEventTime = Date.now();
+			lastStreamActivityTime = Date.now();
 
 			for (const item of events) {
 				if (!item) continue;
@@ -311,6 +320,7 @@ export function useOpenCodeEventStream() {
 					} as any);
 					const { stream } = result;
 					streamConnectedAt = Date.now();
+					lastStreamActivityTime = streamConnectedAt;
 
 				// On reconnect, re-hydrate if the gap was significant (>5s).
 				// Short reconnects (<5s) don't call hydrate because it would
@@ -319,8 +329,12 @@ export function useOpenCodeEventStream() {
 				// watchdog in session-chat.tsx handles recovery for short gaps
 				// by polling when the last message is still a user message.
 				if (retryCount > 0) {
-					const reconnectGap = Date.now() - lastEventTime;
-					if (reconnectGap > 5000) {
+					const now = Date.now();
+					const reconnectGap = now - lastStreamActivityTime;
+					const shouldHydrate =
+						reconnectGap > 5000 && now - lastReconnectHydrateAt > 15000;
+					if (shouldHydrate) {
+						lastReconnectHydrateAt = now;
 						hydrateCore({ refetchSessions: true, rehydrateMessages: true });
 					}
 				}
@@ -910,13 +924,10 @@ export function useOpenCodeEventStream() {
 			abortRef.current = null;
 			if (flushTimer) clearTimeout(flushTimer);
 		};
-		// NOTE: urlVersion is intentionally excluded from deps. URL/port updates
-		// (via updateServerSilent) don't change the SSE endpoint — only the
-		// connection health monitor needs to re-verify on urlVersion changes.
-		// Including urlVersion here caused unnecessary SSE disconnection →
-		// reconnection → cache invalidation cascades (the "random loading" bug).
-		// The SDK's getClient() auto-detects URL changes via URL comparison,
-		// so it handles URL updates lazily on next API call.
+		// NOTE: urlVersion is intentionally excluded from deps. We only reconnect
+		// when the resolved activeServerUrl actually changes, which avoids
+		// reconnecting on metadata-only updates while still recovering from
+		// stale SSE connections after sandbox/proxy URL changes.
 	}, [
 		queryClient,
 		setStatus,
@@ -927,7 +938,7 @@ export function useOpenCodeEventStream() {
 		removeQuestion,
 		clearPending,
 		serverVersion,
-		hasServerUrl,
+		activeServerUrl,
 		applySyncEvent,
 	]);
 }
