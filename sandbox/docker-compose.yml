@@ -4,7 +4,7 @@
 # - container name is always `kortix-sandbox`
 # - host ports are stable so the frontend never chases random mappings
 #
-# Default host port range: 14000-14007
+# Default host port range: 14000-14008
 # If you already have something running on that range, edit the mappings below.
 #
 # ── Networking ──────────────────────────────────────────────────────────────
@@ -74,6 +74,7 @@ services:
       - "127.0.0.1:14005:9223"  # Agent Browser Stream (WS)
       - "127.0.0.1:14006:9224"  # Agent Browser Viewer
       - "127.0.0.1:14007:22"    # SSH
+      - "127.0.0.1:14008:3211"  # Static Web Server (standalone HTML/assets)
     shm_size: "2gb"
     restart: unless-stopped
     healthcheck:

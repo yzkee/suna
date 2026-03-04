@@ -1,0 +1,199 @@
+#!/usr/bin/with-contenv bash
+# Static Web Server — persistent single-service for standalone HTML/assets on port 3211
+# URL scheme:
+#   http://localhost:3211/                         → help page
+#   http://localhost:3211/abs/workspace/a.html     → serve absolute path /workspace/a.html
+#   http://localhost:3211/open?path=/workspace/a.html → same via query
+
+echo "[static-web] Starting persistent static server on port 3211"
+
+# Write server script to temp file to avoid shell quoting issues
+SCRIPT=/tmp/static-web-server.js
+cat > "$SCRIPT" << 'ENDOFSCRIPT'
+const fs = require("fs");
+const path = require("path");
+
+const PORT = 3211;
+const ALLOWED_ROOTS = ["/workspace", "/tmp", "/home", "/opt"];
+
+const MIME_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".htm": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".mjs": "application/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
+  ".md": "text/markdown; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".avif": "image/avif",
+  ".pdf": "application/pdf",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+};
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Cache-Control": "no-cache",
+};
+
+function getMime(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  return MIME_TYPES[ext] || "application/octet-stream";
+}
+
+function toAbsPath(rawPath) {
+  if (!rawPath || typeof rawPath !== "string") return null;
+  const decoded = decodeURIComponent(rawPath).trim();
+  if (!decoded.startsWith("/")) return null;
+  return path.normalize(decoded);
+}
+
+function isAllowed(absPath) {
+  return ALLOWED_ROOTS.some((root) => absPath === root || absPath.startsWith(root + "/"));
+}
+
+function buildHelpHtml(baseUrl) {
+  const roots = ALLOWED_ROOTS.map((root) => `<li><code>${root}</code></li>`).join("");
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Static Web Server</title>
+    <style>
+      body { font-family: ui-sans-serif, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 2rem; color: #111827; }
+      code { background: #f3f4f6; padding: 0.1rem 0.35rem; border-radius: 0.25rem; }
+      .muted { color: #6b7280; }
+      .box { border: 1px solid #e5e7eb; border-radius: 0.75rem; padding: 1rem 1.25rem; margin-bottom: 1rem; }
+      ul { margin-top: 0.5rem; }
+      li { margin-bottom: 0.25rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Static Web Server (always on)</h1>
+    <p class="muted">Serve standalone HTML and assets by absolute path.</p>
+
+    <div class="box">
+      <h2>Usage</h2>
+      <ul>
+        <li>Path style: <code>${baseUrl}/abs/workspace/path/to/file.html</code></li>
+        <li>Query style: <code>${baseUrl}/open?path=/workspace/path/to/file.html</code></li>
+      </ul>
+    </div>
+
+    <div class="box">
+      <h2>Allowed roots</h2>
+      <ul>${roots}</ul>
+    </div>
+
+    <div class="box">
+      <h2>SHOW tool tip</h2>
+      <p>For file-based HTML previews, use <code>show(type=\"url\", url=\"${baseUrl}/open?path=/workspace/your.html\")</code>.</p>
+    </div>
+  </body>
+</html>`;
+}
+
+function serveFile(absPath) {
+  try {
+    if (!isAllowed(absPath)) {
+      return new Response(`Forbidden path. Allowed roots: ${ALLOWED_ROOTS.join(", ")}`, {
+        status: 403,
+        headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders },
+      });
+    }
+
+    if (!fs.existsSync(absPath)) {
+      return new Response(`Not found: ${absPath}`, {
+        status: 404,
+        headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders },
+      });
+    }
+
+    const stat = fs.statSync(absPath);
+    if (!stat.isFile()) {
+      return new Response(`Not a file: ${absPath}`, {
+        status: 400,
+        headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders },
+      });
+    }
+
+    const data = fs.readFileSync(absPath);
+    return new Response(data, {
+      headers: {
+        "Content-Type": getMime(absPath),
+        ...corsHeaders,
+      },
+    });
+  } catch (e) {
+    return new Response(`Read error: ${e?.message || String(e)}`, {
+      status: 500,
+      headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders },
+    });
+  }
+}
+
+Bun.serve({
+  port: PORT,
+  hostname: "0.0.0.0",
+  fetch(req) {
+    const url = new URL(req.url);
+    const baseUrl = `${url.protocol}//${url.host}`;
+    const pathname = decodeURIComponent(url.pathname);
+
+    if (pathname === "/" || pathname === "/index.html") {
+      return new Response(buildHelpHtml(baseUrl), {
+        headers: { "Content-Type": "text/html; charset=utf-8", ...corsHeaders },
+      });
+    }
+
+    if (pathname === "/open") {
+      const p = url.searchParams.get("path");
+      const absPath = toAbsPath(p || "");
+      if (!absPath) {
+        return new Response("Missing or invalid ?path=/absolute/file", {
+          status: 400,
+          headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders },
+        });
+      }
+      return serveFile(absPath);
+    }
+
+    if (pathname.startsWith("/abs/")) {
+      const rawPath = "/" + pathname.slice("/abs/".length);
+      const absPath = toAbsPath(rawPath);
+      if (!absPath) {
+        return new Response("Invalid absolute path", {
+          status: 400,
+          headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders },
+        });
+      }
+      return serveFile(absPath);
+    }
+
+    return new Response("Not found", {
+      status: 404,
+      headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders },
+    });
+  },
+});
+
+console.log(`[static-web] Ready at http://0.0.0.0:${PORT}`);
+console.log("[static-web] Use /open?path=/absolute/file or /abs/<absolute-path-without-leading-slash>");
+ENDOFSCRIPT
+
+exec s6-setuidgid abc bun run "$SCRIPT"

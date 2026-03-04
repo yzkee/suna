@@ -87,6 +87,8 @@ RUN apk del gcc g++ musl-dev linux-headers python3-dev libffi-dev \
 # /tmp/sandbox-pkg-versions.json already COPY'd above for pip versions.
 RUN AB_VERSION=$(node -e "const p=require('/tmp/sandbox-pkg-versions.json');console.log(p.dependencies['agent-browser']||'latest')" 2>/dev/null || echo "latest") \
     && npm install -g "agent-browser@$AB_VERSION"
+RUN PORTLESS_VERSION=$(node -e "const p=require('/tmp/sandbox-pkg-versions.json');console.log(p.kortix?.globalNpmTools?.portless||'latest')" 2>/dev/null || echo "latest") \
+    && npm install -g --no-audit --no-fund "portless@$PORTLESS_VERSION"
 COPY sandbox/patch-agent-browser.js /tmp/patch-agent-browser.js
 RUN node /tmp/patch-agent-browser.js && rm /tmp/patch-agent-browser.js
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium-browser
@@ -242,7 +244,7 @@ ENV KORTIX_WORKSPACE=/workspace
 # Each service is a directory with: run, type (longrun), dependencies.d/init-services
 COPY sandbox/s6-services/ /etc/s6-overlay/s6-rc.d/
 # Register all custom services in the user bundle so s6 starts them
-RUN for svc in svc-opencode-web svc-opencode-serve svc-kortix-master svc-opencode-channels svc-lss-sync svc-agent-browser-viewer svc-presentation-viewer svc-sshd; do \
+RUN for svc in svc-opencode-web svc-opencode-serve svc-kortix-master svc-opencode-channels svc-lss-sync svc-agent-browser-viewer svc-presentation-viewer svc-static-web svc-sshd; do \
         touch "/etc/s6-overlay/s6-rc.d/user/contents.d/${svc}"; \
     done \
     && chmod +x /etc/s6-overlay/s6-rc.d/svc-*/run

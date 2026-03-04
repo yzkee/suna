@@ -93,9 +93,30 @@ All services are managed by s6-rc.d as longruns. Service scripts live at `/etc/s
 | OpenCode Serve | `svc-opencode-serve` | 4096 | (proxied via 8000) | Backend API server. Not exposed directly — proxied by Kortix Master. |
 | Desktop (noVNC) | (base image) | 6080 / 6081 | 14002 / 14003 | XFCE desktop via VNC. HTTP / HTTPS. |
 | Presentation Viewer | `svc-presentation-viewer` | 3210 | 14004 | Serves generated slide decks |
+| Static Web Server | `svc-static-web` | 3211 | 14008 | Serves standalone HTML/assets from absolute file paths |
 | Agent Browser Stream | (agent-browser) | 9223 | 14005 | Playwright browser automation WebSocket |
 | Agent Browser Viewer | `svc-agent-browser-viewer` | 9224 | 14006 | Browser session viewer UI (HTML + SSE bridge) |
 | lss-sync | `svc-lss-sync` | — | — | File watcher daemon for semantic search indexing |
+
+### Portless Policy (Mandatory for User-Started Servers)
+
+When starting any dev/app server manually, use `portless` every time. Never run raw port-bound commands.
+
+```bash
+# Good
+portless myapp pnpm dev
+portless api npm run start
+portless docs python -m http.server
+
+# Bad
+pnpm dev
+npm run start
+python -m http.server
+```
+
+- Format: `portless <unique-name> <cmd>`
+- Use unique, descriptive names (especially in worktrees)
+- Share URLs in `http://<name>.localhost:1355` format
 
 ### Kortix Master Details
 
