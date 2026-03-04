@@ -86,6 +86,7 @@ import {
 import { useAuthenticatedPreviewUrl } from "@/hooks/use-authenticated-preview-url";
 import { useFileContent } from "@/features/files/hooks/use-file-content";
 import {
+	isAppRouteUrl,
 	isProxiableLocalhostUrl,
 	parseLocalhostUrl,
 	proxyLocalhostUrl,
@@ -3472,7 +3473,7 @@ function showTypeIcon(type: string, className = "size-4") {
 function useShowOpenInTab(props: { type: string; url: string; path: string; title: string }) {
 	const { type, url, path, title } = props;
 	const proxy = useProxyUrl(url);
-	const hasLocalhostUrl = !!parseLocalhostUrl(url);
+	const hasLocalhostUrl = !!parseLocalhostUrl(url) && !isAppRouteUrl(url);
 
 	return useCallback(() => {
 		if (hasLocalhostUrl && proxy) {
@@ -3533,7 +3534,7 @@ function ShowTool({ part }: ToolProps) {
 	const isCarousel = !!items && items.length > 0;
 
 	const borderStyle = SHOW_BORDER_STYLES[theme] || SHOW_BORDER_STYLES.default;
-	const hasLocalhostUrl = !!parseLocalhostUrl(url);
+	const hasLocalhostUrl = !!parseLocalhostUrl(url) && !isAppRouteUrl(url);
 
 	const openInTab = useShowOpenInTab({ type, url, path, title });
 	const canOpenInTab = !isCarousel && !!(url || path);

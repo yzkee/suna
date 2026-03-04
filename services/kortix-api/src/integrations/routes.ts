@@ -522,7 +522,8 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
       });
     } catch (err) {
       console.error(`[INTEGRATIONS] Connect token failed for ${appSlug}:`, err);
-      throw new HTTPException(502, { message: `Failed to create connect token for "${appSlug}"` });
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new HTTPException(502, { message: `Failed to create connect token for "${appSlug}": ${detail}` });
     }
   });
 

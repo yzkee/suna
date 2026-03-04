@@ -139,6 +139,24 @@ function extractLocalhostCandidate(text: string): string | null {
 const KORTIX_MASTER_PROXY_REGEX = /^\/proxy\/(\d{1,5})(\/.*)?$/;
 
 /**
+ * Known frontend app route prefixes. URLs with these pathnames on
+ * localhost/127.0.0.1 are same-app navigations, NOT sandbox services
+ * to proxy. They should render as plain clickable links.
+ */
+const APP_ROUTE_PREFIXES = /^\/(integrations|settings|dashboard|projects|agents|skills|tools|commands|deployments|support|changelog|files)(\/|$|\?)/;
+
+export function isAppRouteUrl(rawUrl: string | undefined): boolean {
+  if (!rawUrl) return false;
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1') return false;
+    return APP_ROUTE_PREFIXES.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Parse a localhost URL in one place so all consumers share identical rules.
  *
  * Handles a special case: `http://localhost:8000/proxy/{port}/{path}` URLs
