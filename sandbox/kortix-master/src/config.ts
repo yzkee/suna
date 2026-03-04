@@ -34,6 +34,9 @@ export const config = {
   // Created by kortix-api at sandbox provisioning time. Injected as Docker env var.
   get KORTIX_TOKEN() { return process.env.KORTIX_TOKEN || '' },
 
+  // Feature flag: enable or disable local deployment routes (/kortix/deploy/*)
+  KORTIX_DEPLOYMENTS_ENABLED: process.env.KORTIX_DEPLOYMENTS_ENABLED === 'true',
+
   // Secret storage
   SECRET_FILE_PATH: process.env.SECRET_FILE_PATH || '/workspace/.secrets/.secrets.json',
   SALT_FILE_PATH: process.env.SALT_FILE_PATH || '/workspace/.secrets/.salt',

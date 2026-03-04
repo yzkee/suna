@@ -1,11 +1,17 @@
 import { Hono } from 'hono'
 import { existsSync, readFileSync, readdirSync } from 'fs'
 import { join } from 'path'
-import { deployer } from './deploy'
 import type { ListeningProcess } from '../services/port-scanner'
+import { config } from '../config'
 
 const servicesRouter = new Hono()
 console.log('[Services] Route module loaded')
+
+async function getDeployer() {
+  if (!config.KORTIX_DEPLOYMENTS_ENABLED) return null
+  const mod = await import('./deploy')
+  return mod.deployer
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -150,21 +156,24 @@ servicesRouter.get('/', async (c) => {
     const seenPorts = new Set<number>()
 
     // 1. Deployer-tracked services (managed)
-    const deployments = deployer.listDeployments()
-    console.log(`[Services API] Deployer has ${deployments.length} tracked service(s)`)
-    for (const dep of deployments) {
-      seenPorts.add(dep.port)
-      results.push({
-        id: dep.deploymentId,
-        name: dep.deploymentId,
-        port: dep.port,
-        pid: dep.pid,
-        framework: dep.framework,
-        sourcePath: dep.sourcePath,
-        startedAt: dep.startedAt instanceof Date ? dep.startedAt.toISOString() : String(dep.startedAt),
-        status: dep.status,
-        managed: true,
-      })
+    const deployer = await getDeployer()
+    if (deployer) {
+      const deployments = deployer.listDeployments()
+      console.log(`[Services API] Deployer has ${deployments.length} tracked service(s)`)
+      for (const dep of deployments) {
+        seenPorts.add(dep.port)
+        results.push({
+          id: dep.deploymentId,
+          name: dep.deploymentId,
+          port: dep.port,
+          pid: dep.pid,
+          framework: dep.framework,
+          sourcePath: dep.sourcePath,
+          startedAt: dep.startedAt instanceof Date ? dep.startedAt.toISOString() : String(dep.startedAt),
+          status: dep.status,
+          managed: true,
+        })
+      }
     }
 
     // 2. Port-scanned processes (unmanaged)
@@ -203,8 +212,13 @@ servicesRouter.get('/', async (c) => {
 /**
  * GET /:id — Get a specific service's details.
  */
-servicesRouter.get('/:id', (c) => {
+servicesRouter.get('/:id', async (c) => {
   try {
+    const deployer = await getDeployer()
+    if (!deployer) {
+      return c.json({ error: 'Deployment system disabled' }, 404)
+    }
+
     const id = c.req.param('id')
     const status = deployer.getStatus(id)
 
@@ -235,8 +249,13 @@ servicesRouter.get('/:id', (c) => {
  * POST /:id/stop — Stop a running service.
  * Only works for deployer-managed services.
  */
-servicesRouter.post('/:id/stop', (c) => {
+servicesRouter.post('/:id/stop', async (c) => {
   try {
+    const deployer = await getDeployer()
+    if (!deployer) {
+      return c.json({ success: false, error: 'Deployment system disabled' }, 404)
+    }
+
     const id = c.req.param('id')
     const result = deployer.stop(id)
 

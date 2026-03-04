@@ -70,6 +70,21 @@ const STRIP_REQUEST_HEADERS = new Set([
   'upgrade',
 ]);
 
+// Hop-by-hop response headers must not be forwarded by proxies.
+// Passing these through while re-streaming can produce malformed chunked
+// responses (for example ERR_INCOMPLETE_CHUNKED_ENCODING in browsers).
+const STRIP_RESPONSE_HEADERS = new Set([
+  'connection',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+  'content-length',
+]);
+
 /**
  * Resolve the sandbox's Kortix Master URL.
  * Inside Docker: http://{sandboxId}:8000 (Docker DNS)
@@ -139,6 +154,12 @@ export async function proxyToSandbox(
     redirect: 'manual',
   });
 
+  function sanitizeResponseHeaders(input: Headers): Headers {
+    const out = new Headers(input);
+    for (const key of STRIP_RESPONSE_HEADERS) out.delete(key);
+    return out;
+  }
+
   // On 401 from sandbox: service key mismatch. Sync our key and retry once.
   if (response.status === 401 && !_serviceKeySynced) {
     const synced = trySyncServiceKey();
@@ -153,7 +174,7 @@ export async function proxyToSandbox(
         decompress: false,
         redirect: 'manual',
       });
-      const retryHeaders = new Headers(retryResponse.headers);
+      const retryHeaders = sanitizeResponseHeaders(retryResponse.headers);
       if (origin) {
         retryHeaders.set('Access-Control-Allow-Origin', origin);
         retryHeaders.set('Access-Control-Allow-Credentials', 'true');
@@ -191,7 +212,7 @@ export async function proxyToSandbox(
   }
 
   // Stream response 1:1, only add CORS + fix redirects
-  const respHeaders = new Headers(response.headers);
+  const respHeaders = sanitizeResponseHeaders(response.headers);
   if (origin) {
     respHeaders.set('Access-Control-Allow-Origin', origin);
     respHeaders.set('Access-Control-Allow-Credentials', 'true');
@@ -217,5 +238,4 @@ export async function proxyToSandbox(
     headers: respHeaders,
   });
 }
-
 

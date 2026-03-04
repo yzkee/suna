@@ -5,41 +5,92 @@
 
 echo "[agent-browser-viewer] Starting viewer on port 9224"
 
-exec s6-setuidgid abc \
+# Keep agent-browser daemon state deterministic across restarts.
+SOCKET_DIR="/tmp/agent-browser"
+mkdir -p "$SOCKET_DIR" /workspace
+chown -R abc:users "$SOCKET_DIR" /workspace >/dev/null 2>&1 || true
+rm -rf "$SOCKET_DIR"/* >/dev/null 2>&1 || true
+
+# Kill stale daemon instances (different users/sessions can conflict on stream port).
+pkill -f "dist/daemon.js" >/dev/null 2>&1 || true
+
+exec env HOME=/workspace AGENT_BROWSER_SOCKET_DIR="$SOCKET_DIR" AGENT_BROWSER_STREAM_PORT=9223 AGENT_BROWSER_HEADED=1 s6-setuidgid abc \
   bun -e '
     const fs = require("fs");
     const path = require("path");
 
     const html = fs.readFileSync("/opt/agent-browser-viewer/index.html");
-    const socketDir = process.env.AGENT_BROWSER_SOCKET_DIR || "/workspace/.agent-browser";
+    const socketDirs = Array.from(new Set([
+      process.env.AGENT_BROWSER_SOCKET_DIR || "/tmp/agent-browser",
+      "/tmp/agent-browser",
+      "/workspace/.agent-browser",
+    ]));
 
     function getSessions() {
-      try {
-        const files = fs.readdirSync(socketDir);
-        const sessions = [];
-        for (const f of files) {
-          if (f.endsWith(".stream")) {
+      const sessionsByName = new Map();
+      for (const socketDir of socketDirs) {
+        try {
+          const files = fs.readdirSync(socketDir);
+          for (const f of files) {
+            if (!f.endsWith(".stream")) continue;
             const name = f.replace(".stream", "");
             const port = parseInt(fs.readFileSync(path.join(socketDir, f), "utf8").trim(), 10);
             const hasSock = files.includes(name + ".sock");
-            if (port > 0 && hasSock) {
-              sessions.push({ name, port });
+            const pidPath = path.join(socketDir, name + ".pid");
+            let pidAlive = false;
+            try {
+              if (fs.existsSync(pidPath)) {
+                const pid = parseInt(fs.readFileSync(pidPath, "utf8").trim(), 10);
+                if (pid > 0) {
+                  pidAlive = fs.existsSync(`/proc/${pid}`);
+                }
+              }
+            } catch (e) {
+              pidAlive = false;
+            }
+            if (port > 0 && hasSock && pidAlive) {
+              sessionsByName.set(name, { name, port });
             }
           }
+        } catch (e) {
+          // ignore missing directory
         }
-        return sessions;
-      } catch(e) { return []; }
+      }
+      return Array.from(sessionsByName.values());
     }
 
     // Track active SSE-to-WS bridges per port
-    // Key: port number, Value: { ws, clients: Set<controller>, connecting }
+    // Key: port number, Value: { ws, clients: Set<client>, connecting, retryTimer, pendingInputs }
     const bridges = new Map();
 
-    function getOrCreateBridge(port) {
-      if (bridges.has(port)) return bridges.get(port);
+    function removeClient(port, client) {
+      const bridge = bridges.get(port);
+      if (!bridge) return;
+      bridge.clients.delete(client);
+      if (bridge.clients.size === 0) {
+        if (bridge.retryTimer) {
+          clearTimeout(bridge.retryTimer);
+          bridge.retryTimer = null;
+        }
+        if (bridge.ws) {
+          try { bridge.ws.close(); } catch {}
+          bridge.ws = null;
+        }
+        bridges.delete(port);
+      }
+    }
 
-      const bridge = { ws: null, clients: new Set(), connecting: true };
-      bridges.set(port, bridge);
+    function scheduleReconnect(port, bridge, delayMs) {
+      if (bridge.retryTimer || bridge.clients.size === 0) return;
+      bridge.retryTimer = setTimeout(() => {
+        bridge.retryTimer = null;
+        connectBridge(port, bridge);
+      }, delayMs);
+    }
+
+    function connectBridge(port, bridge) {
+      if (bridge.connecting || bridge.ws || bridge.clients.size === 0) return;
+      bridge.connecting = true;
 
       try {
         const ws = new WebSocket("ws://127.0.0.1:" + port);
@@ -47,6 +98,14 @@ exec s6-setuidgid abc \
         ws.addEventListener("open", () => {
           bridge.ws = ws;
           bridge.connecting = false;
+          if (bridge.pendingInputs && bridge.pendingInputs.length > 0) {
+            for (const payload of bridge.pendingInputs.splice(0)) {
+              try { ws.send(payload); } catch {}
+            }
+          }
+          for (const client of bridge.clients) {
+            try { client.enqueue("event: status\ndata: {\"connected\":true}\n\n"); } catch {}
+          }
         });
 
         ws.addEventListener("message", (event) => {
@@ -60,25 +119,31 @@ exec s6-setuidgid abc \
           bridge.ws = null;
           bridge.connecting = false;
           for (const client of bridge.clients) {
-            try {
-              client.enqueue("event: close\ndata: {}\n\n");
-              client.close();
-            } catch {}
+            try { client.enqueue("event: status\ndata: {\"connected\":false}\n\n"); } catch {}
           }
-          bridge.clients.clear();
-          bridges.delete(port);
+          scheduleReconnect(port, bridge, 900);
         });
 
         ws.addEventListener("error", () => {
           bridge.ws = null;
           bridge.connecting = false;
-          bridges.delete(port);
+          scheduleReconnect(port, bridge, 1200);
         });
       } catch (e) {
         bridge.connecting = false;
-        bridges.delete(port);
+        scheduleReconnect(port, bridge, 1200);
+      }
+    }
+
+    function getOrCreateBridge(port) {
+      if (bridges.has(port)) {
+        const existing = bridges.get(port);
+        connectBridge(port, existing);
+        return existing;
       }
 
+      const bridge = { ws: null, clients: new Set(), connecting: false, retryTimer: null, pendingInputs: [] };
+      bridges.set(port, bridge);
       return bridge;
     }
 
@@ -103,14 +168,29 @@ exec s6-setuidgid abc \
 
           const bridge = getOrCreateBridge(port);
 
+          let streamClient = null;
           const stream = new ReadableStream({
             start(controller) {
-              const encoder = { enqueue: (s) => controller.enqueue(new TextEncoder().encode(s)), close: () => controller.close() };
+              const encoder = {
+                enqueue: (s) => controller.enqueue(new TextEncoder().encode(s)),
+                close: () => controller.close(),
+              };
+              const heartbeat = setInterval(() => {
+                try { encoder.enqueue(":hb\n\n"); } catch {}
+              }, 10000);
+
+              encoder._heartbeat = heartbeat;
+              streamClient = encoder;
               bridge.clients.add(encoder);
               controller.enqueue(new TextEncoder().encode(":ok\n\n"));
+              connectBridge(port, bridge);
             },
             cancel() {
-              // Client disconnected — cleanup handled by GC since Set holds weak-ish refs
+              if (streamClient && streamClient._heartbeat) {
+                clearInterval(streamClient._heartbeat);
+                streamClient._heartbeat = null;
+              }
+              if (streamClient) removeClient(port, streamClient);
             },
           });
 
@@ -131,12 +211,17 @@ exec s6-setuidgid abc \
           }
 
           return req.text().then((body) => {
-            const bridge = bridges.get(port);
+            const bridge = getOrCreateBridge(port);
+            connectBridge(port, bridge);
             if (bridge && bridge.ws && bridge.ws.readyState === 1) {
               bridge.ws.send(body);
               return new Response("ok");
             }
-            return new Response("No WS connection to port " + port, { status: 503 });
+            if (bridge.pendingInputs.length > 200) {
+              bridge.pendingInputs.shift();
+            }
+            bridge.pendingInputs.push(body);
+            return new Response("queued", { status: 202 });
           });
         }
 

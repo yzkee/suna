@@ -15,6 +15,7 @@ export type ObservationType =
 export interface Observation {
 	id: number
 	sessionId: string
+	callID: string | null
 	type: ObservationType
 	title: string
 	narrative: string
@@ -29,6 +30,7 @@ export interface Observation {
 
 export interface CreateObservationInput {
 	sessionId: string
+	callID?: string | null
 	type: ObservationType
 	title: string
 	narrative: string
@@ -97,6 +99,9 @@ export interface SessionMeta {
 	promptCount: number
 	observationCount: number
 	lastConsolidatedAt: string | null
+	lastConsolidatedObsCount: number
+	projectId: string | null
+	title: string | null
 	status: "active" | "completed"
 	startedAt: string
 	completedAt: string | null

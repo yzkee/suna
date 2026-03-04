@@ -11,12 +11,18 @@ accountStateRouter.get('/', async (c) => {
     return c.json(buildLocalAccountState());
   }
   const accountId = c.get('userId');
-  const state = await buildAccountState(accountId);
-  // Billing disabled — return real data but never block the user
-  if (!config.KORTIX_BILLING_INTERNAL_ENABLED) {
-    state.credits.can_run = true;
+  try {
+    const state = await buildAccountState(accountId);
+    // Billing disabled — return real data but never block the user
+    if (!config.KORTIX_BILLING_INTERNAL_ENABLED) {
+      state.credits.can_run = true;
+    }
+    return c.json(state);
+  } catch {
+    // DB schema may not have billing tables (e.g. local dev without kortix schema).
+    // Fall back to local account state so the app isn't blocked.
+    return c.json(buildLocalAccountState());
   }
-  return c.json(state);
 });
 
 accountStateRouter.get('/minimal', async (c) => {
@@ -24,9 +30,13 @@ accountStateRouter.get('/minimal', async (c) => {
     return c.json(buildLocalAccountState());
   }
   const accountId = c.get('userId');
-  const state = await buildMinimalAccountState(accountId);
-  if (!config.KORTIX_BILLING_INTERNAL_ENABLED) {
-    state.credits.can_run = true;
+  try {
+    const state = await buildMinimalAccountState(accountId);
+    if (!config.KORTIX_BILLING_INTERNAL_ENABLED) {
+      state.credits.can_run = true;
+    }
+    return c.json(state);
+  } catch {
+    return c.json(buildLocalAccountState());
   }
-  return c.json(state);
 });

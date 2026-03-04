@@ -14,7 +14,6 @@ import { platformApp } from './platform';
 import { cronApp, startScheduler, stopScheduler, getSchedulerStatus } from './cron';
 import { channelsApp, startChannelService, stopChannelService, getChannelServiceStatus } from './channels';
 import { daytonaProxyApp } from './daytona-proxy';
-import { deploymentsApp } from './deployments';
 import { getSandboxBaseUrl, proxyToSandbox } from './daytona-proxy/routes/local-preview';
 import { validateSecretKey } from './repositories/api-keys';
 import { isKortixToken } from './shared/crypto';
@@ -223,7 +222,10 @@ app.route('/v1/router', router);        // /v1/router/chat/completions, /v1/rout
 app.route('/v1/billing', billingApp);   // /v1/billing/account-state, /v1/billing/webhooks/*, /v1/billing/setup/*
 app.route('/v1/platform', platformApp); // /v1/platform/providers, /v1/platform/sandbox/*, /v1/platform/sandbox/version
 app.route('/v1/cron', cronApp);         // /v1/cron/sandboxes/*, /v1/cron/triggers/*, /v1/cron/executions/*
-app.route('/v1/deployments', deploymentsApp); // /v1/deployments/*
+if (config.KORTIX_DEPLOYMENTS_ENABLED) {
+  const { deploymentsApp } = await import('./deployments');
+  app.route('/v1/deployments', deploymentsApp); // /v1/deployments/*
+}
 app.route('/v1/integrations', integrationsApp); // /v1/integrations/*
 app.route('/', channelsApp);                 // /v1/channels/*, /webhooks/*
 
@@ -381,8 +383,7 @@ console.log(`
 ║    /v1/billing    (subscriptions, credits, webhooks)       ║
 ║    /v1/platform   (sandbox lifecycle)                      ║
 ║    /v1/cron       (scheduled triggers)                     ║
-║    /v1/deployments (deploy lifecycle)                      ║
-║    /v1/integrations (OAuth integrations)                    ║
+${config.KORTIX_DEPLOYMENTS_ENABLED ? '║    /v1/deployments (deploy lifecycle)                      ║\n' : ''}║    /v1/integrations (OAuth integrations)                    ║
 ║    /v1/setup      (setup & env management)                 ║
 ║    /v1/queue      (persistent message queue)               ║
 ║    /v1/tunnel     (reverse-tunnel to local machines)         ║
@@ -617,7 +618,10 @@ export default {
         const authHeader = req.headers.get('Authorization');
         const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
         const cookieToken = extractCookieToken(req);
-        const token = bearerToken || cookieToken;
+        // Also accept ?token= query param — browser WebSocket API can't set
+        // custom headers, and initial page loads may not have cookies yet.
+        const queryToken = url.searchParams.get('token');
+        const token = bearerToken || cookieToken || queryToken;
 
         if (!token || !(await validatePreviewToken(token))) {
           return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -793,7 +797,10 @@ export default {
         const wsAuthHeader = req.headers.get('Authorization');
         const wsBearerToken = wsAuthHeader?.startsWith('Bearer ') ? wsAuthHeader.slice(7) : null;
         const wsCookieToken = extractCookieToken(req);
-        const wsToken = wsBearerToken || wsCookieToken;
+        // Also check query param — browser WebSocket API can't set custom headers,
+        // so the frontend passes the token as ?token=<jwt> (same as tunnel WS).
+        const wsQueryToken = url.searchParams.get('token');
+        const wsToken = wsBearerToken || wsCookieToken || wsQueryToken;
 
         if (wsToken && (await validatePreviewToken(wsToken))) {
           const targetUrl = buildWsTargetUrl(wsSandboxId, wsPort, wsRemainingPath, url.searchParams);

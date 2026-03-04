@@ -56,7 +56,13 @@ async function fetchPrefixesFromSdk(queryClient?: ReturnType<typeof useQueryClie
   }
 
   // 3) Fallback: SDK calls (only on first mount before cache is populated)
-  const client = getClient();
+  // If the sandbox URL isn't ready yet, skip for now and let the next render retry.
+  let client;
+  try {
+    client = getClient();
+  } catch {
+    return [];
+  }
 
   try {
     const projectRes = await client.project.current();
@@ -92,7 +98,12 @@ async function fetchPrefixesFromSdk(queryClient?: ReturnType<typeof useQueryClie
  * Caches the discovered prefix for future use.
  */
 async function discoverPrefixViaFileApi(absPath: string): Promise<string | null> {
-  const client = getClient();
+  let client;
+  try {
+    client = getClient();
+  } catch {
+    return null;
+  }
   const segments = absPath.split('/').filter(Boolean);
   if (segments.length < 2) return null;
 

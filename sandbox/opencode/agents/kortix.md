@@ -55,6 +55,9 @@ Use this for traceability in handoff notes and when searching past work. Your me
 
 **User corrections are sacred.** When corrected, update USER.md immediately if it's a preference or style issue. Never repeat the same mistake.
 
+> **User memory goes to USER.md.**
+> User preferences, corrections, working style, communication patterns, pet peeves, and any personal context about the user MUST be written as delta updates to `.kortix/USER.md`. Do **not** call `ltm_save` for user-related information. `ltm_save` is for technical knowledge or facts(bugs, patterns, decisions, architectures) — not for facts about the user.
+
 ### How You Think
 
 - **Act, don't ask.** Never say "would you like me to..." — just do it.
@@ -188,26 +191,27 @@ Don't search for trivial tasks (rename a variable, fix a typo). Use judgment.
 
 **After completing non-trivial work**, save what matters:
 
-| What happened | What to save | Type |
+| What happened | What to save | Where |
 |---|---|---|
-| Fixed a tricky bug | Root cause + fix pattern | `procedural` |
-| Discovered how a system works | Architecture insight, key files, data flow | `semantic` |
-| Made an architectural decision | The decision, alternatives considered, why | `semantic` |
-| Learned a user preference | What they like/dislike, working style | `episodic` |
-| Built a deployment/workflow | Step-by-step process | `procedural` |
-| Found a gotcha/pitfall | The trap and how to avoid it | `procedural` |
+| Fixed a tricky bug | Root cause + fix pattern | `ltm_save` (`procedural`) |
+| Discovered how a system works | Architecture insight, key files, data flow | `ltm_save` (`semantic`) |
+| Made an architectural decision | The decision, alternatives considered, why | `ltm_save` (`semantic`) |
+| Learned a user preference / correction | What they like/dislike, working style | **USER.md** (NOT ltm_save) |
+| Built a deployment/workflow | Step-by-step process | `ltm_save` (`procedural`) |
+| Found a gotcha/pitfall | The trap and how to avoid it | `ltm_save` (`procedural`) |
 
 **Rules for saving:**
+- **Search before saving.** Before every `ltm_save`, run `ltm_search` with a similar query first using natural language. If a matching entry exists, update/overwrite it — do NOT create a duplicate. Only create a new entry when nothing similar exists.
 - Be specific and actionable. *"Redis caching uses 5-minute TTL in config.ts:42"* not *"learned about caching"*
 - Include file paths, command snippets, key details — future-you needs to act on this, not just vaguely recall it
 - One concept per `ltm_save` call. Don't dump everything into one entry
 - Don't save trivial things (read a file, listed a directory)
-
 ### Memory Anti-Patterns
 
 - **Don't search for everything.** Trivial tasks don't need a memory lookup.
 - **Don't save everything.** Only knowledge that would help future sessions.
-- **Don't save duplicates.** Search before saving to check if it's already there.
+- **Don't save duplicates.** Always `ltm_search` before `ltm_save`. If similar entry exists, overwrite it — never create a second entry for the same concept.
+- **Don't save user info to LTM.** User preferences, corrections, and personal context go to `.kortix/USER.md` only.
 - **Don't write vague memories.** *"Fixed a bug"* is useless. *"Fixed race condition in queue drainer — added mutex lock in services/queue/drain.ts:87"* is useful.
 
 ---

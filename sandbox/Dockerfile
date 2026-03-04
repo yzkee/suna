@@ -34,7 +34,7 @@ RUN apk update \
     && apk add --no-cache \
         nodejs npm \
         python3-dev py3-pip py3-virtualenv \
-        curl unzip ca-certificates gnupg \
+        curl unzip ca-certificates \
         gcc g++ musl-dev linux-headers \
         libffi-dev libxml2-dev libxslt-dev \
         gcompat \
@@ -90,8 +90,9 @@ RUN AB_VERSION=$(node -e "const p=require('/tmp/sandbox-pkg-versions.json');cons
 COPY sandbox/patch-agent-browser.js /tmp/patch-agent-browser.js
 RUN node /tmp/patch-agent-browser.js && rm /tmp/patch-agent-browser.js
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium-browser
-ENV AGENT_BROWSER_PRIMARY_SESSION=kortix
+ENV AGENT_BROWSER_PRIMARY_SESSION=default
 ENV AGENT_BROWSER_STREAM_PORT=9223
+ENV AGENT_BROWSER_HEADED=1
 ENV AGENT_BROWSER_PROFILE=/workspace/.browser-profile
 ENV AGENT_BROWSER_SOCKET_DIR=/workspace/.agent-browser
 ENV AGENT_BROWSER_ARGS="--no-sandbox,--disable-setuid-sandbox,--disable-gpu,--disable-dev-shm-usage,--disable-blink-features=AutomationControlled,--disable-features=VizDisplayCompositor"
@@ -112,19 +113,23 @@ RUN CLI_VERSION=$(node -e "const p=require('/tmp/sandbox-pkg-versions.json');con
          echo "Version $CLI_VERSION not on npm — falling back to latest"; \
          CLI_VERSION="latest"; \
        fi \
-    && npm install -g "opencode-ai@$CLI_VERSION" \
+    && npm cache clean --force \
+    && npm install -g --no-audit --no-fund "opencode-ai@$CLI_VERSION" \
+    && npm cache clean --force \
     && ARCH=$(uname -m) \
     && if [ "$ARCH" = "x86_64" ]; then \
-         npm install -g "opencode-linux-x64-musl@$CLI_VERSION" --force \
-         && MUSL_BIN=$(npm root -g)/opencode-linux-x64-musl/bin/opencode \
-         && GLIBC_BIN=$(npm root -g)/opencode-ai/node_modules/opencode-linux-x64/bin/opencode \
-         && ln -sf "$MUSL_BIN" "$GLIBC_BIN"; \
-       else \
-         npm install -g "opencode-linux-arm64-musl@$CLI_VERSION" --force \
-         && MUSL_BIN=$(npm root -g)/opencode-linux-arm64-musl/bin/opencode \
-         && GLIBC_BIN=$(npm root -g)/opencode-ai/node_modules/opencode-linux-arm64/bin/opencode \
-         && ln -sf "$MUSL_BIN" "$GLIBC_BIN"; \
-       fi \
+         npm install -g --no-audit --no-fund "opencode-linux-x64-musl@$CLI_VERSION" --force \
+          && MUSL_BIN=$(npm root -g)/opencode-linux-x64-musl/bin/opencode \
+          && GLIBC_BIN=$(npm root -g)/opencode-ai/node_modules/opencode-linux-x64/bin/opencode \
+          && ln -sf "$MUSL_BIN" "$GLIBC_BIN"; \
+        else \
+         npm install -g --no-audit --no-fund "opencode-linux-arm64-musl@$CLI_VERSION" --force \
+          && MUSL_BIN=$(npm root -g)/opencode-linux-arm64-musl/bin/opencode \
+          && GLIBC_BIN=$(npm root -g)/opencode-ai/node_modules/opencode-linux-arm64/bin/opencode \
+          && ln -sf "$MUSL_BIN" "$GLIBC_BIN"; \
+        fi \
+    && npm cache clean --force \
+    && rm -rf /root/.npm/_cacache /root/.npm/_logs \
     && rm /tmp/sandbox-pkg-versions.json \
     && opencode --version
 
@@ -200,7 +205,7 @@ RUN mkdir -p /opt/kortix \
 # symlinks at the original paths. This enables atomic updates via symlink swap.
 # postinstall.sh detects the symlinks and stages to a new versioned dir instead
 # of mutating the live system. update.ts atomically swaps the symlinks.
-RUN PKG_VERSION=$(node -e "console.log(require('/opt/kortix/.version').version || '0.0.0')") \
+RUN PKG_VERSION=$(node -e "const fs=require('fs');const v=JSON.parse(fs.readFileSync('/opt/kortix/.version','utf8'));console.log(v.version || '0.0.0')") \
     && STAGING="/opt/kortix-staging-$PKG_VERSION" \
     && mkdir -p "$STAGING" \
     && mv /opt/kortix-master "$STAGING/kortix-master" \
