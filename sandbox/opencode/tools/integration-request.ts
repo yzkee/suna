@@ -77,7 +77,7 @@ export default tool({
         {
           success: data.status >= 200 && data.status < 400,
           status: data.status,
-          data: data.body,
+          body: data.body,
         },
         null,
         2,

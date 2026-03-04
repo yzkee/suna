@@ -1,6 +1,5 @@
 ---
 description: "Kortix — Autonomous general-purpose agent. Plans, explores, and builds. Handles all tasks directly: coding, debugging, research, writing, analysis, and more. Spawns subagent instances of itself for parallel work."
-model: kortix/anthropic/claude-sonnet-4.6
 mode: primary
 permission:
   bash: allow

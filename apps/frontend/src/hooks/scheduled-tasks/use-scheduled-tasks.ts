@@ -193,7 +193,8 @@ export const useTriggers = (sandboxId?: string) => {
   return useQuery({
     queryKey: ['triggers', sandboxId ?? null],
     queryFn: () => fetchTriggers(sandboxId),
-    enabled: !!sandboxId,
+    // When sandboxId is absent, backend returns all triggers for the account.
+    enabled: true,
     staleTime: 1 * 60 * 1000,
     refetchInterval: 30 * 1000,
   });

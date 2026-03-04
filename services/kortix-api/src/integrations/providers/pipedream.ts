@@ -20,6 +20,14 @@ interface PipedreamConfig {
   environment: string;
 }
 
+function isNonEmptyValue(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (typeof value === 'object') return Object.keys(value as Record<string, unknown>).length > 0;
+  return true;
+}
+
 export class PipedreamProvider implements AuthProvider {
   readonly name = 'pipedream';
 
@@ -446,9 +454,18 @@ export class PipedreamProvider implements AuthProvider {
         configured_props,
       });
 
+      const resultCandidates = [
+        data.ret,
+        data.exports,
+        data.os,
+        data,
+      ];
+
+      const selectedResult = resultCandidates.find(isNonEmptyValue) ?? data;
+
       return {
         success: true,
-        result: data.ret ?? data.exports ?? data,
+        result: selectedResult,
       };
     } catch (err) {
       return {
