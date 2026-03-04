@@ -824,6 +824,9 @@ importers:
       jsonc-parser:
         specifier: ^3.3.1
         version: 3.3.1
+      envsitter-guard:
+        specifier: latest
+        version: 0.0.4
       replicate:
         specifier: ^1.4.0
         version: 1.4.0
@@ -11221,6 +11224,18 @@ packages:
     resolution: {integrity: sha512-ooEGc6HP26xXq/N+GCGOT0JKCLDGrq2bQUZrQ7gyrJiZANJ/8YDTxTpQBXGMn+WbIQXNVpyWymm7KYVICQnyOg==}
     dependencies:
       once: 1.4.0
+    dev: false
+
+  /envsitter-guard@0.0.4:
+    resolution: {integrity: sha512-CaWK/T6uAY6rvNnqCuumuvqfdTBhC+p5vsy0SssB+AtCN4prV5A9ZuAD1nVTA6LdREiS1g1V4Mz96pjXiLjkHg==}
+    dependencies:
+      '@opencode-ai/plugin': 1.2.15
+      envsitter: 0.0.4
+    dev: false
+
+  /envsitter@0.0.4:
+    resolution: {integrity: sha512-Uxy5XpYQ9B6+70cQrIOKQMxaitKjMDxaK1uPaivhtVbYxQMRhJzdvx+6AgSrRrZBcnuPlLbnVPXrn7PXpi+veg==}
+    hasBin: true
     dev: false
 
   /engine.io-client@6.5.4:
