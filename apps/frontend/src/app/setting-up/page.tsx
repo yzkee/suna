@@ -109,25 +109,15 @@ export default function SettingUpPage() {
         providerIsHetzner = providersRes.success && providersRes.data?.default === 'hetzner';
       }
 
-      // Step 1: Check if account is already fully set up
+      // Step 1: Check account status
       setStep('checking');
-      const accountState = await billingApi.getAccountState(true);
-      const tierKey = accountState?.subscription?.tier_key || accountState?.tier?.name || '';
-      const hasSubscription = tierKey && tierKey !== 'none';
-
-      if (hasSubscription && accountState?.subscription?.subscription_id) {
-        // Already initialized — go to dashboard
-        console.log('[setting-up] Account already initialized, redirecting');
-        setStep('success');
-        setTimeout(() => router.push('/dashboard'), 500);
-        return;
-      }
+      await billingApi.getAccountState(true);
 
       // Step 2: Initialize subscription + sandbox (one-shot backend call)
       setStep('subscription');
       sandboxStepTimer = setTimeout(() => setStep('sandbox'), 1200);
       setSandboxProgress(0);
-      const response = await backendApi.post<{
+      const initializeSetup = async () => backendApi.post<{
         status: string;
         tier: string;
         sandbox: 'created' | 'exists' | 'skipped' | 'failed';
@@ -136,6 +126,17 @@ export default function SettingUpPage() {
         // Hetzner provisioning can take 2-3 minutes on first create.
         timeout: 240000,
       });
+
+      let response = await initializeSetup();
+      // Handle transient edge/network failures (common with cold starts + proxies)
+      for (let attempt = 1; attempt <= 2 && !response.success; attempt++) {
+        const status = (response.error as any)?.status;
+        const message = (response.error as any)?.message || '';
+        const isRetriable = status === 502 || /failed to fetch|network|gateway/i.test(String(message));
+        if (!isRetriable) break;
+        await new Promise((r) => setTimeout(r, attempt * 1200));
+        response = await initializeSetup();
+      }
 
       if (sandboxStepTimer) {
         clearTimeout(sandboxStepTimer);
