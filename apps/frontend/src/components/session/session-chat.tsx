@@ -262,6 +262,51 @@ function parseAnswersFromOutput(
 	return null;
 }
 
+function formatCommandError(errorLike: unknown): string {
+	const err = errorLike as any;
+	const root = err?.data ?? err;
+	const data = root?.data;
+	const directMessage =
+		root?.message ||
+		err?.message ||
+		root?.error ||
+		err?.error ||
+		(typeof err === "string" ? err : "");
+
+	if (typeof directMessage === "string" && directMessage.trim()) {
+		return directMessage.trim();
+	}
+
+	if (root?.name === "ProviderModelNotFoundError") {
+		const providerID =
+			typeof data?.providerID === "string" && data.providerID
+				? data.providerID
+				: "selected provider";
+		const modelID =
+			typeof data?.modelID === "string" && data.modelID
+				? data.modelID
+				: "selected model";
+		if (providerID === "[object Object]") {
+			return "Invalid model selection was sent to the command endpoint. Please reselect a model and try again.";
+		}
+		return `Model ${modelID} was not found for provider ${providerID}.`;
+	}
+
+	if (typeof root?.name === "string" && root.name) {
+		return root.name;
+	}
+
+	if (typeof err === "object") {
+		try {
+			return JSON.stringify(err);
+		} catch {
+			return "Command failed";
+		}
+	}
+
+	return "Command failed";
+}
+
 // ============================================================================
 // Answered question card — collapsible summary of completed Q&A
 // ============================================================================
@@ -2792,6 +2837,7 @@ export function SessionChat({
 		name: string;
 		description?: string;
 	} | null>(null);
+	const [commandError, setCommandError] = useState<string | null>(null);
 	// Map of user message IDs → command info, so UserMessageRow can render
 	// a compact command pill instead of the raw expanded template text.
 	const commandMessagesRef = useRef<
@@ -3982,6 +4028,7 @@ export function SessionChat({
 			files?: AttachedFile[],
 			mentions?: TrackedMention[],
 		) => {
+			setCommandError(null);
 			// Wrap reply context in XML if present, then clear it
 			let text = rawText;
 			if (replyTo) {
@@ -4186,9 +4233,22 @@ export function SessionChat({
 	const handleCommand = useCallback(
 		(cmd: Command, args?: string) => {
 			if (commandInFlightRef.current) return;
+			setCommandError(null);
 
 			playSound("send");
 			const label = args ? `/${cmd.name} ${args}` : `/${cmd.name}`;
+			const selectedModel = local.model.currentKey
+				? `${local.model.currentKey.providerID}/${local.model.currentKey.modelID}`
+				: undefined;
+			const handleCommandError = (err?: unknown) => {
+				setPendingCommand(null);
+				setPendingUserMessage(null);
+				setPendingUserMessageId(null);
+				setPollingActive(false);
+				pendingCommandStashRef.current = null;
+				useSyncStore.getState().setStatus(sessionId, { type: "idle" });
+				setCommandError(formatCommandError(err));
+			};
 
 			setPendingCommand({
 				name: cmd.name,
@@ -4216,18 +4276,15 @@ export function SessionChat({
 					command: cmd.name,
 					arguments: args || "",
 					...(local.agent.current && { agent: local.agent.current.name }),
-					...(local.model.currentKey && { model: String(local.model.currentKey) }),
+					...(selectedModel && { model: selectedModel }),
 					...(local.model.variant.current && { variant: local.model.variant.current }),
 				} as any)
-				.catch(() => {
-					// Command failed or timed out. The agent may still be
-					// processing server-side (proxy timeout ≠ server abort).
-					// Clean up UI state; SSE will correct if processing continues.
-					setPendingCommand(null);
-					setPendingUserMessage(null);
-					setPendingUserMessageId(null);
-					setPollingActive(false);
+				.then((res: any) => {
+					if (res?.error) {
+						handleCommandError(res.error);
+					}
 				})
+				.catch(handleCommandError)
 				.finally(() => {
 					commandInFlightRef.current = false;
 				});
@@ -4519,6 +4576,7 @@ export function SessionChat({
 								})}
 
 								{/* Busy indicator when no turns yet but session is busy */}
+								{commandError && <TurnErrorDisplay errorText={commandError} className="mt-2" />}
 								{!showOptimistic && isBusy && turns.length === 0 && (
 									<div className="flex items-center gap-3">
 										{/* eslint-disable-next-line @next/next/no-img-element */}
