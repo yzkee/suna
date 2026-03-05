@@ -74,6 +74,14 @@ function safeFit(fitAddon: FitAddon | null, container: HTMLDivElement | null) {
   }
 }
 
+function sanitizeTerminalChunk(chunk: string): string {
+  return chunk
+    // Cursor shell integration sometimes emits OSC 697 payloads.
+    // If an upstream proxy strips control bytes, only JSON remains visible.
+    .replace(/\x1b]697;[^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    .replace(/\{"cursor":\d+\}/g, '');
+}
+
 // ============================================================================
 // Component
 // ============================================================================
@@ -246,9 +254,9 @@ export const PtyTerminal = forwardRef<PtyTerminalHandle, PtyTerminalProps>(funct
       ws.onmessage = (event) => {
         if (connectionIdRef.current !== myConnectionId) return;
         if (typeof event.data === 'string') {
-          term.write(event.data);
+          term.write(sanitizeTerminalChunk(event.data));
         } else if (event.data instanceof Blob) {
-          event.data.text().then((text) => term.write(text));
+          event.data.text().then((text) => term.write(sanitizeTerminalChunk(text)));
         }
       };
 

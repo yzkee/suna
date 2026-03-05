@@ -73,6 +73,12 @@ const getWebSocketUrl = () => {
   return baseUrl.replace('https://', 'wss://').replace('http://', 'ws://');
 };
 
+function sanitizeTerminalChunk(chunk: string): string {
+  return chunk
+    .replace(/\x1b]697;[^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    .replace(/\{"cursor":\d+\}/g, '');
+}
+
 let globalConnectionId = 0;
 
 export const SSHTerminal = memo(function SSHTerminal({ sandboxId, className }: SSHTerminalProps) {
@@ -193,7 +199,7 @@ export const SSHTerminal = memo(function SSHTerminal({ sandboxId, className }: S
             break;
           case 'output':
             if (message.data) {
-              term.write(message.data);
+              term.write(sanitizeTerminalChunk(message.data));
             }
             break;
           case 'error':
