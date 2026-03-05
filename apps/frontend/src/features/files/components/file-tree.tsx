@@ -79,6 +79,7 @@ interface TreeNodeProps {
   onCut: (node: FileNode) => void;
   onDropMove: (sourcePath: string, targetDirPath: string) => void;
   onCreateInDir: (dirPath: string, type: 'file' | 'folder') => void;
+  onUploadToDir: (dirPath: string) => void;
   creatingInDir: CreatingInDir | null;
   onCreatingInDirSubmit: (name: string) => void;
   onCreatingInDirCancel: () => void;
@@ -113,6 +114,7 @@ function TreeNode({
   onCut,
   onDropMove,
   onCreateInDir,
+  onUploadToDir,
   creatingInDir,
   onCreatingInDirSubmit,
   onCreatingInDirCancel,
@@ -356,6 +358,10 @@ function TreeNode({
                 <FolderPlus className="mr-2 h-4 w-4" />
                 New Folder
               </ContextMenuItem>
+              <ContextMenuItem onClick={() => onUploadToDir(node.path)}>
+                <Upload className="mr-2 h-4 w-4" />
+                Upload file
+              </ContextMenuItem>
             </>
           )}
           <ContextMenuSeparator />
@@ -401,6 +407,7 @@ function TreeNode({
           onCut={onCut}
           onDropMove={onDropMove}
           onCreateInDir={onCreateInDir}
+          onUploadToDir={onUploadToDir}
           creatingInDir={creatingInDir}
           onCreatingInDirSubmit={onCreatingInDirSubmit}
           onCreatingInDirCancel={onCreatingInDirCancel}
@@ -423,6 +430,7 @@ interface TreeNodeChildrenProps {
   onCut: (node: FileNode) => void;
   onDropMove: (sourcePath: string, targetDirPath: string) => void;
   onCreateInDir: (dirPath: string, type: 'file' | 'folder') => void;
+  onUploadToDir: (dirPath: string) => void;
   creatingInDir: CreatingInDir | null;
   onCreatingInDirSubmit: (name: string) => void;
   onCreatingInDirCancel: () => void;
@@ -525,6 +533,7 @@ function TreeNodeChildren({
   onCut,
   onDropMove,
   onCreateInDir,
+  onUploadToDir,
   creatingInDir,
   onCreatingInDirSubmit,
   onCreatingInDirCancel,
@@ -583,6 +592,7 @@ function TreeNodeChildren({
           onCut={onCut}
           onDropMove={onDropMove}
           onCreateInDir={onCreateInDir}
+          onUploadToDir={onUploadToDir}
           creatingInDir={creatingInDir}
           onCreatingInDirSubmit={onCreatingInDirSubmit}
           onCreatingInDirCancel={onCreatingInDirCancel}
@@ -651,6 +661,7 @@ export function FileTree() {
   const [newFileName, setNewFileName] = useState('');
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [uploadTargetPath, setUploadTargetPath] = useState<string | undefined>(undefined);
   const fileCreateInputRef = useRef<HTMLInputElement>(null);
   const folderCreateInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -818,20 +829,25 @@ export function FileTree() {
     setCreatingInDir(null);
   }, []);
 
-  const handleUpload = useCallback(() => { fileInputRef.current?.click(); }, []);
+  const handleUpload = useCallback((targetPath?: string) => {
+    setUploadTargetPath(targetPath);
+    fileInputRef.current?.click();
+  }, []);
 
   const handleFileInputChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
     try {
-      await uploadMutation.mutateAsync({ file, targetPath: isRootPath ? undefined : currentPath });
+      const targetPath = uploadTargetPath ?? (isRootPath ? undefined : currentPath);
+      await uploadMutation.mutateAsync({ file, targetPath });
       toast.success(`Uploaded ${file.name}`);
     } catch (err) {
       toast.error(`Upload failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       e.target.value = '';
+      setUploadTargetPath(undefined);
     }
-  }, [uploadMutation, isRootPath, currentPath]);
+  }, [uploadMutation, uploadTargetPath, isRootPath, currentPath]);
 
   // Keyboard: Ctrl+V paste
   useEffect(() => {
@@ -861,7 +877,7 @@ export function FileTree() {
           <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setNewFolderName('New Folder'); setIsCreatingFolder(true); }} title="New folder">
             <FolderPlus className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleUpload} title="Upload">
+          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleUpload()} title="Upload">
             <Upload className="h-3.5 w-3.5" />
           </Button>
           {clipboard && (
@@ -920,6 +936,7 @@ export function FileTree() {
             onCut={handleCut}
             onDropMove={handleDropMove}
             onCreateInDir={handleCreateInDir}
+            onUploadToDir={handleUpload}
             creatingInDir={creatingInDir}
             onCreatingInDirSubmit={handleCreatingInDirSubmit}
             onCreatingInDirCancel={handleCreatingInDirCancel}
