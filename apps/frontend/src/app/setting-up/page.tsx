@@ -10,6 +10,8 @@ import { KortixLogo } from '@/components/sidebar/kortix-logo';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useProviders } from '@/hooks/platform/use-sandbox';
+import { getSandbox, getSandboxUrl } from '@/lib/platform-client';
+import { authenticatedFetch } from '@/lib/auth-token';
 
 // Lazy load heavy components
 const AnimatedBg = lazy(() => import('@/components/ui/animated-bg').then(mod => ({ default: mod.AnimatedBg })));
@@ -33,6 +35,7 @@ export default function SettingUpPage() {
   const { data: providersInfo } = useProviders();
   const [step, setStep] = useState<SetupStep>('checking');
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [sandboxProgress, setSandboxProgress] = useState(0);
   const isRunning = useRef(false);
 
   const isHetznerDefault = providersInfo?.default === 'hetzner';
@@ -46,6 +49,49 @@ export default function SettingUpPage() {
     },
   };
 
+  const getHetznerProvisioningProgress = useCallback((elapsedSec: number): number => {
+    if (elapsedSec < 20) return 8 + (elapsedSec / 20) * 12;
+    if (elapsedSec < 90) return 20 + ((elapsedSec - 20) / 70) * 35;
+    if (elapsedSec < 150) return 55 + ((elapsedSec - 90) / 60) * 30;
+    return Math.min(96, 85 + ((elapsedSec - 150) / 120) * 11);
+  }, []);
+
+  const waitForHetznerSandboxReady = useCallback(async (timeoutMs = 240000): Promise<string | null> => {
+    const started = Date.now();
+    const deadline = started + timeoutMs;
+
+    while (Date.now() < deadline) {
+      const elapsedSec = Math.floor((Date.now() - started) / 1000);
+      setSandboxProgress(Math.max(2, Math.min(96, getHetznerProvisioningProgress(elapsedSec))));
+
+      try {
+        const sandbox = await getSandbox();
+        if (sandbox?.external_id) {
+          const sandboxUrl = getSandboxUrl(sandbox);
+          const res = await authenticatedFetch(
+            `${sandboxUrl}/kortix/health`,
+            { signal: AbortSignal.timeout(5000) },
+            { retryOnAuthError: false },
+          );
+          if (res.ok) {
+            const health = await res.json().catch(() => null) as { version?: string } | null;
+            const version = typeof health?.version === 'string' ? health.version : '';
+            if (version && version !== '0.0.0') {
+              setSandboxProgress(100);
+              return version;
+            }
+          }
+        }
+      } catch {
+        // Keep polling while sandbox is provisioning.
+      }
+
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+
+    return null;
+  }, [getHetznerProvisioningProgress]);
+
   const runSetup = useCallback(async () => {
     if (!user || isRunning.current) return;
     isRunning.current = true;
@@ -53,6 +99,16 @@ export default function SettingUpPage() {
     let sandboxStepTimer: ReturnType<typeof setTimeout> | null = null;
 
     try {
+      let providerIsHetzner = isHetznerDefault;
+
+      if (!providerIsHetzner) {
+        const providersRes = await backendApi.get<{ providers: string[]; default: string }>(
+          '/platform/providers',
+          { showErrors: false, timeout: 10000 },
+        );
+        providerIsHetzner = providersRes.success && providersRes.data?.default === 'hetzner';
+      }
+
       // Step 1: Check if account is already fully set up
       setStep('checking');
       const accountState = await billingApi.getAccountState(true);
@@ -70,6 +126,7 @@ export default function SettingUpPage() {
       // Step 2: Initialize subscription + sandbox (one-shot backend call)
       setStep('subscription');
       sandboxStepTimer = setTimeout(() => setStep('sandbox'), 1200);
+      setSandboxProgress(0);
       const response = await backendApi.post<{
         status: string;
         tier: string;
@@ -94,11 +151,20 @@ export default function SettingUpPage() {
       // Step 3: Show sandbox status
       if (data.sandbox === 'created' || data.sandbox === 'exists') {
         setStep('sandbox');
-        // Brief pause so user sees the step
-        await new Promise(r => setTimeout(r, 800));
+        if (providerIsHetzner) {
+          const version = await waitForHetznerSandboxReady(240000);
+          if (!version) {
+            throw new Error('Hetzner sandbox is still provisioning. Please wait and try again.');
+          }
+        } else {
+          // Brief pause so user sees the step
+          await new Promise(r => setTimeout(r, 800));
+        }
       } else if (data.sandbox === 'failed') {
-        // Sandbox failed but subscription succeeded — warn but continue.
-        // useSandbox() on dashboard will auto-retry.
+        if (providerIsHetzner) {
+          throw new Error(data.sandbox_error || 'Failed to create Hetzner sandbox');
+        }
+        // Non-Hetzner fallback: let dashboard auto-retry.
         console.warn('[setting-up] Sandbox creation failed, will retry on dashboard:', data.sandbox_error);
       }
 
@@ -115,7 +181,7 @@ export default function SettingUpPage() {
     } finally {
       isRunning.current = false;
     }
-  }, [user, router]);
+  }, [user, router, isHetznerDefault, waitForHetznerSandboxReady]);
 
   useEffect(() => {
     runSetup();
@@ -170,12 +236,26 @@ export default function SettingUpPage() {
                               {info.label}
                             </span>
                             {isActive && (
-                              <span className="text-xs text-foreground/40">{info.detail}</span>
+                              <span className="text-xs text-foreground/40">
+                                {s === 'sandbox' && isHetznerDefault
+                                  ? `${info.detail} ${Math.round(sandboxProgress)}%`
+                                  : info.detail}
+                              </span>
                             )}
                           </div>
                         </div>
                       );
                     })}
+                    {step === 'sandbox' && isHetznerDefault && (
+                      <div className="pt-1">
+                        <div className="h-1.5 w-full rounded-full bg-foreground/10 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-blue-500/90 transition-all duration-1000 ease-out"
+                            style={{ width: `${Math.max(sandboxProgress, 2)}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
