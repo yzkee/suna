@@ -160,7 +160,7 @@ export default function OnboardingPage() {
   const commandRetryRef = useRef(false);
   const retriesRef = useRef(0);
   const { resolvedTheme } = useTheme();
-  const { user, isLoading, signOut } = useAuth();
+  const { user, session, isLoading, signOut, supabase } = useAuth();
 
   // Ensure sandbox is registered in server store (same as dashboard layout).
   // This makes getInstanceUrl() return the correct sandbox URL.
@@ -297,10 +297,28 @@ export default function OnboardingPage() {
 
   // ── Redirect to auth if not logged in ─────────────────────────
   useEffect(() => {
-    if (!isLoading && !user) {
-      router.replace('/auth');
-    }
-  }, [user, isLoading, router]);
+    if (isLoading || user || session?.user) return;
+
+    let cancelled = false;
+
+    const verifyAndRedirect = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (cancelled) return;
+        if (data.session?.user) return;
+      } catch {
+        if (cancelled) return;
+      }
+
+      router.replace('/auth?redirect=%2Fonboarding');
+    };
+
+    void verifyAndRedirect();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, session, isLoading, router, supabase]);
 
   // ── Onboarding session lifecycle ──────────────────────────────
   // When we reach the 'onboarding' phase:
@@ -516,8 +534,10 @@ export default function OnboardingPage() {
 
   const nextAfterLogin = 'onboarding';
 
+  const activeUser = user || session?.user || null;
+
   if (isLoading) return null;
-  if (!user) return null;
+  if (!activeUser) return null;
 
   // ── Render ────────────────────────────────────────────────────
 
@@ -654,7 +674,7 @@ export default function OnboardingPage() {
               transition={{ duration: 0.7, delay: 0.4, ease: [0.16, 1, 0.3, 1] }}
             >
               {(() => {
-                const avatarUrl = user?.user_metadata?.avatar_url || user?.user_metadata?.picture;
+                const avatarUrl = activeUser.user_metadata?.avatar_url || activeUser.user_metadata?.picture;
                 return (
                   <div className="w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-full flex items-center justify-center mb-2.5 bg-foreground/[0.04] border border-foreground/[0.06] overflow-hidden">
                     {avatarUrl ? (
@@ -669,7 +689,7 @@ export default function OnboardingPage() {
                 );
               })()}
               <p className="text-foreground/80 text-[15px] sm:text-[16px] font-medium tracking-wide mb-1">
-                {user?.user_metadata?.name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'}
+                 {activeUser.user_metadata?.name || activeUser.user_metadata?.full_name || activeUser.email?.split('@')[0] || 'User'}
               </p>
               <button
                 className="text-foreground/30 text-[12px] tracking-wide cursor-pointer hover:text-foreground/50 transition-colors duration-200"

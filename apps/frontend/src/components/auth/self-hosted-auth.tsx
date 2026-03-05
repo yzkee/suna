@@ -11,6 +11,8 @@ import { ProviderSettings } from '@/components/providers/provider-settings';
 import { useServerStore, getActiveOpenCodeUrl } from '@/stores/server-store';
 import { resetClient } from '@/lib/opencode-sdk';
 import { invalidateTokenCache } from '@/lib/auth-token';
+import { setBootstrapAuthToken } from '@/lib/auth-token';
+import { createClient as createBrowserSupabaseClient } from '@/lib/supabase/client';
 
 /* ─── Install Status Hook ──────────────────────────────────────────────────── */
 
@@ -475,6 +477,19 @@ export function SelfHostedForm({ returnUrl, installed, sandboxProviders = ['loca
         // Store the JWT for sandbox provisioning in subsequent steps.
         const jwt = result.accessToken;
         jwtRef.current = jwt || null;
+        setBootstrapAuthToken(jwt || null);
+
+        if (result.accessToken && result.refreshToken) {
+          try {
+            const supabase = createBrowserSupabaseClient();
+            await supabase.auth.setSession({
+              access_token: result.accessToken,
+              refresh_token: result.refreshToken,
+            });
+          } catch {
+            // Keep bootstrap token fallback for onboarding API auth.
+          }
+        }
 
         // Invalidate the token cache so subsequent calls (e.g. ProviderSettings)
         // pick up the fresh session instead of stale null.
@@ -509,6 +524,21 @@ export function SelfHostedForm({ returnUrl, installed, sandboxProviders = ['loca
           setErrorMessage(result.message);
           setPending(false);
           return;
+        }
+
+        // Ensure browser session is established immediately in addition to
+        // server-set cookies. This avoids rare cases where middleware doesn't
+        // see a fresh session on the first navigation after login.
+        if (result.accessToken && result.refreshToken) {
+          try {
+            const supabase = createBrowserSupabaseClient();
+            await supabase.auth.setSession({
+              access_token: result.accessToken,
+              refresh_token: result.refreshToken,
+            });
+          } catch {
+            // Fallback to server cookies + full reload below.
+          }
         }
 
         // Hard redirect — router.push() does a soft navigation that doesn't
