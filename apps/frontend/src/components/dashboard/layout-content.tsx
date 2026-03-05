@@ -28,12 +28,6 @@ function WebNotificationProvider() {
 	return null;
 }
 
-/** Initializes the user's sandbox on dashboard load. Renders nothing. */
-function SandboxInitProvider() {
-	useSandbox();
-	return null;
-}
-
 /** Monitors sandbox connection health + shows toast on connect/disconnect. Renders nothing. */
 function SandboxConnectionProvider() {
 	useSandboxConnection();
@@ -350,6 +344,15 @@ export default function DashboardLayoutContent({
 	// Sandbox reachability is handled by ConnectingScreen (overlay, not
 	// early return), which never unmounts children.
 
+	// IMPORTANT: useSandbox() MUST be called here — before the onboardingChecked
+	// guard below. In cloud mode, getActiveServerUrl() returns '' until useSandbox
+	// registers the sandbox in the server store. The onboarding check effect needs
+	// a valid server URL to proceed, so the sandbox must be registered first.
+	// Previously useSandbox() only ran inside SandboxInitProvider which rendered
+	// AFTER the onboardingChecked guard, creating a deadlock: onboarding check
+	// waited for a server URL that could never arrive because useSandbox never ran.
+	useSandbox();
+
 	const { data: adminRoleData, isLoading: isCheckingAdminRole } =
 		useAdminRole();
 	const isAdmin = adminRoleData?.isAdmin ?? false;
@@ -494,7 +497,6 @@ export default function DashboardLayoutContent({
 					</Suspense>
 				}
 			>
-				<SandboxInitProvider />
 				<SandboxConnectionProvider />
 				<OpenCodeEventStreamProvider />
 				<WebNotificationProvider />
