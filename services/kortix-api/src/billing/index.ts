@@ -107,7 +107,9 @@ billingApp.post('/setup/initialize', async (c: any) => {
 
     const timedResult = await Promise.race([
       ensurePromise,
-      new Promise<{ kind: 'timeout' }>((resolve) => setTimeout(() => resolve({ kind: 'timeout' }), 80_000)),
+      // Keep this short to avoid CDN/proxy/browser request ceilings during setup.
+      // Frontend continues with explicit sandbox readiness polling.
+      new Promise<{ kind: 'timeout' }>((resolve) => setTimeout(() => resolve({ kind: 'timeout' }), 20_000)),
     ]);
 
     if (timedResult.kind === 'done') {
