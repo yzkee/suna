@@ -12,4 +12,4 @@ exec s6-setuidgid abc \
   env HOME=/workspace \
       OPENCODE_CONFIG_DIR=/opt/opencode \
       PATH="/opt/bun/bin:/usr/local/bin:/usr/bin:/bin" \
-  opencode web --port 3111 --hostname 0.0.0.0
+  /usr/local/bin/opencode web --port 3111 --hostname 0.0.0.0

@@ -17,4 +17,4 @@ exec s6-setuidgid abc \
       OPENCODE_FILE_ROOT=/ \
       BUN_PTY_LIB=/opt/bun-pty-musl/librust_pty.so \
       PATH="/opt/bun/bin:/usr/local/bin:/usr/bin:/bin" \
-  opencode serve --port 4096 --hostname 0.0.0.0
+  /usr/local/bin/opencode serve --port 4096 --hostname 0.0.0.0

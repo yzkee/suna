@@ -40,6 +40,26 @@ else
     echo "[fix-bun-pty] All bun-pty .so files already patched."
 fi
 
+# Ensure OpenCode wrapper cache points at musl-compatible binary.
+# opencode-ai postinstall creates bin/.opencode from the non-musl package on Linux,
+# which breaks on Alpine. Overwrite it with the musl binary at startup.
+if [ "$ARCH" = "x86_64" ]; then
+    MUSL_OPENCODE="/usr/local/lib/node_modules/opencode-linux-x64-musl/bin/opencode"
+else
+    MUSL_OPENCODE="/usr/local/lib/node_modules/opencode-linux-arm64-musl/bin/opencode"
+fi
+
+OPENCODE_CACHE_BIN="/usr/local/lib/node_modules/opencode-ai/bin/.opencode"
+if [ -f "$MUSL_OPENCODE" ] && [ -f "$OPENCODE_CACHE_BIN" ]; then
+    if ! cmp -s "$MUSL_OPENCODE" "$OPENCODE_CACHE_BIN"; then
+        cp "$MUSL_OPENCODE" "$OPENCODE_CACHE_BIN"
+        chmod +x "$OPENCODE_CACHE_BIN"
+        echo "[fix-bun-pty] Replaced OpenCode cache binary with musl build."
+    else
+        echo "[fix-bun-pty] OpenCode cache binary already uses musl build."
+    fi
+fi
+
 # Also write BUN_PTY_LIB to s6 container environment so with-contenv picks it up.
 # This is a belt-and-suspenders backup — the Dockerfile ENV should already set it globally.
 S6_ENV_DIR="/run/s6/container_environment"
