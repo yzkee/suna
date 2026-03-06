@@ -151,11 +151,12 @@ function CopyButton({ code }: { code: string }) {
     <button
       onClick={handleCopy}
       className={cn(
-        "absolute top-3 right-3 p-1.5 rounded-md",
+        "absolute top-3 right-3 p-1.5 rounded-lg cursor-pointer",
         "opacity-0 group-hover:opacity-100 transition-opacity duration-150",
-        "bg-zinc-200/80 hover:bg-zinc-300 dark:bg-zinc-700/80 dark:hover:bg-zinc-600",
-        "text-zinc-600 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200",
-        "focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:focus:ring-zinc-500"
+        "border border-border/35 bg-background/70 backdrop-blur-sm",
+        "hover:bg-background/90 hover:border-border/50",
+        "text-muted-foreground hover:text-foreground",
+        "outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
       )}
       aria-label={copied ? "Copied!" : "Copy code"}
     >
