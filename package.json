@@ -14,6 +14,8 @@
     "test:e2e:frontend:full": "pnpm --dir apps/frontend test:e2e:full",
     "stripe": "stripe listen --forward-to http://localhost:8008/v1/billing/webhooks/stripe",
     "setup": "echo 'Run: bash scripts/get-kortix.sh'",
+    "nuke": "bash scripts/nuke-local.sh",
+    "nuke:start": "bash scripts/nuke-local.sh --start",
     "test:cli": "bash scripts/tests/run-all.sh"
   },
   "devDependencies": {

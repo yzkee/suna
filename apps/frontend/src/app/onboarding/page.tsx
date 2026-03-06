@@ -4,12 +4,10 @@ import React, { useRef, useCallback, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 
-import { useTheme } from 'next-themes';
 import { useRouter } from 'next/navigation';
 
 import { useAuth } from '@/components/AuthProvider';
 
-import { LightRays } from '@/components/ui/light-rays';
 import {
   useCreateOpenCodeSession,
 } from '@/hooks/opencode/use-opencode-sessions';
@@ -28,14 +26,18 @@ import { useSandbox, useProviders } from '@/hooks/platform/use-sandbox';
 const SYMBOL = "M25.5614 24.916H29.8268C29.8268 19.6306 26.9378 15.0039 22.6171 12.4587C26.9377 9.91355 29.8267 5.28685 29.8267 0.00146484H25.5613C25.5613 5.00287 21.8906 9.18692 17.0654 10.1679V0.00146484H12.8005V10.1679C7.9526 9.20401 4.3046 5.0186 4.3046 0.00146484H0.0391572C0.0391572 5.28685 2.92822 9.91355 7.24884 12.4587C2.92818 15.0039 0.0390625 19.6306 0.0390625 24.916H4.30451C4.30451 19.8989 7.95259 15.7135 12.8005 14.7496V24.9206H17.0654V14.7496C21.9133 15.7134 25.5614 19.8989 25.5614 24.916Z";
 
 const BIOS_LINES: { text: string; bold?: boolean }[] = [
-  { text: 'KORTIX SYSTEM v2.0', bold: true },
+  { text: 'KORTIX BIOS v2.0.1', bold: true },
   { text: '' },
-  { text: 'Memory check............... 128 GB OK' },
+  { text: 'CPU: Kortix Inference Engine X1 @ 3.80 GHz' },
+  { text: 'Memory test................. OK' },
   { text: 'Neural cores............... 8/8 online' },
   { text: 'Agent runtime.............. initialized' },
-  { text: 'Mounting filesystem........ done' },
+  { text: 'Tool registry.............. 47 tools loaded' },
+  { text: 'Secure enclave............. active' },
+  { text: 'Mounting workspace......... done' },
+  { text: 'Connecting to services..... done' },
   { text: '' },
-  { text: 'Starting KORTIX OS...' },
+  { text: 'All systems nominal. Starting KORTIX OS...' },
 ];
 
 /** No-op sidebar context so SessionChat's deep useSidebar() calls don't crash. */
@@ -57,7 +59,7 @@ function getInstanceUrl() {
 
 /* ─── Types ──────────────────────────────────────────────────── */
 
-type BootPhase = 'power' | 'bios' | 'logo' | 'login' | 'onboarding' | 'session';
+type BootPhase = 'bios' | 'logo' | 'onboarding' | 'session';
 
 /* ─── Helpers ────────────────────────────────────────────────── */
 
@@ -96,43 +98,6 @@ async function wasCommandFired(): Promise<boolean> {
 
 /* ─── Sub-components ─────────────────────────────────────────── */
 
-function LiveClock() {
-  const [now, setNow] = useState(new Date());
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
-  const day = now.toLocaleDateString('en-US', { weekday: 'short' });
-  const month = now.toLocaleDateString('en-US', { month: 'short' });
-  const date = now.getDate();
-  const h = now.getHours() % 12 || 12;
-  const m = now.getMinutes().toString().padStart(2, '0');
-  return (
-    <div className="flex flex-col items-center">
-      <p className="text-foreground/35 text-[13px] font-light tracking-widest">
-        {day} {month} {date}
-      </p>
-      <p
-        className="text-foreground/80 text-[80px] sm:text-[104px] font-extralight leading-none -tracking-[0.02em]"
-        style={{ fontVariantNumeric: 'tabular-nums' }}
-      >
-        {h}:{m}
-      </p>
-    </div>
-  );
-}
-
-function LoginKeyListener({ onEnter }: { onEnter: () => void }) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Enter') onEnter();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onEnter]);
-  return null;
-}
-
 function LoadingDots() {
   return (
     <div className="flex items-center justify-center h-full">
@@ -159,15 +124,13 @@ export default function OnboardingPage() {
   const commandFiredRef = useRef(false);
   const commandRetryRef = useRef(false);
   const retriesRef = useRef(0);
-  const { resolvedTheme } = useTheme();
   const { user, session, isLoading, signOut, supabase } = useAuth();
 
   // Ensure sandbox is registered in server store (same as dashboard layout).
   // This makes getInstanceUrl() return the correct sandbox URL.
-  const { sandbox } = useSandbox();
+  const { sandbox, refetch: refetchSandbox } = useSandbox();
   const { data: providersInfo } = useProviders();
-  const [mounted, setMounted] = useState(false);
-  const [phase, setPhase] = useState<BootPhase>('power');
+  const [phase, setPhase] = useState<BootPhase>('bios');
   const [visibleLines, setVisibleLines] = useState(0);
   const [progressFill, setProgressFill] = useState(false);
   const [sessionError, setSessionError] = useState(false);
@@ -175,6 +138,7 @@ export default function OnboardingPage() {
   const [onboardingWaitSec, setOnboardingWaitSec] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const bootTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const [biosReady, setBiosReady] = useState(false);
 
   const createSessionRef = useRef(createSession);
   createSessionRef.current = createSession;
@@ -217,9 +181,20 @@ export default function OnboardingPage() {
     return null;
   }, []);
 
-  useEffect(() => setMounted(true), []);
-  const isDark = !mounted || resolvedTheme !== 'light';
-  const raysColor = isDark ? '#ffffff' : '#000000';
+  const isSandboxAuthError = useCallback((err: unknown): boolean => {
+    const msg = err instanceof Error ? err.message : String(err ?? '');
+    return /not authorized to access this sandbox/i.test(msg);
+  }, []);
+
+  const refreshSandboxRouting = useCallback(async () => {
+    // Allow auto-switch to the sandbox after refetch/register.
+    useServerStore.setState({ activeServerId: '', userSelected: false });
+    try {
+      await refetchSandbox();
+    } catch {
+      // best effort
+    }
+  }, [refetchSandbox]);
 
   // ── Query param controls ───────────────────────────────────────
   // ?skip_onboarding → mark complete & go to dashboard
@@ -344,6 +319,16 @@ export default function OnboardingPage() {
         let finalSessionId: string | null = null;
         let needsCommand = false;
 
+        // Guard against stale local routing: if we already know the sandbox ID,
+        // only continue once the active instance URL points to that sandbox.
+        if (sandbox?.external_id) {
+          const instanceUrl = getInstanceUrl();
+          const expectedSegment = `/p/${sandbox.external_id}/`;
+          if (!instanceUrl || !instanceUrl.includes(expectedSegment)) {
+            throw new Error('Sandbox route is still syncing');
+          }
+        }
+
         // Hetzner cold starts can take 2-3 minutes; wait for real health/version
         // before starting onboarding session flow.
         if (isHetznerOnboarding) {
@@ -425,7 +410,18 @@ export default function OnboardingPage() {
         commandRetryRef.current = false;
         setOnboardingSessionId(finalSessionId);
         setPhase('session');
-      } catch {
+      } catch (err) {
+        if (isSandboxAuthError(err)) {
+          creatingRef.current = false;
+          toast.warning('Refreshing sandbox connection…');
+          await refreshSandboxRouting();
+          retryTimer = setTimeout(() => {
+            creatingRef.current = false;
+            setRetryTick((t) => t + 1);
+          }, 600);
+          return;
+        }
+
         creatingRef.current = false;
         retriesRef.current += 1;
         if (retriesRef.current >= MAX_RETRIES) {
@@ -443,7 +439,7 @@ export default function OnboardingPage() {
     })();
 
     return () => clearTimeout(retryTimer);
-  }, [phase, sessionError, retryTick, router, isHetznerOnboarding, waitForSandboxHealthVersion]);
+  }, [phase, sessionError, retryTick, router, isHetznerOnboarding, waitForSandboxHealthVersion, sandbox?.external_id, isSandboxAuthError, refreshSandboxRouting]);
 
   // ── Liveness fallback: if session is mounted but assistant never starts ──
   // This recovers from transient command delivery failures that can leave the
@@ -514,25 +510,37 @@ export default function OnboardingPage() {
   }, []);
 
   const startBoot = useCallback(() => {
-    if (phase !== 'power') return;
-    const audio = audioRef.current;
-    if (audio) {
-      audio.play().then(() => { audio.pause(); audio.currentTime = 0; }).catch(() => {});
-    }
-    setPhase('bios');
     const t = bootTimers.current;
     BIOS_LINES.forEach((_, i) => {
-      t.push(setTimeout(() => setVisibleLines(i + 1), 50 + i * 90));
+      t.push(setTimeout(() => setVisibleLines(i + 1), 100 + i * 160));
     });
-    t.push(setTimeout(() => {
-      setPhase('logo');
-      audioRef.current?.play().catch(() => {});
-    }, 900));
-    t.push(setTimeout(() => setProgressFill(true), 1100));
-    t.push(setTimeout(() => setPhase('login'), 3900));
-  }, [phase]);
+    // After all lines appear, show the "Press Enter" prompt
+    const allLinesMs = 100 + (BIOS_LINES.length - 1) * 160 + 300;
+    t.push(setTimeout(() => setBiosReady(true), allLinesMs));
+  }, []);
 
-  const nextAfterLogin = 'onboarding';
+  const continueBoot = useCallback(() => {
+    if (phase !== 'bios' || !biosReady) return;
+    audioRef.current?.play().catch(() => {});
+    setPhase('logo');
+    const t = bootTimers.current;
+    t.push(setTimeout(() => setProgressFill(true), 200));
+    t.push(setTimeout(() => setPhase('onboarding'), 3400));
+  }, [phase, biosReady]);
+
+  // Enter key triggers continueBoot during bios phase
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      continueBoot();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [continueBoot]);
+
+  // Auto-start boot on mount — no click needed
+  useEffect(() => {
+    startBoot();
+  }, [startBoot]);
 
   const activeUser = user || session?.user || null;
 
@@ -545,28 +553,6 @@ export default function OnboardingPage() {
     <div className="fixed inset-0 z-50 bg-background overflow-hidden">
       <AnimatePresence mode="wait">
 
-        {/* ═══ POWER ═══ */}
-        {phase === 'power' && (
-          <motion.div
-            key="power"
-            className="absolute inset-0 flex items-center justify-center cursor-pointer"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] } }}
-            transition={{ duration: 0.5 }}
-            onClick={startBoot}
-          >
-            <motion.p
-              className="text-[10px] tracking-[0.35em] uppercase text-foreground/40"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.8, delay: 0.3 }}
-            >
-              Click anywhere to start
-            </motion.p>
-          </motion.div>
-        )}
-
         {/* ═══ BIOS POST ═══ */}
         {phase === 'bios' && (
           <motion.div
@@ -575,7 +561,7 @@ export default function OnboardingPage() {
             initial={{ opacity: 1 }}
             exit={{ opacity: 0, transition: { duration: 0.12 } }}
           >
-            <div className="font-mono text-[11px] sm:text-xs leading-relaxed">
+            <div className="font-mono text-[13px] sm:text-sm leading-relaxed">
               {BIOS_LINES.slice(0, visibleLines).map((line, i) => (
                 <motion.div
                   key={i}
@@ -584,21 +570,38 @@ export default function OnboardingPage() {
                   transition={{ duration: 0.04 }}
                   className={
                     line.bold
-                      ? 'text-foreground/60 font-bold mb-2'
+                      ? 'text-foreground font-bold mb-2 tracking-wide'
                       : line.text === ''
                         ? 'h-3'
-                        : 'text-foreground/25'
+                        : 'text-foreground/70'
                   }
                 >
                   {line.text}
                 </motion.div>
               ))}
-              {visibleLines > 0 && (
+              {visibleLines > 0 && !biosReady && (
                 <motion.span
-                  className="inline-block w-1.5 h-3 bg-foreground/40 ml-0.5 mt-0.5"
+                  className="inline-block w-2 h-[14px] bg-foreground/70 ml-0.5 mt-0.5"
                   animate={{ opacity: [1, 0] }}
                   transition={{ duration: 0.5, repeat: Infinity }}
                 />
+              )}
+              {biosReady && (
+                <motion.div
+                  className="mt-5 cursor-pointer"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.3 }}
+                  onClick={continueBoot}
+                >
+                  <motion.span
+                    className="font-mono text-[13px] sm:text-sm text-foreground/90"
+                    animate={{ opacity: [1, 0.3] }}
+                    transition={{ duration: 0.7, repeat: Infinity, repeatType: 'reverse' }}
+                  >
+                    Press Enter to boot...
+                  </motion.span>
+                </motion.div>
               )}
             </div>
           </motion.div>
@@ -614,18 +617,6 @@ export default function OnboardingPage() {
             exit={{ opacity: 0, transition: { duration: 0.5 } }}
             transition={{ duration: 0.5 }}
           >
-            <div className="absolute inset-0 z-0 opacity-25">
-              <LightRays
-                raysColor={raysColor}
-                raysOrigin="top-center"
-                lightSpread={1.5}
-                raysSpeed={0.15}
-                rayLength={2.5}
-                pulsating
-                fadeDistance={0.9}
-                saturation={0}
-              />
-            </div>
             <motion.div
               className="relative z-10 flex flex-col items-center"
               initial={{ opacity: 0, y: 6 }}
@@ -647,60 +638,6 @@ export default function OnboardingPage() {
             </motion.div>
           </motion.div>
         )}
-
-        {/* ═══ LOGIN ═══ */}
-        {phase === 'login' && (
-          <motion.div
-            key="login"
-            className="absolute inset-0 select-none"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, transition: { duration: 0.3 } }}
-            transition={{ duration: 0.7 }}
-          >
-            <WallpaperBackground />
-            <motion.div
-              className="relative z-10 flex justify-center pt-[12vh] sm:pt-[14vh]"
-              initial={{ opacity: 0, y: -12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
-            >
-              <LiveClock />
-            </motion.div>
-            <motion.div
-              className="absolute z-10 bottom-[8vh] sm:bottom-[10vh] left-0 right-0 flex flex-col items-center"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.7, delay: 0.4, ease: [0.16, 1, 0.3, 1] }}
-            >
-              {(() => {
-                const avatarUrl = activeUser.user_metadata?.avatar_url || activeUser.user_metadata?.picture;
-                return (
-                  <div className="w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-full flex items-center justify-center mb-2.5 bg-foreground/[0.04] border border-foreground/[0.06] overflow-hidden">
-                    {avatarUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={avatarUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                    ) : (
-                      <svg viewBox="0 0 30 25" className="h-6 sm:h-7 w-auto text-foreground">
-                        <path d={SYMBOL} fill="currentColor" />
-                      </svg>
-                    )}
-                  </div>
-                );
-              })()}
-              <p className="text-foreground/80 text-[15px] sm:text-[16px] font-medium tracking-wide mb-1">
-                 {activeUser.user_metadata?.name || activeUser.user_metadata?.full_name || activeUser.email?.split('@')[0] || 'User'}
-              </p>
-              <button
-                className="text-foreground/30 text-[12px] tracking-wide cursor-pointer hover:text-foreground/50 transition-colors duration-200"
-                onClick={() => setPhase(nextAfterLogin)}
-              >
-                Press Enter or click to continue
-              </button>
-            </motion.div>
-          </motion.div>
-        )}
-        {phase === 'login' && <LoginKeyListener onEnter={() => setPhase(nextAfterLogin)} />}
 
         {/* ═══ ONBOARDING — creating session, loading spinner ═══ */}
         {phase === 'onboarding' && (

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertCircle, CheckCircle2, ExternalLink, Loader2, Search, Globe, Image, Mic, BookOpen, Flame, Server } from 'lucide-react';
+import { AlertCircle, ExternalLink, Loader2, Search, Globe, Image, Mic, BookOpen, Flame, Server } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { KortixLoader } from '@/components/ui/kortix-loader';
@@ -49,41 +49,25 @@ export function useInstallStatus() {
 /* ─── Step Indicator ───────────────────────────────────────────────────────── */
 
 function StepIndicator({ currentStep }: { currentStep: 1 | 2 | 3 | 4 }) {
-  const steps = [
-    { num: 1, label: 'Account' },
-    { num: 2, label: 'LLM provider' },
-    { num: 3, label: 'Tool keys' },
-    { num: 4, label: 'Start using' },
-  ];
+  const steps = [1, 2, 3, 4];
 
   return (
-    <div className="flex items-center gap-2 mb-6 px-1">
+    <div className="flex items-center justify-center gap-1.5 mb-6">
       {steps.map((step, i) => {
-        const isDone = step.num < currentStep;
-        const isActive = step.num === currentStep;
+        const isDone = step < currentStep;
+        const isActive = step === currentStep;
         return (
-          <div key={step.num} className="contents">
-            <div className="flex items-center gap-1.5 flex-1">
-              <div
-                className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-semibold shrink-0 ${
-                  isDone
-                    ? 'bg-primary/20 text-primary'
-                    : isActive
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-muted-foreground'
-                }`}
-              >
-                {isDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : step.num}
-              </div>
-              <span
-                className={`text-xs truncate ${
-                  isActive ? 'font-medium text-foreground' : 'text-muted-foreground'
-                }`}
-              >
-                {step.label}
-              </span>
-            </div>
-            {i < steps.length - 1 && <div className="h-px flex-1 bg-border max-w-8" />}
+          <div key={step} className="contents">
+            <div
+              className={`rounded-full transition-all duration-300 ${
+                isDone
+                  ? 'w-1.5 h-1.5 bg-foreground/40'
+                  : isActive
+                    ? 'w-6 h-1.5 bg-foreground'
+                    : 'w-1.5 h-1.5 bg-foreground/15'
+              }`}
+            />
+            {i < steps.length - 1 && <div className="w-1" />}
           </div>
         );
       })}
@@ -183,20 +167,20 @@ function ToolSecretsStep({ onContinue, onSkip }: { onContinue: () => void; onSki
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
+      <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1 -mr-1">
         {TOOL_SECRETS.map((secret) => {
           const Icon = secret.icon;
           const isSaved = savedKeys.has(secret.key);
           return (
-            <div key={secret.key} className="flex items-start gap-3 p-2.5 rounded-lg border border-border/50 bg-card/50">
-              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted">
-                <Icon className="h-4 w-4 text-muted-foreground" />
+            <div key={secret.key} className="flex items-start gap-3 p-2.5 rounded-xl border border-foreground/[0.06] bg-foreground/[0.02]">
+              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.05]">
+                <Icon className="h-3.5 w-3.5 text-foreground/40" />
               </div>
               <div className="flex-1 min-w-0 space-y-1.5">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-foreground">{secret.label}</span>
+                  <span className="text-[13px] font-medium text-foreground/80">{secret.label}</span>
                   {'recommended' in secret && secret.recommended && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+                    <span className="text-[9px] px-1.5 py-px rounded-full bg-foreground/[0.06] text-foreground/40 font-medium uppercase tracking-wider">
                       Recommended
                     </span>
                   )}
@@ -204,19 +188,19 @@ function ToolSecretsStep({ onContinue, onSkip }: { onContinue: () => void; onSki
                     href={secret.signupUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
+                    className="ml-auto text-foreground/20 hover:text-foreground/50 transition-colors"
                     title={`Get ${secret.label} API key`}
                   >
                     <ExternalLink className="h-3 w-3" />
                   </a>
                 </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">{secret.description}</p>
+                <p className="text-[11px] text-foreground/35 leading-relaxed">{secret.description}</p>
                 <Input
                   type="password"
                   placeholder={`${secret.key}`}
                   value={values[secret.key] || ''}
                   onChange={(e) => setValues((prev) => ({ ...prev, [secret.key]: e.target.value }))}
-                  className="h-8 text-xs font-mono shadow-none"
+                  className="h-8 text-xs font-mono shadow-none bg-foreground/[0.04] border-foreground/[0.08] rounded-lg"
                   autoComplete="off"
                 />
               </div>
@@ -225,11 +209,11 @@ function ToolSecretsStep({ onContinue, onSkip }: { onContinue: () => void; onSki
         })}
       </div>
 
-      <div className="flex gap-2 pt-1">
+      <div className="flex gap-2 pt-2">
         <Button
           variant="outline"
           onClick={onSkip}
-          className="flex-1 h-10 text-sm"
+          className="flex-1 h-10 text-[13px] rounded-xl shadow-none border-foreground/[0.08]"
           disabled={saving}
         >
           Skip for now
@@ -237,23 +221,23 @@ function ToolSecretsStep({ onContinue, onSkip }: { onContinue: () => void; onSki
         <Button
           onClick={handleSave}
           disabled={saving}
-          className="flex-1 h-10 text-sm"
+          className="flex-1 h-10 text-[13px] rounded-xl shadow-none"
         >
           {saving ? (
             <>
               <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-              Saving...
+              Saving…
             </>
           ) : filledCount > 0 ? (
-            `Save ${filledCount} key${filledCount > 1 ? 's' : ''} & continue`
+            `Save & continue`
           ) : (
             'Continue'
           )}
         </Button>
       </div>
 
-      <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
-        All keys are optional. You can add or change them later in Settings → Secrets Manager.
+      <p className="text-[11px] text-foreground/25 text-center">
+        You can add or change keys later in Settings.
       </p>
     </div>
   );
@@ -264,6 +248,8 @@ function ToolSecretsStep({ onContinue, onSkip }: { onContinue: () => void; onSki
 interface SelfHostedFormProps {
   returnUrl: string | null;
   installed: boolean | null;
+  /** Preserve wizard progress across parent remounts. */
+  initialStep?: 1 | 2 | 3;
   /** Available sandbox providers from the API. */
   sandboxProviders?: SandboxProviderName[];
   /** Default sandbox provider. */
@@ -272,10 +258,10 @@ interface SelfHostedFormProps {
   onWizardStepChange?: (step: number) => void;
 }
 
-export function SelfHostedForm({ returnUrl, installed, sandboxProviders = ['local_docker'], defaultProvider = 'local_docker', onWizardStepChange }: SelfHostedFormProps) {
+export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxProviders = ['local_docker'], defaultProvider = 'local_docker', onWizardStepChange }: SelfHostedFormProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(initialStep);
   const [sandboxReady, setSandboxReady] = useState(false);
   const [pullProgress, setPullProgress] = useState<{ progress: number; message: string } | null>(null);
   /** Which provider the user chose (or was auto-selected). null = not chosen yet. */
@@ -285,6 +271,63 @@ export function SelfHostedForm({ returnUrl, installed, sandboxProviders = ['loca
   const router = useRouter();
 
   const hasMultipleProviders = sandboxProviders.length > 1;
+
+  // If the parent remounts this component while the wizard is in progress,
+  // keep the furthest step reached instead of snapping back to step 1.
+  useEffect(() => {
+    setWizardStep((prev) => (initialStep > prev ? initialStep : prev));
+  }, [initialStep]);
+
+  // ── On step 2: if sandbox is already ready (e.g. after page refresh),
+  //    skip "Preparing…" by fetching status immediately.
+  useEffect(() => {
+    if (wizardStep !== 2 || sandboxReady) return;
+
+    const checkExisting = async () => {
+      try {
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
+
+        // Get current JWT — prefer jwtRef (just signed up), fall back to Supabase session (refresh)
+        let jwt = jwtRef.current;
+        if (!jwt) {
+          const supabase = createBrowserSupabaseClient();
+          const { data } = await supabase.auth.getSession();
+          jwt = data.session?.access_token ?? null;
+        }
+        if (!jwt) return;
+
+        const res = await fetch(`${backendUrl}/platform/init/local/status`, {
+          headers: { 'Authorization': `Bearer ${jwt}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+
+        if (data.status === 'ready' && data.data) {
+          registerSandbox(data.data);
+          setSandboxReady(true);
+          setPullProgress(null);
+          // Ensure chosenProvider is set so the correct sub-state renders
+          setChosenProvider((prev) => prev ?? (data.data.provider as SandboxProviderName ?? 'local_docker'));
+        } else if (data.status === 'pulling' || data.status === 'creating') {
+          // Mid-pull on page refresh — resume polling
+          setPullProgress({
+            progress: data.progress || 0,
+            message: data.status === 'creating' ? 'Creating sandbox container…' : data.message || 'Pulling sandbox image...',
+          });
+          pollLocalStatus(jwt, backendUrl);
+        } else {
+          // 'none', 'error', or unknown — re-provision
+          setChosenProvider((prev) => prev ?? 'local_docker');
+          provisionSandbox(jwt, backendUrl, 'local_docker');
+        }
+      } catch {
+        // Ignore — if status check fails, the normal provision flow handles it
+      }
+    };
+
+    checkExisting();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wizardStep]);
 
   // ── Helpers (hooks must be before any early return) ──
 
@@ -336,10 +379,40 @@ export function SelfHostedForm({ returnUrl, installed, sandboxProviders = ['loca
           return; // stop polling
         }
 
-        // Still pulling
+        // No sandbox row in DB (e.g. after a nuke + API restart) — re-trigger provision
+        if (data.status === 'none') {
+          // Inline the POST rather than calling provisionSandbox to avoid circular dep
+          try {
+            const initRes = await fetch(`${backendUrl}/platform/init/local`, {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${jwt}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({}),
+            });
+            const initData = await initRes.json();
+            if (initData.status === 'ready' && initData.data) {
+              registerSandbox(initData.data);
+              setSandboxReady(true);
+              setPullProgress(null);
+              return;
+            }
+            // Still provisioning — update message and keep polling
+            setPullProgress({
+              progress: initData.progress || 0,
+              message: initData.message || 'Preparing sandbox…',
+            });
+          } catch {
+            // network error — keep polling
+          }
+          setTimeout(poll, 2000);
+          return;
+        }
+
+        // Still pulling or creating container — keep polling
         setPullProgress({
           progress: data.progress || 0,
-          message: data.message || 'Pulling sandbox image...',
+          message: data.status === 'creating'
+            ? 'Creating sandbox container…'
+            : data.message || 'Pulling sandbox image...',
         });
 
         // Poll again in 2s
@@ -364,16 +437,28 @@ export function SelfHostedForm({ returnUrl, installed, sandboxProviders = ['loca
         const initData = await initRes.json();
 
         if (initData.status === 'ready' && initData.data) {
+          // Sandbox already active or just created synchronously
           registerSandbox(initData.data);
           setSandboxReady(true);
-        } else if (initData.status === 'pulling') {
-          setPullProgress({ progress: 0, message: initData.message || 'Pulling sandbox image...' });
+        } else if (initData.status === 'pulling' || initData.status === 'creating') {
+          // Image pull in progress OR container being created — poll for completion
+          setPullProgress({
+            progress: initData.progress || 0,
+            message: initData.status === 'creating'
+              ? 'Creating sandbox container…'
+              : initData.message || 'Pulling sandbox image...',
+          });
           pollLocalStatus(jwt, backendUrl);
-        } else if (!initData.success) {
-          console.warn('[Setup] Local init failed:', initData.error);
+        } else if (initData.success && initData.data) {
+          // Fallback: success response with data but no explicit status
+          registerSandbox(initData.data);
+          setSandboxReady(true);
+        } else {
+          console.warn('[Setup] Local init failed:', initData.error || initData.message);
           setSandboxReady(false);
         }
-      } catch {
+      } catch (err) {
+        console.warn('[Setup] Local init error:', err);
         setSandboxReady(false);
       }
     } else {
@@ -579,12 +664,12 @@ export function SelfHostedForm({ returnUrl, installed, sandboxProviders = ['loca
    if (isInstaller && wizardStep === 3) {
     return (
       <div className="w-full max-w-sm">
-        <div className="mb-4 sm:mb-6 flex items-center flex-col gap-2 justify-center">
-          <h1 className="text-lg sm:text-xl md:text-2xl font-semibold text-foreground text-center leading-tight">
-            Tool API Keys
+        <div className="flex flex-col items-center mb-5">
+          <h1 className="text-[17px] font-medium text-foreground/90 tracking-tight">
+            Add tool keys
           </h1>
-          <p className="text-sm text-muted-foreground text-center max-w-xs">
-            Add API keys for tools your agent can use — web search, image generation, and more.
+          <p className="text-[13px] text-foreground/40 mt-0.5">
+            Optional API keys for agent capabilities
           </p>
         </div>
 
@@ -604,34 +689,34 @@ export function SelfHostedForm({ returnUrl, installed, sandboxProviders = ['loca
     if (hasMultipleProviders && !chosenProvider) {
       return (
         <div className="w-full max-w-sm">
-          <div className="mb-4 sm:mb-6 flex items-center flex-col gap-2 justify-center">
-            <h1 className="text-lg sm:text-xl md:text-2xl font-semibold text-foreground text-center leading-tight">
-              Choose Sandbox Environment
+          <div className="flex flex-col items-center mb-5">
+            <h1 className="text-[17px] font-medium text-foreground/90 tracking-tight">
+              Sandbox environment
             </h1>
-            <p className="text-sm text-muted-foreground text-center max-w-xs">
-              Where should your agent&apos;s sandbox run? You can change this later.
+            <p className="text-[13px] text-foreground/40 mt-0.5">
+              Where should your agent run?
             </p>
           </div>
 
           <StepIndicator currentStep={2} />
 
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2.5">
             {sandboxProviders.includes('local_docker') && (
               <button
                 type="button"
                 onClick={() => handleSandboxProviderSelect('local_docker')}
-                className="flex items-start gap-3 p-4 rounded-lg border border-border/50 bg-card/50 hover:border-primary/40 hover:bg-card transition-all text-left"
+                className="flex items-start gap-3 p-3.5 rounded-xl border border-foreground/[0.06] bg-foreground/[0.02] hover:border-foreground/[0.15] hover:bg-foreground/[0.04] transition-all text-left"
               >
-                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted">
-                  <svg className="h-5 w-5 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.05]">
+                  <svg className="h-4 w-4 text-foreground/40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <rect x="2" y="7" width="20" height="14" rx="2" />
                     <path d="M16 3h-8l-2 4h12z" />
                   </svg>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <span className="text-sm font-medium text-foreground">Local Docker</span>
-                  <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                    Run the sandbox on this machine using Docker. Best for development and full control.
+                  <span className="text-[13px] font-medium text-foreground/80">Local Docker</span>
+                  <p className="text-[11px] text-foreground/35 mt-0.5 leading-relaxed">
+                    Run on this machine. Best for development.
                   </p>
                 </div>
               </button>
@@ -640,15 +725,15 @@ export function SelfHostedForm({ returnUrl, installed, sandboxProviders = ['loca
               <button
                 type="button"
                 onClick={() => handleSandboxProviderSelect('daytona')}
-                className="flex items-start gap-3 p-4 rounded-lg border border-border/50 bg-card/50 hover:border-primary/40 hover:bg-card transition-all text-left"
+                className="flex items-start gap-3 p-3.5 rounded-xl border border-foreground/[0.06] bg-foreground/[0.02] hover:border-foreground/[0.15] hover:bg-foreground/[0.04] transition-all text-left"
               >
-                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted">
-                  <Globe className="h-5 w-5 text-muted-foreground" />
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.05]">
+                  <Globe className="h-4 w-4 text-foreground/40" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <span className="text-sm font-medium text-foreground">Daytona (Cloud)</span>
-                  <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                    Run the sandbox on Daytona cloud infrastructure. No local Docker required.
+                  <span className="text-[13px] font-medium text-foreground/80">Daytona</span>
+                  <p className="text-[11px] text-foreground/35 mt-0.5 leading-relaxed">
+                    Cloud infrastructure. No local Docker needed.
                   </p>
                 </div>
               </button>
@@ -657,15 +742,15 @@ export function SelfHostedForm({ returnUrl, installed, sandboxProviders = ['loca
               <button
                 type="button"
                 onClick={() => handleSandboxProviderSelect('hetzner')}
-                className="flex items-start gap-3 p-4 rounded-lg border border-border/50 bg-card/50 hover:border-primary/40 hover:bg-card transition-all text-left"
+                className="flex items-start gap-3 p-3.5 rounded-xl border border-foreground/[0.06] bg-foreground/[0.02] hover:border-foreground/[0.15] hover:bg-foreground/[0.04] transition-all text-left"
               >
-                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted">
-                  <Server className="h-5 w-5 text-muted-foreground" />
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.05]">
+                  <Server className="h-4 w-4 text-foreground/40" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <span className="text-sm font-medium text-foreground">Hetzner VPS</span>
-                  <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                    Dedicated VPS on Hetzner Cloud. Best performance with full isolation.
+                  <span className="text-[13px] font-medium text-foreground/80">Hetzner VPS</span>
+                  <p className="text-[11px] text-foreground/35 mt-0.5 leading-relaxed">
+                    Dedicated VPS with full isolation.
                   </p>
                 </div>
               </button>
@@ -678,12 +763,12 @@ export function SelfHostedForm({ returnUrl, installed, sandboxProviders = ['loca
     // ── Sub-state: provider chosen, sandbox provisioning / ready ──
     return (
       <div className="w-full max-w-sm">
-        <div className="mb-4 sm:mb-6 flex items-center flex-col gap-2 justify-center">
-          <h1 className="text-lg sm:text-xl md:text-2xl font-semibold text-foreground text-center leading-tight">
-            Connect a Provider
+        <div className="flex flex-col items-center mb-5">
+          <h1 className="text-[17px] font-medium text-foreground/90 tracking-tight">
+            Connect a provider
           </h1>
-          <p className="text-sm text-muted-foreground text-center max-w-xs">
-            Connect an LLM provider so your agent can think. You can add more later in Settings.
+          <p className="text-[13px] text-foreground/40 mt-0.5">
+            Add an LLM so your agent can think
           </p>
         </div>
 
@@ -694,18 +779,18 @@ export function SelfHostedForm({ returnUrl, installed, sandboxProviders = ['loca
             <KortixLoader size="medium" />
             {pullProgress ? (
               <div className="w-full max-w-xs flex flex-col items-center gap-2">
-                <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                <div className="w-full bg-foreground/[0.06] rounded-full h-1 overflow-hidden">
                   <div
-                    className="bg-primary h-full rounded-full transition-all duration-500"
+                    className="bg-foreground h-full rounded-full transition-all duration-500"
                     style={{ width: `${Math.max(pullProgress.progress, 2)}%` }}
                   />
                 </div>
-                <p className="text-xs text-muted-foreground text-center">
+                <p className="text-[11px] text-foreground/35 text-center">
                   {pullProgress.message}
                 </p>
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">Preparing sandbox…</p>
+              <p className="text-[11px] text-foreground/35">Preparing sandbox…</p>
             )}
           </div>
         ) : (
@@ -724,25 +809,25 @@ export function SelfHostedForm({ returnUrl, installed, sandboxProviders = ['loca
   if (isInstaller) {
     return (
       <div className="w-full max-w-sm">
-        <div className="mb-4 sm:mb-6 flex items-center flex-col gap-2 justify-center">
-          <h1 className="text-lg sm:text-xl md:text-2xl font-semibold text-foreground text-center leading-tight">
-            Welcome to Kortix
+        <div className="flex flex-col items-center mb-5">
+          <h1 className="text-[17px] font-medium text-foreground/90 tracking-tight">
+            Create your account
           </h1>
-          <p className="text-sm text-muted-foreground text-center max-w-xs">
-            Create your admin account to complete the installation. You&apos;ll be the owner of this instance.
+          <p className="text-[13px] text-foreground/40 mt-0.5">
+            Set up the owner account for this instance
           </p>
         </div>
 
         <StepIndicator currentStep={1} />
 
         {errorMessage && (
-          <div className="mb-4 p-3 rounded-lg flex items-center gap-2 bg-destructive/10 border border-destructive/20 text-destructive">
+          <div className="mb-4 p-3 rounded-xl flex items-center gap-2 bg-destructive/10 border border-destructive/20 text-destructive">
             <AlertCircle className="h-4 w-4 flex-shrink-0" />
-            <span className="text-sm">{errorMessage}</span>
+            <span className="text-[13px]">{errorMessage}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-3">
           <Input
             id="email"
             name="email"
@@ -750,7 +835,7 @@ export function SelfHostedForm({ returnUrl, installed, sandboxProviders = ['loca
             placeholder="Email address"
             required
             autoComplete="email"
-            className="h-10 sm:h-11 text-[16px] sm:text-sm"
+            className="h-11 text-[15px] bg-foreground/[0.04] border-foreground/[0.08] rounded-xl shadow-none"
           />
           <Input
             id="password"
@@ -759,7 +844,7 @@ export function SelfHostedForm({ returnUrl, installed, sandboxProviders = ['loca
             placeholder="Password"
             required
             autoComplete="new-password"
-            className="h-10 sm:h-11 text-[16px] sm:text-sm"
+            className="h-11 text-[15px] bg-foreground/[0.04] border-foreground/[0.08] rounded-xl shadow-none"
           />
           <Input
             id="confirmPassword"
@@ -768,21 +853,17 @@ export function SelfHostedForm({ returnUrl, installed, sandboxProviders = ['loca
             placeholder="Confirm password"
             required
             autoComplete="new-password"
-            className="h-10 sm:h-11 text-[16px] sm:text-sm"
+            className="h-11 text-[15px] bg-foreground/[0.04] border-foreground/[0.08] rounded-xl shadow-none"
           />
 
           <Button
             type="submit"
             disabled={pending}
-            className="w-full h-10 sm:h-11 text-sm"
+            className="w-full h-11 text-[13px] rounded-xl shadow-none"
           >
-            {pending ? 'Setting up...' : 'Create account & continue'}
+            {pending ? 'Setting up…' : 'Continue'}
           </Button>
         </form>
-
-        <p className="text-[11px] sm:text-xs text-muted-foreground text-center mt-6 leading-relaxed">
-          This will be the owner account for this Kortix instance.
-        </p>
       </div>
     );
   }
@@ -790,23 +871,23 @@ export function SelfHostedForm({ returnUrl, installed, sandboxProviders = ['loca
   // ── Returning user sign-in ──
   return (
     <div className="w-full max-w-sm">
-      <div className="mb-4 sm:mb-6 flex items-center flex-col gap-2 sm:gap-4 justify-center">
-        <h1 className="text-lg sm:text-xl md:text-2xl font-semibold text-foreground text-center leading-tight">
+      <div className="flex flex-col items-center mb-6">
+        <h1 className="text-[17px] font-medium text-foreground/90 tracking-tight">
           Sign in to Kortix
         </h1>
-        <p className="text-sm text-muted-foreground text-center">
-          Enter your credentials to continue.
+        <p className="text-[13px] text-foreground/40 mt-0.5">
+          Your AI Computer
         </p>
       </div>
 
       {errorMessage && (
-        <div className="mb-4 p-3 rounded-lg flex items-center gap-2 bg-destructive/10 border border-destructive/20 text-destructive">
+        <div className="mb-4 p-3 rounded-xl flex items-center gap-2 bg-destructive/10 border border-destructive/20 text-destructive">
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
-          <span className="text-sm">{errorMessage}</span>
+          <span className="text-[13px]">{errorMessage}</span>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-3">
         <Input
           id="email"
           name="email"
@@ -814,7 +895,7 @@ export function SelfHostedForm({ returnUrl, installed, sandboxProviders = ['loca
           placeholder="Email address"
           required
           autoComplete="email"
-          className="h-10 sm:h-11 text-[16px] sm:text-sm"
+          className="h-11 text-[15px] bg-foreground/[0.04] border-foreground/[0.08] rounded-xl shadow-none"
         />
         <Input
           id="password"
@@ -823,21 +904,17 @@ export function SelfHostedForm({ returnUrl, installed, sandboxProviders = ['loca
           placeholder="Password"
           required
           autoComplete="current-password"
-          className="h-10 sm:h-11 text-[16px] sm:text-sm"
+          className="h-11 text-[15px] bg-foreground/[0.04] border-foreground/[0.08] rounded-xl shadow-none"
         />
 
         <Button
           type="submit"
           disabled={pending}
-            className="w-full h-10 sm:h-11 text-sm"
-          >
-            {pending ? 'Signing in...' : 'Sign in'}
+          className="w-full h-11 text-[13px] rounded-xl shadow-none"
+        >
+          {pending ? 'Signing in…' : 'Sign in'}
         </Button>
       </form>
-
-      <p className="text-[11px] sm:text-xs text-muted-foreground text-center mt-6 leading-relaxed">
-        Self-hosted Kortix instance
-      </p>
     </div>
   );
 }
