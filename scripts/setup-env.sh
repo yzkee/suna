@@ -60,6 +60,8 @@ write_env "services/kortix-api/.env" \
   "# Core" \
   "PORT=8008" \
   "$(kv ENV_MODE local)" \
+  "$(kv INTERNAL_KORTIX_ENV dev)" \
+  "$(kv KORTIX_BILLING_INTERNAL_ENABLED false)" \
   "" \
   "# Database + Supabase (REQUIRED)" \
   "$(kv DATABASE_URL)" \

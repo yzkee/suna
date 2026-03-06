@@ -5,6 +5,7 @@ import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { RightSidebarProvider } from '@/components/ui/sidebar-right-provider';
 import { useDeleteOperationEffects } from '@/stores/delete-operation-store';
 import { SubscriptionStoreSync } from '@/stores/subscription-store';
+import { AddInstanceDialog } from '@/components/billing/add-instance-dialog';
 
 // Lazy load the heavy sidebar components
 const SidebarLeft = lazy(() => 
@@ -65,6 +66,7 @@ export function AppProviders({
     <DeleteOperationEffectsWrapper>
       <SubscriptionStoreSync>
         {children}
+        <AddInstanceDialog />
       </SubscriptionStoreSync>
     </DeleteOperationEffectsWrapper>
   );
@@ -94,4 +96,3 @@ export function AppProviders({
     </SidebarProvider>
   );
 }
-

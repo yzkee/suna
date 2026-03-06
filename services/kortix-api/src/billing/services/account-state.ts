@@ -1,3 +1,4 @@
+import { eq, and, inArray } from 'drizzle-orm';
 import {
   getCreditAccount,
   getSubscriptionInfo,
@@ -6,9 +7,11 @@ import {
   getTier,
   getDailyCreditConfig,
   isModelAllowed,
+  isPaidTier,
   MINIMUM_CREDIT_FOR_RUN,
 } from './tiers';
 import { getCreditSummary } from './credits';
+import { getAutoTopupSettings } from './auto-topup';
 import type {
   AccountStateResponse,
   ScheduledChange,
@@ -73,6 +76,43 @@ export async function buildMinimalAccountState(accountId: string): Promise<Accou
   const commitment = extractCommitment(sub);
   const scheduledChange = extractScheduledChange(sub, tierName);
 
+  // Auto-topup settings
+  const autoTopup = await getAutoTopupSettings(accountId);
+
+  // User's instances (sandboxes)
+  let instances: any[] = [];
+  try {
+    const { db } = await import('../../shared/db');
+    const { sandboxes } = await import('@kortix/db');
+
+    const sandboxRows = await db
+      .select()
+      .from(sandboxes)
+      .where(
+        and(
+          eq(sandboxes.accountId, accountId),
+          inArray(sandboxes.status, ['active', 'provisioning', 'stopped']),
+        ),
+      );
+
+    instances = sandboxRows.map((row) => {
+      const metadata = row.metadata as Record<string, unknown> | null;
+      return {
+        sandbox_id: row.sandboxId,
+        name: row.name,
+        provider: row.provider,
+        status: row.status,
+        server_type: metadata?.serverType ?? null,
+        location: metadata?.location ?? null,
+        is_included: row.isIncluded ?? false,
+        stripe_subscription_item_id: row.stripeSubscriptionItemId ?? null,
+        created_at: row.createdAt.toISOString(),
+      };
+    });
+  } catch {
+    // DB may not be available in local mode
+  }
+
   return {
     credits: {
       total: credits.total,
@@ -108,6 +148,9 @@ export async function buildMinimalAccountState(accountId: string): Promise<Accou
       monthly_credits: tier.monthlyCredits,
       can_purchase_credits: tier.canPurchaseCredits,
     },
+    auto_topup: autoTopup,
+    instances,
+    can_add_instances: isPaidTier(tierName),
   };
 }
 

@@ -31,7 +31,7 @@ export const accountUser = basejump.table(
   ],
 );
 
-export const billingCustomers = basejump.table('billing_customers', {
+export const billingCustomersInBasejump = basejump.table('billing_customers', {
   accountId: uuid('account_id').notNull(),
   id: text().primaryKey().notNull(),
   email: text(),
@@ -61,5 +61,4 @@ export const apiKeys = pgTable(
     index('idx_api_keys_public_key').on(table.publicKey),
   ],
 );
-
 

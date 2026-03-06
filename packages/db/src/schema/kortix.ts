@@ -167,6 +167,9 @@ export const sandboxes = kortixSchema.table(
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    // Billing: tracks included vs additional (paid) instances
+    isIncluded: boolean('is_included').default(false).notNull(),
+    stripeSubscriptionItemId: text('stripe_subscription_item_id'),
   },
   (table) => [
     index('idx_sandboxes_account').on(table.accountId),
@@ -578,6 +581,20 @@ export const accountMembersRelations = relations(accountMembers, ({ one }) => ({
 
 // ─── Billing / Credits ─────────────────────────────────────────────────────
 
+export const billingCustomers = kortixSchema.table(
+  'billing_customers',
+  {
+    accountId: uuid('account_id').notNull(),
+    id: text().primaryKey().notNull(),
+    email: text(),
+    active: boolean(),
+    provider: text(),
+  },
+  (table) => [
+    index('idx_kortix_billing_customers_account_id').on(table.accountId),
+  ],
+);
+
 export const creditAccounts = kortixSchema.table(
   'credit_accounts',
   {
@@ -624,6 +641,11 @@ export const creditAccounts = kortixSchema.table(
     planType: varchar('plan_type', { length: 50 }).default('monthly'),
     stripeSubscriptionStatus: varchar('stripe_subscription_status', { length: 50 }),
     lastDailyRefresh: timestamp('last_daily_refresh', { withTimezone: true, mode: 'string' }),
+    // Auto-topup configuration
+    autoTopupEnabled: boolean('auto_topup_enabled').default(false).notNull(),
+    autoTopupThreshold: numeric('auto_topup_threshold', { precision: 10, scale: 2 }).default('5').notNull(),
+    autoTopupAmount: numeric('auto_topup_amount', { precision: 10, scale: 2 }).default('15').notNull(),
+    autoTopupLastCharged: timestamp('auto_topup_last_charged', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
     index('kortix_credit_accounts_account_id_idx').on(table.accountId),

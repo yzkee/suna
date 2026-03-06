@@ -60,8 +60,10 @@ export default function SubscriptionRequiredPage() {
       const isFreeTier = tierKey === 'free';
 
       // Redirect to dashboard if user has valid subscription/trial/free tier
-      if ((hasActiveSubscription && hasValidTier) || (hasActiveTrial && hasValidTier) || isFreeTier) {
+      if ((hasActiveSubscription && hasValidTier) || (hasActiveTrial && hasValidTier)) {
         router.push('/dashboard');
+      } else if (isFreeTier) {
+        router.push('/setting-up');
       }
     }
   }, [subscriptionData, isLoadingSubscription, router]);
@@ -133,9 +135,10 @@ export default function SubscriptionRequiredPage() {
           </div>
         }>
           <PricingSection
-            returnUrl={`${typeof window !== 'undefined' ? window.location.origin : ''}/dashboard?subscription=activated`}
+            returnUrl={`${typeof window !== 'undefined' ? window.location.origin : ''}/setting-up?subscription=success&session_id={CHECKOUT_SESSION_ID}`}
             showTitleAndTabs={false}
             onSubscriptionUpdate={handleSubscriptionUpdate}
+            onboardingFlow={true}
           />
         </Suspense>
         <div className="text-center text-sm text-muted-foreground -mt-10">

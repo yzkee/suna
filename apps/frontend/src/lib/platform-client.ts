@@ -74,7 +74,7 @@ const PLATFORM_URL = getPlatformUrl();
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type SandboxProviderName = 'daytona' | 'local_docker' | 'hetzner';
-export type HetznerServerTypeOption = 'cpx22' | 'cpx32';
+export type HetznerServerTypeOption = string;
 
 export interface SandboxCreateProgress {
   status: 'pulling';

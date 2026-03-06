@@ -60,6 +60,8 @@ function serializeSandbox(row: typeof sandboxes.$inferSelect) {
     status: row.status,
     version: metadata?.version ?? null,
     metadata: row.metadata,
+    is_included: row.isIncluded ?? false,
+    stripe_subscription_item_id: row.stripeSubscriptionItemId ?? null,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
   };
@@ -114,7 +116,9 @@ export function createCloudSandboxRouter(
   });
 
   // ─── POST / ────────────────────────────────────────────────────────────
-  // Create a new sandbox. Limited to 1 active sandbox per account.
+  // Create a new sandbox. Pro users can have multiple instances.
+  // The first instance is "included" in the plan; additional ones get a
+  // Stripe subscription item with 1.2x Hetzner pricing.
 
   router.post('/', async (c) => {
     const userId = c.get('userId');
@@ -122,30 +126,13 @@ export function createCloudSandboxRouter(
     try {
       const body = await c.req.json().catch(() => ({}));
       const requestedProvider = (body?.provider as ProviderName) || undefined;
-      const requestedHetznerServerType = (body?.hetznerServerType as 'cpx22' | 'cpx32' | undefined) || undefined;
+      const requestedHetznerServerType = (body?.hetznerServerType as string | undefined) || undefined;
+      const requestedLocation = (body?.location as string | undefined) || undefined;
       const providerName = requestedProvider || getDefaultProviderName();
       const customName = body?.name as string | undefined;
+      const isIncluded = Boolean(body?.isIncluded); // only set by setup flow
 
       const accountId = await resolveAccountId(userId);
-
-      // Enforce 1 active/provisioning sandbox per account
-      const [existing] = await db
-        .select()
-        .from(sandboxes)
-        .where(
-          and(
-            eq(sandboxes.accountId, accountId),
-            sql`${sandboxes.status} IN ('active', 'provisioning')`,
-          ),
-        )
-        .limit(1);
-
-      if (existing) {
-        return c.json({
-          success: false,
-          error: 'Account already has an active sandbox. Use POST /platform/init to get it.',
-        }, 409);
-      }
 
       // Count existing sandboxes for naming
       const existingCount = await db
@@ -156,9 +143,71 @@ export function createCloudSandboxRouter(
 
       const sandboxName = customName || `sandbox-${accountId.slice(0, 8)}${existingCount > 0 ? `-${existingCount + 1}` : ''}`;
 
+      // For additional (non-included) Hetzner instances on paid plans,
+      // create a Stripe subscription item with dynamic pricing.
+      let stripeSubscriptionItemId: string | null = null;
+
+      if (!isIncluded && providerName === 'hetzner' && config.KORTIX_BILLING_INTERNAL_ENABLED) {
+        const { getCreditAccount } = await import('../../billing/repositories/credit-accounts');
+        const { getCustomerByAccountId } = await import('../../billing/repositories/customers');
+        const { isPaidTier, getComputeProductId, COMPUTE_PRICE_MARKUP } = await import('../../billing/services/tiers');
+        const { listServerTypes: fetchServerTypes } = await import('../providers/hetzner');
+        const { getStripe } = await import('../../shared/stripe');
+
+        const account = await getCreditAccount(accountId);
+        const tierName = account?.tier ?? 'free';
+
+        if (!isPaidTier(tierName)) {
+          return c.json({ success: false, error: 'Additional instances require a paid plan' }, 403);
+        }
+
+        if (!account?.stripeSubscriptionId) {
+          return c.json({ success: false, error: 'No active subscription found' }, 400);
+        }
+
+        // Look up server type price from Hetzner
+        const loc = requestedLocation || config.HETZNER_DEFAULT_LOCATION;
+        const serverTypes = await fetchServerTypes(loc);
+        const selectedType = serverTypes.find((st) => st.name === (requestedHetznerServerType || config.HETZNER_DEFAULT_SERVER_TYPE));
+
+        if (!selectedType) {
+          return c.json({ success: false, error: `Server type not found: ${requestedHetznerServerType}` }, 400);
+        }
+
+        const monthlyPrice = Math.round(selectedType.priceMonthly * COMPUTE_PRICE_MARKUP * 100); // cents
+
+        const stripe = getStripe();
+        const customer = await getCustomerByAccountId(accountId);
+        if (!customer) {
+          return c.json({ success: false, error: 'No billing customer found' }, 400);
+        }
+
+        // Add a subscription item with inline price_data
+        const subItem = await stripe.subscriptionItems.create({
+          subscription: account.stripeSubscriptionId,
+          price_data: {
+            currency: 'usd',
+            product: getComputeProductId(),
+            unit_amount: monthlyPrice,
+            recurring: { interval: 'month' },
+          },
+          quantity: 1,
+          proration_behavior: 'always_invoice',
+          metadata: {
+            type: 'compute_instance',
+            server_type: requestedHetznerServerType || config.HETZNER_DEFAULT_SERVER_TYPE,
+            location: loc,
+            account_id: accountId,
+          },
+        });
+
+        stripeSubscriptionItemId = subItem.id;
+        console.log(`[PLATFORM] Created Stripe sub item ${subItem.id} for additional instance (${requestedHetznerServerType}, $${(monthlyPrice / 100).toFixed(2)}/mo)`);
+      }
+
       const provider = getProvider(providerName);
 
-      // Create sandbox row first (we need the sandboxId for the API key)
+      // Create sandbox row
       const [sandbox] = await db
         .insert(sandboxes)
         .values({
@@ -170,6 +219,8 @@ export function createCloudSandboxRouter(
           baseUrl: '',
           config: {},
           metadata: {},
+          isIncluded,
+          stripeSubscriptionItemId,
         })
         .returning();
 
@@ -186,14 +237,13 @@ export function createCloudSandboxRouter(
         userId,
         name: sandboxName,
         hetznerServerType: requestedHetznerServerType,
+        hetznerLocation: requestedLocation,
         envVars: {
           KORTIX_TOKEN: sandboxKey.secretKey,
         },
       });
 
       // Update sandbox row with provider details.
-      // Store the raw KORTIX_TOKEN in config.serviceKey (private, never serialized
-      // to API responses) so the preview proxy can authenticate to the sandbox.
       const [updated] = await db
         .update(sandboxes)
         .set({
@@ -349,35 +399,71 @@ export function createCloudSandboxRouter(
   });
 
   // ─── DELETE / ──────────────────────────────────────────────────────────
-  // Remove/archive the user's active sandbox.
+  // Remove/archive a sandbox. Accepts ?sandbox_id= or removes the first active one.
 
   router.delete('/', async (c) => {
     const userId = c.get('userId');
 
     try {
       const accountId = await resolveAccountId(userId);
+      const sandboxId = c.req.query('sandbox_id');
 
-      const [sandbox] = await db
-        .select()
-        .from(sandboxes)
-        .where(
-          and(
-            eq(sandboxes.accountId, accountId),
-            eq(sandboxes.status, 'active'),
-          ),
-        )
-        .limit(1);
+      let sandbox: typeof sandboxes.$inferSelect | undefined;
 
-      if (!sandbox) {
-        return c.json({ success: false, error: 'No active sandbox to remove' }, 404);
+      if (sandboxId) {
+        // Delete specific sandbox by ID
+        const [row] = await db
+          .select()
+          .from(sandboxes)
+          .where(
+            and(
+              eq(sandboxes.accountId, accountId),
+              eq(sandboxes.sandboxId, sandboxId),
+              sql`${sandboxes.status} IN ('active', 'provisioning', 'stopped')`,
+            ),
+          )
+          .limit(1);
+        sandbox = row;
+      } else {
+        // Legacy: delete the first active sandbox
+        const [row] = await db
+          .select()
+          .from(sandboxes)
+          .where(
+            and(
+              eq(sandboxes.accountId, accountId),
+              eq(sandboxes.status, 'active'),
+            ),
+          )
+          .limit(1);
+        sandbox = row;
       }
 
+      if (!sandbox) {
+        return c.json({ success: false, error: 'No sandbox found to remove' }, 404);
+      }
+
+      // Remove the Hetzner server
       if (sandbox.externalId) {
         const provider = getProvider(sandbox.provider);
         try {
           await provider.remove(sandbox.externalId);
         } catch (err) {
           console.warn(`[PLATFORM] Failed to remove external sandbox ${sandbox.externalId}:`, err);
+        }
+      }
+
+      // Cancel the Stripe subscription item for paid additional instances
+      if (sandbox.stripeSubscriptionItemId && config.KORTIX_BILLING_INTERNAL_ENABLED) {
+        try {
+          const { getStripe } = await import('../../shared/stripe');
+          const stripe = getStripe();
+          await stripe.subscriptionItems.del(sandbox.stripeSubscriptionItemId, {
+            proration_behavior: 'always_invoice',
+          });
+          console.log(`[PLATFORM] Cancelled Stripe sub item ${sandbox.stripeSubscriptionItemId}`);
+        } catch (err) {
+          console.warn(`[PLATFORM] Failed to cancel Stripe sub item:`, err);
         }
       }
 

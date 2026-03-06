@@ -1,12 +1,14 @@
 // Subscription tier structure - tier keys only, no price IDs
 export interface SubscriptionTierData {
-  tierKey: string;  // Backend tier key like 'free', 'tier_2_20', etc.
-  name: string;     // Display name like 'Basic', 'Plus', 'Pro'
+  tierKey: string;  // Backend tier key like 'free', 'pro', etc.
+  name: string;     // Display name like 'Free', 'Pro'
 }
 
 // Subscription tiers structure - ONLY tier keys, price IDs come from backend
 export interface SubscriptionTiers {
   FREE_TIER: SubscriptionTierData;
+  PRO: SubscriptionTierData;
+  // Legacy tiers kept for backward compat (existing users)
   TIER_2_20: SubscriptionTierData;
   TIER_6_50: SubscriptionTierData;
   TIER_12_100: SubscriptionTierData;
@@ -27,8 +29,13 @@ interface Config {
 const TIERS: SubscriptionTiers = {
   FREE_TIER: {
     tierKey: 'free',
-    name: 'Basic/$0',
+    name: 'Free/$0',
   },
+  PRO: {
+    tierKey: 'pro',
+    name: 'Pro/$20',
+  },
+  // Legacy tiers
   TIER_2_20: {
     tierKey: 'tier_2_20',
     name: 'Plus/$20',

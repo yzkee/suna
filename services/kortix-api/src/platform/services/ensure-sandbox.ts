@@ -43,7 +43,9 @@ export async function ensureSandbox(opts: {
   accountId: string;
   userId: string;
   provider?: ProviderName;
-  hetznerServerType?: 'cpx22' | 'cpx32';
+  hetznerServerType?: string;
+  hetznerLocation?: string;
+  isIncluded?: boolean;
 }): Promise<EnsureSandboxResult> {
   const { accountId, userId } = opts;
   const providerName = opts.provider || getDefaultProviderName();
@@ -107,7 +109,7 @@ export async function ensureSandbox(opts: {
   // 4. No sandbox — provision a new one
 
   // Credit check for paid providers (Hetzner VPS costs money immediately)
-  if (providerName === 'hetzner' && config.KORTIX_BILLING_INTERNAL_ENABLED) {
+  if (providerName === 'hetzner' && config.KORTIX_BILLING_INTERNAL_ENABLED && !opts.isIncluded) {
     const creditCheck = await checkCredits(accountId, 0.10); // ~$0.10 min (covers ~1hr cheapest VPS)
     if (!creditCheck.hasCredits) {
       throw new Error(`Insufficient credits to provision Hetzner VPS: ${creditCheck.message}`);
@@ -127,6 +129,7 @@ export async function ensureSandbox(opts: {
       baseUrl: '',
       config: {},
       metadata: {},
+      isIncluded: opts.isIncluded ?? false,
     })
     .returning();
 
@@ -137,15 +140,32 @@ export async function ensureSandbox(opts: {
     type: 'sandbox',
   });
 
-  const result = await provider.create({
-    accountId,
-    userId,
-    name: `sandbox-${accountId.slice(0, 8)}`,
-    hetznerServerType: opts.hetznerServerType,
-    envVars: {
-      KORTIX_TOKEN: sandboxKey.secretKey,
-    },
-  });
+  let result: { externalId: string; baseUrl: string; metadata?: Record<string, any> };
+  try {
+    result = await provider.create({
+      accountId,
+      userId,
+      name: `sandbox-${accountId.slice(0, 8)}`,
+      hetznerServerType: opts.hetznerServerType,
+      hetznerLocation: opts.hetznerLocation,
+      envVars: {
+        KORTIX_TOKEN: sandboxKey.secretKey,
+      },
+    });
+  } catch (err) {
+    await db
+      .update(sandboxes)
+      .set({
+        status: 'error',
+        metadata: {
+          ...(sandbox.metadata as Record<string, unknown> | null ?? {}),
+          provisioningError: err instanceof Error ? err.message : String(err),
+        },
+        updatedAt: new Date(),
+      })
+      .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
+    throw err;
+  }
 
   const [updated] = await db
     .update(sandboxes)
