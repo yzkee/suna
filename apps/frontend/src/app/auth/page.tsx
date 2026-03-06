@@ -630,7 +630,7 @@ function LoginContent() {
 
 /* ─── Self-hosted check ─────────────────────────────────────────────────── */
 
-import { isSelfHosted } from '@/lib/config';
+import { isSelfHosted, isBillingEnabled } from '@/lib/config';
 import { SelfHostedForm, useInstallStatus } from '@/components/auth/self-hosted-auth';
 
 function SelfHostedLoginContent() {
@@ -655,11 +655,12 @@ function SelfHostedLoginContent() {
     if (installed === false) return;
     if (wizardStepRef.current > 1) return;
     const redirectParam = searchParams.get('redirect');
-    if (!redirectParam) { router.push(returnUrl || '/onboarding'); return; }
+    const defaultDest = isBillingEnabled() ? '/subscription' : '/onboarding';
+    if (!redirectParam) { router.push(returnUrl || defaultDest); return; }
     setValidatingSession(true);
     supabase.auth.getUser().then(({ error }) => {
       if (error) supabase.auth.signOut().finally(() => setValidatingSession(false));
-      else router.push(returnUrl || '/onboarding');
+      else router.push(returnUrl || defaultDest);
     });
   }, [user, isLoading, installed, returnUrl, searchParams, supabase, router, wizardStep]);
 
