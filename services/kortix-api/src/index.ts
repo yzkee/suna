@@ -406,10 +406,15 @@ initModelPricing().catch((err) =>
   console.error('[startup] Model pricing init failed (will retry in 24h):', err),
 );
 
+// Schema readiness gate — blocks DB-dependent requests until push completes.
+let schemaReady = false;
+export function isSchemaReady() { return schemaReady; }
+
 // Ensure DB schema exists before starting services that depend on it.
 // This is idempotent — safe to run on every startup.
 ensureSchema()
   .then(async () => {
+    schemaReady = true;
     startScheduler().catch((err) => console.error('[startup] Scheduler failed to start:', err));
     startChannelService();
     startDrainer();
@@ -427,6 +432,7 @@ ensureSchema()
   })
   .catch(async (err) => {
     console.error('[startup] ensureSchema failed, starting services anyway:', err);
+    schemaReady = true; // Tables may already exist — allow requests through
     startScheduler().catch((e) => console.error('[startup] Scheduler failed to start:', e));
     startChannelService();
     startDrainer();
@@ -684,6 +690,13 @@ export default {
     // NOTE: Query params are intentional here — the tunnel agent binary can't
     // set cookies, and WS upgrade doesn't support custom headers in all runtimes.
     if (isWsUpgrade && url.pathname === '/v1/tunnel/ws') {
+      if (!schemaReady) {
+        return new Response(JSON.stringify({ error: 'Service starting up, try again shortly' }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '5' },
+        });
+      }
+
       const queryToken = url.searchParams.get('token');
       const tunnelId = url.searchParams.get('tunnelId');
 
