@@ -1,5 +1,59 @@
 [
   {
+    "version": "0.7.15",
+    "date": "2026-03-06",
+    "title": "Stabilize onboarding setup and health checks",
+    "description": "Improves reliability of account setup and provisioning during onboarding by making setup initialization non-blocking, adding retries for transient failures, and tightening health check routing. This reduces false failures and stale redirects while infrastructure comes online.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Made setup/initialize non-blocking with status polling so onboarding can proceed without timing out on long provisioning tasks"
+      },
+      {
+        "type": "fix",
+        "text": "Added retry handling for setup initialization on transient network and 502 errors during Hetzner provisioning"
+      },
+      {
+        "type": "fix",
+        "text": "Prevented stale setup runs from triggering incorrect post-failure redirects"
+      },
+      {
+        "type": "fix",
+        "text": "Updated sandbox health checks to use platform proxy routes instead of raw IP checks"
+      },
+      {
+        "type": "improvement",
+        "text": "Improved onboarding resilience by gating account setup on sandbox readiness"
+      }
+    ],
+    "artifacts": [
+      {
+        "name": "v0.7.15",
+        "target": "github-release"
+      },
+      {
+        "name": "@kortix/sandbox@0.7.15",
+        "target": "npm"
+      },
+      {
+        "name": "kortix/sandbox:0.7.15",
+        "target": "docker-hub"
+      },
+      {
+        "name": "kortix-sandbox-v0.7.15",
+        "target": "daytona"
+      },
+      {
+        "name": "kortix/kortix-api:0.7.15",
+        "target": "docker-hub"
+      },
+      {
+        "name": "kortix/kortix-frontend:0.7.15",
+        "target": "docker-hub"
+      }
+    ]
+  },
+  {
     "version": "0.7.14",
     "date": "2026-03-05",
     "title": "LLM provider routing through Kortix proxy",

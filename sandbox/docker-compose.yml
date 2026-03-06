@@ -28,9 +28,14 @@
 
 services:
   desktop:
+    pull_policy: never
     build:
       context: ..
       dockerfile: sandbox/Dockerfile
+      cache_from:
+        - type=local,src=.buildx-cache/sandbox
+      cache_to:
+        - type=local,dest=.buildx-cache/sandbox,mode=max
     image: kortix/computer:${SANDBOX_VERSION:-latest}
     container_name: kortix-sandbox
     cap_add:

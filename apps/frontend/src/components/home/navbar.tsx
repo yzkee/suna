@@ -35,6 +35,64 @@ function PlayIcon({ className }: { className?: string }) {
   );
 }
 
+// macOS-style power button
+function PowerButton({ href, onClick, label = 'Launch Kortix' }: { href?: string; onClick?: () => void; label?: string }) {
+  const [hovered, setHovered] = useState(false);
+
+  const inner = (
+    <span
+      className={cn(
+        "relative flex items-center justify-center size-[34px] rounded-full border transition-all duration-200 cursor-pointer select-none",
+        "border-foreground/20 bg-background/60",
+        hovered
+          ? "border-foreground/50 shadow-[0_0_0_3px_hsl(var(--foreground)/0.08),0_0_12px_hsl(var(--foreground)/0.12)]"
+          : "shadow-none"
+      )}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {/* Power icon */}
+      <svg
+        viewBox="0 0 24 24"
+        className={cn("size-[15px] transition-colors duration-200", hovered ? "text-foreground" : "text-foreground/50")}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+      >
+        {/* Arc */}
+        <path d="M7.19 5.54A8 8 0 1 0 16.83 5.5" />
+        {/* Vertical stem */}
+        <line x1="12" y1="2" x2="12" y2="12" />
+      </svg>
+
+      {/* Tooltip */}
+      <AnimatePresence>
+        {hovered && (
+          <motion.span
+            className="absolute -bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap text-[11px] text-foreground/70 bg-background border border-border/60 rounded-md px-2 py-0.5 pointer-events-none z-50 shadow-sm"
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.15 }}
+          >
+            {label}
+          </motion.span>
+        )}
+      </AnimatePresence>
+    </span>
+  );
+
+  if (href) {
+    return (
+      <Link href={href} onClick={onClick} suppressHydrationWarning>
+        {inner}
+      </Link>
+    );
+  }
+  return <button onClick={onClick}>{inner}</button>;
+}
+
 // Scroll threshold with hysteresis to prevent flickering
 const SCROLL_THRESHOLD_DOWN = 50;
 const SCROLL_THRESHOLD_UP = 20;
@@ -225,19 +283,13 @@ export function Navbar({ isAbsolute = false }: NavbarProps) {
           </a>
 
           {user ? (
-            <Button asChild size="sm">
-              <Link href="/dashboard">Dashboard</Link>
-            </Button>
+            <PowerButton href="/dashboard" label="Dashboard" />
           ) : (
-            <Button asChild size="sm">
-              <Link
-                href={ctaLink}
-                onClick={() => trackCtaSignup()}
-                suppressHydrationWarning
-              >
-                {t('tryFree')}
-              </Link>
-            </Button>
+            <PowerButton
+              href={ctaLink}
+              onClick={() => trackCtaSignup()}
+              label="Launch Kortix"
+            />
           )}
 
           {/* Mobile Menu Button */}

@@ -28,7 +28,7 @@ fatal()   { error "$*"; exit 1; }
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 INSTALL_DIR="${KORTIX_HOME:-$HOME/.kortix}"
-KORTIX_VERSION="${KORTIX_VERSION:-latest}"
+KORTIX_VERSION="0.7.15"
 
 parse_query_param() {
   local raw="$1"

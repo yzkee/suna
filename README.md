@@ -4,10 +4,10 @@ Self-host your AI Computer.
 
 ## Quick Start
 
-Run the installer directly from this repository:
+Run the installer
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kortix-ai/computer/main/scripts/get-kortix.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/kortix-ai/computer/main/scripts/get-kortix.sh)
 ```
 
 The installer supports both:
