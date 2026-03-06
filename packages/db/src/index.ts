@@ -50,6 +50,7 @@ export {
   integrationsRelations,
   sandboxIntegrationsRelations,
   // Billing / Credits (moved from public → kortix schema)
+  billingCustomers,
   creditAccounts,
   creditLedger,
   creditUsage,
@@ -87,7 +88,6 @@ export type {
 // Public/basejump tables
 export {
   apiKeys,
-  billingCustomers,
   accountUser,
 } from './schema/public';
 

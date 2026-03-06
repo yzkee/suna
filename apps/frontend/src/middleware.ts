@@ -276,7 +276,8 @@ export async function middleware(request: NextRequest) {
     if (authError || !user) {
       const url = request.nextUrl.clone();
       url.pathname = '/auth';
-      url.searchParams.set('redirect', pathname);
+      const redirectTarget = `${pathname}${request.nextUrl.search || ''}`;
+      url.searchParams.set('redirect', redirectTarget);
       return NextResponse.redirect(url);
     }
 
@@ -341,18 +342,43 @@ export async function middleware(request: NextRequest) {
         const hasFreeTier = tierKey === 'free';
         const isActive = accountState?.subscription?.status === 'active' || accountState?.subscription?.status === 'trialing';
 
-        if (hasPaidTier || hasFreeTier || isActive) {
+        if (hasPaidTier || isActive) {
           return supabaseResponse;
         }
 
-        // No subscription at all — redirect to setting-up (triggers account initialization)
+        if (hasFreeTier) {
+          try {
+            const serversRes = await fetch(`${apiBase}/v1/servers`, {
+              headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+              },
+              signal: AbortSignal.timeout(5000),
+            });
+
+            if (serversRes.ok) {
+              const servers = await serversRes.json() as Array<{ id: string }>;
+              if (Array.isArray(servers) && servers.length > 0) {
+                return supabaseResponse;
+              }
+            }
+          } catch {
+            // Fall through to setup redirect.
+          }
+
+          const url = request.nextUrl.clone();
+          url.pathname = '/setting-up';
+          return NextResponse.redirect(url);
+        }
+
+        // No subscription at all — redirect to plan selection first.
         const url = request.nextUrl.clone();
-        url.pathname = '/setting-up';
+        url.pathname = '/subscription';
         return NextResponse.redirect(url);
       } catch {
-        // Network error / timeout — redirect to setting-up as fallback
+        // Network error / timeout — redirect to plan selection as fallback
         const url = request.nextUrl.clone();
-        url.pathname = '/setting-up';
+        url.pathname = '/subscription';
         return NextResponse.redirect(url);
       }
     }

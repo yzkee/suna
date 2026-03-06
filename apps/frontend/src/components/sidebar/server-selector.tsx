@@ -24,6 +24,7 @@ import {
   Server,
 } from 'lucide-react';
 import { useServerStore, resolveServerUrl, type ServerEntry } from '@/stores/server-store';
+import { useSubscriptionStore } from '@/stores/subscription-store';
 import { useTabStore } from '@/stores/tab-store';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
@@ -483,10 +484,11 @@ export function InstanceManagerDialog({
 }) {
   const { servers, activeServerId, addServer, updateServer, removeServer, setActiveServer } =
     useServerStore();
+  const accountState = useSubscriptionStore((s) => s.accountState);
   const router = useRouter();
   const queryClient = useQueryClient();
   const [search, setSearch] = React.useState('');
-  const [mode, setMode] = React.useState<'list' | 'add' | 'hetzner' | 'edit' | 'ssh' | 'custom'>('list');
+  const [mode, setMode] = React.useState<'list' | 'add' | 'edit' | 'ssh' | 'custom'>('list');
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [isCreatingSandbox, setIsCreatingSandbox] = React.useState(false);
   const [creatingProvider, setCreatingProvider] = React.useState<SandboxProviderName | null>(null);
@@ -512,9 +514,7 @@ export function InstanceManagerDialog({
   const hasDaytona = availableProviders.includes('daytona');
   const hasLocalDocker = availableProviders.includes('local_docker');
   const hasHetzner = availableProviders.includes('hetzner');
-
-  // Derived: does the user already have a managed sandbox?
-  const hasActiveSandbox = servers.some((s) => s.provider === 'daytona' || s.provider === 'local_docker' || s.provider === 'hetzner');
+  const canAddInstances = accountState?.can_add_instances ?? false;
 
   // Form state (for custom URL / edit)
   const [formUrl, setFormUrl] = React.useState('');
@@ -851,7 +851,6 @@ export function InstanceManagerDialog({
   const modeDescription: Record<string, string> = {
     list: 'Manage your Kortix instances.',
     add: 'Choose how to connect.',
-    hetzner: 'Choose a Hetzner VPS tier.',
     custom: 'Connect to a Kortix instance by entering its address.',
     edit: 'Update the connection details for this instance.',
     ssh: 'Connect via SSH or VS Code Remote SSH.',
@@ -878,7 +877,7 @@ export function InstanceManagerDialog({
                 <KeyRound className="h-4 w-4 text-muted-foreground" />
                 SSH Access
               </>
-            ) : mode === 'add' || mode === 'hetzner' ? (
+            ) : mode === 'add' ? (
               <>
                 <Plus className="h-4 w-4 text-muted-foreground" />
                 New Instance
@@ -1033,18 +1032,12 @@ export function InstanceManagerDialog({
             )}
 
             <div className="flex flex-col gap-2">
-              {/* Cloud (Daytona) */}
-              {hasDaytona && (
+              {!isBillingEnabled() && hasDaytona && (
                 <button
                   type="button"
                   onClick={() => handleCreateSandbox('daytona')}
-                  disabled={isCreatingSandbox || (isBillingEnabled() && hasActiveSandbox)}
-                  className={cn(
-                    'flex items-start gap-3 w-full p-3.5 rounded-xl border text-left transition-all',
-                    isBillingEnabled() && hasActiveSandbox
-                      ? 'border-border/30 bg-muted/20 opacity-50 cursor-not-allowed'
-                      : 'border-border/50 bg-muted/30 hover:bg-muted/50 hover:border-primary/30 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed',
-                  )}
+                  disabled={isCreatingSandbox}
+                  className="flex items-start gap-3 w-full p-3.5 rounded-xl border border-border/50 bg-muted/30 hover:bg-muted/50 hover:border-primary/30 text-left transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-violet-500/10 flex-shrink-0 mt-0.5">
                     {isCreatingSandbox && creatingProvider === 'daytona' ? (
@@ -1055,27 +1048,17 @@ export function InstanceManagerDialog({
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-foreground">Cloud</p>
-                    <p className="text-xs text-muted-foreground/70 mt-0.5">
-                      {isBillingEnabled() && hasActiveSandbox
-                        ? 'Limit: 1 sandbox per account'
-                        : 'Managed sandbox on Daytona cloud'}
-                    </p>
+                    <p className="text-xs text-muted-foreground/70 mt-0.5">Managed sandbox on Daytona cloud</p>
                   </div>
                 </button>
               )}
 
-              {/* Hetzner (VPS) */}
-              {hasHetzner && (
+              {!isBillingEnabled() && hasHetzner && (
                 <button
                   type="button"
-                  onClick={() => setMode('hetzner')}
-                  disabled={isCreatingSandbox || (isBillingEnabled() && hasActiveSandbox)}
-                  className={cn(
-                    'flex items-start gap-3 w-full p-3.5 rounded-xl border text-left transition-all',
-                    isBillingEnabled() && hasActiveSandbox
-                      ? 'border-border/30 bg-muted/20 opacity-50 cursor-not-allowed'
-                      : 'border-border/50 bg-muted/30 hover:bg-muted/50 hover:border-primary/30 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed',
-                  )}
+                  onClick={() => handleCreateSandbox('hetzner')}
+                  disabled={isCreatingSandbox}
+                  className="flex items-start gap-3 w-full p-3.5 rounded-xl border border-border/50 bg-muted/30 hover:bg-muted/50 hover:border-primary/30 text-left transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-orange-500/10 flex-shrink-0 mt-0.5">
                     {isCreatingSandbox && creatingProvider === 'hetzner' ? (
@@ -1086,18 +1069,12 @@ export function InstanceManagerDialog({
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-foreground">Hetzner VPS</p>
-                    <p className="text-xs text-muted-foreground/70 mt-0.5">
-                      {isBillingEnabled() && hasActiveSandbox
-                        ? 'Limit: 1 sandbox per account'
-                        : 'Choose tier on next screen'}
-                    </p>
+                    <p className="text-xs text-muted-foreground/70 mt-0.5">Create a managed Hetzner sandbox</p>
                   </div>
-                  <ChevronDown className="h-4 w-4 text-muted-foreground mt-1 -rotate-90" />
                 </button>
               )}
 
-              {/* Local Docker */}
-              {hasLocalDocker && (
+              {!isBillingEnabled() && hasLocalDocker && (
                 <button
                   type="button"
                   onClick={() => handleCreateSandbox('local_docker')}
@@ -1120,6 +1097,28 @@ export function InstanceManagerDialog({
                     </p>
                   </div>
                 </button>
+              )}
+
+              {isBillingEnabled() && canAddInstances && (
+                <button
+                  type="button"
+                  onClick={() => window.dispatchEvent(new CustomEvent('open-add-instance-dialog'))}
+                  className="flex items-start gap-3 w-full p-3.5 rounded-xl border border-border/50 bg-muted/30 hover:bg-muted/50 hover:border-primary/30 text-left transition-all cursor-pointer"
+                >
+                  <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-primary/10 flex-shrink-0 mt-0.5">
+                    <Plus className="h-4 w-4 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground">Add Cloud Instance</p>
+                    <p className="text-xs text-muted-foreground/70 mt-0.5">Select server type and location for an additional Hetzner instance</p>
+                  </div>
+                </button>
+              )}
+
+              {isBillingEnabled() && !canAddInstances && (
+                <div className="rounded-xl border border-border/50 bg-muted/20 px-3.5 py-3 text-xs text-muted-foreground/70">
+                  Free plan: connect a custom instance, or upgrade to Pro to add managed cloud instances.
+                </div>
               )}
 
               {/* Custom URL */}
@@ -1147,70 +1146,6 @@ export function InstanceManagerDialog({
               className="h-8 px-3 text-sm text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted/60 transition-colors cursor-pointer self-start"
               onClick={() => {
                 setMode('list');
-                setSandboxError(null);
-                setSandboxProgress(null);
-              }}
-            >
-              Back
-            </button>
-          </div>
-        )}
-
-        {/* ──── Hetzner tier view ──── */}
-        {mode === 'hetzner' && (
-          <div className="flex flex-col gap-3 px-5 pb-5">
-            {sandboxError && (
-              <p className="text-xs text-destructive">{sandboxError}</p>
-            )}
-
-            {sandboxProgress && creatingProvider === 'hetzner' && (
-              <div className="rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5 space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[11px] text-muted-foreground">{sandboxProgress.message}</p>
-                  <span className="text-[11px] tabular-nums text-muted-foreground/80">{Math.round(sandboxProgress.progress)}%</span>
-                </div>
-                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-primary/90 transition-all duration-1000 ease-out"
-                    style={{ width: `${Math.max(sandboxProgress.progress, 2)}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5">
-              <p className="text-[11px] text-muted-foreground">
-                Snapshot cold starts usually take 2-3 minutes.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-2">
-              <button
-                type="button"
-                onClick={() => handleCreateSandbox('hetzner', 'cpx22')}
-                disabled={isCreatingSandbox || (isBillingEnabled() && hasActiveSandbox)}
-                className="rounded-xl border border-border/50 bg-muted/30 hover:bg-muted/50 hover:border-primary/30 text-left transition-all px-3.5 py-3.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <p className="text-sm font-medium text-foreground">Regular (C2)</p>
-                <p className="text-xs text-muted-foreground/70 mt-0.5">Lower cost, solid performance</p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleCreateSandbox('hetzner', 'cpx32')}
-                disabled={isCreatingSandbox || (isBillingEnabled() && hasActiveSandbox)}
-                className="rounded-xl border border-border/50 bg-muted/30 hover:bg-muted/50 hover:border-primary/30 text-left transition-all px-3.5 py-3.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <p className="text-sm font-medium text-foreground">Fast CPU (C3)</p>
-                <p className="text-xs text-muted-foreground/70 mt-0.5">More compute for heavier workloads</p>
-              </button>
-            </div>
-
-            <button
-              type="button"
-              className="h-8 px-3 text-sm text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted/60 transition-colors cursor-pointer self-start"
-              onClick={() => {
-                setMode('add');
                 setSandboxError(null);
                 setSandboxProgress(null);
               }}

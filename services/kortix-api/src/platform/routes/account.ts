@@ -99,7 +99,7 @@ export function createAccountRouter(
     try {
       const body = await c.req.json().catch(() => ({}));
       const requestedProvider = (body?.provider as ProviderName) || undefined;
-      const requestedHetznerServerType = (body?.hetznerServerType as 'cpx22' | 'cpx32' | undefined) || undefined;
+      const requestedHetznerServerType = (body?.hetznerServerType as string | undefined) || undefined;
 
       const accountId = await resolveAccountId(userId);
 

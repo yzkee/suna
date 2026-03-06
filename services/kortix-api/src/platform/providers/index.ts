@@ -21,7 +21,8 @@ export interface CreateSandboxOpts {
   userId: string;
   name: string;
   envVars?: Record<string, string>;
-  hetznerServerType?: 'cpx22' | 'cpx32';
+  hetznerServerType?: string;
+  hetznerLocation?: string;
 }
 
 export interface ProvisionResult {

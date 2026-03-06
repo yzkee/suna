@@ -48,7 +48,7 @@ billingApp.post('/setup/initialize', async (c: any) => {
   const userId = c.get('userId') as string;
   const email = c.get('userEmail') as string;
   const { upsertCreditAccount, getCreditAccount } = await import('./repositories/credit-accounts');
-  const { getDailyCreditConfig, resolvePriceId } = await import('./services/tiers');
+  const { resolvePriceId, isPaidTier } = await import('./services/tiers');
   const { getOrCreateStripeCustomer } = await import('./services/subscriptions');
   const { resolveAccountId } = await import('../shared/resolve-account');
 
@@ -57,6 +57,7 @@ billingApp.post('/setup/initialize', async (c: any) => {
   // ── Step 1: Create free Stripe subscription ──────────────────────────
   const existing = await getCreditAccount(accountId);
   let subscriptionStatus: 'already_initialized' | 'initialized' = 'initialized';
+  const currentTier = existing?.tier ?? 'free';
 
   if (existing?.stripeSubscriptionId) {
     subscriptionStatus = 'already_initialized';
@@ -78,63 +79,71 @@ billingApp.post('/setup/initialize', async (c: any) => {
       metadata: { account_id: accountId, tier_key: 'free' },
     });
 
-    const dailyConfig = getDailyCreditConfig('free');
-    const initialBalance = String(dailyConfig?.dailyAmount ?? 3);
     await upsertCreditAccount(accountId, {
       tier: 'free',
       provider: 'stripe',
       stripeSubscriptionId: subscription.id,
       stripeSubscriptionStatus: 'active',
       planType: 'monthly',
-      dailyCreditsBalance: initialBalance,
-      balance: initialBalance,
-      lastDailyRefresh: new Date().toISOString(),
+      balance: '0',
+      dailyCreditsBalance: '0',
     });
   }
 
-  // ── Step 2: Fire-and-forget sandbox provisioning ──────────────────────
-  // Sandbox creation can take minutes (Hetzner cold starts). Never block
-  // the HTTP response — just kick it off. Frontend polls GET /setup/status.
-  let sandboxStatus: 'created' | 'exists' | 'provisioning' | 'failed' = 'provisioning';
+  // ── Step 2: Sandbox provisioning (only for paid plans) ────────────────
+  // Free users: no sandbox — they connect their own (BYOC).
+  // Pro users: auto-provision 1x cpx21 in ash (us-west) as "included" instance.
+  let sandboxStatus: 'created' | 'exists' | 'provisioning' | 'skipped' | 'failed' = 'skipped';
 
-  try {
-    const { ensureSandbox } = await import('../platform/services/ensure-sandbox');
+  if (isPaidTier(currentTier)) {
+    sandboxStatus = 'provisioning';
 
-    // Quick check: does an active sandbox already exist?
-    const { db } = await import('../shared/db');
-    const { sandboxes } = await import('@kortix/db');
-    const { eq, and } = await import('drizzle-orm');
+    try {
+      const { ensureSandbox } = await import('../platform/services/ensure-sandbox');
+      const { db } = await import('../shared/db');
+      const { sandboxes } = await import('@kortix/db');
+      const { eq, and } = await import('drizzle-orm');
 
-    const [active] = await db
-      .select()
-      .from(sandboxes)
-      .where(and(eq(sandboxes.accountId, accountId), eq(sandboxes.status, 'active')))
-      .limit(1);
+      const [active] = await db
+        .select()
+        .from(sandboxes)
+        .where(and(eq(sandboxes.accountId, accountId), eq(sandboxes.status, 'active')))
+        .limit(1);
 
-    if (active?.externalId) {
-      sandboxStatus = 'exists';
-      console.log(`[setup/initialize] Sandbox ${active.sandboxId} already active for account ${accountId}`);
-    } else {
-      // Kick off provisioning in background — don't await
-      void ensureSandbox({ accountId, userId })
-        .then(({ row, created }) => {
-          console.log(`[setup/initialize] Background: sandbox ${row.sandboxId} ${created ? 'created' : 'exists'} for account ${accountId}`);
+      if (active?.externalId) {
+        sandboxStatus = 'exists';
+        console.log(`[setup/initialize] Sandbox ${active.sandboxId} already active for account ${accountId}`);
+      } else {
+        // Kick off provisioning in background — don't await
+        void ensureSandbox({
+          accountId,
+          userId,
+          provider: 'hetzner',
+          hetznerServerType: 'cpx21',
+          hetznerLocation: 'ash',
+          isIncluded: true,
         })
-        .catch((err) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.error(`[setup/initialize] Background: sandbox provisioning failed for account ${accountId}:`, msg);
-        });
-      console.log(`[setup/initialize] Kicked off sandbox provisioning for account ${accountId}`);
+          .then(({ row, created }) => {
+            console.log(`[setup/initialize] Background: sandbox ${row.sandboxId} ${created ? 'created' : 'exists'} for account ${accountId}`);
+          })
+          .catch((err) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error(`[setup/initialize] Background: sandbox provisioning failed for account ${accountId}:`, msg);
+          });
+        console.log(`[setup/initialize] Kicked off cpx21/ash sandbox provisioning for account ${accountId}`);
+      }
+    } catch (err) {
+      sandboxStatus = 'failed';
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[setup/initialize] Failed to start sandbox provisioning for account ${accountId}:`, msg);
     }
-  } catch (err) {
-    sandboxStatus = 'failed';
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[setup/initialize] Failed to start sandbox provisioning for account ${accountId}:`, msg);
+  } else {
+    console.log(`[setup/initialize] Free tier — no sandbox provisioning for account ${accountId}`);
   }
 
   return c.json({
     status: subscriptionStatus,
-    tier: 'free',
+    tier: currentTier,
     sandbox: sandboxStatus,
   });
 });
@@ -154,17 +163,39 @@ billingApp.get('/setup/status', async (c: any) => {
   // Sandbox status
   const { db } = await import('../shared/db');
   const { sandboxes } = await import('@kortix/db');
-  const { eq, and, inArray } = await import('drizzle-orm');
+  const { eq, and, inArray, desc, sql } = await import('drizzle-orm');
 
   const [sandbox] = await db
     .select()
     .from(sandboxes)
-    .where(and(eq(sandboxes.accountId, accountId), inArray(sandboxes.status, ['active', 'provisioning'])))
+    .where(and(eq(sandboxes.accountId, accountId), inArray(sandboxes.status, ['active', 'provisioning', 'error'])))
+    .orderBy(
+      sql`case
+        when ${sandboxes.status} = 'active' then 0
+        when ${sandboxes.status} = 'provisioning' then 1
+        else 2
+      end`,
+      desc(sandboxes.updatedAt),
+      desc(sandboxes.createdAt),
+    )
     .limit(1);
 
-  let sandboxState: 'none' | 'provisioning' | 'ready' = 'none';
+  let sandboxState: 'none' | 'provisioning' | 'ready' | 'error' = 'none';
   if (sandbox) {
-    sandboxState = sandbox.status === 'active' && sandbox.externalId ? 'ready' : 'provisioning';
+    if (sandbox.status === 'error') {
+      sandboxState = 'error';
+    } else {
+      sandboxState = sandbox.status === 'active' && sandbox.externalId ? 'ready' : 'provisioning';
+
+      if (sandboxState === 'provisioning') {
+        const updatedAt = sandbox.updatedAt ? new Date(sandbox.updatedAt).getTime() : 0;
+        const provisioningAgeMs = Date.now() - updatedAt;
+        // Guard against stale provisioning rows that never transitioned.
+        if (updatedAt > 0 && provisioningAgeMs > 15 * 60 * 1000) {
+          sandboxState = 'error';
+        }
+      }
+    }
   }
 
   return c.json({

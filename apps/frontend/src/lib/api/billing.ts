@@ -94,6 +94,23 @@ export interface AccountState {
     monthly_credits: number;
     can_purchase_credits: boolean;
   };
+  auto_topup?: {
+    enabled: boolean;
+    threshold: number;
+    amount: number;
+  };
+  instances?: Array<{
+    sandbox_id: string;
+    name: string;
+    provider: string;
+    status: string;
+    server_type: string | null;
+    location: string | null;
+    is_included: boolean;
+    stripe_subscription_item_id: string | null;
+    created_at: string;
+  }>;
+  can_add_instances?: boolean;
   _cache?: {
     cached: boolean;
     ttl_seconds?: number;
@@ -638,6 +655,75 @@ export async function confirmInlineCheckout(
     '/billing/confirm-inline-checkout',
     request
   );
+  if (response.error) throw response.error;
+  return response.data!;
+}
+
+// =============================================================================
+// AUTO-TOPUP
+// =============================================================================
+
+export interface AutoTopupConfig {
+  enabled: boolean;
+  threshold: number;
+  amount: number;
+}
+
+export async function getAutoTopupSettings(): Promise<AutoTopupConfig> {
+  const response = await backendApi.get<AutoTopupConfig>('/billing/auto-topup/settings');
+  if (response.error) throw response.error;
+  return response.data!;
+}
+
+export async function configureAutoTopup(config: AutoTopupConfig): Promise<{ success: boolean }> {
+  const response = await backendApi.post<{ success: boolean }>('/billing/auto-topup/configure', config);
+  if (response.error) throw response.error;
+  return response.data!;
+}
+
+// =============================================================================
+// INSTANCES (Hetzner server types)
+// =============================================================================
+
+export interface HetznerServerType {
+  name: string;
+  description: string;
+  cores: number;
+  memory: number;
+  disk: number;
+  cpuType: 'shared' | 'dedicated';
+  architecture: 'x86' | 'arm';
+  priceHourly: number;
+  priceMonthly: number;
+  priceMonthlyMarkup: number;
+  location: string;
+}
+
+export async function getHetznerServerTypes(location?: string): Promise<{ serverTypes: HetznerServerType[]; location: string }> {
+  const params = location ? `?location=${location}` : '';
+  const response = await backendApi.get<{ serverTypes: HetznerServerType[]; location: string }>(
+    `/platform/sandbox/hetzner/server-types${params}`
+  );
+  if (response.error) throw response.error;
+  return response.data!;
+}
+
+export interface CreateInstanceRequest {
+  provider: 'hetzner';
+  hetznerServerType: string;
+  location?: string;
+  name?: string;
+  isIncluded?: boolean;
+}
+
+export async function createInstance(request: CreateInstanceRequest): Promise<any> {
+  const response = await backendApi.post<any>('/platform/sandbox', request);
+  if (response.error) throw response.error;
+  return response.data!;
+}
+
+export async function deleteInstance(sandboxId: string): Promise<{ success: boolean }> {
+  const response = await backendApi.delete<{ success: boolean }>(`/platform/sandbox?sandbox_id=${sandboxId}`);
   if (response.error) throw response.error;
   return response.data!;
 }

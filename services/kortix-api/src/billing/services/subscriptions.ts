@@ -535,6 +535,82 @@ export async function getCheckoutSessionDetails(sessionId: string) {
   };
 }
 
+export async function confirmCheckoutSession(params: {
+  accountId: string;
+  sessionId: string;
+}) {
+  const { accountId, sessionId } = params;
+  const stripe = getStripe();
+
+  const session = await stripe.checkout.sessions.retrieve(sessionId, {
+    expand: ['subscription', 'customer'],
+  });
+
+  if (session.mode !== 'subscription') {
+    throw new BillingError('Checkout session is not a subscription session');
+  }
+
+  const sessionAccountId = session.metadata?.account_id;
+  if (!sessionAccountId || sessionAccountId !== accountId) {
+    throw new BillingError('Checkout session does not belong to this account');
+  }
+
+  const tierKey = session.metadata?.tier_key;
+  if (!tierKey) {
+    throw new BillingError('Missing tier_key in checkout session metadata');
+  }
+
+  const subscriptionId = typeof session.subscription === 'string'
+    ? session.subscription
+    : session.subscription?.id;
+  if (!subscriptionId) {
+    return { success: false, status: 'pending', message: 'Subscription not attached yet' };
+  }
+
+  if (session.status !== 'complete' && session.payment_status !== 'paid' && session.payment_status !== 'no_payment_required') {
+    return { success: false, status: 'pending', message: 'Checkout payment is not completed yet' };
+  }
+
+  const commitmentType = session.metadata?.commitment_type ?? 'monthly';
+  await activateSubscription(accountId, subscriptionId, tierKey, commitmentType);
+
+  const tier = getTier(tierKey);
+  if (tier.monthlyCredits > 0) {
+    try {
+      await grantCredits(
+        accountId,
+        tier.monthlyCredits,
+        'tier_grant',
+        `${tier.displayName} subscription activated: ${tier.monthlyCredits} credits`,
+        true,
+        session.id,
+      );
+    } catch (err) {
+      console.error('[Billing] Failed to grant initial plan credits during checkout confirm:', err);
+    }
+  }
+
+  if (session.customer) {
+    const customerId = typeof session.customer === 'string' ? session.customer : session.customer.id;
+    await upsertCustomer({
+      accountId,
+      id: customerId,
+      email: session.customer_email ?? null,
+      provider: 'stripe',
+      active: true,
+    });
+  }
+
+  const existing = await getCreditAccount(accountId);
+  const previousSubscriptionId = session.metadata?.previous_subscription_id
+    ?? (existing?.tier === 'free' ? existing?.stripeSubscriptionId : null);
+  if (previousSubscriptionId && previousSubscriptionId !== subscriptionId) {
+    await cancelFreeSubscriptionForUpgrade(previousSubscriptionId, accountId);
+  }
+
+  return { success: true, status: 'activated', tier: tierKey, subscription_id: subscriptionId };
+}
+
 export async function getProrationPreview(accountId: string, newPriceId: string) {
   const account = await getCreditAccount(accountId);
   if (!account?.stripeSubscriptionId) throw new SubscriptionError('No active subscription');

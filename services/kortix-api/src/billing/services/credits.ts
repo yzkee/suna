@@ -96,6 +96,10 @@ export async function deductCredits(
     throw new InsufficientCreditsError(actualBalance, amount);
   }
 
+  // Fire-and-forget: check if auto-topup should trigger
+  const { checkAndTriggerAutoTopup } = await import('./auto-topup');
+  void checkAndTriggerAutoTopup(accountId);
+
   return {
     success: true,
     cost: result.amount_deducted ?? amount,
@@ -157,14 +161,17 @@ export async function grantCredits(
   stripeEventId?: string,
 ) {
   const supabase = getSupabase();
+  const idempotencyKey = stripeEventId ? `grant:${accountId}:${stripeEventId}` : null;
 
   const { data, error } = await supabase.rpc('atomic_add_credits', {
     p_account_id: accountId,
     p_amount: amount,
-    p_type: type,
-    p_description: description,
     p_is_expiring: isExpiring,
+    p_description: description,
+    p_expires_at: null,
+    p_type: type,
     p_stripe_event_id: stripeEventId ?? null,
+    p_idempotency_key: idempotencyKey,
   });
 
   if (error) {
@@ -174,15 +181,41 @@ export async function grantCredits(
     const currentBalance = account ? Number(account.balance) : 0;
     const newBalance = currentBalance + amount;
 
-    await insertLedgerEntry({
-      accountId,
-      amount: String(amount),
-      balanceAfter: String(newBalance),
-      type,
-      description,
-      isExpiring,
-      stripeEventId: stripeEventId ?? null,
-    });
+    try {
+      await insertLedgerEntry({
+        accountId,
+        amount: String(amount),
+        balanceAfter: String(newBalance),
+        type,
+        description,
+        isExpiring,
+        stripeEventId: stripeEventId ?? null,
+        idempotencyKey,
+      });
+    } catch (insertErr) {
+      const message = insertErr instanceof Error ? insertErr.message : String(insertErr);
+      const isDuplicate =
+        message.includes('duplicate key') &&
+        (message.includes('kortix_unique_stripe_event') || message.includes('idx_kortix_credit_ledger_idempotency'));
+      if (isDuplicate) {
+        return { success: true, duplicate_prevented: true };
+      }
+
+      const missingIdempotencyColumn = message.includes('idempotency_key') && message.includes('does not exist');
+      if (missingIdempotencyColumn) {
+        await insertLedgerEntry({
+          accountId,
+          amount: String(amount),
+          balanceAfter: String(newBalance),
+          type,
+          description,
+          isExpiring,
+          stripeEventId: stripeEventId ?? null,
+        });
+      } else {
+        throw insertErr;
+      }
+    }
 
     if (isExpiring) {
       const currentExpiring = account ? Number(account.expiringCredits) : 0;

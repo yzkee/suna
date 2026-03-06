@@ -5,19 +5,24 @@ import { siteConfig } from '@/lib/site-config';
  * 
  * @param subscriptionData - Subscription data from API
  * @param isLocal - Whether running in local mode
- * @returns The display name of the plan (e.g., 'Basic', 'Plus', 'Pro', 'Ultra')
+ * @returns The display name of the plan (e.g., 'Free', 'Pro')
  */
 export function getPlanName(subscriptionData: any, isLocal: boolean = false): string {
-  if (isLocal) return 'Ultra';
+  if (isLocal) return 'Pro';
 
   // Handle null/undefined subscription data
   if (!subscriptionData) {
-    return 'Basic';
+    return 'Free';
   }
 
   // Handle free tier explicitly
   if (subscriptionData?.tier?.name === 'free' || subscriptionData?.tier_key === 'free') {
-    return 'Basic';
+    return 'Free';
+  }
+
+  // Handle pro tier explicitly
+  if (subscriptionData?.tier?.name === 'pro' || subscriptionData?.tier_key === 'pro') {
+    return 'Pro';
   }
 
   // Try to match tier_key to cloudPricingItems to get the frontend tier name
@@ -27,40 +32,30 @@ export function getPlanName(subscriptionData: any, isLocal: boolean = false): st
     (p) => p.tierKey === tierKey
   );
 
-  // Return the frontend tier name (Plus, Pro, Ultra, etc.) or fallback to backend display name
-  return currentTier?.name || subscriptionData?.display_plan_name || subscriptionData?.tier?.display_name || 'Basic';
+  // Return the frontend tier name or fallback to backend display name
+  return currentTier?.name || subscriptionData?.display_plan_name || subscriptionData?.tier?.display_name || 'Free';
 }
 
 /**
  * Helper function to get plan icon - maps frontend tier names to icon paths
  * 
- * @param planName - The plan name (e.g., 'Basic', 'Plus', 'Pro', 'Ultra')
+ * @param planName - The plan name (e.g., 'Free', 'Pro')
  * @param isLocal - Whether running in local mode
- * @returns The path to the plan icon SVG, or null if no icon exists (e.g., Basic tier)
+ * @returns The path to the plan icon SVG, or null if no icon exists
  */
 export function getPlanIcon(planName: string, isLocal: boolean = false): string | null {
-  if (isLocal) return '/plan-icons/ultra.svg';
+  if (isLocal) return '/plan-icons/pro.svg';
 
   const plan = planName?.toLowerCase();
 
-  // Basic/Free tier - no icon
+  // Free tier
   if (plan?.includes('free') || plan?.includes('basic')) {
     return '/plan-icons/basic.svg';
   }
 
-  // Ultra tier
-  if (plan?.includes('ultra')) {
-    return '/plan-icons/ultra.svg';
-  }
-
-  // Pro tier (Pro, Business, Enterprise, Scale, Max)
-  if (plan?.includes('pro') || plan?.includes('business') || plan?.includes('enterprise') || plan?.includes('scale') || plan?.includes('max')) {
+  // Pro tier (also matches legacy Plus/Ultra/Business/Enterprise/Scale/Max)
+  if (plan?.includes('pro') || plan?.includes('ultra') || plan?.includes('plus') || plan?.includes('business') || plan?.includes('enterprise') || plan?.includes('scale') || plan?.includes('max')) {
     return '/plan-icons/pro.svg';
-  }
-
-  // Plus tier
-  if (plan?.includes('plus')) {
-    return '/plan-icons/plus.svg';
   }
 
   // Default to null for any unrecognized plans

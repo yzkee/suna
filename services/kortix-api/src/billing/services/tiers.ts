@@ -6,11 +6,10 @@ export const MINIMUM_CREDIT_FOR_RUN = 0.01;
 export const DEFAULT_TOKEN_COST = 0.000002;
 export const CREDITS_PER_DOLLAR = 100;
 
-const FREE_DAILY_CREDITS: DailyCreditConfig = {
-  dailyAmount: 3,
-  refreshIntervalHours: 24,
-  maxAccumulation: 21,
-};
+/** Markup applied to Hetzner prices for additional instances. */
+export const COMPUTE_PRICE_MARKUP = 1.2;
+
+// ─── Tiers ──────────────────────────────────────────────────────────────────
 
 const TIERS: Record<string, TierConfig> = {
   none: {
@@ -27,112 +26,41 @@ const TIERS: Record<string, TierConfig> = {
 
   free: {
     name: 'free',
-    displayName: 'Basic',
+    displayName: 'Free',
     monthlyPrice: 0,
     yearlyPrice: 0,
     monthlyCredits: 0,
     canPurchaseCredits: false,
     models: ['haiku'],
-    dailyCreditConfig: FREE_DAILY_CREDITS,
+    dailyCreditConfig: null,   // No daily credits — BYOC only
     hidden: false,
   },
 
-  tier_2_20: {
-    name: 'tier_2_20',
-    displayName: 'Plus',
-    monthlyPrice: 20,
-    yearlyPrice: 204,
-    monthlyCredits: 40,
-    canPurchaseCredits: false,
-    models: ['all'],
-    dailyCreditConfig: null,
-    hidden: false,
-  },
-
-  tier_6_50: {
-    name: 'tier_6_50',
+  pro: {
+    name: 'pro',
     displayName: 'Pro',
-    monthlyPrice: 50,
-    yearlyPrice: 510,
-    monthlyCredits: 100,
-    canPurchaseCredits: false,
-    models: ['all'],
-    dailyCreditConfig: null,
-    hidden: false,
-  },
-
-  tier_25_200: {
-    name: 'tier_25_200',
-    displayName: 'Ultra',
-    monthlyPrice: 200,
-    yearlyPrice: 2040,
-    monthlyCredits: 400,
+    monthlyPrice: 20,
+    yearlyPrice: 0,            // No yearly billing
+    monthlyCredits: 10,        // $10 = 1000 credits
     canPurchaseCredits: true,
     models: ['all'],
     dailyCreditConfig: null,
     hidden: false,
   },
 
-  tier_12_100: {
-    name: 'tier_12_100',
-    displayName: 'Business',
-    monthlyPrice: 100,
-    yearlyPrice: 1020,
-    monthlyCredits: 100,
-    canPurchaseCredits: false,
-    models: ['all'],
-    dailyCreditConfig: null,
-    hidden: true,
-  },
-
-  tier_50_400: {
-    name: 'tier_50_400',
-    displayName: 'Enterprise',
-    monthlyPrice: 400,
-    yearlyPrice: 4080,
-    monthlyCredits: 400,
-    canPurchaseCredits: true,
-    models: ['all'],
-    dailyCreditConfig: null,
-    hidden: true,
-  },
-
-  tier_125_800: {
-    name: 'tier_125_800',
-    displayName: 'Scale',
-    monthlyPrice: 800,
-    yearlyPrice: 8160,
-    monthlyCredits: 800,
-    canPurchaseCredits: true,
-    models: ['all'],
-    dailyCreditConfig: null,
-    hidden: true,
-  },
-
-  tier_200_1000: {
-    name: 'tier_200_1000',
-    displayName: 'Max',
-    monthlyPrice: 1000,
-    yearlyPrice: 10200,
-    monthlyCredits: 1000,
-    canPurchaseCredits: true,
-    models: ['all'],
-    dailyCreditConfig: null,
-    hidden: true,
-  },
-
-  tier_150_1200: {
-    name: 'tier_150_1200',
-    displayName: 'Enterprise Max',
-    monthlyPrice: 1200,
-    yearlyPrice: 12240,
-    monthlyCredits: 1200,
-    canPurchaseCredits: true,
-    models: ['all'],
-    dailyCreditConfig: null,
-    hidden: true,
-  },
+  // ── Legacy tiers (kept for backward compat with existing DB rows) ────────
+  // All hidden, resolve to their closest equivalent for display.
+  tier_2_20:      { name: 'tier_2_20',      displayName: 'Plus (Legacy)',       monthlyPrice: 20,   yearlyPrice: 204,   monthlyCredits: 40,   canPurchaseCredits: true, models: ['all'], dailyCreditConfig: null, hidden: true },
+  tier_6_50:      { name: 'tier_6_50',      displayName: 'Pro (Legacy)',        monthlyPrice: 50,   yearlyPrice: 510,   monthlyCredits: 100,  canPurchaseCredits: true, models: ['all'], dailyCreditConfig: null, hidden: true },
+  tier_12_100:    { name: 'tier_12_100',    displayName: 'Business (Legacy)',   monthlyPrice: 100,  yearlyPrice: 1020,  monthlyCredits: 100,  canPurchaseCredits: true, models: ['all'], dailyCreditConfig: null, hidden: true },
+  tier_25_200:    { name: 'tier_25_200',    displayName: 'Ultra (Legacy)',      monthlyPrice: 200,  yearlyPrice: 2040,  monthlyCredits: 400,  canPurchaseCredits: true, models: ['all'], dailyCreditConfig: null, hidden: true },
+  tier_50_400:    { name: 'tier_50_400',    displayName: 'Enterprise (Legacy)', monthlyPrice: 400,  yearlyPrice: 4080,  monthlyCredits: 400,  canPurchaseCredits: true, models: ['all'], dailyCreditConfig: null, hidden: true },
+  tier_125_800:   { name: 'tier_125_800',   displayName: 'Scale (Legacy)',      monthlyPrice: 800,  yearlyPrice: 8160,  monthlyCredits: 800,  canPurchaseCredits: true, models: ['all'], dailyCreditConfig: null, hidden: true },
+  tier_200_1000:  { name: 'tier_200_1000',  displayName: 'Max (Legacy)',        monthlyPrice: 1000, yearlyPrice: 10200, monthlyCredits: 1000, canPurchaseCredits: true, models: ['all'], dailyCreditConfig: null, hidden: true },
+  tier_150_1200:  { name: 'tier_150_1200',  displayName: 'Enterprise Max (Legacy)', monthlyPrice: 1200, yearlyPrice: 12240, monthlyCredits: 1200, canPurchaseCredits: true, models: ['all'], dailyCreditConfig: null, hidden: true },
 };
+
+// ─── Stripe Price IDs ────────────────────────────────────────────────────────
 
 interface TierPriceIds {
   monthly?: string;
@@ -144,11 +72,14 @@ interface StripePriceConfig {
   subscriptions: Record<string, TierPriceIds>;
   credits: Record<number, string>;
   productId: string;
+  computeProductId: string;
 }
 
 const STRIPE_PRICES_PROD: StripePriceConfig = {
   subscriptions: {
-    free:          { monthly: 'price_1RILb4G6l1KZGqIrK4QLrx9i' },
+    free: { monthly: 'price_1RILb4G6l1KZGqIrK4QLrx9i' },
+    pro:  { monthly: 'price_1RILb4G6l1KZGqIrhomjgDnO' }, // TODO: create prod Pro price and replace
+    // Legacy price → tier mappings (for webhook resolution of existing subs)
     tier_2_20:     { monthly: 'price_1RILb4G6l1KZGqIrhomjgDnO', yearly: 'price_1ReHB5G6l1KZGqIrD70I1xqM', yearlyCommitment: 'price_1RqtqiG6l1KZGqIrhjVPtE1s' },
     tier_6_50:     { monthly: 'price_1RILb4G6l1KZGqIr5q0sybWn', yearly: 'price_1ReHAsG6l1KZGqIrlAog487C', yearlyCommitment: 'price_1Rqtr8G6l1KZGqIrQ0ql0qHi' },
     tier_12_100:   { monthly: 'price_1RILb4G6l1KZGqIr5Y20ZLHm', yearly: 'price_1ReHAWG6l1KZGqIrBHer2PQc' },
@@ -166,14 +97,13 @@ const STRIPE_PRICES_PROD: StripePriceConfig = {
     500: 'price_1RxmRGG6l1KZGqIrSyvl6w1G',
   },
   productId: 'prod_SCl7AQ2C8kK1CD',
+  computeProductId: 'prod_SCl7AQ2C8kK1CD', // TODO: create prod compute product
 };
 
 const STRIPE_PRICES_STAGING: StripePriceConfig = {
   subscriptions: {
-    free:          { monthly: 'price_1T56XgG6CaZppiKcTG03LXxn' },
-    tier_2_20:     { monthly: 'price_1T56XhG6CaZppiKcc8F5GXgp', yearly: 'price_1T56XhG6CaZppiKc2Kp1UlY1', yearlyCommitment: 'price_1T56XiG6CaZppiKcdd4v1ebQ' },
-    tier_6_50:     { monthly: 'price_1T56XwG6CaZppiKcvrKuO2Ye', yearly: 'price_1T56XxG6CaZppiKcdVyFiWxG', yearlyCommitment: 'price_1T56XyG6CaZppiKcpqwihCTg' },
-    tier_25_200:   { monthly: 'price_1T56XyG6CaZppiKcYI5GZ01F', yearly: 'price_1T56XzG6CaZppiKc5H9VkyLO', yearlyCommitment: 'price_1T56Y0G6CaZppiKcavvswvQ8' },
+    free: { monthly: 'price_1T56XgG6CaZppiKcTG03LXxn' },
+    pro:  { monthly: 'price_1T7yiuG6CaZppiKc7VsgnlKI' },
   },
   credits: {
     10:  'price_1T56YGG6CaZppiKcSwnwZSoE',
@@ -184,6 +114,7 @@ const STRIPE_PRICES_STAGING: StripePriceConfig = {
     500: 'price_1T56YKG6CaZppiKcHDTLQLIM',
   },
   productId: 'prod_U3CxqRenahYVvj',
+  computeProductId: 'prod_U6B5Gh1aMPdnLO',
 };
 
 function getStripePrices(): StripePriceConfig {
@@ -192,6 +123,10 @@ function getStripePrices(): StripePriceConfig {
 
 export function getProductId(): string {
   return getStripePrices().productId;
+}
+
+export function getComputeProductId(): string {
+  return getStripePrices().computeProductId;
 }
 
 export function resolvePriceId(tierKey: string, billingPeriod?: string): string | null {
@@ -213,6 +148,8 @@ export function getCreditPackageAmounts(): number[] {
   return Object.keys(getStripePrices().credits).map(Number).sort((a, b) => a - b);
 }
 
+// ─── Price ID ↔ Tier reverse lookup ─────────────────────────────────────────
+
 const priceIdToTier = new Map<string, string>();
 
 function registerPriceId(priceId: string, tierName: string) {
@@ -229,6 +166,8 @@ function initPriceIdMap() {
   }
 }
 initPriceIdMap();
+
+// ─── Tier helpers ────────────────────────────────────────────────────────────
 
 export function getTier(name: string): TierConfig {
   return TIERS[name] ?? TIERS.none;
@@ -259,6 +198,11 @@ export function canPurchaseCredits(tierName: string): boolean {
   return getTier(tierName).canPurchaseCredits;
 }
 
+/** Returns true if the tier is a paid tier (not free/none). */
+export function isPaidTier(tierName: string): boolean {
+  return tierName !== 'free' && tierName !== 'none';
+}
+
 export function isModelAllowed(tierName: string, model: string): boolean {
   const tier = getTier(tierName);
   if (tier.models.includes('all')) return true;
@@ -273,6 +217,8 @@ export function getTierOrder(tierName: string): number {
   const order = [
     'none',
     'free',
+    'pro',
+    // Legacy tiers ordered above pro for backward compat
     'tier_2_20',
     'tier_6_50',
     'tier_12_100',
@@ -294,14 +240,16 @@ export function isDowngrade(fromTier: string, toTier: string): boolean {
   return getTierOrder(toTier) < getTierOrder(fromTier);
 }
 
+// ─── RevenueCat (mobile billing — untouched) ─────────────────────────────────
+
 const REVENUECAT_PRODUCT_MAPPING: Record<string, string> = {
   'kortix_plus_monthly': 'tier_2_20',
   'kortix_plus_yearly': 'tier_2_20',
   'plus:plus-monthly': 'tier_2_20',
 
-  'kortix_pro_monthly': 'tier_6_50',
-  'kortix_pro_yearly': 'tier_6_50',
-  'pro:pro-monthly': 'tier_6_50',
+  'kortix_pro_monthly': 'pro',
+  'kortix_pro_yearly': 'pro',
+  'pro:pro-monthly': 'pro',
 
   'kortix_ultra_monthly': 'tier_25_200',
   'kortix_ultra_yearly': 'tier_25_200',

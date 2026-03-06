@@ -111,12 +111,18 @@ export interface ServerTypeWithPricing {
   architecture: 'x86' | 'arm';
   priceHourly: number;
   priceMonthly: number;
+  /** Our selling price (Hetzner price * 1.2x markup). */
+  priceMonthlyMarkup: number;
   location: string;
 }
 
+/** Markup applied to Hetzner prices for customer-facing pricing. */
+const COMPUTE_MARKUP = 1.2;
+
 /**
  * Fetch available Hetzner server types with pricing for a given location.
- * Filters to regular (cx*) and general-purpose (ccx*) types only.
+ * Filters to regular/general-purpose types only.
+ * Returns both raw Hetzner prices and our marked-up selling prices.
  */
 export async function listServerTypes(
   location?: string,
@@ -128,6 +134,7 @@ export async function listServerTypes(
     .filter((st) => ALLOWED_SERVER_TYPE_PREFIXES.some((p) => st.name.startsWith(p)))
     .map((st) => {
       const locPrice = st.prices.find((p) => p.location === loc) || st.prices[0];
+      const monthly = parseFloat(locPrice?.price_monthly?.gross || '0');
       return {
         name: st.name,
         description: st.description,
@@ -137,7 +144,8 @@ export async function listServerTypes(
         cpuType: st.cpu_type,
         architecture: st.architecture,
         priceHourly: parseFloat(locPrice?.price_hourly?.gross || '0'),
-        priceMonthly: parseFloat(locPrice?.price_monthly?.gross || '0'),
+        priceMonthly: monthly,
+        priceMonthlyMarkup: Math.round(monthly * COMPUTE_MARKUP * 100) / 100,
         location: loc,
       };
     })
@@ -157,10 +165,11 @@ export class HetznerProvider implements SandboxProvider {
 
     const requestedServerType = opts.hetznerServerType;
     const serverType = requestedServerType || config.HETZNER_DEFAULT_SERVER_TYPE;
-    if (requestedServerType && requestedServerType !== 'cpx22' && requestedServerType !== 'cpx32') {
-      throw new Error(`Invalid Hetzner server type: ${requestedServerType}. Allowed: cpx22, cpx32`);
+    // Allow any server type that matches our prefix filters (cx*, ccx*, cpx*, cax*)
+    if (requestedServerType && !ALLOWED_SERVER_TYPE_PREFIXES.some((p) => requestedServerType.startsWith(p))) {
+      throw new Error(`Invalid Hetzner server type: ${requestedServerType}. Must start with: ${ALLOWED_SERVER_TYPE_PREFIXES.join(', ')}`);
     }
-    const location = config.HETZNER_DEFAULT_LOCATION;
+    const location = opts.hetznerLocation || config.HETZNER_DEFAULT_LOCATION;
 
     // Match Daytona behavior: one sandbox-scoped token for both directions.
     // KORTIX_TOKEN: sandbox -> API auth
