@@ -192,7 +192,7 @@ function PricingCard({
             : isCurrent
               ? 'Current Plan'
               : tier.tierKey === 'free'
-                ? 'Downgrade to Free'
+                ? 'Choose Free'
                 : 'Upgrade to Pro'}
         </Button>
       </div>
