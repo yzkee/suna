@@ -30,13 +30,13 @@ export interface ModelConfig {
 export const MODELS: Record<string, ModelConfig> = {
   'anthropic/claude-opus-4.6': {
     openrouterId: 'anthropic/claude-opus-4.6',
-    inputPer1M: 15.00,
-    outputPer1M: 75.00,
+    inputPer1M: 5.00,
+    outputPer1M: 25.00,
     contextWindow: 200000,
     tier: 'paid',
     cachingStrategy: 'manual',
-    cacheReadPer1M: 1.50,
-    cacheWritePer1M: 18.75,
+    cacheReadPer1M: 0.50,
+    cacheWritePer1M: 6.25,
   },
   'anthropic/claude-sonnet-4.6': {
     openrouterId: 'anthropic/claude-sonnet-4.6',
