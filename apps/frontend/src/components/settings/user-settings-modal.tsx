@@ -1363,6 +1363,7 @@ function InstancesSection({ accountState, onRefetch }: { accountState: any; onRe
                                     <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                                         inst.status === 'active' ? 'bg-green-500/10 text-green-500' :
                                         inst.status === 'provisioning' ? 'bg-yellow-500/10 text-yellow-500' :
+                                        inst.status === 'error' ? 'bg-destructive/10 text-destructive' :
                                         'bg-muted text-muted-foreground'
                                     }`}>
                                         {inst.status}
@@ -1372,6 +1373,11 @@ function InstancesSection({ accountState, onRefetch }: { accountState: any; onRe
                                     {inst.server_type && <span>{inst.server_type}</span>}
                                     {inst.location && <span> / {inst.location}</span>}
                                 </div>
+                                {inst.status === 'error' && inst.error_message && (
+                                    <div className="text-xs text-destructive mt-1">
+                                        {inst.error_message}
+                                    </div>
+                                )}
                             </div>
                             {!inst.is_included && (
                                 <Button

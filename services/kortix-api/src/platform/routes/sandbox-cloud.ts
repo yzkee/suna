@@ -295,6 +295,7 @@ export function createCloudSandboxRouter(
             );
           } catch (bgErr) {
             console.error(`[PLATFORM] Background provisioning failed for sandbox ${sandbox.sandboxId}:`, bgErr);
+            const bgMessage = bgErr instanceof Error ? bgErr.message : String(bgErr);
 
             if (stripeSubscriptionItemId) {
               try {
@@ -302,6 +303,12 @@ export function createCloudSandboxRouter(
                 const stripe = getStripe();
                 await stripe.subscriptionItems.del(stripeSubscriptionItemId);
                 console.log(`[PLATFORM] Rolled back Stripe sub item ${stripeSubscriptionItemId} after background provisioning failure`);
+
+                // Keep DB in sync with rollback
+                await db
+                  .update(sandboxes)
+                  .set({ stripeSubscriptionItemId: null, updatedAt: new Date() })
+                  .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
               } catch (rollbackErr) {
                 console.error(`[PLATFORM] Failed to roll back Stripe sub item ${stripeSubscriptionItemId}:`, rollbackErr);
               }
@@ -319,7 +326,17 @@ export function createCloudSandboxRouter(
             try {
               await db
                 .update(sandboxes)
-                .set({ status: 'error', updatedAt: new Date() })
+                .set({
+                  status: 'error',
+                  metadata: {
+                    ...(sandbox.metadata as Record<string, unknown> || {}),
+                    errorMessage: bgMessage.includes('server location disabled')
+                      ? 'Selected location is currently disabled by Hetzner. Choose another location.'
+                      : 'Provisioning failed. Please retry or choose a different server/location.',
+                    lastProvisioningError: bgMessage.slice(0, 500),
+                  },
+                  updatedAt: new Date(),
+                })
                 .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
             } catch (markErr) {
               console.error(`[PLATFORM] Failed to mark sandbox ${sandbox.sandboxId} as error:`, markErr);
