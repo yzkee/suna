@@ -1227,10 +1227,10 @@ function AutoTopupSection({ accountState, onRefetch }: { accountState: any; onRe
             </div>
             {enabled && (
                 <div className="space-y-3 pl-0">
-                    {hasDefaultPaymentMethod === false && (
+                    {hasPaymentMethod === false && (
                         <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
                             <p className="text-xs text-amber-200">
-                                No default payment method is set. Auto top-up works best with a default card.
+                                No saved payment method found. Add a card to enable auto top-up charges.
                             </p>
                             <Button
                                 size="sm"
@@ -1240,6 +1240,22 @@ function AutoTopupSection({ accountState, onRefetch }: { accountState: any; onRe
                                 disabled={openingPortal}
                             >
                                 {openingPortal ? 'Opening billing portal...' : 'Set up default payment method'}
+                            </Button>
+                        </div>
+                    )}
+                    {hasPaymentMethod === true && hasDefaultPaymentMethod === false && (
+                        <div className="rounded-md border border-border bg-muted/30 p-3">
+                            <p className="text-xs text-muted-foreground">
+                                You have a saved card. Optional: set a default payment method for predictable auto top-up charges.
+                            </p>
+                            <Button
+                                size="sm"
+                                variant="ghost"
+                                className="mt-2 h-7 px-2"
+                                onClick={handleSetupDefaultPaymentMethod}
+                                disabled={openingPortal}
+                            >
+                                {openingPortal ? 'Opening billing portal...' : 'Set default payment method'}
                             </Button>
                         </div>
                     )}
@@ -1623,12 +1639,12 @@ function BillingTab({ returnUrl, onOpenPlanModal, isActive }: { returnUrl: strin
 
             {/* Credit Breakdown */}
             <div className="grid grid-cols-2 gap-2 sm:gap-4">
-                {/* Credits — total spendable balance */}
+                {/* Total Credits — total spendable balance */}
                 <div className="relative overflow-hidden rounded-xl sm:rounded-[18px] border border-border bg-card p-3 sm:p-5">
                     <div className="flex flex-col gap-1.5 sm:gap-2">
                         <div className="flex items-center gap-1.5 sm:gap-2">
                             <Zap className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary flex-shrink-0" />
-                            <span className="text-[10px] sm:text-xs text-muted-foreground truncate">Credits</span>
+                            <span className="text-[10px] sm:text-xs text-muted-foreground truncate">Total Credits</span>
                         </div>
                         <div>
                             <div className="text-base sm:text-xl leading-none font-semibold">{formatCredits(totalCredits)}</div>
@@ -1646,12 +1662,12 @@ function BillingTab({ returnUrl, onOpenPlanModal, isActive }: { returnUrl: strin
                     </div>
                 </div>
 
-                {/* Extra — purchased non-expiring credits */}
+                {/* Non-expiring Credits — purchased credits */}
                 <div className="relative overflow-hidden rounded-xl sm:rounded-[18px] border border-border bg-card p-3 sm:p-5">
                     <div className="flex flex-col gap-1.5 sm:gap-2">
                         <div className="flex items-center gap-1.5 sm:gap-2">
                             <Infinity className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-muted-foreground flex-shrink-0" />
-                            <span className="text-[10px] sm:text-xs text-muted-foreground truncate">Extra</span>
+                            <span className="text-[10px] sm:text-xs text-muted-foreground truncate">Non-expiring</span>
                         </div>
                         <div>
                             <div className="text-base sm:text-xl leading-none font-semibold">{formatCredits(nonExpiringCredits)}</div>
