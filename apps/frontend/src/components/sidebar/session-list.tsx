@@ -53,6 +53,7 @@ import {
 import { useOpenCodeSessionStatusStore } from '@/stores/opencode-session-status-store';
 import { useOpenCodePendingStore } from '@/stores/opencode-pending-store';
 import { useDebouncedBusySessions } from '@/hooks/use-debounced-busy-sessions';
+import { useSyncStore } from '@/stores/opencode-sync-store';
 import {
   Tooltip,
   TooltipContent,
@@ -418,6 +419,7 @@ export function SessionList({ projectId }: SessionListProps = {}) {
   const [compactSessionId, setCompactSessionId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const statuses = useOpenCodeSessionStatusStore((s) => s.statuses);
+  const syncStatuses = useSyncStore((s) => s.sessionStatus);
   const permissions = useOpenCodePendingStore((s) => s.permissions);
   const questions = useOpenCodePendingStore((s) => s.questions);
 
@@ -546,14 +548,21 @@ export function SessionList({ projectId }: SessionListProps = {}) {
   }, [expandedNodes]);
 
   // Get status for a session (busy + pending)
+  // Check debounced state first (handles reasoning gaps), then fall back to
+  // raw status stores for immediate reactivity.
   const getStatus = useCallback(
     (sessionId: string) => {
       const pendingCount = getPendingCount(sessionId);
-      // Matching SolidJS: permissions suppress busy indicator
-      const isBusy = pendingCount === 0 && (debouncedBusy[sessionId] ?? false);
+      const isBusy =
+        pendingCount === 0 &&
+        (debouncedBusy[sessionId] ||
+          statuses[sessionId]?.type === 'busy' ||
+          statuses[sessionId]?.type === 'retry' ||
+          syncStatuses[sessionId]?.type === 'busy' ||
+          syncStatuses[sessionId]?.type === 'retry');
       return { isBusy: !!isBusy, pendingCount };
     },
-    [getPendingCount, debouncedBusy],
+    [getPendingCount, debouncedBusy, statuses, syncStatuses],
   );
 
   // Filter to root sessions only for the top-level list.
@@ -572,13 +581,13 @@ export function SessionList({ projectId }: SessionListProps = {}) {
       const bPending = getPendingCount(b.id);
       if (aPending > 0 && bPending === 0) return -1;
       if (bPending > 0 && aPending === 0) return 1;
-      const aBusy = aPending === 0 && (debouncedBusy[a.id] ?? false) ? 1 : 0;
-      const bBusy = bPending === 0 && (debouncedBusy[b.id] ?? false) ? 1 : 0;
-      if (aBusy > bBusy) return -1;
-      if (bBusy > aBusy) return 1;
+      const aIsBusy = aPending === 0 && (debouncedBusy[a.id] || statuses[a.id]?.type === 'busy' || syncStatuses[a.id]?.type === 'busy') ? 1 : 0;
+      const bIsBusy = bPending === 0 && (debouncedBusy[b.id] || statuses[b.id]?.type === 'busy' || syncStatuses[b.id]?.type === 'busy') ? 1 : 0;
+      if (aIsBusy > bIsBusy) return -1;
+      if (bIsBusy > aIsBusy) return 1;
       return 0;
     });
-  }, [sessions, projectId, debouncedBusy, getPendingCount, forkIds]);
+  }, [sessions, projectId, debouncedBusy, statuses, syncStatuses, getPendingCount, forkIds]);
 
   // Archived sessions
   const archivedSessions = useMemo(() => {

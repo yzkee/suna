@@ -796,10 +796,14 @@ export function TabBar() {
   const getStatus = useCallback(
     (sessionId: string) => {
       const pendingCount = getPendingCount(sessionId);
-      const isBusy = pendingCount === 0 && (debouncedBusy[sessionId] ?? false);
+      const isBusy =
+        pendingCount === 0 &&
+        (debouncedBusy[sessionId] ||
+          statuses[sessionId]?.type === 'busy' ||
+          statuses[sessionId]?.type === 'retry');
       return { isBusy: !!isBusy, pendingCount };
     },
-    [getPendingCount, debouncedBusy],
+    [getPendingCount, debouncedBusy, statuses],
   );
 
   // Tab switching: all types are pre-mounted, so always use pushState (no re-mount).
@@ -1098,7 +1102,7 @@ export function TabBar() {
         >
           {orderedTabs.map((tab, index) => {
             const pending = tab.type === 'session' ? getPendingCount(tab.id) : 0;
-            const busy = tab.type === 'session' && pending === 0 && (debouncedBusy[tab.id] ?? false);
+            const busy = tab.type === 'session' && pending === 0 && (debouncedBusy[tab.id] || statuses[tab.id]?.type === 'busy' || statuses[tab.id]?.type === 'retry');
             return (
               <div key={tab.id} data-tab-id={tab.id} className={cn("flex items-end relative", tab.id === activeTabId ? "z-20" : "z-0")}>
                 <TabItem
