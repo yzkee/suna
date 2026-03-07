@@ -1089,6 +1089,7 @@ export function SessionChatInput({
       if (disabled || lockForQuestion) return;
       if (e.defaultPrevented) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (typeof e.key !== 'string') return;
       if (e.key.length !== 1) return; // printable characters only
 
       const ta = textareaRef.current;
@@ -1907,7 +1908,7 @@ export function SessionChatInput({
                 className="hidden"
                 onChange={handleFileSelect}
               />
-              <Tooltip>
+                <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
