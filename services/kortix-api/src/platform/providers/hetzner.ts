@@ -132,8 +132,9 @@ export async function listServerTypes(
 
   return data.server_types
     .filter((st) => ALLOWED_SERVER_TYPE_PREFIXES.some((p) => st.name.startsWith(p)))
+    .filter((st) => st.prices.some((p) => p.location === loc))
     .map((st) => {
-      const locPrice = st.prices.find((p) => p.location === loc) || st.prices[0];
+      const locPrice = st.prices.find((p) => p.location === loc)!;
       const monthly = parseFloat(locPrice?.price_monthly?.gross || '0');
       return {
         name: st.name,

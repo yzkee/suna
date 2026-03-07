@@ -117,7 +117,8 @@ export function AddInstanceDialog() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4 px-5 pb-5 overflow-y-auto">
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 pb-5">
+          <div className="flex flex-col gap-4 pb-20">
           {/* Location selector */}
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
@@ -176,9 +177,12 @@ export function AddInstanceDialog() {
               )}
             </div>
           )}
+          </div>
+        </div>
 
-          {/* Confirm */}
-          <div className="flex items-center justify-between pt-2 border-t border-border/40">
+        {/* Sticky footer actions */}
+        <div className="shrink-0 border-t border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/75">
+          <div className="flex items-center justify-between px-5 py-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
             <div className="text-sm">
               {selectedType ? (
                 <span className="text-foreground font-medium">

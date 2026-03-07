@@ -131,8 +131,27 @@ export function createCloudSandboxRouter(
       const providerName = requestedProvider || getDefaultProviderName();
       const customName = body?.name as string | undefined;
       const isIncluded = Boolean(body?.isIncluded); // only set by setup flow
+      const requestedOrDefaultLocation = requestedLocation || config.HETZNER_DEFAULT_LOCATION;
+      const requestedOrDefaultServerType = requestedHetznerServerType || config.HETZNER_DEFAULT_SERVER_TYPE;
 
       const accountId = await resolveAccountId(userId);
+
+      // Validate Hetzner server type/location combo early so we return a clear
+      // 4xx error instead of failing inside provider create with a generic 500.
+      if (providerName === 'hetzner') {
+        const { listServerTypes: fetchServerTypes } = await import('../providers/hetzner');
+        const availableTypes = await fetchServerTypes(requestedOrDefaultLocation);
+        const selected = availableTypes.find((st) => st.name === requestedOrDefaultServerType);
+        if (!selected) {
+          return c.json(
+            {
+              success: false,
+              error: `Server type '${requestedOrDefaultServerType}' is not available in location '${requestedOrDefaultLocation}'`,
+            },
+            400,
+          );
+        }
+      }
 
       // Count existing sandboxes for naming
       const existingCount = await db
@@ -166,9 +185,9 @@ export function createCloudSandboxRouter(
         }
 
         // Look up server type price from Hetzner
-        const loc = requestedLocation || config.HETZNER_DEFAULT_LOCATION;
+        const loc = requestedOrDefaultLocation;
         const serverTypes = await fetchServerTypes(loc);
-        const selectedType = serverTypes.find((st) => st.name === (requestedHetznerServerType || config.HETZNER_DEFAULT_SERVER_TYPE));
+        const selectedType = serverTypes.find((st) => st.name === requestedOrDefaultServerType);
 
         if (!selectedType) {
           return c.json({ success: false, error: `Server type not found: ${requestedHetznerServerType}` }, 400);
