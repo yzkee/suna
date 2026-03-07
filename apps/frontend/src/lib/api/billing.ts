@@ -671,6 +671,7 @@ export interface AutoTopupConfig {
 
 export interface AutoTopupSetupStatus {
   has_payment_method: boolean;
+  has_default_payment_method: boolean;
 }
 
 export async function getAutoTopupSettings(): Promise<AutoTopupConfig> {

@@ -98,9 +98,10 @@ export async function getAutoTopupSettings(accountId: string) {
 }
 
 export async function getAutoTopupSetupStatus(accountId: string) {
-  const paymentMethodId = await getUsableAutoTopupPaymentMethodId(accountId);
+  const paymentStatus = await getAutoTopupPaymentStatus(accountId);
   return {
-    has_payment_method: Boolean(paymentMethodId),
+    has_payment_method: paymentStatus.hasAnyPaymentMethod,
+    has_default_payment_method: paymentStatus.hasDefaultPaymentMethod,
   };
 }
 
@@ -213,32 +214,57 @@ async function tryAutoTopup(accountId: string): Promise<void> {
 }
 
 async function getUsableAutoTopupPaymentMethodId(accountId: string): Promise<string | null> {
+  const status = await getAutoTopupPaymentStatus(accountId);
+  return status.usablePaymentMethodId;
+}
+
+async function getAutoTopupPaymentStatus(accountId: string): Promise<{
+  hasAnyPaymentMethod: boolean;
+  hasDefaultPaymentMethod: boolean;
+  usablePaymentMethodId: string | null;
+}> {
   const customer = await getCustomerByAccountId(accountId);
-  if (!customer) return null;
+  if (!customer) {
+    return {
+      hasAnyPaymentMethod: false,
+      hasDefaultPaymentMethod: false,
+      usablePaymentMethodId: null,
+    };
+  }
 
   const stripe = getStripe();
 
   try {
+    let defaultPaymentMethodId: string | null = null;
     const stripeCustomer = await stripe.customers.retrieve(customer.id);
     if (!('deleted' in stripeCustomer) || !stripeCustomer.deleted) {
       const defaultPm = stripeCustomer.invoice_settings?.default_payment_method;
       if (typeof defaultPm === 'string') {
-        return defaultPm;
-      }
-      if (defaultPm && typeof defaultPm === 'object' && 'id' in defaultPm) {
-        return defaultPm.id;
+        defaultPaymentMethodId = defaultPm;
+      } else if (defaultPm && typeof defaultPm === 'object' && 'id' in defaultPm) {
+        defaultPaymentMethodId = defaultPm.id;
       }
     }
 
-    // Fallback: use first saved card payment method if no default is configured.
     const methods = await stripe.paymentMethods.list({
       customer: customer.id,
       type: 'card',
       limit: 1,
     });
-    return methods.data[0]?.id ?? null;
+    const firstCardId = methods.data[0]?.id ?? null;
+    const hasAnyPaymentMethod = Boolean(firstCardId || defaultPaymentMethodId);
+
+    return {
+      hasAnyPaymentMethod,
+      hasDefaultPaymentMethod: Boolean(defaultPaymentMethodId),
+      usablePaymentMethodId: defaultPaymentMethodId ?? firstCardId,
+    };
   } catch (err) {
     console.warn(`[AutoTopup] Could not resolve payment method for ${accountId}:`, err);
-    return null;
+    return {
+      hasAnyPaymentMethod: false,
+      hasDefaultPaymentMethod: false,
+      usablePaymentMethodId: null,
+    };
   }
 }

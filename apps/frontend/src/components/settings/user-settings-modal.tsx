@@ -1134,6 +1134,7 @@ function AutoTopupSection({ accountState, onRefetch }: { accountState: any; onRe
     const [saving, setSaving] = useState(false);
     const [openingPortal, setOpeningPortal] = useState(false);
     const [hasPaymentMethod, setHasPaymentMethod] = useState<boolean | null>(null);
+    const [hasDefaultPaymentMethod, setHasDefaultPaymentMethod] = useState<boolean | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
 
@@ -1152,9 +1153,15 @@ function AutoTopupSection({ accountState, onRefetch }: { accountState: any; onRe
             try {
                 const { getAutoTopupSetupStatus } = await import('@/lib/api/billing');
                 const status = await getAutoTopupSetupStatus();
-                if (active) setHasPaymentMethod(status.has_payment_method);
+                if (active) {
+                    setHasPaymentMethod(status.has_payment_method);
+                    setHasDefaultPaymentMethod(status.has_default_payment_method);
+                }
             } catch {
-                if (active) setHasPaymentMethod(null);
+                if (active) {
+                    setHasPaymentMethod(null);
+                    setHasDefaultPaymentMethod(null);
+                }
             }
         };
         loadSetupStatus();
@@ -1220,10 +1227,10 @@ function AutoTopupSection({ accountState, onRefetch }: { accountState: any; onRe
             </div>
             {enabled && (
                 <div className="space-y-3 pl-0">
-                    {hasPaymentMethod === false && (
+                    {hasDefaultPaymentMethod === false && (
                         <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
                             <p className="text-xs text-amber-200">
-                                Auto top-up needs a default payment method for off-session charges.
+                                No default payment method is set. Auto top-up works best with a default card.
                             </p>
                             <Button
                                 size="sm"
