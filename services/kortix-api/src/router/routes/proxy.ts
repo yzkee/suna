@@ -148,9 +148,9 @@ async function handleKortixProxy(
 
 // === Kortix-managed LLM Billing ===
 //
-// All Kortix-managed LLM calls are routed through OpenRouter, which returns
-// OpenAI-compatible responses regardless of the original provider (anthropic,
-// openai, gemini, xai, groq). So we always parse OpenAI-format usage here.
+// Handles both response formats based on upstream:
+// - OpenAI-compatible: usage.prompt_tokens / completion_tokens
+// - Anthropic-native: usage.input_tokens / output_tokens
 
 async function billLlmKortixProxy(
   upstream: Response,
@@ -184,31 +184,47 @@ async function billLlmKortixProxy(
 
   // Non-streaming: read response, extract usage, bill, return
   const responseBody = await upstream.json();
+  const isAnthropic = service.name === 'anthropic';
 
-  // OpenRouter always returns OpenAI-compatible format
-  const usage = extractUsage(responseBody);
-  const modelId = responseBody?.model || 'unknown';
+  let promptTokens = 0;
+  let completionTokens = 0;
+  let cachedTokens = 0;
+  let cacheWriteTokens = 0;
+  let modelId = responseBody?.model || 'unknown';
 
-  if (usage && (usage.promptTokens > 0 || usage.completionTokens > 0)) {
+  if (isAnthropic && responseBody?.usage) {
+    promptTokens = responseBody.usage.input_tokens ?? 0;
+    completionTokens = responseBody.usage.output_tokens ?? 0;
+  } else {
+    const usage = extractUsage(responseBody);
+    if (usage) {
+      promptTokens = usage.promptTokens;
+      completionTokens = usage.completionTokens;
+      cachedTokens = usage.cachedTokens;
+      cacheWriteTokens = usage.cacheWriteTokens;
+    }
+  }
+
+  if (promptTokens > 0 || completionTokens > 0) {
     const modelConfig = getModel(modelId);
     const cost = calculateCost(
       modelConfig,
-      usage.promptTokens,
-      usage.completionTokens,
-      usage.cachedTokens,
-      usage.cacheWriteTokens,
+      promptTokens,
+      completionTokens,
+      cachedTokens,
+      cacheWriteTokens,
       KORTIX_MARKUP,
     );
 
     deductLLMCredits(
       accountId,
       modelId,
-      usage.promptTokens,
-      usage.completionTokens,
+      promptTokens,
+      completionTokens,
       cost,
     ).catch((err) => console.error(`[PROXY] LLM kortix billing error: ${err}`));
 
-    console.log(`[PROXY] LLM kortix ${modelId}: ${usage.promptTokens}/${usage.completionTokens} tokens, cost=$${cost.toFixed(6)} (${KORTIX_MARKUP}x)`);
+    console.log(`[PROXY] LLM kortix ${modelId}: ${promptTokens}/${completionTokens} tokens, cost=$${cost.toFixed(6)} (${KORTIX_MARKUP}x)`);
   } else {
     console.warn(`[PROXY] LLM kortix ${service.name}: no usage data in response — billing skipped`);
   }
@@ -220,8 +236,8 @@ async function billLlmKortixProxy(
 }
 
 /**
- * Extract usage from an OpenRouter SSE stream and bill at KORTIX_MARKUP.
- * OpenRouter always returns OpenAI-compatible SSE (usage in final chunk).
+ * Extract usage from an SSE stream and bill at KORTIX_MARKUP.
+ * Handles both OpenAI-compatible and Anthropic-native SSE formats.
  * Runs in background (fire-and-forget).
  */
 async function extractUsageFromKortixProxyStream(
@@ -235,7 +251,10 @@ async function extractUsageFromKortixProxyStream(
     const decoder = new TextDecoder();
     let buffer = '';
     let detectedModel = 'unknown';
+    const isAnthropic = service.name === 'anthropic';
     let lastUsage: { promptTokens: number; completionTokens: number; cachedTokens: number; cacheWriteTokens: number } | null = null;
+    let anthropicInputTokens = 0;
+    let anthropicOutputTokens = 0;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -249,20 +268,42 @@ async function extractUsageFromKortixProxyStream(
         if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
         try {
           const chunk = JSON.parse(line.slice(6));
-          if (chunk.model) detectedModel = chunk.model;
-          if (chunk.usage) {
-            const details = chunk.usage.prompt_tokens_details;
-            lastUsage = {
-              promptTokens: chunk.usage.prompt_tokens ?? 0,
-              completionTokens: chunk.usage.completion_tokens ?? 0,
-              cachedTokens: details?.cached_tokens ?? 0,
-              cacheWriteTokens: details?.cache_write_tokens ?? 0,
-            };
+          if (isAnthropic) {
+            if (chunk.type === 'message_start' && chunk.message) {
+              detectedModel = chunk.message.model || detectedModel;
+              anthropicInputTokens = chunk.message.usage?.input_tokens ?? 0;
+            }
+            if (chunk.type === 'message_delta' && chunk.usage) {
+              anthropicOutputTokens = chunk.usage.output_tokens ?? 0;
+            }
+          } else {
+            if (chunk.model) detectedModel = chunk.model;
+            if (chunk.usage) {
+              const details = chunk.usage.prompt_tokens_details;
+              lastUsage = {
+                promptTokens: chunk.usage.prompt_tokens ?? 0,
+                completionTokens: chunk.usage.completion_tokens ?? 0,
+                cachedTokens: details?.cached_tokens ?? 0,
+                cacheWriteTokens: details?.cache_write_tokens ?? 0,
+              };
+            }
           }
         } catch {
           // Not valid JSON — skip
         }
       }
+    }
+
+    if (isAnthropic) {
+      if (!(anthropicInputTokens > 0 || anthropicOutputTokens > 0)) {
+        console.warn(`[PROXY] LLM kortix stream (${service.name}): zero tokens — billing skipped`);
+        return;
+      }
+      const modelConfig = getModel(detectedModel);
+      const cost = calculateCost(modelConfig, anthropicInputTokens, anthropicOutputTokens, 0, 0, KORTIX_MARKUP);
+      await deductLLMCredits(accountId, detectedModel, anthropicInputTokens, anthropicOutputTokens, cost);
+      console.log(`[PROXY] LLM kortix stream ${detectedModel}: ${anthropicInputTokens}/${anthropicOutputTokens} tokens, cost=$${cost.toFixed(6)} (${KORTIX_MARKUP}x)`);
+      return;
     }
 
     if (!lastUsage) {
@@ -439,6 +480,8 @@ async function billLlmPassthrough(
   // Extract usage — handle both OpenAI and Anthropic response formats
   let promptTokens = 0;
   let completionTokens = 0;
+  let cachedTokens = 0;
+  let cacheWriteTokens = 0;
   let modelId = 'unknown';
 
   if (isAnthropic && responseBody?.usage) {
@@ -452,13 +495,15 @@ async function billLlmPassthrough(
     if (usage) {
       promptTokens = usage.promptTokens;
       completionTokens = usage.completionTokens;
+      cachedTokens = usage.cachedTokens;
+      cacheWriteTokens = usage.cacheWriteTokens;
     }
     modelId = responseBody?.model || modelId;
   }
 
   if (promptTokens > 0 || completionTokens > 0) {
     const modelConfig = getModel(modelId);
-    const cost = calculateCost(modelConfig, promptTokens, completionTokens, PLATFORM_FEE_MARKUP);
+    const cost = calculateCost(modelConfig, promptTokens, completionTokens, cachedTokens, cacheWriteTokens, PLATFORM_FEE_MARKUP);
 
     deductLLMCredits(
       accountId,
@@ -559,7 +604,7 @@ async function extractUsageFromPassthroughStream(
 
     if (promptTokens > 0 || completionTokens > 0) {
       const modelConfig = getModel(detectedModel);
-      const cost = calculateCost(modelConfig, promptTokens, completionTokens, PLATFORM_FEE_MARKUP);
+      const cost = calculateCost(modelConfig, promptTokens, completionTokens, 0, 0, PLATFORM_FEE_MARKUP);
       await deductLLMCredits(
         accountId,
         detectedModel,
