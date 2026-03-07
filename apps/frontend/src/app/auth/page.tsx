@@ -632,6 +632,7 @@ function LoginContent() {
 
 import { isSelfHosted } from '@/lib/config';
 import { SelfHostedForm, useInstallStatus } from '@/components/auth/self-hosted-auth';
+import { createClient as createBrowserSupabaseClient } from '@/lib/supabase/client';
 
 function SelfHostedLoginContent() {
   const router = useRouter();
@@ -643,13 +644,52 @@ function SelfHostedLoginContent() {
   const [phase, setPhase] = useState<'lock' | 'form'>('lock');
   const wizardStepRef = useRef(1);
   const [wizardStep, setWizardStep] = useState(1);
+  /** Whether sandbox status has been checked on page load (for authenticated returning users). */
+  const [sandboxChecked, setSandboxChecked] = useState(false);
   const handleWizardStepChange = useCallback((step: number) => {
     wizardStepRef.current = step;
     setWizardStep(step);
   }, []);
 
+  // For authenticated users with an existing install, check if sandbox is
+  // actually ready before redirecting. If not ready, drop them into wizard step 2.
   useEffect(() => {
-    if (isLoading || !user) return;
+    if (isLoading || !user || installed !== true || sandboxChecked) return;
+    if (wizardStepRef.current > 1) { setSandboxChecked(true); return; }
+
+    const checkSandboxReady = async () => {
+      try {
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
+        const supabaseClient = createBrowserSupabaseClient();
+        const { data } = await supabaseClient.auth.getSession();
+        const jwt = data.session?.access_token;
+        if (!jwt) { setSandboxChecked(true); return; }
+
+        const res = await fetch(`${backendUrl}/platform/init/local/status`, {
+          headers: { 'Authorization': `Bearer ${jwt}` },
+        });
+        if (!res.ok) { setSandboxChecked(true); return; }
+        const statusData = await res.json();
+
+        if (statusData.status === 'ready') {
+          // Sandbox is good — allow normal redirect flow
+          setSandboxChecked(true);
+        } else {
+          // Sandbox not ready (error, none, pulling, etc.) — go to wizard step 2
+          wizardStepRef.current = 2;
+          setWizardStep(2);
+          setSandboxChecked(true);
+        }
+      } catch {
+        // Network error — allow redirect, dashboard will handle it
+        setSandboxChecked(true);
+      }
+    };
+    checkSandboxReady();
+  }, [isLoading, user, installed, sandboxChecked]);
+
+  useEffect(() => {
+    if (isLoading || !user || !sandboxChecked) return;
     // Fresh self-hosted install: do not auto-redirect to onboarding yet.
     // The installer wizard must complete provider + keys first.
     if (installed === false) return;
@@ -661,7 +701,7 @@ function SelfHostedLoginContent() {
       if (error) supabase.auth.signOut().finally(() => setValidatingSession(false));
       else router.push(returnUrl || '/onboarding');
     });
-  }, [user, isLoading, installed, returnUrl, searchParams, supabase, router, wizardStep]);
+  }, [user, isLoading, installed, returnUrl, searchParams, supabase, router, wizardStep, sandboxChecked]);
 
   // Keyboard controls: Enter/Space opens form, Escape closes it
   useEffect(() => {
@@ -677,7 +717,7 @@ function SelfHostedLoginContent() {
     return () => window.removeEventListener('keydown', handler);
   }, [phase]);
 
-  if (isLoading || validatingSession || statusLoading || (installed !== false && user && wizardStepRef.current <= 1)) {
+  if (isLoading || validatingSession || statusLoading || (!sandboxChecked && installed !== false && user) || (sandboxChecked && installed !== false && user && wizardStepRef.current <= 1)) {
     return (
       <div className="fixed inset-0 bg-background flex items-center justify-center">
         <KortixLoader size="medium" />
@@ -691,7 +731,7 @@ function SelfHostedLoginContent() {
       <div className="fixed inset-0 overflow-hidden">
         <WallpaperBackground />
         <div className="relative z-10 flex h-full items-center justify-center px-4 py-16">
-          <div className="bg-background/75 dark:bg-background/70 backdrop-blur-2xl border border-foreground/[0.08] rounded-2xl p-7">
+          <div className="w-full max-w-[400px] bg-background/75 dark:bg-background/70 backdrop-blur-2xl border border-foreground/[0.08] rounded-2xl p-7">
             <SelfHostedForm
               returnUrl={returnUrl}
               installed={installed}
