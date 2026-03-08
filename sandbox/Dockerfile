@@ -148,13 +148,15 @@ RUN --mount=type=cache,target=/root/.npm \
 # ── OpenCode (agents, tools, skills) ────────────────────────────────────────
 # Use --chown on COPY to avoid a separate chown layer (saves ~320MB duplication).
 # UID 1000 matches PUID=1000 set in docker-compose (init-adduser remaps abc to this).
-COPY --chown=1000:1000 sandbox/opencode/ /opt/opencode/
-# The local dev symlink plugin/kortix-sys → ../../../packages/kortix-sys-oc-plugin
-# becomes dangling inside Docker. Replace it with the actual package source.
-RUN rm -f /opt/opencode/plugin/kortix-sys
-COPY --chown=1000:1000 packages/kortix-sys-oc-plugin/ /opt/opencode/plugin/kortix-sys/
-RUN --mount=type=cache,target=/root/.bun/install/cache \
-    cd /opt/opencode && bun install
+# packages/kortix-oc/runtime is the sole authored OpenCode runtime source.
+COPY --chown=1000:1000 packages/kortix-oc/runtime/ /opt/opencode/
+RUN --mount=type=cache,target=/root/.npm \
+    npm cache clean --force \
+    && cd /opt/opencode \
+    && npm install --no-audit --no-fund --omit=optional --ignore-scripts \
+    && bash patches/apply.sh \
+    && npm cache clean --force \
+    && rm -rf /root/.npm/_cacache /root/.npm/_logs
 
 # ── OpenCode binary patches ─────────────────────────────────────────────────
 # Apply patches to the compiled Bun binary (tool-input streaming, etc.).
@@ -188,12 +190,12 @@ ENV OPENCODE_CONFIG_DIR=/opt/opencode
 # Bun subprocess that actually loads bun-pty at runtime.
 ENV BUN_PTY_LIB=/opt/bun-pty-musl/librust_pty.so
 
-# Make bun cache writable by any user (abc UID changes at runtime via PUID)
-RUN chmod -R 777 /opt/bun/install
+# Make bun install dir/cache writable by any user (abc UID changes at runtime via PUID)
+RUN mkdir -p /opt/bun/install/cache && chmod -R 777 /opt/bun
 
 # ── Kortix Master (proxy to OpenCode + secret store) ────────────────────────
 COPY sandbox/kortix-master/package.json /opt/kortix-master/package.json
-RUN --mount=type=cache,target=/root/.bun/install/cache \
+RUN --mount=type=cache,target=/opt/bun/install/cache \
     cd /opt/kortix-master && bun install
 COPY sandbox/kortix-master/ /opt/kortix-master/
 COPY sandbox/kortix-master/src/routes/core.ts /opt/kortix-master/src/routes/core.ts
@@ -201,7 +203,7 @@ COPY sandbox/kortix-master/src/services/core-supervisor.ts /opt/kortix-master/sr
 
 # ── opencode-channels (Chat SDK Slack/Telegram bot) ──────────────────────────
 COPY packages/opencode-channels/package.json /opt/opencode-channels/package.json
-RUN --mount=type=cache,target=/root/.bun/install/cache \
+RUN --mount=type=cache,target=/opt/bun/install/cache \
     cd /opt/opencode-channels && bun install
 COPY packages/opencode-channels/ /opt/opencode-channels/
 

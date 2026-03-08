@@ -59,18 +59,18 @@ Every running Kortix sandbox can be updated remotely via a single npm package: `
 
 | Directory/File | What it is | Deployed to |
 |---|---|---|
-| `opencode/agents/` | Agent definitions | `/opt/opencode/agents/` |
-| `opencode/skills/` | Skill definitions | `/opt/opencode/skills/` |
-| `opencode/tools/` | Custom tools | `/opt/opencode/tools/` |
-| `opencode/commands/` | Slash commands | `/opt/opencode/commands/` |
-| `opencode/plugin/` | Memory plugin, etc. | `/opt/opencode/plugin/` |
-| `opencode/patches/` | Patches applied via postinstall | `/opt/opencode/patches/` |
-| `opencode/opencode.jsonc` | OpenCode config | `/opt/opencode/opencode.jsonc` |
-| `opencode/package.json` | OpenCode deps (SDK, plugin, etc.) | `/opt/opencode/package.json` |
+| `packages/kortix-oc/runtime/agents/` | Agent definitions | `/opt/opencode/agents/` |
+| `packages/kortix-oc/runtime/skills/` | Skill definitions | `/opt/opencode/skills/` |
+| `packages/kortix-oc/runtime/tools/` | Custom tools | `/opt/opencode/tools/` |
+| `packages/kortix-oc/runtime/commands/` | Slash commands | `/opt/opencode/commands/` |
+| `packages/kortix-oc/runtime/plugin/` | OpenCode plugins | `/opt/opencode/plugin/` |
+| `packages/kortix-oc/runtime/patches/` | Patches applied via postinstall | `/opt/opencode/patches/` |
+| `packages/kortix-oc/runtime/opencode.jsonc` | OpenCode config | `/opt/opencode/opencode.jsonc` |
+| `packages/kortix-oc/runtime/package.json` | OpenCode runtime deps | `/opt/opencode/package.json` |
 | `kortix-master/` | Proxy server + update handler | `/opt/kortix-master/` |
 | `browser-viewer/` | Agent browser viewer (static HTML) | `/opt/agent-browser-viewer/` |
 | `config/` | Container init scripts | `/custom-cont-init.d/` |
-| `services/` | Service run scripts (executed by core supervisor) | `/etc/s6-overlay/s6-rc.d/` |
+| `sandbox/s6-services/` | Service run scripts (executed by core supervisor) | `/etc/s6-overlay/s6-rc.d/` |
 | `core/manifest.json` | Core artifact contract | `/opt/kortix/core/manifest.json` |
 | `core/service-spec.json` | Declarative service graph for supervisor | `/opt/kortix/core/service-spec.json` |
 | `postinstall.sh` | Deployment script | Runs on `npm install` |
@@ -78,7 +78,7 @@ Every running Kortix sandbox can be updated remotely via a single npm package: `
 
 ### Secondary deps (resolved by `bun install` during postinstall)
 
-These live in `sandbox/opencode/package.json` and auto-resolve within their `^` ranges on every update:
+These live in `packages/kortix-oc/runtime/package.json` and auto-resolve within their `^` ranges on every update:
 
 | Package | Range | Purpose |
 |---|---|---|
@@ -120,8 +120,8 @@ Sandbox (kortix-master/src/routes/update.ts)
 
 postinstall.sh (runs inside sandbox)
   1. rsync kortix-master/ → /opt/kortix-master/     (+ bun install)
-  2. rsync opencode/      → /opt/opencode/           (+ bun install, resolves SDK/plugin/etc.)
-  3. rsync services/      → /etc/s6-overlay/s6-rc.d/ (service run scripts)
+  2. rsync packages/kortix-oc/runtime/ → /opt/opencode/ (+ bun install, resolves SDK/plugin/etc.)
+  3. rsync s6-services/   → /etc/s6-overlay/s6-rc.d/ (service run scripts)
   4. cp config/           → /custom-cont-init.d/      (init scripts)
   5. npm install -g opencode-ai@{version}              (CLI binary + musl symlink)
   6. npm install -g agent-browser@{version}            (browser automation)
@@ -148,7 +148,7 @@ The sandbox now runs the exact same software as a freshly built Docker image wit
 
 ### 1. Make changes
 
-Edit files under `sandbox/` — agents, skills, tools, configs, kortix-master, etc.
+Edit sandbox wrapper/runtime-image files under `sandbox/`, but edit OpenCode runtime files under `packages/kortix-oc/runtime/`.
 
 ### 2. Update versions in `sandbox/package.json` (if dependencies changed)
 

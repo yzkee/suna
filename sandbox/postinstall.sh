@@ -16,13 +16,21 @@ set -euo pipefail
 PKG_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Detect if we're running inside a sandbox (vs. being installed as a dev dep locally)
-if [ ! -d "/opt" ] || [ "$(id -u)" = "0" ] && [ ! -d "/opt/bun" ]; then
+if [ ! -d "/opt" ] || [ ! -d "/custom-cont-init.d" ] || [ ! -d "/etc/s6-overlay/s6-rc.d" ] || { [ "$(id -u)" = "0" ] && [ ! -d "/opt/bun" ]; }; then
   echo "[sandbox-postinstall] Not in sandbox environment, skipping file deployment"
   exit 0
 fi
 
 PKG_VERSION=$(node -e "console.log(require('$PKG_DIR/package.json').version)" 2>/dev/null || echo "0.0.0")
 echo "[sandbox-postinstall] Deploying @kortix/sandbox@$PKG_VERSION..."
+
+KORTIX_OC_RUNTIME=$(node -e "try{const path=require('path');const pkg=require.resolve('@kortix/kortix-oc/package.json',{paths:['$PKG_DIR']});console.log(path.join(path.dirname(pkg),'runtime'))}catch{process.exit(1)}" 2>/dev/null || true)
+if [ -z "$KORTIX_OC_RUNTIME" ] || [ ! -d "$KORTIX_OC_RUNTIME" ]; then
+  echo "[sandbox-postinstall] ERROR: @kortix/kortix-oc runtime not found" >&2
+  exit 1
+fi
+OC_SOURCE_DIR="$KORTIX_OC_RUNTIME"
+echo "[sandbox-postinstall] Using @kortix/kortix-oc runtime from $OC_SOURCE_DIR"
 
 fail_update() {
   echo "[sandbox-postinstall] ERROR: $1" >&2
@@ -103,23 +111,23 @@ rsync -a --delete \
   --exclude='node_modules' \
   --exclude='bun.lock' \
   --exclude='.local' \
-  "$PKG_DIR/opencode/" "$OC_DIR/"
+  "$OC_SOURCE_DIR/" "$OC_DIR/"
 
 if ! (cd "$OC_DIR" && bun install); then
   fail_update "bun install failed for opencode"
 fi
 
 # Re-apply binary patches explicitly (in case postinstall didn't trigger)
-if [ -f "$PKG_DIR/opencode/patches/patch-opencode-streaming.js" ]; then
+if [ -f "$OC_SOURCE_DIR/patches/patch-opencode-streaming.js" ]; then
   echo "[sandbox-postinstall] Applying opencode binary patches..."
-  node "$PKG_DIR/opencode/patches/patch-opencode-streaming.js" || fail_update "failed to apply opencode streaming patch"
+  node "$OC_SOURCE_DIR/patches/patch-opencode-streaming.js" || fail_update "failed to apply opencode streaming patch"
 fi
 
 # ── s6 service scripts ──────────────────────────────────────────────────────
 # These go directly to /etc/ — not symlinked, but services restart after update
-if [ -d "$PKG_DIR/services" ] && [ -d "/etc/s6-overlay/s6-rc.d" ]; then
+if [ -d "$PKG_DIR/s6-services" ] && [ -d "/etc/s6-overlay/s6-rc.d" ]; then
   echo "[sandbox-postinstall] Updating s6 service scripts..."
-  rsync -a "$PKG_DIR/services/" /etc/s6-overlay/s6-rc.d/ || fail_update "failed to sync s6 service scripts"
+  rsync -a "$PKG_DIR/s6-services/" /etc/s6-overlay/s6-rc.d/ || fail_update "failed to sync s6 service scripts"
   chmod +x /etc/s6-overlay/s6-rc.d/svc-*/run || fail_update "failed to chmod s6 run scripts"
 
   USER_CONTENTS_DIR="/etc/s6-overlay/s6-rc.d/user/contents.d"

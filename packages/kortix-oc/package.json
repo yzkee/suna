@@ -1,0 +1,46 @@
+{
+  "name": "@kortix/kortix-oc",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "Standalone Kortix OpenCode runtime package with materialized config assets and plugin runtime",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./manifest": "./src/manifest.ts",
+    "./materialize": "./src/materialize.ts",
+    "./verify": "./src/verify.ts"
+  },
+  "bin": {
+    "kortix-oc": "bin/kortix-oc.ts"
+  },
+  "files": [
+    "bin/",
+    "docs/",
+    "infra/",
+    "runtime/",
+    "src/",
+    "tests/",
+    "README.md",
+    "docs/migration/kortix-oc-migration-plan.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:plugin": "bun test tests/plugin/kortix-sys",
+    "verify:runtime": "bun run bin/kortix-oc.ts verify",
+    "materialize:sandbox": "bun run bin/kortix-oc.ts link ../../sandbox/opencode"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.2.21",
+    "@opencode-ai/sdk": "^1.2.17"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.9",
+    "typescript": "^5.9.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT"
+}

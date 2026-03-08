@@ -5,24 +5,14 @@
   "license": "Elastic-2.0",
   "private": false,
   "scripts": {
-    "postinstall": "bash postinstall.sh"
+    "postinstall": "bash postinstall.sh",
+    "sync:opencode": "bun run ../packages/kortix-oc/bin/kortix-oc.ts link ./opencode && (cd ./opencode && bun install)"
   },
   "files": [
     "kortix-master/src/",
     "kortix-master/package.json",
     "kortix-master/tsconfig.json",
-    "opencode/opencode.jsonc",
-    "opencode/ocx.jsonc",
-    "opencode/package.json",
-    "opencode/tsconfig.json",
-    "opencode/agents/",
-    "opencode/commands/",
-    "opencode/tools/",
-    "opencode/skills/",
-    "opencode/plugin/",
-    "opencode/patches/",
-    "opencode/memory.json",
-    "services/",
+    "s6-services/",
     "config/",
     "browser-viewer/",
     "core/",
@@ -32,6 +22,7 @@
     "LICENSE"
   ],
   "dependencies": {
+    "@kortix/kortix-oc": "workspace:*",
     "opencode-ai": "1.2.17",
     "agent-browser": "^0.10.0"
   },
