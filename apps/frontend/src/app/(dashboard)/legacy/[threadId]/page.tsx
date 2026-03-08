@@ -1,10 +1,14 @@
 'use client';
 
-import { use, useMemo } from 'react';
-import { Loader2, AlertCircle, ChevronRight, History, Lock } from 'lucide-react';
+import { use, useMemo, useState, useCallback } from 'react';
+import { Loader2, AlertCircle, ChevronRight, History, GitFork, ArrowRightLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { UnifiedMarkdown } from '@/components/markdown';
-import { useLegacyMessages } from '@/hooks/legacy/use-legacy-threads';
+import { useLegacyMessages, useMigrateLegacyThread } from '@/hooks/legacy/use-legacy-threads';
+import { useCreateOpenCodeSession } from '@/hooks/opencode/use-opencode-sessions';
+import { openTabAndNavigate } from '@/stores/tab-store';
+import { useServerStore } from '@/stores/server-store';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
 	Collapsible,
 	CollapsibleContent,
@@ -114,6 +118,31 @@ function extractUserText(msg: LegacyMsg): string {
 	return '';
 }
 
+function buildContextPrompt(turns: ParsedTurn[], upToIndex: number): string {
+	const relevant = turns.slice(0, upToIndex + 1);
+	const context = relevant.slice(-6);
+	const lines: string[] = [
+		'Continue from this previous conversation:\n',
+	];
+
+	for (const turn of context) {
+		if (turn.userText) {
+			lines.push(`**User:** ${turn.userText.slice(0, 500)}`);
+		}
+		if (turn.assistantText) {
+			lines.push(`**Assistant:** ${turn.assistantText.slice(0, 500)}`);
+		}
+		if (turn.toolCalls.length > 0) {
+			const toolNames = turn.toolCalls.map((tc) => tc.name).join(', ');
+			lines.push(`*Tools used: ${toolNames}*`);
+		}
+		lines.push('');
+	}
+
+	lines.push('---\nPlease continue where we left off.');
+	return lines.join('\n');
+}
+
 function toolIcon(name: string) {
 	const iconMap: Record<string, string> = {
 		computer: '🖥️',
@@ -194,9 +223,17 @@ function LegacyToolCard({ tool }: { tool: ParsedToolCall }) {
 	);
 }
 
-function LegacyTurn({ turn }: { turn: ParsedTurn }) {
+function LegacyTurn({
+	turn,
+	onFork,
+	forking,
+}: {
+	turn: ParsedTurn;
+	onFork: () => void;
+	forking: boolean;
+}) {
 	return (
-		<div className="space-y-3 group/turn">
+		<div className="space-y-3 group/turn relative">
 			{turn.userText && (
 				<div className="flex flex-col items-end">
 					<div className="flex flex-col max-w-[90%] rounded-3xl rounded-br-lg bg-card border overflow-hidden">
@@ -234,6 +271,21 @@ function LegacyTurn({ turn }: { turn: ParsedTurn }) {
 							<UnifiedMarkdown content={turn.assistantText} />
 						</div>
 					)}
+
+					<div className="flex justify-start mt-1 opacity-0 group-hover/turn:opacity-100 transition-opacity duration-150">
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<button
+									onClick={onFork}
+									disabled={forking}
+									className="p-1.5 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer disabled:opacity-30"
+								>
+									<GitFork className="size-3.5" />
+								</button>
+							</TooltipTrigger>
+							<TooltipContent>Continue from here</TooltipContent>
+						</Tooltip>
+					</div>
 				</>
 			)}
 		</div>
@@ -247,11 +299,61 @@ export default function LegacyThreadPage({
 }) {
 	const { threadId } = use(params);
 	const { data, isLoading, error } = useLegacyMessages(threadId);
+	const createSession = useCreateOpenCodeSession();
+	const migrate = useMigrateLegacyThread();
+	const [forking, setForking] = useState(false);
+	const [migrating, setMigrating] = useState(false);
 
 	const turns = useMemo(
 		() => parseTurns(data?.messages || []),
 		[data?.messages],
 	);
+
+	const handleFork = useCallback(async (turnIndex: number) => {
+		if (forking) return;
+		setForking(true);
+		try {
+			const session = await createSession.mutateAsync();
+			const prompt = buildContextPrompt(turns, turnIndex);
+
+			sessionStorage.setItem(`opencode_pending_prompt:${session.id}`, prompt);
+
+			openTabAndNavigate({
+				id: session.id,
+				title: 'Continued chat',
+				type: 'session',
+				href: `/sessions/${session.id}`,
+				serverId: useServerStore.getState().activeServerId,
+			});
+		} catch {
+			setForking(false);
+		}
+	}, [forking, turns, createSession]);
+
+	const handleMigrate = useCallback(async () => {
+		if (migrating) return;
+		const server = useServerStore.getState();
+		const active = server.servers.find((s) => s.id === server.activeServerId);
+		if (!active?.sandboxId) return;
+
+		setMigrating(true);
+		try {
+			const result = await migrate.mutateAsync({
+				threadId,
+				sandboxExternalId: active.sandboxId,
+			});
+
+			openTabAndNavigate({
+				id: result.sessionId,
+				title: 'Migrated session',
+				type: 'session',
+				href: `/sessions/${result.sessionId}`,
+				serverId: server.activeServerId,
+			});
+		} catch {
+			setMigrating(false);
+		}
+	}, [migrating, threadId, migrate]);
 
 	if (isLoading) {
 		return (
@@ -280,18 +382,58 @@ export default function LegacyThreadPage({
 			</div>
 
 			<div className="flex-1 overflow-y-auto">
-				<div className="max-w-3xl mx-auto px-5 py-6 space-y-8">
-					{turns.map((turn) => (
-						<LegacyTurn key={turn.id} turn={turn} />
+				<div className="max-w-4xl mx-auto px-6 py-6 space-y-8">
+					{turns.map((turn, i) => (
+						<LegacyTurn
+							key={turn.id}
+							turn={turn}
+							onFork={() => handleFork(i)}
+							forking={forking}
+						/>
 					))}
 				</div>
 			</div>
 
-			<div className="flex-shrink-0 border-border/50 px-5 py-8">
-				<div className="max-w-3xl mx-auto">
-					<div className="flex items-center justify-center rounded-3xl border border-border/40 bg-muted/20 px-4 py-6 text-sm text-muted-foreground/60">
-						<Lock className="size-3.5 mr-2 flex-shrink-0" />
-						This is a read-only archive
+			<div className="mx-auto w-full max-w-4xl relative shrink-0 px-2 sm:px-4 pb-6">
+				<div className="w-full bg-card border border-border rounded-[24px] overflow-hidden relative">
+					<div className="pointer-events-none select-none blur-[2px] opacity-40">
+						<div className="px-4 pt-4 pb-6 min-h-[96px]">
+							<span className="text-[15px] text-muted-foreground">What do you want to build?</span>
+						</div>
+						<div className="flex items-center justify-between mb-1.5 pl-2 pr-1.5">
+							<div className="flex items-center gap-1">
+								<div className="h-8 w-8 rounded-xl bg-muted/40" />
+								<div className="w-px h-4 bg-border mx-1" />
+								<div className="h-6 w-16 rounded-lg bg-muted/40" />
+								<div className="h-6 w-20 rounded-lg bg-muted/40" />
+							</div>
+							<div className="h-8 w-8 rounded-full bg-muted/40" />
+						</div>
+					</div>
+					<div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-[24px]">
+						<p className="text-sm text-muted-foreground">This is a legacy chat. Convert it to continue.</p>
+						<button
+							onClick={handleMigrate}
+							disabled={forking || migrating || turns.length === 0}
+							className={cn(
+								'flex items-center gap-2 px-5 py-2 rounded-full text-sm font-medium transition-colors',
+								forking || migrating
+									? 'bg-primary/50 text-primary-foreground/50 cursor-not-allowed'
+									: 'bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer',
+							)}
+						>
+							{migrating ? (
+								<>
+									<Loader2 className="size-3.5 animate-spin" />
+									Converting...
+								</>
+							) : (
+								<>
+									<ArrowRightLeft className="size-3.5" />
+									Convert to session
+								</>
+							)}
+						</button>
 					</div>
 				</div>
 			</div>
