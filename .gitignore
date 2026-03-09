@@ -68,6 +68,7 @@ services/kortix-api/.kortix-data/
 services/kortix-api/.sandbox-auth-token.json
 packages/kortix-oc/runtime/.kortix/
 deploy/sandbox/.buildx-cache/
+**/.buildx-cache/
 
 .nx/
 .pulumi
