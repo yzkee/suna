@@ -716,10 +716,10 @@ export function createCloudSandboxRouter(
         return c.json({ success: false, error: 'No sandbox found to remove' }, 404);
       }
 
-      // Remove the Hetzner server
+      // Remove the Hetzner server (best-effort — never block the DB archival)
       if (sandbox.externalId) {
-        const provider = getProvider(sandbox.provider);
         try {
+          const provider = getProvider(sandbox.provider);
           await provider.remove(sandbox.externalId);
         } catch (err) {
           console.warn(`[PLATFORM] Failed to remove external sandbox ${sandbox.externalId}:`, err);
