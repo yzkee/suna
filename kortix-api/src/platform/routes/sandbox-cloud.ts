@@ -684,7 +684,7 @@ export function createCloudSandboxRouter(
       let sandbox: typeof sandboxes.$inferSelect | undefined;
 
       if (sandboxId) {
-        // Delete specific sandbox by ID
+        // Delete specific sandbox by ID — allow any non-archived status
         const [row] = await db
           .select()
           .from(sandboxes)
@@ -692,7 +692,7 @@ export function createCloudSandboxRouter(
             and(
               eq(sandboxes.accountId, accountId),
               eq(sandboxes.sandboxId, sandboxId),
-              sql`${sandboxes.status} IN ('active', 'provisioning', 'stopped')`,
+              sql`${sandboxes.status} != 'archived'`,
             ),
           )
           .limit(1);
@@ -705,7 +705,7 @@ export function createCloudSandboxRouter(
           .where(
             and(
               eq(sandboxes.accountId, accountId),
-              eq(sandboxes.status, 'active'),
+              sql`${sandboxes.status} != 'archived'`,
             ),
           )
           .limit(1);
