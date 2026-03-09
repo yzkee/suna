@@ -484,11 +484,10 @@ function TabItem({
           ? 'w-9 md:w-10 justify-center px-0'
           : 'gap-2 pl-3 pr-2 max-w-[200px] min-w-[100px]',
         isActive
-          ? 'text-foreground'
+          ? 'text-foreground bg-muted-foreground/10'
           : 'text-muted-foreground hover:text-foreground hover:bg-muted/30',
       )}
     >
-      {/* Drag-over indicator */}
       {isDragOver && dragSide === 'left' && (
         <div className="absolute left-0 top-2 bottom-2 w-[2px] bg-primary rounded-full z-10 animate-in fade-in-0 duration-150" />
       )}
