@@ -98,6 +98,7 @@ import { Keyboard, CheckCircle2, HelpCircle, ShieldCheck, Volume2, EyeOff, Globe
 import CreditTransactions from '@/components/billing/credit-transactions';
 import BillingHistory from '@/components/billing/billing-history';
 import { useWebNotificationStore } from '@/stores/web-notification-store';
+import { useServerStore } from '@/stores/server-store';
 import { isNotificationSupported, sendWebNotification } from '@/lib/web-notifications';
 import { useSoundStore, type SoundPack, type SoundEvent } from '@/stores/sound-store';
 import { previewSound } from '@/lib/sounds';
@@ -1318,6 +1319,7 @@ function InstancesSection({ accountState, onRefetch }: { accountState: any; onRe
     const instances = accountState?.instances ?? [];
     const canAddInstances = accountState?.can_add_instances ?? false;
     const [deleting, setDeleting] = useState<string | null>(null);
+    const { servers, activeServerId, setActiveServer } = useServerStore();
 
     const handleDelete = async (sandboxId: string) => {
         if (!confirm('Are you sure you want to delete this instance? This cannot be undone.')) return;
@@ -1333,6 +1335,15 @@ function InstancesSection({ accountState, onRefetch }: { accountState: any; onRe
         }
     };
 
+    const handleSwitch = (inst: any) => {
+        // Find the server entry in the store that corresponds to this sandbox's external_id
+        // The store uses external_id (Hetzner server ID) as sandboxId
+        const entry = servers.find((s) => s.sandboxId === inst.external_id);
+        if (entry) {
+            setActiveServer(entry.id);
+        }
+    };
+
     return (
         <div className="space-y-3 pt-6 border-t border-border/50">
             <div className="flex items-center justify-between">
@@ -1342,7 +1353,6 @@ function InstancesSection({ accountState, onRefetch }: { accountState: any; onRe
                         size="sm"
                         variant="outline"
                         onClick={() => {
-                            // Open add instance dialog (emit custom event)
                             window.dispatchEvent(new CustomEvent('open-add-instance-dialog'));
                         }}
                     >
@@ -1355,46 +1365,65 @@ function InstancesSection({ accountState, onRefetch }: { accountState: any; onRe
                 <p className="text-xs text-muted-foreground">No instances. {canAddInstances ? 'Click "Add Instance" to create one.' : 'Upgrade to Pro to get a cloud instance.'}</p>
             ) : (
                 <div className="space-y-2">
-                    {instances.map((inst: any) => (
-                        <div key={inst.sandbox_id} className="flex items-center justify-between p-3 rounded-lg border border-border bg-card">
-                            <div className="space-y-0.5">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm font-medium">{inst.name}</span>
-                                    {inst.is_included && (
-                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">Included</span>
-                                    )}
-                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                                        inst.status === 'active' ? 'bg-green-500/10 text-green-500' :
-                                        inst.status === 'provisioning' ? 'bg-yellow-500/10 text-yellow-500' :
-                                        inst.status === 'error' ? 'bg-destructive/10 text-destructive' :
-                                        'bg-muted text-muted-foreground'
-                                    }`}>
-                                        {inst.status}
-                                    </span>
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                    {inst.server_type && <span>{inst.server_type}</span>}
-                                    {inst.location && <span> / {inst.location}</span>}
-                                </div>
-                                {inst.status === 'error' && inst.error_message && (
-                                    <div className="text-xs text-destructive mt-1">
-                                        {inst.error_message}
+                    {instances.map((inst: any) => {
+                        const serverEntry = servers.find((s) => s.sandboxId === inst.external_id);
+                        const isActive = serverEntry ? activeServerId === serverEntry.id : false;
+                        return (
+                            <div key={inst.sandbox_id} className={`flex items-center justify-between p-3 rounded-lg border bg-card transition-colors ${isActive ? 'border-primary/40 bg-primary/[0.03]' : 'border-border'}`}>
+                                <div className="space-y-0.5">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-sm font-medium">{inst.name}</span>
+                                        {inst.is_included && (
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">Included</span>
+                                        )}
+                                        {isActive && (
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-600 font-medium">Active</span>
+                                        )}
+                                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                            inst.status === 'active' ? 'bg-green-500/10 text-green-500' :
+                                            inst.status === 'provisioning' ? 'bg-yellow-500/10 text-yellow-500' :
+                                            inst.status === 'error' ? 'bg-destructive/10 text-destructive' :
+                                            'bg-muted text-muted-foreground'
+                                        }`}>
+                                            {inst.status}
+                                        </span>
                                     </div>
-                                )}
+                                    <div className="text-xs text-muted-foreground">
+                                        {inst.server_type && <span>{inst.server_type}</span>}
+                                        {inst.location && <span> / {inst.location}</span>}
+                                    </div>
+                                    {inst.status === 'error' && inst.error_message && (
+                                        <div className="text-xs text-destructive mt-1">
+                                            {inst.error_message}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                    {inst.status === 'active' && !isActive && serverEntry && (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 px-2 text-xs"
+                                            onClick={() => handleSwitch(inst)}
+                                        >
+                                            Switch
+                                        </Button>
+                                    )}
+                                    {!inst.is_included && (
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="text-destructive hover:text-destructive h-7 px-2"
+                                            onClick={() => handleDelete(inst.sandbox_id)}
+                                            disabled={deleting === inst.sandbox_id}
+                                        >
+                                            {deleting === inst.sandbox_id ? '...' : 'Remove'}
+                                        </Button>
+                                    )}
+                                </div>
                             </div>
-                            {!inst.is_included && (
-                                <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="text-destructive hover:text-destructive h-7 px-2"
-                                    onClick={() => handleDelete(inst.sandbox_id)}
-                                    disabled={deleting === inst.sandbox_id}
-                                >
-                                    {deleting === inst.sandbox_id ? '...' : 'Remove'}
-                                </Button>
-                            )}
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
         </div>

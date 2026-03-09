@@ -99,6 +99,7 @@ export async function buildMinimalAccountState(accountId: string): Promise<Accou
       const metadata = row.metadata as Record<string, unknown> | null;
       return {
         sandbox_id: row.sandboxId,
+        external_id: row.externalId || null,
         name: row.name,
         provider: row.provider,
         status: row.status,

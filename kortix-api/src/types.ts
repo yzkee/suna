@@ -204,6 +204,7 @@ export interface AccountStateResponse {
   };
   instances: Array<{
     sandbox_id: string;
+    external_id: string | null;
     name: string;
     provider: string;
     status: string;
