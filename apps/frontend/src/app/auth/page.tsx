@@ -832,7 +832,6 @@ function SelfHostedLoginContent() {
   // actually ready before redirecting. If not ready, drop them into wizard step 2.
   useEffect(() => {
     if (isLoading || wizardStepLoading || !user || installed !== true || sandboxChecked) return;
-    if (wizardStepRef.current > 1) { setSandboxChecked(true); return; }
 
     const checkSandboxReady = async () => {
       try {
@@ -911,6 +910,17 @@ function SelfHostedLoginContent() {
     // Fresh self-hosted install: do not auto-redirect to onboarding yet.
     // The installer wizard must complete provider + keys first.
     if (installed === false) return;
+
+    // If the setup wizard is already complete (DB says so), redirect to
+    // onboarding or dashboard — don't re-show wizard steps the user finished.
+    const setupDone = sessionStorage.getItem('setup_complete') === 'true';
+    if (setupDone) {
+      const onboardingDone = sessionStorage.getItem('onboarding_complete') === 'true';
+      const dest = onboardingDone ? '/dashboard' : '/onboarding';
+      router.push(returnUrl || dest);
+      return;
+    }
+
     if (wizardStepRef.current > 1) return;
     const defaultDest = isBillingEnabled() ? '/subscription' : '/onboarding';
     router.push(returnUrl || defaultDest);
@@ -930,7 +940,10 @@ function SelfHostedLoginContent() {
     return () => window.removeEventListener('keydown', handler);
   }, [phase]);
 
-  if (isLoading || wizardStepLoading || statusLoading || (!sandboxChecked && installed !== false && user) || (sandboxChecked && installed !== false && user && wizardStepRef.current <= 1)) {
+  // Show loader while data is loading, sandbox status is being checked,
+  // or when setup is already complete and we're about to redirect away.
+  const setupAlreadyDone = sandboxChecked && user && sessionStorage.getItem('setup_complete') === 'true';
+  if (isLoading || wizardStepLoading || statusLoading || (!sandboxChecked && installed !== false && user) || (sandboxChecked && installed !== false && user && wizardStepRef.current <= 1) || setupAlreadyDone) {
     return (
       <div className="fixed inset-0 bg-background flex items-center justify-center">
         <KortixLoader size="medium" />
