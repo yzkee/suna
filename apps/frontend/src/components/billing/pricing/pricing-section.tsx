@@ -1,18 +1,21 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import Image from 'next/image';
-import { CheckIcon, ShoppingCart } from 'lucide-react';
+import { Check, ShoppingCart, ChevronDown, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { siteConfig } from '@/lib/site-config';
-import { createCheckoutSession, type AccountState } from '@/lib/api/billing';
+import { createCheckoutSession } from '@/lib/api/billing';
 import { toast } from '@/lib/toast';
 import { isBillingEnabled } from '@/lib/config';
 import { useAccountState } from '@/hooks/billing';
 import { useAuth } from '@/components/AuthProvider';
 import { ScheduledDowngradeCard } from '@/components/billing/scheduled-downgrade-card';
 import { CreditPurchaseModal } from '@/components/billing/credit-purchase';
+
+// ---------------------------------------------------------------------------
+// Props
+// ---------------------------------------------------------------------------
 
 interface PricingSectionProps {
   returnUrl?: string;
@@ -29,181 +32,42 @@ interface PricingSectionProps {
   onboardingFlow?: boolean;
 }
 
-function PricingCard({
-  tier,
-  currentSubscription,
-  isAuthenticated,
-  isLoading,
-  onSelect,
-}: {
-  tier: {
-    name: string;
-    description: string;
-    price: string;
-    features: string[];
-    disabledFeatures?: string[];
-    tierKey: string;
-    isPopular?: boolean;
-  };
-  currentSubscription: AccountState | null;
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  onSelect: (tierKey: string) => Promise<void>;
-}) {
-  const currentTierKey = currentSubscription?.subscription?.tier_key || 'none';
-  const isCurrent = currentTierKey === tier.tierKey;
-  const isProTier = tier.tierKey === 'pro';
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
-  if (isProTier) {
-    return (
-      <div
-        className={cn(
-          'h-full rounded-2xl flex flex-col overflow-hidden relative',
-          'border border-white/[0.08]',
-          'bg-[#111111]',
-          'shadow-none',
-        )}
-      >
-        {/* === TOP HALF: image as background, text overlaid === */}
-        <div className="relative h-56 w-full overflow-hidden shrink-0">
-          {/* The device image sits as the background of this zone */}
-          <Image
-            src="/kortix-computer.png"
-            alt="Kortix Pro cloud computer"
-            fill
-            className="object-contain object-center scale-[1.3] translate-y-3"
-            priority
-          />
-          {/* Seamless fades on all 4 edges so it bleeds into the card color */}
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#111111] via-transparent to-[#111111]" />
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#111111] via-transparent to-[#111111]" />
-          {/* Subtle glow in the center behind the device */}
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="w-48 h-24 rounded-full bg-white/[0.04] blur-2xl" />
-          </div>
-          {/* Title + badge overlaid in top-left corner */}
-          <div className="absolute top-0 left-0 right-0 px-6 pt-6 flex items-start justify-between gap-3 z-20">
-            <div>
-              <h3 className="text-xl font-semibold text-white tracking-tight">{tier.name}</h3>
-              <p className="mt-1 text-sm text-white/40">{tier.description}</p>
-            </div>
-            {tier.isPopular && (
-              <span className="shrink-0 mt-0.5 px-3 py-1 text-xs font-medium rounded-full bg-white/10 text-white/70 border border-white/[0.1]">
-                Most Popular
-              </span>
-            )}
-          </div>
-        </div>
+const LOCATIONS = [
+  { id: 'ash',  label: 'US', sublabel: 'Ashburn',   flag: '🇺🇸' },
+  { id: 'nbg1', label: 'EU', sublabel: 'Nuremberg', flag: '🇩🇪' },
+] as const;
+type LocationId = (typeof LOCATIONS)[number]['id'];
 
-        {/* === BOTTOM HALF: pricing, CTA, features === */}
-        <div className="px-6 pb-6 flex flex-col flex-1">
-          <ul className="space-y-2.5">
-            {tier.features.map((feature) => (
-              <li key={feature} className="flex items-start gap-2.5 text-sm text-white/70">
-                <CheckIcon className="h-4 w-4 text-white/50 mt-0.5 shrink-0" />
-                <span>{feature}</span>
-              </li>
-            ))}
-            {(tier.disabledFeatures || []).map((feature) => (
-              <li key={feature} className="flex items-start gap-2.5 text-sm text-white/25">
-                <span className="h-4 w-4 mt-0.5 shrink-0 text-center leading-none">–</span>
-                <span>{feature}</span>
-              </li>
-            ))}
-          </ul>
+const MACHINES = [
+  { id: 'ccx13', label: 'Starter',     vcpu: 2,  ram: 8,  disk: 80,  price: 20,  isDefault: true  },
+  { id: 'ccx23', label: 'Standard',    vcpu: 4,  ram: 16, disk: 160, price: 49,  isDefault: false },
+  { id: 'ccx33', label: 'Performance', vcpu: 8,  ram: 32, disk: 240, price: 99,  isDefault: false },
+  { id: 'ccx43', label: 'Pro',         vcpu: 16, ram: 64, disk: 360, price: 199, isDefault: false },
+] as const;
+type MachineId = (typeof MACHINES)[number]['id'];
 
-          <div className="mt-auto pt-6">
-            <div className="flex items-end gap-1.5 mb-4">
-              <span className="text-4xl font-semibold leading-none text-white">{tier.price}</span>
-              <span className="text-sm text-white/40 mb-1">/month</span>
-            </div>
+const INCLUDED = [
+  '24/7 always-on AI Computer',
+  'Full SSH & root access',
+  'LLM compute credits included',
+  'Multi-model — use any model',
+  'Persistent memory & filesystem',
+  'Unlimited agents & workflows',
+  'OpenCode engine & MCP ecosystem',
+];
 
-            <Button
-              className={cn(
-                'w-full font-medium',
-                isCurrent
-                  ? 'bg-white/10 text-white/50 border border-white/10 cursor-default hover:bg-white/10'
-                  : 'bg-white text-black hover:bg-white/90 transition-colors',
-              )}
-              disabled={isCurrent || isLoading}
-              onClick={() => onSelect(tier.tierKey)}
-            >
-              {!isAuthenticated
-                ? 'Upgrade to Pro'
-                : isCurrent
-                  ? 'Current Plan'
-                  : 'Upgrade to Pro'}
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className={cn(
-        'h-full rounded-2xl border p-6 bg-card flex flex-col',
-        tier.isPopular ? 'border-primary/40 shadow-sm' : 'border-border',
-      )}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-xl font-medium text-foreground">{tier.name}</h3>
-        {tier.isPopular && (
-          <span className="px-2 py-1 text-xs font-medium rounded-full bg-primary/10 text-primary">
-            Most Popular
-          </span>
-        )}
-      </div>
-
-      <p className="mt-2 text-sm text-muted-foreground">{tier.description}</p>
-
-      <ul className="mt-6 space-y-2 flex-1">
-        {tier.features.map((feature) => (
-          <li key={feature} className="flex items-start gap-2 text-sm text-foreground/90">
-            <CheckIcon className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-            <span>{feature}</span>
-          </li>
-        ))}
-        {(tier.disabledFeatures || []).map((feature) => (
-          <li key={feature} className="flex items-start gap-2 text-sm text-muted-foreground/70">
-            <span className="h-4 w-4 mt-0.5 shrink-0 text-center">-</span>
-            <span>{feature}</span>
-          </li>
-        ))}
-      </ul>
-
-      <div className="mt-auto pt-6">
-        <div className="flex items-end gap-1 mb-4">
-          <span className="text-4xl font-medium leading-none">{tier.price}</span>
-          <span className="text-sm text-muted-foreground mb-1">/month</span>
-        </div>
-
-        <Button
-          className="w-full"
-          variant={tier.isPopular ? 'default' : 'outline'}
-          disabled={isCurrent || isLoading}
-          onClick={() => onSelect(tier.tierKey)}
-        >
-          {!isAuthenticated
-            ? tier.tierKey === 'free'
-              ? 'Get Started'
-              : 'Upgrade to Pro'
-            : isCurrent
-              ? 'Current Plan'
-              : tier.tierKey === 'free'
-                ? 'Choose Free'
-                : 'Upgrade to Pro'}
-        </Button>
-      </div>
-    </div>
-  );
-}
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 export function PricingSection({
   returnUrl = typeof window !== 'undefined' ? window.location.href : '/',
   showTitleAndTabs = true,
-  hideFree = false,
+  insideDialog = false,
   noPadding = false,
   onSubscriptionUpdate,
   customTitle,
@@ -211,133 +75,262 @@ export function PricingSection({
   alertTitle,
   alertSubtitle,
   showBuyCredits = false,
-  onboardingFlow = false,
 }: PricingSectionProps) {
   const { user } = useAuth();
   const isAuthenticated = !!user;
   const { data: accountState, refetch } = useAccountState({ enabled: isAuthenticated });
-  const [loadingByTier, setLoadingByTier] = useState<Record<string, boolean>>({});
+
+  const [isLoading, setIsLoading] = useState(false);
   const [showCreditPurchaseModal, setShowCreditPurchaseModal] = useState(false);
+  const [location, setLocation] = useState<LocationId>('ash');
+  const [selectedMachine, setSelectedMachine] = useState<MachineId>('ccx13');
+  const [configOpen, setConfigOpen] = useState(false);
 
-  const visibleTiers = useMemo(
-    () => siteConfig.cloudPricingItems.filter((tier) => !tier.hidden && (!hideFree || tier.tierKey !== 'free')),
-    [hideFree],
-  );
+  const machine = MACHINES.find((m) => m.id === selectedMachine)!;
+  const selectedLocation = LOCATIONS.find((l) => l.id === location)!;
+  const isCurrent = accountState?.subscription?.tier_key === 'pro';
 
-  const handleSelectTier = async (tierKey: string) => {
+  // ------- checkout -------
+  const handleSelect = useCallback(async () => {
     if (!isAuthenticated) {
       window.location.href = '/auth?mode=signup';
       return;
     }
-
-    const currentTierKey = accountState?.subscription?.tier_key || 'none';
-    const isInitialFreeSelection = onboardingFlow && tierKey === 'free' && (currentTierKey === 'none' || currentTierKey === 'free');
-    if (isInitialFreeSelection) {
-      window.location.href = '/setting-up?plan=free';
-      return;
-    }
-
     try {
-      setLoadingByTier((prev) => ({ ...prev, [tierKey]: true }));
+      setIsLoading(true);
+      const successUrl = new URL(returnUrl, window.location.origin);
+      successUrl.searchParams.set('location', location);
+      successUrl.searchParams.set('server_type', selectedMachine);
       const response = await createCheckoutSession({
-        tier_key: tierKey,
-        success_url: returnUrl,
-        cancel_url: typeof window !== 'undefined' ? window.location.href : returnUrl,
+        tier_key: 'pro',
+        success_url: successUrl.toString(),
+        cancel_url: window.location.href,
         commitment_type: 'monthly',
       });
-
       if (response.url || response.checkout_url) {
         window.location.href = response.url || response.checkout_url!;
         return;
       }
-
-      if (response.message) {
-        toast.success(response.message);
-      }
-
+      if (response.message) toast.success(response.message);
       await refetch();
       onSubscriptionUpdate?.();
     } catch (err: any) {
       toast.error(err?.message || 'Failed to update plan');
     } finally {
-      setLoadingByTier((prev) => ({ ...prev, [tierKey]: false }));
+      setIsLoading(false);
     }
-  };
+  }, [isAuthenticated, returnUrl, location, selectedMachine, refetch, onSubscriptionUpdate]);
 
+  // ------- guard -------
   if (!isBillingEnabled()) {
     return (
-      <div className="p-4 bg-muted/30 border border-border rounded-lg text-center">
-        <p className="text-sm text-muted-foreground">
-          Billing is disabled in this environment.
-        </p>
+      <div className="p-4 bg-foreground/[0.04] border border-foreground/[0.08] rounded-xl text-center">
+        <p className="text-sm text-muted-foreground">Billing is disabled in this environment.</p>
       </div>
     );
   }
 
   const hasScheduledChange = accountState?.subscription.has_scheduled_change && accountState?.subscription.scheduled_change;
+  const hasCustomConfig = !machine.isDefault || location !== 'ash';
 
   return (
-    <section
-      id="pricing"
-      className={cn('w-full flex flex-col items-center relative', noPadding ? 'pb-0' : 'pb-12')}
-    >
-      <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 flex flex-col gap-4">
-        {(showTitleAndTabs || isAlert) && (
-          <div className="w-full">
-            {isAlert ? (
-              <div className="flex flex-col gap-1">
-                <h2 className="text-lg sm:text-2xl lg:text-3xl font-medium tracking-tight text-foreground">
-                  {alertTitle || 'Upgrade your plan'}
-                </h2>
-                {alertSubtitle && <p className="text-sm sm:text-base text-muted-foreground">{alertSubtitle}</p>}
-              </div>
-            ) : (
-              <h2 className="text-lg sm:text-2xl lg:text-3xl font-medium tracking-tight">
-                {customTitle || 'Choose your plan'}
-              </h2>
-            )}
-          </div>
-        )}
+    <div className={cn('w-full', !insideDialog && !noPadding && 'py-12')}>
 
-        {isAuthenticated && hasScheduledChange && accountState?.subscription.scheduled_change && (
+      {/* ── Alert header (credit exhaustion etc.) ── */}
+      {(isAlert || (showTitleAndTabs && customTitle)) && (
+        <div className="px-8 sm:px-10 pt-8 sm:pt-10 pb-0">
+          <h2 className="text-xl sm:text-2xl font-medium tracking-tight text-foreground">
+            {alertTitle || customTitle || 'Upgrade your plan'}
+          </h2>
+          {alertSubtitle && <p className="text-sm text-muted-foreground/60 mt-1">{alertSubtitle}</p>}
+        </div>
+      )}
+
+      {isAuthenticated && hasScheduledChange && accountState?.subscription.scheduled_change && (
+        <div className="px-8 sm:px-10 pt-4">
           <ScheduledDowngradeCard
             scheduledChange={accountState.subscription.scheduled_change}
             variant="compact"
-            onCancel={() => {
-              void refetch();
-              onSubscriptionUpdate?.();
-            }}
+            onCancel={() => { void refetch(); onSubscriptionUpdate?.(); }}
           />
-        )}
+        </div>
+      )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-          {visibleTiers.map((tier) => (
-            <PricingCard
-              key={tier.tierKey}
-              tier={tier}
-              currentSubscription={accountState || null}
-              isAuthenticated={isAuthenticated}
-              isLoading={!!loadingByTier[tier.tierKey]}
-              onSelect={handleSelectTier}
-            />
-          ))}
+      {/* ── Two-column grid ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2">
+
+        {/* ─── Left: product visual + price + configure ─── */}
+        <div className="flex flex-col p-8 sm:p-10 md:p-12 md:border-r border-border/30 bg-muted/20">
+
+          {/* Product image */}
+          <div className="flex-1 flex items-center justify-center">
+            <div className="relative w-full max-w-[240px]">
+              <Image
+                src="/kortix-computer.png"
+                alt="Kortix Computer"
+                width={240}
+                height={240}
+                className="w-full h-auto object-contain select-none"
+                draggable={false}
+                priority
+              />
+            </div>
+          </div>
+
+          {/* Price */}
+          <div className="text-center mt-8">
+            <div className="flex items-baseline justify-center gap-1.5">
+              <span className="text-4xl sm:text-5xl font-medium tracking-tight text-foreground leading-none">
+                ${machine.price}
+              </span>
+              <span className="text-sm text-muted-foreground/50">/month</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground/40 mt-2 leading-relaxed max-w-[260px] mx-auto">
+              {machine.isDefault
+                ? 'Starting price. Scale compute & credits as you grow.'
+                : `${machine.label} — ${machine.vcpu} vCPU · ${machine.ram} GB RAM · ${machine.disk} GB SSD`}
+            </p>
+          </div>
+
+          {/* Configure toggle */}
+          <div className="mt-6">
+            <button
+              type="button"
+              onClick={() => setConfigOpen((p) => !p)}
+              className={cn(
+                'w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border transition-colors cursor-pointer text-left',
+                configOpen
+                  ? 'bg-foreground/[0.04] border-foreground/[0.08]'
+                  : 'border-transparent hover:bg-foreground/[0.03]',
+              )}
+            >
+              <ChevronDown className={cn('size-3.5 text-muted-foreground/40 transition-transform shrink-0', configOpen && 'rotate-180')} />
+              <span className="text-[12px] text-muted-foreground/50">Configure machine & region</span>
+              {hasCustomConfig && !configOpen && (
+                <span className="ml-auto text-[11px] text-muted-foreground/60">
+                  {!machine.isDefault && machine.label}
+                  {!machine.isDefault && location !== 'ash' && ' · '}
+                  {location !== 'ash' && `${selectedLocation.flag} ${selectedLocation.label}`}
+                </span>
+              )}
+            </button>
+
+            {configOpen && (
+              <div className="mt-3 space-y-4 px-1 animate-in fade-in slide-in-from-top-1 duration-200">
+                {/* Machine size */}
+                <div>
+                  <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground/40 mb-2">Machine</p>
+                  <div className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-foreground/[0.03] border border-foreground/[0.06]">
+                    {MACHINES.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setSelectedMachine(m.id)}
+                        className={cn(
+                          'flex flex-col items-center py-2.5 px-1 rounded-lg transition-all cursor-pointer text-center',
+                          selectedMachine === m.id
+                            ? 'bg-background text-foreground shadow-sm border border-foreground/[0.08]'
+                            : 'text-muted-foreground/40 hover:text-muted-foreground/70 border border-transparent',
+                        )}
+                      >
+                        <span className="text-xs font-medium leading-none">${m.price}</span>
+                        <span className="text-[9px] mt-1.5 text-muted-foreground/40 leading-none">{m.vcpu}v · {m.ram}G</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Region */}
+                <div>
+                  <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground/40 mb-2">Region</p>
+                  <div className="flex gap-2">
+                    {LOCATIONS.map((loc) => (
+                      <button
+                        key={loc.id}
+                        type="button"
+                        onClick={() => setLocation(loc.id)}
+                        className={cn(
+                          'flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs transition-all cursor-pointer',
+                          location === loc.id
+                            ? 'bg-foreground/[0.04] border-foreground/[0.08] text-foreground/80'
+                            : 'border-foreground/[0.04] text-muted-foreground/40 hover:text-muted-foreground/70 hover:border-foreground/[0.08]',
+                        )}
+                      >
+                        <span>{loc.flag}</span>
+                        <span className="font-medium">{loc.label}</span>
+                        <span className="text-[10px] text-muted-foreground/35">{loc.sublabel}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
-        {showBuyCredits &&
-          isAuthenticated &&
-          accountState?.subscription.can_purchase_credits && (
-            <div className="w-full mt-4 flex justify-center">
-              <Button
-                onClick={() => setShowCreditPurchaseModal(true)}
-                variant="outline"
-                size="lg"
-                className="gap-2"
-              >
-                <ShoppingCart className="h-5 w-5" />
-                Get Additional Credits
-              </Button>
-            </div>
-          )}
+        {/* ─── Right: product info + CTA ─── */}
+        <div className="p-8 sm:p-10 md:p-12 flex flex-col">
+          <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground/40 mb-4">
+            Kortix Cloud
+          </span>
+
+          <h2 className="text-2xl sm:text-3xl font-medium tracking-tight text-foreground mb-1">
+            Kortix Computer
+          </h2>
+          <p className="text-sm text-muted-foreground/55 mb-6">
+            Your 24/7 AI machine, managed by us.
+          </p>
+
+          <div className="border-t border-border/30 mb-6" />
+
+          <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground/40 mb-3">
+            Included
+          </p>
+          <ul className="space-y-2.5 flex-1">
+            {INCLUDED.map((item) => (
+              <li key={item} className="flex items-start gap-2.5">
+                <Check className="size-3.5 text-foreground/25 mt-0.5 shrink-0" />
+                <span className="text-[13px] text-muted-foreground/65">{item}</span>
+              </li>
+            ))}
+          </ul>
+
+          {/* CTA */}
+          <div className="mt-auto pt-8">
+            <Button
+              size="lg"
+              className="w-full h-12 text-sm rounded-xl shadow-none font-medium"
+              disabled={isCurrent || isLoading}
+              onClick={handleSelect}
+            >
+              {isLoading ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Processing...</>
+              ) : isCurrent ? (
+                'Current Plan'
+              ) : (
+                'Get Your Kortix'
+              )}
+            </Button>
+
+            <p className="text-[11px] text-center text-muted-foreground/30 mt-3">
+              Free to try &middot; No commitment &middot; Cancel anytime
+            </p>
+
+            {showBuyCredits && isAuthenticated && accountState?.subscription.can_purchase_credits && (
+              <div className="mt-3 flex justify-center">
+                <Button
+                  onClick={() => setShowCreditPurchaseModal(true)}
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2 text-xs text-muted-foreground/40 hover:text-foreground"
+                >
+                  <ShoppingCart className="h-3.5 w-3.5" />
+                  Get Additional Credits
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <CreditPurchaseModal
@@ -345,11 +338,8 @@ export function PricingSection({
         onOpenChange={setShowCreditPurchaseModal}
         currentBalance={accountState?.credits.total || 0}
         canPurchase={accountState?.subscription.can_purchase_credits || false}
-        onPurchaseComplete={() => {
-          void refetch();
-          onSubscriptionUpdate?.();
-        }}
+        onPurchaseComplete={() => { void refetch(); onSubscriptionUpdate?.(); }}
       />
-    </section>
+    </div>
   );
 }
