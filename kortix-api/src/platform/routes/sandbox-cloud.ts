@@ -757,6 +757,7 @@ export function createCloudSandboxRouter(
   // ── Hetzner server types (public, no auth needed — frontend uses it for tier selection) ──
 
   router.get('/hetzner/server-types', async (c) => {
+    console.log(`[HETZNER] isEnabled=${config.isHetznerEnabled()} providers=${JSON.stringify(config.ALLOWED_SANDBOX_PROVIDERS)} apiKey=${!!config.HETZNER_API_KEY}`);
     if (!config.isHetznerEnabled()) {
       return c.json({ error: 'Hetzner provider is not enabled' }, 404);
     }
