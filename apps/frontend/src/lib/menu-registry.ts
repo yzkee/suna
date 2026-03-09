@@ -136,21 +136,15 @@ export type MenuGroup =
  * without changing the overall group structure.
  */
 export type NavSubGroup =
-  | 'core'
   | 'tools'
-  | 'security'
-  | 'automation'
-  | 'runtime'
-  | 'browsers';
+  | 'services'
+  | 'security';
 
 /** Human-readable labels for sub-groups (used in expanded sidebar) */
 export const navSubGroupLabels: Record<NavSubGroup, string> = {
-  core: 'Core',
-  tools: 'Tools',
+  tools: 'Workspace',
+  services: 'Services',
   security: 'Security',
-  automation: 'Automation',
-  runtime: 'Runtime',
-  browsers: 'Browsers',
 };
 
 export interface MenuItemDef {
@@ -277,13 +271,34 @@ export const menuRegistry: MenuItemDef[] = [
   },
   {
     id: 'new-terminal',
-    label: 'New Terminal',
+    label: 'Terminal',
     icon: TerminalSquare,
     group: 'quickActions',
     subGroup: 'tools',
     showIn: ['rightSidebar'],
     kind: 'action',
     actionId: 'newTerminal',
+  },
+  {
+    id: 'memory',
+    label: 'Memory',
+    icon: Brain,
+    group: 'quickActions',
+    subGroup: 'tools',
+    showIn: ['rightSidebar'],
+    kind: 'navigate',
+    href: '/memory',
+  },
+  {
+    id: 'workspace',
+    label: 'Workspace',
+    icon: Blocks,
+    group: 'quickActions',
+    subGroup: 'tools',
+    showIn: ['commandPalette', 'rightSidebar'],
+    kind: 'navigate',
+    href: '/workspace',
+    activePathPrefixes: ['/workspace', '/projects', '/agents', '/skills', '/commands', '/tools'],
   },
   {
     id: 'secrets-quick',
@@ -309,6 +324,16 @@ export const menuRegistry: MenuItemDef[] = [
     tabId: 'settings:providers',
     tabType: 'settings',
   },
+  {
+    id: 'ssh-quick',
+    label: 'SSH',
+    icon: Key,
+    group: 'quickActions',
+    subGroup: 'security',
+    showIn: ['rightSidebar'],
+    kind: 'action',
+    actionId: 'generateSSHKey',
+  },
 
   // ──────────────────────────────────────────────────────────────────────────
   // NAVIGATION — Main pages
@@ -324,75 +349,44 @@ export const menuRegistry: MenuItemDef[] = [
     tabType: 'dashboard',
   },
   {
-    id: 'workspace',
-    label: 'Workspace',
-    icon: Blocks,
+    id: 'scheduled-tasks',
+    label: 'Scheduled Tasks',
+    icon: Calendar,
     group: 'navigation',
-    subGroup: 'core',
+    subGroup: 'services',
     showIn: ['commandPalette', 'rightSidebar'],
     kind: 'navigate',
-    href: '/workspace',
-    activePathPrefixes: ['/workspace', '/projects', '/agents', '/skills', '/commands', '/tools'],
-  },
-  {
-    id: 'files',
-    label: 'Files',
-    icon: FolderOpen,
-    group: 'navigation',
-    subGroup: 'core',
-    showIn: ['commandPalette'],
-    kind: 'navigate',
-    href: '/files',
-  },
-  {
-    id: 'memory',
-    label: 'Memory',
-    icon: Brain,
-    group: 'navigation',
-    subGroup: 'core',
-    showIn: ['rightSidebar'],
-    kind: 'navigate',
-    href: '/memory',
-  },
-  {
-    id: 'integrations',
-    label: 'Integrations',
-    icon: Plug,
-    group: 'navigation',
-    subGroup: 'core',
-    showIn: ['commandPalette', 'rightSidebar'],
-    kind: 'navigate',
-    href: '/integrations',
+    href: '/scheduled-tasks',
   },
   {
     id: 'channels',
     label: 'Channels',
     icon: MessageSquare,
     group: 'navigation',
-    subGroup: 'core',
+    subGroup: 'services',
     showIn: ['commandPalette', 'rightSidebar'],
     kind: 'navigate',
     href: '/channels',
-  },
-  {
-    id: 'scheduled-tasks',
-    label: 'Scheduled Tasks',
-    icon: Calendar,
-    group: 'navigation',
-    subGroup: 'automation',
-    showIn: ['commandPalette', 'rightSidebar'],
-    kind: 'navigate',
-    href: '/scheduled-tasks',
   },
   {
     id: 'tunnel',
     label: 'Tunnel',
     icon: Cable,
     group: 'navigation',
-    subGroup: 'runtime',
+    subGroup: 'services',
     showIn: ['rightSidebar'],
     kind: 'navigate',
     href: '/tunnel',
+  },
+  {
+    id: 'integrations',
+    label: 'Integrations',
+    icon: Plug,
+    group: 'navigation',
+    subGroup: 'services',
+    showIn: ['commandPalette', 'rightSidebar'],
+    kind: 'navigate',
+    href: '/integrations',
   },
   ...(DEPLOYMENTS_ENABLED
     ? [{
@@ -400,12 +394,55 @@ export const menuRegistry: MenuItemDef[] = [
       label: 'Deployments',
       icon: Rocket,
       group: 'navigation',
-      subGroup: 'automation',
+      subGroup: 'services',
       showIn: ['commandPalette', 'rightSidebar'],
       kind: 'navigate',
       href: '/deployments',
     }]
     : []),
+  {
+    id: 'running-services',
+    label: 'Running Services',
+    icon: Activity,
+    group: 'navigation',
+    subGroup: 'services',
+    showIn: ['rightSidebar'],
+    kind: 'navigate',
+    href: '/services/running',
+    tabId: 'services:running',
+    tabType: 'services',
+  },
+  {
+    id: 'browser',
+    label: 'Browser',
+    icon: Compass,
+    group: 'navigation',
+    subGroup: 'services',
+    showIn: ['rightSidebar'],
+    kind: 'navigate',
+    href: '/p/browser',
+    tabId: 'preview:browser',
+    tabType: 'preview',
+  },
+  {
+    id: 'agent-browser',
+    label: 'Agent Browser',
+    icon: Globe,
+    group: 'navigation',
+    subGroup: 'services',
+    showIn: ['rightSidebar'],
+    kind: 'sandboxService',
+    actionId: 'openAgentBrowser',
+  },
+  {
+    id: 'files',
+    label: 'Files',
+    icon: FolderOpen,
+    group: 'navigation',
+    showIn: ['commandPalette'],
+    kind: 'navigate',
+    href: '/files',
+  },
   {
     id: 'changelog',
     label: 'Changelog',
@@ -414,44 +451,6 @@ export const menuRegistry: MenuItemDef[] = [
     showIn: ['commandPalette'],
     kind: 'navigate',
     href: '/changelog',
-  },
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // SANDBOX SERVICES (right sidebar only — open preview tabs)
-  // ──────────────────────────────────────────────────────────────────────────
-  {
-    id: 'agent-browser',
-    label: 'Agent Browser',
-    icon: Globe,
-    group: 'navigation',
-    subGroup: 'browsers',
-    showIn: ['rightSidebar'],
-    kind: 'sandboxService',
-    actionId: 'openAgentBrowser',
-  },
-  {
-    id: 'browser',
-    label: 'Browser',
-    icon: Compass,
-    group: 'navigation',
-    subGroup: 'browsers',
-    showIn: ['rightSidebar'],
-    kind: 'navigate',
-    href: '/p/browser',
-    tabId: 'preview:browser',
-    tabType: 'preview',
-  },
-  {
-    id: 'running-services',
-    label: 'Running Services',
-    icon: Activity,
-    group: 'navigation',
-    subGroup: 'runtime',
-    showIn: ['rightSidebar'],
-    kind: 'navigate',
-    href: '/services/running',
-    tabId: 'services:running',
-    tabType: 'services',
   },
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -648,19 +647,6 @@ export const menuRegistry: MenuItemDef[] = [
     kind: 'action',
     actionId: 'logout',
     keywords: 'log out sign out logout signout disconnect',
-  },
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // RIGHT SIDEBAR FOOTER
-  // ──────────────────────────────────────────────────────────────────────────
-  {
-    id: 'ssh-key',
-    label: 'Generate SSH Key',
-    icon: Key,
-    group: 'view',
-    showIn: ['rightSidebar'],
-    kind: 'action',
-    actionId: 'generateSSHKey',
   },
 
   // ──────────────────────────────────────────────────────────────────────────

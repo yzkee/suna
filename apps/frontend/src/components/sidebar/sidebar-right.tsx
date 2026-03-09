@@ -5,7 +5,6 @@ import { useCallback, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
-  Key,
 } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -49,6 +48,7 @@ export function SidebarRight() {
 
   const router = useRouter();
   const pathname = usePathname();
+  const [sshDialogOpen, setSSHDialogOpen] = useState(false);
 
   const activeServer = useServerStore((s) => {
     return s.servers.find((srv) => srv.id === s.activeServerId) ?? null;
@@ -136,12 +136,12 @@ export function SidebarRight() {
       case 'action':
         if (item.actionId === 'newTerminal') {
           handleNewTerminal();
+        } else if (item.actionId === 'generateSSHKey') {
+          setSSHDialogOpen(true);
         }
         break;
     }
   }, [router, openSandboxServiceTab, handleNewTerminal]);
-
-  const [sshDialogOpen, setSSHDialogOpen] = useState(false);
 
   // Get registry items for the right sidebar
   const quickActionClusters = getNavItemsClustered('rightSidebar', 'quickActions');
@@ -290,22 +290,6 @@ export function SidebarRight() {
                 </div>
               ))}
 
-              {/* SSH — pinned to bottom */}
-              <div className="mt-auto pb-3 w-full">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => setSSHDialogOpen(true)}
-                      className="flex items-center justify-center w-full py-2 rounded-lg cursor-pointer text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150"
-                    >
-                      <Key className="h-4 w-4" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="left" sideOffset={12} className="text-xs">
-                    Generate SSH Key
-                  </TooltipContent>
-                </Tooltip>
-              </div>
             </div>
 
             {/* --- Expanded: action list (registry-driven, clustered) --- */}
@@ -391,16 +375,6 @@ export function SidebarRight() {
                 })}
               </nav>
 
-              {/* SSH — pinned to bottom */}
-              <div className="px-3 pb-3 mt-auto">
-                <button
-                  onClick={() => setSSHDialogOpen(true)}
-                  className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150 cursor-pointer"
-                >
-                  <Key className="h-4 w-4 flex-shrink-0" />
-                  <span>Generate SSH Key</span>
-                </button>
-              </div>
             </div>
           </div>
         </div>
