@@ -1,8 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -24,7 +32,12 @@ import { useAdminSandboxes, useDeleteAdminSandbox } from '@/hooks/admin/use-admi
 import type { AdminSandbox } from '@/hooks/admin/use-admin-sandboxes';
 import { useAdminRole } from '@/hooks/admin/use-admin-role';
 import { toast } from '@/lib/toast';
-import { Server, ShieldCheck, Trash2, RefreshCw } from 'lucide-react';
+import {
+  Server, ShieldCheck, Trash2, RefreshCw, Search,
+  ChevronLeft, ChevronRight,
+} from 'lucide-react';
+
+const PAGE_SIZE = 50;
 
 function StatusBadge({ status }: { status: string | null }) {
   if (!status) return <Badge variant="secondary">unknown</Badge>;
@@ -46,11 +59,8 @@ function StatusBadge({ status }: { status: string | null }) {
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '—';
   return new Date(dateStr).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
   });
 }
 
@@ -63,12 +73,56 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
 export default function AdminSandboxesPage() {
   const { data: adminRole, isLoading: roleLoading } = useAdminRole();
-  const { data: sandboxes, isLoading, refetch, isFetching } = useAdminSandboxes();
+
+  // Filters
+  const [searchInput, setSearchInput] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [providerFilter, setProviderFilter] = useState('');
+  const [page, setPage] = useState(1);
+
+  const search = useDebounce(searchInput, 350);
+
+  // Reset to page 1 whenever filters change
+  useEffect(() => { setPage(1); }, [search, statusFilter, providerFilter]);
+
+  const { data, isLoading, isFetching, refetch } = useAdminSandboxes({
+    search, status: statusFilter, provider: providerFilter, page, limit: PAGE_SIZE,
+  });
+
   const deleteMutation = useDeleteAdminSandbox();
   const [infoDialog, setInfoDialog] = useState<AdminSandbox | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AdminSandbox | null>(null);
+
+  const list   = data?.sandboxes ?? [];
+  const total  = data?.total ?? 0;
+  const pages  = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  const handleDelete = useCallback(async () => {
+    if (!confirmDelete) return;
+    try {
+      await deleteMutation.mutateAsync(confirmDelete.sandboxId);
+      toast.success(`Deleted sandbox ${confirmDelete.sandboxId.slice(0, 8)}`, {
+        description: confirmDelete.provider === 'hetzner'
+          ? 'Removed from DB and Hetzner server deleted.'
+          : 'Removed from DB.',
+      });
+      setInfoDialog(null);
+    } catch (err: any) {
+      toast.error('Failed to delete sandbox', { description: err.message });
+    }
+    setConfirmDelete(null);
+  }, [confirmDelete, deleteMutation]);
 
   if (roleLoading) {
     return (
@@ -94,33 +148,10 @@ export default function AdminSandboxesPage() {
     );
   }
 
-  const list = sandboxes ?? [];
-
-  async function handleDelete() {
-    if (!confirmDelete) return;
-    try {
-      await deleteMutation.mutateAsync(confirmDelete.sandboxId);
-      toast.success(`Deleted sandbox ${confirmDelete.sandboxId.slice(0, 8)}`, {
-        description: confirmDelete.provider === 'hetzner'
-          ? 'Removed from DB and Hetzner server deleted.'
-          : 'Removed from DB.',
-      });
-    } catch (err: any) {
-      toast.error('Failed to delete sandbox', { description: err.message });
-    }
-    setConfirmDelete(null);
-    setInfoDialog(null);
-  }
-
-  const providerCounts = list.reduce<Record<string, number>>((acc, s) => {
-    const p = s.provider ?? 'unknown';
-    acc[p] = (acc[p] ?? 0) + 1;
-    return acc;
-  }, {});
-
   return (
     <div className="min-h-screen bg-background">
-      <div className="max-w-6xl mx-auto p-6 space-y-6">
+      <div className="max-w-6xl mx-auto p-6 space-y-5">
+
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
@@ -129,59 +160,80 @@ export default function AdminSandboxesPage() {
               All Sandboxes
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              View and manage all sandbox instances across all accounts
+              {total > 0 ? `${total.toLocaleString()} total` : 'No sandboxes found'}
             </p>
           </div>
+          <Button
+            variant="outline" size="sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="gap-1.5 self-start"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
 
-          <div className="flex items-center gap-3">
-            <div className="bg-foreground/[0.04] border border-foreground/[0.08] rounded-lg px-4 py-2 text-center min-w-[80px]">
-              <p className="text-lg font-semibold">{list.length}</p>
-              <p className="text-[11px] text-muted-foreground">Total</p>
-            </div>
-            {Object.entries(providerCounts).map(([provider, count]) => (
-              <div key={provider} className="bg-foreground/[0.04] border border-foreground/[0.08] rounded-lg px-4 py-2 text-center min-w-[80px]">
-                <p className="text-lg font-semibold">{count}</p>
-                <p className="text-[11px] text-muted-foreground capitalize">{provider}</p>
-              </div>
-            ))}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => refetch()}
-              disabled={isFetching}
-              className="gap-1.5"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
+        {/* Search + Filters */}
+        <div className="flex flex-col sm:flex-row gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <Input
+              className="pl-8 h-8 text-sm"
+              placeholder="Search by sandbox ID, name, account, email…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+            />
           </div>
+
+          <Select value={statusFilter || 'all'} onValueChange={(v) => setStatusFilter(v === 'all' ? '' : v)}>
+            <SelectTrigger className="h-8 w-[130px] text-sm">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="stopped">Stopped</SelectItem>
+              <SelectItem value="error">Error</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={providerFilter || 'all'} onValueChange={(v) => setProviderFilter(v === 'all' ? '' : v)}>
+            <SelectTrigger className="h-8 w-[130px] text-sm">
+              <SelectValue placeholder="Provider" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All providers</SelectItem>
+              <SelectItem value="hetzner">Hetzner</SelectItem>
+              <SelectItem value="daytona">Daytona</SelectItem>
+              <SelectItem value="local">Local</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Table */}
         {isLoading ? (
           <div className="space-y-3">
-            {[...Array(5)].map((_, i) => (
-              <Skeleton key={i} className="h-14 w-full" />
-            ))}
+            {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
           </div>
         ) : list.length === 0 ? (
-          <div className="text-center py-16 text-muted-foreground">
+          <div className="text-center py-16 text-muted-foreground border border-foreground/[0.08] rounded-xl">
             <Server className="h-10 w-10 mx-auto mb-3 opacity-30" />
-            <p className="text-sm">No sandboxes found</p>
+            <p className="text-sm">No sandboxes match your filters</p>
           </div>
         ) : (
-          <div className="border border-foreground/[0.08] rounded-xl overflow-hidden">
+          <div className={`border border-foreground/[0.08] rounded-xl overflow-hidden transition-opacity ${isFetching ? 'opacity-60' : ''}`}>
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead className="w-[100px]">ID</TableHead>
+                  <TableHead className="w-[90px]">ID</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Account / Email</TableHead>
                   <TableHead>Provider</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead>Last Used</TableHead>
-                  <TableHead className="text-right w-[80px]">Actions</TableHead>
+                  <TableHead className="w-[50px]" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -194,36 +246,28 @@ export default function AdminSandboxesPage() {
                     <TableCell className="font-mono text-xs text-muted-foreground" title={sandbox.sandboxId}>
                       {sandbox.sandboxId.slice(0, 8)}
                     </TableCell>
-                    <TableCell className="font-medium text-sm">
+                    <TableCell className="text-sm max-w-[140px] truncate" title={sandbox.name ?? undefined}>
                       {sandbox.name ?? <span className="text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell>
-                      <div className="flex flex-col">
-                        <span className="text-sm">{sandbox.accountName ?? <span className="text-muted-foreground">—</span>}</span>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-sm truncate">{sandbox.accountName ?? '—'}</span>
                         {sandbox.ownerEmail && (
-                          <span className="text-xs text-muted-foreground">{sandbox.ownerEmail}</span>
+                          <span className="text-xs text-muted-foreground truncate">{sandbox.ownerEmail}</span>
                         )}
                       </div>
                     </TableCell>
                     <TableCell className="text-sm capitalize">
                       {sandbox.provider ?? <span className="text-muted-foreground">—</span>}
                     </TableCell>
-                    <TableCell>
-                      <StatusBadge status={sandbox.status} />
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {formatDate(sandbox.createdAt)}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {formatDate(sandbox.lastUsedAt)}
-                    </TableCell>
-                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                    <TableCell><StatusBadge status={sandbox.status} /></TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{formatDate(sandbox.createdAt)}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{formatDate(sandbox.lastUsedAt)}</TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
                       <Button
-                        size="sm"
-                        variant="ghost"
+                        size="sm" variant="ghost"
                         className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-500 hover:bg-red-500/10"
                         onClick={() => setConfirmDelete(sandbox)}
-                        title="Delete sandbox"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
@@ -232,6 +276,39 @@ export default function AdminSandboxesPage() {
                 ))}
               </TableBody>
             </Table>
+          </div>
+        )}
+
+        {/* Pagination */}
+        {pages > 1 && (
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <span>
+              Page {page} of {pages} &mdash; {total.toLocaleString()} results
+            </span>
+            <div className="flex gap-1">
+              <Button
+                variant="outline" size="sm" className="h-7 w-7 p-0"
+                onClick={() => setPage(1)} disabled={page === 1}
+                title="First page"
+              >«</Button>
+              <Button
+                variant="outline" size="sm" className="h-7 px-2 gap-1"
+                onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
+              >
+                <ChevronLeft className="h-3.5 w-3.5" /> Prev
+              </Button>
+              <Button
+                variant="outline" size="sm" className="h-7 px-2 gap-1"
+                onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={page === pages}
+              >
+                Next <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="outline" size="sm" className="h-7 w-7 p-0"
+                onClick={() => setPage(pages)} disabled={page === pages}
+                title="Last page"
+              >»</Button>
+            </div>
           </div>
         )}
       </div>
@@ -243,23 +320,22 @@ export default function AdminSandboxesPage() {
             <DialogTitle className="font-mono text-base">{infoDialog?.sandboxId}</DialogTitle>
             <DialogDescription>Full sandbox details</DialogDescription>
           </DialogHeader>
-
           {infoDialog && (
-            <div className="space-y-0.5">
-              <InfoRow label="Name" value={infoDialog.name} />
-              <InfoRow label="Account" value={infoDialog.accountName} />
-              <InfoRow label="Email" value={infoDialog.ownerEmail} />
+            <div className="space-y-0.5 max-h-[60vh] overflow-y-auto pr-1">
+              <InfoRow label="Name"       value={infoDialog.name} />
+              <InfoRow label="Account"    value={infoDialog.accountName} />
+              <InfoRow label="Email"      value={infoDialog.ownerEmail} />
               <InfoRow label="Account ID" value={infoDialog.accountId} />
-              <InfoRow label="Provider" value={infoDialog.provider} />
-              <InfoRow label="Status" value={<StatusBadge status={infoDialog.status} />} />
+              <InfoRow label="Provider"   value={infoDialog.provider} />
+              <InfoRow label="Status"     value={<StatusBadge status={infoDialog.status} />} />
               <InfoRow label="External ID" value={infoDialog.externalId} />
-              <InfoRow label="Base URL" value={infoDialog.baseUrl} />
-              <InfoRow label="Created" value={formatDate(infoDialog.createdAt)} />
-              <InfoRow label="Updated" value={formatDate(infoDialog.updatedAt)} />
-              <InfoRow label="Last Used" value={formatDate(infoDialog.lastUsedAt)} />
+              <InfoRow label="Base URL"   value={infoDialog.baseUrl} />
+              <InfoRow label="Created"    value={formatDate(infoDialog.createdAt)} />
+              <InfoRow label="Updated"    value={formatDate(infoDialog.updatedAt)} />
+              <InfoRow label="Last Used"  value={formatDate(infoDialog.lastUsedAt)} />
               {infoDialog.metadata && (
                 <div className="pt-2">
-                  <p className="text-muted-foreground text-sm mb-1">Metadata</p>
+                  <p className="text-muted-foreground text-xs mb-1">Metadata</p>
                   <pre className="text-xs bg-foreground/[0.04] border border-foreground/[0.08] rounded-lg p-3 overflow-auto max-h-40">
                     {JSON.stringify(infoDialog.metadata, null, 2)}
                   </pre>
@@ -267,62 +343,41 @@ export default function AdminSandboxesPage() {
               )}
             </div>
           )}
-
           <DialogFooter>
             <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => { setConfirmDelete(infoDialog); }}
+              variant="destructive" size="sm"
+              onClick={() => setConfirmDelete(infoDialog)}
               disabled={deleteMutation.isPending}
             >
-              <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-              Delete
+              <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Delete
             </Button>
-            <Button variant="outline" onClick={() => setInfoDialog(null)}>
-              Close
-            </Button>
+            <Button variant="outline" onClick={() => setInfoDialog(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Confirm delete dialog */}
+      {/* Confirm delete */}
       <Dialog open={!!confirmDelete} onOpenChange={() => setConfirmDelete(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete Sandbox</DialogTitle>
             <DialogDescription>
-              This will permanently delete sandbox{' '}
+              Permanently delete{' '}
               <span className="font-mono text-foreground">{confirmDelete?.sandboxId.slice(0, 8)}</span>
               {confirmDelete?.provider === 'hetzner' && ' and terminate the Hetzner server'}.
-              This action cannot be undone.
+              This cannot be undone.
             </DialogDescription>
           </DialogHeader>
-
           {confirmDelete && (
             <div className="bg-foreground/[0.04] border border-foreground/[0.08] rounded-lg px-4 py-3 space-y-1.5 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Account</span>
-                <span>{confirmDelete.accountName ?? '—'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Email</span>
-                <span>{confirmDelete.ownerEmail ?? '—'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Provider</span>
-                <span className="capitalize">{confirmDelete.provider ?? '—'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Status</span>
-                <span>{confirmDelete.status ?? '—'}</span>
-              </div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Account</span><span>{confirmDelete.accountName ?? '—'}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Email</span><span>{confirmDelete.ownerEmail ?? '—'}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Provider</span><span className="capitalize">{confirmDelete.provider ?? '—'}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span>{confirmDelete.status ?? '—'}</span></div>
             </div>
           )}
-
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmDelete(null)} disabled={deleteMutation.isPending}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setConfirmDelete(null)} disabled={deleteMutation.isPending}>Cancel</Button>
             <Button variant="destructive" onClick={handleDelete} disabled={deleteMutation.isPending}>
               {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
             </Button>

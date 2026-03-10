@@ -399,42 +399,82 @@ adminApp.get('/api/instances', async (c) => {
   }
 });
 
-/** GET /v1/admin/api/sandboxes — list all sandboxes with account name + user email */
+/** GET /v1/admin/api/sandboxes — list sandboxes with search, filters, pagination */
 adminApp.get('/api/sandboxes', async (c) => {
   try {
     const { db } = await import('../shared/db');
-    const { sandboxes, accounts, accountMembers } = await import('@kortix/db');
-    const { desc, eq, sql } = await import('drizzle-orm');
+    const { sandboxes, accounts } = await import('@kortix/db');
+    const { desc, eq, sql, and, ilike, or } = await import('drizzle-orm');
 
-    const rows = await db
-      .select({
-        sandboxId: sandboxes.sandboxId,
-        accountId: sandboxes.accountId,
-        name: sandboxes.name,
-        provider: sandboxes.provider,
-        externalId: sandboxes.externalId,
-        status: sandboxes.status,
-        baseUrl: sandboxes.baseUrl,
-        metadata: sandboxes.metadata,
-        createdAt: sandboxes.createdAt,
-        updatedAt: sandboxes.updatedAt,
-        lastUsedAt: sandboxes.lastUsedAt,
-        accountName: accounts.name,
-        ownerEmail: sql<string>`(
-          SELECT au.email FROM auth.users au
+    const q       = c.req.query('search')   || '';
+    const status  = c.req.query('status')   || '';
+    const provider = c.req.query('provider') || '';
+    const page    = Math.max(1, parseInt(c.req.query('page')  || '1', 10));
+    const limit   = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '50', 10)));
+    const offset  = (page - 1) * limit;
+
+    // Build WHERE conditions
+    const conditions = [];
+
+    if (status)   conditions.push(eq(sandboxes.status, status));
+    if (provider) conditions.push(eq(sandboxes.provider, provider));
+    if (q) {
+      conditions.push(or(
+        ilike(sandboxes.sandboxId, `%${q}%`),
+        ilike(sandboxes.name, `%${q}%`),
+        ilike(accounts.name, `%${q}%`),
+        sql`EXISTS (
+          SELECT 1 FROM auth.users au
           INNER JOIN kortix.account_members am ON am.user_id = au.id
           WHERE am.account_id = ${sandboxes.accountId}
+          AND au.email ILIKE ${'%' + q + '%'}
           LIMIT 1
         )`,
-      })
-      .from(sandboxes)
-      .leftJoin(accounts, eq(sandboxes.accountId, accounts.accountId))
-      .orderBy(desc(sandboxes.createdAt))
-      .limit(500);
+      )!);
+    }
 
-    return c.json({ sandboxes: rows });
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const ownerEmailSub = sql<string>`(
+      SELECT au.email FROM auth.users au
+      INNER JOIN kortix.account_members am ON am.user_id = au.id
+      WHERE am.account_id = ${sandboxes.accountId}
+      LIMIT 1
+    )`;
+
+    const [rows, [{ total }]] = await Promise.all([
+      db
+        .select({
+          sandboxId: sandboxes.sandboxId,
+          accountId: sandboxes.accountId,
+          name: sandboxes.name,
+          provider: sandboxes.provider,
+          externalId: sandboxes.externalId,
+          status: sandboxes.status,
+          baseUrl: sandboxes.baseUrl,
+          metadata: sandboxes.metadata,
+          createdAt: sandboxes.createdAt,
+          updatedAt: sandboxes.updatedAt,
+          lastUsedAt: sandboxes.lastUsedAt,
+          accountName: accounts.name,
+          ownerEmail: ownerEmailSub,
+        })
+        .from(sandboxes)
+        .leftJoin(accounts, eq(sandboxes.accountId, accounts.accountId))
+        .where(where)
+        .orderBy(desc(sandboxes.createdAt))
+        .limit(limit)
+        .offset(offset),
+      db
+        .select({ total: sql<number>`count(*)::int` })
+        .from(sandboxes)
+        .leftJoin(accounts, eq(sandboxes.accountId, accounts.accountId))
+        .where(where),
+    ]);
+
+    return c.json({ sandboxes: rows, total, page, limit });
   } catch (e: any) {
-    return c.json({ sandboxes: [], error: e?.message || String(e) }, 500);
+    return c.json({ sandboxes: [], total: 0, page: 1, limit: 50, error: e?.message || String(e) }, 500);
   }
 });
 

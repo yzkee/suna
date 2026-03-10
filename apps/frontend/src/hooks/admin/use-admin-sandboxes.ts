@@ -17,23 +17,43 @@ export interface AdminSandbox {
   ownerEmail: string | null;
 }
 
+export interface AdminSandboxesParams {
+  search?: string;
+  status?: string;
+  provider?: string;
+  page?: number;
+  limit?: number;
+}
+
 interface AdminSandboxesResponse {
   sandboxes: AdminSandbox[];
+  total: number;
+  page: number;
+  limit: number;
   error?: string;
 }
 
-const QUERY_KEY = ['admin', 'sandboxes'];
+export function useAdminSandboxes(params: AdminSandboxesParams = {}) {
+  const { search = '', status = '', provider = '', page = 1, limit = 50 } = params;
 
-export function useAdminSandboxes() {
-  return useQuery<AdminSandbox[]>({
-    queryKey: QUERY_KEY,
+  return useQuery<AdminSandboxesResponse>({
+    queryKey: ['admin', 'sandboxes', search, status, provider, page, limit],
     queryFn: async () => {
-      const response = await backendApi.get<AdminSandboxesResponse>('/admin/api/sandboxes');
+      const q = new URLSearchParams();
+      if (search)   q.set('search', search);
+      if (status)   q.set('status', status);
+      if (provider) q.set('provider', provider);
+      q.set('page', String(page));
+      q.set('limit', String(limit));
+
+      const response = await backendApi.get<AdminSandboxesResponse>(
+        `/admin/api/sandboxes?${q.toString()}`
+      );
       if (response.error) throw new Error(response.error.message);
-      return response.data?.sandboxes ?? [];
+      return response.data!;
     },
     staleTime: 15_000,
-    refetchInterval: 30_000,
+    placeholderData: (prev) => prev, // keep previous data while fetching next page
   });
 }
 
@@ -49,7 +69,7 @@ export function useDeleteAdminSandbox() {
       return response.data!;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'sandboxes'] });
     },
   });
 }
