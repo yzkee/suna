@@ -37,7 +37,7 @@ import { legacyApp } from './legacy';
 
 const app = new Hono();
 
-// === Global Middleware ===
+// === Global Middleware === 
 
 // CORS origins: production domains + localhost for local dev + any extras from env.
 const cloudOrigins = [
