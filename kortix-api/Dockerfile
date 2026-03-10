@@ -32,7 +32,7 @@ COPY packages/sandbox/package.json ./packages/sandbox/package.json
 # Include devDeps so drizzle-kit is available for schema push at runtime.
 # opencode-channels is now a public npm package (@kortix/opencode-channels) — no workspace filter needed.
 RUN corepack enable pnpm && \
-    pnpm install --filter ./${SERVICE}... --shamefully-hoist --prod=false
+    pnpm install --filter ./${SERVICE}... --shamefully-hoist --prod=false --ignore-scripts
 
 # ---- Runner Stage ----
 FROM base AS runner
