@@ -40,12 +40,8 @@ export default function Home() {
     setTimeout(() => setCopied(false), 2000);
   }, []);
 
-  if (isLoading || user) {
-    return (
-      <div className="h-dvh flex items-center justify-center bg-background">
-        <div className="size-5 border-2 border-foreground/20 border-t-foreground rounded-full animate-spin" />
-      </div>
-    );
+  if (user) {
+    return null;
   }
 
   return (

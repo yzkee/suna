@@ -15,7 +15,7 @@ import { execSync } from 'child_process';
 import { config } from '../config';
 import { ALL_SANDBOX_ENV_KEYS, toLegacySchema } from '../providers/registry';
 import { supabaseAuth } from '../middleware/auth';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { accounts } from '@kortix/db';
 import { db, hasDatabase } from '../shared/db';
 import { resolveAccountId } from '../shared/resolve-account';
@@ -37,7 +37,10 @@ setupApp.use('/*', async (c, next) => {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function findRepoRoot(): string | null {
-  // Walk up from CWD looking for docker-compose.local.yml (repo/dev mode)
+  // Walk up from likely working dirs looking for the actual Computer repo root.
+  // Local dev runs from several different cwd values, and the old
+  // docker-compose.local.yml sentinel no longer exists, which made the repo
+  // fallback dead code and left onboarding state dependent on sandbox secrets.
   const candidates = [
     process.cwd(),
     resolve(process.cwd(), '..'),
@@ -46,7 +49,12 @@ function findRepoRoot(): string | null {
   ];
 
   for (const dir of candidates) {
-    if (existsSync(resolve(dir, 'docker-compose.local.yml'))) {
+    const hasFrontend = existsSync(resolve(dir, 'apps/frontend'));
+    const hasApi = existsSync(resolve(dir, 'kortix-api'));
+    const hasSandboxCompose = existsSync(resolve(dir, 'packages/sandbox/docker/docker-compose.yml'));
+    const hasComposeScripts = existsSync(resolve(dir, 'scripts/compose/docker-compose.yml'));
+
+    if ((hasFrontend && hasApi) || hasSandboxCompose || hasComposeScripts) {
       return dir;
     }
   }
@@ -207,34 +215,23 @@ const SYSTEM_KEYS = ['ONBOARDING_COMPLETE'];
  */
 setupApp.get('/install-status', async (c) => {
   try {
-    // Use Supabase admin API to count users
-    const supabaseUrl = config.SUPABASE_URL;
-    const serviceRoleKey = config.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !serviceRoleKey) {
-      // Supabase not configured — treat as not installed
-      return c.json({ installed: false });
+    if (!hasDatabase) {
+      console.warn('[setup] install-status: DATABASE_URL not configured — returning 503');
+      return c.json({ installed: null, error: 'Database not configured' }, 503);
     }
 
-    const res = await fetch(`${supabaseUrl}/auth/v1/admin/users?page=1&per_page=1`, {
-      headers: {
-        'apikey': serviceRoleKey,
-        'Authorization': `Bearer ${serviceRoleKey}`,
-      },
-    });
-
-    if (!res.ok) {
-      console.error(`[setup] install-status: Supabase admin API returned ${res.status}`);
-      return c.json({ installed: false });
-    }
-
-    const data = await res.json();
-    const hasUsers = Array.isArray(data.users) && data.users.length > 0;
+    // Query auth.users directly via the existing postgres connection.
+    // This is reliable regardless of Supabase version / service role key format.
+    const result = await db.execute(
+      sql`SELECT EXISTS(SELECT 1 FROM auth.users LIMIT 1) AS has_users`
+    );
+    const row = Array.isArray(result) ? result[0] : result.rows?.[0];
+    const hasUsers = row?.has_users === true || row?.has_users === 't';
 
     return c.json({ installed: hasUsers });
   } catch (err) {
     console.error('[setup] install-status error:', err);
-    return c.json({ installed: false });
+    return c.json({ installed: null, error: 'Internal error' }, 503);
   }
 });
 
@@ -491,27 +488,40 @@ setupApp.get('/health', async (c) => {
  */
 async function getOnboardingEnv(): Promise<Record<string, string>> {
   const repoRoot = findRepoRoot();
-  if (repoRoot) {
-    const rootEnv = parseEnvFile(resolve(repoRoot, '.env'));
-    // Also check sandbox as fallback (onboarding tool writes there)
-    if (rootEnv['ONBOARDING_COMPLETE'] !== 'true') {
-      try {
-        const sandboxEnv = await getSandboxEnv();
-        if (sandboxEnv['ONBOARDING_COMPLETE'] === 'true') {
-          // Sync back to repo .env
-          const sync: Record<string, string> = { ONBOARDING_COMPLETE: 'true' };
-          if (sandboxEnv['ONBOARDING_SESSION_ID']) sync['ONBOARDING_SESSION_ID'] = sandboxEnv['ONBOARDING_SESSION_ID'];
-          writeEnvFile(resolve(repoRoot, '.env'), sync);
-          return { ...rootEnv, ...sandboxEnv };
-        }
-      } catch {
-        // Sandbox not reachable
-      }
-    }
-    return rootEnv;
+  const rootEnv = repoRoot ? parseEnvFile(resolve(repoRoot, '.env')) : {};
+
+  let sandboxEnv: Record<string, string> = {};
+  try {
+    sandboxEnv = await getSandboxEnv();
+  } catch {
+    // Sandbox not reachable
   }
-  // Docker/installed mode
-  return getSandboxEnv();
+
+  const complete = rootEnv['ONBOARDING_COMPLETE'] === 'true' || sandboxEnv['ONBOARDING_COMPLETE'] === 'true';
+  const sessionId = rootEnv['ONBOARDING_SESSION_ID'] || sandboxEnv['ONBOARDING_SESSION_ID'] || '';
+  const commandFired = rootEnv['ONBOARDING_COMMAND_FIRED'] || sandboxEnv['ONBOARDING_COMMAND_FIRED'] || '';
+
+  if (repoRoot) {
+    const sync: Record<string, string> = {};
+    if (complete && rootEnv['ONBOARDING_COMPLETE'] !== 'true') sync['ONBOARDING_COMPLETE'] = 'true';
+    if (sessionId && rootEnv['ONBOARDING_SESSION_ID'] !== sessionId) sync['ONBOARDING_SESSION_ID'] = sessionId;
+    if (commandFired && rootEnv['ONBOARDING_COMMAND_FIRED'] !== commandFired) sync['ONBOARDING_COMMAND_FIRED'] = commandFired;
+    if (Object.keys(sync).length > 0) {
+      writeEnvFile(resolve(repoRoot, '.env'), sync);
+    }
+  }
+
+  if (!repoRoot) {
+    return sandboxEnv;
+  }
+
+  return {
+    ...rootEnv,
+    ...sandboxEnv,
+    ONBOARDING_COMPLETE: complete ? 'true' : 'false',
+    ONBOARDING_SESSION_ID: sessionId,
+    ONBOARDING_COMMAND_FIRED: commandFired,
+  };
 }
 
 /**
@@ -519,16 +529,21 @@ async function getOnboardingEnv(): Promise<Record<string, string>> {
  */
 async function setOnboardingEnv(entries: Record<string, string>): Promise<boolean> {
   const repoRoot = findRepoRoot();
+  let wrote = false;
+
   if (repoRoot) {
     writeEnvFile(resolve(repoRoot, '.env'), entries);
-    return true;
+    wrote = true;
   }
+
   try {
     await setSandboxEnv(entries);
-    return true;
+    wrote = true;
   } catch {
-    return false;
+    // Sandbox write is best-effort in local dev; repo .env is the durable fallback.
   }
+
+  return wrote;
 }
 
 /**

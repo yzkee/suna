@@ -54,6 +54,8 @@ const BILLING_ROUTES = [
 const PROTECTED_ROUTES = [
   '/dashboard',
   '/agents',
+  '/marketplace',
+  '/skills',
   '/projects',
   '/workspace',
   '/settings',
