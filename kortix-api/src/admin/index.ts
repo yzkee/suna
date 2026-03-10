@@ -22,6 +22,7 @@ import type { AppEnv } from '../types';
 import { config } from '../config';
 import { PROVIDER_REGISTRY, toLegacySchema, LLM_PROVIDERS, TOOL_PROVIDERS } from '../providers/registry';
 import { supabaseAuth } from '../middleware/auth';
+import { requireAdmin } from '../middleware/require-admin';
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { execSync } from 'child_process';
@@ -29,8 +30,8 @@ import { execSync } from 'child_process';
 export const adminApp = new Hono<AppEnv>();
 
 // ─── Auth ───────────────────────────────────────────────────────────────────
-// All admin routes require Supabase JWT auth.
-adminApp.use('/*', supabaseAuth);
+// All admin routes require a valid Supabase JWT AND admin/super_admin role.
+adminApp.use('/*', supabaseAuth, requireAdmin);
 
 // ─── Helpers (reused from setup module) ─────────────────────────────────────
 
