@@ -2192,10 +2192,6 @@ function SessionTurn({
 	}, [allParts, answeredQuestionPartsById, answeredQuestionParts.length]);
 	const shouldUseInlineContent = !hasSteps && !!inlineContentParts;
 
-	const taskToolParts = useMemo(() => {
-		return allParts.filter(({ part }) => isToolPart(part) && (part as ToolPart).tool === 'task');
-	}, [allParts]);
-
 	// Last assistant message ID — used for "fork from response" action
 	const lastAssistantMessageId = useMemo(() => {
 		const msgs = turn.assistantMessages;
@@ -2573,9 +2569,8 @@ function SessionTurn({
 						// Tool parts
 						if (isToolPart(part)) {
 							if (!shouldShowToolPart(part)) return null;
-							if (part.tool === "todowrite") return null;
-							if (part.tool === "task") return null;
-							if (part.tool === "question") {
+						if (part.tool === "todowrite") return null;
+						if (part.tool === "question") {
 								// When inline content rendering is active, answered questions
 								// render in the inline content section — skip here to avoid duplicates.
 								if (shouldUseInlineContent) return null;
@@ -2727,28 +2722,7 @@ function SessionTurn({
 				</>
 			)}
 
-			{/* Always-visible: Subsession/task cards — rendered after the response text */}
-			{taskToolParts.length > 0 && (
-				<div className="space-y-2">
-					{taskToolParts.map(({ part, message }) => {
-						const toolPart = part as ToolPart;
-						if (!shouldShowToolPart(toolPart)) return null;
-						const perm = getPermissionForTool(permissions, toolPart.callID);
-						if (isToolPartHidden(toolPart, message.info.id, hidden)) return null;
-						return (
-							<ToolPartRenderer
-								key={part.id}
-								part={toolPart}
-								sessionId={sessionId}
-								permission={perm}
-								onPermissionReply={onPermissionReply}
-							/>
-						);
-					})}
-				</div>
-			)}
-
-			{/* ── Working status indicator (always at the end while working) ── */}
+		{/* ── Working status indicator (always at the end while working) ── */}
 			{working && (
 				<div
 					className={cn(
@@ -2884,6 +2858,8 @@ interface SessionChatProps {
 	hideHeader?: boolean;
 	/** Read-only mode — hides the chat input bar (used for sub-session modal viewer) */
 	readOnly?: boolean;
+	/** Start scrolled to the top instead of the bottom (e.g. sub-session modal viewer) */
+	initialScrollTop?: boolean;
 }
 
 export function SessionChat({
@@ -2891,6 +2867,7 @@ export function SessionChat({
 	headerLeadingAction,
 	hideHeader,
 	readOnly,
+	initialScrollTop,
 }: SessionChatProps) {
 	// ---- Context modal ----
 	const [contextModalOpen, setContextModalOpen] = useState(false);
@@ -3798,6 +3775,12 @@ export function SessionChat({
 		if (initialScrollDoneRef.current === sessionId) return;
 		initialScrollDoneRef.current = sessionId;
 
+		// When viewing a sub-session from the top, don't scroll to bottom
+		if (initialScrollTop) {
+			node.scrollTop = 0;
+			return;
+		}
+
 		// Instant scroll to near-bottom so user doesn't see top-of-page flash.
 		// Position slightly above the bottom so the smooth scroll has room to animate.
 		const scrollNearBottom = () => {
@@ -3820,7 +3803,7 @@ export function SessionChat({
 				behavior: 'smooth',
 			});
 		}, 600);
-	}, [sessionId, scrollRef]);
+	}, [sessionId, scrollRef, initialScrollTop]);
 
 	// Tab switch: the DOM stays mounted (hidden class), so the browser
 	// preserves scroll position automatically. No action needed here.

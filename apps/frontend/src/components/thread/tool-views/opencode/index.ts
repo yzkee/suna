@@ -129,6 +129,7 @@ export const ocToolViewRegistrations: Record<string, ToolViewComponent> = {
 
   // Sub-agent delegation
   'oc-task': OcTaskToolView,
+  'task': OcTaskToolView,
 
   // Todo / task management
   'oc-todowrite': OcTodoToolView,

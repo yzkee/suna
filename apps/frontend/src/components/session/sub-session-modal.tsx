@@ -82,11 +82,12 @@ export function SubSessionModal({
 
 				{/* Session chat — read-only, no header */}
 				<div className="flex-1 min-h-0 overflow-hidden">
-					<SessionChat
-						sessionId={sessionId}
-						hideHeader
-						readOnly
-					/>
+			<SessionChat
+					sessionId={sessionId}
+					hideHeader
+					readOnly
+					initialScrollTop
+				/>
 				</div>
 			</DialogContent>
 		</Dialog>
