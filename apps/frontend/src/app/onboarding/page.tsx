@@ -201,37 +201,22 @@ export default function OnboardingPage() {
   // ?redo                    → clear ONBOARDING_COMPLETE so the flow reruns
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const instanceUrl = getInstanceUrl();
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
 
     if (params.has('skip_onboarding') || params.has('skip')) {
       sessionStorage.setItem('onboarding_complete', 'true');
-      if (instanceUrl) {
-        authenticatedFetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`, {
+      authenticatedFetch(`${backendUrl}/setup/onboarding-complete`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ value: 'true' }),
         }).catch(() => {});
-      }
       router.replace('/dashboard?skip_onboarding');
       return;
     }
 
     if (params.has('redo')) {
-      // Reset onboarding flags so the full flow runs again
-      authenticatedFetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`, {
+      sessionStorage.removeItem('onboarding_complete');
+      authenticatedFetch(`${backendUrl}/setup/onboarding-reset`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value: 'false' }),
-      }).catch(() => {});
-      authenticatedFetch(`${instanceUrl}/env/ONBOARDING_COMMAND_FIRED`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value: 'false' }),
-      }).catch(() => {});
-      authenticatedFetch(`${instanceUrl}/env/ONBOARDING_SESSION_ID`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value: '' }),
       }).catch(() => {});
       // Strip ?redo from URL so it doesn't loop on refresh
       const clean = new URL(window.location.href);
@@ -245,17 +230,17 @@ export default function OnboardingPage() {
     const params = new URLSearchParams(window.location.search);
     if (params.has('skip_onboarding') || params.has('skip') || params.has('redo')) return; // handled above
     const check = async () => {
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
       try {
-        const instanceUrl = getInstanceUrl();
-        const res = await authenticatedFetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.ONBOARDING_COMPLETE === 'true') {
-            router.replace('/dashboard');
-          }
+        const res = await authenticatedFetch(`${backendUrl}/setup/onboarding-status`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data?.complete) {
+          sessionStorage.setItem('onboarding_complete', 'true');
+          router.replace('/dashboard');
         }
       } catch {
-        // Sandbox not reachable yet — stay on onboarding
+        // Backend not reachable yet — stay on onboarding
       }
     };
     check();
@@ -479,17 +464,18 @@ export default function OnboardingPage() {
   }, [phase, onboardingSessionId]);
 
   // ── Poll ONBOARDING_COMPLETE while in session phase ──────────
-  // The onboarding agent marks this true when it finishes.
+  // The onboarding status endpoint is the single completion check.
   useEffect(() => {
     if (phase !== 'session') return;
-    const instanceUrl = getInstanceUrl();
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
     const interval = setInterval(async () => {
       try {
-        const res = await authenticatedFetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`);
+        const res = await authenticatedFetch(`${backendUrl}/setup/onboarding-status`);
         if (res.ok) {
           const data = await res.json();
-          if (data.ONBOARDING_COMPLETE === 'true') {
+          if (data?.complete) {
             clearInterval(interval);
+            sessionStorage.setItem('onboarding_complete', 'true');
             router.replace('/dashboard');
           }
         }

@@ -284,9 +284,8 @@ export async function middleware(request: NextRequest) {
     // Skip billing checks when billing is not enabled (self-hosted deployments)
     const billingEnabled = process.env.NEXT_PUBLIC_BILLING_ENABLED === 'true';
     if (!billingEnabled) {
-      // For protected routes, check if setup wizard and onboarding are complete.
-      // If not, redirect back to /auth (wizard) or /onboarding.
-      // Skip this check if the user is already heading to /onboarding.
+      // For protected routes, check a single source of truth for onboarding:
+      // GET /v1/setup/onboarding-status.
       if (
         PROTECTED_ROUTES.some(route => pathname.startsWith(route)) &&
         !request.nextUrl.searchParams.has('skip_onboarding')
@@ -298,26 +297,10 @@ export async function middleware(request: NextRequest) {
         if (backendUrl && accessToken) {
           const apiBase = backendUrl.replace(/\/v1\/?$/, '');
           try {
-            const [setupRes, onboardingRes] = await Promise.all([
-              fetch(`${apiBase}/v1/setup/setup-status`, {
-                headers: { 'Authorization': `Bearer ${accessToken}` },
-                signal: AbortSignal.timeout(3000),
-              }),
-              fetch(`${apiBase}/v1/setup/onboarding-status`, {
-                headers: { 'Authorization': `Bearer ${accessToken}` },
-                signal: AbortSignal.timeout(3000),
-              }),
-            ]);
-
-            if (setupRes.ok) {
-              const setupData = await setupRes.json() as { complete?: boolean };
-              if (!setupData.complete) {
-                const url = request.nextUrl.clone();
-                url.pathname = '/auth';
-                return NextResponse.redirect(url);
-              }
-            }
-
+            const onboardingRes = await fetch(`${apiBase}/v1/setup/onboarding-status`, {
+              headers: { 'Authorization': `Bearer ${accessToken}` },
+              signal: AbortSignal.timeout(3000),
+            });
             if (onboardingRes.ok) {
               const onboardingData = await onboardingRes.json() as { complete?: boolean };
               if (!onboardingData.complete) {

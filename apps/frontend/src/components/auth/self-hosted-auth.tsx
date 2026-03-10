@@ -578,15 +578,8 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
     const target = returnUrl || '/onboarding';
 
     if (target.startsWith('/onboarding')) {
-      try {
-        const url = new URL(target, window.location.origin);
-        url.searchParams.set('redo', '1');
-        router.push(`${url.pathname}${url.search}`);
-        return;
-      } catch {
-        router.push('/onboarding?redo=1');
-        return;
-      }
+      router.push(target);
+      return;
     }
 
     router.push(target);
