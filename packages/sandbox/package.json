@@ -22,7 +22,7 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@kortix/kortix-oc": "^0.1.1",
+    "@kortix/kortix-oc": "workspace:0.1.1",
     "@kortix/opencode-channels": "^0.2.0",
     "opencode-ai": "1.2.17",
     "agent-browser": "^0.10.0"

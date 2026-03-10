@@ -932,7 +932,7 @@ importers:
   packages/sandbox:
     dependencies:
       '@kortix/kortix-oc':
-        specifier: ^0.1.1
+        specifier: workspace:0.1.1
         version: link:../kortix-oc
       '@kortix/opencode-channels':
         specifier: ^0.2.0

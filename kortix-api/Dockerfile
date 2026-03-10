@@ -19,7 +19,13 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 
 # Copy the target app and workspace packages it depends on
 COPY ${SERVICE} ./${SERVICE}
-COPY packages/ ./packages/
+COPY packages/shared ./packages/shared
+COPY packages/db ./packages/db
+COPY packages/agent-tunnel ./packages/agent-tunnel
+COPY packages/opencode-channels ./packages/opencode-channels
+COPY packages/kortix-oc ./packages/kortix-oc
+COPY packages/sandbox/CHANGELOG.json ./packages/sandbox/CHANGELOG.json
+COPY packages/sandbox/package.json ./packages/sandbox/package.json
 
 # Install pnpm and deps for this app + workspace packages it depends on.
 # --shamefully-hoist flattens node_modules (no symlinks) so COPY works on all Docker versions.
