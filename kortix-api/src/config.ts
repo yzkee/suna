@@ -386,9 +386,7 @@ export const config = {
   // ─── Sandbox Provisioning (Platform) ──────────────────────────────────────
   KORTIX_URL: env.KORTIX_URL,
   ALLOWED_SANDBOX_PROVIDERS: allowedProviders,
-  // kortix/computer is a stable OS base — tag is always :latest, decoupled from
-  // the npm package version. Only override via SANDBOX_IMAGE env var if needed.
-  SANDBOX_IMAGE: env.SANDBOX_IMAGE || 'kortix/computer:latest',
+  SANDBOX_IMAGE: env.SANDBOX_IMAGE || `kortix/computer:${SANDBOX_VERSION}`,
   DOCKER_HOST: env.DOCKER_HOST,
   SANDBOX_NETWORK: env.SANDBOX_NETWORK,
   SANDBOX_PORT_BASE: env.SANDBOX_PORT_BASE,
