@@ -144,8 +144,8 @@ export function SkillList() {
                       className={cn(
                         'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer',
                         activeFilter === tab.value
-                          ? 'bg-foreground text-background'
-                          : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+                          ? 'text-foreground'
+                          : 'text-muted-foreground hover:text-foreground',
                       )}
                     >
                       {tab.label}
@@ -153,7 +153,7 @@ export function SkillList() {
                         className={cn(
                           'text-[10px] tabular-nums px-1 py-0.5 rounded',
                           activeFilter === tab.value
-                            ? 'bg-background/20 text-background'
+                            ? 'bg-muted text-foreground'
                             : 'bg-muted text-muted-foreground/60',
                         )}
                       >

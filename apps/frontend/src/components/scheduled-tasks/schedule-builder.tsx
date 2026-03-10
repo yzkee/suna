@@ -230,17 +230,17 @@ export function ScheduleBuilder({ value, onChange }: ScheduleBuilderProps) {
   return (
     <div className="space-y-3">
       {/* Frequency tabs */}
-      <div className="flex gap-1 p-1 rounded-xl bg-muted/50">
+      <div className="flex gap-1">
         {FREQUENCY_TABS.map(({ value: freq, label }) => (
           <button
             key={freq}
             type="button"
             onClick={() => update({ frequency: freq })}
             className={cn(
-              "flex-1 px-1 py-1.5 rounded-lg text-xs font-medium transition-all text-center cursor-pointer",
+              "flex-1 px-1 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer",
               state.frequency === freq
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground"
             )}
           >
             {label}

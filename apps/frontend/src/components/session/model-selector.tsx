@@ -20,29 +20,76 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
-import { Switch } from '@/components/ui/switch';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
 
 import { useModelStore } from '@/hooks/opencode/use-model-store';
 import type { FlatModel } from './session-chat-input';
 import type { ProviderListResponse } from '@/hooks/opencode/use-opencode-sessions';
-import { ConnectProviderContent } from '@/components/providers/connect-provider-content';
 import {
   MODEL_SELECTOR_PROVIDER_IDS,
   PROVIDER_LABELS,
   ProviderLogo,
 } from '@/components/providers/provider-branding';
+import { useProviderModalStore } from '@/stores/provider-modal-store';
+import type { ProviderModalTab } from '@/stores/provider-modal-store';
 
 // Re-export for consumers
 export { ConnectProviderContent } from '@/components/providers/connect-provider-content';
+
+// ─── Backward-compat re-exports ───────────────────────────────────────────────
+// Thin wrappers — delegate to the global ProviderModal via the store.
+
+export function ConnectProviderDialog({
+  open,
+  onOpenChange,
+  providers: _providers,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  providers: ProviderListResponse | undefined;
+}) {
+  const { openProviderModal, closeProviderModal } = useProviderModalStore();
+
+  useEffect(() => {
+    if (open) openProviderModal('providers');
+    else closeProviderModal();
+  }, [open, openProviderModal, closeProviderModal]);
+
+  // Listen for store close → sync back
+  const isStoreOpen = useProviderModalStore((s) => s.isOpen);
+  useEffect(() => {
+    if (!isStoreOpen && open) onOpenChange(false);
+  }, [isStoreOpen, open, onOpenChange]);
+
+  return null; // Rendered globally via GlobalProviderModal
+}
+
+export function ManageModelsDialog({
+  open,
+  onOpenChange,
+  models: _models,
+  modelStore: _modelStore,
+  onConnectProvider: _onConnectProvider,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  models: FlatModel[];
+  modelStore: ReturnType<typeof useModelStore>;
+  onConnectProvider: () => void;
+}) {
+  const { openProviderModal, closeProviderModal } = useProviderModalStore();
+
+  useEffect(() => {
+    if (open) openProviderModal('models');
+    else closeProviderModal();
+  }, [open, openProviderModal, closeProviderModal]);
+
+  const isStoreOpen = useProviderModalStore((s) => s.isOpen);
+  useEffect(() => {
+    if (!isStoreOpen && open) onOpenChange(false);
+  }, [isStoreOpen, open, onOpenChange]);
+
+  return null;
+}
 
 // =============================================================================
 // Helpers
@@ -170,167 +217,6 @@ function ModelTooltipContent({ model, isLatest, isFree }: { model: FlatModel; is
 }
 
 // =============================================================================
-// Manage Models Dialog
-// =============================================================================
-
-export function ManageModelsDialog({
-  open,
-  onOpenChange,
-  models,
-  modelStore,
-  onConnectProvider,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  models: FlatModel[];
-  modelStore: ReturnType<typeof useModelStore>;
-  onConnectProvider: () => void;
-}) {
-  const [search, setSearch] = useState('');
-
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase();
-    return models
-      .filter((m) =>
-        !q ||
-        m.modelName.toLowerCase().includes(q) ||
-        m.modelID.toLowerCase().includes(q) ||
-        m.providerName.toLowerCase().includes(q),
-      )
-      .sort((a, b) => a.modelName.localeCompare(b.modelName));
-  }, [models, search]);
-
-  // Group by provider, sort groups by popularity
-  const grouped = useMemo(() => {
-    const groups = new Map<string, FlatModel[]>();
-    for (const m of filtered) {
-      const list = groups.get(m.providerID) || [];
-      list.push(m);
-      groups.set(m.providerID, list);
-    }
-    const entries = Array.from(groups.entries());
-    entries.sort((a, b) => {
-      const ai = MODEL_SELECTOR_PROVIDER_IDS.indexOf(a[0]);
-      const bi = MODEL_SELECTOR_PROVIDER_IDS.indexOf(b[0]);
-      if (ai >= 0 && bi < 0) return -1;
-      if (ai < 0 && bi >= 0) return 1;
-      if (ai >= 0 && bi >= 0) return ai - bi;
-      return a[0].localeCompare(b[0]);
-    });
-    return entries;
-  }, [filtered]);
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md max-h-[80vh] !grid-rows-[auto_1fr] overflow-hidden p-0" aria-describedby="manage-models-desc">
-        {/* Fixed header */}
-        <div className="px-5 pt-5 pb-0 space-y-3">
-          <DialogHeader className="p-0">
-            <div className="flex items-center justify-between">
-              <DialogTitle className="text-sm font-semibold">Manage Models</DialogTitle>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 px-2.5 text-xs gap-1.5 rounded-lg"
-                onClick={() => {
-                  onOpenChange(false);
-                  onConnectProvider();
-                }}
-              >
-                <Plus className="h-3 w-3" />
-                Connect Provider
-              </Button>
-            </div>
-            <DialogDescription id="manage-models-desc" className="text-xs text-muted-foreground/60">
-              Choose which models appear in the model selector.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              placeholder="Search models..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-8 h-8 text-sm rounded-lg"
-              autoFocus
-            />
-          </div>
-        </div>
-
-        {/* Scrollable model list */}
-        <div className="overflow-y-auto px-5 pb-5 pt-1">
-          <div className="space-y-3">
-            {grouped.map(([providerID, providerModels]) => (
-              <div key={providerID}>
-                <div className="text-[10px] font-medium text-muted-foreground/40 uppercase tracking-wider px-1 pb-1">
-                  {PROVIDER_LABELS[providerID] || providerModels[0]?.providerName || providerID}
-                </div>
-                <div className="rounded-lg border border-border/40 bg-card/50 divide-y divide-border/30">
-                  {providerModels.map((model) => {
-                    const key = { providerID: model.providerID, modelID: model.modelID };
-                    const visible = modelStore.isVisible(key);
-                    return (
-                      <div
-                        key={`${model.providerID}:${model.modelID}`}
-                        className="flex items-center justify-between gap-3 px-3 py-2 cursor-pointer hover:bg-muted/30 transition-colors first:rounded-t-lg last:rounded-b-lg"
-                        onClick={() => modelStore.setVisibility(key, !visible)}
-                      >
-                        <span className="text-sm truncate">{model.modelName}</span>
-                        <div onClick={(e) => e.stopPropagation()}>
-                          <Switch
-                            checked={visible}
-                            onCheckedChange={(checked) => modelStore.setVisibility(key, checked)}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-            {grouped.length === 0 && (
-              <div className="text-xs text-center py-8 text-muted-foreground/60">No models found</div>
-            )}
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// =============================================================================
-// Connect Provider Dialog
-// =============================================================================
-
-export function ConnectProviderDialog({
-  open,
-  onOpenChange,
-  providers,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  providers: ProviderListResponse | undefined;
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm max-h-[80vh] !grid-rows-[1fr] overflow-hidden p-0" aria-describedby="connect-provider-desc">
-        <DialogHeader className="sr-only">
-          <DialogTitle>Connect Provider</DialogTitle>
-          <DialogDescription id="connect-provider-desc">Select a provider to connect.</DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col min-h-0 overflow-hidden px-5 py-5">
-          <ConnectProviderContent
-            providers={providers}
-            onClose={() => onOpenChange(false)}
-          />
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// =============================================================================
 // ModelSelector Popover
 // =============================================================================
 
@@ -345,8 +231,7 @@ export function ModelSelector({ models, selectedModel, onSelect, providers }: Mo
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
-  const [manageModelsOpen, setManageModelsOpen] = useState(false);
-  const [connectProviderOpen, setConnectProviderOpen] = useState(false);
+  const openProviderModal = useProviderModalStore((s) => s.openProviderModal);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const modelStore = useModelStore(models);
@@ -459,6 +344,11 @@ export function ModelSelector({ models, selectedModel, onSelect, providers }: Mo
     [flatList, highlightedIndex, handleSelect],
   );
 
+  const handleOpenProviderModal = useCallback((tab: ProviderModalTab) => {
+    setOpen(false);
+    openProviderModal(tab);
+  }, [openProviderModal]);
+
   let flatIndex = -1;
 
   return (
@@ -517,10 +407,7 @@ export function ModelSelector({ models, selectedModel, onSelect, providers }: Mo
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      onClick={() => {
-                        setOpen(false);
-                        setConnectProviderOpen(true);
-                      }}
+                      onClick={() => handleOpenProviderModal('providers')}
                       className="size-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
                     >
                       <Plus className="h-4 w-4" />
@@ -532,10 +419,7 @@ export function ModelSelector({ models, selectedModel, onSelect, providers }: Mo
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      onClick={() => {
-                        setOpen(false);
-                        setManageModelsOpen(true);
-                      }}
+                      onClick={() => handleOpenProviderModal('models')}
                       className="size-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
                     >
                       <SlidersHorizontal className="h-4 w-4" />
@@ -671,21 +555,7 @@ export function ModelSelector({ models, selectedModel, onSelect, providers }: Mo
         </PopoverContent>
       </Popover>
 
-      {/* Manage Models Dialog */}
-      <ManageModelsDialog
-        open={manageModelsOpen}
-        onOpenChange={setManageModelsOpen}
-        models={models}
-        modelStore={modelStore}
-        onConnectProvider={() => setConnectProviderOpen(true)}
-      />
-
-      {/* Connect Provider Dialog */}
-      <ConnectProviderDialog
-        open={connectProviderOpen}
-        onOpenChange={setConnectProviderOpen}
-        providers={providers}
-      />
+      {/* ProviderModal is rendered globally via GlobalProviderModal */}
     </>
   );
 }

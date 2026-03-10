@@ -319,15 +319,15 @@ export default function BillingHistory() {
 
       {/* Filter tabs + refresh */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1 bg-muted/60 rounded-lg p-1">
+        <div className="flex items-center gap-1">
           {FILTER_TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => handleTabChange(t.id)}
               className={cn(
-                'px-3 py-1.5 text-xs font-medium rounded-md transition-all',
+                'px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer',
                 tab === t.id
-                  ? 'bg-background text-foreground shadow-sm'
+                  ? 'text-foreground'
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >

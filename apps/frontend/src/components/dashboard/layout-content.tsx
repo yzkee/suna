@@ -108,6 +108,12 @@ const CommandPalette = lazy(() =>
 	})),
 );
 
+const GlobalProviderModal = lazy(() =>
+	import("@/components/providers/provider-modal").then((mod) => ({
+		default: mod.GlobalProviderModal,
+	})),
+);
+
 const ConnectingScreen = lazy(() =>
 	import("@/components/dashboard/connecting-screen").then((mod) => ({
 		default: mod.ConnectingScreen,
@@ -375,9 +381,9 @@ export default function DashboardLayoutContent({
 		}
 	}, [user, isLoading, router]);
 
-	// Hard gate: redirect to /onboarding if not complete
-	// Checks the sandbox instance directly via /env/ONBOARDING_COMPLETE
-	// Skip with ?skip_onboarding query param
+	// Hard gate: redirect to /onboarding if not complete.
+	// Uses the backend onboarding status endpoint as the single source of truth.
+	// Skip with ?skip_onboarding query param.
 	//
 	// FAST PATH: sessionStorage cache eliminates redundant requests per session.
 	// The cache is cleared on tab close so a reinstall + new tab works fine.
@@ -408,91 +414,26 @@ export default function DashboardLayoutContent({
 
 		const checkOnboarding = async () => {
 			const { authenticatedFetch } = await import("@/lib/auth-token");
-
-			// 1. Check onboarding first — if complete, setup is implicitly done too.
-			const instanceUrl = useServerStore.getState().getActiveServerUrl();
-
-			// Sandbox not registered yet — check backend setup/onboarding status
-			// before allowing access. If setup wizard or onboarding isn't done,
-			// redirect the user back instead of letting them into the dashboard.
-			// If both are complete (or the check fails), allow through so routes
-			// like Settings remain accessible while the sandbox reconnects.
-			if (!instanceUrl) {
-				try {
-					const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8008/v1";
-					const [setupRes, onboardingRes] = await Promise.all([
-						authenticatedFetch(`${backendUrl}/setup/setup-status`, undefined, { retryOnAuthError: false }).catch(() => null),
-						authenticatedFetch(`${backendUrl}/setup/onboarding-status`, undefined, { retryOnAuthError: false }).catch(() => null),
-					]);
-
-					const setupData = setupRes?.ok ? await setupRes.json() : null;
-					const onboardingData = onboardingRes?.ok ? await onboardingRes.json() : null;
-
-					if (setupData && !setupData.complete) {
-						// Setup wizard not done — redirect to auth to show the wizard
-						router.replace("/auth");
-						return;
-					}
-					if (onboardingData && !onboardingData.complete) {
-						// Setup done but onboarding not — redirect to onboarding
-						router.replace("/onboarding");
-						return;
-					}
-				} catch {
-					// Backend unreachable — allow through so Settings/Integrations
-					// remain accessible; the effect will re-run when a sandbox appears.
-				}
-				setOnboardingChecked(true);
-				return;
-			}
+			const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8008/v1";
 
 			try {
-				const res = await authenticatedFetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`, undefined, { retryOnAuthError: false });
-
-				if (res.ok) {
-					const data = await res.json();
-					if (data.ONBOARDING_COMPLETE === "true") {
-						// Onboarding complete — setup is implicitly done
-						sessionStorage.setItem("onboarding_complete", "true");
-						setOnboardingChecked(true);
-						return;
-					}
-				} else if (res.status >= 500) {
-					// Server error — treat as not onboarded
-					router.replace("/onboarding");
+				const res = await authenticatedFetch(`${backendUrl}/setup/onboarding-status`, undefined, { retryOnAuthError: false });
+				if (!res.ok) {
+					setOnboardingChecked(true);
 					return;
 				}
-			} catch {
-				// Sandbox not reachable — don't redirect, ConnectingScreen handles this
-				setOnboardingChecked(true);
-				return;
-			}
 
-		// 2. Onboarding NOT complete — check if setup wizard was done (DB).
-		//    If setup is also not done, redirect to /auth to show the wizard.
-		//    The auth page will fetch the wizard step from the backend directly.
-		//    Only applies to self-hosted (isSelfHosted()); cloud users skip this.
-		try {
-			const { isSelfHosted } = await import("@/lib/config");
-			if (isSelfHosted()) {
-				const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8008/v1";
-				const setupRes = await authenticatedFetch(`${backendUrl}/setup/setup-status`, undefined, { retryOnAuthError: false });
-				if (setupRes.ok) {
-					const setupData = await setupRes.json();
-					if (!setupData.complete) {
-						// Setup not done — redirect to auth; the auth page
-						// fetches the wizard step from the backend DB directly
-						router.replace("/auth");
-						return;
-					}
+				const data = await res.json();
+				if (data?.complete) {
+					sessionStorage.setItem("onboarding_complete", "true");
+					setOnboardingChecked(true);
+					return;
 				}
-			}
-		} catch {
-			// Setup check failed — fall through to onboarding
-		}
 
-			// 3. Setup done but onboarding not — go to onboarding
-			router.replace("/onboarding");
+				router.replace("/onboarding");
+			} catch {
+				setOnboardingChecked(true);
+			}
 		};
 		checkOnboarding();
 	}, [router, activeServerId, serverVersion]);
@@ -582,6 +523,9 @@ export default function DashboardLayoutContent({
 
 					<Suspense fallback={null}>
 						<CommandPalette />
+					</Suspense>
+					<Suspense fallback={null}>
+						<GlobalProviderModal />
 					</Suspense>
 					<Suspense fallback={null}>
 						<OnboardingProvider>

@@ -319,10 +319,8 @@ export const menuRegistry: MenuItemDef[] = [
     group: 'quickActions',
     subGroup: 'security',
     showIn: ['rightSidebar'],
-    kind: 'navigate',
-    href: '/settings/providers',
-    tabId: 'settings:providers',
-    tabType: 'settings',
+    kind: 'action',
+    actionId: 'openProviderModal',
   },
   {
     id: 'ssh-quick',
@@ -333,6 +331,18 @@ export const menuRegistry: MenuItemDef[] = [
     showIn: ['rightSidebar'],
     kind: 'action',
     actionId: 'generateSSHKey',
+  },
+  {
+    id: 'api-keys-quick',
+    label: 'API',
+    icon: Cable,
+    group: 'quickActions',
+    subGroup: 'security',
+    showIn: ['rightSidebar'],
+    kind: 'navigate',
+    href: '/settings/api-keys',
+    tabId: 'settings:api-keys',
+    tabType: 'settings',
   },
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -483,9 +493,8 @@ export const menuRegistry: MenuItemDef[] = [
     icon: Bot,
     group: 'settingsPages',
     showIn: ['commandPalette'],
-    kind: 'navigate',
-    href: '/settings/providers',
-    tabType: 'settings',
+    kind: 'action',
+    actionId: 'openProviderModal',
     keywords: 'llm providers models anthropic openai openrouter google groq xai',
   },
 

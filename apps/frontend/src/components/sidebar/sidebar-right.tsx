@@ -32,6 +32,7 @@ import {
   type MenuItemDef,
   type NavSubGroup,
 } from '@/lib/menu-registry';
+import { useProviderModalStore } from '@/stores/provider-modal-store';
 
 // ============================================================================
 // Main Right Sidebar — Quick actions (no file explorer — that's /files now)
@@ -138,6 +139,8 @@ export function SidebarRight() {
           handleNewTerminal();
         } else if (item.actionId === 'generateSSHKey') {
           setSSHDialogOpen(true);
+        } else if (item.actionId === 'openProviderModal') {
+          useProviderModalStore.getState().openProviderModal('connected');
         }
         break;
     }
