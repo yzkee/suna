@@ -13,6 +13,7 @@ import {
 	CheckCircle,
 	CheckSquare,
 	Clock,
+	Sparkles,
 	ChevronDown,
 	ChevronRight,
 	CircleAlert,
@@ -5116,13 +5117,17 @@ function SkillTool({ part, forceOpen }: ToolProps) {
 	const isRunning = status === "running" || status === "pending";
 	const isCompleted = status === "completed";
 
-	// Generate a brief summary from skill content (first paragraph)
+	// Generate a brief summary from skill content (first paragraph, skip the title line)
 	const description = useMemo(() => {
-		const firstPara = markdownContent.split("\n\n")[0]?.trim();
+		const lines = markdownContent.split("\n");
+		// Skip first line if it's a heading (# Skill Name)
+		const startIdx = lines[0]?.startsWith("# ") ? 1 : 0;
+		const content = lines.slice(startIdx).join("\n").trim();
+		const firstPara = content.split("\n\n")[0]?.trim();
 		if (!firstPara) return null;
 		// Truncate if too long
-		if (firstPara.length > 120) {
-			return firstPara.slice(0, 120).trim() + "...";
+		if (firstPara.length > 100) {
+			return firstPara.slice(0, 100).trim() + "...";
 		}
 		return firstPara;
 	}, [markdownContent]);
@@ -5136,56 +5141,68 @@ function SkillTool({ part, forceOpen }: ToolProps) {
 
 	return (
 		<>
-			{/* Clickable card — entire row opens modal */}
+			{/* Custom styled skill card */}
 			<div
 				role="button"
 				tabIndex={0}
 				onClick={() => setModalOpen(true)}
 				onKeyDown={(e) => e.key === "Enter" && setModalOpen(true)}
 				className={cn(
-					"flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg",
-					"bg-muted/20 border border-border/40",
-					"text-xs transition-colors select-none cursor-pointer hover:bg-muted/40",
-					"max-w-full group",
+					"group relative overflow-hidden rounded-lg border",
+					"bg-gradient-to-r from-violet-500/5 via-purple-500/5 to-fuchsia-500/5",
+					"border-violet-200/30 dark:border-violet-800/30",
+					"transition-all duration-200 cursor-pointer",
+					"hover:border-violet-300/50 dark:hover:border-violet-700/50",
+					"hover:shadow-sm hover:shadow-violet-500/10",
+					"max-w-full",
 				)}
 			>
-				{/* Icon */}
-				<BookOpen className="size-3.5 flex-shrink-0 text-muted-foreground" />
+				{/* Animated gradient shimmer on hover */}
+				<div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
 
-				{/* Title + description */}
-				<div className="flex items-center gap-1.5 min-w-0 flex-1">
-					<span className="font-medium text-xs text-foreground whitespace-nowrap">
-						Load Skill
-					</span>
-					{isRunning ? (
-						<TextShimmer duration={1} spread={2} className="text-xs truncate font-mono">
-							{skillName}
-						</TextShimmer>
-					) : description ? (
-						<span className="text-muted-foreground text-xs truncate font-mono">
-							{skillName}: {description}
-						</span>
-					) : (
-						<span className="text-muted-foreground text-xs truncate font-mono">
-							{skillName}
-						</span>
-					)}
+				<div className="relative flex items-center gap-3 px-3 py-2.5">
+					{/* Icon container with gradient bg */}
+					<div className="relative flex-shrink-0">
+						<div className="absolute inset-0 bg-violet-500/20 rounded-md blur-md" />
+						<div className="relative flex items-center justify-center w-8 h-8 rounded-md bg-violet-500/10 border border-violet-500/20">
+							{isRunning ? (
+								<Loader2 className="size-4 animate-spin text-violet-500" />
+							) : (
+								<BookOpen className="size-4 text-violet-600 dark:text-violet-400" />
+							)}
+						</div>
+					</div>
 
-					{/* Skill files badge */}
-					{isCompleted && skillFiles.length > 0 && (
-						<span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-muted/60 text-muted-foreground/70 font-mono whitespace-nowrap flex-shrink-0">
-							{skillFiles.length} files
-						</span>
-					)}
+					{/* Content */}
+					<div className="flex-1 min-w-0">
+						<div className="flex items-center gap-2">
+							<span className="font-semibold text-sm text-foreground whitespace-nowrap">
+								{skillName}
+							</span>
+							{isCompleted && (
+								<span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+									<Check className="size-2.5" />
+									Loaded
+								</span>
+							)}
+						</div>
+						{description && (
+							<p className="text-xs text-muted-foreground truncate mt-0.5">
+								{description}
+							</p>
+						)}
+					</div>
+
+					{/* Right side - files count or arrow */}
+					<div className="flex items-center gap-2 flex-shrink-0">
+						{isCompleted && skillFiles.length > 0 && (
+							<span className="text-[10px] px-2 py-1 rounded-md bg-muted/60 text-muted-foreground/70 font-medium">
+								{skillFiles.length} file{skillFiles.length !== 1 ? "s" : ""}
+							</span>
+						)}
+						<ExternalLink className="size-3.5 text-muted-foreground/40 group-hover:text-violet-500 transition-colors" />
+					</div>
 				</div>
-
-				{/* Right side */}
-				{running && (
-					<Loader2 className="size-3 animate-spin text-muted-foreground/40 flex-shrink-0" />
-				)}
-				{!running && (
-					<ExternalLink className="size-3 flex-shrink-0 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors" />
-				)}
 			</div>
 
 			{/* Modal with full skill content */}
@@ -5199,27 +5216,40 @@ function SkillTool({ part, forceOpen }: ToolProps) {
 						)}
 						aria-describedby={undefined}
 					>
-						{/* Header */}
-						<div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/50 bg-muted/30 shrink-0">
-							<BookOpen className="size-3.5 text-muted-foreground flex-shrink-0" />
-							<DialogTitle className="text-sm font-medium truncate flex-1">
-								Skill: {skillName}
-							</DialogTitle>
+						{/* Header with gradient */}
+						<div className="flex items-center gap-3 px-4 py-3 border-b border-violet-200/30 dark:border-violet-800/30 bg-gradient-to-r from-violet-500/10 via-purple-500/10 to-fuchsia-500/10 shrink-0">
+							<div className="flex items-center justify-center w-9 h-9 rounded-lg bg-violet-500/15 border border-violet-500/20">
+								<BookOpen className="size-5 text-violet-600 dark:text-violet-400" />
+							</div>
+							<div className="flex-1 min-w-0">
+								<DialogTitle className="text-base font-semibold truncate">
+									{skillName}
+								</DialogTitle>
+								{skillDir && (
+									<p className="text-xs text-muted-foreground truncate">
+										{skillDir}
+									</p>
+								)}
+							</div>
+							{isCompleted && skillFiles.length > 0 && (
+								<span className="text-xs px-2 py-1 rounded-md bg-muted/60 text-muted-foreground/70 font-medium">
+									{skillFiles.length} file{skillFiles.length !== 1 ? "s" : ""}
+								</span>
+							)}
 							<button
 								type="button"
 								onClick={() => setModalOpen(false)}
 								className={cn(
-									"flex items-center justify-center size-6 rounded-md",
-									"text-muted-foreground hover:text-foreground",
-									"hover:bg-muted/60 transition-colors",
+									"flex items-center justify-center size-7 rounded-md",
+									"text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors",
 								)}
 							>
-								<X className="size-3.5" />
+								<X className="size-4" />
 							</button>
 						</div>
 
 						{/* Content */}
-						<div className={cn("flex-1 overflow-auto p-4", MD_FLUSH_CLASSES)}>
+						<div className={cn("flex-1 overflow-auto p-5", MD_FLUSH_CLASSES)}>
 							<UnifiedMarkdown content={modalContent} isStreaming={false} />
 						</div>
 					</DialogContent>
