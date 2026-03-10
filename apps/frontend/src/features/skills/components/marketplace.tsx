@@ -34,6 +34,7 @@ import { Input } from '@/components/ui/input';
 import { getClient } from '@/lib/opencode-sdk';
 import { cn } from '@/lib/utils';
 import { getActiveOpenCodeUrl } from '@/stores/server-store';
+import { getPtyWebSocketUrl } from '@/hooks/opencode/use-opencode-pty';
 
 import {
 	type RegistryComponent,
@@ -81,13 +82,10 @@ async function runPtyCommand(command: string): Promise<string> {
 	const pty = created.data as { id?: string };
 	if (!pty.id) throw new Error('PTY created but no ID returned');
 
-	const baseUrl = getActiveOpenCodeUrl();
-	if (!baseUrl) throw new Error('No OpenCode server URL configured');
-
-	const wsBase = baseUrl.replace('https://', 'wss://').replace('http://', 'ws://');
+	const connectUrl = await getPtyWebSocketUrl(pty.id);
 
 	return new Promise<string>((resolve, reject) => {
-		const ws = new WebSocket(`${wsBase}/pty/${pty.id}/connect`);
+		const ws = new WebSocket(connectUrl);
 		const chunks: string[] = [];
 		const timeout = setTimeout(() => {
 			ws.close();
