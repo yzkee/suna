@@ -734,6 +734,9 @@ importers:
         specifier: ^3.0.0
         version: 3.225.0(typescript@5.9.3)
     devDependencies:
+      '@types/node':
+        specifier: ^25.4.0
+        version: 25.4.0
       typescript:
         specifier: ^5.0.0
         version: 5.9.3
@@ -926,7 +929,7 @@ importers:
   packages/sandbox:
     dependencies:
       '@kortix/kortix-oc':
-        specifier: ^0.1.1
+        specifier: workspace:0.1.1
         version: link:../kortix-oc
       '@kortix/opencode-channels':
         specifier: ^0.2.0
@@ -7868,7 +7871,7 @@ packages:
     dependencies:
       '@slack/logger': 4.0.0
       '@slack/types': 2.20.0
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
       '@types/retry': 0.12.0
       axios: 1.13.5
       eventemitter3: 5.0.4
@@ -9743,7 +9746,7 @@ packages:
     dependencies:
       '@types/http-cache-semantics': 4.2.0
       '@types/keyv': 3.1.4
-      '@types/node': 20.19.33
+      '@types/node': 25.4.0
       '@types/responselike': 1.0.3
     dev: false
 
@@ -9770,7 +9773,7 @@ packages:
   /@types/colorthief@2.6.1:
     resolution: {integrity: sha512-3hlRky7ybPuQDNx3RV29P/CTvuC7zkk//Xt/NyOwNg5RhL/y54a0q4aW7MNMkvBkGJqX2g2igNCoCh3ZtK4gZQ==}
     dependencies:
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
     dev: true
 
   /@types/d3-array@3.2.2:
@@ -9965,7 +9968,7 @@ packages:
   /@types/docker-modem@3.0.6:
     resolution: {integrity: sha512-yKpAGEuKRSS8wwx0joknWxsmLha78wNMe9R2S3UNsVOkZded8UqOrV8KoeDXoXsjndxwyF3eIhyClGbO1SEhEg==}
     dependencies:
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
       '@types/ssh2': 1.15.5
     dev: true
 
@@ -9973,7 +9976,7 @@ packages:
     resolution: {integrity: sha512-ShM1mz7rCjdssXt7Xz0u1/R2BJC7piWa3SJpUBiVjCf2A3XNn4cP6pUVaD8bLanpPVVn4IKzJuw3dOvkJ8IbYw==}
     dependencies:
       '@types/docker-modem': 3.0.6
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
       '@types/ssh2': 1.15.5
     dev: true
 
@@ -10037,7 +10040,7 @@ packages:
   /@types/keyv@3.1.4:
     resolution: {integrity: sha512-BQ5aZNSCpj7D6K2ksrRCTmKRLEpnPvWDiLPfoGyhZ++8YtiK9d/3DBKPJgry359X/P1PfruyYwvnvwFjuEiEIg==}
     dependencies:
-      '@types/node': 20.19.33
+      '@types/node': 25.4.0
     dev: false
 
   /@types/linkify-it@5.0.0:
@@ -10098,6 +10101,11 @@ packages:
     dependencies:
       undici-types: 6.21.0
 
+  /@types/node@25.4.0:
+    resolution: {integrity: sha512-9wLpoeWuBlcbBpOY3XmzSTG3oscB6xjBEEtn+pYXTfhyXhIxC5FsBer2KTopBlvKEiW9l13po9fq+SJY/5lkhw==}
+    dependencies:
+      undici-types: 7.18.2
+
   /@types/pako@2.0.4:
     resolution: {integrity: sha512-VWDCbrLeVXJM9fihYodcLiIv0ku+AlOa/TQ1SvYOaBuyrSKgEcro95LJyIsJ4vSo6BXIxOKxiJAat04CmST9Fw==}
     dev: false
@@ -10105,7 +10113,7 @@ packages:
   /@types/papaparse@5.5.2:
     resolution: {integrity: sha512-gFnFp/JMzLHCwRf7tQHrNnfhN4eYBVYYI897CGX4MY1tzY9l2aLkVyx2IlKZ/SAqDbB3I1AOZW5gTMGGsqWliA==}
     dependencies:
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
     dev: false
 
   /@types/parse-json@4.0.2:
@@ -10161,7 +10169,7 @@ packages:
   /@types/responselike@1.0.3:
     resolution: {integrity: sha512-H/+L+UkTV33uf49PH5pCAUBVPNj2nDBXTN+qS1dOwyyg24l3CcicicCA7ca+HMvJBZcFgl5r8e+RR6elsb4Lyw==}
     dependencies:
-      '@types/node': 20.19.33
+      '@types/node': 25.4.0
     dev: false
 
   /@types/retry@0.12.0:
@@ -10222,7 +10230,7 @@ packages:
   /@types/ws@8.18.1:
     resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
     dependencies:
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
     dev: false
 
   /@types/yauzl@2.10.3:
@@ -11464,7 +11472,7 @@ packages:
   /bun-types@1.3.9:
     resolution: {integrity: sha512-+UBWWOakIP4Tswh0Bt0QD0alpTY8cb5hvgiYeWCMet9YukHbzuruIEeXC2D7nMJPB12kbh8C7XJykSexEqGKJg==}
     dependencies:
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
 
   /bundle-name@4.1.0:
     resolution: {integrity: sha512-tjwM5exMg6BGRI+kNmTntNsvdZS1X8BFYS6tnJ2hdH0kVxM6/eVZ2xy+FqStSWvYmtfFMDLIxurorHwDKfDz5Q==}
@@ -17735,7 +17743,7 @@ packages:
       '@protobufjs/path': 1.1.2
       '@protobufjs/pool': 1.1.0
       '@protobufjs/utf8': 1.1.0
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
       long: 5.3.2
     dev: false
 
@@ -19390,7 +19398,7 @@ packages:
     resolution: {integrity: sha512-wQS3GNMofCXwH8TSje8E1SE8zr6ODiGtHQgPtO95p9Mb4FhKC9jvXR2NUTpZ9ZINlckJcFidCmaTFV4P6vsb9g==}
     engines: {node: '>=12.*'}
     dependencies:
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
       qs: 6.14.2
     dev: false
 
@@ -19872,6 +19880,9 @@ packages:
 
   /undici-types@6.21.0:
     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
+
+  /undici-types@7.18.2:
+    resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
 
   /undici@6.21.3:
     resolution: {integrity: sha512-gBLkYIlEnSp8pFbT64yFgGE6UIB9tAkhukC23PmMDCe5Nd+cRqKxSjw5y54MK2AZMgZfJWMaNE4nYUHgi1XEOw==}
