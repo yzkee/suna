@@ -562,6 +562,14 @@ export function CommandPalette() {
   }, [currentSessionId, close]);
 
   // ── Registry action dispatcher ──
+  const handleOpenProviderModal = useCallback(() => {
+    close();
+    // Dynamic import to avoid circular deps — lazy is fine for a click handler
+    import('@/stores/provider-modal-store').then(({ useProviderModalStore }) => {
+      useProviderModalStore.getState().openProviderModal('connected');
+    });
+  }, [close]);
+
   const actionHandlers: Record<string, () => void> = useMemo(() => ({
     newSession: handleNewSession,
     openTerminal: handleOpenTerminal,
@@ -570,7 +578,8 @@ export function CommandPalette() {
     toggleSidebar: handleToggleSidebar,
     logout: handleLogout,
     openPlan: handleOpenPlan,
-  }), [handleNewSession, handleOpenTerminal, handleCompactSession, handleViewChanges, handleToggleSidebar, handleLogout, handleOpenPlan]);
+    openProviderModal: handleOpenProviderModal,
+  }), [handleNewSession, handleOpenTerminal, handleCompactSession, handleViewChanges, handleToggleSidebar, handleLogout, handleOpenPlan, handleOpenProviderModal]);
 
   const handleRegistryItem = useCallback((item: MenuItemDef) => {
     switch (item.kind) {
@@ -798,35 +807,51 @@ export function CommandPalette() {
               {/* ── Sessions ── */}
               {hasSessionResults && (
                 <CommandGroup heading="Sessions" forceMount>
-                  {filteredSessions.map((session) => (
-                    <CommandItem
-                      key={session.id}
-                      value={`session-${session.id}`}
-                      onSelect={() =>
-                        handleSelectSession(
-                          session.id,
-                          session.title || session.slug || 'Untitled',
-                        )
-                      }
-                    >
-                      <MessageCircle className="h-4 w-4 flex-shrink-0" />
-                      <div className="flex flex-col overflow-hidden flex-1 min-w-0">
-                        <span className="truncate text-sm">
-                          {session.title || session.slug || 'Untitled'}
-                        </span>
-                        <span className="text-[11px] text-muted-foreground/50 truncate">
-                          {formatRelativeTime(session.time.updated)}
-                          {session.summary && session.summary.files > 0 && (
-                            <span className="ml-1">
-                              · {session.summary.files} file
-                              {session.summary.files !== 1 ? 's' : ''}
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                      <ArrowRightLeft className="h-3 w-3 text-muted-foreground/30 flex-shrink-0" />
-                    </CommandItem>
-                  ))}
+                  {filteredSessions.map((session) => {
+                    const hasTitle = !!(session.title || session.slug);
+                    return (
+                      <CommandItem
+                        key={session.id}
+                        value={`session-${session.id}`}
+                        onSelect={() =>
+                          handleSelectSession(
+                            session.id,
+                            session.title || session.slug || session.id,
+                          )
+                        }
+                      >
+                        <MessageCircle className="h-4 w-4 flex-shrink-0" />
+                        <div className="flex flex-col overflow-hidden flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            {hasTitle ? (
+                              <>
+                                <span className="truncate text-sm font-medium">
+                                  {session.title || session.slug}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground/40 font-mono flex-shrink-0">
+                                  {session.id}
+                                </span>
+                              </>
+                            ) : (
+                              <span className="truncate text-sm font-mono text-muted-foreground/70">
+                                {session.id}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[11px] text-muted-foreground/50 truncate">
+                            {formatRelativeTime(session.time.updated)}
+                            {session.summary && session.summary.files > 0 && (
+                              <span className="ml-1">
+                                · {session.summary.files} file
+                                {session.summary.files !== 1 ? 's' : ''}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        <ArrowRightLeft className="h-3 w-3 text-muted-foreground/30 flex-shrink-0" />
+                      </CommandItem>
+                    );
+                  })}
                 </CommandGroup>
               )}
 

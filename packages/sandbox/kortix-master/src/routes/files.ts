@@ -91,19 +91,38 @@ filesRouter.get('/',
 
     try {
       const entries = await fs.readdir(resolved, { withFileTypes: true })
-      const nodes = entries
-        .filter((e) => e.name !== '.git' && e.name !== '.DS_Store')
-        .map((e) => ({
-          name: e.name,
-          path: path.join(dirPath, e.name),
-          absolute: path.join(resolved, e.name),
-          type: e.isDirectory() ? 'directory' as const : 'file' as const,
-          ignored: false,
-        }))
-        .sort((a, b) => {
-          if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
-          return a.name.localeCompare(b.name)
-        })
+      
+      // For symlinks, we need to check the actual type they point to
+      const nodes = await Promise.all(
+        entries
+          .filter((e) => e.name !== '.git' && e.name !== '.DS_Store')
+          .map(async (e) => {
+            let type: 'file' | 'directory' = e.isDirectory() ? 'directory' : 'file'
+            
+            // If it's a symlink, check what it actually points to (use stat, not lstat)
+            if (e.isSymbolicLink()) {
+              try {
+                const stat = await fs.stat(path.join(resolved, e.name))
+                type = stat.isDirectory() ? 'directory' : 'file'
+              } catch {
+                // stat failed, keep the original type
+              }
+            }
+            
+            return {
+              name: e.name,
+              path: path.join(dirPath, e.name),
+              absolute: path.join(resolved, e.name),
+              type,
+              ignored: false,
+            }
+          })
+      )
+      
+      nodes.sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
+        return a.name.localeCompare(b.name)
+      })
       return c.json(nodes)
     } catch (err: any) {
       if (err.code === 'ENOENT') return c.json({ error: 'Directory not found' }, 404)

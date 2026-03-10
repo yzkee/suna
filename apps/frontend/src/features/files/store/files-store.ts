@@ -152,9 +152,8 @@ export const useFilesStore = create<FilesStore>()((set, get) => ({
   },
 
   openFile: (filePath: string, targetLine?: number) => {
-    // Derive the parent directory to keep the tree in sync
-    const lastSlash = filePath.lastIndexOf('/');
-    const parentDir = lastSlash > 0 ? filePath.slice(0, lastSlash) : '/workspace';
+    // Don't change currentPath - keep user in their current folder
+    // Just open the file in viewer and reveal it in the tree
 
     set({
       selectedFilePath: filePath,
@@ -164,7 +163,7 @@ export const useFilesStore = create<FilesStore>()((set, get) => ({
       currentFileIndex: 0,
       isSearchOpen: false,
       targetLine: targetLine ?? null,
-      currentPath: parentDir,
+      // REMOVED: currentPath: parentDir - don't jump to file's folder
     });
     // Reveal the file in the tree
     get().revealPath(filePath);
@@ -175,8 +174,7 @@ export const useFilesStore = create<FilesStore>()((set, get) => ({
   },
 
   openFileWithList: (filePath: string, fileList: string[], index: number) => {
-    const lastSlash = filePath.lastIndexOf('/');
-    const parentDir = lastSlash > 0 ? filePath.slice(0, lastSlash) : '/workspace';
+    // Don't change currentPath - keep user in their current folder
 
     set({
       selectedFilePath: filePath,
@@ -185,7 +183,7 @@ export const useFilesStore = create<FilesStore>()((set, get) => ({
       filePathList: fileList,
       currentFileIndex: index,
       isSearchOpen: false,
-      currentPath: parentDir,
+      // REMOVED: currentPath: parentDir - don't jump to file's folder
     });
     get().revealPath(filePath);
   },
