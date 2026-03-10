@@ -1,5 +1,7 @@
-import { redirect } from 'next/navigation';
+'use client';
+
+import { Marketplace } from '@/features/skills/components/marketplace';
 
 export default function SkillsPage() {
-  redirect('/workspace');
+  return <Marketplace />;
 }

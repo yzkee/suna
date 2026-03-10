@@ -797,6 +797,18 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
             }}
           />
           <CollapsedIconButton
+            icon={<Sparkles className="h-4 w-4" />}
+            label="Marketplace"
+            onClick={() => {
+              openTabAndNavigate({
+                id: 'marketplace',
+                title: 'Marketplace',
+                type: 'page',
+                href: '/marketplace',
+              });
+            }}
+          />
+          <CollapsedIconButton
             icon={<ListTree className="h-4 w-4" />}
             label="Sessions"
             flyoutContent={<SessionsFlyout />}
@@ -854,8 +866,24 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
               </kbd>
             </button>
 
+            {/* Marketplace */}
+            <button
+              onClick={() => {
+                openTabAndNavigate({
+                  id: 'marketplace',
+                  title: 'Marketplace',
+                  type: 'page',
+                  href: '/marketplace',
+                });
+              }}
+              className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150 cursor-pointer"
+            >
+              <Sparkles className="h-4 w-4 flex-shrink-0" />
+              <span className="flex-1 text-left">Marketplace</span>
+            </button>
+
             {/* Sessions — expandable, default open */}
-          </nav>
+            </nav>
 
 
           <SidebarSections />
