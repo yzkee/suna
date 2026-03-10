@@ -44,12 +44,28 @@ jobs:
           git merge origin/${{ steps.branches.outputs.source }} --no-edit
           git push origin ${{ steps.branches.outputs.target }}
 
-      - name: Trigger VPS deploy on staging
+      - name: Deploy to VPS on staging
         if: steps.branches.outputs.target == 'staging'
-        run: |
-          gh workflow run "Deploy kortix-api" --ref staging
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.AWS_PRODUCTION_HOST }}
+          username: ${{ secrets.AWS_PRODUCTION_USERNAME }}
+          key: ${{ secrets.AWS_PRODUCTION_KEY }}
+          port: 22
+          timeout: 300s
+          script: |
+            set -e
+            cd ~/computer
+            git fetch origin staging
+            git reset --hard origin/staging
+            docker compose --project-directory . -f scripts/compose/docker-compose.yml --profile backend down --remove-orphans || true
+            docker compose --project-directory . -f scripts/compose/docker-compose.yml --profile backend build --no-cache
+            docker compose --project-directory . -f scripts/compose/docker-compose.yml --profile backend up -d
+            for i in $(seq 1 15); do
+              curl -sf http://localhost:8008/v1/health > /dev/null 2>&1 && echo "Healthy after ${i}s" && break
+              [ "$i" -eq 15 ] && echo "Health check failed" && exit 1
+              sleep 1
+            done
 
       - name: Summary
         run: |
