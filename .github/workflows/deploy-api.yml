@@ -2,7 +2,7 @@ name: Deploy kortix-api
 
 on:
   push:
-    branches: [main]
+    branches: [staging]
     paths:
       - 'kortix-api/**'
       - 'kortix-api/Dockerfile'
@@ -35,9 +35,9 @@ jobs:
             git submodule update --init --recursive
 
             # Stop and remove old containers first to avoid name conflicts
-            docker compose -f scripts/compose/docker-compose.yml --profile backend down --remove-orphans || true
-            docker compose -f scripts/compose/docker-compose.yml --profile backend build --no-cache
-            docker compose -f scripts/compose/docker-compose.yml --profile backend up -d
+            docker compose --project-directory . -f scripts/compose/docker-compose.yml --profile backend down --remove-orphans || true
+            docker compose --project-directory . -f scripts/compose/docker-compose.yml --profile backend build --no-cache
+            docker compose --project-directory . -f scripts/compose/docker-compose.yml --profile backend up -d
 
             for i in $(seq 1 15); do
               if curl -sf http://localhost:8008/v1/health > /dev/null 2>&1; then
@@ -49,4 +49,4 @@ jobs:
             done
 
             docker image prune -af --filter "until=24h" || true
-            docker compose -f scripts/compose/docker-compose.yml --profile backend ps
+            docker compose --project-directory . -f scripts/compose/docker-compose.yml --profile backend ps
