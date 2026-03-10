@@ -662,6 +662,16 @@ export const menuRegistry: MenuItemDef[] = [
     href: '/admin/access-requests',
     requiresAdmin: true,
   },
+  {
+    id: 'admin-sandboxes',
+    label: 'All Sandboxes',
+    icon: Server,
+    group: 'admin',
+    showIn: ['userMenu'],
+    kind: 'navigate',
+    href: '/admin/sandboxes',
+    requiresAdmin: true,
+  },
 ];
 
 // ============================================================================

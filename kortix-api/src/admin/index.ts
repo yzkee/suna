@@ -398,6 +398,68 @@ adminApp.get('/api/instances', async (c) => {
   }
 });
 
+/** GET /v1/admin/api/sandboxes — list all sandboxes with account info */
+adminApp.get('/api/sandboxes', async (c) => {
+  try {
+    const { db } = await import('../shared/db');
+    const { sandboxes, accounts } = await import('@kortix/db');
+    const { desc, eq } = await import('drizzle-orm');
+
+    const rows = await db
+      .select({
+        sandboxId: sandboxes.sandboxId,
+        accountId: sandboxes.accountId,
+        name: sandboxes.name,
+        provider: sandboxes.provider,
+        externalId: sandboxes.externalId,
+        status: sandboxes.status,
+        baseUrl: sandboxes.baseUrl,
+        metadata: sandboxes.metadata,
+        createdAt: sandboxes.createdAt,
+        updatedAt: sandboxes.updatedAt,
+        lastUsedAt: sandboxes.lastUsedAt,
+      })
+      .from(sandboxes)
+      .orderBy(desc(sandboxes.createdAt))
+      .limit(500);
+
+    return c.json({ sandboxes: rows });
+  } catch (e: any) {
+    return c.json({ sandboxes: [], error: e?.message || String(e) }, 500);
+  }
+});
+
+/** DELETE /v1/admin/api/sandboxes/:id — delete a sandbox from DB and provider */
+adminApp.delete('/api/sandboxes/:id', async (c) => {
+  try {
+    const sandboxId = c.req.param('id');
+    const { db } = await import('../shared/db');
+    const { sandboxes } = await import('@kortix/db');
+    const { eq } = await import('drizzle-orm');
+
+    const [row] = await db.select().from(sandboxes).where(eq(sandboxes.sandboxId, sandboxId)).limit(1);
+    if (!row) return c.json({ error: 'Sandbox not found' }, 404);
+
+    // Try to delete from provider
+    if (row.provider === 'hetzner' && row.externalId) {
+      try {
+        const { config: cfg } = await import('../config');
+        await fetch(`https://api.hetzner.cloud/v1/servers/${row.externalId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${cfg.HETZNER_API_KEY}` },
+        });
+      } catch (e: any) {
+        console.warn(`[ADMIN] Failed to delete Hetzner server ${row.externalId}: ${e?.message}`);
+      }
+    }
+
+    await db.delete(sandboxes).where(eq(sandboxes.sandboxId, sandboxId));
+    return c.json({ success: true, sandboxId });
+  } catch (e: any) {
+    return c.json({ error: e?.message || String(e) }, 500);
+  }
+});
+
 /** GET /v1/admin/api/health — service health checks */
 adminApp.get('/api/health', async (c) => {
   const repoRoot = findRepoRoot();
