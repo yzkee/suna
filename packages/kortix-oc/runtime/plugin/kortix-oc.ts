@@ -93,6 +93,10 @@ function applyKortixConfig(output: Config): void {
   config.command = deepMergeDefaults(runtimeCommands, config.command as Record<string, unknown> | undefined)
 
   const skillPaths = new Set([...(config.skills?.paths ?? []), ...listRuntimeSkillPaths()])
+  
+  // Add user-installed skills from .opencode/skills
+  skillPaths.add(".opencode/skills")
+  
   config.skills = {
     ...(config.skills ?? {}),
     paths: [...skillPaths],
