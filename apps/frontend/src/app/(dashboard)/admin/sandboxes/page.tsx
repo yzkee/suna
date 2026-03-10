@@ -54,10 +54,20 @@ function formatDate(dateStr: string | null) {
   });
 }
 
+function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex justify-between gap-4 py-1.5 border-b border-foreground/[0.06] last:border-0">
+      <span className="text-muted-foreground text-sm shrink-0">{label}</span>
+      <span className="text-sm font-mono text-right break-all">{value ?? '—'}</span>
+    </div>
+  );
+}
+
 export default function AdminSandboxesPage() {
   const { data: adminRole, isLoading: roleLoading } = useAdminRole();
   const { data: sandboxes, isLoading, refetch, isFetching } = useAdminSandboxes();
   const deleteMutation = useDeleteAdminSandbox();
+  const [infoDialog, setInfoDialog] = useState<AdminSandbox | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AdminSandbox | null>(null);
 
   if (roleLoading) {
@@ -99,6 +109,7 @@ export default function AdminSandboxesPage() {
       toast.error('Failed to delete sandbox', { description: err.message });
     }
     setConfirmDelete(null);
+    setInfoDialog(null);
   }
 
   const providerCounts = list.reduce<Record<string, number>>((acc, s) => {
@@ -123,7 +134,6 @@ export default function AdminSandboxesPage() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Summary cards */}
             <div className="bg-foreground/[0.04] border border-foreground/[0.08] rounded-lg px-4 py-2 text-center min-w-[80px]">
               <p className="text-lg font-semibold">{list.length}</p>
               <p className="text-[11px] text-muted-foreground">Total</p>
@@ -164,12 +174,11 @@ export default function AdminSandboxesPage() {
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead className="w-[120px]">ID</TableHead>
+                  <TableHead className="w-[100px]">ID</TableHead>
                   <TableHead>Name</TableHead>
+                  <TableHead>Account / Email</TableHead>
                   <TableHead>Provider</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="w-[140px]">External ID</TableHead>
-                  <TableHead>Account</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead>Last Used</TableHead>
                   <TableHead className="text-right w-[80px]">Actions</TableHead>
@@ -177,12 +186,24 @@ export default function AdminSandboxesPage() {
               </TableHeader>
               <TableBody>
                 {list.map((sandbox) => (
-                  <TableRow key={sandbox.sandboxId} className="group">
+                  <TableRow
+                    key={sandbox.sandboxId}
+                    className="group cursor-pointer"
+                    onClick={() => setInfoDialog(sandbox)}
+                  >
                     <TableCell className="font-mono text-xs text-muted-foreground" title={sandbox.sandboxId}>
                       {sandbox.sandboxId.slice(0, 8)}
                     </TableCell>
                     <TableCell className="font-medium text-sm">
                       {sandbox.name ?? <span className="text-muted-foreground">—</span>}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className="text-sm">{sandbox.accountName ?? <span className="text-muted-foreground">—</span>}</span>
+                        {sandbox.ownerEmail && (
+                          <span className="text-xs text-muted-foreground">{sandbox.ownerEmail}</span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-sm capitalize">
                       {sandbox.provider ?? <span className="text-muted-foreground">—</span>}
@@ -190,19 +211,13 @@ export default function AdminSandboxesPage() {
                     <TableCell>
                       <StatusBadge status={sandbox.status} />
                     </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground" title={sandbox.externalId ?? undefined}>
-                      {sandbox.externalId ? sandbox.externalId.toString().slice(0, 10) + '…' : '—'}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground" title={sandbox.accountId ?? undefined}>
-                      {sandbox.accountId ? sandbox.accountId.slice(0, 8) + '…' : '—'}
-                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {formatDate(sandbox.createdAt)}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {formatDate(sandbox.lastUsedAt)}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -221,6 +236,55 @@ export default function AdminSandboxesPage() {
         )}
       </div>
 
+      {/* Full info dialog */}
+      <Dialog open={!!infoDialog} onOpenChange={() => setInfoDialog(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-mono text-base">{infoDialog?.sandboxId}</DialogTitle>
+            <DialogDescription>Full sandbox details</DialogDescription>
+          </DialogHeader>
+
+          {infoDialog && (
+            <div className="space-y-0.5">
+              <InfoRow label="Name" value={infoDialog.name} />
+              <InfoRow label="Account" value={infoDialog.accountName} />
+              <InfoRow label="Email" value={infoDialog.ownerEmail} />
+              <InfoRow label="Account ID" value={infoDialog.accountId} />
+              <InfoRow label="Provider" value={infoDialog.provider} />
+              <InfoRow label="Status" value={<StatusBadge status={infoDialog.status} />} />
+              <InfoRow label="External ID" value={infoDialog.externalId} />
+              <InfoRow label="Base URL" value={infoDialog.baseUrl} />
+              <InfoRow label="Created" value={formatDate(infoDialog.createdAt)} />
+              <InfoRow label="Updated" value={formatDate(infoDialog.updatedAt)} />
+              <InfoRow label="Last Used" value={formatDate(infoDialog.lastUsedAt)} />
+              {infoDialog.metadata && (
+                <div className="pt-2">
+                  <p className="text-muted-foreground text-sm mb-1">Metadata</p>
+                  <pre className="text-xs bg-foreground/[0.04] border border-foreground/[0.08] rounded-lg p-3 overflow-auto max-h-40">
+                    {JSON.stringify(infoDialog.metadata, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => { setConfirmDelete(infoDialog); }}
+              disabled={deleteMutation.isPending}
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+              Delete
+            </Button>
+            <Button variant="outline" onClick={() => setInfoDialog(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Confirm delete dialog */}
       <Dialog open={!!confirmDelete} onOpenChange={() => setConfirmDelete(null)}>
         <DialogContent>
@@ -237,8 +301,12 @@ export default function AdminSandboxesPage() {
           {confirmDelete && (
             <div className="bg-foreground/[0.04] border border-foreground/[0.08] rounded-lg px-4 py-3 space-y-1.5 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Name</span>
-                <span>{confirmDelete.name ?? '—'}</span>
+                <span className="text-muted-foreground">Account</span>
+                <span>{confirmDelete.accountName ?? '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Email</span>
+                <span>{confirmDelete.ownerEmail ?? '—'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Provider</span>
@@ -255,11 +323,7 @@ export default function AdminSandboxesPage() {
             <Button variant="outline" onClick={() => setConfirmDelete(null)} disabled={deleteMutation.isPending}>
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleteMutation.isPending}
-            >
+            <Button variant="destructive" onClick={handleDelete} disabled={deleteMutation.isPending}>
               {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
             </Button>
           </DialogFooter>

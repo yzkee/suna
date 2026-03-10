@@ -13,6 +13,8 @@ export interface AdminSandbox {
   createdAt: string;
   updatedAt: string;
   lastUsedAt: string | null;
+  accountName: string | null;
+  ownerEmail: string | null;
 }
 
 interface AdminSandboxesResponse {

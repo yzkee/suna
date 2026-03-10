@@ -399,12 +399,12 @@ adminApp.get('/api/instances', async (c) => {
   }
 });
 
-/** GET /v1/admin/api/sandboxes — list all sandboxes with account info */
+/** GET /v1/admin/api/sandboxes — list all sandboxes with account name + user email */
 adminApp.get('/api/sandboxes', async (c) => {
   try {
     const { db } = await import('../shared/db');
-    const { sandboxes, accounts } = await import('@kortix/db');
-    const { desc, eq } = await import('drizzle-orm');
+    const { sandboxes, accounts, accountMembers } = await import('@kortix/db');
+    const { desc, eq, sql } = await import('drizzle-orm');
 
     const rows = await db
       .select({
@@ -419,8 +419,16 @@ adminApp.get('/api/sandboxes', async (c) => {
         createdAt: sandboxes.createdAt,
         updatedAt: sandboxes.updatedAt,
         lastUsedAt: sandboxes.lastUsedAt,
+        accountName: accounts.name,
+        ownerEmail: sql<string>`(
+          SELECT au.email FROM auth.users au
+          INNER JOIN kortix.account_members am ON am.user_id = au.id
+          WHERE am.account_id = ${sandboxes.accountId}
+          LIMIT 1
+        )`,
       })
       .from(sandboxes)
+      .leftJoin(accounts, eq(sandboxes.accountId, accounts.accountId))
       .orderBy(desc(sandboxes.createdAt))
       .limit(500);
 
