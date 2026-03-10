@@ -25,10 +25,13 @@ warn() { echo "  ${YELLOW}⚠${NC} $*"; }
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 HETZNER_API="https://api.hetzner.cloud/v1"
-DOCKER_IMAGE_PREFIX="kortix/sandbox"
+# kortix/computer is a stable OS base — always pull :latest, never a versioned tag.
+# Code ships separately via @kortix/sandbox npm at first boot (startup.sh).
+DOCKER_IMAGE_PREFIX="kortix/computer"
 # Use a cheap shared server just for building the snapshot
-BUILD_SERVER_TYPE="${HETZNER_BUILD_SERVER_TYPE:-cpx11}"
-BUILD_LOCATION="${HETZNER_BUILD_LOCATION:-fsn1}"
+# cx23 (2vCPU/4GB) is broadly available; cpx11 varies by account/region
+BUILD_SERVER_TYPE="${HETZNER_BUILD_SERVER_TYPE:-cx23}"
+BUILD_LOCATION="${HETZNER_BUILD_LOCATION:-nbg1}"
 # Ubuntu 24.04 as base OS
 BASE_IMAGE="ubuntu-24.04"
 # Timeout waiting for cloud-init to finish (10 minutes)
@@ -78,8 +81,9 @@ if [ -z "${HETZNER_API_KEY:-}" ]; then
   exit 1
 fi
 
-SNAPSHOT_DESCRIPTION="kortix-sandbox-v${VERSION}"
-DOCKER_IMAGE="${DOCKER_IMAGE_PREFIX}:${VERSION}"
+SNAPSHOT_DESCRIPTION="kortix-computer-v${VERSION}"
+# Always pull :latest — the OS base image is stable and decoupled from the npm version
+DOCKER_IMAGE="${DOCKER_IMAGE_PREFIX}:latest"
 SERVER_NAME="snapshot-builder-${VERSION}-$(date +%s)"
 
 echo ""
@@ -128,12 +132,15 @@ hetzner() {
 # ─── Cleanup trap ────────────────────────────────────────────────────────────
 CREATED_SERVER_ID=""
 
+CLOUD_INIT_FILE=""  # set later; referenced in cleanup for removal
+
 cleanup() {
   if [ -n "$CREATED_SERVER_ID" ]; then
     warn "Cleaning up: deleting temporary server ${CREATED_SERVER_ID}..."
     hetzner DELETE "/servers/${CREATED_SERVER_ID}" >/dev/null 2>&1 || true
     ok "Temporary server deleted"
   fi
+  [ -n "$CLOUD_INIT_FILE" ] && rm -f "$CLOUD_INIT_FILE"
 }
 trap cleanup EXIT
 
@@ -166,62 +173,73 @@ fi
 # ─── Step 2: Create temporary build server ───────────────────────────────────
 info "Creating temporary build server..."
 
-# Cloud-init script that installs Docker, pulls the image, and signals completion
-CLOUD_INIT=$(cat <<CLOUDINIT
-#!/bin/bash
-set -e
+# Build cloud-init into a temp file to avoid heredoc-within-heredoc expansion issues.
+# We use printf to interpolate only the values we want (DOCKER_IMAGE, VERSION),
+# and write literal bash into the remote script without local execution.
+CLOUD_INIT_FILE=$(mktemp /tmp/kortix-cloud-init-XXXXXX.sh)
 
-echo "[snapshot-builder] Starting setup..."
+printf '%s\n' '#!/bin/bash' 'set -e' '' \
+  'echo "[snapshot-builder] Starting setup..."' '' \
+  '# Disable root password expiry so SSH key auth works on all servers booted from this snapshot' \
+  'passwd -d root 2>/dev/null || true' \
+  'chage -d 99999 root 2>/dev/null || true' \
+  'chage -M 99999 root 2>/dev/null || true' '' \
+  '# Disable PAM password change enforcement in sshd' \
+  'sed -i "s/^#*PasswordAuthentication.*/PasswordAuthentication no/" /etc/ssh/sshd_config' \
+  'sed -i "/^password.*pam_unix.so/s/obscure yescrypt/obscure yescrypt nullok/" /etc/pam.d/common-password 2>/dev/null || true' '' \
+  '# Install Docker' \
+  'curl -fsSL https://get.docker.com | sh' \
+  'systemctl enable docker' \
+  'systemctl start docker' '' \
+  '# Wait for Docker to be ready' \
+  'for i in $(seq 1 30); do' \
+  '  docker info &>/dev/null && break' \
+  '  sleep 2' \
+  'done' '' \
+  "echo \"[snapshot-builder] Pulling ${DOCKER_IMAGE}...\"" \
+  "docker pull ${DOCKER_IMAGE}" '' \
+  '# Create the start script (invoked by the systemd service when booted manually).' \
+  '# NOTE: When the API boots this snapshot, it overwrites kortix-start.sh via' \
+  '# its own cloud-init with the correct env vars before starting the service.' \
+  '# NOTE: This placeholder is fully overwritten by the API cloud-init on every real boot.' \
+  'cat > /usr/local/bin/kortix-start.sh << '"'"'STARTEOF'"'"'' \
+  '#!/bin/bash' \
+  'echo "[kortix] This placeholder will be replaced by API cloud-init on boot"' \
+  'exec docker run --rm --name kortix-sandbox kortix/computer:latest' \
+  'STARTEOF' \
+  'chmod +x /usr/local/bin/kortix-start.sh' '' \
+  '# Create the systemd service unit for kortix-sandbox' \
+  'cat > /etc/systemd/system/kortix-sandbox.service << '"'"'SVCEOF'"'"'' \
+  '[Unit]' \
+  'Description=Kortix Sandbox Container' \
+  'After=docker.service' \
+  'Requires=docker.service' '' \
+  '[Service]' \
+  'Type=simple' \
+  'ExecStart=/usr/local/bin/kortix-start.sh' \
+  'Restart=always' \
+  'RestartSec=5' '' \
+  '[Install]' \
+  'WantedBy=multi-user.target' \
+  'SVCEOF' '' \
+  'systemctl daemon-reload' \
+  '# Do NOT enable/start service here — API cloud-init rewrites kortix-start.sh first.' '' \
+  'echo "[snapshot-builder] Setup complete!"' \
+  'touch /tmp/snapshot-builder-done' \
+  >> "$CLOUD_INIT_FILE"
 
-# Install Docker
-curl -fsSL https://get.docker.com | sh
-systemctl enable docker
-systemctl start docker
-
-# Wait for Docker to be ready
-for i in \$(seq 1 30); do
-  docker info &>/dev/null && break
-  sleep 2
-done
-
-# Pull the sandbox image
-echo "[snapshot-builder] Pulling ${DOCKER_IMAGE}..."
-docker pull ${DOCKER_IMAGE}
-
-# Create the systemd service for kortix-sandbox
-cat > /etc/systemd/system/kortix-sandbox.service <<'SVCEOF'
-[Unit]
-Description=Kortix Sandbox Container
-After=docker.service
-Requires=docker.service
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/kortix-start.sh
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-SVCEOF
-
-systemctl daemon-reload
-systemctl enable kortix-sandbox.service
-
-# Signal that setup is complete
-echo "[snapshot-builder] Setup complete!"
-touch /tmp/snapshot-builder-done
-CLOUDINIT
-)
+CLOUD_INIT=$(cat "$CLOUD_INIT_FILE")
 
 CREATE_BODY=$(node -e "
+  const fs = require('fs');
+  const cloudInit = fs.readFileSync('${CLOUD_INIT_FILE}', 'utf8');
   const body = {
     name: '${SERVER_NAME}',
     server_type: '${BUILD_SERVER_TYPE}',
     image: '${BASE_IMAGE}',
     location: '${BUILD_LOCATION}',
     start_after_create: true,
-    user_data: $(echo "$CLOUD_INIT" | node -e "process.stdout.write(JSON.stringify(require('fs').readFileSync('/dev/stdin','utf8')))"),
+    user_data: cloudInit,
     labels: {
       'purpose': 'snapshot-builder',
       'kortix-version': '${VERSION}'
@@ -278,8 +296,11 @@ while [ $ELAPSED -lt $CLOUD_INIT_TIMEOUT ]; do
   ELAPSED=$((ELAPSED + 15))
 
   # Try to check via SSH if key is available
-  if [ -n "${HETZNER_SSH_KEY_ID:-}" ]; then
+  # HETZNER_SSH_KEY_FILE: local path to the private key matching HETZNER_SSH_KEY_ID
+  SSH_KEY_FILE="${HETZNER_SSH_KEY_FILE:-$HOME/.ssh/id_ed25519_new}"
+  if [ -n "${HETZNER_SSH_KEY_ID:-}" ] && [ -f "$SSH_KEY_FILE" ]; then
     if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
+        -i "$SSH_KEY_FILE" \
         "root@${SERVER_IP}" "test -f /tmp/snapshot-builder-done" 2>/dev/null; then
       ok "Cloud-init completed (verified via SSH)"
       break

@@ -275,6 +275,9 @@ export class HetznerProvider implements SandboxProvider {
       ENV_MODE: 'cloud',
       INTERNAL_SERVICE_KEY: serviceKey,
       KORTIX_TOKEN: serviceKey,
+      // Pin the sandbox npm package version so startup.sh bootstraps the exact
+      // version that matches this API deployment (not "latest" from npm registry).
+      KORTIX_SANDBOX_VERSION: SANDBOX_VERSION,
       ...opts.envVars,
     };
 
@@ -283,13 +286,20 @@ export class HetznerProvider implements SandboxProvider {
       .map(([k, v]) => `${k}=${v}`)
       .join('\n');
 
+    // Safely encode env vars as base64 to avoid shell injection via heredoc
+    const envLinesBase64 = Buffer.from(envLines).toString('base64');
+
     const userData = [
       '#!/bin/bash',
+      '# Fix: disable root password expiry (baked into ubuntu-24.04 snapshot base)',
+      'chage -d 99999 root 2>/dev/null || true',
+      'chage -M 99999 root 2>/dev/null || true',
+      '',
       '# Write env vars to /etc/kortix/env (read by kortix-sandbox.service)',
+      '# Use base64 to safely write env vars without heredoc injection issues',
       'mkdir -p /etc/kortix',
-      `cat > /etc/kortix/env <<\'ENVEOF\'`,
-      envLines,
-      'ENVEOF',
+      `echo '${envLinesBase64}' | base64 -d > /etc/kortix/env`,
+      '',
       '# Ensure startup script runs sandbox with required kernel capabilities',
       // startup.sh inside the sandbox image calls `unshare --pid --fork /init`.
       // Without SYS_ADMIN + unconfined seccomp, unshare fails with EPERM.
@@ -323,10 +333,30 @@ export class HetznerProvider implements SandboxProvider {
       '  -p 9224:9224 \\',
       '  -p 22222:22 \\',
       '  -v kortix-workspace:/workspace \\',
-      `  kortix/sandbox:${SANDBOX_VERSION}`,
+      `  ${config.SANDBOX_IMAGE}`,
       'STARTEOF',
       'chmod +x /usr/local/bin/kortix-start.sh',
+      '',
+      '# Ensure the systemd service unit exists (may be missing from older snapshots)',
+      "cat > /etc/systemd/system/kortix-sandbox.service <<'SVCEOF'",
+      '[Unit]',
+      'Description=Kortix Sandbox Container',
+      'After=docker.service',
+      'Requires=docker.service',
+      '',
+      '[Service]',
+      'Type=simple',
+      'ExecStart=/usr/local/bin/kortix-start.sh',
+      'Restart=on-failure',
+      'RestartSec=5',
+      'StandardOutput=journal',
+      'StandardError=journal',
+      '',
+      '[Install]',
+      'WantedBy=multi-user.target',
+      'SVCEOF',
       'systemctl daemon-reload',
+      'systemctl enable kortix-sandbox.service',
       '# Start (or restart) the sandbox container',
       'systemctl start kortix-sandbox.service',
     ].join('\n');

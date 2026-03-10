@@ -6,7 +6,7 @@ export type SandboxProviderName = 'daytona' | 'local_docker' | 'hetzner';
 export type InternalKortixEnv = 'dev' | 'staging' | 'prod';
 
 /** Single source of truth for the sandbox version. Update on each release. */
-export const SANDBOX_VERSION = '0.7.15';
+export const SANDBOX_VERSION = '0.7.17';
 
 // ─── Zod Helpers ────────────────────────────────────────────────────────────
 
@@ -391,7 +391,9 @@ export const config = {
   // ─── Sandbox Provisioning (Platform) ──────────────────────────────────────
   KORTIX_URL: env.KORTIX_URL,
   ALLOWED_SANDBOX_PROVIDERS: allowedProviders,
-  SANDBOX_IMAGE: env.SANDBOX_IMAGE || `kortix/sandbox:${SANDBOX_VERSION}`,
+  // kortix/computer is a stable OS base — tag is always :latest, decoupled from
+  // the npm package version. Only override via SANDBOX_IMAGE env var if needed.
+  SANDBOX_IMAGE: env.SANDBOX_IMAGE || 'kortix/computer:latest',
   DOCKER_HOST: env.DOCKER_HOST,
   SANDBOX_NETWORK: env.SANDBOX_NETWORK,
   SANDBOX_PORT_BASE: env.SANDBOX_PORT_BASE,
