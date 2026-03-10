@@ -32,6 +32,7 @@ import { startSandboxHealthMonitor, stopSandboxHealthMonitor } from './platform/
 import { accessControlApp } from './access-control';
 import { startAccessControlCache, stopAccessControlCache } from './shared/access-control-cache';
 import { legacyApp } from './legacy';
+import { adminApp } from './admin';
 
 // ─── App Setup ──────────────────────────────────────────────────────────────
 
@@ -248,6 +249,7 @@ app.route('/v1/legacy', legacyApp); // /v1/legacy/threads, /v1/legacy/threads/:i
 
 // Setup — install-status is public (needed before any user exists), rest requires auth.
 app.route('/v1/setup', setupApp);          // /v1/setup/install-status (public), rest (auth inside router)
+app.route('/v1/admin', adminApp);          // /v1/admin/api/sandboxes, /v1/admin/api/env, /v1/admin/api/health, etc.
 
 // All remaining routes require authentication (JWT or kortix_ token).
 app.use('/v1/providers/*', combinedAuth);
