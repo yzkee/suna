@@ -585,6 +585,23 @@ setupApp.post('/onboarding-complete', async (c) => {
   }
 });
 
+/**
+ * POST /v1/setup/onboarding-reset
+ * Reset onboarding state so the flow can be rerun intentionally.
+ */
+setupApp.post('/onboarding-reset', async (c) => {
+  try {
+    const ok = await setOnboardingEnv({
+      ONBOARDING_COMPLETE: 'false',
+      ONBOARDING_COMMAND_FIRED: 'false',
+      ONBOARDING_SESSION_ID: '',
+    });
+    return ok ? c.json({ ok: true }) : c.json({ ok: false, error: 'Failed to persist' }, 500);
+  } catch (e: any) {
+    return c.json({ ok: false, error: e?.message || String(e) }, 500);
+  }
+});
+
 // ─── Setup Wizard Completion ────────────────────────────────────────────────
 // Tracks whether the user has completed the setup wizard (provider + tool keys).
 // Stored in the DB on accounts.setup_complete_at so it persists across
