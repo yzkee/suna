@@ -27,6 +27,7 @@ warn() { echo "  ${YELLOW}⚠${NC} $*"; }
 HETZNER_API="https://api.hetzner.cloud/v1"
 # kortix/computer is a stable OS base — always pull :latest, never a versioned tag.
 # Code ships separately via @kortix/sandbox npm at first boot (startup.sh).
+# kortix/computer is versioned — image tag matches the sandbox version
 DOCKER_IMAGE_PREFIX="kortix/computer"
 # Use a cheap shared server just for building the snapshot
 # cx23 (2vCPU/4GB) is broadly available; cpx11 varies by account/region
@@ -82,8 +83,7 @@ if [ -z "${HETZNER_API_KEY:-}" ]; then
 fi
 
 SNAPSHOT_DESCRIPTION="kortix-computer-v${VERSION}"
-# Always pull :latest — the OS base image is stable and decoupled from the npm version
-DOCKER_IMAGE="${DOCKER_IMAGE_PREFIX}:latest"
+DOCKER_IMAGE="${DOCKER_IMAGE_PREFIX}:${VERSION}"
 SERVER_NAME="snapshot-builder-${VERSION}-$(date +%s)"
 
 echo ""
