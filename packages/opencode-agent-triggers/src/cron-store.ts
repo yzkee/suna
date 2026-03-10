@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { Cron } from "croner"
 import type { CronExecutionRecord, CronExecutionStatus, CronTriggerRecord } from "./types.js"
@@ -51,6 +51,11 @@ export class CronStore {
 
   constructor(private readonly filePath: string) {
     mkdirSync(path.dirname(filePath), { recursive: true })
+    try {
+      chmodSync(path.dirname(filePath), 0o777)
+    } catch {
+      // best-effort only
+    }
     this.state = existsSync(filePath) ? this.readFromDisk() : { triggers: [], executions: [] }
     this.write()
   }
@@ -69,18 +74,30 @@ export class CronStore {
 
   private write(): void {
     writeFileSync(this.filePath, JSON.stringify(this.state, null, 2), "utf8")
+    try {
+      chmodSync(this.filePath, 0o666)
+    } catch {
+      // best-effort only
+    }
+  }
+
+  private refresh(): void {
+    this.state = this.readFromDisk()
   }
 
   listTriggers(active?: boolean): CronTriggerRecord[] {
+    this.refresh()
     const items = active === undefined ? this.state.triggers : this.state.triggers.filter((trigger) => (trigger.is_active ?? true) === active)
     return items.sort((a, b) => (b.id ?? "").localeCompare(a.id ?? ""))
   }
 
   getTrigger(triggerId: string): CronTriggerRecord | null {
+    this.refresh()
     return this.state.triggers.find((trigger) => trigger.id === triggerId || trigger.name === triggerId) ?? null
   }
 
   createTrigger(input: Omit<CronTriggerRecord, "id" | "last_run_at" | "next_run_at" | "session_id">): CronTriggerRecord {
+    this.refresh()
     const trigger: CronTriggerRecord = {
       ...input,
       id: crypto.randomUUID(),
@@ -96,6 +113,7 @@ export class CronStore {
   }
 
   updateTrigger(triggerId: string, patch: Partial<CronTriggerRecord>): CronTriggerRecord | null {
+    this.refresh()
     const index = this.state.triggers.findIndex((trigger) => trigger.id === triggerId || trigger.name === triggerId)
     if (index < 0) return null
     const current = this.state.triggers[index]
@@ -114,6 +132,7 @@ export class CronStore {
   }
 
   deleteTrigger(triggerId: string): boolean {
+    this.refresh()
     const nextTriggers = this.state.triggers.filter((trigger) => trigger.id !== triggerId && trigger.name !== triggerId)
     if (nextTriggers.length === this.state.triggers.length) return false
     this.state.triggers = nextTriggers
@@ -123,6 +142,7 @@ export class CronStore {
   }
 
   createExecution(triggerId: string, input?: { status?: CronExecutionStatus; retry_count?: number; metadata?: Record<string, unknown> }): CronExecutionRecord {
+    this.refresh()
     const startedAt = new Date().toISOString()
     const execution: CronExecutionRecord = {
       execution_id: crypto.randomUUID(),
@@ -143,6 +163,7 @@ export class CronStore {
   }
 
   updateExecution(executionId: string, patch: Partial<CronExecutionRecord>): CronExecutionRecord | null {
+    this.refresh()
     const index = this.state.executions.findIndex((execution) => execution.execution_id === executionId)
     if (index < 0) return null
     this.state.executions[index] = { ...this.state.executions[index], ...patch, execution_id: this.state.executions[index].execution_id }
@@ -151,10 +172,12 @@ export class CronStore {
   }
 
   getExecution(executionId: string): CronExecutionRecord | null {
+    this.refresh()
     return this.state.executions.find((execution) => execution.execution_id === executionId) ?? null
   }
 
   listExecutions(filter?: { triggerId?: string; limit?: number; offset?: number }): { data: CronExecutionRecord[]; total: number } {
+    this.refresh()
     let items = filter?.triggerId ? this.state.executions.filter((execution) => execution.trigger_id === filter.triggerId) : this.state.executions
     items = items.sort((a, b) => b.created_at.localeCompare(a.created_at))
     const total = items.length
@@ -164,6 +187,7 @@ export class CronStore {
   }
 
   markTriggerRun(triggerId: string, sessionId?: string | null): CronTriggerRecord | null {
+    this.refresh()
     return this.updateTrigger(triggerId, {
       last_run_at: new Date().toISOString(),
       next_run_at: this.getTrigger(triggerId)

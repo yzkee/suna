@@ -29,6 +29,7 @@ import {
   SkipForward,
   Loader2,
   ExternalLink,
+  Webhook,
 } from 'lucide-react';
 import { ScheduleBuilder } from './schedule-builder';
 import {
@@ -130,8 +131,8 @@ export function TaskDetailPanel({ trigger, onClose }: TaskDetailPanelProps) {
   const [sandboxId, setSandboxId] = useState<string | null>(trigger.sandboxId ?? null);
   const [tab, setTab] = useState<'settings' | 'executions'>('settings');
   const [name, setName] = useState(trigger.name);
-  const [cronExpr, setCronExpr] = useState(trigger.cronExpr);
-  const [timezone, setTimezone] = useState(trigger.timezone);
+  const [cronExpr, setCronExpr] = useState(trigger.cronExpr || '');
+  const [timezone, setTimezone] = useState(trigger.timezone || 'UTC');
   const [prompt, setPrompt] = useState(trigger.prompt);
   const [sessionMode, setSessionMode] = useState<SessionMode>(trigger.sessionMode as SessionMode);
   const [agentName, setAgentName] = useState(trigger.agentName || '');
@@ -143,7 +144,7 @@ export function TaskDetailPanel({ trigger, onClose }: TaskDetailPanelProps) {
   const runMutation = useRunTrigger();
   const { data: agents = [], isLoading: agentsLoading } = useSandboxAgents(sandboxId);
   const { data: executions = [] } = useTriggerExecutions(
-    tab === 'executions' ? trigger.triggerId : '',
+    tab === 'executions' && trigger.triggerId ? trigger.triggerId : '',
   );
 
   useEffect(() => {
@@ -178,17 +179,18 @@ export function TaskDetailPanel({ trigger, onClose }: TaskDetailPanelProps) {
   // Sync state when trigger prop changes
   React.useEffect(() => {
     setName(trigger.name);
-    setCronExpr(trigger.cronExpr);
-    setTimezone(trigger.timezone);
+    setCronExpr(trigger.cronExpr || '');
+    setTimezone(trigger.timezone || 'UTC');
     setPrompt(trigger.prompt);
     setSessionMode(trigger.sessionMode as SessionMode);
     setAgentName(trigger.agentName || '');
     setIsDirty(false);
-  }, [trigger.triggerId, trigger.name, trigger.cronExpr, trigger.timezone, trigger.prompt, trigger.sessionMode, trigger.agentName]);
+  }, [trigger.id, trigger.name, trigger.cronExpr, trigger.timezone, trigger.prompt, trigger.sessionMode, trigger.agentName]);
 
   const markDirty = () => setIsDirty(true);
 
   const handleSave = async () => {
+    if (!trigger.triggerId) return;
     try {
       await updateMutation.mutateAsync({
         id: trigger.triggerId,
@@ -209,6 +211,7 @@ export function TaskDetailPanel({ trigger, onClose }: TaskDetailPanelProps) {
   };
 
   const handleToggle = async () => {
+    if (!trigger.triggerId) return;
     try {
       await toggleMutation.mutateAsync({
         id: trigger.triggerId,
@@ -221,6 +224,7 @@ export function TaskDetailPanel({ trigger, onClose }: TaskDetailPanelProps) {
   };
 
   const handleRun = async () => {
+    if (!trigger.triggerId) return;
     try {
       await runMutation.mutateAsync(trigger.triggerId);
       toast.success('Task triggered manually');
@@ -232,6 +236,7 @@ export function TaskDetailPanel({ trigger, onClose }: TaskDetailPanelProps) {
   };
 
   const handleDelete = async () => {
+    if (!trigger.triggerId) return;
     if (!confirm('Are you sure you want to delete this task? This cannot be undone.')) {
       return;
     }
@@ -250,16 +255,16 @@ export function TaskDetailPanel({ trigger, onClose }: TaskDetailPanelProps) {
       <div className="flex items-center justify-between p-4 border-b">
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-muted">
-            <Timer className="h-5 w-5" />
+            {trigger.type === 'cron' ? <Timer className="h-5 w-5" /> : <Webhook className="h-5 w-5" />}
           </div>
           <div>
             <h2 className="font-semibold text-foreground">{trigger.name}</h2>
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">
-                {describeCron(trigger.cronExpr)}
+                {trigger.type === 'cron' ? describeCron(trigger.cronExpr || '') : `${trigger.webhook?.method || 'POST'} ${trigger.webhook?.path || ''}`}
               </span>
               <Badge variant={trigger.isActive ? 'highlight' : 'secondary'} className="text-xs">
-                {trigger.isActive ? 'Active' : 'Paused'}
+                {trigger.type === 'cron' ? (trigger.isActive ? 'Active' : 'Paused') : 'Webhook'}
               </Badge>
             </div>
           </div>
@@ -309,33 +314,44 @@ export function TaskDetailPanel({ trigger, onClose }: TaskDetailPanelProps) {
               />
             </div>
 
-            {/* Schedule — visual builder */}
-            <div className="space-y-2">
-              <Label>Schedule</Label>
-              <ScheduleBuilder
-                value={cronExpr}
-                onChange={(v) => { setCronExpr(v); markDirty(); }}
-                compact
-              />
-            </div>
+            {trigger.type === 'cron' ? (
+              <>
+                <div className="space-y-2">
+                  <Label>Schedule</Label>
+                  <ScheduleBuilder
+                    value={cronExpr}
+                    onChange={(v) => { setCronExpr(v); markDirty(); }}
+                    compact
+                  />
+                </div>
 
-            {/* Timezone */}
-            <div className="space-y-2">
-              <Label>Timezone</Label>
-              <Select
-                value={timezone}
-                onValueChange={(v) => { setTimezone(v); markDirty(); }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TIMEZONES.map((tz) => (
-                    <SelectItem key={tz} value={tz}>{tz}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                <div className="space-y-2">
+                  <Label>Timezone</Label>
+                  <Select value={timezone} onValueChange={(v) => { setTimezone(v); markDirty(); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TIMEZONES.map((tz) => (
+                        <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            ) : (
+              <div className="rounded-lg bg-muted/50 p-3 space-y-2 text-sm">
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Endpoint</span>
+                  <span className="font-medium break-all text-right">{trigger.webhook?.method || 'POST'} {trigger.webhook?.path || ''}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Secret</span>
+                  <span className="font-medium">{trigger.webhook?.secretProtected ? 'Protected' : 'None'}</span>
+                </div>
+                <div className="text-xs text-muted-foreground">Webhook triggers are defined in the agent markdown source and are view-only here.</div>
+              </div>
+            )}
 
             {/* Prompt */}
             <div className="space-y-2">
@@ -390,9 +406,9 @@ export function TaskDetailPanel({ trigger, onClose }: TaskDetailPanelProps) {
             <div className="rounded-lg bg-muted/50 p-3 space-y-1.5 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Next run</span>
-                <span className="font-medium">
-                  {trigger.isActive ? formatDateTime(trigger.nextRunAt) : 'Paused'}
-                </span>
+                 <span className="font-medium">
+                   {trigger.type === 'cron' ? (trigger.isActive ? formatDateTime(trigger.nextRunAt) : 'Paused') : 'On demand'}
+                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Last run</span>
@@ -426,8 +442,8 @@ export function TaskDetailPanel({ trigger, onClose }: TaskDetailPanelProps) {
 
             {/* Actions */}
             <div className="space-y-2 pt-2">
-              {isDirty && (
-                <Button
+               {trigger.editable && isDirty && (
+                 <Button
                   onClick={handleSave}
                   disabled={updateMutation.isPending}
                   className="w-full"
@@ -436,6 +452,7 @@ export function TaskDetailPanel({ trigger, onClose }: TaskDetailPanelProps) {
                   {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
                 </Button>
               )}
+              {trigger.type === 'cron' && trigger.triggerId && (
               <Button
                 variant="outline"
                 onClick={handleRun}
@@ -445,6 +462,8 @@ export function TaskDetailPanel({ trigger, onClose }: TaskDetailPanelProps) {
                 <Play className="h-4 w-4 mr-2" />
                 {runMutation.isPending ? 'Running...' : 'Run Now'}
               </Button>
+              )}
+              {trigger.editable && trigger.triggerId && (
               <Button
                 variant="outline"
                 onClick={handleToggle}
@@ -463,6 +482,8 @@ export function TaskDetailPanel({ trigger, onClose }: TaskDetailPanelProps) {
                   </>
                 )}
               </Button>
+              )}
+              {trigger.editable && trigger.triggerId && (
               <Button
                 variant="destructive"
                 onClick={handleDelete}
@@ -472,12 +493,18 @@ export function TaskDetailPanel({ trigger, onClose }: TaskDetailPanelProps) {
                 <Trash2 className="h-4 w-4 mr-2" />
                 {deleteMutation.isPending ? 'Deleting...' : 'Delete Task'}
               </Button>
+              )}
             </div>
           </div>
         ) : (
           /* Executions Tab */
           <div className="space-y-3">
-            {executions.length === 0 ? (
+            {trigger.type !== 'cron' ? (
+              <div className="text-center py-8">
+                <Webhook className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">Webhook triggers do not have sandbox execution history here yet</p>
+              </div>
+            ) : executions.length === 0 ? (
               <div className="text-center py-8">
                 <Clock className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
                 <p className="text-sm text-muted-foreground">No executions yet</p>

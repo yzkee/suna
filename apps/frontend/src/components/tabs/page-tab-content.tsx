@@ -40,7 +40,7 @@ const WorkspacePage = lazy(() =>
 	import('@/app/(dashboard)/workspace/page'),
 );
 
-const ScheduledTasksPage = lazy(() =>
+const TriggersPage = lazy(() =>
 	import('@/components/scheduled-tasks/scheduled-tasks-page').then((m) => ({
 		default: m.ScheduledTasksPage,
 	})),
@@ -142,7 +142,7 @@ const PAGE_COMPONENTS: Record<string, ComponentType> = {
 	'/commands': WorkspacePage,
 	'/agents': WorkspacePage,
 	// Extra pages not in original ROUTE_MAP but exist as routes
-	'/scheduled-tasks': ScheduledTasksPage,
+	'/scheduled-tasks': TriggersPage,
 	'/channels': ChannelsPage,
 	'/integrations': IntegrationsPage,
 	'/files': FilesPage,

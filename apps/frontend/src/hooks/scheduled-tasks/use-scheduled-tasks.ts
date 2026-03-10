@@ -5,24 +5,31 @@ import { ensureSandbox, getSandboxUrl } from '@/lib/platform-client';
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export type SessionMode = 'new' | 'reuse';
+export type TriggerType = 'cron' | 'webhook';
+export type TriggerSourceType = 'manual' | 'agent';
 
 export type ExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'timeout' | 'skipped';
 
 export interface Trigger {
-  triggerId: string;
+  id: string;
+  triggerId: string | null;
+  type: TriggerType;
+  sourceType: TriggerSourceType;
   sandboxId?: string;
   accountId?: string;
   name: string;
   description: string | null;
-  cronExpr: string;
-  timezone: string;
+  cronExpr: string | null;
+  timezone: string | null;
   agentName: string | null;
   modelProviderId: string | null;
   modelId: string | null;
   prompt: string;
   sessionMode: SessionMode;
-  sessionId: string | null;
+  sessionId?: string | null;
   isActive: boolean;
+  enabled?: boolean;
+  editable: boolean;
   maxRetries: number;
   timeoutMs: number;
   metadata: Record<string, unknown>;
@@ -30,6 +37,11 @@ export interface Trigger {
   nextRunAt: string | null;
   createdAt: string;
   updatedAt: string;
+  webhook: {
+    path: string;
+    method: string;
+    secretProtected: boolean;
+  } | null;
 }
 
 export interface Execution {
@@ -139,12 +151,24 @@ async function fetchCronJson<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-const fetchTriggers = async (sandboxId?: string): Promise<Trigger[]> => {
-  const params = new URLSearchParams();
-  if (sandboxId) params.set('sandbox_id', sandboxId);
-  const qs = params.toString() ? `?${params.toString()}` : '';
-  const response = await fetchCronJson<ApiListResponse>(`/triggers${qs}`);
-  return response.data;
+const fetchTriggers = async (): Promise<Trigger[]> => {
+  const baseUrl = await getSandboxBaseUrl();
+  const response = await authenticatedFetch(`${baseUrl}/kortix/triggers`, {
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(body?.error || body?.message || `Request failed with ${response.status}`);
+  }
+  const api = body as ApiListResponse;
+  const normalized = api.data.map((trigger) => ({
+    maxRetries: 0,
+    timeoutMs: 300000,
+    metadata: {},
+    ...trigger,
+    isActive: trigger.type === 'cron' ? trigger.isActive : trigger.enabled ?? true,
+  }));
+  return normalized;
 };
 
 const fetchTrigger = async (triggerId: string): Promise<Trigger> => {
@@ -200,7 +224,7 @@ const fetchExecutions = async (triggerId: string, limit = 50, offset = 0): Promi
 export const useTriggers = (sandboxId?: string) => {
   return useQuery({
     queryKey: ['triggers', sandboxId ?? null],
-    queryFn: () => fetchTriggers(sandboxId),
+    queryFn: () => fetchTriggers(),
     // When sandboxId is absent, backend returns all triggers for the account.
     enabled: true,
     staleTime: 1 * 60 * 1000,

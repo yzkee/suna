@@ -154,7 +154,7 @@ export function TaskConfigDialog({ open, onOpenChange, onCreated }: TaskConfigDi
         model_provider_id,
         model_id,
       });
-      toast.success('Scheduled task created');
+      toast.success('Trigger created');
       handleClose();
       onCreated?.();
     } catch (err) {
@@ -176,10 +176,10 @@ export function TaskConfigDialog({ open, onOpenChange, onCreated }: TaskConfigDi
             <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10">
               <Calendar className="h-4 w-4 text-primary" />
             </div>
-            Create Scheduled Task
+            Create Cron Trigger
           </DialogTitle>
           <DialogDescription>
-            Set up a recurring task for your agent to run on a schedule
+            Set up a recurring cron trigger for your agent. Agent-defined webhook triggers appear automatically from agent markdown.
           </DialogDescription>
         </DialogHeader>
 
@@ -309,7 +309,7 @@ export function TaskConfigDialog({ open, onOpenChange, onCreated }: TaskConfigDi
             onClick={handleCreate}
             disabled={!isValid() || createMutation.isPending}
           >
-            {createMutation.isPending ? 'Creating...' : 'Create Task'}
+            {createMutation.isPending ? 'Creating...' : 'Create Trigger'}
             <ArrowRight className="h-4 w-4 ml-2" />
           </Button>
         </div>

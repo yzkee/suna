@@ -370,7 +370,7 @@ export const menuRegistry: MenuItemDef[] = [
   },
   {
     id: 'scheduled-tasks',
-    label: 'Scheduled Tasks',
+    label: 'Triggers',
     icon: Calendar,
     group: 'navigation',
     subGroup: 'services',

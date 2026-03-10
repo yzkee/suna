@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   Timer,
   Trash2,
+  Webhook,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SpotlightCard } from '@/components/ui/spotlight-card';
@@ -123,30 +124,30 @@ const TaskListItem = ({
     >
       <div onClick={onClick} className="flex items-center justify-between p-5">
         <div className="flex items-center gap-4 flex-1 min-w-0">
-          <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-card border border-border/50 shrink-0">
-            <Timer className="h-5 w-5 text-foreground" />
-          </div>
+            <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-card border border-border/50 shrink-0">
+              {trigger.type === 'cron' ? <Timer className="h-5 w-5 text-foreground" /> : <Webhook className="h-5 w-5 text-foreground" />}
+            </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-0.5">
               <h3 className="font-medium text-foreground truncate">{trigger.name}</h3>
-              <Badge
-                variant={trigger.isActive ? "highlight" : "secondary"}
-                className="text-xs"
-              >
-                {trigger.isActive ? "Active" : "Paused"}
+              <Badge variant={trigger.isActive ? "highlight" : "secondary"} className="text-xs">
+                {trigger.type === 'cron' ? (trigger.isActive ? 'Active' : 'Paused') : 'Webhook'}
               </Badge>
+              <Badge variant="outline" className="text-xs capitalize">{trigger.sourceType}</Badge>
             </div>
             <p className="text-sm text-muted-foreground truncate">
-              {describeCron(trigger.cronExpr)} &middot; {trigger.timezone}
+              {trigger.type === 'cron'
+                ? `${describeCron(trigger.cronExpr || '')} · ${trigger.timezone}`
+                : `${trigger.webhook?.method || 'POST'} ${trigger.webhook?.path || ''}`}
             </p>
           </div>
         </div>
         <div className="ml-4 flex items-center gap-3 shrink-0">
           <div className="flex-col items-end gap-1 hidden sm:flex">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Clock className="h-3 w-3" />
-              <span>Next: {trigger.isActive ? formatRelativeTime(trigger.nextRunAt) : '--'}</span>
-            </div>
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Clock className="h-3 w-3" />
+                <span>{trigger.type === 'cron' ? `Next: ${trigger.isActive ? formatRelativeTime(trigger.nextRunAt) : '--'}` : 'On demand'}</span>
+              </div>
             {trigger.lastRunAt && (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <CheckCircle2 className="h-3 w-3 text-emerald-500" />
@@ -154,6 +155,7 @@ const TaskListItem = ({
               </div>
             )}
           </div>
+          {trigger.editable && (
           <button
             onClick={onDelete}
             disabled={isDeleting}
@@ -167,6 +169,7 @@ const TaskListItem = ({
           >
             <Trash2 className="h-4 w-4" />
           </button>
+          )}
         </div>
       </div>
     </SpotlightCard>
@@ -178,13 +181,13 @@ const EmptyState = ({ onCreateClick }: { onCreateClick: () => void }) => (
     <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mb-4">
       <Calendar className="h-6 w-6 text-muted-foreground" />
     </div>
-    <h3 className="text-base font-semibold text-foreground mb-2">Schedule a task</h3>
+    <h3 className="text-base font-semibold text-foreground mb-2">Create a trigger</h3>
     <p className="text-sm text-muted-foreground text-center max-w-sm mb-6">
-      Automate your agent with scheduled tasks. Set up cron triggers to run prompts on a recurring schedule.
+      Automate your agent with triggers. Create cron runs here, and inspect agent-defined webhook triggers in one place.
     </p>
     <Button onClick={onCreateClick} size="sm">
       <Plus className="h-4 w-4 mr-2" />
-      Add Task
+      Add Trigger
     </Button>
   </div>
 );
@@ -228,7 +231,8 @@ export function ScheduledTasksPage() {
       filtered = filtered.filter(
         (t) =>
           t.name.toLowerCase().includes(q) ||
-          describeCron(t.cronExpr).toLowerCase().includes(q) ||
+          (t.cronExpr ? describeCron(t.cronExpr).toLowerCase().includes(q) : false) ||
+          (t.webhook?.path?.toLowerCase().includes(q) ?? false) ||
           t.prompt.toLowerCase().includes(q),
       );
     }
@@ -237,7 +241,7 @@ export function ScheduledTasksPage() {
   }, [triggers, searchQuery]);
 
   const handleTriggerClick = (trigger: Trigger) => {
-    if (selectedTrigger?.triggerId === trigger.triggerId) {
+    if (selectedTrigger?.id === trigger.id) {
       setSelectedTrigger(null);
     } else {
       setSelectedTrigger(trigger);
@@ -254,11 +258,12 @@ export function ScheduledTasksPage() {
 
   const handleDelete = async (e: React.MouseEvent, trigger: Trigger) => {
     e.stopPropagation();
+    if (!trigger.triggerId) return;
     if (!confirm(`Delete "${trigger.name}"? This cannot be undone.`)) return;
     try {
       await deleteMutation.mutateAsync(trigger.triggerId);
       toast.success('Task deleted');
-      if (selectedTrigger?.triggerId === trigger.triggerId) {
+      if (selectedTrigger?.id === trigger.id) {
         setSelectedTrigger(null);
       }
     } catch (err) {
@@ -270,7 +275,7 @@ export function ScheduledTasksPage() {
   React.useEffect(() => {
     if (selectedTrigger) {
       const updated = triggers.find(
-        (t) => t.triggerId === selectedTrigger.triggerId,
+        (t) => t.id === selectedTrigger.id,
       );
       if (updated) {
         setSelectedTrigger(updated);
@@ -279,7 +284,7 @@ export function ScheduledTasksPage() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [triggers, selectedTrigger?.triggerId]);
+  }, [triggers, selectedTrigger?.id]);
 
   if (error) {
     return (
@@ -288,7 +293,7 @@ export function ScheduledTasksPage() {
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
-              Failed to load scheduled tasks. Please try refreshing the page.
+               Failed to load triggers. Please try refreshing the page.
             </AlertDescription>
           </Alert>
         </div>
@@ -311,7 +316,7 @@ export function ScheduledTasksPage() {
           <PageHeader icon={Calendar}>
             <div className="space-y-2 sm:space-y-4">
               <div className="text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight">
-                <span className="text-primary">Scheduled Tasks</span>
+                <span className="text-primary">Triggers</span>
               </div>
             </div>
           </PageHeader>
@@ -336,7 +341,7 @@ export function ScheduledTasksPage() {
                 <div className="relative">
                   <input
                     type="text"
-                    placeholder="Search tasks..."
+                    placeholder="Search triggers..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="h-9 sm:h-10 w-full rounded-xl border border-input bg-background px-8 sm:px-10 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -353,7 +358,7 @@ export function ScheduledTasksPage() {
                 onClick={() => setShowCreateDialog(true)}
               >
                 <Plus className="h-4 w-4" />
-                <span className="hidden xs:inline">Add Task</span>
+                <span className="hidden xs:inline">Add Trigger</span>
                 <span className="xs:hidden">Add</span>
               </Button>
             </div>

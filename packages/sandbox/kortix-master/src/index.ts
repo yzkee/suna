@@ -21,6 +21,7 @@ import integrationsRouter from './routes/integrations'
 import memoryRouter from './routes/memory'
 import coreRouter from './routes/core'
 import cronRouter from './routes/cron'
+import triggersRouter from './routes/triggers'
 import { coreSupervisor } from './services/core-supervisor'
 import { getCronManager } from './services/cron-manager'
 import { config } from './config'
@@ -307,6 +308,7 @@ app.route('/kortix/services', servicesRouter)
 
 // Scheduled tasks
 app.route('/kortix/cron', cronRouter)
+app.route('/kortix/triggers', triggersRouter)
 
 // Core supervisor management
 app.route('/kortix/core', coreRouter)
