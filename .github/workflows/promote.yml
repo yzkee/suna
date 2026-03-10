@@ -44,6 +44,13 @@ jobs:
           git merge origin/${{ steps.branches.outputs.source }} --no-edit
           git push origin ${{ steps.branches.outputs.target }}
 
+      - name: Trigger VPS deploy on staging
+        if: steps.branches.outputs.target == 'staging'
+        run: |
+          gh workflow run "Deploy kortix-api" --ref staging
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Summary
         run: |
           echo "### Promoted \`${{ steps.branches.outputs.source }}\` → \`${{ steps.branches.outputs.target }}\`" >> "$GITHUB_STEP_SUMMARY"
