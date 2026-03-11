@@ -1,0 +1,10 @@
+{
+  "name": "@kortix/e2e-tests",
+  "version": "0.1.0",
+  "description": "Kortix end-to-end testing suite",
+  "scripts": {
+    "test": "bash e2e/test-self-hosted-install.sh",
+    "test:quick": "bash e2e/test-auth-flow.sh",
+    "test:ci": "bash e2e/test-self-hosted-install.sh --ci"
+  }
+}
