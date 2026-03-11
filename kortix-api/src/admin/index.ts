@@ -203,8 +203,7 @@ function getAdminKeySchema(): Record<string, KeyGroup> {
       description: 'Hetzner VPS sandbox provisioning.',
       keys: [
         { key: 'HETZNER_API_KEY', label: 'Hetzner API Key', secret: true },
-        { key: 'HETZNER_SNAPSHOT_ID', label: 'Snapshot ID' },
-        { key: 'HETZNER_SNAPSHOT_DESCRIPTION', label: 'Snapshot Description' },
+        { key: 'HETZNER_SNAPSHOT_VERSION_OVERRIDE', label: 'Snapshot Version Override (e.g. 0.7.15)' },
         { key: 'HETZNER_DEFAULT_LOCATION', label: 'Default Location' },
         { key: 'HETZNER_DEFAULT_SERVER_TYPE', label: 'Default Server Type' },
         { key: 'HETZNER_SSH_KEY_ID', label: 'SSH Key ID' },

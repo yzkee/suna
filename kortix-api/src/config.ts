@@ -122,12 +122,11 @@ const envSchema = z.object({
   DAYTONA_TARGET:              optStr,
 
   // ── Hetzner — Sandbox provisioning (conditional: required if hetzner provider enabled) ──
-  HETZNER_API_KEY:             optStr,
-  HETZNER_DEFAULT_LOCATION:    optStrDefault('nbg1'),  // Nuremberg (cheapest EU)
-  HETZNER_SNAPSHOT_ID:         optStr,                 // pre-built sandbox snapshot ID
-  HETZNER_SNAPSHOT_DESCRIPTION: optStr,                // fallback resolver by snapshot description
-  HETZNER_SSH_KEY_ID:          optStr,                 // SSH key ID registered in Hetzner
-  HETZNER_DEFAULT_SERVER_TYPE: optStrDefault('cpx22'),   // 2 vCPU / 4 GB shared (cx22 deprecated)
+  HETZNER_API_KEY:                    optStr,
+  HETZNER_DEFAULT_LOCATION:           optStrDefault('nbg1'),
+  HETZNER_SNAPSHOT_VERSION_OVERRIDE:  optStr,   // e.g. "0.7.15" — overrides SANDBOX_VERSION for snapshot resolution
+  HETZNER_SSH_KEY_ID:                 optStr,
+  HETZNER_DEFAULT_SERVER_TYPE:        optStrDefault('cpx22'),
 
   // ── Sandbox Platform (optional) ──────────────────────────────────────────
   KORTIX_URL:                  optStr,
@@ -378,8 +377,11 @@ export const config = {
   // ─── Hetzner (VPS Sandbox provisioning) ──────────────────────────────────
   HETZNER_API_KEY: env.HETZNER_API_KEY,
   HETZNER_DEFAULT_LOCATION: env.HETZNER_DEFAULT_LOCATION,
-  HETZNER_SNAPSHOT_ID: env.HETZNER_SNAPSHOT_ID,
-  HETZNER_SNAPSHOT_DESCRIPTION: env.HETZNER_SNAPSHOT_DESCRIPTION || `kortix-computer-v${SANDBOX_VERSION}`,
+  /** The version used to resolve the snapshot description. Explicit override wins, then falls back to SANDBOX_VERSION. */
+  get HETZNER_SNAPSHOT_DESCRIPTION(): string {
+    const v = env.HETZNER_SNAPSHOT_VERSION_OVERRIDE || SANDBOX_VERSION;
+    return `kortix-computer-v${v}`;
+  },
   HETZNER_SSH_KEY_ID: env.HETZNER_SSH_KEY_ID,
   HETZNER_DEFAULT_SERVER_TYPE: env.HETZNER_DEFAULT_SERVER_TYPE,
 
