@@ -47,13 +47,24 @@ fi
 SED_SCRIPT=$(mktemp)
 needs_rewrite=false
 
-# Supabase URL
+# Supabase URL (placeholder)
 if [ -n "$RUNTIME_SUPABASE_URL" ] && [ "$RUNTIME_SUPABASE_URL" != "$BAKED_SUPABASE_URL" ]; then
   if grep -rq "$BAKED_SUPABASE_URL" "$BUNDLE_DIR" 2>/dev/null; then
     printf 's|%s|%s|g\n' "$BAKED_SUPABASE_URL" "$RUNTIME_SUPABASE_URL" >> "$SED_SCRIPT"
     needs_rewrite=true
     echo "[entrypoint] Supabase URL: ${BAKED_SUPABASE_URL} -> ${RUNTIME_SUPABASE_URL}"
   fi
+fi
+
+# Supabase URL (dev builds with local Supabase CLI URLs)
+if [ -n "$RUNTIME_SUPABASE_URL" ]; then
+  for dev_url in $DEV_SUPABASE_URLS; do
+    if grep -rq "$dev_url" "$BUNDLE_DIR" 2>/dev/null; then
+      printf 's|%s|%s|g\n' "$dev_url" "$RUNTIME_SUPABASE_URL" >> "$SED_SCRIPT"
+      needs_rewrite=true
+      echo "[entrypoint] Supabase URL (dev): ${dev_url} -> ${RUNTIME_SUPABASE_URL}"
+    fi
+  done
 fi
 
 # Supabase anon key
