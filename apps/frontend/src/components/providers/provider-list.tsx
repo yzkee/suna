@@ -1,10 +1,8 @@
 'use client';
 
 /**
- * ProviderList — shared connected-providers list used everywhere:
- *   - Settings page (providers/page.tsx via ProviderSettings)
- *   - In-session settings dialog (opencode-settings-dialog.tsx)
- *   - Setup wizard (self-hosted-auth.tsx via ProviderSettings variant="setup")
+ * ProviderList — shared connected-providers list used in settings dialogs
+ * and provider management UIs.
  *
  * Shows each connected provider as a compact row with model count and a
  * disconnect action. Handles its own disconnect confirmation + loading state.

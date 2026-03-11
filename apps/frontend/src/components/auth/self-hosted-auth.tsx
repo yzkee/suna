@@ -1,18 +1,120 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, FormEvent, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertCircle, ExternalLink, Loader2, Search, Globe, Image, Mic, BookOpen, Flame, Server } from 'lucide-react';
+import { AlertCircle, ExternalLink, Loader2, Search, Globe, Image, Mic, BookOpen, Flame, Server, Settings2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { KortixLoader } from '@/components/ui/kortix-loader';
-import { selfHostedSignIn } from '@/app/auth/actions';
-import { ProviderSettings } from '@/components/providers/provider-settings';
+import { selfHostedSignIn, installOwner } from '@/app/auth/actions';
+import { useProviderModalStore } from '@/stores/provider-modal-store';
+import { GlobalProviderModal } from '@/components/providers/provider-modal';
+import { useOpenCodeProviders } from '@/hooks/opencode/use-opencode-sessions';
 import { useServerStore, getActiveOpenCodeUrl } from '@/stores/server-store';
 import { resetClient } from '@/lib/opencode-sdk';
 import { invalidateTokenCache, authenticatedFetch } from '@/lib/auth-token';
 import { setBootstrapAuthToken } from '@/lib/auth-token';
 import { createClient as createBrowserSupabaseClient } from '@/lib/supabase/client';
+
+/* ─── Installer Form Component ─────────────────────────────────────────────── */
+
+interface InstallerFormProps {
+  onSuccess: () => void;
+  onError: (message: string) => void;
+}
+
+function InstallerForm({ onSuccess, onError }: InstallerFormProps) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [pending, setPending] = useState(false);
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setPending(true);
+    onError('');
+
+    if (password !== confirmPassword) {
+      onError('Passwords do not match');
+      setPending(false);
+      return;
+    }
+
+    if (password.length < 6) {
+      onError('Password must be at least 6 characters');
+      setPending(false);
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('email', email);
+    formData.append('password', password);
+    formData.append('confirmPassword', confirmPassword);
+
+    try {
+      const result = await installOwner(null, formData);
+      if (result.success && result.accessToken) {
+        setBootstrapAuthToken(result.accessToken);
+        invalidateTokenCache();
+        resetClient();
+        onSuccess();
+      } else {
+        onError(result.message || 'Failed to create owner account');
+      }
+    } catch (err: any) {
+      console.error('[InstallerForm] Error:', err);
+      onError(err?.message || 'An unexpected error occurred');
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-3">
+      <Input
+        id="install-email"
+        name="email"
+        type="email"
+        placeholder="Email address"
+        required
+        autoComplete="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        className="h-11 text-[15px] bg-foreground/[0.04] border-foreground/[0.08] rounded-xl shadow-none"
+      />
+      <Input
+        id="install-password"
+        name="password"
+        type="password"
+        placeholder="Password"
+        required
+        autoComplete="new-password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        className="h-11 text-[15px] bg-foreground/[0.04] border-foreground/[0.08] rounded-xl shadow-none"
+      />
+      <Input
+        id="install-confirm-password"
+        name="confirmPassword"
+        type="password"
+        placeholder="Confirm password"
+        required
+        autoComplete="new-password"
+        value={confirmPassword}
+        onChange={(e) => setConfirmPassword(e.target.value)}
+        className="h-11 text-[15px] bg-foreground/[0.04] border-foreground/[0.08] rounded-xl shadow-none"
+      />
+
+      <Button
+        type="submit"
+        disabled={pending}
+        className="w-full h-11 text-[13px] rounded-xl shadow-none"
+      >
+        {pending ? 'Creating account…' : 'Create owner account'}
+      </Button>
+    </form>
+  );
+}
 
 /* ─── Install Status Hook ──────────────────────────────────────────────────── */
 
@@ -539,6 +641,7 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
           // Sandbox already active or just created synchronously
           registerSandbox(initData.data);
           setSandboxReady(true);
+          setPullProgress(null);
           provisioningRef.current = false;
         } else if (initData.status === 'pulling' || initData.status === 'creating') {
           // Image pull in progress OR container being created — poll for completion
@@ -942,11 +1045,12 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
             </div>
           )
         ) : (
-          <ProviderSettings
-            variant="setup"
-            onContinue={handleProviderContinue}
+          <ConnectedProviderSection 
+            onContinue={() => setWizardStep(3)}
           />
         )}
+
+        <GlobalProviderModal />
       </div>
     );
   }
@@ -955,20 +1059,12 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
   if (isInstaller) {
     return (
       <div className="w-full max-w-sm">
-        <div className="flex flex-col items-center mb-5">
+        <div className="flex flex-col items-center mb-6">
           <h1 className="text-[17px] font-medium text-foreground/90 tracking-tight">
-            Instance setup pending
+            Create owner account
           </h1>
           <p className="text-[13px] text-foreground/40 mt-0.5">
-            Run the Kortix installer to create the initial owner account before signing in.
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-foreground/[0.08] bg-foreground/[0.03] p-4 text-center space-y-2">
-          <p className="text-[13px] text-foreground/80">Create the owner with the CLI:</p>
-          <code className="block text-[12px] text-foreground/60 break-all">bash scripts/get-kortix.sh --local</code>
-          <p className="text-[11px] text-foreground/45">
-            The installer now creates the first owner account and pre-warms the local sandbox before you sign in.
+            Set up the first admin account for this instance
           </p>
         </div>
 
@@ -978,6 +1074,11 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
             <span className="text-[13px]">{errorMessage}</span>
           </div>
         )}
+
+        <InstallerForm 
+          onSuccess={() => setWizardStep(2)} 
+          onError={setErrorMessage} 
+        />
       </div>
     );
   }
@@ -1029,6 +1130,93 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
           {pending ? 'Signing in…' : 'Sign in'}
         </Button>
       </form>
+    </div>
+  );
+}
+
+/* ─── Connected Provider Section Component ─────────────────────────────────── */
+
+interface ConnectedProviderSectionProps {
+  onContinue: () => void;
+}
+
+function ConnectedProviderSection({ onContinue }: ConnectedProviderSectionProps) {
+  const { data: providersData, isLoading } = useOpenCodeProviders();
+  const openProviderModal = useProviderModalStore((s) => s.openProviderModal);
+
+  const connectedProviders = useMemo(() => {
+    if (!providersData) return [];
+    const connectedIds = new Set(providersData.connected ?? []);
+    return (providersData.all ?? []).filter((p) => connectedIds.has(p.id));
+  }, [providersData]);
+
+  const hasLLMProvider = connectedProviders.some((p) => 
+    ['anthropic', 'openai', 'openrouter', 'google', 'groq', 'xai'].includes(p.id)
+  );
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center py-8 space-y-4">
+        <KortixLoader size="small" />
+        <p className="text-[11px] text-foreground/35">Checking providers…</p>
+      </div>
+    );
+  }
+
+  if (hasLLMProvider) {
+    return (
+      <div className="flex flex-col items-center py-6 space-y-5">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-500/10">
+          <svg className="h-6 w-6 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        </div>
+        <div className="text-center space-y-1">
+          <p className="text-[13px] font-medium text-foreground/80">
+            {connectedProviders.length} provider{connectedProviders.length > 1 ? 's' : ''} connected
+          </p>
+          <p className="text-[11px] text-foreground/40">
+            Ready to start using your agent
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 w-full">
+          <Button
+            onClick={() => openProviderModal('providers')}
+            variant="outline"
+            className="h-10 px-6 text-[13px] rounded-xl shadow-none"
+          >
+            Configure LLM Provider
+          </Button>
+          <Button
+            onClick={onContinue}
+            className="h-10 px-6 text-[13px] rounded-xl shadow-none"
+          >
+            Continue
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center py-8 space-y-5">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+        <Settings2 className="h-6 w-6 text-muted-foreground" />
+      </div>
+      <div className="text-center space-y-1">
+        <p className="text-[13px] font-medium text-foreground/80">
+          Configure your LLM provider
+        </p>
+        <p className="text-[11px] text-foreground/40">
+          Connect an AI provider to start using your agent
+        </p>
+      </div>
+      <Button
+        onClick={() => openProviderModal('providers')}
+        className="h-10 px-6 text-[13px] rounded-xl shadow-none"
+      >
+        Configure LLM Provider
+      </Button>
     </div>
   );
 }
