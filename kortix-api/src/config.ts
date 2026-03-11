@@ -388,7 +388,12 @@ export const config = {
   // ─── Sandbox Provisioning (Platform) ──────────────────────────────────────
   KORTIX_URL: env.KORTIX_URL,
   ALLOWED_SANDBOX_PROVIDERS: allowedProviders,
-  SANDBOX_IMAGE: env.SANDBOX_IMAGE || `kortix/computer:${SANDBOX_VERSION}`,
+  get SANDBOX_IMAGE(): string {
+    if (env.SANDBOX_IMAGE) return env.SANDBOX_IMAGE;
+    // Must match the snapshot version — they are always the same image
+    const v = env.HETZNER_SNAPSHOT_VERSION_OVERRIDE || SANDBOX_VERSION;
+    return `kortix/computer:${v}`;
+  },
   DOCKER_HOST: env.DOCKER_HOST,
   SANDBOX_NETWORK: env.SANDBOX_NETWORK,
   SANDBOX_PORT_BASE: env.SANDBOX_PORT_BASE,
