@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import { WallpaperBackground } from '@/components/ui/wallpaper-background';
 import { authenticatedFetch } from '@/lib/auth-token';
 import { useSandbox, useProviders } from '@/hooks/platform/use-sandbox';
+import { GlobalProviderModal } from '@/components/providers/provider-modal';
 
 /* ─── Constants ──────────────────────────────────────────────── */
 
@@ -145,6 +146,7 @@ export default function OnboardingPage() {
 
   const isHetznerOnboarding =
     sandbox?.provider === 'hetzner' || (!sandbox && providersInfo?.default === 'hetzner');
+  const isSelfHostedOnboarding = sandbox?.provider === 'local_docker' || providersInfo?.default === 'local_docker';
 
   const getHetznerProvisioningMessage = useCallback((elapsedSec: number) => {
     if (elapsedSec < 20) return 'Allocating Hetzner VPS...';
@@ -517,6 +519,14 @@ export default function OnboardingPage() {
     t.push(setTimeout(() => setPhase('onboarding'), 3400));
   }, [phase, biosReady]);
 
+  // Auto-continue once the BIOS screen is ready. Requiring Enter here makes the
+  // onboarding page look blank/stuck after redirect for self-hosted installs.
+  useEffect(() => {
+    if (phase !== 'bios' || !biosReady) return;
+    const id = setTimeout(() => continueBoot(), 600);
+    return () => clearTimeout(id);
+  }, [phase, biosReady, continueBoot]);
+
   // Enter key triggers continueBoot during bios phase
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -700,8 +710,7 @@ export default function OnboardingPage() {
 
       </AnimatePresence>
 
-      {/* Sign out (cloud only) */}
-      {(phase === 'login' || phase === 'onboarding') && (
+      {phase === 'onboarding' && (
         <button
           onClick={() => signOut()}
           className="absolute bottom-4 left-4 z-30 px-3 py-1 text-[10px] text-foreground/20 hover:text-foreground/40 transition-colors"
@@ -709,6 +718,8 @@ export default function OnboardingPage() {
           Sign out
         </button>
       )}
+
+      <GlobalProviderModal />
     </div>
   );
 }

@@ -315,11 +315,10 @@ function ModelsTabContent({
                   const key = { providerID: model.providerID, modelID: model.modelID };
                   const visible = modelStore.isVisible(key);
                   return (
-                    <button
+                    <div
                       key={`${model.providerID}:${model.modelID}`}
-                      type="button"
+                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/35 cursor-pointer"
                       onClick={() => modelStore.setVisibility(key, !visible)}
-                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/35"
                     >
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm text-foreground">{model.modelName}</div>
@@ -328,7 +327,7 @@ function ModelsTabContent({
                       <div onClick={(e) => e.stopPropagation()}>
                         <Switch checked={visible} onCheckedChange={(checked) => modelStore.setVisibility(key, checked)} />
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
