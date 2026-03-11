@@ -178,7 +178,8 @@ export default function SettingUpPage() {
         if (acctRes.success && Array.isArray(acctRes.data?.instances)) {
           const inst = acctRes.data.instances.find((i: any) => i.sandbox_id === sandboxId);
           if (inst?.status === 'error') {
-            throw new Error('Instance provisioning failed. Please try again.');
+            const detail = inst?.error_message ? ` ${inst.error_message}` : '';
+            throw new Error(`Instance provisioning failed.${detail}`);
           }
           if (inst?.status === 'active') {
             // DB says active — find it in sandbox list and health-check it
@@ -780,7 +781,7 @@ export default function SettingUpPage() {
           {step === 'error' && (
             <>
               <h1 className="text-[43px] font-normal tracking-tight text-foreground leading-none text-center">
-                Setup Issue
+                {instanceMode ? 'Provisioning Failed' : 'Setup Issue'}
               </h1>
 
               <p className="text-[16px] text-foreground/60 text-center leading-relaxed">
@@ -794,9 +795,15 @@ export default function SettingUpPage() {
                       <div className="flex flex-col gap-1">
                         <div className='flex items-center gap-2'>
                           <div className="h-2.5 w-2.5 bg-red-500 rounded-full"></div>
-                          <span className="text-base font-medium text-red-400">Setup Error</span>
+                          <span className="text-base font-medium text-red-400">
+                            {instanceMode ? 'Instance Error' : 'Setup Error'}
+                          </span>
                         </div>
-                        <p className="text-base text-gray-400">Please try again or choose a plan manually.</p>
+                        <p className="text-sm text-gray-400">
+                          {instanceMode
+                            ? 'The instance could not be provisioned. Try a different location.'
+                            : 'Please try again or choose a plan manually.'}
+                        </p>
                       </div>
                     </div>
                     <div className="h-12 w-12 flex items-center justify-center">
@@ -804,21 +811,48 @@ export default function SettingUpPage() {
                     </div>
                   </div>
                   <div className="flex gap-3 mt-4">
-                    <Button
-                      onClick={handleRetry}
-                      className="flex-1"
-                      variant="default"
-                    >
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Try Again
-                    </Button>
-                    <Button
-                      onClick={() => router.push('/subscription')}
-                      className="flex-1"
-                      variant="outline"
-                    >
-                      Choose a Plan
-                    </Button>
+                    {instanceMode ? (
+                      <>
+                        <Button
+                          onClick={() => {
+                            router.push('/dashboard');
+                            setTimeout(() => {
+                              window.dispatchEvent(new CustomEvent('open-add-instance-dialog'));
+                            }, 300);
+                          }}
+                          className="flex-1"
+                          variant="default"
+                        >
+                          <RefreshCw className="h-4 w-4 mr-2" />
+                          Try Different Location
+                        </Button>
+                        <Button
+                          onClick={() => router.push('/dashboard')}
+                          className="flex-1"
+                          variant="outline"
+                        >
+                          Go to Dashboard
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          onClick={handleRetry}
+                          className="flex-1"
+                          variant="default"
+                        >
+                          <RefreshCw className="h-4 w-4 mr-2" />
+                          Try Again
+                        </Button>
+                        <Button
+                          onClick={() => router.push('/subscription')}
+                          className="flex-1"
+                          variant="outline"
+                        >
+                          Choose a Plan
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </CardContent>
               </Card>

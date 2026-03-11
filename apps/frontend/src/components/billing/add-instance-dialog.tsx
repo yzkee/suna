@@ -110,12 +110,17 @@ export function AddInstanceDialog() {
       }
     } catch (err: any) {
       const code = err?.code ?? err?.data?.code;
+      const msg: string = err?.message || '';
       if (code === 'no_payment_method') {
         const url = err?.data?.portal_url ?? null;
         setPortalUrl(url);
         setError(err?.message || 'No payment method on file.');
+      } else if (/disabled|unavailable|not available/i.test(msg)) {
+        setError(`${msg} Please select a different location.`);
+        // Step back to location selector so user can pick another
+        setStep('select');
       } else {
-        setError(err?.message || 'Failed to create instance');
+        setError(msg || 'Failed to create instance');
       }
     } finally {
       setCreating(false);
@@ -172,7 +177,10 @@ export function AddInstanceDialog() {
 
                 {/* Error */}
                 {error && (
-                  <p className="text-xs text-destructive">{error}</p>
+                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 flex items-start gap-2">
+                    <span className="text-destructive mt-0.5 shrink-0">⚠</span>
+                    <p className="text-xs text-destructive leading-relaxed">{error}</p>
+                  </div>
                 )}
 
                 {/* Loading */}
