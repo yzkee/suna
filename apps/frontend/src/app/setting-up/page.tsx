@@ -361,13 +361,33 @@ export default function SettingUpPage() {
       if (!isCurrentRun()) return;
       setStep('checking');
 
+      // Early-exit: if user has no subscription at all (tier_key: 'none') and they didn't
+      // just complete a Stripe checkout, send them to /subscription to pick a plan.
+      // This prevents getting stuck at "Checking account" for users who land here directly.
+      if (!subscriptionSuccess) {
+        try {
+          const acctCheck = await backendApi.get<any>('/billing/account-state', { showErrors: false, timeout: 8000 });
+          if (acctCheck.success) {
+            const tierKey = acctCheck.data?.subscription?.tier_key || acctCheck.data?.tier?.name || '';
+            if (!tierKey || tierKey === 'none') {
+              router.replace('/subscription');
+              return;
+            }
+          }
+        } catch {
+          // Can't reach backend — fall through and let initialize handle it
+        }
+      }
+
       // Checkout success redirects can arrive before webhooks finish.
       // Wait for the paid tier to be reflected before running initialize,
       // otherwise we'd accidentally initialize as free.
       if (subscriptionSuccess) {
         const activated = await waitForPaidActivation(isCurrentRun, 90000);
         if (!activated && isCurrentRun()) {
-          throw new Error('Payment is still processing. Please wait a few seconds and try again.');
+          // Payment webhook still hasn't fired — send user to /subscription to retry
+          router.replace('/subscription?payment_pending=1');
+          return;
         }
       }
 
