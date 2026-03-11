@@ -61,6 +61,19 @@ export function AddInstanceDialog() {
     return () => window.removeEventListener('open-add-instance-dialog', handler);
   }, []);
 
+  // Open automatically when navigated here with ?open_add_instance=1
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('open_add_instance') === '1') {
+      setOpen(true);
+      // Remove the param without triggering a navigation
+      params.delete('open_add_instance');
+      const newUrl = window.location.pathname + (params.toString() ? `?${params.toString()}` : '');
+      window.history.replaceState({}, '', newUrl);
+    }
+  }, []);
+
   // Fetch server types when location changes
   const fetchTypes = useCallback(async (loc: string) => {
     setLoading(true);

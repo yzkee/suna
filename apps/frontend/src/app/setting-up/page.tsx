@@ -814,12 +814,7 @@ export default function SettingUpPage() {
                     {instanceMode ? (
                       <>
                         <Button
-                          onClick={() => {
-                            router.push('/dashboard');
-                            setTimeout(() => {
-                              window.dispatchEvent(new CustomEvent('open-add-instance-dialog'));
-                            }, 300);
-                          }}
+                          onClick={() => router.push('/dashboard?open_add_instance=1')}
                           className="flex-1"
                           variant="default"
                         >

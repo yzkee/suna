@@ -1409,6 +1409,16 @@ function InstancesSection({ accountState, onRefetch }: { accountState: any; onRe
                                             Switch
                                         </Button>
                                     )}
+                                    {inst.status === 'error' && (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 px-2 text-xs"
+                                            onClick={() => window.dispatchEvent(new CustomEvent('open-add-instance-dialog'))}
+                                        >
+                                            Retry
+                                        </Button>
+                                    )}
                                     {!inst.is_included && (
                                         <Button
                                             size="sm"
