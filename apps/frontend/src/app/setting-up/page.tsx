@@ -52,6 +52,7 @@ export default function SettingUpPage() {
   const [autoTopupThreshold, setAutoTopupThreshold] = useState(5);
   const [autoTopupAmount, setAutoTopupAmount] = useState(15);
   const [isSavingAutoTopup, setIsSavingAutoTopup] = useState(false);
+  const [sandboxPhase, setSandboxPhase] = useState<'provisioning' | 'booting'>('provisioning');
   const [subscriptionSuccess, setSubscriptionSuccess] = useState(false);
   const [checkoutSessionId, setCheckoutSessionId] = useState<string | null>(null);
   // mode=instance: provisioning an additional instance (skip subscription/auto-topup steps)
@@ -120,7 +121,8 @@ export default function SettingUpPage() {
         }
 
         if (statusRes.success && statusRes.data?.sandbox === 'ready') {
-          // Sandbox is ready in DB — get it via platform API and health-check via proxy route
+          // Sandbox is ready in DB — switch to booting phase and health-check via proxy route
+          setSandboxPhase('booting');
           try {
             const sandbox = await getSandbox();
             if (sandbox?.external_id) {
@@ -182,7 +184,8 @@ export default function SettingUpPage() {
             throw new Error(`Instance provisioning failed.${detail}`);
           }
           if (inst?.status === 'active') {
-            // DB says active — find it in sandbox list and health-check it
+            // DB says active — switch to booting phase and health-check it
+            setSandboxPhase('booting');
             try {
               const all = await listSandboxes();
               const sandbox = all.find((s) => s.sandbox_id === sandboxId);
@@ -348,6 +351,7 @@ export default function SettingUpPage() {
         setStep('sandbox');
         setPlanTier('pro');
         setSandboxProgress(0);
+        setSandboxPhase('provisioning');
 
         const ready = await pollAdditionalInstanceReady(instanceModeId, isCurrentRun);
         if (!isCurrentRun()) return;
@@ -452,6 +456,7 @@ export default function SettingUpPage() {
       if (!isCurrentRun()) return;
       setStep('sandbox');
       setSandboxProgress(0);
+      setSandboxPhase('provisioning');
 
       if (data.sandbox === 'exists') {
         // Sandbox already existed — just verify it's healthy
@@ -576,8 +581,12 @@ export default function SettingUpPage() {
                             </span>
                             {isActive && (
                               <span className="text-xs text-foreground/40">
-                                {s === 'sandbox' && isHetznerDefault
-                                  ? `${info.detail} ${Math.round(sandboxProgress)}%`
+                                {s === 'sandbox'
+                                  ? sandboxPhase === 'booting'
+                                    ? 'Waiting for computer to boot...'
+                                    : isHetznerDefault
+                                      ? `${info.detail} ${Math.round(sandboxProgress)}%`
+                                      : info.detail
                                   : info.detail}
                               </span>
                             )}
