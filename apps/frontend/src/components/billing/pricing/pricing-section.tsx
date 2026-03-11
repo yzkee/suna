@@ -98,12 +98,17 @@ export function PricingSection({
     }
     try {
       setIsLoading(true);
-      const successUrl = new URL(returnUrl, window.location.origin);
-      successUrl.searchParams.set('location', location);
-      successUrl.searchParams.set('server_type', selectedMachine);
+      // Build success URL carefully: returnUrl may contain Stripe template variables
+      // like {CHECKOUT_SESSION_ID} that must NOT be percent-encoded by URLSearchParams.
+      // Append extra params as raw query string fragments instead.
+      const baseSuccessUrl = returnUrl.startsWith('http')
+        ? returnUrl
+        : `${window.location.origin}${returnUrl}`;
+      const separator = baseSuccessUrl.includes('?') ? '&' : '?';
+      const successUrlStr = `${baseSuccessUrl}${separator}location=${encodeURIComponent(location)}&server_type=${encodeURIComponent(selectedMachine)}`;
       const response = await createCheckoutSession({
         tier_key: 'pro',
-        success_url: successUrl.toString(),
+        success_url: successUrlStr,
         cancel_url: window.location.href,
         commitment_type: 'monthly',
       });
