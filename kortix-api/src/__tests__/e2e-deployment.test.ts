@@ -686,7 +686,7 @@ describe.skipIf(!HAS_DOCKER)('Deployment — Docker Compose Validation', () => {
       join(SANDBOX_DOCKER_DIR, 'docker-compose.yml'),
       'utf-8',
     );
-    expect(content).toContain('${SANDBOX_VERSION:-0.7.18}');
+    expect(content).toContain('${SANDBOX_VERSION:-0.7.26}');
     // Should reference the image with the version variable
     expect(content).toContain('SANDBOX_VERSION');
   });

@@ -210,7 +210,7 @@ export class CronManager {
 let singleton: CronManager | null = null
 
 function getCronStatePath(): string {
-  const root = path.join('/workspace', '.local', 'share', 'opencode', 'storage', 'agent-triggers')
+  const root = path.join('/tmp', 'kortix-agent-triggers')
   mkdirSync(root, { recursive: true })
   return path.join(root, 'cron-state.json')
 }

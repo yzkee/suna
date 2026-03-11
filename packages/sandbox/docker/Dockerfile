@@ -1,21 +1,17 @@
 # syntax=docker/dockerfile:1.7
 #
-# kortix/computer — stable OS base image
+# kortix/computer — sandbox image
 #
-# This image contains ONLY the OS-level dependencies that change infrequently:
+# Everything is PREBAKED at docker build time (zero network calls on container start):
 #   - Alpine apk packages (runtimes, build tools)
-#   - Bun runtime
-#   - uv (Python package runner)
-#   - Rust/musl build of librust_pty.so (bun-pty compatibility on Alpine)
-#   - Branding assets, workspace dirs, s6 service registration
-#
-# ALL Kortix-specific code (kortix-master, opencode, kortix-oc, agent-browser,
-# portless, opencode-channels, python packages, CHANGELOG, version file) is
-# installed at container boot time by @kortix/sandbox postinstall.sh.
+#   - Bun runtime, uv (Python runner)
+#   - Rust/musl librust_pty.so (bun-pty on Alpine)
+#   - Full sandbox runtime: kortix-master, opencode, kortix-oc, channels, triggers
+#     (built via bundle-runtime.cjs + npm install → postinstall.sh → /opt/)
 #
 # Release flow:
-#   Code change  →  npm publish @kortix/sandbox  →  done (no Docker rebuild needed)
-#   OS dep change →  rebuild + push this image    →  then npm publish
+#   Code change  →  pnpm ship <version>  →  OTA tarball on GitHub Release  →  done
+#   OS/dep change →  rebuild + push image, then pnpm ship <version>
 #
 
 # ── Stage 1: Build musl-compatible bun-pty Rust library ─────────────────────
@@ -142,6 +138,22 @@ COPY packages/sandbox/config/kortix-env-setup.sh /custom-cont-init.d/98-kortix-e
 RUN chmod +x /custom-cont-init.d/98-kortix-env
 COPY packages/sandbox/config/customize.sh /custom-cont-init.d/99-customize
 RUN chmod +x /custom-cont-init.d/99-customize
+
+# ── Local source bootstrap payload ────────────────────────────────────────────
+COPY packages/sandbox /opt/kortix-local/sandbox
+COPY packages/kortix-oc /opt/kortix-local/kortix-oc
+COPY packages/opencode-channels /opt/kortix-local/opencode-channels
+COPY packages/opencode-agent-triggers /opt/kortix-local/opencode-agent-triggers
+
+# ── Prebake sandbox runtime into image ────────────────────────────────────────
+# Always run at build time so the container boots instantly (no runtime installs).
+# bundle-runtime.cjs vendors source packages into sandbox/vendor/, then
+# npm install triggers postinstall.sh which deploys everything to /opt/.
+RUN echo "[docker] Prebaking sandbox runtime into image..." && \
+    cd /opt/kortix-local/sandbox && \
+    node scripts/bundle-runtime.cjs && \
+    npm install --no-audit --no-fund . && \
+    rm -rf /root/.npm/_cacache /root/.npm/_logs 2>/dev/null || true
 
 # ── Daytona / startup entrypoint ──────────────────────────────────────────────
 COPY packages/sandbox/startup.sh /opt/startup.sh

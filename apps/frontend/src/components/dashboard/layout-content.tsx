@@ -16,7 +16,7 @@ import { backendApi } from "@/lib/api-client";
 import { featureFlags } from "@/lib/feature-flags";
 import { cn } from "@/lib/utils";
 import { useSandboxConnectionStore } from "@/stores/sandbox-connection-store";
-import { useServerStore } from "@/stores/server-store";
+import { getActiveOpenCodeUrl, useServerStore } from "@/stores/server-store";
 import { useTabStore } from "@/stores/tab-store";
 import { AnnouncementDialog } from "../announcements/announcement-dialog";
 import { NovuInboxProvider } from "../notifications/novu-inbox-provider";
@@ -381,62 +381,40 @@ export default function DashboardLayoutContent({
 		}
 	}, [user, isLoading, router]);
 
-	// Hard gate: redirect to /onboarding if not complete.
-	// Uses the backend onboarding status endpoint as the single source of truth.
-	// Skip with ?skip_onboarding query param.
-	//
-	// FAST PATH: sessionStorage cache eliminates redundant requests per session.
-	// The cache is cleared on tab close so a reinstall + new tab works fine.
-	//
-	// CLOUD RACE FIX: In cloud mode getActiveServerUrl() returns '' before
-	// useSandbox registers the real sandbox. We subscribe to activeServerId +
-	// serverVersion so the effect re-runs once the sandbox is registered, rather
-	// than firing immediately with an empty URL (which would hit the Next.js
-	// frontend at /env/ONBOARDING_COMPLETE and get a 404).
+	// Hard gate: redirect to /onboarding if ONBOARDING_COMPLETE is not "true".
+	// Reads directly from the sandbox env — same endpoint as the Secrets Manager page.
+	// Re-runs when the sandbox registers (activeServerId changes) so we get a URL.
 	const activeServerId = useServerStore((s) => s.activeServerId);
-	const serverVersion = useServerStore((s) => s.serverVersion);
 	const [onboardingChecked, setOnboardingChecked] = useState(false);
 	useEffect(() => {
-		const params = new URLSearchParams(window.location.search);
-		if (params.has("skip_onboarding")) {
-			setOnboardingChecked(true);
-			return;
-		}
-
-		// Fast path: if we've already confirmed onboarding is complete this browser
-		// session, skip the network call entirely. This eliminates ~50 requests to
-		// /env/ONBOARDING_COMPLETE per session.
-		const cached = sessionStorage.getItem("onboarding_complete");
-		if (cached === "true") {
-			setOnboardingChecked(true);
-			return;
-		}
-
 		const checkOnboarding = async () => {
+			const instanceUrl = getActiveOpenCodeUrl();
+			if (!instanceUrl) {
+				// Sandbox URL not known yet — wait for next re-run when it registers
+				return;
+			}
 			const { authenticatedFetch } = await import("@/lib/auth-token");
-			const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8008/v1";
-
 			try {
-				const res = await authenticatedFetch(`${backendUrl}/setup/onboarding-status`, undefined, { retryOnAuthError: false });
+				const res = await authenticatedFetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`, undefined, { retryOnAuthError: false });
 				if (!res.ok) {
+					// Sandbox unreachable — let through, don't block
 					setOnboardingChecked(true);
 					return;
 				}
-
 				const data = await res.json();
-				if (data?.complete) {
-					sessionStorage.setItem("onboarding_complete", "true");
+				if (data?.ONBOARDING_COMPLETE === 'true') {
 					setOnboardingChecked(true);
-					return;
+				} else {
+					router.replace("/onboarding");
 				}
-
-				router.replace("/onboarding");
 			} catch {
+				// Unreachable — let through
 				setOnboardingChecked(true);
 			}
 		};
 		checkOnboarding();
-	}, [router, activeServerId, serverVersion]);
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [activeServerId]);
 
 	const isMaintenanceActive = (() => {
 		if (

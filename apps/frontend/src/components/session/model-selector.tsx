@@ -35,8 +35,7 @@ import type { ProviderModalTab } from '@/stores/provider-modal-store';
 // Re-export for consumers
 export { ConnectProviderContent } from '@/components/providers/connect-provider-content';
 
-// ─── Backward-compat re-exports ───────────────────────────────────────────────
-// Thin wrappers — delegate to the global ProviderModal via the store.
+// ─── Backward-compat wrappers ────────────────────────────────────────────────
 
 export function ConnectProviderDialog({
   open,
@@ -54,13 +53,12 @@ export function ConnectProviderDialog({
     else closeProviderModal();
   }, [open, openProviderModal, closeProviderModal]);
 
-  // Listen for store close → sync back
   const isStoreOpen = useProviderModalStore((s) => s.isOpen);
   useEffect(() => {
     if (!isStoreOpen && open) onOpenChange(false);
   }, [isStoreOpen, open, onOpenChange]);
 
-  return null; // Rendered globally via GlobalProviderModal
+  return null;
 }
 
 export function ManageModelsDialog({
@@ -91,9 +89,7 @@ export function ManageModelsDialog({
   return null;
 }
 
-// =============================================================================
-// Helpers
-// =============================================================================
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatContext(tokens: number): string {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
@@ -158,9 +154,7 @@ function getRecommendedModels(models: FlatModel[]) {
   return recommended;
 }
 
-// =============================================================================
-// Tag
-// =============================================================================
+// ─── Tag ─────────────────────────────────────────────────────────────────────
 
 export function Tag({ children, variant = 'default' }: { children: React.ReactNode; variant?: 'default' | 'free' | 'latest' | 'recommended' | 'custom' }) {
   return (
@@ -179,9 +173,7 @@ export function Tag({ children, variant = 'default' }: { children: React.ReactNo
   );
 }
 
-// =============================================================================
-// Model Tooltip
-// =============================================================================
+// ─── Model Tooltip ───────────────────────────────────────────────────────────
 
 function ModelTooltipContent({ model, isLatest, isFree }: { model: FlatModel; isLatest: boolean; isFree: boolean }) {
   const tags: string[] = [];
@@ -189,36 +181,75 @@ function ModelTooltipContent({ model, isLatest, isFree }: { model: FlatModel; is
   if (isFree) tags.push('Free');
   const suffix = tags.length ? ` (${tags.join(', ')})` : '';
 
-  const inputs: string[] = [];
-  if (model.capabilities?.vision) inputs.push('Image');
-  if (model.capabilities?.reasoning) inputs.push('Reasoning');
-  if (model.capabilities?.toolcall) inputs.push('Tool Use');
+  const caps: string[] = [];
+  if (model.capabilities?.vision) caps.push('Image');
+  if (model.capabilities?.reasoning) caps.push('Reasoning');
+  if (model.capabilities?.toolcall) caps.push('Tool Use');
 
   return (
     <div className="flex flex-col gap-0.5 py-0.5 max-w-[220px]">
       <div className="text-xs font-medium">{model.providerName} {model.modelName}{suffix}</div>
-      {inputs.length > 0 && (
-        <div className="text-[11px] text-muted-foreground">
-          Supports: {inputs.join(', ')}
-        </div>
-      )}
-      {model.capabilities?.reasoning !== undefined && (
-        <div className="text-[11px] text-muted-foreground">
-          {model.capabilities.reasoning ? 'Reasoning: allowed' : 'Reasoning: none'}
-        </div>
+      {caps.length > 0 && (
+        <div className="text-[11px] text-muted-foreground">Supports: {caps.join(', ')}</div>
       )}
       {model.contextWindow && model.contextWindow > 0 && (
-        <div className="text-[11px] text-muted-foreground">
-          Context: {formatContext(model.contextWindow)}
-        </div>
+        <div className="text-[11px] text-muted-foreground">Context: {formatContext(model.contextWindow)}</div>
       )}
     </div>
   );
 }
 
-// =============================================================================
-// ModelSelector Popover
-// =============================================================================
+// ─── Model Row ───────────────────────────────────────────────────────────────
+
+function ModelRow({
+  model,
+  isSelected,
+  isHighlighted,
+  isLatest,
+  isFree,
+  subtitle,
+  onSelect,
+  onHover,
+}: {
+  model: FlatModel;
+  isSelected: boolean;
+  isHighlighted: boolean;
+  isLatest: boolean;
+  isFree: boolean;
+  subtitle: string;
+  onSelect: () => void;
+  onHover: () => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-sm transition-colors cursor-pointer',
+            (isHighlighted || isSelected)
+              ? 'bg-muted/60'
+              : 'hover:bg-muted/30',
+          )}
+          onClick={onSelect}
+          onMouseEnter={onHover}
+        >
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-medium text-[13px]">{model.modelName}</div>
+            <div className="text-[11px] text-muted-foreground/50 truncate mt-0.5">{subtitle}</div>
+          </div>
+          {isFree && <Tag variant="free">Free</Tag>}
+          {isSelected && <Check className="h-3.5 w-3.5 text-foreground flex-shrink-0" />}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right" align="start" sideOffset={12} className="p-3">
+        <ModelTooltipContent model={model} isLatest={isLatest} isFree={isFree} />
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+// ─── ModelSelector Popover ───────────────────────────────────────────────────
 
 export interface ModelSelectorProps {
   models: FlatModel[];
@@ -227,13 +258,12 @@ export interface ModelSelectorProps {
   providers?: ProviderListResponse;
 }
 
-export function ModelSelector({ models, selectedModel, onSelect, providers }: ModelSelectorProps) {
+export function ModelSelector({ models, selectedModel, onSelect }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const openProviderModal = useProviderModalStore((s) => s.openProviderModal);
   const searchRef = useRef<HTMLInputElement>(null);
-
   const modelStore = useModelStore(models);
 
   const current = models.find(
@@ -241,17 +271,14 @@ export function ModelSelector({ models, selectedModel, onSelect, providers }: Mo
   );
   const displayName = current?.modelName || models[0]?.modelName || 'Model';
 
+  // ── Filtered + grouped models ──
+
   const visibleModels = useMemo(() => {
     const q = search.toLowerCase();
     return models
       .filter((m) => {
-        if (!q && !modelStore.isVisible({ providerID: m.providerID, modelID: m.modelID })) {
-          return false;
-        }
-        return !q ||
-          m.modelName.toLowerCase().includes(q) ||
-          m.modelID.toLowerCase().includes(q) ||
-          m.providerName.toLowerCase().includes(q);
+        if (!q && !modelStore.isVisible({ providerID: m.providerID, modelID: m.modelID })) return false;
+        return !q || m.modelName.toLowerCase().includes(q) || m.modelID.toLowerCase().includes(q) || m.providerName.toLowerCase().includes(q);
       })
       .sort((a, b) => a.modelName.localeCompare(b.modelName));
   }, [models, search, modelStore]);
@@ -263,11 +290,7 @@ export function ModelSelector({ models, selectedModel, onSelect, providers }: Mo
       if (existing) {
         existing.models.push(m);
       } else {
-        groups.set(m.providerID, {
-          providerID: m.providerID,
-          providerName: PROVIDER_LABELS[m.providerID] || m.providerName,
-          models: [m],
-        });
+        groups.set(m.providerID, { providerID: m.providerID, providerName: PROVIDER_LABELS[m.providerID] || m.providerName, models: [m] });
       }
     }
     const entries = Array.from(groups.values());
@@ -282,23 +305,13 @@ export function ModelSelector({ models, selectedModel, onSelect, providers }: Mo
     return entries;
   }, [visibleModels]);
 
-  const recommendedModels = useMemo(
-    () => (search ? [] : getRecommendedModels(visibleModels)),
-    [search, visibleModels],
-  );
-
-  const recommendedKeys = useMemo(
-    () => new Set(recommendedModels.map((model) => `${model.providerID}:${model.modelID}`)),
-    [recommendedModels],
-  );
+  const recommendedModels = useMemo(() => (search ? [] : getRecommendedModels(visibleModels)), [search, visibleModels]);
+  const recommendedKeys = useMemo(() => new Set(recommendedModels.map((m) => `${m.providerID}:${m.modelID}`)), [recommendedModels]);
 
   const groupedWithoutRecommended = useMemo(
     () => grouped
-      .map((group) => ({
-        ...group,
-        models: group.models.filter((model) => !recommendedKeys.has(`${model.providerID}:${model.modelID}`)),
-      }))
-      .filter((group) => group.models.length > 0),
+      .map((g) => ({ ...g, models: g.models.filter((m) => !recommendedKeys.has(`${m.providerID}:${m.modelID}`)) }))
+      .filter((g) => g.models.length > 0),
     [grouped, recommendedKeys],
   );
 
@@ -307,20 +320,15 @@ export function ModelSelector({ models, selectedModel, onSelect, providers }: Mo
     [recommendedModels, groupedWithoutRecommended],
   );
 
+  // ── Interaction ──
+
   useEffect(() => {
-    if (open) {
-      setTimeout(() => searchRef.current?.focus(), 50);
-    } else {
-      setSearch('');
-      setHighlightedIndex(-1);
-    }
+    if (open) setTimeout(() => searchRef.current?.focus(), 50);
+    else { setSearch(''); setHighlightedIndex(-1); }
   }, [open]);
 
   const handleSelect = useCallback(
-    (model: FlatModel) => {
-      onSelect({ providerID: model.providerID, modelID: model.modelID });
-      setOpen(false);
-    },
+    (model: FlatModel) => { onSelect({ providerID: model.providerID, modelID: model.modelID }); setOpen(false); },
     [onSelect],
   );
 
@@ -328,18 +336,10 @@ export function ModelSelector({ models, selectedModel, onSelect, providers }: Mo
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       e.stopPropagation();
       const len = flatList.length;
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setHighlightedIndex((i) => (i < len - 1 ? i + 1 : 0));
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setHighlightedIndex((i) => (i > 0 ? i - 1 : len - 1));
-      } else if (e.key === 'Enter' && highlightedIndex >= 0 && flatList[highlightedIndex]) {
-        e.preventDefault();
-        handleSelect(flatList[highlightedIndex]);
-      } else if (e.key === 'Escape') {
-        setOpen(false);
-      }
+      if (e.key === 'ArrowDown') { e.preventDefault(); setHighlightedIndex((i) => (i < len - 1 ? i + 1 : 0)); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlightedIndex((i) => (i > 0 ? i - 1 : len - 1)); }
+      else if (e.key === 'Enter' && highlightedIndex >= 0 && flatList[highlightedIndex]) { e.preventDefault(); handleSelect(flatList[highlightedIndex]); }
+      else if (e.key === 'Escape') { setOpen(false); }
     },
     [flatList, highlightedIndex, handleSelect],
   );
@@ -360,8 +360,8 @@ export function ModelSelector({ models, selectedModel, onSelect, providers }: Mo
               <button
                 type="button"
                 className={cn(
-                  "inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200 cursor-pointer",
-                  open && "bg-muted text-foreground",
+                  'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200 cursor-pointer',
+                  open && 'bg-muted text-foreground',
                 )}
               >
                 <span className="truncate max-w-[120px]">{displayName}</span>
@@ -376,13 +376,13 @@ export function ModelSelector({ models, selectedModel, onSelect, providers }: Mo
           side="top"
           align="start"
           sideOffset={8}
-          className="w-[320px] p-0 overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800 bg-background shadow-xl"
+          className="w-[320px] p-0 overflow-hidden rounded-xl border border-border/40 bg-background shadow-xl"
         >
           <div className="flex flex-col max-h-[380px] overflow-hidden">
-            {/* Search bar */}
-            <div className="flex items-center gap-2 p-3 border-b border-zinc-100 dark:border-zinc-800 flex-shrink-0">
+            {/* Search + actions */}
+            <div className="flex items-center gap-1.5 p-2.5 border-b border-border/30 flex-shrink-0">
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50 pointer-events-none" />
                 <input
                   ref={searchRef}
                   type="text"
@@ -390,163 +390,110 @@ export function ModelSelector({ models, selectedModel, onSelect, providers }: Mo
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  className="w-full h-9 pl-9 pr-8 rounded-lg text-sm bg-zinc-50 dark:bg-zinc-900 border-0 focus:outline-none focus:ring-1 focus:ring-zinc-300 dark:focus:ring-zinc-700 placeholder:text-muted-foreground/50 transition-colors"
+                  className="w-full h-8 pl-8 pr-7 rounded-lg text-xs bg-muted/30 border-0 focus:outline-none focus:ring-1 focus:ring-ring/30 placeholder:text-muted-foreground/40 transition-colors"
                 />
                 {search && (
                   <button
                     type="button"
                     onClick={() => setSearch('')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-foreground transition-colors"
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <X className="h-3 w-3" />
                   </button>
                 )}
               </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenProviderModal('providers')}
-                      className="size-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-                    >
-                      <Plus className="h-4 w-4" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="text-xs">Connect provider</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenProviderModal('models')}
-                      className="size-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-                    >
-                      <SlidersHorizontal className="h-4 w-4" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="text-xs">Manage models</TooltipContent>
-                </Tooltip>
-              </div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenProviderModal('providers')}
+                    className="size-7 rounded-md flex items-center justify-center text-muted-foreground/50 hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">Connect provider</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenProviderModal('models')}
+                    className="size-7 rounded-md flex items-center justify-center text-muted-foreground/50 hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                  >
+                    <SlidersHorizontal className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">Manage models</TooltipContent>
+              </Tooltip>
             </div>
 
             {/* Model list */}
-            <div className="flex-1 min-h-0 overflow-y-auto p-2">
+            <div className="flex-1 min-h-0 overflow-y-auto p-1.5">
               {flatList.length > 0 ? (
                 <>
+                  {/* Recommended section */}
                   {recommendedModels.length > 0 && (
-                    <div className="mb-3 last:mb-0">
-                      <div className="flex items-center justify-between px-2 pb-2">
-                        <div>
-                          <div className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
-                            Recommended
-                          </div>
-                          <div className="text-[10px] text-muted-foreground">
-                            Best picks right now
-                          </div>
-                        </div>
-                        <Tag variant="recommended">Starter Set</Tag>
+                    <div className="mb-2 last:mb-0">
+                      <div className="px-2 pb-1.5 pt-1">
+                        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+                          Recommended
+                        </span>
                       </div>
                       {recommendedModels.map((model) => {
                         flatIndex++;
                         const idx = flatIndex;
-                        const isSelected =
-                          selectedModel?.providerID === model.providerID &&
-                          selectedModel?.modelID === model.modelID;
-                        const isHighlighted = idx === highlightedIndex;
-                        const isLatestModel = modelStore.isLatest({ providerID: model.providerID, modelID: model.modelID });
-                        const isFree = model.providerID === 'opencode' && (!model.cost || model.cost.input === 0);
-
                         return (
-                          <Tooltip key={`${model.providerID}:${model.modelID}`}>
-                            <TooltipTrigger asChild>
-                              <button
-                                type="button"
-                                className={cn(
-                                  'w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-left text-sm transition-colors cursor-pointer',
-                                  (isHighlighted || isSelected) ? 'bg-zinc-100 dark:bg-zinc-800' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50',
-                                )}
-                                onClick={() => handleSelect(model)}
-                                onMouseEnter={() => setHighlightedIndex(idx)}
-                              >
-                                <div className="min-w-0 flex-1">
-                                  <div className="truncate font-medium">{model.modelName}</div>
-                                  <div className="text-[11px] text-muted-foreground/60 truncate mt-0.5">
-                                    {PROVIDER_LABELS[model.providerID] || model.providerName}
-                                  </div>
-                                </div>
-                                <Tag variant="recommended">Recommended</Tag>
-                                {isFree && <Tag variant="free">Free</Tag>}
-                                {isLatestModel && <Tag variant="latest">New</Tag>}
-                                {isSelected && <Check className="h-4 w-4 text-foreground flex-shrink-0" />}
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent side="right" align="start" sideOffset={12} className="p-3">
-                              <ModelTooltipContent model={model} isLatest={isLatestModel} isFree={isFree} />
-                            </TooltipContent>
-                          </Tooltip>
+                          <ModelRow
+                            key={`${model.providerID}:${model.modelID}`}
+                            model={model}
+                            isSelected={selectedModel?.providerID === model.providerID && selectedModel?.modelID === model.modelID}
+                            isHighlighted={idx === highlightedIndex}
+                            isLatest={modelStore.isLatest({ providerID: model.providerID, modelID: model.modelID })}
+                            isFree={model.providerID === 'opencode' && (!model.cost || model.cost.input === 0)}
+                            subtitle={PROVIDER_LABELS[model.providerID] || model.providerName}
+                            onSelect={() => handleSelect(model)}
+                            onHover={() => setHighlightedIndex(idx)}
+                          />
                         );
                       })}
                     </div>
                   )}
 
+                  {/* Provider groups */}
                   {groupedWithoutRecommended.map((group) => (
-                  <div key={group.providerID} className="mb-3 last:mb-0">
-                    <div className="flex items-center gap-2 px-2 pb-2">
-                      <ProviderLogo providerID={group.providerID} name={group.providerName} size="small" />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[11px] font-semibold uppercase tracking-wider text-foreground">
+                    <div key={group.providerID} className="mb-2 last:mb-0">
+                      <div className="flex items-center gap-2 px-2 pb-1.5 pt-1">
+                        <ProviderLogo providerID={group.providerID} name={group.providerName} size="small" />
+                        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
                           {PROVIDER_LABELS[group.providerID] || group.providerName}
-                        </div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {group.models.length} {group.models.length === 1 ? 'model' : 'models'}
-                        </div>
+                        </span>
+                        <span className="ml-auto text-[10px] text-muted-foreground/30">
+                          {group.models.length}
+                        </span>
                       </div>
+                      {group.models.map((model) => {
+                        flatIndex++;
+                        const idx = flatIndex;
+                        return (
+                          <ModelRow
+                            key={`${model.providerID}:${model.modelID}`}
+                            model={model}
+                            isSelected={selectedModel?.providerID === model.providerID && selectedModel?.modelID === model.modelID}
+                            isHighlighted={idx === highlightedIndex}
+                            isLatest={modelStore.isLatest({ providerID: model.providerID, modelID: model.modelID })}
+                            isFree={model.providerID === 'opencode' && (!model.cost || model.cost.input === 0)}
+                            subtitle={model.modelID}
+                            onSelect={() => handleSelect(model)}
+                            onHover={() => setHighlightedIndex(idx)}
+                          />
+                        );
+                      })}
                     </div>
-                    {group.models.map((model) => {
-                      flatIndex++;
-                      const idx = flatIndex;
-                      const isSelected =
-                        selectedModel?.providerID === model.providerID &&
-                        selectedModel?.modelID === model.modelID;
-                      const isHighlighted = idx === highlightedIndex;
-                      const isLatestModel = modelStore.isLatest({ providerID: model.providerID, modelID: model.modelID });
-                      const isFree = model.providerID === 'opencode' && (!model.cost || model.cost.input === 0);
-
-                      return (
-                        <Tooltip key={`${model.providerID}:${model.modelID}`}>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              className={cn(
-                                'w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-left text-sm transition-colors cursor-pointer',
-                                (isHighlighted || isSelected) ? 'bg-zinc-100 dark:bg-zinc-800' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50',
-                              )}
-                              onClick={() => handleSelect(model)}
-                              onMouseEnter={() => setHighlightedIndex(idx)}
-                            >
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate font-medium">{model.modelName}</div>
-                                <div className="text-[11px] text-muted-foreground/60 truncate mt-0.5">
-                                  {model.modelID}
-                                </div>
-                              </div>
-                              {isFree && <Tag variant="free">Free</Tag>}
-                              {isLatestModel && <Tag variant="latest">New</Tag>}
-                              {isSelected && <Check className="h-4 w-4 text-foreground flex-shrink-0" />}
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="right" align="start" sideOffset={12} className="p-3">
-                            <ModelTooltipContent model={model} isLatest={isLatestModel} isFree={isFree} />
-                          </TooltipContent>
-                        </Tooltip>
-                      );
-                    })}
-                  </div>
                   ))}
                 </>
               ) : (
-                <div className="text-xs text-center py-8 text-muted-foreground/60">
+                <div className="text-xs text-center py-8 text-muted-foreground/50">
                   No models found
                 </div>
               )}

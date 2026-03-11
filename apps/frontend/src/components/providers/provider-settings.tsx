@@ -32,6 +32,7 @@ export function ProviderSettings({
 }: ProviderSettingsProps) {
   const { data: providersData, isLoading, isError, refetch } = useOpenCodeProviders();
   const prevCountRef = useRef(0);
+  const [waitingSeconds, setWaitingSeconds] = useState(0);
   const openProviderModal = useProviderModalStore((s) => s.openProviderModal);
 
   // Retry polling when data is unavailable (sandbox not ready yet)
@@ -41,6 +42,18 @@ export function ProviderSettings({
       return () => clearInterval(timer);
     }
   }, [isLoading, providersData, isError, refetch]);
+
+  useEffect(() => {
+    if (!(isLoading || (!providersData && !isError))) {
+      setWaitingSeconds(0);
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setWaitingSeconds((s) => s + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isLoading, providersData, isError]);
 
   const connectedProviders = useMemo(() => {
     if (!providersData) return [];
@@ -60,7 +73,13 @@ export function ProviderSettings({
     return (
       <div className="flex flex-col items-center justify-center py-16 gap-4">
         <KortixLoader size="medium" />
-        <p className="text-sm text-muted-foreground animate-pulse">Connecting to sandbox…</p>
+        <div className="space-y-2 text-center">
+          <p className="text-sm text-muted-foreground animate-pulse">Connecting to sandbox…</p>
+          <p className="text-xs text-muted-foreground/70 max-w-xs">
+            First boot can take a few minutes while the local sandbox installs Kortix and starts OpenCode.
+            {waitingSeconds > 20 ? ' If this keeps spinning for more than ~4 minutes, check `docker logs kortix-sandbox`.' : ''}
+          </p>
+        </div>
       </div>
     );
   }

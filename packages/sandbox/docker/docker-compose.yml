@@ -36,7 +36,7 @@ services:
         - type=local,src=.buildx-cache/sandbox
       cache_to:
         - type=local,dest=.buildx-cache/sandbox,mode=max
-    image: kortix/computer:${SANDBOX_VERSION:-0.7.18}
+    image: kortix/computer:${SANDBOX_VERSION:-0.7.26}
     container_name: kortix-sandbox
     cap_add:
       - SYS_ADMIN
@@ -65,6 +65,7 @@ services:
       - SANDBOX_ID=${SANDBOX_ID:-local}
       - PROJECT_ID=${PROJECT_ID:-local}
       - ENV_MODE=${ENV_MODE:-local}
+      - KORTIX_LOCAL_SOURCE=${KORTIX_LOCAL_SOURCE:-1}
     env_file:
       - .env
     volumes:

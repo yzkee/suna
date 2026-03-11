@@ -26,9 +26,6 @@ import { cn } from '@/lib/utils';
 // Lazy load heavy components
 const GoogleSignIn = lazy(() => import('@/components/GoogleSignIn'));
 
-/* ─── Shared helpers ────────────────────────────────────────────────────── */
-
-const SYMBOL = "M25.5614 24.916H29.8268C29.8268 19.6306 26.9378 15.0039 22.6171 12.4587C26.9377 9.91355 29.8267 5.28685 29.8267 0.00146484H25.5613C25.5613 5.00287 21.8906 9.18692 17.0654 10.1679V0.00146484H12.8005V10.1679C7.9526 9.20401 4.3046 5.0186 4.3046 0.00146484H0.0391572C0.0391572 5.28685 2.92822 9.91355 7.24884 12.4587C2.92818 15.0039 0.0390625 19.6306 0.0390625 24.916H4.30451C4.30451 19.8989 7.95259 15.7135 12.8005 14.7496V24.9206H17.0654V14.7496C21.9133 15.7134 25.5614 19.8989 25.5614 24.916Z";
 
 /* ─── Live clock ────────────────────────────────────────────────────────── */
 
@@ -562,20 +559,6 @@ function LoginContent() {
               <LiveClock />
             </motion.div>
 
-            {/* Profile icon — centered */}
-            <motion.div
-              className="absolute inset-0 flex items-center justify-center"
-              initial={{ opacity: 0, scale: 0.92 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.7, delay: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            >
-              <div className="w-[72px] h-[72px] sm:w-20 sm:h-20 rounded-full flex items-center justify-center bg-foreground/[0.04] border border-foreground/[0.07] backdrop-blur-sm shadow-[0_2px_24px_rgba(0,0,0,0.08)]">
-                <svg viewBox="0 0 30 25" className="h-7 sm:h-8 w-auto text-foreground/70">
-                  <path d={SYMBOL} fill="currentColor" />
-                </svg>
-              </div>
-            </motion.div>
-
             {/* Hint — bottom area */}
             <motion.div
               className="absolute bottom-[10vh] left-0 right-0 flex flex-col items-center gap-3"
@@ -632,20 +615,10 @@ function LoginContent() {
               exit={{ opacity: 0, y: 20, scale: 0.97 }}
               transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
             >
-              <div className="bg-background/75 dark:bg-background/70 backdrop-blur-2xl border border-foreground/[0.08] rounded-2xl p-7">
-                {/* Header */}
-                <div className="flex flex-col items-center mb-6">
-                  <h1 className="text-[17px] font-medium text-foreground/90 tracking-tight">
-                    Sign in to Kortix
-                  </h1>
-                  <p className="text-[13px] text-foreground/40 mt-0.5">
-                    Your AI Computer
-                  </p>
-                </div>
-
+              <div className="bg-background/80 dark:bg-background/75 backdrop-blur-2xl border border-foreground/[0.07] rounded-2xl p-6">
                 {/* Google OAuth */}
-                <div className="space-y-3 mb-4">
-                  <Suspense fallback={<div className="h-11 bg-foreground/[0.04] rounded-xl animate-pulse" />}>
+                <div className="mb-4">
+                  <Suspense fallback={<div className="h-10 bg-foreground/[0.04] rounded-xl animate-pulse" />}>
                     <GoogleSignIn returnUrl={returnUrl || undefined} referralCode={referralCode} />
                   </Suspense>
                 </div>
@@ -653,10 +626,10 @@ function LoginContent() {
                 {/* Divider */}
                 <div className="relative my-4">
                   <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-foreground/[0.08]" />
+                    <div className="w-full border-t border-foreground/[0.07]" />
                   </div>
                   <div className="relative flex justify-center text-[11px]">
-                    <span className="px-2 bg-transparent text-foreground/30">or continue with email</span>
+                    <span className="px-2.5 bg-background/80 dark:bg-background/75 text-foreground/25 tracking-wide">or email</span>
                   </div>
                 </div>
 
@@ -668,7 +641,8 @@ function LoginContent() {
                     type="email"
                     placeholder="Email address"
                     required
-                    className="h-11 text-[15px] bg-foreground/[0.04] border-foreground/[0.08] rounded-xl"
+                    autoComplete="email"
+                    className="h-10 text-[14px] bg-foreground/[0.04] border-foreground/[0.07] rounded-xl shadow-none"
                   />
 
                   {referralCodeParam && (
@@ -703,35 +677,32 @@ function LoginContent() {
                   <div className="relative">
                     <SubmitButton
                       formAction={handleAuth}
-                      className="w-full h-11 text-sm rounded-xl shadow-none"
+                      className="w-full h-10 text-[13px] rounded-xl shadow-none"
                       pendingText="Sending…"
                       disabled={!acceptedTerms}
                     >
                       Send magic link
                     </SubmitButton>
                     {wasEmailLastMethod && (
-                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-background shadow-sm">
+                      <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-background shadow-sm">
                         <div className="w-full h-full bg-green-500 rounded-full animate-pulse" />
                       </div>
                     )}
                   </div>
-
-                  <p className="text-[11px] text-foreground/30 text-center">
-                    We&apos;ll send a secure link — no password needed.
-                  </p>
                 </form>
 
-                {/* Referral + back to lock */}
-                <div className="flex items-center justify-between mt-4">
+                {/* Footer */}
+                <div className="flex items-center justify-between mt-4 pt-4 border-t border-foreground/[0.06]">
                   {!referralCodeParam ? (
                     <button
                       type="button"
                       onClick={() => setShowReferralDialog(true)}
                       className="text-[11px] text-foreground/30 hover:text-foreground/50 transition-colors"
                     >
-                      Have a referral code?
+                      Referral code?
                     </button>
                   ) : <span />}
+                  <p className="text-[11px] text-foreground/25">No password needed.</p>
                   <button
                     type="button"
                     onClick={() => setPhase('lock')}
@@ -850,23 +821,7 @@ function SelfHostedLoginContent() {
         if (statusData.status === 'ready') {
           // Sandbox is provisioned — check if the user already completed
           // onboarding (existing users). If so, setup was implicitly done.
-          try {
-            const obRes = await fetch(`${backendUrl}/setup/onboarding-status`, {
-              headers: { 'Authorization': `Bearer ${jwt}` },
-            });
-            if (obRes.ok) {
-              const obData = await obRes.json();
-              if (obData.complete) {
-                // Already fully onboarded — skip setup check
-                sessionStorage.setItem('setup_complete', 'true');
-                sessionStorage.setItem('onboarding_complete', 'true');
-                setSandboxChecked(true);
-                return;
-              }
-            }
-          } catch {
-            // Onboarding check failed — fall through to setup check
-          }
+          // Onboarding state is checked client-side in layout-content via sandbox /env directly.
 
           // Not onboarded yet — check DB setup status.
           // If check fails for any reason, default to showing the wizard
@@ -915,15 +870,12 @@ function SelfHostedLoginContent() {
     // onboarding or dashboard — don't re-show wizard steps the user finished.
     const setupDone = sessionStorage.getItem('setup_complete') === 'true';
     if (setupDone) {
-      const onboardingDone = sessionStorage.getItem('onboarding_complete') === 'true';
-      const dest = onboardingDone ? '/dashboard' : '/onboarding';
-      router.push(returnUrl || dest);
+      // Always go to /onboarding — layout-content will redirect to /dashboard if ONBOARDING_COMPLETE=true
+      router.push(returnUrl || '/onboarding');
       return;
     }
-
-    if (wizardStepRef.current > 1) return;
-    const defaultDest = isBillingEnabled() ? '/subscription' : '/onboarding';
-    router.push(returnUrl || defaultDest);
+    // Setup is not complete yet — stay on the auth wizard and let step 2/3 drive
+    // the transition into onboarding instead of force-redirecting too early.
   }, [user, isLoading, wizardStepLoading, installed, returnUrl, router, wizardStep, sandboxChecked]);
 
   // Keyboard controls: Enter/Space opens form, Escape closes it

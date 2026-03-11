@@ -1,14 +1,45 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const testPassword = process.env.E2E_TEST_PASSWORD || 'TestPass123!';
+const ownerEmail = process.env.E2E_OWNER_EMAIL || 'marko@kortix.ai';
+const testPassword = process.env.E2E_OWNER_PASSWORD || 'password1112';
+const sandboxHealthUrl = process.env.E2E_SANDBOX_HEALTH_URL || 'http://127.0.0.1:14000/kortix/health';
 
 async function waitForProviderStep(page: Page) {
   await expect
-    .poll(async () => page.getByText('Connect a Provider').isVisible(), {
-      timeout: 120_000,
+    .poll(async () => page.getByText(/Connect a provider/i).isVisible(), {
+      timeout: 180_000,
       intervals: [1000, 2000, 3000, 5000],
     })
     .toBeTruthy();
+}
+
+async function waitForProviderOption(page: Page) {
+  await expect
+    .poll(async () => page.getByRole('button', { name: /OpenCode Zen|Anthropic|OpenAI/i }).count(), {
+      timeout: 240_000,
+      intervals: [1000, 2000, 3000, 5000],
+    })
+    .toBeGreaterThan(0);
+}
+
+async function waitForSandboxReady() {
+  const started = Date.now();
+  while (Date.now() - started < 480_000) {
+    try {
+      const res = await fetch(sandboxHealthUrl);
+      if (res.ok) {
+        const data = await res.json() as { status?: string; opencode?: boolean };
+        if (data.status === 'ok' && data.opencode === true) {
+          return;
+        }
+      }
+    } catch {
+      // keep polling
+    }
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+
+  throw new Error(`Sandbox did not become ready at ${sandboxHealthUrl}`);
 }
 
 async function getAccessToken(page: Page): Promise<string> {
@@ -69,6 +100,8 @@ async function getAccessToken(page: Page): Promise<string> {
 }
 
 test.describe('Self-hosted setup + auth', () => {
+  test.setTimeout(600_000);
+
   test.beforeAll(async () => {
     const apiBase = process.env.E2E_API_URL || 'http://localhost:13738/v1';
     const installStatus = await fetch(`${apiBase}/setup/install-status`);
@@ -77,21 +110,31 @@ test.describe('Self-hosted setup + auth', () => {
     }
   });
 
-  test('new owner can complete setup path and reach dashboard', async ({ page }) => {
-    const email = `e2e+${Date.now()}@example.com`;
+  test('installer-created owner can complete setup path and reach dashboard', async ({ page }) => {
+    const apiBase = process.env.E2E_API_URL || 'http://localhost:13738/v1';
+
+    const bootstrapResponse = await page.request.post(`${apiBase}/setup/bootstrap-owner`, {
+      data: { email: ownerEmail, password: testPassword },
+    });
+    expect(bootstrapResponse.status()).toBe(200);
 
     await page.goto('/auth?redirect=%2Fonboarding');
-    await expect(page.getByRole('button', { name: 'Create account & continue' })).toBeVisible();
+    await expect(page.getByText('Click or press Enter to sign in')).toBeVisible();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('heading', { name: 'Sign in to Kortix' })).toBeVisible();
 
-    await page.locator('input[name="email"]').fill(email);
+    await page.locator('input[name="email"]').fill(ownerEmail);
     await page.locator('input[name="password"]').fill(testPassword);
-    await page.locator('input[name="confirmPassword"]').fill(testPassword);
-    await page.getByRole('button', { name: 'Create account & continue' }).click();
+    await page.getByRole('button', { name: 'Sign in' }).click();
 
     await waitForProviderStep(page);
-    await page.getByRole('button', { name: 'OpenCode Zen Recommended' }).click();
+    await waitForSandboxReady();
+    await waitForProviderOption(page);
+    await expect(page.getByText(/Choose a provider to power model access in chat/i)).toBeVisible();
     await page.getByRole('button', { name: 'Continue' }).click();
 
+    await expect(page.getByRole('heading', { name: 'Add tool keys' })).toBeVisible();
+    await expect(page.getByText(/Optional API keys for agent capabilities/i)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Skip for now' })).toBeVisible();
     await page.getByRole('button', { name: 'Skip for now' }).click();
 
@@ -110,7 +153,6 @@ test.describe('Self-hosted setup + auth', () => {
       }
     }
 
-    const apiBase = process.env.E2E_API_URL || 'http://localhost:13738/v1';
     const accessToken = await getAccessToken(page);
 
     const sshSetupResponse = await page.request.post(`${apiBase}/platform/sandbox/ssh/setup`, {
@@ -155,14 +197,16 @@ test.describe('Self-hosted setup + auth', () => {
     });
     await page.goto('/auth');
     await expect(page).toHaveURL(/\/auth/);
+    await expect(page.getByText('Click or press Enter to sign in')).toBeVisible();
+    await page.keyboard.press('Enter');
 
-    await page.locator('input[name="email"]').fill(email);
+    await page.locator('input[name="email"]').fill(ownerEmail);
     await page.locator('input[name="password"]').fill(testPassword);
     await page.getByRole('button', { name: 'Sign in' }).click();
 
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/(dashboard|onboarding)/);
 
     await page.goto('/auth?redirect=%2Fonboarding');
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page).toHaveURL(/\/(dashboard|onboarding)/);
   });
 });

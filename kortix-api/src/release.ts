@@ -19,16 +19,6 @@ export interface ReleaseManifest {
   frontend: {
     image: string
   }
-  packages: {
-    kortixOc: {
-      name: string
-      version: string
-    }
-    opencodeChannels: {
-      name: string
-      version: string
-    }
-  }
 }
 
 const RELEASE_MANIFEST_PATHS = [
@@ -61,16 +51,6 @@ function loadReleaseManifest(): ReleaseManifest {
     },
     frontend: {
       image: 'kortix/kortix-frontend:0.0.0',
-    },
-    packages: {
-      kortixOc: {
-        name: '@kortix/kortix-oc',
-        version: '0.0.0',
-      },
-      opencodeChannels: {
-        name: '@kortix/opencode-channels',
-        version: '0.0.0',
-      },
     },
   }
 }

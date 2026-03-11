@@ -6,7 +6,7 @@ import { AlertCircle, ExternalLink, Loader2, Search, Globe, Image, Mic, BookOpen
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { KortixLoader } from '@/components/ui/kortix-loader';
-import { installOwner, selfHostedSignIn } from '@/app/auth/actions';
+import { selfHostedSignIn } from '@/app/auth/actions';
 import { ProviderSettings } from '@/components/providers/provider-settings';
 import { useServerStore, getActiveOpenCodeUrl } from '@/stores/server-store';
 import { resetClient } from '@/lib/opencode-sdk';
@@ -26,21 +26,77 @@ export function useInstallStatus() {
 
   useEffect(() => {
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
+    let retries = 0;
+    const MAX_RETRIES = 3;
 
-    // Fetch both install-status and sandbox-providers in parallel
-    Promise.all([
-      fetch(`${backendUrl}/setup/install-status`)
-        .then((res) => res.json())
-        .catch(() => ({ installed: false })),
-      fetch(`${backendUrl}/setup/sandbox-providers`)
-        .then((res) => res.json())
-        .catch(() => ({ providers: ['local_docker'], default: 'local_docker' })),
-    ]).then(([statusData, providerData]) => {
-      setInstalled(statusData.installed === true);
-      setSandboxProviders(providerData.providers || ['local_docker']);
-      setDefaultProvider(providerData.default || 'local_docker');
-      setLoading(false);
-    });
+    const fetchStatus = async () => {
+      try {
+        const [statusRes, providerRes] = await Promise.all([
+          fetch(`${backendUrl}/setup/install-status`),
+          fetch(`${backendUrl}/setup/sandbox-providers`).catch(() => null),
+        ]);
+
+        // 503 = backend/Supabase not ready yet — retry
+        if (statusRes.status === 503) {
+          if (retries < MAX_RETRIES) {
+            retries++;
+            setTimeout(fetchStatus, 1500 * retries);
+            return;
+          }
+          // Exhausted retries — assume installed=true (shows sign-in, not installer)
+          setInstalled(true);
+          setLoading(false);
+          return;
+        }
+
+        // Any other non-2xx — same retry/fallback logic
+        if (!statusRes.ok) {
+          if (retries < MAX_RETRIES) {
+            retries++;
+            setTimeout(fetchStatus, 1500 * retries);
+            return;
+          }
+          setInstalled(true);
+          setLoading(false);
+          return;
+        }
+
+        const statusData = await statusRes.json();
+
+        // installed=null means the backend couldn't determine the state — retry
+        if (statusData.installed === null || statusData.installed === undefined) {
+          if (retries < MAX_RETRIES) {
+            retries++;
+            setTimeout(fetchStatus, 1500 * retries);
+            return;
+          }
+          setInstalled(true);
+          setLoading(false);
+          return;
+        }
+
+        const providerData = providerRes?.ok
+          ? await providerRes.json().catch(() => null)
+          : null;
+
+        setInstalled(statusData.installed === true);
+        setSandboxProviders(providerData?.providers || ['local_docker']);
+        setDefaultProvider(providerData?.default || 'local_docker');
+        setLoading(false);
+      } catch {
+        // Network error — retry, don't flip installed to false
+        if (retries < MAX_RETRIES) {
+          retries++;
+          setTimeout(fetchStatus, 1500 * retries);
+          return;
+        }
+        // Exhausted retries — assume installed=true (shows sign-in, not installer)
+        setInstalled(true);
+        setLoading(false);
+      }
+    };
+
+    fetchStatus();
   }, []);
 
   return { installed, loading, sandboxProviders, defaultProvider };
@@ -289,6 +345,7 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
   const [chosenProvider, setChosenProvider] = useState<SandboxProviderName | null>(null);
   /** JWT stored after signup so we can provision later if user needs to pick a provider. */
   const jwtRef = useRef<string | null>(null);
+  const provisioningRef = useRef(false);
   const router = useRouter();
 
   const hasMultipleProviders = sandboxProviders.length > 1;
@@ -302,7 +359,7 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
   // ── On step 2: if sandbox is already ready (e.g. after page refresh),
   //    skip "Preparing…" by fetching status immediately.
   useEffect(() => {
-    if (wizardStep !== 2 || sandboxReady) return;
+    if (wizardStep !== 2 || sandboxReady || provisioningRef.current) return;
 
     const checkExisting = async () => {
       try {
@@ -327,22 +384,29 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
           registerSandbox(data.data);
           setSandboxReady(true);
           setPullProgress(null);
+          provisioningRef.current = false;
           // Ensure chosenProvider is set so the correct sub-state renders
           setChosenProvider((prev) => prev ?? (data.data.provider as SandboxProviderName ?? 'local_docker'));
         } else if (data.status === 'pulling' || data.status === 'creating') {
           // Mid-pull on page refresh — resume polling
           setPullProgress({
             progress: data.progress || 0,
-            message: data.status === 'creating' ? 'Creating sandbox container…' : data.message || 'Pulling sandbox image...',
+            message:
+              data.status === 'creating'
+                ? 'Creating sandbox container and waiting for Kortix to boot. First boot can take a few minutes...'
+                : data.message || 'Pulling sandbox image. First boot can take a few minutes...',
           });
+          provisioningRef.current = true;
           pollLocalStatus(jwt, backendUrl);
         } else if (data.status === 'error') {
           // Previous provision failed — show error with retry
           setChosenProvider((prev) => prev ?? 'local_docker');
           setSandboxError(data.message || 'Previous sandbox setup failed');
+          provisioningRef.current = false;
         } else {
           // 'none' or unknown — re-provision
           setChosenProvider((prev) => prev ?? 'local_docker');
+          provisioningRef.current = true;
           provisionSandbox(jwt, backendUrl, 'local_docker');
         }
       } catch {
@@ -396,12 +460,14 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
           registerSandbox(data.data);
           setSandboxReady(true);
           setPullProgress(null);
+          provisioningRef.current = false;
           return; // stop polling
         }
 
         if (data.status === 'error') {
           setSandboxError(data.message || 'Failed to set up sandbox');
           setPullProgress(null);
+          provisioningRef.current = false;
           return; // stop polling
         }
 
@@ -419,6 +485,7 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
               registerSandbox(initData.data);
               setSandboxReady(true);
               setPullProgress(null);
+              provisioningRef.current = false;
               return;
             }
             // Still provisioning — update message and keep polling
@@ -437,8 +504,8 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
         setPullProgress({
           progress: data.progress || 0,
           message: data.status === 'creating'
-            ? 'Creating sandbox container…'
-            : data.message || 'Pulling sandbox image...',
+            ? 'Creating sandbox container and waiting for Kortix to boot. First boot can take a few minutes...'
+            : data.message || 'Pulling sandbox image. First boot can take a few minutes...',
         });
 
         // Poll again in 2s
@@ -453,6 +520,7 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
   // ── Provision sandbox via generic /platform/init (works for any provider) ──
   const provisionSandbox = useCallback(async (jwt: string, backendUrl: string, provider: SandboxProviderName) => {
     // Clear any previous error before retrying
+    provisioningRef.current = true;
     setSandboxError(null);
     setPullProgress(null);
 
@@ -465,34 +533,53 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
           body: JSON.stringify({}),
         });
         const initData = await initRes.json();
+        const isDuplicateCreateRace = typeof initData.error === 'string' && initData.error.includes('already in use');
 
         if (initData.status === 'ready' && initData.data) {
           // Sandbox already active or just created synchronously
           registerSandbox(initData.data);
           setSandboxReady(true);
+          provisioningRef.current = false;
         } else if (initData.status === 'pulling' || initData.status === 'creating') {
           // Image pull in progress OR container being created — poll for completion
           setPullProgress({
             progress: initData.progress || 0,
             message: initData.status === 'creating'
-              ? 'Creating sandbox container…'
-              : initData.message || 'Pulling sandbox image...',
+              ? 'Creating sandbox container and waiting for Kortix to boot. First boot can take a few minutes...'
+              : initData.message || 'Pulling sandbox image. First boot can take a few minutes...',
+          });
+          pollLocalStatus(jwt, backendUrl);
+        } else if (isDuplicateCreateRace) {
+          setPullProgress({
+            progress: 95,
+            message: 'Sandbox container already exists, waiting for it to finish booting...',
           });
           pollLocalStatus(jwt, backendUrl);
         } else if (initData.success && initData.data) {
           // Fallback: success response with data but no explicit status
           registerSandbox(initData.data);
           setSandboxReady(true);
+          provisioningRef.current = false;
         } else {
           // Init returned a failure — surface the error to the user
           const errMsg = initData.error || initData.message || 'Failed to initialize sandbox';
           console.warn('[Setup] Local init failed:', errMsg);
           setSandboxError(errMsg);
+          provisioningRef.current = false;
         }
       } catch (err: any) {
         const errMsg = err?.message || 'Network error while initializing sandbox';
         console.warn('[Setup] Local init error:', err);
-        setSandboxError(errMsg);
+        if (typeof errMsg === 'string' && errMsg.includes('already in use')) {
+          setPullProgress({
+            progress: 95,
+            message: 'Sandbox container already exists, waiting for it to finish booting...',
+          });
+          pollLocalStatus(jwt, backendUrl);
+        } else {
+          setSandboxError(errMsg);
+          provisioningRef.current = false;
+        }
       }
     } else {
       // Daytona (or any non-local provider) — uses generic init, synchronous
@@ -507,13 +594,16 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
         if (initData.success && initData.data) {
           registerSandbox(initData.data);
           setSandboxReady(true);
+          provisioningRef.current = false;
         } else {
           const errMsg = initData.error || initData.message || `Failed to initialize ${provider} sandbox`;
           console.warn(`[Setup] ${provider} init failed:`, errMsg);
           setSandboxError(errMsg);
+          provisioningRef.current = false;
         }
       } catch (err: any) {
         setSandboxError(err?.message || `Network error while initializing ${provider} sandbox`);
+        provisioningRef.current = false;
       }
     }
   }, [registerSandbox, pollLocalStatus]);
@@ -615,68 +705,7 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
     }
 
     try {
-      if (isInstaller) {
-        const confirmPassword = (form.elements.namedItem('confirmPassword') as HTMLInputElement).value;
-        if (password !== confirmPassword) {
-          setErrorMessage('Passwords do not match');
-          setPending(false);
-          return;
-        }
-
-        // Use server action — runs server-side with runtime env vars,
-        // bypassing the NEXT_PUBLIC_ baked-key issue in Docker deployments.
-        const formData = new FormData();
-        formData.set('email', email);
-        formData.set('password', password);
-        formData.set('confirmPassword', confirmPassword);
-
-        const result = await installOwner(null, formData);
-
-        if (result.message) {
-          setErrorMessage(result.message);
-          setPending(false);
-          return;
-        }
-
-        // Server action succeeded — session cookies are set server-side.
-        // Store the JWT for sandbox provisioning in subsequent steps.
-        const jwt = result.accessToken;
-        jwtRef.current = jwt || null;
-        setBootstrapAuthToken(jwt || null);
-
-        if (result.accessToken && result.refreshToken) {
-          try {
-            const supabase = createBrowserSupabaseClient();
-            await supabase.auth.setSession({
-              access_token: result.accessToken,
-              refresh_token: result.refreshToken,
-            });
-          } catch {
-            // Keep bootstrap token fallback for onboarding API auth.
-          }
-        }
-
-        // Invalidate the token cache so subsequent calls (e.g. ProviderSettings)
-        // pick up the fresh session instead of stale null.
-        invalidateTokenCache();
-
-        // Tell the parent we're entering step 2
-        setWizardStep(2);
-        onWizardStepChange?.(2);
-
-        // Provision sandbox — if only one provider, auto-provision immediately.
-        // If multiple providers, defer to step 2 where user picks.
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
-
-        if (!hasMultipleProviders && jwt) {
-          const autoProvider = sandboxProviders[0] || 'local_docker';
-          setChosenProvider(autoProvider);
-          await provisionSandbox(jwt, backendUrl, autoProvider);
-        }
-        // else: multiple providers — step 2 will show the picker
-
-        setPending(false);
-      } else {
+      if (!isInstaller) {
         // Returning user: prefer direct client sign-in so session state is
         // immediately available to middleware + AuthProvider.
         let signedInJwt: string | null = null;
@@ -715,6 +744,10 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
             return;
           }
 
+          if (result.accessToken) {
+            signedInJwt = result.accessToken;
+          }
+
           // Ensure browser session is established immediately in addition to
           // server-set cookies. This avoids rare cases where middleware doesn't
           // see a fresh session on the first navigation after login.
@@ -725,7 +758,6 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
                 access_token: result.accessToken,
                 refresh_token: result.refreshToken,
               });
-              signedInJwt = result.accessToken;
             } catch {
               // Fallback to server cookies + full reload below.
             }
@@ -738,32 +770,16 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
           }
         }
 
-        // Check setup status BEFORE redirecting. If setup wizard is not
-        // complete, show the wizard directly — avoids the dashboard → /auth
-        // redirect loop that causes session loss.
-        try {
-          const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
-          const setupRes = await fetch(`${backendUrl}/setup/setup-status`, {
-            headers: { 'Authorization': `Bearer ${signedInJwt}` },
-          });
-          if (setupRes.ok) {
-            const setupData = await setupRes.json();
-            if (!setupData.complete) {
-              // Setup not complete — show wizard step 2 immediately.
-              // Also persist the step to the backend DB.
-              setWizardStep(2);
-              onWizardStepChange?.(2);
-              setPending(false);
-              return;
-            }
-          }
-        } catch {
-          // Setup check failed — fall through to normal redirect
-        }
-
-        // Setup complete (or check failed) — hard redirect to dashboard.
-        // Hard redirect ensures middleware picks up the auth cookie.
-        window.location.href = returnUrl || '/dashboard';
+        // Self-hosted logins should always land in the local setup flow first.
+        // The auth page/load effects will later redirect completed accounts to
+        // onboarding or dashboard once backend setup state is confirmed.
+        setWizardStep(2);
+        onWizardStepChange?.(2);
+        setPending(false);
+        return;
+      } else {
+        setErrorMessage('This instance still needs its initial owner account. Run the Kortix installer/CLI bootstrap first.');
+        setPending(false);
       }
     } catch (err: any) {
       setErrorMessage(err?.message || 'An unexpected error occurred');
@@ -941,14 +957,20 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-5">
           <h1 className="text-[17px] font-medium text-foreground/90 tracking-tight">
-            Create your account
+            Instance setup pending
           </h1>
           <p className="text-[13px] text-foreground/40 mt-0.5">
-            Set up the owner account for this instance
+            Run the Kortix installer to create the initial owner account before signing in.
           </p>
         </div>
 
-        <StepIndicator currentStep={1} />
+        <div className="rounded-2xl border border-foreground/[0.08] bg-foreground/[0.03] p-4 text-center space-y-2">
+          <p className="text-[13px] text-foreground/80">Create the owner with the CLI:</p>
+          <code className="block text-[12px] text-foreground/60 break-all">bash scripts/get-kortix.sh --local</code>
+          <p className="text-[11px] text-foreground/45">
+            The installer now creates the first owner account and pre-warms the local sandbox before you sign in.
+          </p>
+        </div>
 
         {errorMessage && (
           <div className="mb-4 p-3 rounded-xl flex items-center gap-2 bg-destructive/10 border border-destructive/20 text-destructive">
@@ -956,44 +978,6 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
             <span className="text-[13px]">{errorMessage}</span>
           </div>
         )}
-
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <Input
-            id="email"
-            name="email"
-            type="email"
-            placeholder="Email address"
-            required
-            autoComplete="email"
-            className="h-11 text-[15px] bg-foreground/[0.04] border-foreground/[0.08] rounded-xl shadow-none"
-          />
-          <Input
-            id="password"
-            name="password"
-            type="password"
-            placeholder="Password"
-            required
-            autoComplete="new-password"
-            className="h-11 text-[15px] bg-foreground/[0.04] border-foreground/[0.08] rounded-xl shadow-none"
-          />
-          <Input
-            id="confirmPassword"
-            name="confirmPassword"
-            type="password"
-            placeholder="Confirm password"
-            required
-            autoComplete="new-password"
-            className="h-11 text-[15px] bg-foreground/[0.04] border-foreground/[0.08] rounded-xl shadow-none"
-          />
-
-          <Button
-            type="submit"
-            disabled={pending}
-            className="w-full h-11 text-[13px] rounded-xl shadow-none"
-          >
-            {pending ? 'Setting up…' : 'Continue'}
-          </Button>
-        </form>
       </div>
     );
   }

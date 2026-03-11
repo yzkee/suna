@@ -19,6 +19,7 @@ import { eq, sql } from 'drizzle-orm';
 import { accounts } from '@kortix/db';
 import { db, hasDatabase } from '../shared/db';
 import { resolveAccountId } from '../shared/resolve-account';
+import { getSupabase } from '../shared/supabase';
 
 export const setupApp = new Hono<AppEnv>();
 
@@ -27,7 +28,13 @@ export const setupApp = new Hono<AppEnv>();
 // remain public (the installer/login page calls it before any user exists).
 setupApp.use('/*', async (c, next) => {
   // Allow public routes without auth
-  if (c.req.path.endsWith('/install-status') || c.req.path.endsWith('/sandbox-providers')) {
+  if (
+    c.req.path.endsWith('/install-status') ||
+    c.req.path.endsWith('/sandbox-providers') ||
+    c.req.path.endsWith('/bootstrap-owner') ||
+    c.req.path.endsWith('/local-sandbox/warm') ||
+    c.req.path.endsWith('/local-sandbox/warm/status')
+  ) {
     return next();
   }
   // Everything else requires a valid Supabase JWT
@@ -136,6 +143,58 @@ async function setSandboxEnv(keys: Record<string, string>): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ keys }),
   }, 15000);
+}
+
+async function getLocalSandboxWarmStatus() {
+  const { getImagePullStatus, LocalDockerProvider } = await import('../platform/providers/local-docker');
+  const provider = new LocalDockerProvider();
+  const existing = await provider.find();
+  const sandboxHealthUrl = config.SANDBOX_NETWORK
+    ? 'http://kortix-sandbox:8000/kortix/health'
+    : `http://localhost:${config.SANDBOX_PORT_BASE || 14000}/kortix/health`;
+
+  if (existing && existing.status === 'running') {
+    try {
+      const health = await fetchWithTimeout(sandboxHealthUrl, {}, 3000);
+      if (health.ok) {
+        const payload = await health.json() as { status?: string; opencode?: boolean };
+        if (payload.status === 'ok' && payload.opencode === true) {
+          return { success: true, status: 'ready', data: existing };
+        }
+      }
+    } catch {
+      // still warming
+    }
+
+    return {
+      success: true,
+      status: 'creating',
+      progress: 95,
+      message: 'Sandbox container is running and finishing Kortix boot...',
+    };
+  }
+
+  const pullStatus = getImagePullStatus();
+  if (pullStatus.state === 'pulling') {
+    return {
+      success: true,
+      status: 'pulling',
+      progress: pullStatus.progress,
+      message: pullStatus.message,
+    };
+  }
+
+  if (pullStatus.state === 'error') {
+    return {
+      success: true,
+      status: 'error',
+      progress: pullStatus.progress,
+      message: pullStatus.message,
+      error: pullStatus.error,
+    };
+  }
+
+  return { success: true, status: 'none', message: 'No local sandbox warmup in progress' };
 }
 
 function parseEnvFile(path: string): Record<string, string> {
@@ -255,6 +314,112 @@ setupApp.get('/sandbox-providers', async (c) => {
     providers: available,
     default: available[0] || 'local_docker',
   });
+});
+
+setupApp.post('/local-sandbox/warm', async (c) => {
+  if (!config.isLocalDockerEnabled()) {
+    return c.json({ success: false, error: 'Local Docker provider is not enabled' }, 403);
+  }
+
+  const current = await getLocalSandboxWarmStatus();
+  if (current.status === 'ready' || current.status === 'pulling' || current.status === 'creating') {
+    return c.json(current, current.status === 'ready' ? 200 : 202);
+  }
+
+  const { LocalDockerProvider } = await import('../platform/providers/local-docker');
+  const provider = new LocalDockerProvider();
+
+  void provider.ensure().catch((err) => {
+    console.error('[setup] local sandbox warmup failed:', err);
+  });
+
+  return c.json({
+    success: true,
+    status: 'creating',
+    progress: 1,
+    message: 'Starting local sandbox warmup...',
+  }, 202);
+});
+
+setupApp.get('/local-sandbox/warm/status', async (c) => {
+  if (!config.isLocalDockerEnabled()) {
+    return c.json({ success: false, error: 'Local Docker provider is not enabled' }, 403);
+  }
+
+  return c.json(await getLocalSandboxWarmStatus());
+});
+
+setupApp.post('/bootstrap-owner', async (c) => {
+  if (!hasDatabase) {
+    return c.json({ success: false, error: 'Database not configured' }, 503);
+  }
+
+  try {
+    const body = await c.req.json<{ email?: string; password?: string }>();
+    const email = body.email?.trim().toLowerCase() || '';
+    const password = body.password || '';
+
+    if (!email || !email.includes('@')) {
+      return c.json({ success: false, error: 'Valid email is required' }, 400);
+    }
+
+    if (password.length < 6) {
+      return c.json({ success: false, error: 'Password must be at least 6 characters' }, 400);
+    }
+
+    const supabase = getSupabase();
+    const listed = await supabase.auth.admin.listUsers({ page: 1, perPage: 1 });
+    if (listed.error) {
+      return c.json({ success: false, error: listed.error.message || 'Could not inspect existing users' }, 500);
+    }
+    const firstUser = listed.data?.users?.[0];
+    if (firstUser) {
+      if ((firstUser.email || '').toLowerCase() === email) {
+        try {
+          const accountId = await resolveAccountId(firstUser.id);
+          await db
+            .update(accounts)
+            .set({ setupCompleteAt: null, setupWizardStep: 2, updatedAt: new Date() })
+            .where(eq(accounts.accountId, accountId));
+          await setSandboxEnv({ ONBOARDING_COMPLETE: 'false', ONBOARDING_SESSION_ID: '', ONBOARDING_COMMAND_FIRED: 'false' }).catch(() => {});
+        } catch {
+          // best effort reset
+        }
+        return c.json({ success: true, created: false, message: 'Owner already exists for this email' });
+      }
+      return c.json({ success: false, error: `Owner already exists (${firstUser.email})` }, 409);
+    }
+
+    const { data, error } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { is_owner: true },
+    });
+
+    if (error) {
+      return c.json({ success: false, error: error.message || 'Could not create owner' }, 500);
+    }
+
+    const userId = data.user?.id;
+    if (userId) {
+      try {
+        const accountId = await resolveAccountId(userId);
+        await db
+          .update(accounts)
+          .set({ setupCompleteAt: null, setupWizardStep: 2, updatedAt: new Date() })
+          .where(eq(accounts.accountId, accountId));
+        await setSandboxEnv({ ONBOARDING_COMPLETE: 'false', ONBOARDING_SESSION_ID: '', ONBOARDING_COMMAND_FIRED: 'false' }).catch(() => {});
+      } catch {
+        // best effort
+      }
+    }
+
+    return c.json({ success: true, created: true, email });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return c.json({ success: false, error: message }, 500);
+  }
 });
 
 /**
@@ -483,139 +648,7 @@ setupApp.get('/health', async (c) => {
   return c.json(checks);
 });
 
-/**
- * Helper: read all onboarding env keys from repo .env or sandbox secret store.
- */
-async function getOnboardingEnv(): Promise<Record<string, string>> {
-  const repoRoot = findRepoRoot();
-  const rootEnv = repoRoot ? parseEnvFile(resolve(repoRoot, '.env')) : {};
 
-  let sandboxEnv: Record<string, string> = {};
-  try {
-    sandboxEnv = await getSandboxEnv();
-  } catch {
-    // Sandbox not reachable
-  }
-
-  const complete = rootEnv['ONBOARDING_COMPLETE'] === 'true' || sandboxEnv['ONBOARDING_COMPLETE'] === 'true';
-  const sessionId = rootEnv['ONBOARDING_SESSION_ID'] || sandboxEnv['ONBOARDING_SESSION_ID'] || '';
-  const commandFired = rootEnv['ONBOARDING_COMMAND_FIRED'] || sandboxEnv['ONBOARDING_COMMAND_FIRED'] || '';
-
-  if (repoRoot) {
-    const sync: Record<string, string> = {};
-    if (complete && rootEnv['ONBOARDING_COMPLETE'] !== 'true') sync['ONBOARDING_COMPLETE'] = 'true';
-    if (sessionId && rootEnv['ONBOARDING_SESSION_ID'] !== sessionId) sync['ONBOARDING_SESSION_ID'] = sessionId;
-    if (commandFired && rootEnv['ONBOARDING_COMMAND_FIRED'] !== commandFired) sync['ONBOARDING_COMMAND_FIRED'] = commandFired;
-    if (Object.keys(sync).length > 0) {
-      writeEnvFile(resolve(repoRoot, '.env'), sync);
-    }
-  }
-
-  if (!repoRoot) {
-    return sandboxEnv;
-  }
-
-  return {
-    ...rootEnv,
-    ...sandboxEnv,
-    ONBOARDING_COMPLETE: complete ? 'true' : 'false',
-    ONBOARDING_SESSION_ID: sessionId,
-    ONBOARDING_COMMAND_FIRED: commandFired,
-  };
-}
-
-/**
- * Helper: write onboarding env keys to repo .env or sandbox secret store.
- */
-async function setOnboardingEnv(entries: Record<string, string>): Promise<boolean> {
-  const repoRoot = findRepoRoot();
-  let wrote = false;
-
-  if (repoRoot) {
-    writeEnvFile(resolve(repoRoot, '.env'), entries);
-    wrote = true;
-  }
-
-  try {
-    await setSandboxEnv(entries);
-    wrote = true;
-  } catch {
-    // Sandbox write is best-effort in local dev; repo .env is the durable fallback.
-  }
-
-  return wrote;
-}
-
-/**
- * GET /v1/setup/onboarding-status
- * Returns { complete, session_id? } — the frontend uses session_id to resume
- * an existing onboarding session instead of creating a new one.
- */
-setupApp.get('/onboarding-status', async (c) => {
-  try {
-    const env = await getOnboardingEnv();
-    const complete = env['ONBOARDING_COMPLETE'] === 'true';
-    const sessionId = env['ONBOARDING_SESSION_ID'] || null;
-    return c.json({ complete, session_id: sessionId });
-  } catch {
-    return c.json({ complete: false, session_id: null });
-  }
-});
-
-/**
- * POST /v1/setup/onboarding-session
- * Store the onboarding session ID so it persists across page reloads.
- * Called by the frontend when it creates the onboarding session.
- * Body: { session_id: string }
- */
-setupApp.post('/onboarding-session', async (c) => {
-  try {
-    const body = await c.req.json<{ session_id: string }>();
-    if (!body.session_id) return c.json({ ok: false, error: 'Missing session_id' }, 400);
-    const ok = await setOnboardingEnv({ ONBOARDING_SESSION_ID: body.session_id });
-    return ok ? c.json({ ok: true }) : c.json({ ok: false, error: 'Failed to persist' }, 500);
-  } catch (e: any) {
-    return c.json({ ok: false, error: e?.message || String(e) }, 500);
-  }
-});
-
-/**
- * POST /v1/setup/onboarding-complete
- * Mark onboarding as complete (called by the onboarding tool or frontend).
- * Optionally accepts { session_id } in body to store it alongside completion.
- */
-setupApp.post('/onboarding-complete', async (c) => {
-  try {
-    const entries: Record<string, string> = { ONBOARDING_COMPLETE: 'true' };
-    try {
-      const body = await c.req.json<{ session_id?: string }>();
-      if (body?.session_id) entries['ONBOARDING_SESSION_ID'] = body.session_id;
-    } catch {
-      // No body or invalid JSON — that's fine, just mark complete
-    }
-    const ok = await setOnboardingEnv(entries);
-    return ok ? c.json({ ok: true }) : c.json({ ok: false, error: 'Failed to persist' }, 500);
-  } catch (e: any) {
-    return c.json({ ok: false, error: e?.message || String(e) }, 500);
-  }
-});
-
-/**
- * POST /v1/setup/onboarding-reset
- * Reset onboarding state so the flow can be rerun intentionally.
- */
-setupApp.post('/onboarding-reset', async (c) => {
-  try {
-    const ok = await setOnboardingEnv({
-      ONBOARDING_COMPLETE: 'false',
-      ONBOARDING_COMMAND_FIRED: 'false',
-      ONBOARDING_SESSION_ID: '',
-    });
-    return ok ? c.json({ ok: true }) : c.json({ ok: false, error: 'Failed to persist' }, 500);
-  } catch (e: any) {
-    return c.json({ ok: false, error: e?.message || String(e) }, 500);
-  }
-});
 
 // ─── Setup Wizard Completion ────────────────────────────────────────────────
 // Tracks whether the user has completed the setup wizard (provider + tool keys).

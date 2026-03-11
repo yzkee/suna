@@ -1,5 +1,141 @@
 [
   {
+    "version": "0.7.26",
+    "date": "2026-03-10",
+    "title": "Restore Kortix OpenCode plugin loading",
+    "description": "Fixes the slimmed OpenCode runtime so the Kortix wrapper plugin actually loads inside the container by restoring the missing runtime dependency and removing the stale trigger plugin entry from opencode.jsonc.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Added js-yaml back to the materialized OpenCode runtime dependencies so kortix-oc runtime asset loading works in-container"
+      },
+      {
+        "type": "fix",
+        "text": "Removed the stale @kortix/opencode-agent-triggers entry from opencode.jsonc because OpenCode no longer needs to load that plugin directly"
+      }
+    ]
+  },
+  {
+    "version": "0.7.25",
+    "date": "2026-03-10",
+    "title": "Make cron state boot path unconditionally writable",
+    "description": "Moves sandbox cron state into `/tmp/kortix-agent-triggers` so kortix-master can always boot regardless of legacy workspace volume ownership quirks while the broader storage strategy is cleaned up.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Cron trigger state now initializes under /tmp/kortix-agent-triggers to avoid workspace permission mismatches"
+      },
+      {
+        "type": "fix",
+        "text": "Fresh and reused sandbox containers no longer crash in kortix-master before the health endpoint comes up"
+      }
+    ]
+  },
+  {
+    "version": "0.7.24",
+    "date": "2026-03-10",
+    "title": "Persist cron state in dedicated sandbox state dir",
+    "description": "Moves cron state into a dedicated `/workspace/.kortix-state` directory that startup explicitly creates and re-owns, avoiding all legacy ownership and symlink edge cases on reused volumes.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Cron trigger state now lives under /workspace/.kortix-state/agent-triggers"
+      },
+      {
+        "type": "fix",
+        "text": "startup.sh now creates and re-owns /workspace/.kortix-state before sandbox services launch"
+      }
+    ]
+  },
+  {
+    "version": "0.7.23",
+    "date": "2026-03-10",
+    "title": "Fix workspace ownership on boot",
+    "description": "Normalizes ownership of the persistent workspace directories before sandbox services start so the unprivileged `abc` user can write cron state and other runtime data on reused Docker volumes.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "startup.sh now recreates and chowns key /workspace runtime directories using PUID/PGID before bootstrapping"
+      },
+      {
+        "type": "fix",
+        "text": "kortix-master cron state can initialize cleanly on volumes created by older sandbox images with different uid/gid ownership"
+      }
+    ]
+  },
+  {
+    "version": "0.7.22",
+    "date": "2026-03-10",
+    "title": "Move cron state to writable sandbox storage",
+    "description": "Stores cron trigger state under the existing writable OpenCode storage tree so kortix-master boots correctly as the unprivileged sandbox user.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Cron trigger state now persists under /workspace/.local/share/opencode/storage/agent-triggers instead of the compatibility symlink path"
+      },
+      {
+        "type": "fix",
+        "text": "Fresh sandbox boots no longer fail with ENOENT or EACCES while starting the cron API"
+      }
+    ]
+  },
+  {
+    "version": "0.7.21",
+    "date": "2026-03-10",
+    "title": "Fix cron state boot path inside sandbox",
+    "description": "Ensures the embedded cron scheduler writes under the real `/workspace/.kortix/.opencode` tree so kortix-master can boot cleanly on fresh sandboxes without tripping over the compatibility symlink.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Cron state now initializes under /workspace/.kortix/.opencode/agent-triggers before kortix-master starts"
+      },
+      {
+        "type": "fix",
+        "text": "Fresh sandbox boots no longer crash on ENOENT when the .opencode compatibility symlink target has not been created yet"
+      }
+    ]
+  },
+  {
+    "version": "0.7.20",
+    "date": "2026-03-10",
+    "title": "Vendor trigger runtime for reliable sandbox boots",
+    "description": "Removes the last external bootstrap dependency that was breaking fresh sandbox installs by bundling the trigger runtime directly with kortix-master and dropping the unused package dependency from @kortix/kortix-oc.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Bundled opencode-agent-triggers inside kortix-master so sandbox postinstall no longer depends on registry availability for that package"
+      },
+      {
+        "type": "fix",
+        "text": "Removed the unused @kortix/opencode-agent-triggers dependency from @kortix/kortix-oc so fresh @kortix/sandbox installs resolve cleanly"
+      },
+      {
+        "type": "fix",
+        "text": "Bundled econnreset-guard.cjs with kortix-master so proxy-protected dev servers load the guard correctly"
+      }
+    ]
+  },
+  {
+    "version": "0.7.19",
+    "date": "2026-03-10",
+    "title": "Fix sandbox bootstrap package resolution",
+    "description": "Publishes the missing OpenCode trigger package and repins sandbox runtime dependencies so fresh boots and updates can resolve the full npm dependency tree reliably.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Published and pinned @kortix/opencode-agent-triggers so @kortix/kortix-oc can install outside the monorepo"
+      },
+      {
+        "type": "fix",
+        "text": "Bumped @kortix/kortix-oc and @kortix/sandbox to clean versions after the broken 0.7.18 bootstrap chain"
+      },
+      {
+        "type": "improvement",
+        "text": "Exact-version bootstrap defaults now point at 0.7.19 for local sandbox and self-hosted installs"
+      }
+    ]
+  },
+  {
     "version": "0.7.18",
     "date": "2026-03-10",
     "title": "Exact release manifest and pinned sandbox updates",

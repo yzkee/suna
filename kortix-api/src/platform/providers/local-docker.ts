@@ -15,8 +15,7 @@ import { execSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { config } from '../../config';
-import { generateSandboxKeyPair, isApiKeySecretConfigured } from '../../shared/crypto';
-import { createApiKey } from '../../repositories/api-keys';
+import { generateSandboxKeyPair } from '../../shared/crypto';
 import type {
   SandboxProvider,
   ProviderName,
@@ -179,7 +178,20 @@ export class LocalDockerProvider implements SandboxProvider {
       }
       console.log(`[LOCAL-DOCKER] Starting stopped sandbox...`);
       const container = this.docker.getContainer(existing.containerId);
-      await container.start();
+      try {
+        await container.start();
+      } catch (err: any) {
+        const message = err?.message || String(err);
+        if (!message.includes('marked for removal')) throw err;
+        console.warn('[LOCAL-DOCKER] Existing sandbox container is marked for removal, recreating...');
+        try {
+          await container.remove({ force: true, v: false });
+        } catch {
+          // ignore and continue to recreate
+        }
+        await this.createContainer();
+        return this.getSandboxInfo();
+      }
       await this.syncCoreEnvVars();
       return this.getSandboxInfo();
     }
@@ -512,16 +524,6 @@ export class LocalDockerProvider implements SandboxProvider {
     }
 
     let authToken = this._lastCreateOpts?.envVars?.KORTIX_TOKEN || '';
-    if (!authToken && isApiKeySecretConfigured()) {
-      const accountId = this._lastCreateOpts?.accountId || 'local';
-      const key = await createApiKey({
-        sandboxId: CONTAINER_NAME,
-        accountId,
-        title: 'Sandbox Token',
-        type: 'sandbox',
-      });
-      authToken = key.secretKey;
-    }
     if (!authToken) {
       authToken = generateSandboxKeyPair().secretKey;
     }
@@ -574,6 +576,7 @@ export class LocalDockerProvider implements SandboxProvider {
       `INTERNAL_SERVICE_KEY=${serviceKey}`,
       `SANDBOX_ID=${CONTAINER_NAME}`,
       'PROJECT_ID=local',
+      ...(config.KORTIX_LOCAL_IMAGES ? ['KORTIX_LOCAL_SOURCE=1'] : []),
       // Cloud mode when billing is enabled — routes LLM traffic through the proxy for metering.
       // Local mode otherwise — SDKs call providers directly (no billing).
       `ENV_MODE=${config.KORTIX_BILLING_INTERNAL_ENABLED ? 'cloud' : 'local'}`,
@@ -665,5 +668,3 @@ export interface SandboxInfo {
   mappedPorts: Record<string, string>;
   createdAt: string;
 }
-
-

@@ -277,12 +277,31 @@ export function createAccountRouter(
           type: 'sandbox',
         });
 
-        const result = await provider.create({
-          accountId,
-          userId,
-          name: `sandbox-${accountId.slice(0, 8)}`,
-          envVars: { KORTIX_TOKEN: sandboxKey.secretKey },
-        });
+        let result;
+        let racedWithExistingContainer = false;
+        try {
+          result = await provider.create({
+            accountId,
+            userId,
+            name: `sandbox-${accountId.slice(0, 8)}`,
+            envVars: { KORTIX_TOKEN: sandboxKey.secretKey },
+          });
+        } catch (createErr) {
+          const message = createErr instanceof Error ? createErr.message : String(createErr);
+          if (!message.includes('already in use')) throw createErr;
+
+          console.warn(`[PLATFORM] Local sandbox create raced with an existing container; returning creating state and letting status polling heal it.`);
+          racedWithExistingContainer = true;
+        }
+
+        if (racedWithExistingContainer) {
+          return c.json({
+            success: true,
+            status: 'creating',
+            progress: 95,
+            message: 'Sandbox container already exists, waiting for it to become ready…',
+          }, 202);
+        }
 
         const [updated] = await db
           .update(sandboxes)

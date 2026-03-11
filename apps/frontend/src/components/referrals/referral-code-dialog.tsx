@@ -8,7 +8,6 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { KortixLogo } from '@/components/sidebar/kortix-logo';
 import { useTranslations } from 'next-intl';
 
 interface ReferralCodeDialogProps {
@@ -36,45 +35,43 @@ export function ReferralCodeDialog({ open, onOpenChange, referralCode = '', onCo
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md p-0 gap-0 overflow-hidden">
-        <div className="p-4 sm:p-6">
-          {/* Logo & Header */}
-          <div className="flex flex-col items-center text-center mb-4">
-            <div className="mb-2 p-2 rounded-xl bg-muted/50">
-              <KortixLogo size={24} variant="symbol" />
-            </div>
-            <DialogTitle className="text-base sm:text-lg font-semibold">
+      <DialogContent className="sm:max-w-[320px] p-0 gap-0 overflow-hidden border-foreground/[0.07] bg-background/90 backdrop-blur-2xl">
+        <div className="p-5">
+          {/* Header */}
+          <div className="mb-4">
+            <DialogTitle className="text-[14px] font-medium text-foreground/85 tracking-tight">
               {t('yourReferralCode')}
             </DialogTitle>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-[12px] text-foreground/40 mt-0.5">
               {t('enterCodeDescription')}
             </p>
           </div>
 
           {/* Code Input */}
-          <div className="mb-4">
-            <Input
-              value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
-              placeholder={t('enterCode')}
-              maxLength={8}
-              className="font-mono text-center text-base font-semibold"
-              autoFocus
-            />
-          </div>
+          <Input
+            value={code}
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            placeholder={t('enterCode')}
+            maxLength={8}
+            className="font-mono text-center text-[15px] font-medium tracking-widest h-10 bg-foreground/[0.04] border-foreground/[0.07] rounded-xl shadow-none mb-4"
+            autoFocus
+            onKeyDown={(e) => e.key === 'Enter' && handleSave()}
+          />
 
           {/* Actions */}
           <div className="flex gap-2">
             <Button
               variant="ghost"
-              className="flex-1"
+              size="sm"
+              className="flex-1 h-9 text-[13px] text-foreground/40 hover:text-foreground/70 rounded-xl"
               onClick={() => onOpenChange(false)}
             >
               {tCommon('cancel')}
             </Button>
             <Button
               variant="default"
-              className="flex-1"
+              size="sm"
+              className="flex-1 h-9 text-[13px] rounded-xl shadow-none"
               onClick={handleSave}
             >
               {tCommon('save')}

@@ -2,23 +2,13 @@
   "name": "kortix",
   "private": true,
   "scripts": {
-    "env": "./scripts/setup-env.sh",
     "dev": "pnpm --filter Kortix-Computer-Frontend dev & pnpm --filter kortix-api dev",
-    "dev:services": "pnpm --filter kortix-api dev",
     "dev:frontend": "pnpm --filter Kortix-Computer-Frontend dev",
     "dev:api": "pnpm --filter kortix-api dev",
-    "dev:sandbox": "docker compose -f packages/sandbox/docker/docker-compose.yml up",
-    "dev:sandbox:docker": "docker compose -f packages/sandbox/docker/docker-compose.yml -f packages/sandbox/docker/docker-compose.docker.yml up",
+    "dev:sandbox": "docker compose -f packages/sandbox/docker/docker-compose.yml -f packages/sandbox/docker/docker-compose.dev.yml up",
     "build": "pnpm -r run build",
-    "build:frontend": "pnpm --filter Kortix-Computer-Frontend build",
-    "typecheck": "pnpm -r run typecheck",
-    "test:e2e:frontend": "pnpm --dir apps/frontend test:e2e",
-    "test:e2e:frontend:full": "pnpm --dir apps/frontend test:e2e:full",
-    "stripe": "stripe listen --forward-to http://localhost:8008/v1/billing/webhooks/stripe",
-    "setup": "echo 'Run: bash scripts/get-kortix.sh'",
-    "nuke": "bash scripts/nuke-local.sh",
-    "nuke:start": "bash scripts/nuke-local.sh --start",
-    "test:cli": "bash scripts/tests/run-all.sh"
+    "ship": "node scripts/release/ship.cjs",
+    "check": "node scripts/release/ship.cjs --check"
   },
   "devDependencies": {
     "agent-tunnel": "workspace:@kortix/agent-tunnel@*"

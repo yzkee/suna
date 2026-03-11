@@ -1,16 +1,20 @@
 {
   "name": "@kortix/sandbox",
-  "version": "0.7.18",
+  "version": "0.7.26",
   "description": "Kortix sandbox runtime — kortix-master, opencode config/agents/skills, and dependencies",
   "license": "Elastic-2.0",
   "private": false,
   "scripts": {
-    "postinstall": "bash postinstall.sh"
+    "postinstall": "bash postinstall.sh",
+    "bundle:runtime": "node scripts/bundle-runtime.cjs",
+    "prepack": "node scripts/bundle-runtime.cjs"
   },
   "files": [
     "kortix-master/src/",
     "kortix-master/package.json",
+    "kortix-master/econnreset-guard.cjs",
     "kortix-master/tsconfig.json",
+    "kortix-master/vendor/",
     "s6-services/",
     "config/",
     "browser-viewer/",
@@ -18,13 +22,15 @@
     "postinstall.sh",
     "patch-agent-browser.js",
     "startup.sh",
+    "scripts/bundle-runtime.cjs",
+    "scripts/install-from-prebuilt.sh",
+    "vendor/",
+    "prebuilt/",
     "release.json",
     "CHANGELOG.json",
     "LICENSE"
   ],
   "dependencies": {
-    "@kortix/kortix-oc": "0.1.2",
-    "@kortix/opencode-channels": "0.2.0",
     "opencode-ai": "1.2.17",
     "agent-browser": "0.10.0"
   },

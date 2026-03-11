@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "@kortix/opencode-agent-triggers": "0.1.0",
+    "@kortix/opencode-agent-triggers": "file:../kortix-master/vendor/opencode-agent-triggers",
     "@code-yeongyu/comment-checker": "0.7.0",
     "@mendable/firecrawl-js": "4.13.0",
     "@morphllm/morphsdk": "0.2.134",
@@ -8,6 +8,7 @@
     "@tavily/core": "0.7.1",
     "agent-tunnel": "npm:@kortix/agent-tunnel@0.1.0",
     "envsitter-guard": "0.0.4",
+    "js-yaml": "4.1.0",
     "jsonc-parser": "3.3.1",
     "opencode-pty": "0.2.3",
     "replicate": "1.4.0",

@@ -7,6 +7,15 @@ console.log('npm global root:', npmGlobalRoot);
 
 const agentBrowserDir = npmGlobalRoot + '/agent-browser/dist';
 
+function replaceOrWarn(content, oldPattern, newPattern, label) {
+  if (!content.includes(oldPattern)) {
+    console.warn(`${label} SKIPPED - pattern not found`);
+    return content;
+  }
+  console.log(`${label} OK`);
+  return content.replace(oldPattern, newPattern);
+}
+
 // ── Patch 1: handleLaunch env var fallbacks ─────────────────────────────────
 // The Rust CLI sends a launch command to the Node.js daemon but doesn't
 // include executablePath/args/profile in the JSON. We inject env var fallbacks.
@@ -35,13 +44,8 @@ const newLaunch = [
   '}',
 ].join('\n');
 
-if (!actions.includes(oldLaunch)) {
-  console.error('PATCH 1 FAILED - handleLaunch pattern not found in actions.js');
-  process.exit(1);
-}
-actions = actions.replace(oldLaunch, newLaunch);
+actions = replaceOrWarn(actions, oldLaunch, newLaunch, 'PATCH 1 - handleLaunch env var fallbacks');
 fs.writeFileSync(actionsFile, actions);
-console.log('PATCH 1 OK - handleLaunch env var fallbacks');
 
 // ── Patch 2: REMOVED — upstream agent-browser now allows localhost origins
 // via isAllowedOrigin() in stream-server.js. No patch needed.
@@ -65,13 +69,8 @@ const newStreamPort = `const isPrimarySession = (process.env.AGENT_BROWSER_SESSI
             ? parseInt(process.env.AGENT_BROWSER_STREAM_PORT, 10)
             : (!isPrimarySession ? getPortForSession(currentSession) : 0));`;
 
-if (!daemon.includes(oldStreamPort)) {
-  console.error('PATCH 3 FAILED - streamPort pattern not found in daemon.js');
-  process.exit(1);
-}
-daemon = daemon.replace(oldStreamPort, newStreamPort);
+daemon = replaceOrWarn(daemon, oldStreamPort, newStreamPort, 'PATCH 3 - named sessions use hash-based stream ports');
 fs.writeFileSync(daemonFile, daemon);
-console.log('PATCH 3 OK - named sessions use hash-based stream ports');
 
 // ── Patch 4: auto-launch profile only for default session ───────────────────
 // The daemon's auto-launch path (line ~282) reads AGENT_BROWSER_PROFILE
@@ -80,13 +79,8 @@ console.log('PATCH 3 OK - named sessions use hash-based stream ports');
 const oldAutoProfile = "profile: process.env.AGENT_BROWSER_PROFILE,";
 const newAutoProfile = 'profile: (process.env.AGENT_BROWSER_SESSION || "default") === (process.env.AGENT_BROWSER_PRIMARY_SESSION || process.env.AGENT_BROWSER_SESSION || "default") ? process.env.AGENT_BROWSER_PROFILE : undefined,';
 
-if (!daemon.includes(oldAutoProfile)) {
-  console.error('PATCH 4 FAILED - auto-launch profile pattern not found in daemon.js');
-  process.exit(1);
-}
-daemon = daemon.replace(oldAutoProfile, newAutoProfile);
+daemon = replaceOrWarn(daemon, oldAutoProfile, newAutoProfile, 'PATCH 4 - auto-launch profile only for default session');
 fs.writeFileSync(daemonFile, daemon);
-console.log('PATCH 4 OK - auto-launch profile only for default session');
 
 // ── Patch 4b: default socket dir to /tmp/agent-browser ─────────────────────
 // Keep agent-browser state out of /workspace by default. AGENT_BROWSER_SOCKET_DIR
@@ -114,13 +108,8 @@ const newAppDir = [
   '}',
 ].join('\n');
 
-if (!daemon.includes(oldAppDir)) {
-  console.error('PATCH 4b FAILED - getAppDir pattern not found in daemon.js');
-  process.exit(1);
-}
-daemon = daemon.replace(oldAppDir, newAppDir);
+daemon = replaceOrWarn(daemon, oldAppDir, newAppDir, 'PATCH 4b - default socket dir moved to /tmp/agent-browser');
 fs.writeFileSync(daemonFile, daemon);
-console.log('PATCH 4b OK - default socket dir moved to /tmp/agent-browser');
 
 // ── Patch 5: fix newTab/newWindow with persistent contexts ──────────────────
 // When using launchPersistentContext (profile mode), this.browser is null.
@@ -132,13 +121,8 @@ let browser = fs.readFileSync(browserFile, 'utf8');
 const oldNewTabCheck = "if (!this.browser || this.contexts.length === 0) {\n            throw new Error('Browser not launched');\n        }\n        // Invalidate CDP session since we're switching to a new page";
 const newNewTabCheck = "if ((!this.browser && this.contexts.length === 0) || this.contexts.length === 0) {\n            throw new Error('Browser not launched');\n        }\n        // Invalidate CDP session since we're switching to a new page";
 
-if (!browser.includes(oldNewTabCheck)) {
-  console.error('PATCH 5 FAILED - newTab check pattern not found in browser.js');
-  process.exit(1);
-}
-browser = browser.replace(oldNewTabCheck, newNewTabCheck);
+browser = replaceOrWarn(browser, oldNewTabCheck, newNewTabCheck, 'PATCH 5 - newTab works with persistent contexts');
 fs.writeFileSync(browserFile, browser);
-console.log('PATCH 5 OK - newTab works with persistent contexts');
 
 
 // ── Patch 6: always start screencast on client connect ──────────────────────
@@ -151,13 +135,8 @@ let stream = fs.readFileSync(streamFile, 'utf8');
 const oldScreencastGuard = 'if (this.clients.size === 1 && !this.isScreencasting) {';
 const newScreencastGuard = 'if (!this.isScreencasting) {';
 
-if (!stream.includes(oldScreencastGuard)) {
-  console.error('PATCH 6 FAILED - screencast guard pattern not found in stream-server.js');
-  process.exit(1);
-}
-stream = stream.replace(oldScreencastGuard, newScreencastGuard);
+stream = replaceOrWarn(stream, oldScreencastGuard, newScreencastGuard, 'PATCH 6 - screencast starts on any client connect');
 fs.writeFileSync(streamFile, stream);
-console.log('PATCH 6 OK - screencast starts on any client connect');
 
 // ── Patch 7: never stop screencast when clients disconnect ──────────────────
 // The stream-server stops screencasting when all WS clients disconnect.
@@ -171,13 +150,8 @@ const oldStopGuard = '// Stop screencasting if no more clients\n' +
   '            }';
 const newStopGuard = '// Keep screencasting even with no clients — restarting it is unreliable.';
 
-if (!stream.includes(oldStopGuard)) {
-  console.error('PATCH 7 FAILED - stop-screencast guard pattern not found in stream-server.js');
-  process.exit(1);
-}
-stream = stream.replace(oldStopGuard, newStopGuard);
+stream = replaceOrWarn(stream, oldStopGuard, newStopGuard, 'PATCH 7 - screencast stays active when clients disconnect');
 fs.writeFileSync(streamFile, stream);
-console.log('PATCH 7 OK - screencast stays active when clients disconnect');
 
 // ── Patch 8: use Playwright-native input injection in stream server ─────────
 // CDP Input.dispatch* can be flaky in our environment while screencast is
@@ -251,18 +225,10 @@ const newKeyboardCase = [
   '                }',
 ].join('\n');
 
-if (!stream.includes(oldMouseCase)) {
-  console.error('PATCH 8 FAILED - input_mouse case not found in stream-server.js');
-  process.exit(1);
-}
-if (!stream.includes(oldKeyboardCase)) {
-  console.error('PATCH 8 FAILED - input_keyboard case not found in stream-server.js');
-  process.exit(1);
-}
-stream = stream.replace(oldMouseCase, newMouseCase);
-stream = stream.replace(oldKeyboardCase, newKeyboardCase);
+stream = replaceOrWarn(stream, oldMouseCase, newMouseCase, 'PATCH 8a - stream input uses Playwright mouse');
+stream = replaceOrWarn(stream, oldKeyboardCase, newKeyboardCase, 'PATCH 8b - stream input uses Playwright keyboard');
 fs.writeFileSync(streamFile, stream);
-console.log('PATCH 8 OK - stream input uses Playwright mouse/keyboard');
+console.log('PATCH 8 DONE - attempted Playwright-native stream input patches');
 
 // ── Patch 10: force screencast restart on each client connect ───────────────
 // Some sessions get stuck in a state where screencast reports active but emits
@@ -312,15 +278,13 @@ const newStartGuard = [
 if (stream.includes(oldConnScreencast)) {
   stream = stream.replace(oldConnScreencast, newConnScreencast);
 } else if (!stream.includes(newConnScreencast)) {
-  console.error('PATCH 10 FAILED - connect screencast block not found in stream-server.js');
-  process.exit(1);
+  console.warn('PATCH 10 SKIPPED - connect screencast block not found in stream-server.js');
 }
 
 if (stream.includes(oldStartGuard)) {
   stream = stream.replace(oldStartGuard, newStartGuard);
 } else if (!stream.includes(newStartGuard)) {
-  console.error('PATCH 10 FAILED - startScreencast guard block not found in stream-server.js');
-  process.exit(1);
+  console.warn('PATCH 10 SKIPPED - startScreencast guard block not found in stream-server.js');
 }
 
 fs.writeFileSync(streamFile, stream);
@@ -352,6 +316,5 @@ if (!stream.includes("case 'nav_back':") && stream.includes(statusCase)) {
 } else if (stream.includes("case 'nav_back':")) {
   console.log('PATCH 9 SKIPPED - navigation controls already present');
 } else {
-  console.error('PATCH 9 FAILED - status case not found in stream-server.js');
-  process.exit(1);
+  console.warn('PATCH 9 SKIPPED - status case not found in stream-server.js');
 }

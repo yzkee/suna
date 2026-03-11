@@ -200,19 +200,20 @@ export function SetupOverlay({ onComplete, existingSessionId }: SetupOverlayProp
     return () => clearTimeout(retryTimer);
   }, [phase, sessionId, sessionError, retryTick]);
 
-  // ── Poll backend onboarding status for completion to auto-dismiss ──
+  // ── Poll ONBOARDING_COMPLETE for completion to auto-dismiss ──
   useEffect(() => {
     if (phase !== 'onboarding') return;
     if (completedRef.current) return;
 
     const poll = setInterval(async () => {
       try {
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
+        const instanceUrl = getInstanceUrl();
+        if (!instanceUrl) return;
         const { authenticatedFetch } = await import('@/lib/auth-token');
-        const res = await authenticatedFetch(`${backendUrl}/setup/onboarding-status`, undefined, { retryOnAuthError: false });
+        const res = await authenticatedFetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`, undefined, { retryOnAuthError: false });
         if (res.ok) {
           const data = await res.json();
-          if (data?.complete) {
+          if (data?.ONBOARDING_COMPLETE === 'true') {
             clearInterval(poll);
             // Small delay so the user sees the final message
             setTimeout(() => {

@@ -132,6 +132,7 @@ const envSchema = z.object({
   KORTIX_URL:                  optStr,
   ALLOWED_SANDBOX_PROVIDERS:   optStrDefault('local_docker'),
   SANDBOX_IMAGE:               optStr,  // overridden below if empty
+  KORTIX_LOCAL_IMAGES:         optBoolFalse,
   DOCKER_HOST:                 optStr,
   SANDBOX_NETWORK:             optStr,
   SANDBOX_PORT_BASE:           optInt(14000),
@@ -386,6 +387,7 @@ export const config = {
   KORTIX_URL: env.KORTIX_URL,
   ALLOWED_SANDBOX_PROVIDERS: allowedProviders,
   SANDBOX_IMAGE: env.SANDBOX_IMAGE || releaseManifest.sandbox.image,
+  KORTIX_LOCAL_IMAGES: env.KORTIX_LOCAL_IMAGES,
   DOCKER_HOST: env.DOCKER_HOST,
   SANDBOX_NETWORK: env.SANDBOX_NETWORK,
   SANDBOX_PORT_BASE: env.SANDBOX_PORT_BASE,

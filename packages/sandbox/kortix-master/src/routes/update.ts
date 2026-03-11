@@ -12,7 +12,7 @@ const UPDATE_LOCK_FILE = KORTIX_DATA_DIR + '/update-lock.json';
 const UPDATE_STATUS_FILE = KORTIX_DATA_DIR + '/update-status.json';
 
 // Directories managed by symlinks (atomic swap targets)
-const SYMLINK_DIRS = ['kortix-master', 'opencode', 'agent-browser-viewer', 'kortix', 'kortix-oc'] as const;
+const SYMLINK_DIRS = ['kortix-master', 'opencode', 'agent-browser-viewer', 'kortix', 'kortix-oc', 'opencode-channels', 'opencode-agent-triggers'] as const;
 
 async function getChangelog(version: string) {
   try {
@@ -245,6 +245,50 @@ async function waitForHealthyTargetVersion(
   return { ok: false, output: lastOutput };
 }
 
+// ─── OTA: Download tarball from GitHub Releases and stage ───────────────────
+
+async function downloadAndStageOTA(
+  targetVersion: string,
+  stagingDir: string,
+): Promise<{ ok: boolean; output: string }> {
+  const tarballName = `sandbox-runtime-${targetVersion}.tar.gz`;
+  const downloadUrl = `https://github.com/kortix-ai/computer/releases/download/v${targetVersion}/${tarballName}`;
+  const tmpTarball = `/tmp/kortix-ota-${targetVersion}.tar.gz`;
+  const tmpExtract = `/tmp/kortix-ota-extract-${targetVersion}`;
+
+  console.log(`[Update] Downloading OTA tarball from: ${downloadUrl}`);
+
+  // Download tarball
+  const dlResult = await run(`curl -fsSL --retry 3 --retry-delay 2 -o "${tmpTarball}" "${downloadUrl}" 2>&1`);
+  if (!dlResult.ok) {
+    return { ok: false, output: `Failed to download tarball: ${dlResult.output}` };
+  }
+
+  // Extract
+  const extractResult = await run(`rm -rf "${tmpExtract}" && mkdir -p "${tmpExtract}" && tar -xzf "${tmpTarball}" -C "${tmpExtract}" 2>&1`);
+  if (!extractResult.ok) {
+    await run(`rm -f "${tmpTarball}"`);
+    return { ok: false, output: `Failed to extract tarball: ${extractResult.output}` };
+  }
+
+  // Run postinstall.sh in staging mode
+  // Since /opt/kortix-master is a symlink, postinstall.sh will detect MODE=staging
+  // and deploy everything to /opt/kortix-staging-{version}/
+  const postinstallResult = await run(
+    `cd "${tmpExtract}" && PKG_VERSION="${targetVersion}" bash postinstall.sh 2>&1`,
+  );
+
+  // Cleanup
+  await run(`rm -f "${tmpTarball}" && rm -rf "${tmpExtract}"`);
+
+  if (!postinstallResult.ok) {
+    return { ok: false, output: `postinstall.sh failed: ${postinstallResult.output}` };
+  }
+
+  console.log('[Update] OTA staging complete');
+  return { ok: true, output: postinstallResult.output.slice(0, 1000) };
+}
+
 // ─── ACID: Full Update Flow ─────────────────────────────────────────────────
 
 async function performUpdate(targetVersion: string, currentVersion: string): Promise<{
@@ -259,11 +303,11 @@ async function performUpdate(targetVersion: string, currentVersion: string): Pro
     ? `/opt/kortix-staging-${prevStagingVersion}`
     : null;
 
-  // Phase 1: STAGING — npm install triggers postinstall.sh which builds staging dir
+  // Phase 1: STAGING — download OTA tarball from GitHub Release, run postinstall.sh
   await setStatus({
     inProgress: true,
     phase: 'staging',
-    message: `Staging @kortix/sandbox@${targetVersion}`,
+    message: `Downloading and staging v${targetVersion} via OTA`,
     targetVersion,
     previousVersion: currentVersion,
     currentVersion,
@@ -279,20 +323,20 @@ async function performUpdate(targetVersion: string, currentVersion: string): Pro
     startedAt: new Date().toISOString(),
   });
 
-  const installResult = await run(`sudo npm install -g @kortix/sandbox@${targetVersion} 2>&1`);
+  // Download OTA tarball from GitHub Release and run postinstall.sh in staging mode
+  const downloadResult = await downloadAndStageOTA(targetVersion, stagingDir);
 
-  if (!installResult.ok) {
-    console.error('[Update] npm install failed:', installResult.output);
-    // Clean up failed staging
+  if (!downloadResult.ok) {
+    console.error('[Update] OTA staging failed:', downloadResult.output);
     await run(`sudo rm -rf "${stagingDir}"`);
     await setStatus({
       inProgress: false,
       phase: 'failed',
-      message: 'Update failed during package staging',
-      error: installResult.output.slice(0, 1200),
+      message: 'Update failed during OTA staging',
+      error: downloadResult.output.slice(0, 1200),
     });
     await deleteLock();
-    return { success: false, output: `npm install failed: ${installResult.output.slice(0, 800)}` };
+    return { success: false, output: `OTA staging failed: ${downloadResult.output.slice(0, 800)}` };
   }
 
   // Phase 2: VERIFY — check staging manifest exists and is complete
@@ -482,7 +526,7 @@ async function performUpdate(targetVersion: string, currentVersion: string): Pro
   console.log('[Update] Scheduling kortix-master restart in 2s...');
   setTimeout(() => restartService('svc-kortix-master'), 2000);
 
-  return { success: true, output: installResult.output.slice(0, 1000) };
+  return { success: true, output: downloadResult.output.slice(0, 1000) };
 }
 
 // ─── Crash Recovery (called from index.ts on boot) ──────────────────────────
@@ -603,7 +647,8 @@ updateRouter.get('/status',
  * POST /kortix/update
  *
  * ACID update flow:
- *   1. STAGE — npm install builds new version in /opt/kortix-staging-{version}/
+ *   1. STAGE — download OTA tarball from GitHub Release, run postinstall.sh
+ *              which builds /opt/kortix-staging-{version}/
  *   2. VERIFY — check staging manifest is complete
  *   3. COMMIT — atomic symlink swap (/opt/kortix-master → staging dir)
  *   4. RESTART — restart all services

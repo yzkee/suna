@@ -28,14 +28,40 @@ fatal()   { error "$*"; exit 1; }
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 INSTALL_DIR="${KORTIX_HOME:-$HOME/.kortix}"
-DEFAULT_KORTIX_VERSION="0.7.18"
+DEFAULT_KORTIX_VERSION="0.7.26"
 KORTIX_VERSION="${KORTIX_VERSION:-$DEFAULT_KORTIX_VERSION}"
 KORTIX_LOCAL_IMAGES="${KORTIX_LOCAL_IMAGES:-0}"
 KORTIX_LOCAL_TAG="${KORTIX_LOCAL_TAG:-latest}"
 KORTIX_BUILD_LOCAL_IMAGES="${KORTIX_BUILD_LOCAL_IMAGES:-0}"
+KORTIX_PULL_PARALLELISM="${KORTIX_PULL_PARALLELISM:-4}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 KORTIX_LOCAL_REPO_ROOT="${KORTIX_LOCAL_REPO_ROOT:-$REPO_ROOT}"
+
+resolve_node_bin() {
+  local nvm_latest
+  nvm_latest=$(ls -1dt "$HOME"/.nvm/versions/node/*/bin/node 2>/dev/null | head -1 || true)
+  if [ -n "$nvm_latest" ] && [ -x "$nvm_latest" ]; then
+    printf '%s' "$nvm_latest"
+    return
+  fi
+  command -v node
+}
+
+NODE_BIN="$(resolve_node_bin)"
+PNPM_BIN="$(command -v pnpm)"
+BUN_BIN="$(command -v bun)"
+
+compute_compose_project_name() {
+  local raw
+  raw="$(basename "$INSTALL_DIR")"
+  raw="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed 's/^[._-]*//; s/[^a-z0-9_-]//g')"
+  [ -n "$raw" ] || raw="kortix"
+  printf '%s' "$raw"
+}
+
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(compute_compose_project_name)}"
+SANDBOX_NETWORK="${SANDBOX_NETWORK:-${COMPOSE_PROJECT_NAME}_default}"
 
 parse_query_param() {
   local raw="$1"
@@ -115,7 +141,7 @@ Examples:
   bash get-kortix.sh
   bash get-kortix.sh --local
   bash get-kortix.sh --local --build-local
-  bash get-kortix.sh --local --local-tag dev
+  bash get-kortix.sh --local --local-tag latest
   bash get-kortix.sh --version 0.7.14
   bash get-kortix.sh --query "v=0.7.14"
   KORTIX_VERSION=0.7.15 bash get-kortix.sh
@@ -141,6 +167,12 @@ fi
 FRONTEND_IMAGE="${KORTIX_FRONTEND_IMAGE:-kortix/kortix-frontend:${IMAGE_TAG}}"
 API_IMAGE="${KORTIX_API_IMAGE:-kortix/kortix-api:${IMAGE_TAG}}"
 SANDBOX_IMAGE="${KORTIX_SANDBOX_IMAGE:-${SANDBOX_IMAGE_REPO}:${IMAGE_TAG}}"
+FRONTEND_IMAGE_OVERRIDDEN="0"
+API_IMAGE_OVERRIDDEN="0"
+SANDBOX_IMAGE_OVERRIDDEN="0"
+[ -n "${KORTIX_FRONTEND_IMAGE:-}" ] && FRONTEND_IMAGE_OVERRIDDEN="1"
+[ -n "${KORTIX_API_IMAGE:-}" ] && API_IMAGE_OVERRIDDEN="1"
+[ -n "${KORTIX_SANDBOX_IMAGE:-}" ] && SANDBOX_IMAGE_OVERRIDDEN="1"
 SUPABASE_POSTGRES_IMAGE="supabase/postgres:15.8.1.085"
 SUPABASE_GOTRUE_IMAGE="supabase/gotrue:v2.186.0"
 SUPABASE_KONG_IMAGE="kong:2.8.1"
@@ -156,6 +188,8 @@ ENABLE_AUTH=""
 ENABLE_FIREWALL=""
 ADMIN_USER="admin"
 ADMIN_PASSWORD=""
+OWNER_EMAIL="${KORTIX_OWNER_EMAIL:-}"
+OWNER_PASSWORD="${KORTIX_OWNER_PASSWORD:-}"
 
 # Supabase — generated for docker mode, provided for external
 SUPABASE_URL=""
@@ -193,6 +227,51 @@ open_browser() {
   fi
 }
 
+warm_local_sandbox() {
+  [ "$DEPLOY_MODE" = "local" ] || return 0
+
+  local warm_url="${API_PUBLIC_URL}/v1/setup/local-sandbox/warm"
+  local status_url="${API_PUBLIC_URL}/v1/setup/local-sandbox/warm/status"
+
+  info "Pre-warming local sandbox..."
+  curl -sf -X POST "$warm_url" >/dev/null || {
+    warn "Could not start sandbox warmup yet — onboarding will start it lazily."
+    return 0
+  }
+
+  local attempts=0
+  local max_attempts=180
+  while [ $attempts -lt $max_attempts ]; do
+    local payload status progress message
+    payload=$(curl -sf "$status_url" 2>/dev/null || true)
+    status=$(JSON_PAYLOAD="$payload" python3 -c 'import json, os; data=json.loads(os.environ.get("JSON_PAYLOAD") or "{}"); print(data.get("status", ""))')
+    progress=$(JSON_PAYLOAD="$payload" python3 -c 'import json, os; data=json.loads(os.environ.get("JSON_PAYLOAD") or "{}"); print(data.get("progress", ""))')
+    message=$(JSON_PAYLOAD="$payload" python3 -c 'import json, os; data=json.loads(os.environ.get("JSON_PAYLOAD") or "{}"); print(data.get("message", ""))')
+
+    case "$status" in
+      ready)
+        success "Local sandbox is warm and healthy"
+        return 0
+        ;;
+      error)
+        warn "Local sandbox warmup reported an error: ${message:-unknown}"
+        return 0
+        ;;
+      pulling|creating)
+        info "Sandbox warmup: ${message:-starting} ${progress:+(${progress}%)}"
+        ;;
+      *)
+        info "Sandbox warmup: waiting for sandbox bootstrap..."
+        ;;
+    esac
+
+    sleep 2
+    attempts=$((attempts + 1))
+  done
+
+  warn "Sandbox warmup timed out — the UI can still continue waiting for sandbox boot."
+}
+
 verify_local_image() {
   local image="$1"
   docker image inspect "$image" >/dev/null 2>&1 || fatal "Local image not found: ${image}. Build or tag it first, or run without --local."
@@ -200,7 +279,7 @@ verify_local_image() {
 
 ensure_local_build_requirements() {
   [ -d "$KORTIX_LOCAL_REPO_ROOT/apps/frontend" ] || fatal "Local repo root not found at ${KORTIX_LOCAL_REPO_ROOT}."
-  command -v pnpm &>/dev/null || fatal "pnpm is required for --build-local."
+  [ -x "$PNPM_BIN" ] || fatal "pnpm is required for --build-local."
 }
 
 rebuild_local_images() {
@@ -231,6 +310,92 @@ get_server_ip() {
     || curl -4 -sf --connect-timeout 5 https://api.ipify.org 2>/dev/null \
     || curl -4 -sf --connect-timeout 5 https://icanhazip.com 2>/dev/null \
     || echo ""
+}
+
+get_host_docker_socket() {
+  docker context inspect --format '{{ (index .Endpoints "docker").Host }}' 2>/dev/null || echo "${DOCKER_HOST:-}"
+}
+
+docker_manifest_exists() {
+  local image="$1"
+  docker manifest inspect "$image" >/dev/null 2>&1
+}
+
+resolve_release_images() {
+  [ "$KORTIX_LOCAL_IMAGES" = "1" ] && return 0
+
+  info "Resolving release images for ${KORTIX_VERSION}..."
+
+  if ! docker_manifest_exists "$FRONTEND_IMAGE"; then
+    if [ "$FRONTEND_IMAGE_OVERRIDDEN" = "1" ]; then
+      fatal "Configured frontend image not found: ${FRONTEND_IMAGE}"
+    fi
+    local fallback_frontend="kortix/kortix-frontend:latest"
+    if docker_manifest_exists "$fallback_frontend"; then
+      warn "Frontend image ${FRONTEND_IMAGE} not found; falling back to ${fallback_frontend}"
+      FRONTEND_IMAGE="$fallback_frontend"
+    else
+      fatal "Frontend image not found for ${KORTIX_VERSION}, and latest fallback is unavailable."
+    fi
+  fi
+
+  if ! docker_manifest_exists "$API_IMAGE"; then
+    if [ "$API_IMAGE_OVERRIDDEN" = "1" ]; then
+      fatal "Configured API image not found: ${API_IMAGE}"
+    fi
+    local fallback_api="kortix/kortix-api:latest"
+    if docker_manifest_exists "$fallback_api"; then
+      warn "API image ${API_IMAGE} not found; falling back to ${fallback_api}"
+      API_IMAGE="$fallback_api"
+    else
+      fatal "API image not found for ${KORTIX_VERSION}, and latest fallback is unavailable."
+    fi
+  fi
+
+  if ! docker_manifest_exists "$SANDBOX_IMAGE"; then
+    if [ "$SANDBOX_IMAGE_OVERRIDDEN" = "1" ]; then
+      fatal "Configured sandbox image not found: ${SANDBOX_IMAGE}"
+    fi
+    local fallback_sandbox="${SANDBOX_IMAGE_REPO}:latest"
+    if docker_manifest_exists "$fallback_sandbox"; then
+      warn "Sandbox image ${SANDBOX_IMAGE} not found; falling back to ${fallback_sandbox}"
+      SANDBOX_IMAGE="$fallback_sandbox"
+    else
+      fatal "Sandbox image not found for ${KORTIX_VERSION}, and latest fallback is unavailable."
+    fi
+  fi
+
+  success "Release images resolved"
+}
+
+pull_images_parallel() {
+  local -a images=("$@")
+  [ ${#images[@]} -gt 0 ] || return 0
+
+  printf '%s\n' "${images[@]}" | python3 -c 'import sys; print("\n".join(sorted(set(line.strip() for line in sys.stdin if line.strip()))))' \
+    | xargs -r -n1 -P "$KORTIX_PULL_PARALLELISM" docker pull
+}
+
+# Free ports used by Kortix (local mode)
+free_kortix_ports() {
+  [ "$DEPLOY_MODE" = "local" ] || return 0
+  
+  local ports=(13737 13738 13740 13741)
+  local freed=0
+  
+  for port in "${ports[@]}"; do
+    local pid
+    pid=$(lsof -t -i:$port 2>/dev/null || true)
+    if [ -n "$pid" ]; then
+      kill -9 $pid 2>/dev/null || true
+      freed=1
+    fi
+  done
+  
+  # Also clean up any lingering containers that might hold ports
+  docker ps -a --format '{{.Names}}' | grep -E '^(kortix-|supabase-)' | xargs -r docker rm -f 2>/dev/null || true
+  
+  [ $freed -eq 1 ] && info "Freed Kortix ports" || true
 }
 
 # Generate a Supabase JWT (anon or service_role)
@@ -454,6 +619,43 @@ prompt_integrations() {
       info "Skipping — add later in ${DIM}~/.kortix/.env${NC}"
       ;;
   esac
+
+  echo ""
+}
+
+prompt_owner_account() {
+  echo "  ${BOLD}Owner Account${NC}"
+  echo "  ${DIM}The initial owner is created by the installer so the frontend can stay focused on sign-in and product onboarding.${NC}"
+  echo ""
+
+  if [ -z "$OWNER_EMAIL" ]; then
+    printf "    Owner email: "
+    read -r OWNER_EMAIL
+  fi
+
+  if [ -z "$OWNER_PASSWORD" ]; then
+    while true; do
+      printf "    Owner password: "
+      if [ -t 0 ]; then stty -echo; fi
+      read -r OWNER_PASSWORD
+      if [ -t 0 ]; then stty echo; fi
+      echo ""
+      printf "    Confirm password: "
+      if [ -t 0 ]; then stty -echo; fi
+      read -r owner_password_confirm
+      if [ -t 0 ]; then stty echo; fi
+      echo ""
+      if [ "$OWNER_PASSWORD" = "$owner_password_confirm" ]; then
+        break
+      fi
+      warn "Passwords do not match. Please try again."
+      OWNER_PASSWORD=""
+    done
+  fi
+
+  [ -n "$OWNER_EMAIL" ] || fatal "Owner email is required."
+  [ -n "$OWNER_PASSWORD" ] || fatal "Owner password is required."
+  [ ${#OWNER_PASSWORD} -ge 6 ] || fatal "Owner password must be at least 6 characters."
 
   echo ""
 }
@@ -745,7 +947,7 @@ write_compose() {
   info "Writing docker-compose.yml..."
 
   # Port bindings
-  local frontend_ports api_ports supabase_ports
+  local frontend_ports api_ports supabase_ports db_ports
   if [ "$DEPLOY_MODE" = "vps" ]; then
     frontend_ports='    expose:
       - "3000"'
@@ -760,6 +962,8 @@ write_compose() {
       - "13738:8008"'
     supabase_ports='    ports:
       - "13740:8000"'
+    db_ports='    ports:
+      - "13741:5432"'
   fi
 
   # Caddy service (VPS only)
@@ -797,7 +1001,7 @@ write_compose() {
     supabase_services="
   supabase-db:
     image: ${SUPABASE_POSTGRES_IMAGE}
-    container_name: supabase-db
+${db_ports}
     volumes:
       - supabase-db-data:/var/lib/postgresql/data
       - ./volumes/db/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:Z
@@ -825,7 +1029,6 @@ write_compose() {
 
   supabase-auth:
     image: ${SUPABASE_GOTRUE_IMAGE}
-    container_name: supabase-auth
     depends_on:
       supabase-db:
         condition: service_healthy
@@ -865,7 +1068,6 @@ write_compose() {
 
   supabase-rest:
     image: ${SUPABASE_REST_IMAGE}
-    container_name: supabase-rest
     depends_on:
       supabase-db:
         condition: service_healthy
@@ -882,7 +1084,6 @@ write_compose() {
 
   supabase-kong:
     image: ${SUPABASE_KONG_IMAGE}
-    container_name: supabase-kong
 ${supabase_ports}
     volumes:
       - ./volumes/api/kong.yml:/home/kong/temp.yml:ro
@@ -983,9 +1184,10 @@ ${supabase_url_env}
 ${supabase_db_env}
       - SUPABASE_SERVICE_ROLE_KEY=\${SUPABASE_SERVICE_ROLE_KEY}
       - ALLOWED_SANDBOX_PROVIDERS=local_docker
+      - KORTIX_LOCAL_IMAGES=\${KORTIX_LOCAL_IMAGES}
       - DOCKER_HOST=unix:///var/run/docker.sock
       - KORTIX_URL=http://kortix-api:8008/v1/router
-      - SANDBOX_NETWORK=kortix_default
+      - SANDBOX_NETWORK=${SANDBOX_NETWORK}
       - INTERNAL_SERVICE_KEY=\${INTERNAL_SERVICE_KEY}
       - FRONTEND_URL=\${PUBLIC_URL}
       - CHANNELS_PUBLIC_URL=\${API_PUBLIC_URL}
@@ -1022,6 +1224,7 @@ write_env() {
 # ─── Mode ────────────────────────────────────────────────────────────────────
 DEPLOY_MODE=${DEPLOY_MODE}
 DB_MODE=${DB_MODE}
+COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}
 KORTIX_LOCAL_IMAGES=${KORTIX_LOCAL_IMAGES}
 KORTIX_LOCAL_TAG=${KORTIX_LOCAL_TAG}
 KORTIX_LOCAL_REPO_ROOT=${KORTIX_LOCAL_REPO_ROOT}
@@ -1059,6 +1262,7 @@ SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET}
 # ─── Sandbox ─────────────────────────────────────────────────────────────────
 KORTIX_VERSION=${KORTIX_VERSION}
 SANDBOX_IMAGE=${SANDBOX_IMAGE}
+SANDBOX_NETWORK=${SANDBOX_NETWORK}
 KORTIX_SANDBOX_VERSION=${KORTIX_VERSION}
 ENVEOF
 
@@ -1066,11 +1270,63 @@ ENVEOF
   success "Saved .env"
 }
 
+write_dev_env_files() {
+  local api_port="8008"
+  local host_supabase_url="${SUPABASE_URL}"
+  local host_database_url="${DATABASE_URL}"
+  local host_docker_host="${DOCKER_HOST:-}"
+  local host_sandbox_network="${SANDBOX_NETWORK}"
+  if [ "$DEPLOY_MODE" = "local" ]; then
+    api_port="13738"
+    host_supabase_url="http://localhost:13740"
+    host_database_url="postgresql://postgres:${POSTGRES_PASSWORD}@localhost:13741/postgres"
+    host_docker_host="$(get_host_docker_socket)"
+  fi
+
+  cat > "$INSTALL_DIR/.api-dev.env" << ENVEOF
+PORT=${api_port}
+SUPABASE_URL=${host_supabase_url}
+SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
+DATABASE_URL=${host_database_url}
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+DOCKER_HOST=${host_docker_host}
+ALLOWED_SANDBOX_PROVIDERS=local_docker
+KORTIX_LOCAL_IMAGES=${KORTIX_LOCAL_IMAGES}
+KORTIX_URL=${API_PUBLIC_URL}/v1/router
+SANDBOX_NETWORK=${host_sandbox_network}
+INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY}
+ENVEOF
+
+  cat > "$INSTALL_DIR/.frontend-dev.env" << ENVEOF
+NEXT_PUBLIC_ENV_MODE=local
+NEXT_PUBLIC_BACKEND_URL=${API_PUBLIC_URL}/v1
+NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_PUBLIC_URL:-http://localhost:13740}
+NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+NEXT_PUBLIC_BILLING_ENABLED=false
+ENVEOF
+
+  chmod 600 "$INSTALL_DIR/.api-dev.env" "$INSTALL_DIR/.frontend-dev.env"
+  success "Saved dev env files"
+}
+
 # ─── Write credentials file (VPS mode) ──────────────────────────────────────
 write_credentials() {
+  if [ -n "$OWNER_EMAIL" ] && [ -n "$OWNER_PASSWORD" ]; then
+    cat > "$INSTALL_DIR/.credentials" << CREDEOF
+# Kortix — Initial Credentials
+# Generated on $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+URL: ${PUBLIC_URL}
+Email: ${OWNER_EMAIL}
+Password: ${OWNER_PASSWORD}
+CREDEOF
+    chmod 600 "$INSTALL_DIR/.credentials"
+  fi
+
   [ "$DEPLOY_MODE" != "vps" ] || [ "$ENABLE_AUTH" != "yes" ] && return 0
 
-  cat > "$INSTALL_DIR/.credentials" << CREDEOF
+  cat >> "$INSTALL_DIR/.credentials" << CREDEOF
 # Kortix — Admin Credentials
 # Generated on $(date -u '+%Y-%m-%d %H:%M:%S UTC')
 URL: https://${DOMAIN}
@@ -1090,6 +1346,58 @@ fixup_db_init() {
     rm -f "$INSTALL_DIR/volumes/db/roles.sql.bak"
   fi
 }
+
+bootstrap_owner_account() {
+  local bootstrap_url="${API_PUBLIC_URL}/v1/setup/bootstrap-owner"
+  info "Creating initial owner account..."
+
+  local payload response success_val message attempts=0
+  payload=$(OWNER_EMAIL_VALUE="$OWNER_EMAIL" OWNER_PASSWORD_VALUE="$OWNER_PASSWORD" python3 - <<'PY'
+import json, os
+print(json.dumps({
+  "email": os.environ.get("OWNER_EMAIL_VALUE", ""),
+  "password": os.environ.get("OWNER_PASSWORD_VALUE", ""),
+}))
+PY
+)
+
+  while [ $attempts -lt 30 ]; do
+    response=$(curl -sf -X POST "$bootstrap_url" -H 'Content-Type: application/json' -d "$payload" 2>/dev/null || true)
+    if [ -n "$response" ]; then
+      break
+    fi
+    sleep 2
+    attempts=$((attempts + 1))
+  done
+
+  if [ -z "$response" ]; then
+    warn "Could not reach API for owner bootstrap — frontend will handle signup"
+    return 0
+  fi
+  
+  success_val=$(JSON_RESPONSE="$response" python3 -c 'import json, os; data=json.loads(os.environ.get("JSON_RESPONSE") or "{}"); print("true" if data.get("success") else "false")')
+  message=$(JSON_RESPONSE="$response" python3 -c 'import json, os; data=json.loads(os.environ.get("JSON_RESPONSE") or "{}"); print(data.get("error") or data.get("message") or "")')
+
+  if [ "$success_val" != "true" ]; then
+    warn "Owner bootstrap skipped: ${message:-unknown error}"
+    return 0
+  fi
+
+  success "Initial owner account is ready"
+}
+
+wait_for_http() {
+  local url="$1"
+  local max_attempts="${2:-120}"
+  local attempts=0
+  while [ $attempts -lt $max_attempts ]; do
+    curl -sf "$url" >/dev/null 2>&1 && return 0
+    sleep 2
+    attempts=$((attempts + 1))
+  done
+  return 1
+}
+
 
 # ─── Write CLI ───────────────────────────────────────────────────────────────
 write_cli() {
@@ -1145,9 +1453,9 @@ _rebuild_local_images() {
 case "${1:-help}" in
   start)
     if [ "$(_mode)" = "vps" ]; then
-      docker compose --profile vps up -d
+      docker compose --profile vps up -d || true
     else
-      docker compose up -d
+      docker compose up -d || true
     fi
     echo ""
     echo "  ${G}Kortix is running!${N}"
@@ -1161,11 +1469,11 @@ case "${1:-help}" in
     echo "  ${G}Stopped.${N}"
     ;;
   restart)
-    docker compose --profile vps down 2>/dev/null || docker compose down
+    docker compose --profile vps down 2>/dev/null || docker compose down 2>/dev/null || true
     if [ "$(_mode)" = "vps" ]; then
-      docker compose --profile vps up -d
+      docker compose --profile vps up -d || true
     else
-      docker compose up -d
+      docker compose up -d || true
     fi
     echo "  ${G}Restarted.${N}"
     ;;
@@ -1177,9 +1485,9 @@ case "${1:-help}" in
     docker compose ps
     ;;
   setup)
-    echo "  ${C}Opening setup in browser...${N}"
-    _open "$(_url)/setup"
-    echo "  ${D}If it didn't open: ${B}$(_url)/setup${N}"
+    echo "  ${C}Opening sign-in in browser...${N}"
+    _open "$(_url)/auth"
+    echo "  ${D}If it didn't open: ${B}$(_url)/auth${N}"
     ;;
   update)
     shift
@@ -1189,21 +1497,15 @@ case "${1:-help}" in
     if _using_local_images; then
       echo "  ${C}Using local Docker images from compose config...${N}"
     else
-      echo "  ${C}Pulling release ${VERSION} images...${N}"
-      docker compose pull
-      docker pull "$SANDBOX_IMAGE" 2>/dev/null || true
+      echo "  ${C}Pulling configured release images in parallel...${N}"
+      docker compose config --images | python3 -c 'import sys; print("\n".join(sorted(set(line.strip() for line in sys.stdin if line.strip()))))' | xargs -r -n1 -P 4 docker pull
     fi
-    docker compose --profile vps down 2>/dev/null || docker compose down
-    if [ "$(_mode)" = "vps" ]; then
-      docker compose --profile vps up -d
-    else
-      docker compose up -d
-    fi
-    echo "  ${G}Updated.${N}"
-    ;;
-  rebuild)
-    _rebuild_local_images
-    echo "  ${G}Local images rebuilt.${N}"
+    echo ""
+    info "Restarting services..."
+    free_kortix_ports
+    docker compose down 2>/dev/null || true
+    docker compose up -d || true
+    echo "  ${G}Updated.${NC}"
     ;;
   credentials)
     [ -f "$DIR/.credentials" ] && cat "$DIR/.credentials" || echo "  ${D}No credentials (local mode or auth disabled)${N}"
@@ -1237,16 +1539,14 @@ case "${1:-help}" in
     echo "  ${C}restart${N}       Restart all services"
     echo "  ${C}logs${N}          Tail logs (kortix logs sandbox)"
     echo "  ${C}status${N}        Show service status"
-    echo "  ${C}setup${N}         Open setup wizard in browser"
-    echo "  ${C}update${N}        Pull configured release images & restart"
-    echo "  ${C}rebuild${N}       Rebuild local images from source"
-    echo "  ${C}open${N}          Open dashboard in browser"
+    echo "  ${C}setup${N}         Open sign-in page"
+    echo "  ${C}update${N}        Update to the configured release"
     echo "  ${C}credentials${N}   Show admin credentials (VPS mode)"
     echo "  ${C}uninstall${N}     Remove Kortix completely"
     echo "  ${C}version${N}       Show version"
     echo ""
     ;;
-esac
+ esac
 CLIPATH
 
   chmod +x "$INSTALL_DIR/kortix"
@@ -1306,24 +1606,30 @@ pull_and_start() {
     verify_local_image "$SANDBOX_IMAGE"
     success "Local installer images found"
   else
-  info "Pulling Docker images for release ${KORTIX_VERSION}..."
+    info "Pulling Docker images in parallel..."
     echo ""
-    docker compose pull
-
-    echo ""
-    info "Pre-pulling sandbox image (${SANDBOX_IMAGE})..."
-    docker pull "${SANDBOX_IMAGE}"
-    success "Sandbox image ready"
+    local -a images_to_pull=("$FRONTEND_IMAGE" "$API_IMAGE" "$SANDBOX_IMAGE")
+    if [ "$DB_MODE" = "docker" ]; then
+      images_to_pull+=("$SUPABASE_POSTGRES_IMAGE" "$SUPABASE_GOTRUE_IMAGE" "$SUPABASE_REST_IMAGE" "$SUPABASE_KONG_IMAGE")
+    fi
+    if [ "$DEPLOY_MODE" = "vps" ]; then
+      images_to_pull+=("$CADDY_IMAGE")
+    fi
+    pull_images_parallel "${images_to_pull[@]}"
+    success "Docker images ready"
   fi
 
   echo ""
   info "Starting Kortix..."
   echo ""
 
+  # Free ports in local mode to avoid conflicts
+  free_kortix_ports
+
   if [ "$DEPLOY_MODE" = "vps" ]; then
-    docker compose --profile vps up -d
+    docker compose --profile vps up -d || true
   else
-    docker compose up -d
+    docker compose up -d || true
   fi
 
   # Wait for frontend
@@ -1348,6 +1654,13 @@ pull_and_start() {
   echo ""
   echo "  ${CYAN}Dashboard:${NC}  ${BOLD}${PUBLIC_URL}${NC}"
   echo "  ${CYAN}API:${NC}        ${BOLD}${API_PUBLIC_URL}${NC}"
+  echo ""
+  bootstrap_owner_account
+
+  if [ "$DEPLOY_MODE" = "local" ]; then
+    echo ""
+    warm_local_sandbox
+  fi
 
   if [ "$DEPLOY_MODE" = "vps" ] && [ "$ENABLE_AUTH" = "yes" ]; then
     echo ""
@@ -1360,18 +1673,20 @@ pull_and_start() {
 
   if [ "$DEPLOY_MODE" = "local" ]; then
     echo ""
-    info "Opening setup wizard..."
-    open_browser "${PUBLIC_URL}/setup"
+    info "Opening sign-in page..."
+    open_browser "${PUBLIC_URL}/auth"
   fi
 
   echo ""
-  echo "  ${BOLD}Next:${NC} Create your account in the setup wizard."
+  echo "  ${BOLD}Next:${NC} Sign in with the owner account below."
+  echo "  ${CYAN}Owner Email:${NC}    ${BOLD}${OWNER_EMAIL}${NC}"
+  echo "  ${CYAN}Owner Password:${NC} ${BOLD}${OWNER_PASSWORD}${NC}"
 
   echo ""
   echo "  ${DIM}Commands:${NC}"
   echo "    ${CYAN}kortix start${NC}    Start services"
   echo "    ${CYAN}kortix stop${NC}     Stop services"
-  echo "    ${CYAN}kortix setup${NC}    Open setup wizard"
+  echo "    ${CYAN}kortix setup${NC}    Open sign-in page"
   echo "    ${CYAN}kortix update${NC}   Update to the configured release"
   echo "    ${CYAN}kortix logs${NC}     Tail logs"
   echo ""
@@ -1389,6 +1704,7 @@ main() {
   if [ ! -f "$INSTALL_DIR/docker-compose.yml" ]; then
     docker volume rm kortix_supabase-db-data 2>/dev/null || true
     docker rm -f kortix-sandbox 2>/dev/null || true
+    docker volume rm kortix-sandbox-data 2>/dev/null || true
   fi
 
   # Existing install?
@@ -1425,6 +1741,7 @@ main() {
     # Also remove any leftover named volumes from previous installs
     docker volume rm kortix_supabase-db-data 2>/dev/null || true
     docker volume rm supabase_db_kortix-local 2>/dev/null || true
+    docker volume rm kortix-sandbox-data 2>/dev/null || true
     echo ""
   fi
 
@@ -1449,6 +1766,8 @@ main() {
     fi
   fi
 
+  prompt_owner_account
+
   echo "  ${BOLD}What gets installed:${NC}"
   echo ""
   if [ "$DEPLOY_MODE" = "vps" ]; then
@@ -1470,6 +1789,7 @@ main() {
 
   prompt_integrations
   generate_secrets
+  resolve_release_images
 
   mkdir -p "$INSTALL_DIR"
 
@@ -1478,6 +1798,7 @@ main() {
   fixup_db_init
   write_compose
   write_env
+  write_dev_env_files
   write_credentials
 
   if [ "$DEPLOY_MODE" = "vps" ]; then

@@ -199,54 +199,63 @@ export default function OnboardingPage() {
   }, [refetchSandbox]);
 
   // ── Query param controls ───────────────────────────────────────
-  // ?skip_onboarding / ?skip → mark complete & go to dashboard
-  // ?redo                    → clear ONBOARDING_COMPLETE so the flow reruns
+  // ?skip_onboarding / ?skip → set ONBOARDING_COMPLETE=true & go to dashboard
+  // ?redo                    → set ONBOARDING_COMPLETE=false so flow reruns
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
 
     if (params.has('skip_onboarding') || params.has('skip')) {
-      sessionStorage.setItem('onboarding_complete', 'true');
-      authenticatedFetch(`${backendUrl}/setup/onboarding-complete`, {
-          method: 'POST',
+      const instanceUrl = getInstanceUrl();
+      if (instanceUrl) {
+        authenticatedFetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`, {
+          method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: 'true' }),
         }).catch(() => {});
-      router.replace('/dashboard?skip_onboarding');
+      }
+      router.replace('/dashboard');
       return;
     }
 
     if (params.has('redo')) {
-      sessionStorage.removeItem('onboarding_complete');
-      authenticatedFetch(`${backendUrl}/setup/onboarding-reset`, {
-        method: 'POST',
-      }).catch(() => {});
+      const instanceUrl = getInstanceUrl();
+      if (instanceUrl) {
+        authenticatedFetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: 'false' }),
+        }).catch(() => {});
+      }
       // Strip ?redo from URL so it doesn't loop on refresh
       const clean = new URL(window.location.href);
       clean.searchParams.delete('redo');
       window.history.replaceState({}, '', clean.pathname + clean.search);
+      return;
     }
-  }, [router]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Redirect if already onboarded ─────────────────────────────
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.has('skip_onboarding') || params.has('skip') || params.has('redo')) return; // handled above
+    if (params.has('skip_onboarding') || params.has('skip') || params.has('redo')) return;
     const check = async () => {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
+      const instanceUrl = getInstanceUrl();
+      if (!instanceUrl) return;
       try {
-        const res = await authenticatedFetch(`${backendUrl}/setup/onboarding-status`);
+        const res = await authenticatedFetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`);
         if (!res.ok) return;
         const data = await res.json();
-        if (data?.complete) {
-          sessionStorage.setItem('onboarding_complete', 'true');
+        if (data?.ONBOARDING_COMPLETE === 'true') {
           router.replace('/dashboard');
         }
       } catch {
-        // Backend not reachable yet — stay on onboarding
+        // Sandbox not reachable yet — stay on onboarding
       }
     };
     check();
-  }, [router]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Onboarding wait timer (for Hetzner-specific provisioning copy) ──
   useEffect(() => {
@@ -275,7 +284,9 @@ export default function OnboardingPage() {
         if (cancelled) return;
       }
 
-      router.replace('/auth?redirect=%2Fonboarding');
+      const currentSearch = window.location.search;
+      const redirectTarget = encodeURIComponent('/onboarding' + currentSearch);
+      router.replace(`/auth?redirect=${redirectTarget}`);
     };
 
     void verifyAndRedirect();
@@ -466,18 +477,18 @@ export default function OnboardingPage() {
   }, [phase, onboardingSessionId]);
 
   // ── Poll ONBOARDING_COMPLETE while in session phase ──────────
-  // The onboarding status endpoint is the single completion check.
+  // Reads directly from sandbox env — same as Secrets Manager.
   useEffect(() => {
     if (phase !== 'session') return;
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
     const interval = setInterval(async () => {
       try {
-        const res = await authenticatedFetch(`${backendUrl}/setup/onboarding-status`);
+        const instanceUrl = getInstanceUrl();
+        if (!instanceUrl) return;
+        const res = await authenticatedFetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`);
         if (res.ok) {
           const data = await res.json();
-          if (data?.complete) {
+          if (data?.ONBOARDING_COMPLETE === 'true') {
             clearInterval(interval);
-            sessionStorage.setItem('onboarding_complete', 'true');
             router.replace('/dashboard');
           }
         }

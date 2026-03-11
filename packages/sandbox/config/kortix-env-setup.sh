@@ -55,14 +55,21 @@ if [ "$ENV_MODE" = "cloud" ]; then
                   const fs = require("fs");
                   const routerUrl = process.env.ROUTER_URL;
                   const configPath = process.env.OPENCODE_CONFIG;
-                  const config = fs.readFileSync(configPath, "utf8");
+                  const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
                   const patches = { xai: "/xai", google: "/gemini", groq: "/groq" };
-                  let patched = config;
+                  config.provider ||= {};
                   for (const [provider, suffix] of Object.entries(patches)) {
-                    const re = new RegExp("\"" + provider + "\":\\\\s*\\\\{\\\\s*\"options\":\\\\s*\\\\{");
-                    patched = patched.replace(re, "\"" + provider + "\": { \"options\": { \"baseURL\": \"" + routerUrl + suffix + "\",");
+                    const current = config.provider[provider] || {};
+                    const options = current.options || {};
+                    config.provider[provider] = {
+                      ...current,
+                      options: {
+                        ...options,
+                        baseURL: routerUrl + suffix,
+                      },
+                    };
                   }
-                  fs.writeFileSync(configPath, patched);
+                  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
                 '
                 echo "[Kortix] LLM base URLs patched in opencode.jsonc"
             fi

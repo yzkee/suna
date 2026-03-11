@@ -224,18 +224,21 @@ export function PricingSection({
               <div className="mt-3 space-y-4 px-1 animate-in fade-in slide-in-from-top-1 duration-200">
                 {/* Machine size */}
                 <div>
-                  <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground/40 mb-2">Machine</p>
-                  <div className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-foreground/[0.03] border border-foreground/[0.06]">
+                  <div className="flex items-center gap-2 mb-2">
+                    <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground/40">Machine</p>
+                    <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-md bg-foreground/[0.04] border border-foreground/[0.06] text-muted-foreground/40">Available soon</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-foreground/[0.03] border border-foreground/[0.06] opacity-40 pointer-events-none">
                     {MACHINES.map((m) => (
                       <button
                         key={m.id}
                         type="button"
-                        onClick={() => setSelectedMachine(m.id)}
+                        disabled
                         className={cn(
-                          'flex flex-col items-center py-2.5 px-1 rounded-lg transition-all cursor-pointer text-center',
+                          'flex flex-col items-center py-2.5 px-1 rounded-lg transition-all cursor-not-allowed text-center',
                           selectedMachine === m.id
                             ? 'bg-background text-foreground shadow-sm border border-foreground/[0.08]'
-                            : 'text-muted-foreground/40 hover:text-muted-foreground/70 border border-transparent',
+                            : 'text-muted-foreground/40 border border-transparent',
                         )}
                       >
                         <span className="text-xs font-medium leading-none">${m.price}</span>
@@ -243,22 +246,26 @@ export function PricingSection({
                       </button>
                     ))}
                   </div>
+                  <p className="text-[10px] text-muted-foreground/35 mt-1.5">You can resize your machine at any time after subscribing.</p>
                 </div>
 
                 {/* Region */}
                 <div>
-                  <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground/40 mb-2">Region</p>
-                  <div className="flex gap-2">
+                  <div className="flex items-center gap-2 mb-2">
+                    <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground/40">Region</p>
+                    <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-md bg-foreground/[0.04] border border-foreground/[0.06] text-muted-foreground/40">Available soon</span>
+                  </div>
+                  <div className="flex gap-2 opacity-40 pointer-events-none">
                     {LOCATIONS.map((loc) => (
                       <button
                         key={loc.id}
                         type="button"
-                        onClick={() => setLocation(loc.id)}
+                        disabled
                         className={cn(
-                          'flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs transition-all cursor-pointer',
+                          'flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs transition-all cursor-not-allowed',
                           location === loc.id
                             ? 'bg-foreground/[0.04] border-foreground/[0.08] text-foreground/80'
-                            : 'border-foreground/[0.04] text-muted-foreground/40 hover:text-muted-foreground/70 hover:border-foreground/[0.08]',
+                            : 'border-foreground/[0.04] text-muted-foreground/40',
                         )}
                       >
                         <span>{loc.flag}</span>

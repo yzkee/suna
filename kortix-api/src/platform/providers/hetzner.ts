@@ -367,6 +367,7 @@ export class HetznerProvider implements SandboxProvider {
       server_type: serverType,
       image: parseInt(snapshotId, 10) || snapshotId,
       location,
+      backups: true,
       start_after_create: true,
       user_data: userData,
       labels: {
