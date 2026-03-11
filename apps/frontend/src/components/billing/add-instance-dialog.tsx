@@ -235,13 +235,9 @@ export function AddInstanceDialog() {
                       <span className="text-xs text-muted-foreground">Architecture</span>
                       <span className="text-sm text-foreground uppercase">{selectedType.architecture}</span>
                     </div>
-                    <div className="border-t border-border/40 pt-2 mt-2 space-y-1.5">
+                    <div className="border-t border-border/40 pt-2 mt-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-muted-foreground">Hetzner base</span>
-                        <span className="text-sm text-muted-foreground">{formatPrice(selectedType.priceMonthly)}/mo</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-muted-foreground">Kortix total (incl. markup)</span>
+                        <span className="text-xs text-muted-foreground">Price</span>
                         <span className="text-sm font-medium text-foreground">{formatPrice(selectedType.priceMonthlyMarkup)}/mo</span>
                       </div>
                     </div>
