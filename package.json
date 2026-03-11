@@ -8,7 +8,9 @@
     "dev:sandbox": "docker compose -f packages/sandbox/docker/docker-compose.yml -f packages/sandbox/docker/docker-compose.dev.yml up",
     "build": "pnpm -r run build",
     "ship": "node scripts/release/ship.cjs",
-    "check": "node scripts/release/ship.cjs --check"
+    "check": "node scripts/release/ship.cjs --check",
+    "nuke": "bash scripts/nuke-local.sh",
+    "nuke:start": "bash scripts/nuke-local.sh --start"
   },
   "devDependencies": {
     "agent-tunnel": "workspace:@kortix/agent-tunnel@*"

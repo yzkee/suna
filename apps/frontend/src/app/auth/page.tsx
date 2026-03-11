@@ -892,10 +892,12 @@ function SelfHostedLoginContent() {
     return () => window.removeEventListener('keydown', handler);
   }, [phase]);
 
-  // Show loader while data is loading, sandbox status is being checked,
-  // or when setup is already complete and we're about to redirect away.
-  const setupAlreadyDone = sandboxChecked && user && sessionStorage.getItem('setup_complete') === 'true';
-  if (isLoading || wizardStepLoading || statusLoading || (!sandboxChecked && installed !== false && user) || (sandboxChecked && installed !== false && user && wizardStepRef.current <= 1) || setupAlreadyDone) {
+  // Show loader while data is loading or sandbox status is being checked.
+  // Note: We intentionally do NOT check sessionStorage here to avoid showing
+  // a loader that blocks the wizard completion redirect. The redirect is
+  // handled by the useEffect above which checks sessionStorage and calls
+  // router.push when setup is complete.
+  if (isLoading || wizardStepLoading || statusLoading || (!sandboxChecked && installed !== false && user) || (sandboxChecked && installed !== false && user && wizardStepRef.current <= 1)) {
     return (
       <div className="fixed inset-0 bg-background flex items-center justify-center">
         <KortixLoader size="medium" />

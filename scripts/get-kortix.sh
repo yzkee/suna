@@ -1128,12 +1128,14 @@ ${supabase_ports}
       frontend_supabase_env="      - NEXT_PUBLIC_SUPABASE_URL=http://localhost:13740
       - NEXT_PUBLIC_SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
       - SUPABASE_URL=http://localhost:13740
+      - SUPABASE_SERVER_URL=http://supabase-kong:8000
       - SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
       - BACKEND_URL=http://kortix-api:8008/v1"
     else
       frontend_supabase_env="      - NEXT_PUBLIC_SUPABASE_URL=\${SUPABASE_PUBLIC_URL}
       - NEXT_PUBLIC_SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
       - SUPABASE_URL=\${SUPABASE_PUBLIC_URL}
+      - SUPABASE_SERVER_URL=http://supabase-kong:8000
       - SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
       - BACKEND_URL=http://kortix-api:8008/v1
       - NODE_TLS_REJECT_UNAUTHORIZED=0"

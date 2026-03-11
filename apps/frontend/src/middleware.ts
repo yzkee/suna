@@ -179,7 +179,12 @@ export async function middleware(request: NextRequest) {
   // IMPORTANT: NEXT_PUBLIC_ vars are inlined at build time by Next.js, so in
   // Docker containers they contain placeholder values. We MUST use runtime
   // env vars (SUPABASE_URL, SUPABASE_ANON_KEY) with fallback to NEXT_PUBLIC_.
-  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  //
+  // SUPABASE_SERVER_URL is the internal Docker network URL (e.g. http://supabase-kong:8000)
+  // used for server-side auth calls. SUPABASE_URL / NEXT_PUBLIC_SUPABASE_URL is the
+  // public-facing URL that the browser uses. The middleware runs server-side inside
+  // the Docker container, so it needs the internal URL to reach Supabase.
+  const supabaseUrl = process.env.SUPABASE_SERVER_URL || process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
   const supabase = createServerClient(
     supabaseUrl,
