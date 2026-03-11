@@ -16,7 +16,7 @@
 # For pure code changes (TypeScript, agents, skills, tools):
 #   Edit the file → it's already live in the container
 #   Restart the service if needed:
-#     docker exec kortix-sandbox s6-svc -r /run/service/svc-kortix-master
+#     docker exec kortix-sandbox-dev s6-svc -r /run/service/svc-kortix-master
 #
 # Note: volume host paths are relative to this compose file's directory (packages/sandbox/docker/)
 
@@ -31,3 +31,4 @@ services:
       - ../../../packages/kortix-oc/runtime:/opt/kortix-oc/runtime:ro
       - ../../../packages/opencode-channels/src:/opt/opencode-channels/src:ro
       - ../../../packages/opencode-agent-triggers/src:/opt/opencode-agent-triggers/src:ro
+    container_name: kortix-sandbox-dev
