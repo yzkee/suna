@@ -29,6 +29,20 @@
         "type": "fix",
         "text": "Fixed ANTHROPIC_API_KEY not reaching OpenCode process — svc-opencode-serve/run now reads LLM keys from s6 container_environment so they survive the exec env replacement"
       }
+    ],
+    "artifacts": [
+      {
+        "name": "v0.7.17",
+        "target": "github-release"
+      },
+      {
+        "name": "@kortix/sandbox@0.7.17",
+        "target": "npm"
+      },
+      {
+        "name": "kortix/computer:0.7.17",
+        "target": "docker-hub"
+      }
     ]
   },
   {
