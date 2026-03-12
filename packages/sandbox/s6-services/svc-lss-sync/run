@@ -20,11 +20,25 @@ if [ -z "${OPENAI_API_KEY:-}" ]; then
     echo "[lss-sync] OPENAI_API_KEY now available — starting"
 fi
 
-exec s6-setuidgid abc \
-  env HOME=/workspace \
-      OPENAI_API_KEY="${OPENAI_API_KEY}" \
-      LSS_DIR=/workspace/.lss \
-      PATH="/lsiopy/bin:/usr/local/bin:/usr/bin:/bin" \
+if [ "$(id -u)" -eq 0 ]; then
+  exec s6-setuidgid abc \
+    env HOME=/workspace \
+        OPENAI_API_KEY="${OPENAI_API_KEY}" \
+        LSS_DIR=/workspace/.lss \
+        PATH="/lsiopy/bin:/usr/local/bin:/usr/bin:/bin" \
+    lss-sync \
+      --watch /workspace \
+      --exclude node_modules \
+      --exclude .git \
+      --exclude __pycache__ \
+      --startup-delay 15 \
+      --debounce 2
+fi
+
+exec env HOME=/workspace \
+    OPENAI_API_KEY="${OPENAI_API_KEY}" \
+    LSS_DIR=/workspace/.lss \
+    PATH="/lsiopy/bin:/usr/local/bin:/usr/bin:/bin" \
   lss-sync \
     --watch /workspace \
     --exclude node_modules \

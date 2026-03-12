@@ -196,4 +196,8 @@ console.log(`[static-web] Ready at http://0.0.0.0:${PORT}`);
 console.log("[static-web] Use /open?path=/absolute/file or /abs/<absolute-path-without-leading-slash>");
 ENDOFSCRIPT
 
-exec s6-setuidgid abc bun run "$SCRIPT"
+if [ "$(id -u)" -eq 0 ]; then
+  exec s6-setuidgid abc bun run "$SCRIPT"
+fi
+
+exec bun run "$SCRIPT"

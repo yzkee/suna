@@ -5,9 +5,17 @@
 
 echo "[opencode-channels] Starting on port 3456"
 
-exec s6-setuidgid abc \
-  env HOME=/workspace \
-      OPENCODE_URL=http://localhost:4096 \
-      PORT=3456 \
-      PATH="/opt/bun/bin:/usr/local/bin:/usr/bin:/bin" \
+if [ "$(id -u)" -eq 0 ]; then
+  exec s6-setuidgid abc \
+    env HOME=/workspace \
+        OPENCODE_URL=http://localhost:4096 \
+        PORT=3456 \
+        PATH="/opt/bun/bin:/usr/local/bin:/usr/bin:/bin" \
+    /opt/bun/bin/bun run /opt/opencode-channels/src/index.ts
+fi
+
+exec env HOME=/workspace \
+    OPENCODE_URL=http://localhost:4096 \
+    PORT=3456 \
+    PATH="/opt/bun/bin:/usr/local/bin:/usr/bin:/bin" \
   /opt/bun/bin/bun run /opt/opencode-channels/src/index.ts

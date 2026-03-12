@@ -129,6 +129,26 @@ export class CoreSupervisor {
     this.bootedLegacyS6Disabled = true
   }
 
+  private async cleanupLegacyOrphans(): Promise<void> {
+    const patterns = [
+      'sudo bash /etc/s6-overlay/s6-rc.d/svc-opencode-serve/run',
+      'sudo bash /etc/s6-overlay/s6-rc.d/svc-opencode-web/run',
+      'sudo bash /etc/s6-overlay/s6-rc.d/svc-opencode-channels/run',
+      'sudo bash /etc/s6-overlay/s6-rc.d/svc-presentation-viewer/run',
+      'sudo bash /etc/s6-overlay/s6-rc.d/svc-static-web/run',
+      'sudo bash /etc/s6-overlay/s6-rc.d/svc-agent-browser-viewer/run',
+      '/usr/local/bin/opencode serve --port 4096 --hostname 0.0.0.0',
+      '/usr/local/bin/opencode web --port 3111 --hostname 0.0.0.0',
+      '/opt/opencode-channels/src/index.ts',
+      '/tmp/pres-viewer-server.js',
+      '/tmp/static-web-server.js',
+    ]
+
+    for (const pattern of patterns) {
+      await run(`sudo pkill -f ${JSON.stringify(pattern)} >/dev/null 2>&1 || true`)
+    }
+  }
+
   private async spawnService(procRef: ManagedProc): Promise<void> {
     const { spec, state } = procRef
     if (!existsSync(spec.run)) {
@@ -142,7 +162,7 @@ export class CoreSupervisor {
     state.lastError = null
     state.stoppedAt = null
 
-    const proc = Bun.spawn(['sudo', 'bash', spec.run], {
+    const proc = Bun.spawn(['bash', spec.run], {
       env: { ...process.env, HOME: '/workspace' },
       stdout: 'inherit',
       stderr: 'inherit',
@@ -183,6 +203,7 @@ export class CoreSupervisor {
   async start(): Promise<void> {
     if (this.started) return
     await this.disableLegacyS6Services()
+    await this.cleanupLegacyOrphans()
     this.spec = await this.loadSpecFromDisk()
     this.processes.clear()
     for (const service of this.spec.services) {

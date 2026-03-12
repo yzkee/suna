@@ -8,16 +8,241 @@ echo "[agent-browser-viewer] Starting viewer on port 9224"
 # Keep agent-browser daemon state deterministic across restarts.
 SOCKET_DIR="/tmp/agent-browser"
 mkdir -p "$SOCKET_DIR" /workspace
-chown -R abc:users "$SOCKET_DIR" /workspace >/dev/null 2>&1 || true
+if [ "$(id -u)" -eq 0 ]; then
+  chown -R abc:users "$SOCKET_DIR" /workspace >/dev/null 2>&1 || true
+fi
 rm -rf "$SOCKET_DIR"/* >/dev/null 2>&1 || true
 
 # Kill stale daemon instances (different users/sessions can conflict on stream port).
 pkill -f "dist/daemon.js" >/dev/null 2>&1 || true
 
-exec env HOME=/workspace AGENT_BROWSER_SOCKET_DIR="$SOCKET_DIR" AGENT_BROWSER_STREAM_PORT=9223 AGENT_BROWSER_HEADED=1 s6-setuidgid abc \
-  bun -e '
+if [ "$(id -u)" -eq 0 ]; then
+  exec env HOME=/workspace AGENT_BROWSER_SOCKET_DIR="$SOCKET_DIR" AGENT_BROWSER_STREAM_PORT=9223 AGENT_BROWSER_HEADED=1 s6-setuidgid abc \
+    bun -e '
     const fs = require("fs");
     const path = require("path");
+
+    const html = fs.readFileSync("/opt/agent-browser-viewer/index.html");
+    const socketDirs = Array.from(new Set([
+      process.env.AGENT_BROWSER_SOCKET_DIR || "/tmp/agent-browser",
+      "/tmp/agent-browser",
+      "/workspace/.agent-browser",
+    ]));
+
+    function getSessions() {
+      const sessionsByName = new Map();
+      for (const socketDir of socketDirs) {
+        try {
+          const files = fs.readdirSync(socketDir);
+          for (const f of files) {
+            if (!f.endsWith(".stream")) continue;
+            const name = f.replace(".stream", "");
+            const port = parseInt(fs.readFileSync(path.join(socketDir, f), "utf8").trim(), 10);
+            const hasSock = files.includes(name + ".sock");
+            const pidPath = path.join(socketDir, name + ".pid");
+            let pidAlive = false;
+            try {
+              if (fs.existsSync(pidPath)) {
+                const pid = parseInt(fs.readFileSync(pidPath, "utf8").trim(), 10);
+                if (pid > 0) {
+                  pidAlive = fs.existsSync(`/proc/${pid}`);
+                }
+              }
+            } catch (e) {
+              pidAlive = false;
+            }
+            if (port > 0 && hasSock && pidAlive) {
+              sessionsByName.set(name, { name, port });
+            }
+          }
+        } catch (e) {
+          // ignore missing directory
+        }
+      }
+      return Array.from(sessionsByName.values());
+    }
+
+    // Track active SSE-to-WS bridges per port
+    // Key: port number, Value: { ws, clients: Set<client>, connecting, retryTimer, pendingInputs }
+    const bridges = new Map();
+
+    function removeClient(port, client) {
+      const bridge = bridges.get(port);
+      if (!bridge) return;
+      bridge.clients.delete(client);
+      if (bridge.clients.size === 0) {
+        if (bridge.retryTimer) {
+          clearTimeout(bridge.retryTimer);
+          bridge.retryTimer = null;
+        }
+        if (bridge.ws) {
+          try { bridge.ws.close(); } catch {}
+          bridge.ws = null;
+        }
+        bridges.delete(port);
+      }
+    }
+
+    function scheduleReconnect(port, bridge, delayMs) {
+      if (bridge.retryTimer || bridge.clients.size === 0) return;
+      bridge.retryTimer = setTimeout(() => {
+        bridge.retryTimer = null;
+        connectBridge(port, bridge);
+      }, delayMs);
+    }
+
+    function connectBridge(port, bridge) {
+      if (bridge.connecting || bridge.ws || bridge.clients.size === 0) return;
+      bridge.connecting = true;
+
+      try {
+        const ws = new WebSocket("ws://127.0.0.1:" + port);
+
+        ws.addEventListener("open", () => {
+          bridge.ws = ws;
+          bridge.connecting = false;
+          if (bridge.pendingInputs && bridge.pendingInputs.length > 0) {
+            for (const payload of bridge.pendingInputs.splice(0)) {
+              try { ws.send(payload); } catch {}
+            }
+          }
+          for (const client of bridge.clients) {
+            try { client.enqueue("event: status\ndata: {\"connected\":true}\n\n"); } catch {}
+          }
+        });
+
+        ws.addEventListener("message", (event) => {
+          const msg = typeof event.data === "string" ? event.data : event.data.toString();
+          for (const client of bridge.clients) {
+            try { client.enqueue("data: " + msg + "\n\n"); } catch {}
+          }
+        });
+
+        ws.addEventListener("close", () => {
+          bridge.ws = null;
+          bridge.connecting = false;
+          for (const client of bridge.clients) {
+            try { client.enqueue("event: status\ndata: {\"connected\":false}\n\n"); } catch {}
+          }
+          scheduleReconnect(port, bridge, 900);
+        });
+
+        ws.addEventListener("error", () => {
+          bridge.ws = null;
+          bridge.connecting = false;
+          scheduleReconnect(port, bridge, 1200);
+        });
+      } catch (e) {
+        bridge.connecting = false;
+        scheduleReconnect(port, bridge, 1200);
+      }
+    }
+
+    function getOrCreateBridge(port) {
+      if (bridges.has(port)) {
+        const existing = bridges.get(port);
+        connectBridge(port, existing);
+        return existing;
+      }
+
+      const bridge = { ws: null, clients: new Set(), connecting: false, retryTimer: null, pendingInputs: [] };
+      bridges.set(port, bridge);
+      return bridge;
+    }
+
+    Bun.serve({
+      port: 9224,
+      hostname: "0.0.0.0",
+      fetch(req) {
+        const url = new URL(req.url);
+        const pathname = url.pathname;
+
+        if (pathname === "/sessions") {
+          return new Response(JSON.stringify(getSessions()), {
+            headers: { "Content-Type": "application/json", "Cache-Control": "no-cache" },
+          });
+        }
+
+        if (pathname === "/stream") {
+          const port = parseInt(url.searchParams.get("port"), 10);
+          if (!port || port < 1 || port > 65535) {
+            return new Response("Bad port", { status: 400 });
+          }
+
+          const bridge = getOrCreateBridge(port);
+
+          let streamClient = null;
+          const stream = new ReadableStream({
+            start(controller) {
+              const encoder = {
+                enqueue: (s) => controller.enqueue(new TextEncoder().encode(s)),
+                close: () => controller.close(),
+              };
+              const heartbeat = setInterval(() => {
+                try { encoder.enqueue(":hb\n\n"); } catch {}
+              }, 10000);
+
+              encoder._heartbeat = heartbeat;
+              streamClient = encoder;
+              bridge.clients.add(encoder);
+              controller.enqueue(new TextEncoder().encode(":ok\n\n"));
+              connectBridge(port, bridge);
+            },
+            cancel() {
+              if (streamClient && streamClient._heartbeat) {
+                clearInterval(streamClient._heartbeat);
+                streamClient._heartbeat = null;
+              }
+              if (streamClient) removeClient(port, streamClient);
+            },
+          });
+
+          return new Response(stream, {
+            headers: {
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-cache",
+              "Connection": "keep-alive",
+              "X-Accel-Buffering": "no",
+            },
+          });
+        }
+
+        if (pathname === "/input" && req.method === "POST") {
+          const port = parseInt(url.searchParams.get("port"), 10);
+          if (!port || port < 1 || port > 65535) {
+            return new Response("Bad port", { status: 400 });
+          }
+
+          return req.text().then((body) => {
+            const bridge = getOrCreateBridge(port);
+            connectBridge(port, bridge);
+            if (bridge && bridge.ws && bridge.ws.readyState === 1) {
+              bridge.ws.send(body);
+              return new Response("ok");
+            }
+            if (bridge.pendingInputs.length > 200) {
+              bridge.pendingInputs.shift();
+            }
+            bridge.pendingInputs.push(body);
+            return new Response("queued", { status: 202 });
+          });
+        }
+
+        // Default: serve the viewer HTML
+        return new Response(html, {
+          headers: { "Content-Type": "text/html", "Cache-Control": "no-cache" },
+        });
+      },
+    });
+
+    console.log("[agent-browser-viewer] Ready at http://0.0.0.0:9224");
+  '
+fi
+
+exec env HOME=/workspace AGENT_BROWSER_SOCKET_DIR="$SOCKET_DIR" AGENT_BROWSER_STREAM_PORT=9223 AGENT_BROWSER_HEADED=1 \
+  bun -e '
+  const fs = require("fs");
+  const path = require("path");
 
     const html = fs.readFileSync("/opt/agent-browser-viewer/index.html");
     const socketDirs = Array.from(new Set([

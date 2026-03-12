@@ -6,10 +6,19 @@ cd /workspace
 mkdir -p /workspace/.local/share/opencode/log \
          /workspace/.local/share/opencode/storage \
          /workspace/.local/share/opencode/snapshot
-chown -R abc:abc /workspace/.local/share/opencode
+if [ "$(id -u)" -eq 0 ]; then
+  chown -R abc:abc /workspace/.local/share/opencode
+fi
 
-exec s6-setuidgid abc \
-  env HOME=/workspace \
-      OPENCODE_CONFIG_DIR=/opt/opencode \
-      PATH="/opt/bun/bin:/usr/local/bin:/usr/bin:/bin" \
+if [ "$(id -u)" -eq 0 ]; then
+  exec s6-setuidgid abc \
+    env HOME=/workspace \
+        OPENCODE_CONFIG_DIR=/opt/opencode \
+        PATH="/opt/bun/bin:/usr/local/bin:/usr/bin:/bin" \
+    /usr/local/bin/opencode web --port 3111 --hostname 0.0.0.0
+fi
+
+exec env HOME=/workspace \
+    OPENCODE_CONFIG_DIR=/opt/opencode \
+    PATH="/opt/bun/bin:/usr/local/bin:/usr/bin:/bin" \
   /usr/local/bin/opencode web --port 3111 --hostname 0.0.0.0

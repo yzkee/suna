@@ -7,7 +7,9 @@ mkdir -p /workspace/.local/share/opencode/log \
          /workspace/.local/share/opencode/storage \
          /workspace/.local/share/opencode/snapshot \
          /workspace/.lss
-chown -R abc:abc /workspace/.local/share/opencode /workspace/.lss
+if [ "$(id -u)" -eq 0 ]; then
+  chown -R abc:abc /workspace/.local/share/opencode /workspace/.lss
+fi
 
 echo "[opencode-serve] Starting API server on port 4096"
 
@@ -33,19 +35,37 @@ GROQ_API_KEY="$(_read_env GROQ_API_KEY)"
 KORTIX_TOKEN="$(_read_env KORTIX_TOKEN)"
 ENV_MODE="$(_read_env ENV_MODE)"
 
-exec s6-setuidgid abc \
-  env HOME=/workspace \
-      OPENCODE_CONFIG_DIR=/opt/opencode \
-      OPENCODE_FILE_ROOT=/ \
-      BUN_PTY_LIB=/opt/bun-pty-musl/librust_pty.so \
-      PATH="/opt/bun/bin:/usr/local/bin:/usr/bin:/bin" \
-      ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" \
-      ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL}" \
-      OPENAI_API_KEY="${OPENAI_API_KEY}" \
-      OPENAI_BASE_URL="${OPENAI_BASE_URL}" \
-      XAI_API_KEY="${XAI_API_KEY}" \
-      GOOGLE_GENERATIVE_AI_API_KEY="${GOOGLE_GENERATIVE_AI_API_KEY}" \
-      GROQ_API_KEY="${GROQ_API_KEY}" \
-      KORTIX_TOKEN="${KORTIX_TOKEN}" \
-      ENV_MODE="${ENV_MODE}" \
+if [ "$(id -u)" -eq 0 ]; then
+  exec s6-setuidgid abc \
+    env HOME=/workspace \
+        OPENCODE_CONFIG_DIR=/opt/opencode \
+        OPENCODE_FILE_ROOT=/ \
+        BUN_PTY_LIB=/opt/bun-pty-musl/librust_pty.so \
+        PATH="/opt/bun/bin:/usr/local/bin:/usr/bin:/bin" \
+        ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" \
+        ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL}" \
+        OPENAI_API_KEY="${OPENAI_API_KEY}" \
+        OPENAI_BASE_URL="${OPENAI_BASE_URL}" \
+        XAI_API_KEY="${XAI_API_KEY}" \
+        GOOGLE_GENERATIVE_AI_API_KEY="${GOOGLE_GENERATIVE_AI_API_KEY}" \
+        GROQ_API_KEY="${GROQ_API_KEY}" \
+        KORTIX_TOKEN="${KORTIX_TOKEN}" \
+        ENV_MODE="${ENV_MODE}" \
+    /usr/local/bin/opencode serve --port 4096 --hostname 0.0.0.0
+fi
+
+exec env HOME=/workspace \
+    OPENCODE_CONFIG_DIR=/opt/opencode \
+    OPENCODE_FILE_ROOT=/ \
+    BUN_PTY_LIB=/opt/bun-pty-musl/librust_pty.so \
+    PATH="/opt/bun/bin:/usr/local/bin:/usr/bin:/bin" \
+    ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" \
+    ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL}" \
+    OPENAI_API_KEY="${OPENAI_API_KEY}" \
+    OPENAI_BASE_URL="${OPENAI_BASE_URL}" \
+    XAI_API_KEY="${XAI_API_KEY}" \
+    GOOGLE_GENERATIVE_AI_API_KEY="${GOOGLE_GENERATIVE_AI_API_KEY}" \
+    GROQ_API_KEY="${GROQ_API_KEY}" \
+    KORTIX_TOKEN="${KORTIX_TOKEN}" \
+    ENV_MODE="${ENV_MODE}" \
   /usr/local/bin/opencode serve --port 4096 --hostname 0.0.0.0
