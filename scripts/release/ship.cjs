@@ -25,7 +25,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const ROOT = path.resolve(__dirname, '..', '..')
-const SANDBOX_DIR = path.join(ROOT, 'packages', 'sandbox')
+const SANDBOX_DIR = path.join(ROOT, 'sandbox')
 const RELEASE_JSON = path.join(SANDBOX_DIR, 'release.json')
 const PACKAGE_JSON = path.join(SANDBOX_DIR, 'package.json')
 const CHANGELOG_JSON = path.join(SANDBOX_DIR, 'CHANGELOG.json')
@@ -123,7 +123,7 @@ info('Validating...')
 const changelog = JSON.parse(fs.readFileSync(CHANGELOG_JSON))
 const entry = changelog.find(e => e.version === version)
 if (!entry) {
-  fail(`No changelog entry for v${version}. Add one to packages/sandbox/CHANGELOG.json first.`)
+  fail(`No changelog entry for v${version}. Add one to sandbox/CHANGELOG.json first.`)
 }
 ok(`Changelog: "${entry.title}"`)
 
@@ -223,7 +223,7 @@ if (DOCKER) {
   // Sandbox
   run(`docker buildx build \
     --platform linux/amd64,linux/arm64 \
-    -f packages/sandbox/docker/Dockerfile \
+    -f sandbox/docker/Dockerfile \
     --build-arg SANDBOX_VERSION=${version} \
     -t kortix/computer:${version} \
     -t kortix/computer:latest \
@@ -258,10 +258,10 @@ if (DOCKER) {
 // ── Step 5: Commit ────────────────────────────────────────────────────────
 info('Committing version bump...')
 run(`git add \
-  packages/sandbox/package.json \
-  packages/sandbox/release.json \
-  packages/sandbox/CHANGELOG.json \
-  packages/sandbox/startup.sh \
+  sandbox/package.json \
+  sandbox/release.json \
+  sandbox/CHANGELOG.json \
+  sandbox/startup.sh \
   scripts/get-kortix.sh`)
 const hasStagedChanges = run('git diff --cached --name-only')
 if (hasStagedChanges) {

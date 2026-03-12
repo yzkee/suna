@@ -21,7 +21,7 @@ import { createPdb } from "./src/k8s/pdb";
 
 const config = new pulumi.Config("kortix-eks");
 const acmCertificateArn = config.require("acmCertificateArn");
-const releaseManifest = JSON.parse(readFileSync(resolve(__dirname, "../packages/sandbox/release.json"), "utf8")) as {
+const releaseManifest = JSON.parse(readFileSync(resolve(__dirname, "../sandbox/release.json"), "utf8")) as {
   version: string;
 };
 const imageTag = config.get("imageTag") || releaseManifest.version;

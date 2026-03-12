@@ -58,7 +58,7 @@ function findRepoRoot(): string | null {
   for (const dir of candidates) {
     const hasFrontend = existsSync(resolve(dir, 'apps/frontend'));
     const hasApi = existsSync(resolve(dir, 'kortix-api'));
-    const hasSandboxCompose = existsSync(resolve(dir, 'packages/sandbox/docker/docker-compose.yml'));
+    const hasSandboxCompose = existsSync(resolve(dir, 'sandbox/docker/docker-compose.yml'));
     const hasComposeScripts = existsSync(resolve(dir, 'scripts/compose/docker-compose.yml'));
 
     if ((hasFrontend && hasApi) || hasSandboxCompose || hasComposeScripts) {
@@ -429,7 +429,7 @@ setupApp.post('/bootstrap-owner', async (c) => {
 setupApp.get('/status', async (c) => {
   const root = getProjectRoot();
   const envExists = existsSync(resolve(root, '.env'));
-  const sandboxEnvExists = existsSync(resolve(root, 'packages/sandbox/docker/.env'));
+  const sandboxEnvExists = existsSync(resolve(root, 'sandbox/docker/.env'));
 
   let dockerRunning = false;
   try {
@@ -464,7 +464,7 @@ setupApp.get('/env', async (c) => {
   // Repo/dev mode: reads and writes actual .env files in the repo.
   if (repoRoot) {
     const rootEnv = parseEnvFile(resolve(repoRoot, '.env'));
-    const sandboxEnv = parseEnvFile(resolve(repoRoot, 'packages/sandbox/docker/.env'));
+    const sandboxEnv = parseEnvFile(resolve(repoRoot, 'sandbox/docker/.env'));
 
     const masked: Record<string, string> = {};
     const configured: Record<string, boolean> = {};
@@ -543,7 +543,7 @@ setupApp.post('/env', async (c) => {
     }
   }
 
-  // Repo/dev mode: write keys into repo .env + packages/sandbox/docker/.env and generate per-service env files.
+  // Repo/dev mode: write keys into repo .env + sandbox/docker/.env and generate per-service env files.
   const root = repoRoot;
   const rootData: Record<string, string> = {};
   const sandboxData: Record<string, string> = {};
@@ -572,10 +572,10 @@ setupApp.post('/env', async (c) => {
   writeEnvFile(rootEnvPath, rootData);
 
   // Sandbox .env
-  const sandboxEnvPath = resolve(root, 'packages/sandbox/docker/.env');
+  const sandboxEnvPath = resolve(root, 'sandbox/docker/.env');
   mkdirSync(dirname(sandboxEnvPath), { recursive: true });
   if (!existsSync(sandboxEnvPath)) {
-    const examplePath = resolve(root, 'packages/sandbox/docker/.env.example');
+    const examplePath = resolve(root, 'sandbox/docker/.env.example');
     if (existsSync(examplePath)) {
       writeFileSync(sandboxEnvPath, readFileSync(examplePath, 'utf-8'));
     } else {

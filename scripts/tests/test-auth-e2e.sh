@@ -229,7 +229,7 @@ fi
 section "1c. Timing-Safe Comparison"
 
 # 1.10 Verify timing-safe comparison is in the source code
-MASTER_INDEX="/Users/markokraemer/Projects/heyagi/computer/packages/sandbox/kortix-master/src/index.ts"
+MASTER_INDEX="/Users/markokraemer/Projects/heyagi/computer/sandbox/kortix-master/src/index.ts"
 if grep -q 'timingSafeEqual' "$MASTER_INDEX"; then
   pass "Source uses crypto.timingSafeEqual()"
 else
@@ -637,19 +637,19 @@ fi # end cors section
 if [ "$SECTION" = "all" ] || [ "$SECTION" = "sandbox" ] || [ "$SECTION" = "ports" ]; then
 section "7. Port Security"
 
-# 7.1 Check packages/sandbox/docker/docker-compose.yml binds to 127.0.0.1
-COMPOSE_FILE="/Users/markokraemer/Projects/heyagi/computer/packages/sandbox/docker/docker-compose.yml"
+# 7.1 Check sandbox/docker/docker-compose.yml binds to 127.0.0.1
+COMPOSE_FILE="/Users/markokraemer/Projects/heyagi/computer/sandbox/docker/docker-compose.yml"
 if [ -f "$COMPOSE_FILE" ]; then
   # Count port bindings that are NOT localhost
   unsafe_ports=$(grep -E '^\s+-\s+"[0-9]' "$COMPOSE_FILE" | grep -v '127.0.0.1' || true)
   if [ -z "$unsafe_ports" ]; then
-    pass "packages/sandbox/docker/docker-compose.yml: all port bindings are 127.0.0.1"
+    pass "sandbox/docker/docker-compose.yml: all port bindings are 127.0.0.1"
   else
     unsafe_count=$(echo "$unsafe_ports" | wc -l | tr -d ' ')
-    fail "packages/sandbox/docker/docker-compose.yml: $unsafe_count port bindings not bound to 127.0.0.1"
+    fail "sandbox/docker/docker-compose.yml: $unsafe_count port bindings not bound to 127.0.0.1"
   fi
 else
-  skip "packages/sandbox/docker/docker-compose.yml not found"
+  skip "sandbox/docker/docker-compose.yml not found"
 fi
 
 # 7.2 Check actual container port bindings

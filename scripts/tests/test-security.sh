@@ -6,9 +6,9 @@
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 SCRIPT="$ROOT_DIR/scripts/get-kortix.sh"
 ENTRYPOINT="$ROOT_DIR/apps/frontend/docker-entrypoint.sh"
-ENV_ROUTES="$ROOT_DIR/packages/sandbox/kortix-master/src/routes/env.ts"
-MASTER_INDEX="$ROOT_DIR/packages/sandbox/kortix-master/src/index.ts"
-MASTER_CONFIG="$ROOT_DIR/packages/sandbox/kortix-master/src/config.ts"
+ENV_ROUTES="$ROOT_DIR/sandbox/kortix-master/src/routes/env.ts"
+MASTER_INDEX="$ROOT_DIR/sandbox/kortix-master/src/index.ts"
+MASTER_CONFIG="$ROOT_DIR/sandbox/kortix-master/src/config.ts"
 
 PASS=0; FAIL=0; TOTAL=0
 

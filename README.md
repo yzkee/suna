@@ -14,7 +14,7 @@ Supports local machine and VPS/server (HTTPS + reverse proxy) setups.
 
 - `apps/frontend/` — Next.js dashboard
 - `kortix-api/` — Bun/Hono backend
-- `packages/sandbox/` — sandbox Docker image (Dockerfile, startup, runtime)
+- `sandbox/` — sandbox Docker image (Dockerfile, startup, runtime)
 - `packages/kortix-oc/` — OpenCode runtime plugin
 - `packages/opencode-agent-triggers/` — cron + webhook trigger system
 - `packages/lss/` — local semantic search
@@ -27,7 +27,7 @@ Supports local machine and VPS/server (HTTPS + reverse proxy) setups.
 - `pnpm dev` — start frontend + API in dev mode
 - `pnpm dev:frontend` — start frontend only
 - `pnpm dev:api` — start API only
-- `pnpm dev:sandbox` — start sandbox with dev bind mounts (hot reload)
+- `pnpm dev:sandbox` — start sandbox with dev bind mounts (hot reload, from `sandbox/`)
 - `pnpm build` — build all packages
 - `pnpm ship <version>` — bump versions, build + push Docker images, create GitHub release
 - `pnpm ship --dry-run <version>` — validate without making changes

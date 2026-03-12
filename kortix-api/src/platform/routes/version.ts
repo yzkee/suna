@@ -21,13 +21,13 @@ import { releaseManifest } from '../../release';
 // CHANGELOG.json lookup paths (checked in order)
 const LOCAL_CHANGELOG_PATHS = [
   resolve('/app/CHANGELOG.json'),
-  resolve(process.cwd(), '../../packages/sandbox/CHANGELOG.json'),
-  resolve(process.cwd(), '../packages/sandbox/CHANGELOG.json'),
-  resolve(process.cwd(), 'packages/sandbox/CHANGELOG.json'),
+  resolve(process.cwd(), '../../sandbox/CHANGELOG.json'),
+  resolve(process.cwd(), '../sandbox/CHANGELOG.json'),
+  resolve(process.cwd(), 'sandbox/CHANGELOG.json'),
 ];
 
 // GitHub raw fallback
-const CHANGELOG_GITHUB_URL = 'https://raw.githubusercontent.com/kortix-ai/computer/main/packages/sandbox/CHANGELOG.json';
+const CHANGELOG_GITHUB_URL = 'https://raw.githubusercontent.com/kortix-ai/computer/main/sandbox/CHANGELOG.json';
 
 // ─── Cache ──────────────────────────────────────────────────────────────────
 let cachedChangelog: any[] | null = null;

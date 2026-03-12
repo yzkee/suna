@@ -21,9 +21,9 @@ export interface ReleaseManifest {
 
 const RELEASE_MANIFEST_PATHS = [
   resolve('/app/release.json'),
-  resolve(process.cwd(), 'packages/sandbox/release.json'),
-  resolve(process.cwd(), '../packages/sandbox/release.json'),
-  resolve(process.cwd(), '../../packages/sandbox/release.json'),
+  resolve(process.cwd(), 'sandbox/release.json'),
+  resolve(process.cwd(), '../sandbox/release.json'),
+  resolve(process.cwd(), '../../sandbox/release.json'),
 ]
 
 function loadReleaseManifest(): ReleaseManifest {

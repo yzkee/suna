@@ -61,9 +61,9 @@ printf "[build-local-images] Building kortix/kortix-api:%s...\n" "$TAG"
 docker build --build-arg SERVICE=kortix-api -f "$REPO_ROOT/kortix-api/Dockerfile" -t "kortix/kortix-api:${TAG}" "$REPO_ROOT"
 
 printf "[build-local-images] Building kortix/computer:%s...\n" "$TAG"
-docker build --build-arg PREBAKE_LOCAL_SANDBOX=1 -f "$REPO_ROOT/packages/sandbox/docker/Dockerfile" -t "kortix/computer:${TAG}" "$REPO_ROOT"
+docker build --build-arg PREBAKE_LOCAL_SANDBOX=1 -f "$REPO_ROOT/sandbox/docker/Dockerfile" -t "kortix/computer:${TAG}" "$REPO_ROOT"
 
-printf "[build-local-images] Build a local sandbox with compose via: docker compose -f %s/packages/sandbox/docker/docker-compose.yml up --build\n" "$REPO_ROOT"
+printf "[build-local-images] Build a local sandbox with compose via: docker compose -f %s/sandbox/docker/docker-compose.yml up --build\n" "$REPO_ROOT"
 
 if [ "$INCLUDE_POSTGRES" = "1" ]; then
   printf "[build-local-images] Building kortix/postgres:%s...\n" "$TAG"

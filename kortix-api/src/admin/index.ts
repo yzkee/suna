@@ -270,7 +270,7 @@ adminApp.get('/api/env', async (c) => {
 
   if (repoRoot) {
     const rootEnv = parseEnvFile(resolve(repoRoot, '.env'));
-    const sandboxEnv = parseEnvFile(resolve(repoRoot, 'packages/sandbox/docker/.env'));
+    const sandboxEnv = parseEnvFile(resolve(repoRoot, 'sandbox/docker/.env'));
     const masked: Record<string, string> = {};
     const configured: Record<string, boolean> = {};
 
@@ -347,9 +347,9 @@ adminApp.post('/api/env', async (c) => {
   writeEnvFile(rootEnvPath, rootData);
 
   if (Object.keys(sandboxData).length > 0) {
-    const sandboxEnvPath = resolve(repoRoot, 'packages/sandbox/docker/.env');
+    const sandboxEnvPath = resolve(repoRoot, 'sandbox/docker/.env');
     if (!existsSync(sandboxEnvPath)) {
-      const examplePath = resolve(repoRoot, 'packages/sandbox/docker/.env.example');
+      const examplePath = resolve(repoRoot, 'sandbox/docker/.env.example');
       if (existsSync(examplePath)) {
         writeFileSync(sandboxEnvPath, readFileSync(examplePath, 'utf-8'));
       } else {

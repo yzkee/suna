@@ -145,7 +145,7 @@ describe('/v1/setup', () => {
 
     it('all keys unconfigured when no .env', async () => {
       rmSync(resolve(TEST_DIR, '.env'), { force: true });
-      rmSync(resolve(TEST_DIR, 'packages/sandbox/docker/.env'), { force: true });
+      rmSync(resolve(TEST_DIR, 'sandbox/docker/.env'), { force: true });
       const app = createSetupTestApp();
       const res = await app.request('/v1/setup/env');
       const data = await res.json();
@@ -182,14 +182,14 @@ describe('/v1/setup', () => {
       expect(content).toContain('ENV_MODE=local');
     });
 
-    it('creates packages/sandbox/docker/.env with key', async () => {
-      expect(existsSync(resolve(TEST_DIR, 'packages/sandbox/docker/.env'))).toBe(true);
-      const content = readFileSync(resolve(TEST_DIR, 'packages/sandbox/docker/.env'), 'utf-8');
+    it('creates sandbox/docker/.env with key', async () => {
+      expect(existsSync(resolve(TEST_DIR, 'sandbox/docker/.env'))).toBe(true);
+      const content = readFileSync(resolve(TEST_DIR, 'sandbox/docker/.env'), 'utf-8');
       expect(content).toContain('ANTHROPIC_API_KEY=sk-ant-test-setup-123');
     });
 
-    it('packages/sandbox/docker/.env has KORTIX_API_URL', async () => {
-      const content = readFileSync(resolve(TEST_DIR, 'packages/sandbox/docker/.env'), 'utf-8');
+    it('sandbox/docker/.env has KORTIX_API_URL', async () => {
+      const content = readFileSync(resolve(TEST_DIR, 'sandbox/docker/.env'), 'utf-8');
       expect(content).toContain('KORTIX_API_URL=http://kortix-api:8008');
     });
 

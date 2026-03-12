@@ -224,9 +224,9 @@ providersApp.get('/', async (c) => {
   let sourceType: 'env' | 'secretstore';
 
   if (repoRoot) {
-    // Dev/repo mode: merge root .env + packages/sandbox/docker/.env
+    // Dev/repo mode: merge root .env + sandbox/docker/.env
     const rootEnv = parseEnvFile(resolve(repoRoot, '.env'));
-    const sandboxEnv = parseEnvFile(resolve(repoRoot, 'packages/sandbox/docker/.env'));
+    const sandboxEnv = parseEnvFile(resolve(repoRoot, 'sandbox/docker/.env'));
     envMap = { ...rootEnv, ...sandboxEnv };
     sourceType = 'env';
   } else {
@@ -332,7 +332,7 @@ providersApp.put('/:id/connect', async (c) => {
   const rootData: Record<string, string> = { ...clean, ENV_MODE: 'local', ALLOWED_SANDBOX_PROVIDERS: 'local_docker' };
   writeEnvFile(rootEnvPath, rootData);
 
-  // Also write to packages/sandbox/docker/.env for keys that should be in the sandbox
+  // Also write to sandbox/docker/.env for keys that should be in the sandbox
   const sandboxData: Record<string, string> = {};
   for (const [key, val] of Object.entries(clean)) {
     if (ALL_SANDBOX_ENV_KEYS.has(key)) {
@@ -341,10 +341,10 @@ providersApp.put('/:id/connect', async (c) => {
   }
 
   if (Object.keys(sandboxData).length > 0) {
-    const sandboxEnvPath = resolve(repoRoot, 'packages/sandbox/docker/.env');
+    const sandboxEnvPath = resolve(repoRoot, 'sandbox/docker/.env');
     mkdirSync(dirname(sandboxEnvPath), { recursive: true });
     if (!existsSync(sandboxEnvPath)) {
-      const examplePath = resolve(repoRoot, 'packages/sandbox/docker/.env.example');
+      const examplePath = resolve(repoRoot, 'sandbox/docker/.env.example');
       if (existsSync(examplePath)) {
         writeFileSync(sandboxEnvPath, readFileSync(examplePath, 'utf-8'));
       } else {
@@ -398,7 +398,7 @@ providersApp.delete('/:id/disconnect', async (c) => {
   const rootEnvPath = resolve(repoRoot, '.env');
   removeFromEnvFile(rootEnvPath, provider.envKeys);
 
-  const sandboxEnvPath = resolve(repoRoot, 'packages/sandbox/docker/.env');
+  const sandboxEnvPath = resolve(repoRoot, 'sandbox/docker/.env');
   removeFromEnvFile(sandboxEnvPath, provider.envKeys);
 
   // Re-run setup-env.sh

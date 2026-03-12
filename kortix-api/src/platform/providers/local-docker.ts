@@ -101,14 +101,14 @@ function getSandboxInternalApiUrl(): string {
 }
 
 /**
- * Read key=value pairs from the packages/sandbox/docker/.env file.
+ * Read key=value pairs from the sandbox/docker/.env file.
  * API keys and credentials that OpenCode needs inside the container.
  */
 function readSandboxEnv(): string[] {
   const candidates = [
-    resolve(__dirname, '../../../../packages/sandbox/docker/.env'),
-    resolve(process.cwd(), 'packages/sandbox/docker/.env'),
-    resolve(process.cwd(), '../../packages/sandbox/docker/.env'),
+    resolve(__dirname, '../../../../sandbox/docker/.env'),
+    resolve(process.cwd(), 'sandbox/docker/.env'),
+    resolve(process.cwd(), '../../sandbox/docker/.env'),
   ];
   for (const envPath of candidates) {
     try {
@@ -799,7 +799,7 @@ export class LocalDockerProvider implements SandboxProvider {
     }
     const serviceKey = config.INTERNAL_SERVICE_KEY;
 
-    // Vars we set explicitly — packages/sandbox/docker/.env must NOT override these
+    // Vars we set explicitly — sandbox/docker/.env must NOT override these
     const MANAGED_VARS = new Set([
       'KORTIX_TOKEN',
       'KORTIX_API_URL',
@@ -810,7 +810,7 @@ export class LocalDockerProvider implements SandboxProvider {
       'CORS_ALLOWED_ORIGINS',
     ]);
 
-    // Filter packages/sandbox/docker/.env: drop any var we manage ourselves
+    // Filter sandbox/docker/.env: drop any var we manage ourselves
     const filteredSandboxEnv = sandboxEnvVars.filter((entry) => {
       const varName = entry.split('=')[0];
       return !MANAGED_VARS.has(varName);
@@ -844,7 +844,7 @@ export class LocalDockerProvider implements SandboxProvider {
       `ENV_MODE=${config.KORTIX_BILLING_INTERNAL_ENABLED ? 'cloud' : 'local'}`,
       // CORS: tell the sandbox which origins to allow (includes frontend URL)
       `CORS_ALLOWED_ORIGINS=${[config.FRONTEND_URL, config.KORTIX_URL].filter(Boolean).join(',')}`,
-      // Extra env from packages/sandbox/docker/.env (API keys, etc.) — managed vars already filtered out
+      // Extra env from sandbox/docker/.env (API keys, etc.) — managed vars already filtered out
       ...filteredSandboxEnv,
     ];
 

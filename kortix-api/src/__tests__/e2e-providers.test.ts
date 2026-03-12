@@ -68,7 +68,7 @@ afterAll(() => {
 beforeEach(() => {
   // Clean env files between tests
   rmSync(resolve(TEST_DIR, '.env'), { force: true });
-  rmSync(resolve(TEST_DIR, 'packages/sandbox/docker/.env'), { force: true });
+  rmSync(resolve(TEST_DIR, 'sandbox/docker/.env'), { force: true });
 });
 
 // ─── Tests: GET /v1/providers ───────────────────────────────────────────────
@@ -225,25 +225,25 @@ describe('PUT /v1/providers/:id/connect', () => {
     expect(content).toContain('ANTHROPIC_API_KEY=sk-ant-env-check');
   });
 
-  it('key is written to packages/sandbox/docker/.env', async () => {
+  it('key is written to sandbox/docker/.env', async () => {
     const app = createTestApp();
     await app.request('/v1/providers/anthropic/connect', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ keys: { ANTHROPIC_API_KEY: 'sk-ant-sandbox-check' } }),
     });
-    const content = readFileSync(resolve(TEST_DIR, 'packages/sandbox/docker/.env'), 'utf-8');
+    const content = readFileSync(resolve(TEST_DIR, 'sandbox/docker/.env'), 'utf-8');
     expect(content).toContain('ANTHROPIC_API_KEY=sk-ant-sandbox-check');
   });
 
-  it('packages/sandbox/docker/.env gets KORTIX_API_URL', async () => {
+  it('sandbox/docker/.env gets KORTIX_API_URL', async () => {
     const app = createTestApp();
     await app.request('/v1/providers/anthropic/connect', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ keys: { ANTHROPIC_API_KEY: 'sk-ant-check' } }),
     });
-    const content = readFileSync(resolve(TEST_DIR, 'packages/sandbox/docker/.env'), 'utf-8');
+    const content = readFileSync(resolve(TEST_DIR, 'sandbox/docker/.env'), 'utf-8');
     expect(content).toContain('KORTIX_API_URL=http://kortix-api:8008');
   });
 
@@ -373,7 +373,7 @@ describe('DELETE /v1/providers/:id/disconnect', () => {
     expect(content).not.toContain('ANTHROPIC_API_KEY');
   });
 
-  it('key is removed from packages/sandbox/docker/.env', async () => {
+  it('key is removed from sandbox/docker/.env', async () => {
     const app = createTestApp();
     await app.request('/v1/providers/anthropic/connect', {
       method: 'PUT',
@@ -382,7 +382,7 @@ describe('DELETE /v1/providers/:id/disconnect', () => {
     });
     await app.request('/v1/providers/anthropic/disconnect', { method: 'DELETE' });
 
-    const content = readFileSync(resolve(TEST_DIR, 'packages/sandbox/docker/.env'), 'utf-8');
+    const content = readFileSync(resolve(TEST_DIR, 'sandbox/docker/.env'), 'utf-8');
     expect(content).not.toContain('ANTHROPIC_API_KEY');
   });
 

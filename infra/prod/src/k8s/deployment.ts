@@ -23,7 +23,7 @@ interface DeploymentArgs {
   ghcrToken?: pulumi.Output<string>;
 }
 
-const releaseManifest = JSON.parse(readFileSync(resolve(__dirname, "../../../../packages/sandbox/release.json"), "utf8")) as {
+const releaseManifest = JSON.parse(readFileSync(resolve(__dirname, "../../../../sandbox/release.json"), "utf8")) as {
   images: {
     sandbox: string;
   };

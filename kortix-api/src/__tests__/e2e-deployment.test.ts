@@ -21,8 +21,8 @@ import { join, resolve } from 'path';
 
 // Resolve repo root dynamically from this file's location: __tests__ -> src -> kortix-api -> computer/
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
-const SANDBOX_DIR = join(REPO_ROOT, 'packages', 'sandbox');
-const SANDBOX_DOCKER_DIR = join(REPO_ROOT, 'packages', 'sandbox', 'docker');
+const SANDBOX_DIR = join(REPO_ROOT, 'sandbox');
+const SANDBOX_DOCKER_DIR = join(REPO_ROOT, 'sandbox', 'docker');
 const KORTIX_OC_RUNTIME_DIR = join(REPO_ROOT, 'packages', 'kortix-oc', 'runtime');
 const SHIP_SCRIPT = join(REPO_ROOT, 'scripts', 'release', 'ship.cjs');
 const TEST_TIMESTAMP = Date.now();
@@ -277,7 +277,7 @@ describe.skipIf(!HAS_DOCKER || !HAS_DATABASE)('Deployment — kortix-api Contain
 describe('Deployment — Sandbox Dockerfile Validation', () => {
   const sandboxDockerfile = join(SANDBOX_DOCKER_DIR, 'Dockerfile');
 
-  it('packages/sandbox/docker/Dockerfile exists', () => {
+  it('sandbox/docker/Dockerfile exists', () => {
     expect(existsSync(sandboxDockerfile)).toBe(true);
   });
 
@@ -369,13 +369,13 @@ describe('Deployment — Sandbox Dockerfile Validation', () => {
     expect(release.images.frontend).toContain('kortix/kortix-frontend:');
   });
 
-  it('packages/sandbox/package.json version matches release.json', () => {
+  it('sandbox/package.json version matches release.json', () => {
     const pkgJson = JSON.parse(readFileSync(join(SANDBOX_DIR, 'package.json'), 'utf-8'));
     const release = JSON.parse(readFileSync(join(SANDBOX_DIR, 'release.json'), 'utf-8'));
     expect(pkgJson.version).toBe(release.version);
   });
 
-  it('packages/sandbox/docker/docker-compose.yml documents all required environment variables', () => {
+  it('sandbox/docker/docker-compose.yml documents all required environment variables', () => {
     const composeContent = readFileSync(
       join(SANDBOX_DOCKER_DIR, 'docker-compose.yml'),
       'utf-8',
@@ -623,7 +623,7 @@ describe('Deployment — Ship Script Validation', () => {
     expect(shipScript).toContain('linux/amd64,linux/arm64');
     expect(shipScript).toContain('--push');
     // All 3 images
-    expect(shipScript).toContain('packages/sandbox/docker/Dockerfile');
+    expect(shipScript).toContain('sandbox/docker/Dockerfile');
     expect(shipScript).toContain('kortix-api/Dockerfile');
     expect(shipScript).toContain('apps/frontend/Dockerfile');
   });
@@ -673,7 +673,7 @@ describe('Deployment — Ship Script Validation', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe.skipIf(!HAS_DOCKER)('Deployment — Docker Compose Validation', () => {
-  // Ensure packages/sandbox/docker/.env exists for compose config validation
+  // Ensure sandbox/docker/.env exists for compose config validation
   const sandboxEnvFile = join(SANDBOX_DIR, '.env');
   let createdMinimalEnv = false;
 
@@ -708,9 +708,9 @@ describe.skipIf(!HAS_DOCKER)('Deployment — Docker Compose Validation', () => {
     expect(exitCode).toBe(0);
   });
 
-  it('packages/sandbox/docker/docker-compose.yml validates successfully', async () => {
+  it('sandbox/docker/docker-compose.yml validates successfully', async () => {
     const { exitCode, stderr } = await exec(
-      ['docker', 'compose', '-f', 'packages/sandbox/docker/docker-compose.yml', 'config', '--quiet'],
+      ['docker', 'compose', '-f', 'sandbox/docker/docker-compose.yml', 'config', '--quiet'],
       { cwd: REPO_ROOT },
     );
     // May fail if env vars are missing; we check exit code
@@ -769,7 +769,7 @@ describe.skipIf(!HAS_DOCKER)('Deployment — Docker Compose Validation', () => {
 
   it('sandbox compose config resolves all env vars', async () => {
     const { stdout, exitCode } = await exec(
-      ['docker', 'compose', '-f', 'packages/sandbox/docker/docker-compose.yml', 'config'],
+      ['docker', 'compose', '-f', 'sandbox/docker/docker-compose.yml', 'config'],
       { cwd: REPO_ROOT },
     );
 
