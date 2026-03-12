@@ -18,10 +18,11 @@ set -euo pipefail
 GREEN=$'\033[0;32m'; RED=$'\033[0;31m'; YELLOW=$'\033[1;33m'
 CYAN=$'\033[0;36m'; BOLD=$'\033[1m'; DIM=$'\033[2m'; NC=$'\033[0m'
 
-ok()   { echo "  ${GREEN}✓${NC} $*"; }
-fail() { echo "  ${RED}✗${NC} $*" >&2; }
-info() { echo "  ${CYAN}▸${NC} $*"; }
-warn() { echo "  ${YELLOW}⚠${NC} $*"; }
+ok()    { echo "  ${GREEN}✓${NC} $*"; }
+fail()  { echo "  ${RED}✗${NC} $*" >&2; }
+info()  { echo "  ${CYAN}▸${NC} $*"; }
+warn()  { echo "  ${YELLOW}⚠${NC} $*"; }
+skip()  { echo "  ${DIM}–${NC} $*"; }
 
 HETZNER_API="https://api.hetzner.cloud/v1"
 SERVER_TYPE="${HETZNER_PROBE_SERVER_TYPE:-cx23}"
@@ -244,19 +245,116 @@ while [ $ELAPSED -lt $HEALTH_TIMEOUT ]; do
 
     if [ "$HTTP_CODE" = "200" ] && [ "$STATUS_VAL" = "ok" ]; then
       echo ""
-      echo "  ${BOLD}═══════════════════════════════════════════════════${NC}"
-      echo "  ${GREEN}${BOLD}  ✓ Sandbox is healthy and fully ready!${NC}"
-      echo "  ${BOLD}═══════════════════════════════════════════════════${NC}"
+      ok "Health: HTTP 200 — status=${STATUS_VAL} opencode=${OPENCODE} version=$(echo "$BODY" | python3 -c "import json,sys; print(json.load(sys.stdin).get('version','?'))" 2>/dev/null || echo '?')"
       echo ""
-      ok "Snapshot ${SNAPSHOT_ID} (${SNAPSHOT_DESC:-${TARGET}}) PASSES probe"
-      ok "Health endpoint: ${HEALTH_URL}"
-      ok "Boot time: ${TIMESTAMP}"
+      info "Running extended endpoint checks..."
       echo ""
-      echo "  ${DIM}Safe to set on VPS:${NC}"
-      echo "    HETZNER_SNAPSHOT_ID=${SNAPSHOT_ID}"
-      echo "    HETZNER_SNAPSHOT_DESCRIPTION=${SNAPSHOT_DESC:-kortix-computer-v${SNAP_VERSION}}"
+
+      # ── Auth header for authenticated endpoints ──────────────────────
+      AUTH_HDR="Authorization: Bearer ${PROBE_TOKEN}"
+      BASE="http://${SERVER_IP}:8000"
+      PROBE_PASS=true
+
+      # ── Helper: probe one endpoint ────────────────────────────────────
+      # probe_endpoint LABEL PATH [jq_check_expression] [expected_value]
+      # jq_check_expression: a python3 snippet that prints "ok" or an error string
+      probe_endpoint() {
+        local label="$1"
+        local path="$2"
+        local check_expr="${3:-}"
+        local HTTP
+        local BODY_F
+        HTTP=$(curl -s -o /tmp/kortix-probe-ep.txt -w "%{http_code}" \
+          --connect-timeout 8 --max-time 15 \
+          -H "$AUTH_HDR" \
+          "${BASE}${path}" 2>/dev/null || echo "000")
+        BODY_F=$(cat /tmp/kortix-probe-ep.txt 2>/dev/null || true)
+
+        if [ "$HTTP" = "000" ]; then
+          fail "${label}: connection failed"
+          PROBE_PASS=false
+          return
+        fi
+
+        if [ "$HTTP" != "200" ] && [ "$HTTP" != "503" ]; then
+          fail "${label}: HTTP ${HTTP}"
+          PROBE_PASS=false
+          return
+        fi
+
+        if [ -n "$check_expr" ]; then
+          local CHECK_RESULT
+          CHECK_RESULT=$(echo "$BODY_F" | python3 -c "$check_expr" 2>/dev/null || echo "parse-error")
+          if [ "$CHECK_RESULT" = "ok" ]; then
+            ok "${label}: HTTP ${HTTP} — check passed"
+          else
+            fail "${label}: HTTP ${HTTP} — check FAILED: ${CHECK_RESULT}"
+            PROBE_PASS=false
+          fi
+        else
+          ok "${label}: HTTP ${HTTP}"
+        fi
+      }
+
+      # ── 1. /kortix/update/status — must not be stuck in an update ────
+      probe_endpoint \
+        "update/status" \
+        "/kortix/update/status" \
+        "import json,sys; d=json.load(sys.stdin); phase=d.get('phase','?'); ip=d.get('inProgress',False); print('ok') if not ip else print(f'inProgress=True phase={phase}')"
+
+      # ── 2. /kortix/core/status — core supervisor must be running ─────
+      probe_endpoint \
+        "core/status" \
+        "/kortix/core/status" \
+        "import json,sys; d=json.load(sys.stdin); state=d.get('state','?'); print('ok') if state in ('running','idle','ready') else print(f'state={state}')"
+
+      # ── 3. /kortix/services — service discovery must respond ─────────
+      probe_endpoint \
+        "services" \
+        "/kortix/services" \
+        "import json,sys; d=json.load(sys.stdin); print('ok') if 'services' in d else print('missing services key')"
+
+      # ── 4. /file?path=/workspace — filesystem must be accessible ─────
+      probe_endpoint \
+        "file (workspace)" \
+        "/file?path=/workspace" \
+        "import json,sys; d=json.load(sys.stdin); print('ok') if isinstance(d, list) else print('not a list: ' + str(d)[:80])"
+
+      # ── 5. /lss/status — semantic search available ───────────────────
+      probe_endpoint \
+        "lss/status" \
+        "/lss/status" \
+        "import json,sys; d=json.load(sys.stdin); avail=d.get('available',False); print('ok') if avail else print('available=False output=' + str(d.get('output',''))[:80])"
+
+      # ── 6. /memory/stats — memory DB accessible ──────────────────────
+      probe_endpoint \
+        "memory/stats" \
+        "/memory/stats" \
+        "import json,sys; d=json.load(sys.stdin); print('ok') if 'ltm' in d and 'observations' in d else print('unexpected shape: ' + str(d)[:80])"
+
       echo ""
-      exit 0
+      if [ "$PROBE_PASS" = "true" ]; then
+        echo "  ${BOLD}═══════════════════════════════════════════════════${NC}"
+        echo "  ${GREEN}${BOLD}  ✓ All endpoint checks PASSED${NC}"
+        echo "  ${BOLD}═══════════════════════════════════════════════════${NC}"
+        echo ""
+        ok "Snapshot ${SNAPSHOT_ID} (${SNAPSHOT_DESC:-${TARGET}}) PASSES full probe"
+        ok "Boot time: ${TIMESTAMP}"
+        echo ""
+        echo "  ${DIM}Safe to set on VPS:${NC}"
+        echo "    HETZNER_SNAPSHOT_ID=${SNAPSHOT_ID}"
+        echo "    HETZNER_SNAPSHOT_DESCRIPTION=${SNAPSHOT_DESC:-kortix-computer-v${SNAP_VERSION}}"
+        echo ""
+        exit 0
+      else
+        echo "  ${BOLD}═══════════════════════════════════════════════════${NC}"
+        echo "  ${RED}${BOLD}  ✗ Some endpoint checks FAILED${NC}"
+        echo "  ${BOLD}═══════════════════════════════════════════════════${NC}"
+        echo ""
+        fail "Snapshot ${SNAPSHOT_ID} FAILS extended probe — review errors above"
+        echo ""
+        exit 1
+      fi
     fi
   else
     # Not yet reachable
