@@ -754,6 +754,50 @@ export function createCloudSandboxRouter(
     }
   });
 
+  // ── Mark sandbox as error (called by frontend when health-check times out after status=active) ──
+
+  router.post('/mark-error', async (c) => {
+    const userId = c.get('userId');
+    const accountId = await resolveAccountId(userId);
+    const body = await c.req.json().catch(() => ({}));
+    const sandboxId = body?.sandbox_id as string | undefined;
+    const errorMessage = (body?.error_message as string | undefined) || 'Health check timed out after provisioning.';
+
+    if (!sandboxId) {
+      return c.json({ error: 'sandbox_id required' }, 400);
+    }
+
+    const [row] = await db
+      .select()
+      .from(sandboxes)
+      .where(and(eq(sandboxes.sandboxId, sandboxId), eq(sandboxes.accountId, accountId)))
+      .limit(1);
+
+    if (!row) {
+      return c.json({ error: 'Sandbox not found' }, 404);
+    }
+
+    // Only mark active/provisioning sandboxes as error — don't overwrite an already-error record
+    if (!['active', 'provisioning'].includes(row.status)) {
+      return c.json({ success: true, status: row.status });
+    }
+
+    await db
+      .update(sandboxes)
+      .set({
+        status: 'error',
+        metadata: {
+          ...(row.metadata as Record<string, unknown> | null ?? {}),
+          errorMessage,
+        },
+        updatedAt: new Date(),
+      })
+      .where(eq(sandboxes.sandboxId, sandboxId));
+
+    console.log(`[SANDBOX-CLOUD] Marked sandbox ${sandboxId} as error: ${errorMessage}`);
+    return c.json({ success: true });
+  });
+
   // ── Hetzner server types (public, no auth needed — frontend uses it for tier selection) ──
 
   router.get('/hetzner/server-types', async (c) => {

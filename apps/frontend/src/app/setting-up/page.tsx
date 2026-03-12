@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 import { backendApi } from '@/lib/api-client';
-import { configureAutoTopup } from '@/lib/api/billing';
+import { configureAutoTopup, markInstanceError } from '@/lib/api/billing';
 import { KortixLogo } from '@/components/sidebar/kortix-logo';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -356,7 +356,10 @@ export default function SettingUpPage() {
         const ready = await pollAdditionalInstanceReady(instanceModeId, isCurrentRun);
         if (!isCurrentRun()) return;
         if (!ready) {
-          throw new Error('Instance is still provisioning. It can take up to ~10 minutes on first boot. Please check your instances in Settings.');
+          const timeoutMsg = 'Computer booted but services did not respond in time. Try a different location or retry.';
+          // Mark the sandbox as error in DB so the Retry button appears in Settings
+          await markInstanceError(instanceModeId, timeoutMsg).catch(() => {});
+          throw new Error(timeoutMsg);
         }
         continueToDashboard();
         return;

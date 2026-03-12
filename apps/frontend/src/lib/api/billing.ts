@@ -741,3 +741,7 @@ export async function deleteInstance(sandboxId: string): Promise<{ success: bool
   if (response.error) throw response.error;
   return response.data!;
 }
+
+export async function markInstanceError(sandboxId: string, errorMessage: string): Promise<void> {
+  await backendApi.post('/platform/sandbox/mark-error', { sandbox_id: sandboxId, error_message: errorMessage }, { showErrors: false, timeout: 10000 });
+}
