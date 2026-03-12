@@ -48,9 +48,9 @@ resolve_node_bin() {
   command -v node
 }
 
-NODE_BIN="$(resolve_node_bin)"
-PNPM_BIN="$(command -v pnpm)"
-BUN_BIN="$(command -v bun)"
+NODE_BIN="$(resolve_node_bin || true)"
+PNPM_BIN="$(command -v pnpm || true)"
+BUN_BIN="$(command -v bun || true)"
 
 compute_compose_project_name() {
   local raw
@@ -1491,6 +1491,32 @@ _free_kortix_ports() {
   [ $freed -eq 1 ] && echo "  ${Y}Freed Kortix ports${N}" || true
 }
 
+_sync_supabase_passwords() {
+  [ -f "$DIR/.env" ] || return 0
+
+  local db_mode db_password escaped_password attempts
+  db_mode=$(grep -m1 '^DB_MODE=' "$DIR/.env" 2>/dev/null | cut -d= -f2- || echo "")
+  [ "$db_mode" = "docker" ] || return 0
+
+  db_password=$(grep -m1 '^POSTGRES_PASSWORD=' "$DIR/.env" 2>/dev/null | cut -d= -f2- || echo "")
+  [ -n "$db_password" ] || return 0
+
+  escaped_password=${db_password//\'/\'\'}
+
+  docker compose up -d supabase-db >/dev/null 2>&1 || return 0
+
+  attempts=0
+  until docker compose exec -T supabase-db sh -lc 'pg_isready -U postgres -h localhost >/dev/null 2>&1'; do
+    attempts=$((attempts + 1))
+    [ $attempts -ge 30 ] && return 0
+    sleep 1
+  done
+
+  printf "SET ROLE supabase_admin;\nALTER ROLE supabase_auth_admin WITH PASSWORD '%s';\nALTER ROLE authenticator WITH PASSWORD '%s';\nALTER ROLE supabase_admin WITH PASSWORD '%s';\n" \
+    "$escaped_password" "$escaped_password" "$escaped_password" \
+    | docker compose exec -T supabase-db sh -lc 'psql -v ON_ERROR_STOP=1 -U postgres -d postgres >/dev/null' >/dev/null 2>&1 || true
+}
+
 _using_local_images() {
   [ "$LOCAL_IMAGES" = "1" ]
 }
@@ -1506,6 +1532,7 @@ case "${1:-help}" in
   start)
     # Free ports and clean up lingering containers before starting
     [ "$(_mode)" = "local" ] && _free_kortix_ports
+    _sync_supabase_passwords
     if [ "$(_mode)" = "vps" ]; then
       docker compose --profile vps up -d || true
     else
@@ -1526,6 +1553,7 @@ case "${1:-help}" in
     docker compose --profile vps down 2>/dev/null || docker compose down 2>/dev/null || true
     # Free ports and clean up lingering containers before restarting
     [ "$(_mode)" = "local" ] && _free_kortix_ports
+    _sync_supabase_passwords
     if [ "$(_mode)" = "vps" ]; then
       docker compose --profile vps up -d || true
     else
@@ -1560,6 +1588,7 @@ case "${1:-help}" in
     echo "  ${C}Restarting services...${N}"
     # Free ports and clean up lingering containers before updating
     [ "$(_mode)" = "local" ] && _free_kortix_ports
+    _sync_supabase_passwords
     docker compose down 2>/dev/null || true
     docker compose up -d || true
     echo "  ${G}Updated.${N}"
