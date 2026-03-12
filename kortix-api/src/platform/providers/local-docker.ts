@@ -386,23 +386,49 @@ export class LocalDockerProvider implements SandboxProvider {
         }
       }
 
+      // 3.5. Prepare the data volume for the new container.
+      // After container recreate with a different image, two things can go wrong:
+      //   a) Stale WAL/SHM files from the old sqlite instance → "readonly database"
+      //   b) Wrong UID ownership (old container UID != new container UID) → write errors
+      // We fix both using a throwaway alpine container (lightweight, no custom entrypoint).
+      console.log(`[LOCAL-DOCKER] Preparing volume for new container...`);
+      try {
+        const cleanupContainer = await this.docker.createContainer({
+          Image: 'alpine:latest',
+          Cmd: ['sh', '-c', [
+            // Fix ownership — use numeric UID 1000 (standard abc user in sandbox images)
+            'chown -R 1000:1000 /workspace 2>/dev/null || true',
+            // Remove stale WAL/SHM files that cause "readonly database" errors
+            'find /workspace -name "*.db-wal" -o -name "*.db-shm" 2>/dev/null | xargs rm -f',
+            'echo "volume prepared"',
+          ].join(' && ')],
+          HostConfig: {
+            Binds: [`${CONTAINER_NAME}-data:/workspace`],
+          },
+        });
+        await cleanupContainer.start();
+        await cleanupContainer.wait();
+        await cleanupContainer.remove().catch(() => {}); // Clean up
+        console.log(`[LOCAL-DOCKER] Volume prepared (ownership + WAL cleanup)`);
+      } catch (cleanErr: any) {
+        // Non-fatal — the new image's startup.sh may handle it
+        console.warn(`[LOCAL-DOCKER] Volume prep warning: ${cleanErr.message}`);
+      }
+
       // 4. Recreate the container with the new image
       setUpdateStatus({ phase: 'recreating', progress: 70, message: `Recreating with ${targetImage}...` });
       console.log(`[LOCAL-DOCKER] Recreating sandbox with image ${targetImage}...`);
-      // Temporarily override SANDBOX_IMAGE so createContainer uses the new image
-      const originalImage = config.SANDBOX_IMAGE;
-      (config as any).SANDBOX_IMAGE = targetImage;
       this._serviceKeySynced = false; // Force re-sync of env vars
-      try {
-        await this.createContainer();
-      } finally {
-        (config as any).SANDBOX_IMAGE = originalImage;
-      }
+      await this.createContainer(targetImage);
 
-      // 5. Health check — wait for the sandbox to come back up
+      // 5. Container is created and starting — s6-overlay boots services
+      setUpdateStatus({ phase: 'starting', progress: 80, message: 'Container starting...' });
+      console.log(`[LOCAL-DOCKER] Container created, starting up...`);
+
+      // 6. Health check — wait for the sandbox to come back up
       setUpdateStatus({ phase: 'health_check', progress: 90, message: 'Waiting for sandbox to become healthy...' });
       console.log(`[LOCAL-DOCKER] Waiting for sandbox health check...`);
-      await this.waitForHealth(60_000); // 60s timeout
+      await this.waitForHealth(120_000); // 120s timeout — s6 + OpenCode boot can take 60-90s
 
       setUpdateStatus({
         phase: 'complete',
@@ -637,9 +663,9 @@ export class LocalDockerProvider implements SandboxProvider {
   /**
    * Check if the sandbox image exists locally.
    */
-  async hasImage(): Promise<boolean> {
+  async hasImage(imageOverride?: string): Promise<boolean> {
     try {
-      await this.docker.getImage(config.SANDBOX_IMAGE).inspect();
+      await this.docker.getImage(imageOverride || config.SANDBOX_IMAGE).inspect();
       return true;
     } catch {
       return false;
@@ -751,10 +777,11 @@ export class LocalDockerProvider implements SandboxProvider {
     });
   }
 
-  private async createContainer(): Promise<void> {
+  private async createContainer(imageOverride?: string): Promise<void> {
+    const image = imageOverride || config.SANDBOX_IMAGE;
     // Pull image if not present locally
-    if (!(await this.hasImage())) {
-      console.log(`[LOCAL-DOCKER] Image ${config.SANDBOX_IMAGE} not found locally, pulling...`);
+    if (!(await this.hasImage(image))) {
+      console.log(`[LOCAL-DOCKER] Image ${image} not found locally, pulling...`);
       await this.pullImage();
     }
 
@@ -822,7 +849,7 @@ export class LocalDockerProvider implements SandboxProvider {
     ];
 
     const container = await this.docker.createContainer({
-      Image: config.SANDBOX_IMAGE,
+      Image: image,
       name: CONTAINER_NAME,
       Env: env,
       ExposedPorts: EXPOSED_PORTS,
@@ -915,8 +942,8 @@ export class LocalDockerProvider implements SandboxProvider {
       await new Promise((r) => setTimeout(r, 2_000));
     }
 
-    // Timeout — don't fail hard, the container might still be starting
-    console.warn(`[LOCAL-DOCKER] Health check timed out after ${timeoutMs}ms — container may still be starting`);
+    // Timeout — throw so callers (especially updateSandbox) can mark as failed
+    throw new Error(`Health check timed out after ${Math.round(timeoutMs / 1000)}s — sandbox may still be starting`);
   }
 }
 

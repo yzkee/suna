@@ -23,8 +23,8 @@ import { join, resolve } from 'path';
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
 const SANDBOX_DIR = join(REPO_ROOT, 'packages', 'sandbox');
 const SANDBOX_DOCKER_DIR = join(REPO_ROOT, 'packages', 'sandbox', 'docker');
-const SANDBOX_RELEASE_DIR = join(REPO_ROOT, 'scripts', 'release', 'sandbox');
 const KORTIX_OC_RUNTIME_DIR = join(REPO_ROOT, 'packages', 'kortix-oc', 'runtime');
+const SHIP_SCRIPT = join(REPO_ROOT, 'scripts', 'release', 'ship.cjs');
 const TEST_TIMESTAMP = Date.now();
 const TEST_IMAGE_TAG = `kortix-api:test-${TEST_TIMESTAMP}`;
 const TEST_CONTAINER_NAME = `kortix-api-test-${TEST_TIMESTAMP}`;
@@ -359,21 +359,20 @@ describe('Deployment — Sandbox Dockerfile Validation', () => {
     expect(existsSync(join(SANDBOX_DIR, 'startup.sh'))).toBe(true);
   });
 
-  it('push.sh has correct IMAGE_TAG variable pattern', () => {
-    const pushContent = readFileSync(join(SANDBOX_RELEASE_DIR, 'push.sh'), 'utf-8');
-    expect(pushContent).toContain('DOCKER_ORG=');
-    expect(pushContent).toContain('${DOCKER_ORG}/computer:${VERSION}');
-    expect(pushContent).toContain('${VERSION}');
+  it('release.json has correct structure', () => {
+    const release = JSON.parse(readFileSync(join(SANDBOX_DIR, 'release.json'), 'utf-8'));
+    expect(release.version).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(release.channel).toBeDefined();
+    expect(release.images).toBeDefined();
+    expect(release.images.sandbox).toContain('kortix/computer:');
+    expect(release.images.api).toContain('kortix/kortix-api:');
+    expect(release.images.frontend).toContain('kortix/kortix-frontend:');
   });
 
-  it('packages/sandbox/package.json version matches push.sh SNAPSHOT_NAME pattern', () => {
+  it('packages/sandbox/package.json version matches release.json', () => {
     const pkgJson = JSON.parse(readFileSync(join(SANDBOX_DIR, 'package.json'), 'utf-8'));
-    const version: string = pkgJson.version;
-    expect(version).toMatch(/^\d+\.\d+\.\d+/);
-
-    const pushContent = readFileSync(join(SANDBOX_RELEASE_DIR, 'push.sh'), 'utf-8');
-    expect(pushContent).toContain('DAYTONA_SNAPSHOT_NAME=');
-    expect(pushContent).toContain('kortix-sandbox-v${VERSION}');
+    const release = JSON.parse(readFileSync(join(SANDBOX_DIR, 'release.json'), 'utf-8'));
+    expect(pkgJson.version).toBe(release.version);
   });
 
   it('packages/sandbox/docker/docker-compose.yml documents all required environment variables', () => {
@@ -585,49 +584,87 @@ describe('Deployment — LocalDockerProvider (mocked)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 6. Push Script Validation
+// 6. Ship Script Validation (ship.cjs)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe('Deployment — Push Script Validation', () => {
-  const pushScript = readFileSync(join(SANDBOX_RELEASE_DIR, 'push.sh'), 'utf-8');
+describe('Deployment — Ship Script Validation', () => {
+  const shipScript = readFileSync(SHIP_SCRIPT, 'utf-8');
 
-  it('reads version from packages/sandbox/release.json', () => {
-    expect(pushScript).toContain('release.json');
-    expect(pushScript).toContain('VERSION=');
-    expect(pushScript).toContain("require('$RELEASE_MANIFEST').releaseVersion");
+  it('ship.cjs exists and is valid JavaScript', () => {
+    expect(existsSync(SHIP_SCRIPT)).toBe(true);
+    // Should be a CommonJS script
+    expect(shipScript).toContain("require('node:child_process')");
+    expect(shipScript).toContain("require('node:fs')");
   });
 
-  it('IMAGE_TAG follows the expected pattern: name:version', () => {
-    expect(pushScript).toContain('${DOCKER_ORG}/computer:${VERSION}');
-    expect(pushScript).toContain('${DOCKER_ORG}/kortix-api:${VERSION}');
+  it('reads version from CHANGELOG.json', () => {
+    expect(shipScript).toContain('CHANGELOG.json');
+    expect(shipScript).toContain('changelog.find');
   });
 
-  it('SNAPSHOT_NAME follows the expected pattern: name-vVersion', () => {
-    expect(pushScript).toContain('DAYTONA_SNAPSHOT_NAME="kortix-sandbox-v${VERSION}"');
+  it('bumps release.json with correct image names', () => {
+    expect(shipScript).toContain('release.json');
+    expect(shipScript).toContain('kortix/computer:${version}');
+    expect(shipScript).toContain('kortix/kortix-api:${version}');
+    expect(shipScript).toContain('kortix/kortix-frontend:${version}');
   });
 
-  it('handles OrbStack Docker socket detection', () => {
-    expect(pushScript).toContain('DOCKER_HOST');
-    expect(pushScript).toContain('.orbstack/run/docker.sock');
+  it('bumps package.json version', () => {
+    expect(shipScript).toContain('pkg.version = version');
   });
 
-  it('uses set -euo pipefail for safety', () => {
-    expect(pushScript).toContain('set -euo pipefail');
+  it('creates GitHub Release with changelog', () => {
+    expect(shipScript).toContain('gh release create');
+    expect(shipScript).toContain('--repo kortix-ai/computer');
   });
 
-  it('builds for linux/amd64 platform', () => {
-    expect(pushScript).toContain('PLATFORMS="linux/amd64,linux/arm64"');
+  it('builds and pushes 3 Docker images with multi-arch', () => {
+    expect(shipScript).toContain('docker buildx build');
+    expect(shipScript).toContain('linux/amd64,linux/arm64');
+    expect(shipScript).toContain('--push');
+    // All 3 images
+    expect(shipScript).toContain('packages/sandbox/docker/Dockerfile');
+    expect(shipScript).toContain('kortix-api/Dockerfile');
+    expect(shipScript).toContain('apps/frontend/Dockerfile');
   });
 
-  it('version from push.sh matches packages/sandbox/release.json', () => {
-    const releaseManifest = JSON.parse(
+  it('bumps startup.sh and get-kortix.sh versions', () => {
+    expect(shipScript).toContain('DEFAULT_KORTIX_SANDBOX_VERSION');
+    expect(shipScript).toContain('DEFAULT_KORTIX_VERSION');
+  });
+
+  it('commits version bump files', () => {
+    expect(shipScript).toContain('git add');
+    expect(shipScript).toContain('git commit');
+    expect(shipScript).toContain('release.json');
+    expect(shipScript).toContain('package.json');
+    expect(shipScript).toContain('CHANGELOG.json');
+  });
+
+  it('supports --dry-run and --check flags', () => {
+    expect(shipScript).toContain('--dry-run');
+    expect(shipScript).toContain('--check');
+  });
+
+  it('does NOT reference npm publish, OTA, tarballs, or push.sh', () => {
+    expect(shipScript).not.toContain('npm publish');
+    // "npm pack" as a command (not substring of "npm packages" in comments)
+    expect(shipScript).not.toMatch(/npm pack[^a]/);
+    expect(shipScript).not.toContain('push.sh');
+    expect(shipScript).not.toContain('postinstall.sh');
+    expect(shipScript).not.toContain('bundle-runtime');
+  });
+
+  it('version from ship.cjs targets match release.json', () => {
+    const release = JSON.parse(
       readFileSync(join(SANDBOX_DIR, 'release.json'), 'utf-8'),
     );
-    expect(pushScript).toContain("$SANDBOX_PACKAGE_DIR/release.json");
-    // Support both old (releaseVersion) and new (version) format
-    const ver = releaseManifest.version || releaseManifest.releaseVersion;
-    expect(ver).toBeDefined();
-    expect(ver).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(release.version).toBeDefined();
+    expect(release.version).toMatch(/^\d+\.\d+\.\d+$/);
+    // Images should reference the version
+    expect(release.images.sandbox).toBe(`kortix/computer:${release.version}`);
+    expect(release.images.api).toBe(`kortix/kortix-api:${release.version}`);
+    expect(release.images.frontend).toBe(`kortix/kortix-frontend:${release.version}`);
   });
 });
 
@@ -688,9 +725,9 @@ describe.skipIf(!HAS_DOCKER)('Deployment — Docker Compose Validation', () => {
       join(SANDBOX_DOCKER_DIR, 'docker-compose.yml'),
       'utf-8',
     );
-    expect(content).toContain('${SANDBOX_VERSION:-0.7.26}');
-    // Should reference the image with the version variable
     expect(content).toContain('SANDBOX_VERSION');
+    // Should reference the image with the version variable
+    expect(content).toContain('kortix/computer:${SANDBOX_VERSION:-');
   });
 
   it('sandbox compose has healthcheck configured', () => {
