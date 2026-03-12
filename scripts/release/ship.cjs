@@ -3,10 +3,10 @@
  * ship.cjs — Kortix release script
  *
  * Usage:
- *   pnpm ship <version>           Release (OTA tarball + GitHub Release)
- *   pnpm ship --docker <version>  Release + rebuild/push all Docker images
- *   pnpm ship --check             Validate current state, no changes
- *   pnpm ship --help              Show this help
+ *   pnpm ship <version>            Release (OTA tarball + GitHub Release + Docker images)
+ *   pnpm ship --no-docker <version> Release without Docker images
+ *   pnpm ship --check              Validate current state, no changes
+ *   pnpm ship --help               Show this help
  *
  * What it does:
  *   1. Validates changelog entry exists for the version
@@ -15,7 +15,7 @@
  *   4. Creates OTA tarball: sandbox-runtime-{version}.tar.gz (~5MB, source only)
  *   5. Creates GitHub Release v{version} with changelog as notes
  *   6. Attaches OTA tarball to the GitHub Release
- *   7. [--docker] Builds and pushes kortix/computer, kortix-api, kortix-frontend images
+ *   7. Builds and pushes kortix/computer, kortix-api, kortix-frontend Docker images
  *   8. Commits version bump (you still need to git push)
  *
  * OTA tarball contents (what running sandboxes download on update):
@@ -52,7 +52,7 @@ const args = process.argv.slice(2)
 const flags = new Set(args.filter(a => a.startsWith('--')))
 const version = args.find(a => !a.startsWith('--') && /^\d+\.\d+\.\d+$/.test(a))
 
-const DOCKER = flags.has('--docker')
+const DOCKER = !flags.has('--no-docker')
 const CHECK = flags.has('--check')
 const HELP = flags.has('--help') || flags.has('-h')
 const DRY = flags.has('--dry-run')
@@ -86,15 +86,15 @@ function runFile(cmd, args, opts = {}) {
 if (HELP) {
   console.log(`
 Usage:
-  pnpm ship <version>           Release (OTA tarball + GitHub Release)
-  pnpm ship --docker <version>  Release + Docker images
-  pnpm ship --check             Validate state
-  pnpm ship --dry-run <version> Validate only, no changes
-  pnpm ship --help              Show this help
+  pnpm ship <version>            Release (OTA tarball + GitHub Release + Docker images)
+  pnpm ship --no-docker <version> Release without Docker images
+  pnpm ship --check              Validate state
+  pnpm ship --dry-run <version>  Validate only, no changes
+  pnpm ship --help               Show this help
 
 Examples:
   pnpm ship 0.8.0
-  pnpm ship --docker 0.8.0
+  pnpm ship --no-docker 0.8.0
   pnpm ship --dry-run 0.8.0
 `)
   process.exit(0)
@@ -312,7 +312,5 @@ fs.rmSync(tmpDir, { recursive: true, force: true })
 console.log(`\n  ${G}${B}✓ v${version} shipped!${X}`)
 console.log(`\n  ${D}Next steps:${X}`)
 console.log(`    git push`)
-if (DOCKER) {
-  console.log(`    Update .env: SANDBOX_VERSION=${version}`)
-}
+console.log(`    Update .env: SANDBOX_VERSION=${version}`)
 console.log()
