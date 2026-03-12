@@ -166,7 +166,28 @@ export function useSandboxUpdate(currentVersion: string | null) {
           message: `Updated to v${data.currentVersion}`,
           currentVersion: data.currentVersion,
         } : null);
+        return;
       }
+
+      setUpdateResult({ success: false, currentVersion: data?.currentVersion ?? currentVersion ?? '0.0.0' });
+      setLiveStatus(prev => ({
+        ...(prev ?? {
+          inProgress: false,
+          phase: 'failed',
+          message: '',
+          targetVersion: latestVersion,
+          previousVersion: currentVersion ?? null,
+          currentVersion: data?.currentVersion ?? currentVersion ?? '0.0.0',
+          startedAt: null,
+          updatedAt: null,
+          error: null,
+        }),
+        inProgress: false,
+        phase: 'failed',
+        message: data?.output || data?.error || 'Update failed',
+        currentVersion: data?.currentVersion ?? currentVersion ?? '0.0.0',
+        error: data?.output || data?.error || 'Update failed',
+      }));
     },
     onError: () => {
       stopPolling();

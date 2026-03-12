@@ -233,25 +233,25 @@ Before releasing, add an entry to `packages/sandbox/CHANGELOG.json`:
 ### One-liner
 
 ```bash
-pnpm ship 0.8.0           # OTA tarball + GitHub Release
-pnpm ship --docker 0.8.0  # + rebuild/push Docker images
+pnpm ship 0.8.0              # Full release: OTA tarball + GitHub Release + Docker images
+pnpm ship --no-docker 0.8.0  # Skip Docker image rebuild/push
 ```
 
 ### What `ship` does step by step
 
-1. **Validate** — checks changelog entry exists, GitHub release doesn't already exist
+1. **Validate** — checks changelog entry exists and inspects whether the GitHub release already exists
 2. **Bump versions** — updates all 4 version locations (package.json, release.json, startup.sh, get-kortix.sh)
 3. **Vendor sources** — runs `bundle-runtime.cjs` which copies `kortix-oc`, `opencode-channels`, `opencode-agent-triggers` into `packages/sandbox/vendor/`
 4. **Create OTA tarball** — `sandbox-runtime-{version}.tar.gz` (~5MB, source only, no node_modules)
-5. **GitHub Release** — creates `v{version}` release with changelog as notes, attaches tarball
-6. **Docker** (optional with `--docker`) — `docker buildx build --platform linux/amd64,linux/arm64 --push` for computer, kortix-api, kortix-frontend images
-7. **Commit** — `git commit -m "release: v{version}"` (you still run `git push`)
+5. **GitHub Release** — creates `v{version}` release with changelog as notes, or reuses the existing release and refreshes the OTA tarball
+6. **Docker** — `docker buildx build --platform linux/amd64,linux/arm64 --push` for `kortix/computer`, `kortix/kortix-api`, and `kortix/kortix-frontend` unless you pass `--no-docker`
+7. **Commit** — `git commit -m "release: v{version}"` when there are version-bump changes to record (you still run `git push`)
 
 ### After shipping
 
 ```bash
 git push
-# If --docker was used, also update your .env:
+# Update your .env if needed:
 #   SANDBOX_VERSION=0.8.0
 ```
 
@@ -412,7 +412,7 @@ docker exec -it kortix-sandbox bash
 
 ```bash
 # 1. Add changelog entry to packages/sandbox/CHANGELOG.json
-# 2. Ship:
+# 2. Ship everything:
 pnpm ship 0.8.0
 git push
 ```
@@ -420,9 +420,8 @@ git push
 ### Release + new Docker image
 
 ```bash
-pnpm ship --docker 0.8.0
+pnpm ship --no-docker 0.8.0
 git push
-# Update SANDBOX_VERSION=0.8.0 in .env
 ```
 
 ### Validate/check state

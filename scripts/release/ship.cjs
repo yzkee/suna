@@ -66,12 +66,13 @@ const info = m => console.log(`  ${C}▸${X} ${m}`)
 const warn = m => console.log(`  ${Y}!${X} ${m}`)
 
 function run(cmd, opts = {}) {
-  return execSync(cmd, {
+  const output = execSync(cmd, {
     cwd: opts.cwd || ROOT,
     encoding: 'utf8',
     stdio: opts.stdio || 'pipe',
     ...opts,
-  }).trim()
+  })
+  return typeof output === 'string' ? output.trim() : ''
 }
 
 function runFile(cmd, args, opts = {}) {
@@ -139,16 +140,16 @@ if (!entry) {
 }
 ok(`Changelog: "${entry.title}"`)
 
+let releaseExists = false
+
 // Check GitHub release doesn't already exist
 try {
   run(`gh release view "v${version}" --repo kortix-ai/computer`)
-  fail(`GitHub release v${version} already exists`)
+  releaseExists = true
+  warn(`GitHub release v${version} already exists — reusing it and continuing`)
 } catch (e) {
   if (!e.message.includes('release not found') && !e.stderr?.includes('release not found') && !String(e).includes('release not found')) {
-    // only fail if it's not "not found"
-    if (String(e).includes('already exists') || !String(e).includes('not found')) {
-      // might already exist — re-check
-    }
+    fail(`Failed to check GitHub release state: ${e.message || e}`)
   }
   ok(`GitHub release v${version} not yet created`)
 }
@@ -250,14 +251,19 @@ stages it with zero downtime, and atomically swaps to the new version.
 const notesFile = path.join(tmpDir, 'notes.md')
 fs.writeFileSync(notesFile, releaseNotes)
 
-run(`gh release create "v${version}" \
-  --repo kortix-ai/computer \
-  --title "v${version} — ${entry.title}" \
-  --notes-file "${notesFile}" \
-  --latest \
-  "${tarballPath}"`)
+if (releaseExists) {
+  run(`gh release upload "v${version}" "${tarballPath}" --repo kortix-ai/computer --clobber`)
+  ok(`GitHub release v${version} reused and OTA tarball refreshed`)
+} else {
+  run(`gh release create "v${version}" \
+    --repo kortix-ai/computer \
+    --title "v${version} — ${entry.title}" \
+    --notes-file "${notesFile}" \
+    --latest \
+    "${tarballPath}"`)
 
-ok(`GitHub release v${version} created with OTA tarball attached`)
+  ok(`GitHub release v${version} created with OTA tarball attached`)
+}
 
 // ── Step 6: Docker (optional) ─────────────────────────────────────────────
 if (DOCKER) {
@@ -302,8 +308,13 @@ run(`git add \
   packages/sandbox/CHANGELOG.json \
   packages/sandbox/startup.sh \
   scripts/get-kortix.sh`)
-run(`git commit -m "release: v${version}"`)
-ok(`Committed: release v${version}`)
+const hasStagedChanges = run('git diff --cached --name-only')
+if (hasStagedChanges) {
+  run(`git commit -m "release: v${version}"`)
+  ok(`Committed: release v${version}`)
+} else {
+  ok(`No version-bump commit needed for v${version}`)
+}
 
 // ── Done ──────────────────────────────────────────────────────────────────
 // Cleanup temp files

@@ -275,7 +275,7 @@ async function downloadAndStageOTA(
   // Since /opt/kortix-master is a symlink, postinstall.sh will detect MODE=staging
   // and deploy everything to /opt/kortix-staging-{version}/
   const postinstallResult = await run(
-    `cd "${tmpExtract}" && PKG_VERSION="${targetVersion}" bash postinstall.sh 2>&1`,
+    `cd "${tmpExtract}" && sudo -n env PKG_VERSION="${targetVersion}" bash ./postinstall.sh 2>&1`,
   );
 
   // Cleanup
