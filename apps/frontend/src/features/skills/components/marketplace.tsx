@@ -2,20 +2,22 @@
 
 import { useMemo, useState } from 'react';
 import {
-	ArrowRight,
 	Bot,
 	Check,
-	ChevronDown,
 	Cpu,
 	Download,
 	FileText,
-	FolderTree,
 	Loader2,
+	Package,
+	Plus,
 	Puzzle,
 	Search,
 	Sparkles,
 	Wrench,
+	X,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { motion, AnimatePresence } from 'framer-motion';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,25 +26,23 @@ import {
 	DialogContent,
 	DialogTitle,
 } from '@/components/ui/dialog';
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SpotlightCard } from '@/components/ui/spotlight-card';
+import { Ripple } from '@/components/ui/ripple';
+import { PageHeader } from '@/components/ui/page-header';
 import { getClient } from '@/lib/opencode-sdk';
 import { cn } from '@/lib/utils';
-import { getActiveOpenCodeUrl } from '@/stores/server-store';
 import { getPtyWebSocketUrl } from '@/hooks/opencode/use-opencode-pty';
 
 import {
 	type RegistryComponent,
 	type RegistryComponentBundle,
+	useInstalledSkillNames,
 	useMarketplaceComponent,
 	useMarketplaceSkills,
 } from '../hooks/use-marketplace';
 import { useMarketplaceStore } from '../store/marketplace-store';
+import { skillsKeys } from '../hooks/use-skills';
 
 type FilterKey = 'all' | 'installed' | 'skills' | 'agents' | 'tools' | 'plugins';
 
@@ -65,6 +65,8 @@ const TYPE_META: Record<string, { icon: typeof Bot; label: string }> = {
 function getComponentMeta(type: string) {
 	return TYPE_META[type] ?? { icon: Bot, label: type.replace('ocx:', '') };
 }
+
+// ── PTY install helpers ───────────────────────────────────────────────────────
 
 async function runPtyCommand(command: string): Promise<string> {
 	const client = getClient();
@@ -109,15 +111,9 @@ async function runPtyCommand(command: string): Promise<string> {
 }
 
 async function installComponentWithOcx(componentName: string) {
-	// Ensure kortix registry alias exists before adding (idempotent, handles fresh/stale ocx.jsonc)
 	const output = await runPtyCommand(
-		[
-			'ocx registry add https://master.kortix-registry.pages.dev --name kortix -q 2>/dev/null',
-			`ocx add kortix/${componentName} --cwd /workspace 2>&1`,
-		].join('; '),
+		`cd /workspace && ocx init -q 2>/dev/null && ocx registry add https://master.kortix-registry.pages.dev --name kortix -q 2>/dev/null; ocx add kortix/${componentName} 2>&1`,
 	);
-	// Only treat as failure if ocx itself reported a hard error about the component
-	// (not warnings about receipt cleanup or rollback noise)
 	const normalized = output.toLowerCase();
 	const isInstalled = normalized.includes('installed') || normalized.includes('done');
 	if (!isInstalled) {
@@ -125,12 +121,11 @@ async function installComponentWithOcx(componentName: string) {
 			throw new Error(output.replace(/[\x00-\x1F\x7F-\x9F]/g, '').trim() || 'Install failed');
 		}
 	}
-	// Force OpenCode to rescan skills/agents so the new component is immediately available
 	try {
 		const client = getClient();
 		await client.instance.dispose();
 	} catch {
-		// Non-fatal — skill files are on disk, will be picked up on next restart
+		// Non-fatal
 	}
 	return output;
 }
@@ -139,6 +134,8 @@ function formatPath(path: string) {
 	const parts = path.split('/');
 	return parts.length > 1 ? parts.slice(1).join('/') : parts[0];
 }
+
+// ── Component Detail Modal ────────────────────────────────────────────────────
 
 function ComponentDetailModal({
 	component,
@@ -151,14 +148,16 @@ function ComponentDetailModal({
 }) {
 	const { data, isLoading, error } = useMarketplaceComponent(open ? component?.name ?? null : null);
 	const [selectedPath, setSelectedPath] = useState<string | null>(null);
-	const { installed, markInstalled, unmark } = useMarketplaceStore();
-	const [isInstalling, setIsInstalling] = useState(false);
+	const queryClient = useQueryClient();
+	const installedSkills = useInstalledSkillNames();
+	const { installing, markInstalling, clearInstalling } = useMarketplaceStore();
 	const [installError, setInstallError] = useState('');
 
 	const bundle = data as RegistryComponentBundle | undefined;
 	const meta = component ? getComponentMeta(component.type) : getComponentMeta('ocx:skill');
 	const Icon = meta.icon;
-	const isInstalled = component ? installed.includes(component.name) : false;
+	const isInstalled = component ? installedSkills.has(component.name.toLowerCase()) : false;
+	const isInstalling = component ? installing.includes(component.name) : false;
 
 	const activePath = useMemo(() => {
 		if (!bundle) return null;
@@ -171,14 +170,14 @@ function ComponentDetailModal({
 	const handleInstall = async () => {
 		if (!component) return;
 		setInstallError('');
-		setIsInstalling(true);
+		markInstalling(component.name);
 		try {
 			await installComponentWithOcx(component.name);
-			markInstalled(component.name);
+			await queryClient.invalidateQueries({ queryKey: skillsKeys.all });
 		} catch (err) {
 			setInstallError(err instanceof Error ? err.message : 'Install failed');
 		} finally {
-			setIsInstalling(false);
+			clearInstalling(component.name);
 		}
 	};
 
@@ -188,41 +187,72 @@ function ComponentDetailModal({
 				<DialogTitle className="sr-only">
 					{component?.name} - Component Details
 				</DialogTitle>
-				<div className="px-8 py-6 border-b border-border/50 bg-muted/20">
+
+				{/* Header */}
+				<div className="px-6 sm:px-8 py-6 border-b border-border/50">
 					<div className="flex items-start justify-between gap-6 pr-8">
 						<div className="min-w-0">
 							<div className="flex items-center gap-3">
-								<div className="flex size-9 items-center justify-center rounded-xl bg-muted">
-									<Icon className="size-4 text-foreground/80" />
+								<div className="flex items-center justify-center w-9 h-9 rounded-[10px] bg-muted border border-border/50 shrink-0">
+									<Icon className="h-4.5 w-4.5 text-foreground" />
 								</div>
-								<h2 className="text-lg font-medium tracking-tight">{component?.name}</h2>
+								<h2 className="text-lg font-semibold tracking-tight text-foreground">{component?.name}</h2>
 								<Badge variant="secondary" className="text-[10px]">{meta.label}</Badge>
-								{bundle?.version.version && <Badge variant="outline" className="text-[10px]">v{bundle.version.version}</Badge>}
-								{isInstalled && <Badge className="bg-emerald-500/10 text-emerald-700 border-emerald-200 text-[10px]">Installed</Badge>}
+								{bundle?.version.version && (
+									<Badge variant="outline" className="text-[10px]">v{bundle.version.version}</Badge>
+								)}
+								{isInstalled && (
+									<Badge variant="highlight" className="text-[10px]">Installed</Badge>
+								)}
 							</div>
-							<p className="mt-3 text-sm text-muted-foreground max-w-2xl leading-relaxed">{component?.description}</p>
+							<p className="mt-3 text-sm text-muted-foreground max-w-2xl leading-relaxed">
+								{component?.description}
+							</p>
 						</div>
 						<div className="flex items-center gap-2 shrink-0">
-							<Button variant="outline" size="sm" className="rounded-xl" onClick={() => component && navigator.clipboard.writeText(component.name)}>
+							<Button
+								variant="outline"
+								size="sm"
+								className="h-8 px-3 text-xs"
+								onClick={() => component && navigator.clipboard.writeText(component.name)}
+							>
 								Copy
 							</Button>
-							<Button size="sm" className="rounded-xl" onClick={handleInstall} disabled={!component || isInstalling || isInstalled}>
-								{isInstalling ? <Loader2 className="size-4 animate-spin" /> : isInstalled ? <Check className="size-4" /> : <Download className="size-4" />}
+							<Button
+								variant="default"
+								size="sm"
+								className="h-8 px-3 text-xs"
+								onClick={handleInstall}
+								disabled={!component || isInstalling || isInstalled}
+							>
+								{isInstalling ? (
+									<Loader2 className="h-3.5 w-3.5 animate-spin" />
+								) : isInstalled ? (
+									<Check className="h-3.5 w-3.5" />
+								) : (
+									<Download className="h-3.5 w-3.5" />
+								)}
 								{isInstalling ? 'Installing' : isInstalled ? 'Installed' : 'Install'}
 							</Button>
 						</div>
 					</div>
-					{installError && <p className="mt-4 text-xs text-destructive">{installError}</p>}
+					{installError && (
+						<p className="mt-4 text-xs text-destructive">{installError}</p>
+					)}
 				</div>
 
+				{/* Body */}
 				<div className="grid grid-cols-[240px_1fr] min-h-0">
-					<div className="border-r border-border/50 bg-muted/10 overflow-y-auto">
-						<div className="sticky top-0 px-4 py-3 border-b border-border/50 bg-muted/20">
+					{/* File tree */}
+					<div className="border-r border-border/50 overflow-y-auto">
+						<div className="sticky top-0 px-4 py-3 border-b border-border/50 bg-background">
 							<span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Files</span>
 						</div>
 						<div className="p-2">
 							{isLoading ? (
-								<div className="flex items-center justify-center py-8"><Loader2 className="size-4 animate-spin text-muted-foreground" /></div>
+								<div className="flex items-center justify-center py-8">
+									<Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+								</div>
 							) : error ? (
 								<p className="px-3 py-4 text-xs text-destructive">{error.message}</p>
 							) : (
@@ -232,16 +262,20 @@ function ComponentDetailModal({
 										onClick={() => setSelectedPath(file.path)}
 										className={cn(
 											'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-sm transition-colors',
-											activePath === file.path ? 'bg-foreground text-background' : 'text-foreground hover:bg-muted',
+											activePath === file.path
+												? 'bg-foreground text-background'
+												: 'text-foreground hover:bg-muted',
 										)}
 									>
-										<FileText className="size-3.5 shrink-0 opacity-60" />
+										<FileText className="h-3.5 w-3.5 shrink-0 opacity-60" />
 										<span className="truncate">{formatPath(file.path)}</span>
 									</button>
 								))
 							)}
 						</div>
 					</div>
+
+					{/* File content */}
 					<div className="overflow-y-auto bg-background p-6">
 						{activeFile ? (
 							<pre className="text-xs leading-relaxed text-foreground/90 whitespace-pre-wrap font-mono">
@@ -259,102 +293,198 @@ function ComponentDetailModal({
 	);
 }
 
+// ── Component Card ────────────────────────────────────────────────────────────
+
 function ComponentCard({
 	component,
 	onOpen,
+	index,
 }: {
 	component: RegistryComponent;
 	onOpen: (c: RegistryComponent) => void;
+	index: number;
 }) {
-	const [isInstalling, setIsInstalling] = useState(false);
 	const [error, setError] = useState('');
-	const { installed, markInstalled, unmark } = useMarketplaceStore();
-	const isInstalled = installed.includes(component.name);
+	const queryClient = useQueryClient();
+	const installedSkills = useInstalledSkillNames();
+	const { installing, markInstalling, clearInstalling } = useMarketplaceStore();
+	const isInstalled = installedSkills.has(component.name.toLowerCase());
+	const isInstalling = installing.includes(component.name);
 	const meta = getComponentMeta(component.type);
 	const Icon = meta.icon;
 
 	const handleInstall = async (e: React.MouseEvent) => {
 		e.stopPropagation();
 		setError('');
-		setIsInstalling(true);
+		markInstalling(component.name);
 		try {
 			await installComponentWithOcx(component.name);
-			markInstalled(component.name);
+			await queryClient.invalidateQueries({ queryKey: skillsKeys.all });
 		} catch (err) {
 			setError(err instanceof Error ? err.message : 'Install failed');
 		} finally {
-			setIsInstalling(false);
+			clearInstalling(component.name);
 		}
 	};
 
 	return (
-		<div
-			onClick={() => onOpen(component)}
-			className="w-full text-left rounded-2xl border border-border/50 bg-card p-5 transition-all hover:border-foreground/10 hover:shadow-sm group cursor-pointer"
+		<motion.div
+			layout
+			initial={{ opacity: 0, y: 16 }}
+			animate={{ opacity: 1, y: 0 }}
+			exit={{ opacity: 0, y: -8, scale: 0.95 }}
+			transition={{ duration: 0.3, delay: Math.min(index * 0.03, 0.6) }}
 		>
-			<div className="flex items-start justify-between gap-4">
-				<div className="flex items-start gap-3 min-w-0">
-					<div className="flex size-9 items-center justify-center rounded-xl bg-muted shrink-0">
-						<Icon className="size-4 text-foreground/70" />
-					</div>
-					<div className="min-w-0">
-						<div className="flex items-center gap-2">
-							<h3 className="text-[15px] font-medium truncate">{component.name}</h3>
-							<Badge variant="outline" className="text-[10px] shrink-0">{meta.label}</Badge>
+			<SpotlightCard className="bg-card border border-border/50">
+				<div
+					onClick={() => onOpen(component)}
+					className="p-4 sm:p-5 flex flex-col h-full cursor-pointer"
+				>
+					<div className="flex items-center gap-3 mb-3">
+						<div className="flex items-center justify-center w-9 h-9 rounded-[10px] bg-muted border border-border/50 shrink-0">
+							<Icon className="h-4.5 w-4.5 text-foreground" />
 						</div>
-						<p className="mt-2 line-clamp-2 text-sm text-muted-foreground leading-relaxed">{component.description}</p>
+						<div className="flex-1 min-w-0">
+							<div className="flex items-center gap-1.5">
+								<h3 className="text-sm font-semibold text-foreground truncate">{component.name}</h3>
+								{isInstalled && (
+									<Badge variant="highlight" className="text-xs shrink-0">Installed</Badge>
+								)}
+							</div>
+							<div className="flex items-center gap-1.5 mt-0.5">
+								<span className="text-xs text-muted-foreground">{meta.label}</span>
+								<span className="text-xs text-muted-foreground/50">v{component.version}</span>
+							</div>
+						</div>
 					</div>
-				</div>
-			</div>
 
-			<div className="mt-4 flex items-center justify-between">
-				<div className="flex items-center gap-2">
-					{isInstalled ? (
-						<Badge className="bg-emerald-500/10 text-emerald-700 border-emerald-200 text-[10px]">Installed</Badge>
-					) : (
-						<span className="text-xs text-muted-foreground">v{component.version}</span>
+					<div className="h-[34px] mb-3">
+						<p className="text-xs text-muted-foreground/80 leading-relaxed line-clamp-2">
+							{component.description || '\u00A0'}
+						</p>
+					</div>
+
+					<div className="flex justify-end">
+						{isInstalled ? (
+							<Button variant="ghost" size="sm" className="h-8 px-2.5 text-xs">
+								View
+							</Button>
+						) : (
+							<Button
+								variant="default"
+								size="sm"
+								className="h-8 px-3 text-xs"
+								onClick={handleInstall}
+								disabled={isInstalling}
+							>
+								{isInstalling ? (
+									<Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+								) : (
+									<Download className="h-3.5 w-3.5" />
+								)}
+								{isInstalling ? 'Installing' : 'Install'}
+							</Button>
+						)}
+					</div>
+
+					{error && (
+						<p className="mt-3 text-xs text-destructive">{error}</p>
 					)}
 				</div>
-				<div className="flex items-center gap-2">
-					{isInstalled ? (
-						<Button size="sm" variant="outline" className="rounded-xl h-8" onClick={(e) => { e.stopPropagation(); unmark(component.name); }}>
-							Reset
-						</Button>
-					) : null}
-					<Button
-						size="sm"
-						className="rounded-xl h-8"
-						onClick={handleInstall}
-						disabled={isInstalling || isInstalled}
-					>
-						{isInstalling ? <Loader2 className="size-3.5 animate-spin" /> : isInstalled ? <Check className="size-3.5" /> : <Download className="size-3.5" />}
-						{isInstalling ? 'Installing' : isInstalled ? 'Installed' : 'Install'}
-					</Button>
+			</SpotlightCard>
+		</motion.div>
+	);
+}
+
+// ── Loading skeleton ──────────────────────────────────────────────────────────
+
+function LoadingSkeleton() {
+	return (
+		<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+			{[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+				<div key={i} className="rounded-2xl border dark:bg-card p-4 sm:p-5">
+					<div className="flex items-center gap-3 mb-3">
+						<Skeleton className="h-9 w-9 rounded-[10px]" />
+						<div className="flex-1 space-y-2">
+							<Skeleton className="h-4 w-24" />
+							<Skeleton className="h-3 w-16" />
+						</div>
+					</div>
+					<Skeleton className="h-3 w-full mb-1" />
+					<Skeleton className="h-3 w-4/5 mb-3" />
+					<div className="flex justify-end">
+						<Skeleton className="h-8 w-16" />
+					</div>
 				</div>
-			</div>
-			{error && <p className="mt-3 text-xs text-destructive">{error}</p>}
+			))}
 		</div>
 	);
 }
+
+// ── Empty state ───────────────────────────────────────────────────────────────
+
+function MarketplaceEmptyState({ searchQuery, filter }: { searchQuery: string; filter: FilterKey }) {
+	if (searchQuery) {
+		return (
+			<div className="text-center py-12 text-muted-foreground text-sm">
+				No components matching &ldquo;{searchQuery}&rdquo;
+			</div>
+		);
+	}
+
+	if (filter === 'installed') {
+		return (
+			<div className="relative bg-muted/20 rounded-3xl border border-dashed border-border/50 flex flex-col items-center justify-center py-20 px-4 overflow-hidden">
+				<Ripple mainCircleSize={160} mainCircleOpacity={0.12} numCircles={6} />
+				<div className="relative z-10 flex flex-col items-center">
+					<div className="w-16 h-16 bg-muted border rounded-2xl flex items-center justify-center mb-4">
+						<Package className="h-7 w-7 text-muted-foreground" />
+					</div>
+					<h3 className="text-lg font-semibold text-foreground mb-2">Nothing installed yet</h3>
+					<p className="text-sm text-muted-foreground text-center leading-relaxed max-w-md">
+						Browse the marketplace and install skills, agents, tools, or plugins to extend your workspace.
+					</p>
+				</div>
+			</div>
+		);
+	}
+
+	return (
+		<div className="relative bg-muted/20 rounded-3xl border border-dashed border-border/50 flex flex-col items-center justify-center py-20 px-4 overflow-hidden">
+			<Ripple mainCircleSize={160} mainCircleOpacity={0.12} numCircles={6} />
+			<div className="relative z-10 flex flex-col items-center">
+				<div className="w-16 h-16 bg-muted border rounded-2xl flex items-center justify-center mb-4">
+					<Sparkles className="h-7 w-7 text-muted-foreground" />
+				</div>
+				<h3 className="text-lg font-semibold text-foreground mb-2">No components found</h3>
+				<p className="text-sm text-muted-foreground text-center leading-relaxed max-w-md">
+					No components are available in this category right now.
+				</p>
+			</div>
+		</div>
+	);
+}
+
+// ── Main Marketplace ──────────────────────────────────────────────────────────
 
 export function Marketplace() {
 	const [search, setSearch] = useState('');
 	const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
 	const [selectedComponent, setSelectedComponent] = useState<RegistryComponent | null>(null);
 	const { data: components, isLoading, error } = useMarketplaceSkills();
-	const { installed } = useMarketplaceStore();
+	const installedSkills = useInstalledSkillNames();
 
 	const counts = useMemo(() => {
 		const list = components ?? [];
 		return {
 			all: list.length,
-			installed: list.filter((i) => installed.includes(i.name)).length,
+			installed: list.filter((i) => installedSkills.has(i.name.toLowerCase())).length,
 			skills: list.filter((i) => i.type === 'ocx:skill').length,
 			agents: list.filter((i) => i.type === 'ocx:agent').length,
 			tools: list.filter((i) => i.type === 'ocx:tool').length,
 			plugins: list.filter((i) => i.type === 'ocx:plugin').length,
 		};
-	}, [components, installed]);
+	}, [components, installedSkills]);
 
 	const filtered = useMemo(() => {
 		const q = search.trim().toLowerCase();
@@ -362,7 +492,7 @@ export function Marketplace() {
 			const matches = !q || c.name.toLowerCase().includes(q) || c.description.toLowerCase().includes(q);
 			if (!matches) return false;
 			switch (activeFilter) {
-				case 'installed': return installed.includes(c.name);
+				case 'installed': return installedSkills.has(c.name.toLowerCase());
 				case 'skills': return c.type === 'ocx:skill';
 				case 'agents': return c.type === 'ocx:agent';
 				case 'tools': return c.type === 'ocx:tool';
@@ -370,118 +500,121 @@ export function Marketplace() {
 				default: return true;
 			}
 		});
-	}, [activeFilter, components, installed, search]);
+	}, [activeFilter, components, installedSkills, search]);
 
 	return (
 		<>
-			<div className="flex-1 overflow-y-auto bg-background">
-				<div className="border-b border-border/50 bg-background/80 backdrop-blur-sm px-8 py-5">
-					<div className="mx-auto max-w-6xl flex items-center justify-between gap-4">
-						<div className="flex items-center gap-3">
-							<div className="flex size-8 items-center justify-center rounded-xl bg-foreground text-background">
-								<Sparkles className="size-4" />
+			<div className="flex-1 overflow-y-auto">
+				{/* Page header */}
+				<div className="container mx-auto max-w-7xl px-3 sm:px-4 py-4 sm:py-8 animate-in fade-in-0 slide-in-from-bottom-4 duration-500 fill-mode-both">
+					<PageHeader icon={Sparkles}>
+						<div className="space-y-2 sm:space-y-4">
+							<div className="text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight">
+								<span className="text-primary">Marketplace</span>
 							</div>
-							<h1 className="text-lg font-medium tracking-tight">Marketplace</h1>
 						</div>
-						<div className="flex items-center gap-3">
-							<div className="relative hidden md:block">
-								<Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-								<Input
-									value={search}
-									onChange={(e) => setSearch(e.target.value)}
-									placeholder="Search"
-									className="h-9 w-64 rounded-xl border-border/50 bg-muted/50 pl-9"
-								/>
-							</div>
-							<DropdownMenu>
-								<DropdownMenuTrigger asChild>
-									<Button variant="outline" className="h-9 rounded-xl border-border/50">
-										Add
-										<ChevronDown className="size-3 ml-1" />
-									</Button>
-								</DropdownMenuTrigger>
-								<DropdownMenuContent align="end" className="w-56">
-									<DropdownMenuItem className="cursor-pointer">
-										<Download className="size-4 mr-2" />
-										Install from registry
-									</DropdownMenuItem>
-								</DropdownMenuContent>
-							</DropdownMenu>
-						</div>
-					</div>
+					</PageHeader>
 				</div>
 
-				<div className="mx-auto max-w-6xl px-8 py-8">
-					<div className="grid gap-8 lg:grid-cols-[1fr_220px]">
-						<div>
-							<div className="rounded-2xl border border-border/50 bg-muted/20 p-6">
-								<div className="md:hidden mb-4">
-									<Input
-										value={search}
-										onChange={(e) => setSearch(e.target.value)}
-										placeholder="Search"
-										className="h-9 rounded-xl border-border/50 bg-background"
-									/>
+				<div className="container mx-auto max-w-7xl px-3 sm:px-4">
+					{/* Search + filter bar */}
+					<div className="flex items-center gap-2 sm:gap-4 pb-3 sm:pb-4 pt-2 sm:pt-3 animate-in fade-in-0 slide-in-from-bottom-4 duration-500 fill-mode-both delay-75">
+						<div className="flex-1 max-w-md">
+							<div className="relative group">
+								<input
+									type="text"
+									placeholder="Search components..."
+									value={search}
+									onChange={(e) => setSearch(e.target.value)}
+									className="h-11 w-full rounded-2xl border border-input bg-card px-10 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+								/>
+								<div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors">
+									<Search className="h-4 w-4" />
 								</div>
-								<div className="flex flex-wrap gap-2">
-									{FILTERS.map((f) => (
-										<button
-											key={f.key}
-											onClick={() => setActiveFilter(f.key)}
-											className={cn(
-												'rounded-xl border px-3 py-1.5 text-sm font-medium transition-colors',
-												activeFilter === f.key
-													? 'border-foreground bg-foreground text-background'
-													: 'border-border/50 bg-background text-muted-foreground hover:text-foreground',
-											)}
-										>
-											{f.label}
-											<span className="ml-1.5 text-xs opacity-60">{counts[f.key]}</span>
-										</button>
-									))}
-								</div>
-							</div>
-
-							<div className="mt-6 grid gap-4 sm:grid-cols-2">
-								{isLoading ? (
-									<div className="sm:col-span-2 flex items-center justify-center py-16 rounded-2xl border border-border/50">
-										<Loader2 className="size-5 animate-spin text-muted-foreground" />
-									</div>
-								) : error ? (
-									<div className="sm:col-span-2 py-16 text-center">
-										<p className="text-sm text-destructive">Failed to load marketplace</p>
-										<p className="text-xs text-muted-foreground mt-1">{error.message}</p>
-									</div>
-								) : filtered.length === 0 ? (
-									<div className="sm:col-span-2 py-16 text-center">
-										<p className="text-sm text-muted-foreground">No components found</p>
-									</div>
-								) : (
-									filtered.map((c) => (
-										<ComponentCard key={c.name} component={c} onOpen={setSelectedComponent} />
-									))
+								{search && (
+									<button
+										onClick={() => setSearch('')}
+										className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-md p-0.5 transition-colors cursor-pointer"
+									>
+										<X className="h-4 w-4" />
+									</button>
 								)}
 							</div>
 						</div>
 
-						<div className="space-y-4 h-fit lg:sticky lg:top-6">
-							<div className="rounded-2xl border border-border/50 bg-card p-5">
-								<p className="text-sm font-medium">Overview</p>
-								<p className="mt-2 text-xs text-muted-foreground leading-relaxed">
-									Browse and install components from the Kortix registry. Open any package to preview its files before installing.
-								</p>
-								<div className="mt-4 grid gap-3">
-									<div className="rounded-xl bg-muted/50 p-3">
-										<p className="text-xs uppercase tracking-widest text-muted-foreground">Available</p>
-										<p className="mt-1 text-xl font-semibold">{counts.all}</p>
-									</div>
-									<div className="rounded-xl bg-muted/50 p-3">
-										<p className="text-xs uppercase tracking-widest text-muted-foreground">Installed</p>
-										<p className="mt-1 text-xl font-semibold">{counts.installed}</p>
-									</div>
-								</div>
-							</div>
+						{/* Filter segmented control */}
+						<div className="hidden sm:flex items-center gap-1 rounded-2xl border border-border bg-muted/30 p-1">
+							{FILTERS.map((f) => (
+								<button
+									key={f.key}
+									onClick={() => setActiveFilter(f.key)}
+									className={cn(
+										'px-3 py-1.5 text-xs font-medium rounded-xl transition-all cursor-pointer',
+										activeFilter === f.key
+											? 'bg-background text-foreground border border-border/50 shadow-sm'
+											: 'text-muted-foreground hover:text-foreground hover:bg-background/70 border border-transparent',
+									)}
+								>
+									{f.label}
+									{counts[f.key] > 0 && (
+										<span className="ml-1 tabular-nums opacity-60">{counts[f.key]}</span>
+									)}
+								</button>
+							))}
 						</div>
+
+						{/* Mobile filter dropdown */}
+						<div className="sm:hidden">
+							<select
+								value={activeFilter}
+								onChange={(e) => setActiveFilter(e.target.value as FilterKey)}
+								className="h-11 rounded-2xl border border-input bg-card px-3 text-sm"
+							>
+								{FILTERS.map((f) => (
+									<option key={f.key} value={f.key}>
+										{f.label} ({counts[f.key]})
+									</option>
+								))}
+							</select>
+						</div>
+					</div>
+
+					{/* Content */}
+					<div className="pb-6 sm:pb-8 animate-in fade-in-0 slide-in-from-bottom-4 duration-500 fill-mode-both delay-150">
+						{isLoading ? (
+							<LoadingSkeleton />
+						) : error ? (
+							<div className="text-center py-12">
+								<p className="text-sm text-destructive">Failed to load marketplace</p>
+								<p className="text-xs text-muted-foreground mt-1">{error.message}</p>
+							</div>
+						) : filtered.length === 0 ? (
+							<MarketplaceEmptyState searchQuery={search} filter={activeFilter} />
+						) : (
+							<>
+								<div className="flex items-center gap-2 mb-4">
+									<span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+										{activeFilter === 'all' ? 'All Components' : activeFilter === 'installed' ? 'Installed' : activeFilter.charAt(0).toUpperCase() + activeFilter.slice(1)}
+									</span>
+									<Badge variant="secondary" className="text-xs tabular-nums">
+										{filtered.length}
+									</Badge>
+								</div>
+
+								<AnimatePresence mode="popLayout">
+									<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+										{filtered.map((c, index) => (
+											<ComponentCard
+												key={c.name}
+												component={c}
+												onOpen={setSelectedComponent}
+												index={index}
+											/>
+										))}
+									</div>
+								</AnimatePresence>
+							</>
+						)}
 					</div>
 				</div>
 			</div>
