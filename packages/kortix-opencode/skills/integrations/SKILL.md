@@ -1,19 +1,19 @@
 ---
 name: integrations
-description: "OAuth integration tools for connecting and calling third-party APIs (Gmail, Slack, Google Sheets, GitHub, etc.) via Pipedream. Load this skill when you need to connect apps, make authenticated API calls, execute Pipedream actions, or run custom code against a connected integration."
+description: "OAuth integration tools for connecting and calling third-party APIs (Gmail, Slack, Google Sheets, GitHub, etc.) via Pipedream. Also manages Pipedream event triggers (deploy, list, delete). Load this skill when you need to connect apps, make authenticated API calls, execute Pipedream actions, deploy event triggers, or run custom code against a connected integration."
 ---
 
 # Integrations
 
-All OAuth operations via a single script. Run with bash — no tool primitive needed.
+All OAuth + trigger operations via a single script. Run with bash — no tool primitive needed.
 
 ```
+SCRIPT=/opt/opencode/skills/integrations/integration.ts
+# or:
 SCRIPT=~/.opencode/skills/integrations/integration.ts
-# or if in project:
-SCRIPT=.opencode/skills/integrations/integration.ts
 ```
 
-## Commands
+## OAuth Commands
 
 ### search — find app slugs
 ```bash
@@ -55,15 +55,54 @@ bun run "$SCRIPT" exec '{"app":"google_sheets","code":"const r = await proxyFetc
 
 In `exec` code, use `proxyFetch(url, init)` for authenticated calls — auth injected automatically. Never set Authorization headers. Use regular `fetch()` for public requests. Output via `console.log()`.
 
+## Trigger Commands (Pipedream Event Triggers)
+
+### triggers_available — find trigger components for an app
+```bash
+bun run "$SCRIPT" triggers_available '{"app":"github","q":"new pull request"}'
+bun run "$SCRIPT" triggers_available '{"app":"gmail"}'
+```
+
+Returns available event trigger components (e.g. `github-new-pull-request`, `gmail-new-email`) with their configurable props.
+
+### triggers_deploy — deploy an event trigger
+```bash
+bun run "$SCRIPT" triggers_deploy '{"componentKey":"github-new-pull-request","configuredProps":{"repo":"owner/repo"}}'
+bun run "$SCRIPT" triggers_deploy '{"componentKey":"gmail-new-email","webhookUrl":"https://..."}'
+```
+
+Deploys a Pipedream trigger that fires events when something happens (new email, new PR, etc.). Events are delivered to the webhook URL.
+
+### triggers_deployed — list active triggers
+```bash
+bun run "$SCRIPT" triggers_deployed
+```
+
+Returns all deployed triggers with their IDs, status, and configuration.
+
+### triggers_delete — remove a deployed trigger
+```bash
+bun run "$SCRIPT" triggers_delete '{"id":"dc_xxxx"}'
+```
+
+### triggers_update — pause/resume a trigger
+```bash
+bun run "$SCRIPT" triggers_update '{"id":"dc_xxxx","active":false}'
+bun run "$SCRIPT" triggers_update '{"id":"dc_xxxx","active":true}'
+```
+
 ## Decision Tree
 
 ```
-Find app slug?           → search
-Connect new app?         → connect → show URL to user → list to verify
-What's connected?        → list
-Simple REST call?        → request
-Use a Pipedream action?  → actions (discover key) → run (execute)
-Complex multi-call logic? → exec (write Node.js inline)
+Find app slug?              → search
+Connect new app?            → connect → show URL to user → list to verify
+What's connected?           → list
+Simple REST call?           → request
+Use a Pipedream action?     → actions (discover key) → run (execute)
+Complex multi-call logic?   → exec (write Node.js inline)
+Set up event trigger?       → triggers_available → triggers_deploy
+List active triggers?       → triggers_deployed
+Remove/pause trigger?       → triggers_delete / triggers_update
 ```
 
 ## Common Slugs
@@ -77,3 +116,4 @@ Complex multi-call logic? → exec (write Node.js inline)
 | 403 | Not connected | `connect` → user authorizes |
 | 400 | Bad params | Check action key/props via `actions` |
 | 401 | Token expired | Re-`connect` |
+| 502 | Upstream error | kortix-api may be down, retry |

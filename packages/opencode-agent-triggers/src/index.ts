@@ -19,7 +19,6 @@ export type {
   DiscoveredAgent,
   EventListenerRecord,
   MinimalOpenCodeClient,
-  PipedreamClientOptions,
   PipedreamSourceConfig,
   PipedreamTriggerConfig,
   PluginContextShape,

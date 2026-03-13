@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 /**
- * Integration CLI — all OAuth integration operations in one script.
+ * Integration CLI — all OAuth integration & trigger operations in one script.
  *
  * Usage: bun run integration.ts <command> [args as JSON]
  *
- * Commands:
+ * OAuth / Integration commands:
  *   search   '{"q":"gmail"}'
  *   connect  '{"app":"gmail"}'
  *   list
@@ -12,6 +12,13 @@
  *   actions  '{"app":"gmail","q":"send"}'
  *   run      '{"app":"gmail","action_key":"gmail-send-email","props":{...}}'
  *   exec     '{"app":"gmail","code":"const r = await proxyFetch(...); console.log(await r.json())"}'
+ *
+ * Trigger commands (Pipedream event triggers):
+ *   triggers_available '{"app":"github","q":"new pull request"}'
+ *   triggers_deploy    '{"componentKey":"github-new-pull-request","configuredProps":{...},"webhookUrl":"..."}'
+ *   triggers_deployed
+ *   triggers_delete    '{"id":"dc_xxxx"}'
+ *   triggers_update    '{"id":"dc_xxxx","active":false}'
  */
 
 import { readFileSync, writeFileSync, unlinkSync } from "fs";
@@ -164,7 +171,72 @@ globalThis.proxyFetch = async function proxyFetch(url, init = {}) {
   }
 }
 
+// ── Trigger commands (Pipedream event triggers via kortix-api) ─────────────
+
+async function triggersAvailable(app: string, q?: string, limit?: number) {
+  const params = new URLSearchParams();
+  if (app) params.set("app", app);
+  if (q) params.set("q", q);
+  if (limit) params.set("limit", String(limit));
+  const res = await fetch(`${masterUrl}/api/integrations/triggers/available?${params}`, { headers: authHeaders() });
+  if (!res.ok) return out({ success: false, error: `${res.status}: ${await res.text()}` });
+  const data = await res.json() as { triggers?: Array<{ key: string; name: string; description?: string; configurable_props?: unknown[] }> };
+  const triggers = data.triggers ?? (data as any).data ?? [];
+  if (!triggers.length) return out({ success: true, app, triggers: [], message: `No triggers found for "${app}"${q ? ` matching "${q}"` : ""}. Check slug with search command.` });
+  out({
+    success: true, app, triggers: triggers.map((t: any) => ({
+      key: t.key, name: t.name, description: t.description,
+      configurable_props: t.configurable_props?.map((p: any) => `${p.name} (${p.type}${p.optional ? ", optional" : ""})`) ?? [],
+    })),
+  });
+}
+
+async function triggersDeploy(componentKey: string, configuredProps?: Record<string, unknown>, webhookUrl?: string) {
+  const body: Record<string, unknown> = { componentKey };
+  if (configuredProps) body.configuredProps = configuredProps;
+  if (webhookUrl) body.webhookUrl = webhookUrl;
+  const res = await fetch(`${masterUrl}/api/integrations/triggers/deploy`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return out({ success: false, error: `${res.status}: ${await res.text()}` });
+  const data = await res.json() as Record<string, unknown>;
+  out({ success: true, ...data });
+}
+
+async function triggersDeployed() {
+  const res = await fetch(`${masterUrl}/api/integrations/triggers/deployed`, { headers: authHeaders() });
+  if (!res.ok) return out({ success: false, error: `${res.status}: ${await res.text()}` });
+  const data = await res.json() as { triggers?: unknown[]; data?: unknown[] };
+  const triggers = data.triggers ?? data.data ?? [];
+  out({ success: true, triggers, count: (triggers as unknown[]).length });
+}
+
+async function triggersDelete(id: string) {
+  const res = await fetch(`${masterUrl}/api/integrations/triggers/deployed/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) return out({ success: false, error: `${res.status}: ${await res.text()}` });
+  const data = await res.json();
+  out({ success: true, ...data as Record<string, unknown> });
+}
+
+async function triggersUpdate(id: string, update: Record<string, unknown>) {
+  const res = await fetch(`${masterUrl}/api/integrations/triggers/deployed/${id}`, {
+    method: "PUT",
+    headers: authHeaders(),
+    body: JSON.stringify(update),
+  });
+  if (!res.ok) return out({ success: false, error: `${res.status}: ${await res.text()}` });
+  const data = await res.json();
+  out({ success: true, ...data as Record<string, unknown> });
+}
+
 // ── Dispatch ───────────────────────────────────────────────────────────────
+
+const ALL_COMMANDS = "search | connect | list | request | actions | run | exec | triggers_available | triggers_deploy | triggers_deployed | triggers_delete | triggers_update";
 
 const [cmd, rawArgs] = process.argv.slice(2);
 const args = rawArgs ? JSON.parse(rawArgs) : {};
@@ -177,7 +249,12 @@ switch (cmd) {
   case "actions": await actions(args.app, args.q); break;
   case "run":     await run(args.app, args.action_key, args.props); break;
   case "exec":    await exec(args.app, args.code); break;
+  case "triggers_available": await triggersAvailable(args.app, args.q, args.limit); break;
+  case "triggers_deploy":    await triggersDeploy(args.componentKey, args.configuredProps, args.webhookUrl); break;
+  case "triggers_deployed":  await triggersDeployed(); break;
+  case "triggers_delete":    await triggersDelete(args.id); break;
+  case "triggers_update":    await triggersUpdate(args.id, args); break;
   default:
-    console.error(`Unknown command: ${cmd}. Use: search | connect | list | request | actions | run | exec`);
+    console.error(`Unknown command: ${cmd}. Use: ${ALL_COMMANDS}`);
     process.exit(1);
 }

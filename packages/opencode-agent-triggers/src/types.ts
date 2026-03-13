@@ -119,8 +119,6 @@ export interface AgentTriggersPluginOptions {
   directory?: string
   homeDir?: string
   logger?: (level: "info" | "warn" | "error", message: string) => void
-  /** Pipedream Connect credentials — required for event listener triggers */
-  pipedream?: PipedreamClientOptions
 }
 
 export interface MinimalOpenCodeClient {
@@ -145,14 +143,6 @@ export interface PluginContextShape {
 
 export interface WebhookDispatchResult {
   sessionId: string
-}
-
-/** Options for the Pipedream Connect API client */
-export interface PipedreamClientOptions {
-  clientId: string
-  clientSecret: string
-  projectId: string
-  environment?: "development" | "production"
 }
 
 /** Persisted record for an active Pipedream event listener */
