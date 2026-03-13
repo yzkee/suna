@@ -3,8 +3,21 @@ import type { TunnelRelay } from './relay';
 import { TunnelRelayError } from './relay';
 import { TunnelErrorCode } from '../shared/types';
 
-export function createTunnelRouter(relay: TunnelRelay): Hono {
+export function createTunnelRouter(
+  relay: TunnelRelay,
+  onAuthorizeHTTP?: (req: Request) => Promise<boolean>,
+): Hono {
   const router = new Hono();
+
+  if (onAuthorizeHTTP) {
+    router.use('*', async (c, next) => {
+      const authorized = await onAuthorizeHTTP(c.req.raw);
+      if (!authorized) {
+        return c.json({ error: 'Unauthorized' }, 403);
+      }
+      await next();
+    });
+  }
 
   router.get('/connections', (c) => {
     const agents = relay.getConnectedAgents();
@@ -51,6 +64,7 @@ export function createTunnelRouter(relay: TunnelRelay): Hono {
 
       const httpStatus = errorCode === TunnelErrorCode.NOT_CONNECTED ? 502
         : errorCode === TunnelErrorCode.TIMEOUT ? 504
+        : errorCode === TunnelErrorCode.PERMISSION_DENIED ? 403
         : 500;
 
       return c.json({ error: errorMessage, code: errorCode }, httpStatus);

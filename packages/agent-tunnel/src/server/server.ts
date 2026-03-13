@@ -3,9 +3,10 @@
  *
  * Usage:
  *   import { startTunnelServer } from 'agent-tunnel';
- *   const server = startTunnelServer({ port: 8080 });
+ *   const server = startTunnelServer({ port: 8080, onAuthenticate: ... });
  *
- * That's it. Agents connect via: ws://localhost:8080/ws?token=xxx&tunnelId=yyy
+ * Agents connect via: ws://localhost:8080/ws?tunnelId=yyy
+ * Then send { type: "auth", token: "tnl_xxx" } as the first message.
  * Your app calls relay.relayRPC(tunnelId, method, params) to reach the agent.
  */
 
@@ -14,17 +15,13 @@ import { TunnelRelay } from './relay';
 import { HeartbeatManager } from './heartbeat';
 import { createTunnelRouter } from './routes';
 import { createWsHandlers } from './ws-handler';
-import { deriveSigningKey } from '../shared/crypto';
 import type { TunnelServerConfig } from '../shared/types';
 
 export interface TunnelServer {
-  /** Hono app — mount additional routes if needed. */
   app: Hono;
-  /** The relay instance — call relayRPC() to reach connected agents. */
   relay: TunnelRelay;
   heartbeat: HeartbeatManager;
   wsHandlers: ReturnType<typeof createWsHandlers>;
-  /** Stop the server, heartbeat, and close all connections. */
   stop: () => void;
 }
 
@@ -33,7 +30,7 @@ export interface TunnelServer {
  * - HTTP routes for connections list + RPC
  * - WebSocket upgrades on /ws for agent connections
  * - Heartbeat ping/pong
- * - HMAC signing key derivation from tokens
+ * - HMAC signing key derivation via onAuthenticate hook
  *
  * Requires Bun runtime for WebSocket server support.
  */
@@ -41,57 +38,56 @@ export function startTunnelServer(config?: TunnelServerConfig): TunnelServer {
   const port = config?.port ?? parseInt(process.env.PORT || '8080', 10);
 
   const relay = new TunnelRelay(config?.relay);
+
+  if (config?.onAuthorizeRPC) {
+    relay.onAuthorizeRPC = config.onAuthorizeRPC;
+  }
+
   const heartbeat = new HeartbeatManager(relay, config?.heartbeat);
-  const wsHandlers = createWsHandlers(relay, { heartbeat });
+  const wsHandlers = createWsHandlers(relay, {
+    heartbeat,
+    onAuthenticate: config?.onAuthenticate,
+  });
 
   const app = new Hono();
 
-  // Mount tunnel routes (GET /connections, POST /rpc/:tunnelId, etc.)
-  const tunnelRouter = createTunnelRouter(relay);
+  const tunnelRouter = createTunnelRouter(relay, config?.onAuthorizeHTTP);
   app.route('/', tunnelRouter);
 
-  // Health check
   app.get('/health', (c) => c.json({ status: 'ok', connections: relay.getConnectedCount() }));
 
-  // Start heartbeat
   heartbeat.start();
 
-  // Start Bun server with WS support
   const bunServer = Bun.serve({
     port,
     fetch(req, server) {
       const url = new URL(req.url);
 
-      // WS upgrade on /ws
       if (url.pathname === '/ws') {
-        const token = url.searchParams.get('token');
         const tunnelId = url.searchParams.get('tunnelId');
 
-        if (!token || !tunnelId) {
-          return new Response(JSON.stringify({ error: 'Missing token or tunnelId' }), {
+        if (!tunnelId) {
+          return new Response(JSON.stringify({ error: 'Missing tunnelId' }), {
             status: 400,
             headers: { 'Content-Type': 'application/json' },
           });
         }
 
-        const signingKey = deriveSigningKey(token);
-
         const success = server.upgrade(req, {
-          data: { tunnelId, signingKey } as any,
+          data: { tunnelId } as any,
         });
         if (success) return undefined;
 
         return new Response('WebSocket upgrade failed', { status: 500 });
       }
 
-      // All other requests → Hono
       return app.fetch(req);
     },
 
     websocket: {
       idleTimeout: 0,
       open(ws: any) {
-        wsHandlers.onOpen(ws.data.tunnelId, ws, ws.data.signingKey);
+        wsHandlers.onOpen(ws.data.tunnelId, ws);
       },
       message(ws: any, message: string | Buffer) {
         wsHandlers.onMessage(ws.data.tunnelId, message);

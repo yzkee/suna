@@ -3,7 +3,7 @@ import type { TunnelConfig } from './config';
 import { CapabilityRegistry, type RpcHandler } from './capabilities/index';
 import { PermissionGuard } from './security/permission-guard';
 import type { LocalPermission } from './security/permission-guard';
-import { deriveSigningKey, verifyMessageSignature } from '../shared/crypto';
+import { deriveSigningKey, signMessage, verifyMessageSignature } from '../shared/crypto';
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -56,6 +56,7 @@ export class TunnelAgent {
   // HMAC signature verification
   private signingKey: string;
   private lastNonce = 0;
+  private responseNonce = 0;
 
   constructor(config: TunnelConfig, registry: CapabilityRegistry) {
     this.config = config;
@@ -113,8 +114,12 @@ export class TunnelAgent {
     this.ws.addEventListener('open', () => {
       this.reconnectAttempts = 0;
       this.uptime = 0;
-      this.lastNonce = 0; // Reset nonce on each new connection
+      this.lastNonce = 0;
+      this.responseNonce = 0;
       this.uptimeInterval = setInterval(() => { this.uptime++; }, 1000);
+
+      // Send auth handshake as first message (token never in URL)
+      this.send({ type: 'auth', token: this.config.token });
 
       log(`${c.green}●${c.reset}`, `Connected ${c.reset}${c.gray}(${this.registry.getCapabilityNames().join(', ')})${c.reset}`);
     });
@@ -130,6 +135,10 @@ export class TunnelAgent {
       }
 
       if (!this.isShuttingDown) {
+        if (event.code === 4001) {
+          log(`${c.red}✗${c.reset}`, `Authentication failed — check your token`);
+          return; // Don't reconnect on auth failure
+        }
         log(`${c.yellow}○${c.reset}`, `Disconnected ${c.gray}(code: ${event.code})${c.reset}`);
         this.scheduleReconnect();
       }
@@ -158,7 +167,7 @@ export class TunnelAgent {
     // ── Verify HMAC signature on all other messages ─────────────────
     if (!this.verifyIncomingSignature(msg, raw)) {
       if ('id' in msg && msg.id) {
-        this.sendError(msg.id, -32000, 'Invalid message signature');
+        this.sendSignedError(msg.id, -32000, 'Invalid message signature');
       }
       return;
     }
@@ -194,8 +203,6 @@ export class TunnelAgent {
     // ── Token rotation notification ─────────────────────────────────
     if ('method' in msg && msg.method === 'tunnel.token.rotated') {
       log(`${c.yellow}!${c.reset}`, `Token rotated — reconnecting with new token`);
-      // The server will close the WS shortly; the reconnect logic handles the rest.
-      // Caller must update config.token before reconnect succeeds.
       return;
     }
 
@@ -208,7 +215,6 @@ export class TunnelAgent {
 
   /**
    * Verify HMAC signature on incoming messages (excluding pings).
-   * Returns true if valid, false if signature check fails.
    */
   private verifyIncomingSignature(msg: IncomingMessage, _raw: string): boolean {
     const sig = (msg as any)._sig as string | undefined;
@@ -219,13 +225,11 @@ export class TunnelAgent {
       return false;
     }
 
-    // Replay protection: nonce must be strictly increasing
     if (nonce <= this.lastNonce) {
       log(`${c.red}✗${c.reset}`, `Replay detected: nonce ${nonce} <= ${this.lastNonce}`);
       return false;
     }
 
-    // Build the payload to verify (message without _sig and _nonce)
     const { _sig, _nonce, ...payloadObj } = msg as any;
     const payload = JSON.stringify(payloadObj);
 
@@ -241,34 +245,61 @@ export class TunnelAgent {
   private async handleRpcRequest(request: JsonRpcRequest): Promise<void> {
     const { id, method, params = {} } = request;
 
-    // ── Permission enforcement (defense-in-depth) ───────────────────
     const permissionId = params.permissionId as string | undefined;
     if (!this.permissionGuard.checkPermission(permissionId)) {
-      this.sendError(id, -32000, `Permission denied: ${permissionId ? 'invalid or expired permission' : 'no permissionId provided'}`);
+      this.sendSignedError(id, -32000, `Permission denied: ${permissionId ? 'invalid or expired permission' : 'no permissionId provided'}`);
       return;
     }
 
     const handler = this.registry.getHandler(method);
     if (!handler) {
-      this.sendError(id, -32001, `Capability not registered for method: ${method}`);
+      this.sendSignedError(id, -32001, `Capability not registered for method: ${method}`);
       return;
     }
 
     try {
       const result = await handler(params);
-      this.sendResult(id, result);
+      this.sendSignedResult(id, result);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.sendError(id, -32003, message);
+      this.sendSignedError(id, -32003, message);
     }
   }
 
-  private sendResult(id: string, result: unknown): void {
-    this.send({ jsonrpc: '2.0', id, result });
+  /** Send HMAC-signed RPC result. */
+  private sendSignedResult(id: string, result: unknown): void {
+    const data = { jsonrpc: '2.0' as const, id, result };
+    this.sendSigned(data);
   }
 
-  private sendError(id: string, code: number, message: string): void {
-    this.send({ jsonrpc: '2.0', id, error: { code, message } });
+  /** Send HMAC-signed RPC error. */
+  private sendSignedError(id: string, code: number, message: string): void {
+    const data = { jsonrpc: '2.0' as const, id, error: { code, message } };
+    this.sendSigned(data);
+  }
+
+  private sendSigned(data: Record<string, unknown>): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      const nonce = ++this.responseNonce;
+      const payload = JSON.stringify(data);
+      const sig = signMessage(this.signingKey, payload, nonce);
+      const signed = { ...data, _sig: sig, _nonce: nonce };
+      try {
+        this.ws.send(JSON.stringify(signed));
+      } catch (err) {
+        log(`${c.red}✗${c.reset}`, `Send failed`);
+      }
+    }
+  }
+
+  private send(data: unknown): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(JSON.stringify(data));
+      } catch (err) {
+        log(`${c.red}✗${c.reset}`, `Send failed`);
+      }
+    }
   }
 
   private sendPong(): void {
@@ -287,16 +318,6 @@ export class TunnelAgent {
         },
       },
     });
-  }
-
-  private send(data: unknown): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      try {
-        this.ws.send(JSON.stringify(data));
-      } catch (err) {
-        log(`${c.red}✗${c.reset}`, `Send failed`);
-      }
-    }
   }
 
   private scheduleReconnect(): void {
@@ -320,9 +341,12 @@ export class TunnelAgent {
       .replace(/^http:/, 'ws:')
       .replace(/^https:/, 'wss:');
 
+    if (base.startsWith('ws://') && !base.includes('localhost') && !base.includes('127.0.0.1')) {
+      log(`${c.red}!${c.reset}`, `${c.red}WARNING: Connecting over unencrypted ws:// to a remote host. Token will be sent in plaintext. Use https:// API URL for production.${c.reset}`);
+    }
+
     const wsPath = this.config.wsPath || '/ws';
     const params = new URLSearchParams({
-      token: this.config.token,
       tunnelId: this.config.tunnelId,
     });
 

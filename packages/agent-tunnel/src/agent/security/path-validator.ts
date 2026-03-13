@@ -5,25 +5,17 @@
  *   1. Are absolute
  *   2. Resolve to an absolute path (follows symlinks)
  *   3. Fall within allowed directories
- *   4. Don't hit sensitive system paths
+ *   4. Don't hit blocked paths (configurable)
  */
 
 import { resolve, normalize } from 'path';
 import { realpathSync } from 'fs';
 
-const SENSITIVE_PATHS = [
-  '/etc/shadow',
-  '/etc/passwd',
-  '/etc/sudoers',
-  '/etc/ssh',
-  '/root/.ssh',
-  '/proc',
-  '/sys',
-  '/dev',
-];
-
-
-export function validatePath(path: string, allowedPaths: string[]): void {
+export function validatePath(
+  path: string,
+  allowedPaths: string[],
+  blockedPaths: string[] = [],
+): void {
   if (!path) {
     throw new Error('Path is required');
   }
@@ -36,9 +28,9 @@ export function validatePath(path: string, allowedPaths: string[]): void {
     resolved = normalized;
   }
 
-  for (const sensitive of SENSITIVE_PATHS) {
-    if (resolved === sensitive || resolved.startsWith(sensitive + '/')) {
-      throw new Error(`Access denied: sensitive system path "${path}"`);
+  for (const blocked of blockedPaths) {
+    if (resolved === blocked || resolved.startsWith(blocked + '/')) {
+      throw new Error(`Access denied: blocked path "${path}"`);
     }
   }
 

@@ -3,8 +3,8 @@
  *
  * Security:
  *   - Commands are executed as array args (no shell interpolation)
- *   - First arg (executable) is validated against allowedCommands
- *   - Working directory is validated against allowedPaths
+ *   - First arg (executable) is validated against allowedCommands / blockedCommands
+ *   - Working directory is validated against allowedPaths / blockedPaths
  *   - Timeout enforcement
  */
 
@@ -14,9 +14,6 @@ import { validateCommand } from '../security/command-validator';
 import { validatePath } from '../security/path-validator';
 import type { TunnelConfig } from '../config';
 
-const DEFAULT_TIMEOUT_MS = 30_000;
-const MAX_OUTPUT_SIZE = 1024 * 1024;
-
 export function createShellCapability(config: TunnelConfig): Capability {
   const methods = new Map<string, RpcHandler>();
 
@@ -25,19 +22,18 @@ export function createShellCapability(config: TunnelConfig): Capability {
     const args = (params.args as string[]) || [];
     const cwd = (params.cwd as string) || config.workingDir;
     const timeout = Math.min(
-      (params.timeout as number) || DEFAULT_TIMEOUT_MS,
-      120_000,
+      (params.timeout as number) || config.shellTimeout,
+      config.shellMaxTimeout,
     );
 
-    validateCommand(command, config.allowedCommands);
+    validateCommand(command, config.allowedCommands, config.blockedCommands);
 
     if (cwd) {
-      validatePath(cwd, config.allowedPaths);
+      validatePath(cwd, config.allowedPaths, config.blockedPaths);
     }
 
-    const SAFE_ENV_KEYS = ['PATH', 'HOME', 'USER', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TMPDIR', 'NODE_ENV', 'HOSTNAME'];
     const safeEnv: Record<string, string> = { TERM: 'dumb' };
-    for (const key of SAFE_ENV_KEYS) {
+    for (const key of config.shellEnvPassthrough) {
       if (process.env[key]) {
         safeEnv[key] = process.env[key]!;
       }
@@ -57,7 +53,7 @@ export function createShellCapability(config: TunnelConfig): Capability {
       let stderrTruncated = false;
 
       proc.stdout?.on('data', (data: Buffer) => {
-        if (stdout.length < MAX_OUTPUT_SIZE) {
+        if (stdout.length < config.shellMaxOutputSize) {
           stdout += data.toString();
         } else {
           stdoutTruncated = true;
@@ -65,7 +61,7 @@ export function createShellCapability(config: TunnelConfig): Capability {
       });
 
       proc.stderr?.on('data', (data: Buffer) => {
-        if (stderr.length < MAX_OUTPUT_SIZE) {
+        if (stderr.length < config.shellMaxOutputSize) {
           stderr += data.toString();
         } else {
           stderrTruncated = true;
@@ -80,8 +76,8 @@ export function createShellCapability(config: TunnelConfig): Capability {
         resolve({
           exitCode: code,
           signal,
-          stdout: stdout.slice(0, MAX_OUTPUT_SIZE),
-          stderr: stderr.slice(0, MAX_OUTPUT_SIZE),
+          stdout: stdout.slice(0, config.shellMaxOutputSize),
+          stderr: stderr.slice(0, config.shellMaxOutputSize),
           stdoutTruncated,
           stderrTruncated,
         });

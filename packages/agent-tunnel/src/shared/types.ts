@@ -41,6 +41,7 @@ export const TunnelErrorCode = {
   NOT_CONNECTED: -32004,
   EXPIRED: -32005,
   RATE_LIMITED: -32006,
+  AUTH_FAILED: -32007,
 } as const;
 
 export type TunnelErrorCodeValue = (typeof TunnelErrorCode)[keyof typeof TunnelErrorCode];
@@ -128,9 +129,9 @@ export interface RelayRpcOptions {
   timeoutMs?: number;
 }
 
+/** Public agent info — does NOT expose signing key. */
 export interface AgentInfo {
   tunnelId: string;
-  signingKey: string;
   connectedAt: number;
   metadata?: Record<string, unknown>;
 }
@@ -157,8 +158,36 @@ export interface HeartbeatConfig {
   maxMissed?: number;
 }
 
+/** Auth handshake message sent by agent as first WS message. */
+export interface TunnelAuthMessage {
+  type: 'auth';
+  token: string;
+}
+
+/** Result returned by onAuthenticate hook on success. */
+export interface AuthResult {
+  signingKey: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface TunnelServerConfig {
   port?: number;
   relay?: TunnelRelayConfig;
   heartbeat?: HeartbeatConfig;
+  /**
+   * Called when an agent sends its auth handshake.
+   * Return { signingKey, metadata } to accept, or null to reject.
+   * If not provided, all connections are rejected.
+   */
+  onAuthenticate?: (tunnelId: string, token: string) => Promise<AuthResult | null>;
+  /**
+   * Called before relaying an RPC to the agent.
+   * Return false to deny. If not provided, all RPCs are allowed.
+   */
+  onAuthorizeRPC?: (tunnelId: string, method: string, params: Record<string, unknown>) => Promise<boolean>;
+  /**
+   * Called before handling HTTP requests to relay routes (/connections, /rpc).
+   * Return false to deny. If not provided, routes are open.
+   */
+  onAuthorizeHTTP?: (req: Request) => Promise<boolean>;
 }
