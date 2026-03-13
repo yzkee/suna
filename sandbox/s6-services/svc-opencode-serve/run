@@ -2,6 +2,12 @@
 # OpenCode API server on port 4096 (proxied by kortix-master)
 # with-contenv loads all s6 env vars (API keys, KORTIX_TOKEN, etc.) automatically.
 
+# If the core supervisor owns this service, yield — it will manage opencode directly.
+# Sleep keeps s6 happy (non-zero exit would trigger restart; sleep holds the slot).
+if [ -f /opt/kortix/core/service-spec.json ]; then
+  exec sleep infinity
+fi
+
 export HOME=/workspace
 export XDG_DATA_HOME=/workspace/.local/share
 export OPENCODE_CONFIG_DIR=/opt/opencode

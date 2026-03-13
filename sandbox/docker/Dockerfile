@@ -90,7 +90,8 @@ RUN mkdir -p /workspace/.agent-browser /workspace/.browser-profile \
     && chown -R 1000:1000 /workspace \
     && rm -rf /config \
     && ln -s /workspace /config \
-    && git config --system --add safe.directory '*'
+    && git config --system --add safe.directory '*' \
+    && echo "abc ALL=(root) NOPASSWD: /usr/bin/s6-svc, /bin/s6-svc, /usr/sbin/s6-svc" >> /etc/sudoers
 WORKDIR /workspace
 ENV KORTIX_WORKSPACE=/workspace
 
@@ -141,6 +142,7 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
       /opt/build/kortix-master/ /opt/kortix-master/ && \
     cd /opt/kortix-master && bun install 2>&1 && \
     test -d /opt/kortix-master/node_modules && \
+    chmod +x /opt/kortix-master/scripts/*.sh 2>/dev/null || true && \
     echo "[docker] kortix-master: bun install OK" && \
     \
     # ── 3. opencode-channels ── \
@@ -155,11 +157,14 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
     rsync -a --exclude=node_modules --exclude=bun.lock --exclude=.git \
       --exclude=tests --exclude=infra --exclude=docs --exclude=README.md \
       /opt/build/kortix-opencode/ /opt/opencode/ && \
-    # Wire triggers dependency for container layout \
-    sed -i 's|"@kortix/opencode-agent-triggers": "[^"]*"|"@kortix/opencode-agent-triggers": "file:../opencode-agent-triggers"|' /opt/opencode/package.json && \
-    cd /opt/opencode && bun install 2>&1 && \
-    test -d /opt/opencode/node_modules && \
-    echo "[docker] opencode: bun install OK" && \
+    # Wire triggers dependency for container layout (only if package.json exists) \
+    if [ -f /opt/opencode/package.json ]; then \
+      cd /opt/opencode && bun install 2>&1 && \
+      test -d /opt/opencode/node_modules && \
+      echo "[docker] opencode: bun install OK"; \
+    else \
+      echo "[docker] opencode: no package.json — skipping bun install (config-only package)"; \
+    fi && \
     bash /opt/opencode/patches/apply.sh /opt/opencode && \
     \
     # ── 6. Binary patches ── \
@@ -196,6 +201,7 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
       "agent-browser@${AGENT_BROWSER_VERSION}" \
       "ocx@${OCX_VERSION}" \
       "portless@${PORTLESS_VERSION}" 2>&1 && \
+
     # opencode postinstall caches a non-musl binary at .opencode — remove it \
     # so the launcher resolves the musl variant (Alpine is musl-based) \
     rm -f /usr/local/lib/node_modules/opencode-ai/bin/.opencode 2>/dev/null || true && \

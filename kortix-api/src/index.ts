@@ -348,6 +348,42 @@ app.notFound((c) => {
 
 // ─── Auto-register local Docker sandbox in DB ──────────────────────────────
 
+async function injectSandboxToken(sandboxId: string, accountId: string): Promise<void> {
+  const { db } = await import('./shared/db');
+  const { kortixApiKeys } = await import('@kortix/db');
+  const { eq, and } = await import('drizzle-orm');
+  const { execSync } = await import('child_process');
+  const rawDockerHost = config.DOCKER_HOST || process.env.DOCKER_HOST || '';
+  const dockerHost = rawDockerHost.startsWith('/') ? `unix://${rawDockerHost}` : rawDockerHost;
+  const dockerEnv = { ...process.env, DOCKER_HOST: dockerHost };
+
+  const dockerExec = (token: string) => {
+    execSync(
+      `docker exec kortix-sandbox bash -c "printf '%s' '${token}' > /run/s6/container_environment/KORTIX_TOKEN"`,
+      { stdio: 'pipe', env: dockerEnv },
+    );
+  };
+
+  // Find existing sandbox API key
+  const [key] = await db.select().from(kortixApiKeys)
+    .where(and(eq(kortixApiKeys.sandboxId, sandboxId), eq(kortixApiKeys.type, 'sandbox')));
+  const { createApiKey } = await import('./repositories/api-keys');
+
+  // Always re-issue — we can't recover plaintext from hash
+  if (key) await db.delete(kortixApiKeys).where(eq(kortixApiKeys.keyId, key.keyId));
+  const newKey = await createApiKey({ sandboxId, accountId, title: 'Sandbox Token', type: 'sandbox' });
+  try {
+    dockerExec(newKey.secretKey);
+    // Restart opencode so it picks up the new token from s6 env
+    try {
+      execSync(`docker exec kortix-sandbox pkill -f opencode-linux-arm64-musl`, { stdio: 'pipe', env: dockerEnv });
+    } catch { /* process may not be running yet — that's fine */ }
+    console.log('[startup] KORTIX_TOKEN injected into sandbox');
+  } catch (e: any) {
+    console.error('[startup] Failed to inject KORTIX_TOKEN:', e?.message);
+  }
+}
+
 async function ensureLocalSandboxRegistered() {
   const { db } = await import('./shared/db');
   const { sandboxes } = await import('@kortix/db');
@@ -377,12 +413,36 @@ async function ensureLocalSandboxRegistered() {
     } else {
       console.log(`[startup] Local sandbox already registered (${existing.sandboxId})`);
     }
+    // Always re-inject the token on startup in case the container was recreated
+    await injectSandboxToken(existing.sandboxId, existing.accountId);
     return;
   }
 
-  // No existing sandbox for this container name — skip auto-registration.
-  // The sandbox will be created via POST /v1/platform/init when the user first logs in.
-  console.log('[startup] No local sandbox registered yet — will be created on first login via POST /init');
+  // No existing sandbox — auto-provision for local single-user setup.
+  const { accounts } = await import('@kortix/db');
+  const [account] = await db.select().from(accounts).limit(1);
+  if (!account) {
+    console.log('[startup] No account yet — sandbox will be created on first login via POST /init');
+    return;
+  }
+
+  const sandbox = await db
+    .insert(sandboxes)
+    .values({
+      accountId: account.accountId,
+      name: 'sandbox-local',
+      provider: 'local_docker',
+      status: 'active',
+      externalId: CONTAINER_NAME,
+      baseUrl,
+      config: {},
+      metadata: {},
+    })
+    .returning()
+    .then(([r]) => r);
+
+  await injectSandboxToken(sandbox.sandboxId, account.accountId);
+  console.log(`[startup] Local sandbox auto-provisioned (${sandbox.sandboxId}), token injected`);
 }
 
 // === Start Server ===

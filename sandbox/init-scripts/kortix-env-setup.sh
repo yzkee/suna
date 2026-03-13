@@ -14,4 +14,18 @@ if [ -f "$GUARD_PATH" ]; then
     fi
 fi
 
+# ── Tool dependencies ─────────────────────────────────────────────────────────
+# OpenCode bundler resolves modules from /workspace/.cache/opencode (its runtime
+# package cache). Pre-seed tool deps there so external tool imports work offline.
+CACHE_DIR="/workspace/.cache/opencode"
+if [ -d /opt/opencode/node_modules ] && [ ! -d "$CACHE_DIR/node_modules/@mendable" ]; then
+    mkdir -p "$CACHE_DIR"
+    cp -r /opt/opencode/node_modules "$CACHE_DIR/" 2>/dev/null || true
+    # Copy package.json so bun treats it as a valid project
+    [ -f /opt/opencode/package.json ] && cp /opt/opencode/package.json "$CACHE_DIR/" 2>/dev/null || true
+    [ -f /opt/opencode/bun.lock ] && cp /opt/opencode/bun.lock "$CACHE_DIR/" 2>/dev/null || true
+    chown -R abc:users "$CACHE_DIR" 2>/dev/null || true
+    echo "[Kortix] Tool deps seeded into $CACHE_DIR"
+fi
+
 echo "[Kortix] Environment setup complete"

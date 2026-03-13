@@ -54,6 +54,21 @@ export const config = {
   // Auto-generates if not provided — external access is ALWAYS auth-protected.
   // In normal operation, kortix-api injects the key as a Docker env var.
   get INTERNAL_SERVICE_KEY(): string {
+    // Always re-read from s6 env dir first — kortix-api may have written it
+    // via docker exec after we started (the fallback sync path). Reading from
+    // the file ensures we pick up the injected value without a restart.
+    const s6Path = '/run/s6/container_environment/INTERNAL_SERVICE_KEY'
+    try {
+      const { readFileSync } = require('fs')
+      const val = readFileSync(s6Path, 'utf8').trim()
+      if (val) {
+        process.env.INTERNAL_SERVICE_KEY = val
+        return val
+      }
+    } catch {
+      // file not present yet — fall through
+    }
+
     if (!process.env.INTERNAL_SERVICE_KEY) {
       const { randomBytes } = require('crypto')
       const generated = randomBytes(32).toString('hex')

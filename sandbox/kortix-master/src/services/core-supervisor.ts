@@ -8,6 +8,7 @@ export interface CoreServiceSpec {
   autoStart: boolean
   restart: 'always' | 'never'
   restartDelayMs?: number
+  port?: number
 }
 
 export interface CoreSpec {
@@ -194,6 +195,26 @@ export class CoreSupervisor {
       state.lastError = `Exited with code ${exit}`
 
       if (!this.started || spec.restart !== 'always') return
+
+      // If the service exited quickly (< 3s), check if its port is already bound
+      // by another process — if so, treat it as running and skip restart.
+      const uptime = state.startedAt ? Date.now() - new Date(state.startedAt).getTime() : 9999
+      if (uptime < 3000 && spec.port) {
+        try {
+          const net = require('net')
+          const inUse = await new Promise<boolean>(resolve => {
+            const srv = net.createServer()
+            srv.once('error', () => resolve(true))
+            srv.once('listening', () => { srv.close(); resolve(false) })
+            srv.listen(spec.port, '127.0.0.1')
+          })
+          if (inUse) {
+            state.status = 'running'
+            state.lastError = null
+            return
+          }
+        } catch { /* ignore */ }
+      }
 
       state.restarts += 1
       const delay = spec.restartDelayMs ?? 1500
