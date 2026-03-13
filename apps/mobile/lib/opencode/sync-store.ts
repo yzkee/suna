@@ -40,6 +40,10 @@ interface SyncState {
   removeMessage: (sessionId: string, messageId: string) => void;
   /** Upsert a part on a message (from SSE) */
   upsertPart: (messageId: string, part: Part) => void;
+  /** Remove a part from a message (from SSE) */
+  removePart: (messageId: string, partId: string) => void;
+  /** Append a delta to a part's text field (from SSE message.part.delta) */
+  appendPartDelta: (messageId: string, partId: string, sessionId: string, field: string, delta: string) => void;
   /** Set session status */
   setStatus: (sessionId: string, status: SessionStatus) => void;
   /** Add optimistic user message */
@@ -58,6 +62,21 @@ interface SyncState {
   getStatus: (sessionId: string) => SessionStatus | undefined;
   /** Reset all data */
   reset: () => void;
+}
+
+// ---------------------------------------------------------------------------
+// Optimistic message tracking (module-level, not in store state to avoid
+// unnecessary re-renders when the set changes)
+// ---------------------------------------------------------------------------
+
+const optimisticIds = new Set<string>();
+
+export function markOptimistic(id: string) {
+  optimisticIds.add(id);
+}
+
+export function isOptimistic(id: string): boolean {
+  return optimisticIds.has(id);
 }
 
 // ---------------------------------------------------------------------------
@@ -120,18 +139,72 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       return { messages: newMessages };
     }),
 
+  removePart: (messageId, partId) =>
+    set((state) => {
+      const newMessages = { ...state.messages };
+      for (const sessionId of Object.keys(newMessages)) {
+        const msgs = newMessages[sessionId];
+        const msgIdx = msgs.findIndex((m) => m.info.id === messageId);
+        if (msgIdx >= 0) {
+          const msg = msgs[msgIdx];
+          const updatedMsg = {
+            ...msg,
+            parts: msg.parts.filter((p) => p.id !== partId),
+          };
+          newMessages[sessionId] = msgs.map((m, i) =>
+            i === msgIdx ? updatedMsg : m,
+          );
+          break;
+        }
+      }
+      return { messages: newMessages };
+    }),
+
+  appendPartDelta: (messageId, partId, sessionId, field, delta) =>
+    set((state) => {
+      const msgs = state.messages[sessionId];
+      if (!msgs) return state;
+
+      const msgIdx = msgs.findIndex((m) => m.info.id === messageId);
+      if (msgIdx < 0) return state;
+
+      const msg = msgs[msgIdx];
+      let partIdx = msg.parts.findIndex((p) => p.id === partId);
+
+      let updatedParts: Part[];
+      if (partIdx < 0) {
+        // Part doesn't exist yet — create a stub text part
+        const stub: Part = { type: 'text', id: partId, [field]: delta } as any;
+        updatedParts = [...msg.parts, stub];
+      } else {
+        updatedParts = msg.parts.map((p, i) => {
+          if (i !== partIdx) return p;
+          return { ...p, [field]: ((p as any)[field] || '') + delta };
+        });
+      }
+
+      const updatedMsg = { ...msg, parts: updatedParts };
+      const newMsgs = msgs.map((m, i) => (i === msgIdx ? updatedMsg : m));
+
+      return {
+        messages: { ...state.messages, [sessionId]: newMsgs },
+      };
+    }),
+
   setStatus: (sessionId, status) =>
     set((state) => ({
       sessionStatus: { ...state.sessionStatus, [sessionId]: status },
     })),
 
-  addOptimisticMessage: (sessionId, msg) =>
+  addOptimisticMessage: (sessionId, msg) => {
+    optimisticIds.add(msg.info.id);
     set((state) => {
       const existing = state.messages[sessionId] || [];
       return {
         messages: { ...state.messages, [sessionId]: [...existing, msg] },
       };
-    }),
+    });
+  },
 
   addPermission: (sessionId, permission) =>
     set((state) => ({

@@ -11,7 +11,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import EventSource from 'react-native-sse';
 import { log } from '@/lib/logger';
 import { getAuthToken } from '@/api/config';
-import { useSyncStore } from './sync-store';
+import { useSyncStore, isOptimistic } from './sync-store';
 import { platformKeys } from '@/lib/platform/hooks';
 import type { MessageWithParts, Part, SessionStatus } from './types';
 
@@ -47,11 +47,46 @@ export function useOpenCodeEventStream(sandboxUrl: string | undefined) {
 
     switch (type) {
       case 'message.updated': {
-        const sessionId = props.info?.sessionID;
-        if (!sessionId) break;
-        syncStore.getState().upsertMessage(sessionId, {
-          info: props.info,
-          parts: props.parts || [],
+        const info = props.info;
+        const sessionId = info?.sessionID;
+        if (!sessionId || !info) break;
+
+        const state = syncStore.getState();
+        const existing = state.messages[sessionId] || [];
+
+        // When a real user message arrives from the server, swap out any
+        // optimistic user messages so the bubble doesn't vanish or duplicate.
+        if (info.role === 'user' && !isOptimistic(info.id)) {
+          const optimisticMsgs = existing.filter(
+            (m) => m.info.role === 'user' && isOptimistic(m.info.id),
+          );
+          if (optimisticMsgs.length > 0) {
+            // Use the optimistic message's parts as bridge so the user
+            // bubble text stays visible until real parts arrive.
+            const bridgeParts = optimisticMsgs[0]?.parts || [];
+            const optimisticIdSet = new Set(optimisticMsgs.map((m) => m.info.id));
+            const withoutOptimistic = existing.filter(
+              (m) => !optimisticIdSet.has(m.info.id),
+            );
+            // Insert real message with bridge parts
+            syncStore.setState({
+              messages: {
+                ...syncStore.getState().messages,
+                [sessionId]: [
+                  ...withoutOptimistic,
+                  { info, parts: bridgeParts },
+                ],
+              },
+            });
+            break;
+          }
+        }
+
+        // For non-optimistic swaps: preserve existing parts
+        const existingMsg = existing.find((m) => m.info.id === info.id);
+        state.upsertMessage(sessionId, {
+          info,
+          parts: existingMsg?.parts || [],
         });
         break;
       }
@@ -65,9 +100,48 @@ export function useOpenCodeEventStream(sandboxUrl: string | undefined) {
       }
 
       case 'message.part.updated': {
-        const { messageID, ...part } = props;
-        if (messageID && part) {
-          syncStore.getState().upsertPart(messageID, part as Part);
+        const part = props.part || props;
+        const messageID = part?.messageID || props.messageID;
+        if (!messageID || !part) break;
+
+        const sessionID = part.sessionID || props.sessionID;
+
+        // If the parent message doesn't exist yet, create a stub
+        // (parts can arrive before message.updated)
+        if (sessionID) {
+          const state = syncStore.getState();
+          const msgs = state.messages[sessionID];
+          if (!msgs || !msgs.some((m) => m.info.id === messageID)) {
+            state.upsertMessage(sessionID, {
+              info: {
+                id: messageID,
+                sessionID,
+                role: 'assistant',
+                time: { created: Date.now() },
+              },
+              parts: [],
+            });
+          }
+        }
+
+        // Remove messageID/sessionID from the part object
+        const { messageID: _mid, sessionID: _sid, ...cleanPart } = part;
+        syncStore.getState().upsertPart(messageID, cleanPart as Part);
+        break;
+      }
+
+      case 'message.part.removed': {
+        const { messageID, partID } = props;
+        if (messageID && partID) {
+          syncStore.getState().removePart(messageID, partID);
+        }
+        break;
+      }
+
+      case 'message.part.delta': {
+        const { messageID, partID, sessionID, field, delta } = props;
+        if (messageID && partID && sessionID && field && delta) {
+          syncStore.getState().appendPartDelta(messageID, partID, sessionID, field, delta);
         }
         break;
       }
@@ -75,21 +149,58 @@ export function useOpenCodeEventStream(sandboxUrl: string | undefined) {
       case 'session.status': {
         const { sessionID, status } = props;
         if (sessionID && status) {
+          log.log(`📊 [SSE] session.status: ${sessionID} → ${JSON.stringify(status)}`);
           syncStore.getState().setStatus(sessionID, status as SessionStatus);
         }
         break;
       }
 
+      // session.idle is sent when the session finishes processing.
+      // Without this, the UI stays in "Working" state forever.
+      case 'session.idle': {
+        const { sessionID } = props;
+        if (sessionID) {
+          log.log(`✅ [SSE] session.idle: ${sessionID}`);
+          syncStore.getState().setStatus(sessionID, { type: 'idle' });
+        }
+        break;
+      }
+
       case 'session.created':
-      case 'session.updated':
-      case 'session.deleted':
         queryClient.invalidateQueries({ queryKey: platformKeys.sessions() });
         break;
+
+      case 'session.updated': {
+        // session.updated carries the full Session object in props.info,
+        // including the updated title. Update both the sessions list and
+        // the individual session query so the header title refreshes.
+        const info = props.info;
+        log.log(`📝 [SSE] session.updated: id=${info?.id}, title="${info?.title}"`);
+        if (info?.id) {
+          queryClient.setQueryData(platformKeys.session(info.id), info);
+          queryClient.invalidateQueries({ queryKey: platformKeys.sessions() });
+        } else {
+          queryClient.invalidateQueries({ queryKey: platformKeys.sessions() });
+        }
+        break;
+      }
+
+      case 'session.deleted': {
+        const info = props.info;
+        if (info?.id) {
+          queryClient.removeQueries({ queryKey: platformKeys.session(info.id) });
+        }
+        queryClient.invalidateQueries({ queryKey: platformKeys.sessions() });
+        break;
+      }
 
       case 'session.compacted': {
         if (props.sessionID) {
           queryClient.invalidateQueries({
             queryKey: platformKeys.sessionMessages(props.sessionID),
+          });
+          queryClient.invalidateQueries({
+            queryKey: platformKeys.session(props.sessionID),
           });
         }
         break;
@@ -110,10 +221,15 @@ export function useOpenCodeEventStream(sandboxUrl: string | undefined) {
         break;
 
       case 'session.error':
-        if (props.sessionID) log.error(`❌ [SSE] Session error in ${props.sessionID}:`, props.error);
+        if (props.sessionID) {
+          log.error(`❌ [SSE] Session error in ${props.sessionID}:`, props.error);
+          // Set status to idle so the UI stops showing "Working"
+          syncStore.getState().setStatus(props.sessionID, { type: 'idle' });
+        }
         break;
 
       default:
+        log.log(`📨 [SSE] Unhandled event: ${type}`);
         break;
     }
   }, [queryClient]);
@@ -149,7 +265,14 @@ export function useOpenCodeEventStream(sandboxUrl: string | undefined) {
       es.addEventListener('message', (evt: any) => {
         if (!evt?.data) return;
         try {
-          const parsed: SSEEvent = JSON.parse(evt.data);
+          const raw = JSON.parse(evt.data);
+          // SSE wire format is GlobalEvent: { directory, payload: { type, properties } }
+          // Unwrap the payload to get the actual event, matching the web frontend SDK.
+          const parsed: SSEEvent =
+            raw && typeof raw === 'object' && 'payload' in raw
+              ? raw.payload
+              : raw;
+          if (!parsed?.type) return; // skip heartbeats / malformed
           handleEvent(parsed);
         } catch {
           // Ignore parse errors (heartbeats, etc.)
