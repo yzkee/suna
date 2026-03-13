@@ -1,6 +1,6 @@
 ---
 name: opencode
-description: "In-depth reference for how OpenCode works — the AI agent framework that powers this environment. Covers: agents (definition, loading, modes, model assignment), skills (discovery, loading, structure), tools (built-in + custom, permissions), commands (slash commands, frontmatter, routing), sessions (lifecycle, prompting, subagents), config (opencode.jsonc, providers, MCP servers, plugins), and the full REST/SSE API. Load this skill when you need to understand OpenCode internals, debug agent/tool/skill issues, extend the framework, create custom tools, or work with the session API."
+description: "In-depth reference for how OpenCode works — the AI agent framework that powers this environment. Covers: agents (definition, loading, modes, model assignment), skills (discovery, loading, structure), tools (built-in + custom, permissions), commands (slash commands, frontmatter, routing), sessions (lifecycle, prompting, subagents), triggers (cron/webhook/pipedream via agent frontmatter), config (opencode.jsonc, providers, MCP servers, plugins), and the full REST/SSE API. Load this skill when you need to understand OpenCode internals, debug agent/tool/skill issues, extend the framework, create custom tools, work with the session API, or configure triggers. For building and designing agents end-to-end, also load the agent-harness skill."
 ---
 
 # OpenCode — Agent Framework Reference
@@ -490,6 +490,117 @@ Models are referenced as `provider/model-id` throughout the system:
 - In agent frontmatter: `model: anthropic/claude-opus-4-6`
 - In API calls: `{ "providerID": "kortix", "modelID": "kortix/basic" }`
 - In config: `"model": "anthropic/claude-sonnet-4-20250514"`
+
+---
+
+## Triggers
+
+Agents can define automation triggers directly in their frontmatter via the `@kortix/opencode-agent-triggers` plugin.
+
+### What is a Trigger?
+
+A trigger is a declaration in an agent's `.md` frontmatter that causes the agent to execute automatically when a condition is met — without a human sending a message. The plugin discovers agent markdown files, registers triggers with the runtime, and dispatches sessions when they fire.
+
+### Plugin installation
+
+```jsonc
+// opencode.jsonc
+{
+  "plugin": ["@kortix/opencode-agent-triggers"]
+}
+```
+
+### Trigger schema in agent frontmatter
+
+```yaml
+triggers:
+  - name: "Human-readable name"
+    enabled: true
+    source:
+      type: "cron"           # cron | webhook | pipedream
+      # ... type-specific fields
+    context:
+      extract:               # extract template variables from event payload
+        var_name: "data.body.field.path"
+      include_raw: true      # include full raw event in prompt
+    execution:
+      prompt: "Prompt sent to agent when trigger fires. Can use {{ var_name }} templates."
+      session_mode: "new"    # new | reuse
+      agent_name: "override" # optional: use a different agent for execution
+      model_id: "anthropic/claude-haiku-4-6"  # optional model override
+```
+
+### Cron triggers
+
+```yaml
+triggers:
+  - name: "Weekly Reflection"
+    enabled: true
+    source:
+      type: "cron"
+      expr: "0 0 10 * * 6"   # 6-field: seconds minutes hours day month weekday
+      timezone: "UTC"
+    execution:
+      prompt: "Generate a weekly reflection."
+      session_mode: "new"
+```
+
+6-field cron expression: `seconds minutes hours day month weekday`
+
+### Webhook triggers
+
+```yaml
+triggers:
+  - name: "Inbound Event"
+    enabled: true
+    source:
+      type: "webhook"
+      path: "/hooks/inbound"
+      method: "POST"
+      secret: "top-secret"
+    context:
+      extract:
+        sender: "data.body.sender"
+        topic: "data.body.topic"
+    execution:
+      prompt: "Handle event from {{ sender }} about {{ topic }}."
+      session_mode: "reuse"
+```
+
+Webhook URL: `<publicBaseUrl>/<agent-name><path>`. Secret verified via `X-Kortix-OpenCode-Trigger-Secret` header.
+
+### Pipedream triggers (event-driven, third-party)
+
+```yaml
+triggers:
+  - name: "New GitHub Issue"
+    enabled: true
+    source:
+      type: "pipedream"
+      componentKey: "github-new-issue"
+      app: "github"
+      configuredProps:
+        repoFullName: "owner/repo"
+    execution:
+      prompt: "Triage new GitHub issue."
+      session_mode: "new"
+```
+
+### Trigger management tools
+
+| Tool | Action |
+|---|---|
+| `agent_triggers` | List all discovered triggers and runtime state |
+| `sync_agent_triggers` | Re-read agent markdown and refresh trigger state |
+| `cron_triggers` | Create/list/get/update/delete/pause/resume/run cron triggers |
+| `event_triggers` | Manage Pipedream event listeners |
+
+### Trigger runtime
+
+- State stored in `.opencode/agent-triggers/cron-state.json`
+- Agents discovered from `.opencode/agents/` and `~/.config/opencode/agents/`
+- Webhook server starts on plugin load (default port 8099)
+- Triggers are namespaced `{agent}:{trigger}` in the scheduler
 
 ---
 

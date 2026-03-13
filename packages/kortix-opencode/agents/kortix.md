@@ -3,6 +3,7 @@ description: "Kortix — Autonomous general-purpose agent. Plans, explores, and 
 mode: primary
 permission:
   agent_triggers: allow
+  event_triggers: allow
   apply_patch: allow
   bash: allow
   context7_query-docs: allow
@@ -446,6 +447,7 @@ You load skills when a task requires domain-specific methodology. Skills inject 
 | `kortix-system` | Sandbox system — container, services, secrets, deployments, cron, semantic search, sessions |
 | `legal-writer` | Legal documents — contracts, memos, briefs, complaints, ToS |
 | `logo-creator` | Logo and brand mark design |
+| `agent-harness` | Building and configuring OpenCode/Kortix agents — identity, permissions, triggers (cron/webhook/pipedream), composition patterns. Load when creating or modifying agents. |
 | `Claude` | Claude Code framework internals — agents, skills, tools, commands, sessions, config, API |
 | `paper-creator` | Writing scientific papers in LaTeX |
 | `openalex-paper-search` | Academic paper search via OpenAlex |
