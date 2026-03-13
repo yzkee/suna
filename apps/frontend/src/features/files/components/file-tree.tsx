@@ -34,6 +34,7 @@ import {
   useFileCopy,
 } from '../hooks/use-file-mutations';
 import { downloadFile } from '../api/opencode-files';
+import { useDirectoryDownload } from '../hooks/use-directory-download';
 import type { FileNode } from '../types';
 import { getFileIcon } from './file-icon';
 import { DRAG_MIME } from './file-tree-item';
@@ -84,6 +85,8 @@ interface TreeNodeProps {
   creatingInDir: CreatingInDir | null;
   onCreatingInDirSubmit: (name: string) => void;
   onCreatingInDirCancel: () => void;
+  onDownloadDir: (path: string, name: string) => void;
+  isDirDownloading: (path: string) => boolean;
 }
 
 const gitStatusTextColor: Record<GitStatusType, string> = {
@@ -119,6 +122,8 @@ function TreeNode({
   creatingInDir,
   onCreatingInDirSubmit,
   onCreatingInDirCancel,
+  onDownloadDir,
+  isDirDownloading,
 }: TreeNodeProps) {
   const expandedDirs = useFilesStore((s) => s.expandedDirs);
   const toggleDir = useFilesStore((s) => s.toggleDir);
@@ -342,6 +347,19 @@ function TreeNode({
               Download
             </ContextMenuItem>
           )}
+          {isDir && (
+            <ContextMenuItem
+              onClick={() => onDownloadDir(node.path, node.name)}
+              disabled={isDirDownloading(node.path)}
+            >
+              {isDirDownloading(node.path) ? (
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              {isDirDownloading(node.path) ? 'Zipping…' : 'Download as zip'}
+            </ContextMenuItem>
+          )}
           {!isDir && (
             <ContextMenuItem onClick={() => useFilesStore.getState().openHistory(node.path)}>
               <History className="mr-2 h-4 w-4" />
@@ -387,7 +405,7 @@ function TreeNode({
           </ContextMenuItem>
           <ContextMenuItem
             onClick={() => onDelete(node)}
-            className="text-destructive focus:text-destructive"
+            className="text-muted-foreground focus:text-foreground"
           >
             <Trash2 className="mr-2 h-4 w-4" />
             Delete
@@ -412,6 +430,8 @@ function TreeNode({
           creatingInDir={creatingInDir}
           onCreatingInDirSubmit={onCreatingInDirSubmit}
           onCreatingInDirCancel={onCreatingInDirCancel}
+          onDownloadDir={onDownloadDir}
+          isDirDownloading={isDirDownloading}
         />
       )}
     </>
@@ -435,6 +455,8 @@ interface TreeNodeChildrenProps {
   creatingInDir: CreatingInDir | null;
   onCreatingInDirSubmit: (name: string) => void;
   onCreatingInDirCancel: () => void;
+  onDownloadDir: (path: string, name: string) => void;
+  isDirDownloading: (path: string) => boolean;
 }
 
 function InlineCreateInput({
@@ -538,6 +560,8 @@ function TreeNodeChildren({
   creatingInDir,
   onCreatingInDirSubmit,
   onCreatingInDirCancel,
+  onDownloadDir,
+  isDirDownloading,
 }: TreeNodeChildrenProps) {
   const { data: children, isLoading } = useFileList(dirPath);
 
@@ -597,6 +621,8 @@ function TreeNodeChildren({
           creatingInDir={creatingInDir}
           onCreatingInDirSubmit={onCreatingInDirSubmit}
           onCreatingInDirCancel={onCreatingInDirCancel}
+          onDownloadDir={onDownloadDir}
+          isDirDownloading={isDirDownloading}
         />
       ))}
     </>
@@ -645,6 +671,9 @@ export function FileTree() {
     }
     return map;
   }, [diagCountsLookup]);
+
+  // Directory download with progress
+  const { downloadDir, isDownloading: isDirDownloading } = useDirectoryDownload();
 
   // Mutations
   const renameMutation = useFileRename();
@@ -993,6 +1022,8 @@ export function FileTree() {
             creatingInDir={creatingInDir}
             onCreatingInDirSubmit={handleCreatingInDirSubmit}
             onCreatingInDirCancel={handleCreatingInDirCancel}
+            onDownloadDir={downloadDir}
+            isDirDownloading={isDirDownloading}
           />
         </div>
       </ScrollArea>

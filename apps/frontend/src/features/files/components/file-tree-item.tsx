@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   ChevronRight,
   Download,
+  RefreshCw,
   History,
   Pencil,
   Trash2,
@@ -46,6 +47,8 @@ interface FileTreeItemProps {
   isCut?: boolean;
   /** LSP diagnostic counts for this item (aggregated for directories) */
   diagnosticCounts?: { errors: number; warnings: number };
+  /** Whether this item is currently being downloaded (shows spinner in context menu) */
+  isDownloadingItem?: boolean;
 }
 
 // Custom MIME type for internal drag-and-drop
@@ -86,7 +89,7 @@ function getNameSelectionEnd(name: string, isDirectory: boolean): number {
 
 export { DRAG_MIME };
 
-export function FileTreeItem({ node, onClick, onDownload, onRename, onDelete, onHistory, onCopy, onCut, onDropMove, siblingNames, gitStatus, isCut, diagnosticCounts }: FileTreeItemProps) {
+export function FileTreeItem({ node, onClick, onDownload, onRename, onDelete, onHistory, onCopy, onCut, onDropMove, siblingNames, gitStatus, isCut, diagnosticCounts, isDownloadingItem }: FileTreeItemProps) {
   const hasContextMenu = onDownload || onRename || onDelete || onHistory || onCopy || onCut;
 
   const [isRenaming, setIsRenaming] = useState(false);
@@ -298,10 +301,18 @@ export function FileTreeItem({ node, onClick, onDownload, onRename, onDelete, on
           {node.type === 'directory' ? 'Open folder' : 'Open file'}
         </ContextMenuItem>
 
-        {node.type === 'file' && onDownload && (
-          <ContextMenuItem onClick={() => onDownload(node)}>
-            <Download className="mr-2 h-4 w-4" />
-            Download
+        {onDownload && (
+          <ContextMenuItem onClick={() => onDownload(node)} disabled={isDownloadingItem}>
+            {isDownloadingItem ? (
+              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-2 h-4 w-4" />
+            )}
+            {isDownloadingItem
+              ? 'Zipping…'
+              : node.type === 'directory'
+              ? 'Download as zip'
+              : 'Download'}
           </ContextMenuItem>
         )}
 
@@ -358,7 +369,7 @@ export function FileTreeItem({ node, onClick, onDownload, onRename, onDelete, on
             {!onRename && <ContextMenuSeparator />}
             <ContextMenuItem
               onClick={() => onDelete(node)}
-              className="text-destructive focus:text-destructive"
+              className="text-muted-foreground focus:text-foreground"
             >
               <Trash2 className="mr-2 h-4 w-4" />
               Delete
