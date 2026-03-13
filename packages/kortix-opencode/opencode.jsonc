@@ -76,7 +76,6 @@
     "./plugin/worktree.ts",
     "./plugin/kortix-memory/src/index.ts",
     "./plugin/kortix-continuation/index.ts",
-    "./plugin/agent-tunnel/index.ts",
     "./plugin/morph.ts",
     "./plugin/orphan-tool-fixer.ts",
     "./plugin/agent-triggers.ts"

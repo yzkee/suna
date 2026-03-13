@@ -11,10 +11,12 @@
     "./shared": "./src/shared/index.ts",
     "./server": "./src/server/index.ts",
     "./client": "./src/client/index.ts",
+    "./client/cli": "./src/client/cli.ts",
     "./agent": "./src/agent/index.ts"
   },
   "bin": {
-    "agent-tunnel": "src/agent/cli.ts"
+    "agent-tunnel": "src/agent/cli.ts",
+    "agent-tunnel-cli": "src/client/cli.ts"
   },
   "files": [
     "src/"
