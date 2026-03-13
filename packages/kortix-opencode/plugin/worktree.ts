@@ -149,7 +149,7 @@ class WorktreeError extends Error {
 	constructor(
 		message: string,
 		public readonly operation: string,
-		public readonly cause?: unknown,
+		public override readonly cause?: unknown,
 	) {
 		super(`${operation}: ${message}`)
 		this.name = "WorktreeError"
@@ -751,9 +751,9 @@ export const WorktreePlugin: Plugin = async (ctx) => {
 					}
 
 					// Fork session with context (replaces --session resume)
-					const projectId = await getProjectId(worktreePath, client)
-					const { forkedSession, planCopied, delegationsCopied } = await forkWithContext(
-						client,
+					const projectId = await getProjectId(worktreePath, client as any)
+				const { forkedSession, planCopied, delegationsCopied } = await forkWithContext(
+					client as any,
 						toolCtx.sessionID,
 						projectId,
 						async (sid) => {
@@ -811,7 +811,7 @@ export const WorktreePlugin: Plugin = async (ctx) => {
 					}
 
 					// Set pending delete for session.idle (atomic operation)
-					setPendingDelete(database, { branch: session.branch, path: session.path }, client)
+					setPendingDelete(database, { branch: session.branch, path: session.path }, client as any)
 
 					return `Worktree marked for cleanup. It will be removed when this session ends.`
 				},

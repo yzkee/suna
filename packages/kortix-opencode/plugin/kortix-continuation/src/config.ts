@@ -49,6 +49,10 @@ export interface ContinuationThresholds {
 	minWorkDurationMs: number
 	/** Max total continuations per session (absolute safety cap for passive mode) */
 	maxSessionContinuations: number
+	/** Max consecutive aborts/empty responses before passive continuation gives up */
+	maxConsecutiveAborts: number
+	/** Cooldown (ms) between passive continuation attempts — prevents spam */
+	passiveCooldownMs: number
 }
 
 // ─── Full Config ──────────────────────────────────────────────────────────────
@@ -74,6 +78,8 @@ export const DEFAULT_THRESHOLDS: ContinuationThresholds = {
 	abortGracePeriodMs: 3_000,    // 3s grace after abort events
 	minWorkDurationMs: 8_000,     // agent must have worked at least 8s before passive kick-in
 	maxSessionContinuations: 50,  // raised from 20 — passive mode is the safety net
+	maxConsecutiveAborts: 3,      // 3 consecutive aborts/empty responses → stop passive continuation
+	passiveCooldownMs: 5_000,     // 5s minimum between passive continuation attempts
 }
 
 export const DEFAULT_CONFIG: ContinuationConfig = {
@@ -94,6 +100,14 @@ export interface ContinuationState {
 	totalSessionContinuations: number
 	/** Timestamp when the current work cycle started (reset on user message) */
 	workCycleStartedAt: number
+	/** Consecutive aborted/empty responses — circuit breaker for passive mode */
+	consecutiveAborts: number
+	/** Timestamp of last abort in passive mode — for grace period */
+	lastAbortAt: number
+	/** Timestamp of last passive continuation attempt — for cooldown */
+	lastContinuationAt: number
+	/** Whether a continuation prompt is currently in-flight (prevents double-fire) */
+	inflight: boolean
 }
 
 export function createInitialState(): ContinuationState {
@@ -101,6 +115,10 @@ export function createInitialState(): ContinuationState {
 		sessionId: null,
 		totalSessionContinuations: 0,
 		workCycleStartedAt: 0,
+		consecutiveAborts: 0,
+		lastAbortAt: 0,
+		lastContinuationAt: 0,
+		inflight: false,
 	}
 }
 

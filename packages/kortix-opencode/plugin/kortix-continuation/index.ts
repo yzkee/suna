@@ -211,6 +211,9 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 					continuationState.sessionId = currentSessionId
 					continuationState.totalSessionContinuations = 0
 				}
+				// User is back — reset passive circuit breaker and inflight guard
+				continuationState.consecutiveAborts = 0
+				continuationState.inflight = false
 
 				const cleanText = cleanTextForKeywordDetection(messageText)
 
@@ -314,6 +317,11 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 						loopState = recordAbort(loopState)
 						log("info", "[autowork] Abort recorded — grace period active")
 					}
+					// Also track aborts for passive continuation circuit breaker
+					continuationState.lastAbortAt = Date.now()
+					continuationState.consecutiveAborts++
+					continuationState.inflight = false  // clear inflight on abort
+					log("info", `[autowork/passive] Abort recorded — consecutive: ${continuationState.consecutiveAborts}`)
 				}
 
 				if (event.type !== "session.idle") return
@@ -424,20 +432,37 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 					}
 
 					const { text, hadToolCalls } = extractLastAssistantMessage(messages)
+
+					// Track empty/aborted responses for circuit breaker
+					if (!text.trim() && !hadToolCalls) {
+						continuationState.consecutiveAborts++
+						log("info", `[autowork/passive] Empty response detected — consecutive aborts: ${continuationState.consecutiveAborts}`)
+					} else {
+						// Got a real response — reset the circuit breaker
+						continuationState.consecutiveAborts = 0
+					}
+
 					const decision = evaluate(continuationConfig, continuationState, text, hadToolCalls, todos)
 					log("info", `[autowork/passive] ${decision.action} — ${decision.reason}`)
 
 					if (decision.action === "continue" && decision.prompt) {
+						// Set inflight guard before async call
+						continuationState.inflight = true
 						continuationState.totalSessionContinuations++
+						continuationState.lastContinuationAt = Date.now()
 						await client.session.promptAsync({
 							path: { id: sessionId },
 							body: { parts: [{ type: "text" as const, text: decision.prompt }] },
 						}).catch((err: unknown) => {
 							log("warn", `[autowork/passive] promptAsync failed: ${err}`)
+						}).finally(() => {
+							// Clear inflight guard after completion (success or failure)
+							continuationState.inflight = false
 						})
 					}
 				} catch (err) {
 					log("warn", `[autowork/passive] Error: ${err}`)
+					continuationState.inflight = false  // ensure inflight clears on error
 				}
 			} catch (err) {
 				log("warn", `[autowork] event hook error: ${err}`)

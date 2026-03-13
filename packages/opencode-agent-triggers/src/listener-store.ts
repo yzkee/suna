@@ -93,7 +93,7 @@ export class ListenerStore {
     this.refresh()
     const index = this.state.listeners.findIndex((l) => l.id === id)
     if (index < 0) return null
-    const current = this.state.listeners[index]
+    const current = this.state.listeners[index]!
     this.state.listeners[index] = {
       ...current,
       ...patch,
@@ -102,14 +102,14 @@ export class ListenerStore {
       updatedAt: new Date().toISOString(),
     }
     this.write()
-    return this.state.listeners[index]
+    return this.state.listeners[index] ?? null
   }
 
   recordEvent(id: string): EventListenerRecord | null {
     this.refresh()
     const index = this.state.listeners.findIndex((l) => l.id === id)
     if (index < 0) return null
-    const current = this.state.listeners[index]
+    const current = this.state.listeners[index]!
     this.state.listeners[index] = {
       ...current,
       lastEventAt: new Date().toISOString(),
@@ -117,7 +117,7 @@ export class ListenerStore {
       updatedAt: new Date().toISOString(),
     }
     this.write()
-    return this.state.listeners[index]
+    return this.state.listeners[index] ?? null
   }
 
   delete(id: string): boolean {

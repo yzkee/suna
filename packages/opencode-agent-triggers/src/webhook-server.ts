@@ -28,7 +28,7 @@ function extractHeaders(req: IncomingMessage): Record<string, string> {
 /** Match /events/pipedream/<listenerId> */
 function matchPipedreamRoute(pathname: string): string | null {
   const match = pathname.match(/^\/events\/pipedream\/([a-zA-Z0-9_-]+)$/)
-  return match ? match[1] : null
+  return match ? match[1]! : null
 }
 
 export class WebhookTriggerServer {

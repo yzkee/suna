@@ -86,7 +86,7 @@ export async function getProjectId(projectRoot: string, client?: OpencodeClient)
 		}
 
 		// Resolve path (handles both relative and absolute)
-		const gitdirPath = match[1].trim()
+		const gitdirPath = match[1]!.trim()
 		const resolvedGitdir = path.resolve(projectRoot, gitdirPath)
 
 		// The gitdir contains a 'commondir' file pointing to shared .git
@@ -149,15 +149,15 @@ export async function getProjectId(projectRoot: string, client?: OpencodeClient)
 				.map((x) => x.trim())
 				.sort()
 
-			if (roots.length > 0 && /^[a-f0-9]{40}$/i.test(roots[0])) {
-				const projectId = roots[0]
-				// Cache the result
-				try {
-					await Bun.write(cacheFile, projectId)
-				} catch (e) {
-					logWarn(client, "project-id", `Failed to cache project ID: ${e}`)
-				}
-				return projectId
+		if (roots.length > 0 && /^[a-f0-9]{40}$/i.test(roots[0]!)) {
+			const projectId = roots[0]!
+			// Cache the result
+			try {
+				await Bun.write(cacheFile, projectId)
+			} catch (e) {
+				logWarn(client, "project-id", `Failed to cache project ID: ${e}`)
+			}
+			return projectId
 			}
 		} else {
 			const stderr = await new Response(proc.stderr).text()

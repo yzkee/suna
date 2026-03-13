@@ -169,7 +169,7 @@ async function fetchLSSResults(
 		if (!Array.isArray(data) || data.length === 0) return []
 
 		const results: ParsedLSSHit[] = []
-		for (const hit of data[0].hits) {
+		for (const hit of data[0]!.hits) {
 			const parsed = parseLSSFilePath(hit.file_path)
 			if (parsed) {
 				results.push({ ...parsed, score: hit.score })
@@ -193,13 +193,13 @@ function parseLSSFilePath(filePath: string): { source: "observation" | "ltm"; id
 	// obs_{id}.md
 	const obsMatch = filename.match(/^obs_(\d+)\.md$/)
 	if (obsMatch) {
-		return { source: "observation", id: parseInt(obsMatch[1], 10) }
+		return { source: "observation", id: parseInt(obsMatch[1]!, 10) }
 	}
 
 	// ltm_{type}_{id}.md
 	const ltmMatch = filename.match(/^ltm_\w+_(\d+)\.md$/)
 	if (ltmMatch) {
-		return { source: "ltm", id: parseInt(ltmMatch[1], 10) }
+		return { source: "ltm", id: parseInt(ltmMatch[1]!, 10) }
 	}
 
 	return null
@@ -225,11 +225,11 @@ function normalizeBM25(
 
 	for (let i = 0; i < rows.length; i++) {
 		const normalized = range > 0
-			? (positives[i] - min) / range
+			? (positives[i]! - min) / range
 			: 1.0  // single result gets max score
-		map.set(rows[i].id, {
+		map.set(rows[i]!.id, {
 			score: normalized,
-			createdAt: rows[i].createdAt,
+			createdAt: rows[i]!.createdAt,
 		})
 	}
 

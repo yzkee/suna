@@ -104,7 +104,7 @@ function normalizeCodeEditInput(codeEdit: string): string {
   const firstLine = lines[0];
   const lastLine = lines[lines.length - 1];
 
-  if (/^```[\w-]*$/.test(firstLine) && /^```$/.test(lastLine)) {
+  if (/^```[\w-]*$/.test(firstLine!) && /^```$/.test(lastLine!)) {
     return lines.slice(1, -1).join("\n");
   }
 

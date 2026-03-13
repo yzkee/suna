@@ -4,7 +4,8 @@ import { extractObservation, SKIP_TOOLS } from "../../../plugin/kortix-memory/sr
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function extract(tool: string, args: Record<string, unknown>, output = "ok", title?: string) {
-	return extractObservation({ tool, args, output, title }, "ses_test", 1)
+	const result = extractObservation({ tool, args, output, title }, "ses_test", 1)
+	return result ? result.observation : null
 }
 
 // ─── Skip List ───────────────────────────────────────────────────────────────
@@ -249,7 +250,7 @@ describe("session context", () => {
 			"ses_custom",
 			5,
 		)
-		expect(obs!.sessionId).toBe("ses_custom")
-		expect(obs!.promptNumber).toBe(5)
+		expect(obs!.observation.sessionId).toBe("ses_custom")
+		expect(obs!.observation.promptNumber).toBe(5)
 	})
 })

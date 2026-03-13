@@ -169,9 +169,9 @@ class TunnelClient {
         return online.tunnelId;
       }
       if (connections.length > 0) {
-        this.cachedTunnelId = connections[0].tunnelId;
+        this.cachedTunnelId = connections[0]!.tunnelId;
         this.cacheTimestamp = Date.now();
-        return connections[0].tunnelId;
+        return connections[0]!.tunnelId;
       }
     }
 

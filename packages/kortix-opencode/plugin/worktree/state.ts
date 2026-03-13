@@ -201,7 +201,7 @@ export function getSession(db: Database, sessionId: string): Session | null {
 		WHERE id = $id
 	`)
 
-	const row = stmt.get({ $id: sessionId }) as Record<string, string> | null
+	const row = stmt.get({ $id: sessionId }) as { id: string; branch: string; path: string; createdAt: string } | null
 	if (!row) return null
 
 	return {
@@ -240,7 +240,7 @@ export function getAllSessions(db: Database): Session[] {
 		ORDER BY created_at ASC
 	`)
 
-	const rows = stmt.all() as Array<Record<string, string>>
+	const rows = stmt.all() as Array<{ id: string; branch: string; path: string; createdAt: string }>
 	return rows.map((row) => ({
 		id: row.id,
 		branch: row.branch,
@@ -310,7 +310,7 @@ export function getPendingSpawn(db: Database): PendingSpawn | null {
 		WHERE id = 1 AND type = 'spawn'
 	`)
 
-	const row = stmt.get() as Record<string, string> | null
+	const row = stmt.get() as { branch: string; path: string; sessionId: string } | null
 	if (!row) return null
 
 	return {
@@ -391,7 +391,7 @@ export function getPendingDelete(db: Database): PendingDelete | null {
 		WHERE id = 1 AND type = 'delete'
 	`)
 
-	const row = stmt.get() as Record<string, string> | null
+	const row = stmt.get() as { branch: string; path: string } | null
 	if (!row) return null
 
 	return {
