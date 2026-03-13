@@ -10,7 +10,7 @@
  */
 
 import type { Database } from "bun:sqlite"
-import { resolveLLMConfig, callLLM, extractJson, type LLMOptions } from "./llm"
+import { resolveLLMConfig, callLLM, extractJson } from "./llm"
 import { updateObservationEnrichment } from "./db"
 import type { LogFn } from "./types"
 
@@ -58,7 +58,6 @@ interface EnrichedFields {
 
 let db: Database | null = null
 let log: LogFn = () => {}
-let currentOpts: LLMOptions = {}
 
 const queue: EnrichmentItem[] = []
 let processing = false
@@ -72,18 +71,9 @@ let processing = false
 export function initEnrichment(
 	database: Database,
 	logFn: LogFn,
-	opts?: LLMOptions,
 ): void {
 	db = database
 	log = logFn
-	if (opts) currentOpts = opts
-}
-
-/**
- * Update the LLM options (e.g., when the user changes model in the dashboard).
- */
-export function updateEnrichmentOpts(opts: LLMOptions): void {
-	currentOpts = { ...currentOpts, ...opts }
 }
 
 /**
@@ -128,7 +118,7 @@ async function processQueue(): Promise<void> {
 }
 
 async function enrichSingle(item: EnrichmentItem): Promise<EnrichedFields | null> {
-	const config = resolveLLMConfig(currentOpts)
+	const config = resolveLLMConfig()
 	if (!config) return null
 
 	// Build the user message with tool context

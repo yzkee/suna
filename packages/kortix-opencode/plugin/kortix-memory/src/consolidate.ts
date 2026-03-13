@@ -11,14 +11,13 @@
  */
 
 import type { Database } from "bun:sqlite"
-import { getEnv } from "../../../tools/lib/get-env"
 import {
 	getObservationsBySession,
 	getAllLTM,
 	insertLTM,
 	markConsolidated,
 } from "./db"
-import { resolveLLMConfig, callLLM, extractJson, type LLMOptions } from "./llm"
+import { resolveLLMConfig, callLLM, extractJson } from "./llm"
 import type {
 	Observation,
 	LTMEntry,
@@ -26,10 +25,6 @@ import type {
 	ConsolidationResult,
 	LogFn,
 } from "./types"
-
-// ─── Configuration ───────────────────────────────────────────────────────────
-
-export interface ConsolidateOptions extends LLMOptions {}
 
 // ─── Prompts ─────────────────────────────────────────────────────────────────
 
@@ -85,7 +80,6 @@ export async function consolidateMemories(
 	db: Database,
 	sessionId: string,
 	log: LogFn,
-	opts?: ConsolidateOptions,
 ): Promise<ConsolidationResult> {
 	const empty: ConsolidationResult = { newMemories: [] }
 
@@ -93,8 +87,8 @@ export async function consolidateMemories(
 	const observations = getObservationsBySession(db, sessionId)
 	if (observations.length === 0) return empty
 
-	// 2. Resolve LLM provider
-	const config = resolveLLMConfig(opts)
+	// 2. Resolve LLM provider (uses cached provider from chat.params hook)
+	const config = resolveLLMConfig()
 	if (!config) {
 		log("warn", `[memory:consolidate] No LLM provider available — skipping consolidation`)
 		return empty
