@@ -17,11 +17,13 @@ import {
   PanelTop,
   Plus,
   Globe,
+  Monitor,
   TerminalSquare,
   Activity,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTabStore, type Tab, type TabType, DASHBOARD_TAB_ID } from '@/stores/tab-store';
+import { useUserPreferencesStore } from '@/stores/user-preferences-store';
 import { useOpenCodeSessionStatusStore } from '@/stores/opencode-session-status-store';
 import { useOpenCodePendingStore } from '@/stores/opencode-pending-store';
 import { useOpenCodeSessions, opencodeKeys } from '@/hooks/opencode/use-opencode-sessions';
@@ -52,6 +54,8 @@ const TAB_ICONS: Record<TabType, typeof MessageCircle> = {
   preview: Globe,
   terminal: TerminalSquare,
   services: Activity,
+  browser: Globe,
+  desktop: Monitor,
 };
 
 /** Map a pathname to a tab config. Returns null for routes that shouldn't auto-open tabs (e.g. /auth). */
@@ -923,8 +927,9 @@ export function TabBar() {
 
   // ---------------------------------------------------------------------------
   // Keyboard shortcuts — full browser-style tab keybinds
-  // Uses Ctrl-based tab keybinds
   // ---------------------------------------------------------------------------
+  const tabSwitchModifier = useUserPreferencesStore((s) => s.preferences.keyboard.tabSwitchModifier);
+
   useEffect(() => {
     /** Navigate to a tab — all types are pre-mounted, so always use pushState */
     const navigateToTab = (tab: Tab) => {
@@ -944,8 +949,9 @@ export function TabBar() {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      const modHeld = e.ctrlKey;
-      const modOther = e.metaKey;
+      // modHeld: whichever key the user configured (Cmd or Ctrl)
+      const modHeld = tabSwitchModifier === 'meta' ? e.metaKey : e.ctrlKey;
+      const modOther = tabSwitchModifier === 'meta' ? e.ctrlKey : e.metaKey;
 
       // ── New tab: Modifier + T ────────────────────────────────────────
       if (modHeld && !modOther && !e.shiftKey && !e.altKey && e.code === 'KeyT') {
@@ -963,8 +969,8 @@ export function TabBar() {
         return;
       }
 
-      // ── Close tab: Modifier + W ─────────────────────────────────────
-      if (modHeld && !modOther && !e.shiftKey && !e.altKey && e.code === 'KeyW') {
+      // ── Close tab: always Ctrl+W (Cmd+W is intercepted by the browser on macOS)
+      if (e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && e.code === 'KeyW') {
         e.preventDefault();
         const { activeTabId: active, tabs: allTabs } = useTabStore.getState();
         if (active && allTabs[active] && !allTabs[active].pinned) {
@@ -1026,7 +1032,7 @@ export function TabBar() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [setActiveTab, handleClose]);
+  }, [setActiveTab, handleClose, tabSwitchModifier]);
 
   // Scroll active tab into view when it changes
   useEffect(() => {

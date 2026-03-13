@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { useUserPreferencesStore } from '@/stores/user-preferences-store';
 import {
     X,
     Trash2,
@@ -808,16 +809,20 @@ function GeneralTab({ onClose }: { onClose: () => void }) {
 // ============================================================================
 
 function KeyboardShortcutsTab() {
+    const { preferences, setKeyboardPreferences, getModifierLabel } = useUserPreferencesStore();
+    const modifier = preferences.keyboard.tabSwitchModifier;
+    const modLabel = getModifierLabel();
+
     const shortcuts = [
-        { label: 'New tab', keys: 'Ctrl+T' },
+        { label: 'New tab', keys: `${modLabel}+T` },
         { label: 'Close active tab', keys: 'Ctrl+W' },
-        { label: 'Reopen closed tab', keys: 'Ctrl+Shift+T' },
-        { label: 'Next tab', keys: 'Ctrl+Shift+]' },
-        { label: 'Previous tab', keys: 'Ctrl+Shift+[' },
-        { label: 'Next tab (alt)', keys: 'Ctrl+Alt+→' },
-        { label: 'Previous tab (alt)', keys: 'Ctrl+Alt+←' },
-        { label: 'Switch to tab 1-8', keys: 'Ctrl+1 ... Ctrl+8' },
-        { label: 'Switch to last tab', keys: 'Ctrl+9' },
+        { label: 'Reopen closed tab', keys: `${modLabel}+Shift+T` },
+        { label: 'Next tab', keys: `${modLabel}+Shift+]` },
+        { label: 'Previous tab', keys: `${modLabel}+Shift+[` },
+        { label: 'Next tab (alt)', keys: `${modLabel}+Alt+→` },
+        { label: 'Previous tab (alt)', keys: `${modLabel}+Alt+←` },
+        { label: 'Switch to tab 1-8', keys: `${modLabel}+1 ... ${modLabel}+8` },
+        { label: 'Switch to last tab', keys: `${modLabel}+9` },
         { label: 'New session', keys: 'Ctrl+J' },
         { label: 'Command palette', keys: 'Ctrl+K' },
         { label: 'Toggle left sidebar', keys: 'Ctrl+B' },
@@ -831,6 +836,37 @@ function KeyboardShortcutsTab() {
                 <p className="text-sm text-muted-foreground">
                     View and customize keyboard shortcuts for tab navigation.
                 </p>
+            </div>
+
+            {/* Modifier key picker */}
+            <div className="space-y-3">
+                <Label className="text-sm font-medium">Modifier key</Label>
+                <p className="text-xs text-muted-foreground -mt-1">
+                    Choose which modifier key is used for tab shortcuts.
+                </p>
+                <RadioGroup
+                    value={modifier}
+                    onValueChange={(val) =>
+                        setKeyboardPreferences({
+                            tabSwitchModifier: val as 'meta' | 'ctrl',
+                            closeTabModifier: val as 'meta' | 'ctrl',
+                        })
+                    }
+                    className="flex gap-3"
+                >
+                    <div className="flex items-center gap-2">
+                        <RadioGroupItem value="meta" id="mod-meta" />
+                        <Label htmlFor="mod-meta" className="cursor-pointer font-normal">
+                            Cmd <span className="text-muted-foreground">(⌘)</span>
+                        </Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <RadioGroupItem value="ctrl" id="mod-ctrl" />
+                        <Label htmlFor="mod-ctrl" className="cursor-pointer font-normal">
+                            Ctrl <span className="text-muted-foreground">(^)</span>
+                        </Label>
+                    </div>
+                </RadioGroup>
             </div>
 
             {/* All shortcuts reference */}
