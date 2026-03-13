@@ -38,3 +38,5 @@ services:
       - ../../packages/kortix-opencode/opencode.jsonc:/opt/opencode/opencode.jsonc:ro
       - ../../packages/opencode-channels/src:/opt/opencode-channels/src:ro
       - ../../packages/opencode-agent-triggers/src:/opt/opencode-agent-triggers/src:ro
+      # Service scripts (baked-in JS for presentation-viewer, static-web, agent-browser-viewer)
+      - ../services:/opt/services:ro

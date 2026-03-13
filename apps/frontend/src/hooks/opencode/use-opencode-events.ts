@@ -809,14 +809,16 @@ export function useOpenCodeEventStream() {
 
 			// ---- Server disposed ----
 			case "server.instance.disposed": {
-				// Targeted invalidation instead of nuclear opcodeKeys.all.
-				// The old approach refetched project/current, path, sessions,
-				// messages, tools, etc. all at once — causing request storms.
-				// Only invalidate session-level data (sessions + statuses);
-				// project/path data will be refreshed by the SSE reconnect
-				// rehydration logic if the gap is >5s.
+				// Instance dispose means the server rescanned skills, agents,
+				// tools, and commands. Invalidate all cached app metadata so
+				// the UI picks up newly installed marketplace components or
+				// agent-created skills/agents immediately.
 				queryClient.invalidateQueries({ queryKey: opcodeKeys.sessions(), type: 'active' });
 				queryClient.invalidateQueries({ queryKey: opcodeKeys.mcpStatus(), type: 'active' });
+				queryClient.invalidateQueries({ queryKey: opcodeKeys.skills(), type: 'active' });
+				queryClient.invalidateQueries({ queryKey: opcodeKeys.agents(), type: 'active' });
+				queryClient.invalidateQueries({ queryKey: opcodeKeys.toolIds(), type: 'active' });
+				queryClient.invalidateQueries({ queryKey: opcodeKeys.commands(), type: 'active' });
 				break;
 			}
 

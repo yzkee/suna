@@ -140,6 +140,10 @@ export class CoreSupervisor {
       '/usr/local/bin/opencode serve --port 4096 --hostname 0.0.0.0',
       '/usr/local/bin/opencode web --port 3111 --hostname 0.0.0.0',
       '/opt/opencode-channels/src/index.ts',
+      '/opt/services/presentation-viewer.js',
+      '/opt/services/static-web.js',
+      '/opt/services/agent-browser-viewer.js',
+      // Legacy temp file patterns (pre-extraction)
       '/tmp/pres-viewer-server.js',
       '/tmp/static-web-server.js',
     ]

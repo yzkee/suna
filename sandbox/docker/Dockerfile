@@ -100,7 +100,11 @@ COPY sandbox/s6-services/ /etc/s6-overlay/s6-rc.d/
 RUN for svc in svc-kortix-master svc-sshd; do \
         touch "/etc/s6-overlay/s6-rc.d/user/contents.d/${svc}"; \
     done \
-    && chmod +x /etc/s6-overlay/s6-rc.d/svc-*/run
+    && chmod +x /etc/s6-overlay/s6-rc.d/svc-*/run \
+    && chmod +x /etc/s6-overlay/s6-rc.d/svc-*/finish 2>/dev/null || true
+
+# ── Service scripts (baked-in JS — no more /tmp/ temp files) ────────────────
+COPY sandbox/services/ /opt/services/
 
 # Silence spammy base-image desktop finish script
 RUN printf '#!/bin/bash\nPID_FILE="/de-pid"\nif [ ! -r "$PID_FILE" ]; then exit 0; fi\nPARENT_PID=$(cat "$PID_FILE")\nif [ -z "$PARENT_PID" ]; then rm -f "$PID_FILE"; exit 0; fi\nPIDS=$(pstree -p "$PARENT_PID" 2>/dev/null | grep -o "([0-9]\\+)" | grep -o "[0-9]\\+" | grep -v "^${PARENT_PID}$")\n[ -n "$PIDS" ] && echo "$PIDS" | xargs kill -TERM -- 2>/dev/null && sleep 1\nrm -f "$PID_FILE"\nexit 0\n' > /etc/s6-overlay/s6-rc.d/svc-de/finish \
@@ -201,6 +205,7 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
     # ── 11. Fix ownership ── \
     chown -R 1000:1000 /opt/kortix-master /opt/opencode /opt/kortix \
       /opt/opencode-agent-triggers /opt/agent-browser-viewer /opt/opencode-channels \
+      /opt/services \
       2>/dev/null || true && \
     \
     # ── 12. Cleanup ── \

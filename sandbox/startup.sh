@@ -33,7 +33,8 @@ mkdir -p \
   /workspace/.config \
   /workspace/.XDG \
   /workspace/.opencode \
-  /workspace/.opencode/skills
+  /workspace/.opencode/skills \
+  /workspace/.ocx
 
 # ── Migrate legacy symlinks to real dirs ────────────────────────────────────
 # Old images created /workspace/.opencode as a symlink to /workspace/.kortix/.opencode.
@@ -68,14 +69,6 @@ if [ ! -e /workspace/OpenCodeConfig ] && [ ! -L /workspace/OpenCodeConfig ]; the
   ln -s /workspace/.opencode /workspace/OpenCodeConfig
 fi
 
-# ── Initialize ocx (marketplace CLI) ────────────────────────────────────────
-# Ensures ocx.jsonc exists in /workspace/.opencode/ so marketplace installs
-# (ocx add) work immediately without requiring 'ocx init' first.
-if command -v ocx >/dev/null 2>&1 && [ ! -f /workspace/.opencode/ocx.jsonc ]; then
-  echo "[startup] Running ocx init..."
-  ocx init --cwd /workspace 2>/dev/null || echo "[startup] WARNING: ocx init failed (non-fatal)"
-fi
-
 # ── Clean stale browser locks ───────────────────────────────────────────────
 # After unclean shutdown, Chromium singletons prevent agent-browser from starting.
 rm -f /workspace/.browser-profile/SingletonLock \
@@ -92,6 +85,19 @@ rm -f /workspace/.browser-profile/SingletonLock \
 echo "[startup] Fixing workspace ownership..."
 chown -R "$WORKSPACE_UID:$WORKSPACE_GID" /workspace 2>/dev/null || true
 chmod 700 /workspace/.secrets 2>/dev/null || true
+
+# ── Initialize ocx (marketplace CLI) ────────────────────────────────────────
+# Runs AFTER chown so all files ocx creates are owned by abc, not root.
+# This prevents EACCES errors when the frontend PTY runs 'ocx add' as abc.
+if command -v ocx >/dev/null 2>&1; then
+  if [ ! -f /workspace/.opencode/ocx.jsonc ]; then
+    echo "[startup] Running ocx init..."
+    su -s /bin/sh abc -c 'ocx init --cwd /workspace' 2>/dev/null || echo "[startup] WARNING: ocx init failed (non-fatal)"
+  fi
+  # Always ensure registry aliases exist (idempotent)
+  su -s /bin/sh abc -c 'ocx registry add https://master.kortix-registry.pages.dev --name kortix --cwd /workspace -q' 2>/dev/null || true
+  su -s /bin/sh abc -c 'ocx registry add https://registry.kdco.dev --name kdco --cwd /workspace -q' 2>/dev/null || true
+fi
 
 # ── Clean stale sqlite WAL/SHM files ────────────────────────────────────────
 # After container recreate, sqlite WAL/SHM files from the old container can

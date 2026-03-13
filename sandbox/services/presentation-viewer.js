@@ -1,0 +1,167 @@
+const fs = require("fs");
+const path = require("path");
+
+const PRES_ROOT = "/workspace/presentations";
+const VIEWER_TEMPLATE = "/opt/opencode/skills/presentations/viewer.html";
+
+const MIME_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".pdf": "application/pdf",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+};
+
+function getMime(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  return MIME_TYPES[ext] || "application/octet-stream";
+}
+
+function serveFile(filePath) {
+  try {
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      return new Response("Not found: " + filePath, { status: 404 });
+    }
+    const data = fs.readFileSync(filePath);
+    return new Response(data, {
+      headers: { "Content-Type": getMime(filePath), "Cache-Control": "no-cache" },
+    });
+  } catch (e) {
+    return new Response("Error reading file: " + e.message, { status: 500 });
+  }
+}
+
+function buildViewerHtml(presDir, metadata) {
+  if (!fs.existsSync(VIEWER_TEMPLATE)) {
+    return "<html><body><p>Viewer template not found</p></body></html>";
+  }
+  const slides = Object.entries(metadata.slides || {})
+    .map(([num, data]) => ({
+      number: parseInt(num),
+      title: data.title || "Slide " + num,
+      filename: data.filename || "slide_" + String(num).padStart(2, "0") + ".html",
+    }))
+    .sort((a, b) => a.number - b.number);
+
+  const presData = JSON.stringify({
+    title: metadata.title || metadata.presentation_name || "Presentation",
+    slides,
+  });
+
+  const template = fs.readFileSync(VIEWER_TEMPLATE, "utf-8");
+  return template
+    .replace("{{TITLE}}", metadata.title || "Presentation")
+    .replace("{{PRESENTATION_DATA}}", presData);
+}
+
+function listPresentations() {
+  if (!fs.existsSync(PRES_ROOT)) return [];
+  return fs.readdirSync(PRES_ROOT, { withFileTypes: true })
+    .filter(function(d) { return d.isDirectory() && !d.name.startsWith(".") && d.name !== "images"; })
+    .map(function(d) {
+      const metaPath = path.join(PRES_ROOT, d.name, "metadata.json");
+      let meta = { title: d.name, total_slides: 0 };
+      try {
+        if (fs.existsSync(metaPath)) {
+          const m = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+          meta = { title: m.title || d.name, total_slides: Object.keys(m.slides || {}).length };
+        }
+      } catch (e) {}
+      return { name: d.name, title: meta.title, total_slides: meta.total_slides };
+    });
+}
+
+function buildIndexHtml(pres) {
+  const items = pres.map(function(p) {
+    return '<li><a href="/presentations/' + p.name + '/"><span>' + p.title + '</span><span class="count">' + p.total_slides + ' slides</span></a></li>';
+  }).join("");
+  const empty = pres.length === 0 ? '<p class="empty">No presentations yet. Create one with the presentation-gen tool.</p>' : "";
+  return '<!DOCTYPE html><html><head><title>Presentations</title>' +
+    '<style>body{font-family:sans-serif;padding:2rem;max-width:800px;margin:0 auto}' +
+    'h1{font-size:1.5rem;margin-bottom:1.5rem}' +
+    'ul{list-style:none;padding:0}' +
+    'li{margin:0.5rem 0}' +
+    'a{display:flex;align-items:center;gap:0.5rem;padding:0.75rem 1rem;border:1px solid #e5e7eb;border-radius:0.5rem;text-decoration:none;color:inherit}' +
+    'a:hover{background:#f9fafb}' +
+    '.count{font-size:0.75rem;color:#6b7280;margin-left:auto}' +
+    '.empty{color:#6b7280}' +
+    '</style></head><body>' +
+    '<h1>Presentations (' + pres.length + ')</h1>' +
+    '<ul>' + items + '</ul>' +
+    empty +
+    '</body></html>';
+}
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Cache-Control": "no-cache",
+};
+
+Bun.serve({
+  port: 3210,
+  hostname: "0.0.0.0",
+  fetch: function(req) {
+    const url = new URL(req.url);
+    const pathname = decodeURIComponent(url.pathname);
+
+    if (pathname === "/" || pathname === "/index.html") {
+      const pres = listPresentations();
+      const html = buildIndexHtml(pres);
+      return new Response(html, { headers: Object.assign({ "Content-Type": "text/html; charset=utf-8" }, corsHeaders) });
+    }
+
+    const presMatch = pathname.match(/^\/presentations\/([^\/]+)\/?(.*)$/);
+    if (presMatch) {
+      const presName = presMatch[1];
+      const rest = presMatch[2] || "";
+      const presDir = path.join(PRES_ROOT, presName);
+
+      if (!fs.existsSync(presDir)) {
+        return new Response("Presentation not found: " + presName, { status: 404, headers: corsHeaders });
+      }
+
+      const metaPath = path.join(presDir, "metadata.json");
+      let metadata = { slides: {}, title: presName, presentation_name: presName };
+      try {
+        if (fs.existsSync(metaPath)) {
+          metadata = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+        }
+      } catch (e) {}
+
+      if (rest === "" || rest === "viewer" || rest === "viewer.html" || rest === "index.html") {
+        const html = buildViewerHtml(presDir, metadata);
+        return new Response(html, { headers: Object.assign({ "Content-Type": "text/html; charset=utf-8" }, corsHeaders) });
+      }
+
+      if (rest.indexOf("../images/") === 0 || rest.indexOf("%2E%2E/images/") === 0) {
+        const imgName = rest.replace(/^(\.\.\/|%2E%2E\/)images\//, "");
+        return serveFile(path.join(PRES_ROOT, "images", imgName));
+      }
+
+      if (rest.indexOf("images/") === 0) {
+        return serveFile(path.join(PRES_ROOT, "images", rest.slice("images/".length)));
+      }
+
+      return serveFile(path.join(presDir, rest));
+    }
+
+    if (pathname.indexOf("/images/") === 0) {
+      return serveFile(path.join(PRES_ROOT, "images", pathname.slice("/images/".length)));
+    }
+
+    return new Response("Not found", { status: 404, headers: corsHeaders });
+  },
+});
+
+console.log("[presentation-viewer] Ready at http://0.0.0.0:3210");

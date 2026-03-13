@@ -10,6 +10,7 @@ import { buildMergedSpec } from './services/spec-merger'
 import { proxyToOpenCode } from './services/proxy'
 import { SecretStore } from './services/secret-store'
 import { syncAuthToSecrets, startWatcher as startAuthWatcher } from './services/auth-sync'
+import { startHotReload } from './services/opencode-hotreload'
 import envRouter from './routes/env'
 import lssRouter from './routes/lss'
 import proxyRouter from './routes/proxy'
@@ -91,6 +92,10 @@ await syncAuthToSecrets(secretStore).catch(err =>
 )
 // File watcher: auto-sync when auth.json changes at runtime
 startAuthWatcher(secretStore)
+
+// File watcher: auto-dispose OpenCode instance when skills/agents change on disk
+// Handles marketplace installs (via PTY) and agent-created skills/agents.
+startHotReload()
 
 // Updates are Docker image-based — no crash recovery needed
 

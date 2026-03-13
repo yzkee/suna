@@ -5,6 +5,9 @@
 
 echo "[opencode-channels] Starting on port 3456"
 
+# Kill any stale process holding the port (e.g. after unclean shutdown)
+fuser -k 3456/tcp 2>/dev/null || true
+
 if [ "$(id -u)" -eq 0 ]; then
   exec s6-setuidgid abc \
     env HOME=/workspace \

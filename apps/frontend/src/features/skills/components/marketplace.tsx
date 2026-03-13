@@ -109,10 +109,28 @@ async function runPtyCommand(command: string): Promise<string> {
 }
 
 async function installComponentWithOcx(componentName: string) {
-	const output = await runPtyCommand(`ocx add kortix/${componentName}`);
+	// Ensure kortix registry alias exists before adding (idempotent, handles fresh/stale ocx.jsonc)
+	const output = await runPtyCommand(
+		[
+			'ocx registry add https://master.kortix-registry.pages.dev --name kortix -q 2>/dev/null',
+			`ocx add kortix/${componentName} --cwd /workspace 2>&1`,
+		].join('; '),
+	);
+	// Only treat as failure if ocx itself reported a hard error about the component
+	// (not warnings about receipt cleanup or rollback noise)
 	const normalized = output.toLowerCase();
-	if (normalized.includes('error') || normalized.includes('failed')) {
-		throw new Error(output.trim() || 'Install failed');
+	const isInstalled = normalized.includes('installed') || normalized.includes('done');
+	if (!isInstalled) {
+		if (normalized.includes('not found') || normalized.includes('failed to') || normalized.includes('registry alias')) {
+			throw new Error(output.replace(/[\x00-\x1F\x7F-\x9F]/g, '').trim() || 'Install failed');
+		}
+	}
+	// Force OpenCode to rescan skills/agents so the new component is immediately available
+	try {
+		const client = getClient();
+		await client.instance.dispose();
+	} catch {
+		// Non-fatal — skill files are on disk, will be picked up on next restart
 	}
 	return output;
 }
