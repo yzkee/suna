@@ -23,6 +23,12 @@
  *   8. DONE found (not yet verified) → enter verification
  *   9. In verification, no VERIFIED → continue (fix issues)
  *  10. Default → continue working
+ *
+ * E2E Verification mandate:
+ *   VERIFIED is only valid after the agent has provably tested the work
+ *   end-to-end: curl/HTTP requests, browser automation, CLI smoke tests,
+ *   or equivalent human-like validation that the thing actually WORKS.
+ *   "Re-reading files" and "running unit tests" alone are NOT sufficient.
  */
 
 import type { LoopState } from "./config"
@@ -89,14 +95,23 @@ export function stopLoop(state: LoopState): LoopState {
 	return updated
 }
 
-/** Mark the loop as explicitly stopped by user (/autowork-stop) */
+/**
+ * Mark the loop as permanently stopped by user (/autowork-stop).
+ * This is PERMANENT within the session — new user messages do NOT clear it.
+ * The only way to re-enable is a fresh /autowork command.
+ */
 export function markStopped(state: LoopState): LoopState {
 	const updated: LoopState = { ...state, stopped: true }
 	persistLoopState(updated)
 	return updated
 }
 
-/** Clear the stopped flag (called when user sends a new message) */
+/**
+ * Clear the stopped flag.
+ * NOTE: This is NOT called automatically on new user messages anymore.
+ * It is only used if explicitly re-activating via /autowork.
+ * A new /autowork call goes through startLoop() which resets all state anyway.
+ */
 export function clearStopped(state: LoopState): LoopState {
 	const updated: LoopState = { ...state, stopped: false }
 	persistLoopState(updated)
@@ -160,9 +175,9 @@ export function checkLoopSafetyGates(
 	failureResetWindowMs: number,
 	baseCooldownMs: number,
 ): string | null {
-	// Explicitly stopped — wait for user's next message to re-enable
+	// Explicitly stopped by /autowork-stop — permanent until /autowork restarts
 	if (state.stopped) {
-		return "continuation stopped by user — waiting for next message"
+		return "continuation stopped by user (/autowork-stop) — use /autowork to restart"
 	}
 
 	// Abort grace period
@@ -273,7 +288,7 @@ export function evaluateLoop(
 		return {
 			action: "verify",
 			prompt: buildVerificationPrompt(state, todos),
-			reason: "DONE promise detected — entering self-verification",
+			reason: "DONE promise detected — entering E2E verification",
 		}
 	}
 
@@ -302,14 +317,14 @@ export function evaluateLoop(
 			return {
 				action: "verify",
 				prompt: buildVerificationPrompt(state, todos),
-				reason: "DONE re-emitted during verification — re-verifying",
+				reason: "DONE re-emitted during verification — re-verifying E2E",
 			}
 		}
 		// Still in verification, no promises — continue fixing
 		return {
 			action: "continue",
 			prompt: buildVerificationContinuationPrompt(state),
-			reason: "in verification phase — no promises yet, continue fixing",
+			reason: "in E2E verification phase — no promises yet, continue fixing",
 		}
 	}
 
@@ -349,10 +364,13 @@ function buildLoopContinuationPrompt(state: LoopState, todos?: Todo[]): string {
 	}
 
 	parts.push(`Continue working on the next pending item.`)
-	parts.push(`When ALL todos are done and work is verified, emit exactly:`)
+	parts.push(`As you complete each step: verify it worked before moving to the next.`)
+	parts.push(`Don't batch verification at the end — confirm each piece of output as you produce it.`)
+	parts.push(`When ALL todos are done and every step has been verified, emit exactly:`)
 	parts.push(config.completionPromise)
 	parts.push(``)
 	parts.push(`Do NOT emit this promise while any todo item is still pending or in-progress.`)
+	parts.push(`Do NOT emit this promise based on intent — only on observed, confirmed results.`)
 	parts.push(INTERNAL_MARKER)
 
 	return parts.join("\n")
@@ -364,7 +382,7 @@ function buildPrematureDonePrompt(state: LoopState, todoResult: ReturnType<typeo
 
 	parts.push(`[SYSTEM REMINDER - AUTOWORK: PREMATURE DONE DETECTED]`)
 	parts.push(`You emitted <promise>DONE</promise> but your todo list shows unfinished work.`)
-	parts.push(`Do NOT emit DONE until every todo item is completed or cancelled.`)
+	parts.push(`Do NOT emit DONE until every todo item is completed or cancelled AND you have E2E-verified the result.`)
 	parts.push("")
 
 	if (state.taskPrompt) {
@@ -374,7 +392,7 @@ function buildPrematureDonePrompt(state: LoopState, todoResult: ReturnType<typeo
 
 	parts.push(formatRemainingWork(todoResult))
 	parts.push("")
-	parts.push(`Complete the remaining items above, then emit ${config.completionPromise}.`)
+	parts.push(`Complete the remaining items above, verify end-to-end, then emit ${config.completionPromise}.`)
 	parts.push(INTERNAL_MARKER)
 
 	return parts.join("\n")
@@ -385,7 +403,7 @@ function buildVerificationPrompt(state: LoopState, todos?: Todo[]): string {
 	const parts: string[] = []
 
 	parts.push(`[SYSTEM REMINDER - AUTOWORK VERIFICATION]`)
-	parts.push(`You claimed completion. Now you MUST verify your work before the loop ends.`)
+	parts.push(`You claimed completion. Before the loop ends you MUST verify — not assume — that your work is correct.`)
 	parts.push("")
 
 	if (state.taskPrompt) {
@@ -401,19 +419,37 @@ function buildVerificationPrompt(state: LoopState, todos?: Todo[]): string {
 		}
 	}
 
-	parts.push(`Verification checklist (non-negotiable):`)
-	parts.push(`1. Re-read every changed file — confirm correctness and no typos`)
-	parts.push(`2. Run tests, builds, and linters — confirm they all pass`)
-	parts.push(`3. Check every requirement from the original task — confirm each is fully met`)
-	parts.push(`4. Check for regressions — confirm nothing that previously worked is now broken`)
+	parts.push(`Verification is step-by-step, not a final sweep. For every step you complete:`)
+	parts.push(`  → Run it / call it / open it / observe it`)
+	parts.push(`  → Confirm the output is what you expected`)
+	parts.push(`  → Only then move to the next step`)
 	parts.push("")
-	parts.push(`If ALL checks pass, emit exactly:`)
+	parts.push(`Then verify the whole end-to-end:`)
+	parts.push("")
+	parts.push(`1. Every artifact must be confirmed working, not just written.`)
+	parts.push(`   Code runs. Things respond. Output is correct. Prove it — don't assume it.`)
+	parts.push("")
+	parts.push(`2. Exercise the actual output, not the source.`)
+	parts.push(`   Re-reading files is not verification. Run it, observe real output — logs,`)
+	parts.push(`   responses, return values, rendered state — and confirm they are correct.`)
+	parts.push("")
+	parts.push(`3. Trace the full flow from start to finish.`)
+	parts.push(`   Each piece working in isolation is not enough. Walk the complete path`)
+	parts.push(`   a real caller or user would take and confirm every step holds together.`)
+	parts.push("")
+	parts.push(`4. Check for regressions.`)
+	parts.push(`   Anything that worked before your changes must still work.`)
+	parts.push(`   Don't only test what you added — test what you might have broken.`)
+	parts.push("")
+	parts.push(`5. Confirm every requirement is met.`)
+	parts.push(`   Go back to the original task. Each stated requirement must be demonstrably`)
+	parts.push(`   satisfied — not inferred, not partially done, actually done.`)
+	parts.push("")
+	parts.push(`If ALL checks pass: emit exactly:`)
 	parts.push(config.verificationPromise)
 	parts.push("")
-	parts.push(`If ANY check fails, fix the issues, then emit:`)
+	parts.push(`If ANY check fails: fix the issues, then emit:`)
 	parts.push(config.completionPromise)
-	parts.push("")
-	parts.push(`Do NOT emit VERIFIED until you have actually run the checks above.`)
 	parts.push(INTERNAL_MARKER)
 
 	return parts.join("\n")
@@ -424,7 +460,7 @@ function buildVerificationContinuationPrompt(state: LoopState): string {
 	const parts: string[] = []
 
 	parts.push(`[SYSTEM REMINDER - AUTOWORK VERIFICATION CONTINUATION]`)
-	parts.push(`You are in the verification phase. Continue verifying your work.`)
+	parts.push(`You are in the verification phase. Keep going until everything is confirmed working.`)
 	parts.push("")
 
 	if (state.taskPrompt) {
@@ -432,10 +468,14 @@ function buildVerificationContinuationPrompt(state: LoopState): string {
 		parts.push("")
 	}
 
-	parts.push(`Run all remaining verification checks. Fix any issues found.`)
+	parts.push(`Verify step by step — run each piece, observe real output, confirm it's correct.`)
+	parts.push(`Don't move on until the current step is confirmed. Seeing it work is the bar.`)
 	parts.push("")
-	parts.push(`When verification passes: emit ${config.verificationPromise}`)
-	parts.push(`When issues are found and fixed: emit ${config.completionPromise} to re-enter verification`)
+	parts.push(`Fix every failure you find. When all steps pass and the full flow works end-to-end:`)
+	parts.push(`  → emit ${config.verificationPromise}`)
+	parts.push("")
+	parts.push(`If you found and fixed issues, re-enter the verification cycle:`)
+	parts.push(`  → emit ${config.completionPromise}`)
 	parts.push(INTERNAL_MARKER)
 
 	return parts.join("\n")

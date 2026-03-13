@@ -9,7 +9,17 @@
  *   - Keywords in user messages: autowork, ultrawork, ulw, hyperwork, gigawork
  *
  * Stop:
- *   - /autowork-stop (KORTIX_AUTOWORK_STOP marker) — temporary, clears on next user message
+ *   - /autowork-stop (KORTIX_AUTOWORK_STOP marker) — ONLY way to kill the loop.
+ *     This is permanent within the session. A new user message does NOT re-enable.
+ *     (Use /autowork again to re-start.)
+ *
+ * Loop persistence:
+ *   - Once active, the loop SURVIVES new user messages.
+ *   - Human can add context, ask follow-ups, give corrections mid-loop.
+ *   - The agent absorbs the new message and keeps looping.
+ *   - messageCountAtStart is NOT reset — the full promise history is preserved.
+ *   - If user sends /autowork again while loop is active, taskPrompt is updated
+ *     (appended), but the loop continues from its current position — no restart.
  *
  * Robustness:
  *   - Exponential backoff on failures: baseCooldown * 2^min(failures, 5)
@@ -18,11 +28,11 @@
  *   - Abort grace period: skip continuation for 3s after abort events
  *   - Pending question detection: skip if agent is awaiting user answer
  *   - Internal marker on injected prompts prevents keyword re-triggering
- *   - Stop is temporary: next user message re-enables continuation
+ *   - Stop is PERMANENT: only /autowork-stop kills it, /autowork re-starts
  *
  * Hooks:
  *   chat.message  — keyword detection + auto-activation, command detection,
- *                   stop-guard clear on new user message, variant=max on keywords
+ *                   loop persistence on new user messages, variant=max on keywords
  *   event         — session.idle: evaluate active loop or passive continuation,
  *                   inject promptAsync when work should continue
  *                   session.error/aborted: record abort for grace period
@@ -49,13 +59,13 @@ import {
 	startLoop,
 	stopLoop,
 	markStopped,
-	clearStopped,
 	recordAbort,
 	advanceIteration,
 	recordFailure,
 	enterVerification,
 	checkLoopSafetyGates,
 	loadPersistedLoopState,
+	persistLoopState,
 } from "./src/loop"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -188,52 +198,58 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 				const sessionId = input?.sessionID ?? currentSessionId
 				if (sessionId) currentSessionId = sessionId
 
-				// Reset work cycle timing on new user message
+				// Text lives in output.parts, not input
+				const messageText = extractMessageText(output)
+				if (!messageText || !currentSessionId) return
+
+				// Skip if this is a system-injected message (never act on our own prompts)
+				if (isInternalMessage(messageText)) return
+
+				// Reset work cycle timing on new user message (passive continuation only)
 				continuationState.workCycleStartedAt = Date.now()
 				if (currentSessionId && continuationState.sessionId !== currentSessionId) {
 					continuationState.sessionId = currentSessionId
 					continuationState.totalSessionContinuations = 0
 				}
 
-				// Clear stopped state on any new user message (stop is temporary)
-				if (loopState.stopped && currentSessionId) {
-					loopState = clearStopped(loopState)
-					log("info", "[autowork] Stop cleared — re-enabled on new user message")
-				}
-
-				// Text lives in output.parts, not input
-				const messageText = extractMessageText(output)
-				if (!messageText || !currentSessionId) return
-
-				// Skip if this is a system-injected message
-				if (isInternalMessage(messageText)) return
-
 				const cleanText = cleanTextForKeywordDetection(messageText)
 
-				// ── Stop command ──
+				// ── Stop command — ONLY way to kill the loop ──────────────────────
+				// Permanent within the session. Use /autowork to re-start.
 				if (messageText.includes("KORTIX_AUTOWORK_STOP") || /\/autowork-stop\b/.test(messageText)) {
-					loopState = markStopped(loopState)
 					if (loopState.active) loopState = stopLoop(loopState)
+					loopState = markStopped(loopState)
 					continuationConfig.features.continuation = false
-					log("info", "[autowork] Stopped via /autowork-stop")
+					log("info", "[autowork] Permanently stopped via /autowork-stop — use /autowork to restart")
 					return
 				}
 
-				// ── Autowork command (slash command) ──
+				// ── Autowork command (slash command) ──────────────────────────────
 				if (messageText.includes("KORTIX_AUTOWORK") || /\/autowork\b/.test(messageText)) {
 					const task = messageText
 						.replace(/^.*?\/autowork\s*/i, "")
 						.replace(/<!--[\s\S]*?-->/g, "")
 						.trim() || "Unspecified task"
 
-					let msgCount = 0
-					try {
-						const r = await client.session.messages({ path: { id: currentSessionId } }).catch(() => ({ data: [] as any[] }))
-						msgCount = (r.data ?? []).length
-					} catch { /* non-fatal */ }
+					if (loopState.active) {
+						// Loop already running — append new context to taskPrompt, keep looping
+						const updatedPrompt = loopState.taskPrompt
+							? `${loopState.taskPrompt}\n\n[User added context at iteration ${loopState.iteration}]: ${task}`
+							: task
+						loopState = { ...loopState, taskPrompt: updatedPrompt }
+						persistLoopState(loopState)
+						log("info", `[autowork] /autowork received mid-loop — context appended, loop continues`)
+					} else {
+						// Fresh start
+						let msgCount = 0
+						try {
+							const r = await client.session.messages({ path: { id: currentSessionId } }).catch(() => ({ data: [] as any[] }))
+							msgCount = (r.data ?? []).length
+						} catch { /* non-fatal */ }
 
-					loopState = startLoop(task, currentSessionId, msgCount)
-					log("info", `[autowork] Activated via /autowork: "${task.slice(0, 80)}"`)
+						loopState = startLoop(task, currentSessionId, msgCount)
+						log("info", `[autowork] Activated via /autowork: "${task.slice(0, 80)}"`)
+					}
 
 					// Max-thinking mode on explicit command
 					if (output?.message && typeof output.message === "object") {
@@ -242,7 +258,7 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 					return
 				}
 
-				// ── Keyword auto-activation ──
+				// ── Keyword auto-activation ───────────────────────────────────────
 				if (AUTOWORK_KEYWORDS.test(cleanText)) {
 					if (!loopState.active) {
 						const task = cleanText.replace(AUTOWORK_KEYWORDS, "").trim() || messageText.trim()
@@ -256,14 +272,30 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 						loopState = startLoop(task, currentSessionId, msgCount)
 						log("info", `[autowork] Auto-activated by keyword: "${task.slice(0, 80)}"`)
 					} else {
-						log("info", "[autowork] Keyword detected — loop already active")
+						log("info", "[autowork] Keyword detected — loop already active, continuing")
 					}
 
 					// Always set variant=max for autowork keywords
 					if (output?.message && typeof output.message === "object") {
 						output.message.variant = "max"
 					}
+					return
 				}
+
+				// ── Loop is active: new user message absorbed into the loop ───────
+				// The user added context, a correction, or a follow-up.
+				// The loop STAYS ALIVE. Do NOT stop or reset it.
+				// On the next session.idle, the loop will continue from where it was.
+				if (loopState.active) {
+					// Append the user's message as additional context to taskPrompt
+					const updatedPrompt = loopState.taskPrompt
+						? `${loopState.taskPrompt}\n\n[User message at iteration ${loopState.iteration}]: ${messageText.slice(0, 500)}`
+						: messageText.slice(0, 500)
+					loopState = { ...loopState, taskPrompt: updatedPrompt }
+					persistLoopState(loopState)
+					log("info", `[autowork] User message absorbed into active loop — loop continues (iteration ${loopState.iteration})`)
+				}
+
 			} catch { /* non-fatal */ }
 		},
 
