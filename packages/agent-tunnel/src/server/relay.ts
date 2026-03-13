@@ -50,6 +50,16 @@ export class TunnelRelay extends EventEmitter {
   ): void {
     const existing = this.agents.get(tunnelId);
     if (existing) {
+      for (const [requestId, pending] of this.pendingRPCs) {
+        if (pending.tunnelId === tunnelId) {
+          clearTimeout(pending.timer);
+          pending.reject(new TunnelRelayError(
+            TunnelErrorCode.NOT_CONNECTED,
+            'Agent connection replaced',
+          ));
+          this.pendingRPCs.delete(requestId);
+        }
+      }
       try { existing.ws.close(1000, 'replaced by new connection'); } catch {}
       this.emitEvent('connection:replaced', { tunnelId });
     }
@@ -102,7 +112,7 @@ export class TunnelRelay extends EventEmitter {
   }
 
   handleAgentMessage(tunnelId: string, raw: string | Buffer): void {
-    let msg: JsonRpcResponse & { _sig?: string; _nonce?: number };
+    let msg: any;
     try {
       msg = JSON.parse(typeof raw === 'string' ? raw : raw.toString('utf-8'));
     } catch {
@@ -110,16 +120,7 @@ export class TunnelRelay extends EventEmitter {
       return;
     }
 
-    if ('method' in msg && (msg as any).method === 'tunnel.pong') {
-      this.emitEvent('message:pong', { tunnelId, params: (msg as any).params });
-      return;
-    }
-
-    if (!('id' in msg) || !msg.id) {
-      this.emitEvent('message:raw', { tunnelId, message: msg });
-      return;
-    }
-
+    // Verify HMAC signature on ALL messages from agent (including pong)
     const agent = this.agents.get(tunnelId);
     if (agent && msg._sig !== undefined && msg._nonce !== undefined) {
       if (msg._nonce <= agent.lastResponseNonce) {
@@ -131,13 +132,23 @@ export class TunnelRelay extends EventEmitter {
       const payload = JSON.stringify(payloadObj);
 
       if (!verifyMessageSignature(agent.signingKey, payload, _nonce, _sig)) {
-        console.warn(`[tunnel-relay] Invalid response signature from agent ${tunnelId}`);
+        console.warn(`[tunnel-relay] Invalid signature from agent ${tunnelId}`);
         return;
       }
 
       agent.lastResponseNonce = _nonce;
     } else if (agent) {
-      console.warn(`[tunnel-relay] Unsigned response from agent ${tunnelId}, discarding`);
+      console.warn(`[tunnel-relay] Unsigned message from agent ${tunnelId}, discarding`);
+      return;
+    }
+   
+    if ('method' in msg && msg.method === 'tunnel.pong') {
+      this.emitEvent('message:pong', { tunnelId, params: msg.params });
+      return;
+    }
+
+    if (!('id' in msg) || !msg.id) {
+      this.emitEvent('message:raw', { tunnelId, message: msg });
       return;
     }
 

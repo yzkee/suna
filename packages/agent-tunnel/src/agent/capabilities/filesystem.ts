@@ -20,12 +20,12 @@ export function createFilesystemCapability(config: TunnelConfig): Capability {
 
     validatePath(path, config.allowedPaths, config.blockedPaths);
 
-    const content = await readFile(path, { encoding });
     const stats = await stat(path);
-
     if (stats.size > config.maxFileSize) {
       throw new Error(`File exceeds max size (${stats.size} > ${config.maxFileSize})`);
     }
+
+    const content = await readFile(path, { encoding });
 
     return {
       content,

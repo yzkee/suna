@@ -39,6 +39,11 @@ export function createWsHandlers(relay: TunnelRelay, opts?: WsHandlerOptions): W
 
       if (msgSize > maxMessageSize) {
         console.warn(`[tunnel-ws] Oversized message from ${tunnelId}: ${msgSize} bytes (limit: ${maxMessageSize})`);
+        const pending = pendingConnections.get(tunnelId);
+        const ws = pending?.ws;
+        if (ws) {
+          try { ws.close(4002, 'message too large'); } catch {}
+        }
         return;
       }
 
@@ -86,16 +91,6 @@ export function createWsHandlers(relay: TunnelRelay, opts?: WsHandlerOptions): W
         }
 
         return;
-      }
-
-      try {
-        const parsed = JSON.parse(msgStr);
-        if (parsed.method === 'tunnel.pong') {
-          if (heartbeat) {
-            heartbeat.recordPong(tunnelId);
-          }
-        }
-      } catch {
       }
 
       relay.handleAgentMessage(tunnelId, message);

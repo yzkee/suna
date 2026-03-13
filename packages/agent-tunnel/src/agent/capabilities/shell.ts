@@ -53,18 +53,32 @@ export function createShellCapability(config: TunnelConfig): Capability {
       let stderrTruncated = false;
 
       proc.stdout?.on('data', (data: Buffer) => {
-        if (stdout.length < config.shellMaxOutputSize) {
-          stdout += data.toString();
-        } else {
+        if (stdout.length >= config.shellMaxOutputSize) {
           stdoutTruncated = true;
+          return;
+        }
+        const chunk = data.toString();
+        const remaining = config.shellMaxOutputSize - stdout.length;
+        if (chunk.length > remaining) {
+          stdout += chunk.slice(0, remaining);
+          stdoutTruncated = true;
+        } else {
+          stdout += chunk;
         }
       });
 
       proc.stderr?.on('data', (data: Buffer) => {
-        if (stderr.length < config.shellMaxOutputSize) {
-          stderr += data.toString();
-        } else {
+        if (stderr.length >= config.shellMaxOutputSize) {
           stderrTruncated = true;
+          return;
+        }
+        const chunk = data.toString();
+        const remaining = config.shellMaxOutputSize - stderr.length;
+        if (chunk.length > remaining) {
+          stderr += chunk.slice(0, remaining);
+          stderrTruncated = true;
+        } else {
+          stderr += chunk;
         }
       });
 
@@ -76,8 +90,8 @@ export function createShellCapability(config: TunnelConfig): Capability {
         resolve({
           exitCode: code,
           signal,
-          stdout: stdout.slice(0, config.shellMaxOutputSize),
-          stderr: stderr.slice(0, config.shellMaxOutputSize),
+          stdout,
+          stderr,
           stdoutTruncated,
           stderrTruncated,
         });

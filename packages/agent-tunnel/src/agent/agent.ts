@@ -158,17 +158,16 @@ export class TunnelAgent {
       return;
     }
 
-    // ── Heartbeat ping — no signature required ──────────────────────
-    if ('method' in msg && msg.method === 'tunnel.ping') {
-      this.sendPong();
-      return;
-    }
-
-    // ── Verify HMAC signature on all other messages ─────────────────
     if (!this.verifyIncomingSignature(msg, raw)) {
       if ('id' in msg && msg.id) {
         this.sendSignedError(msg.id, -32000, 'Invalid message signature');
       }
+      return;
+    }
+
+    // ── Heartbeat ping (signature verified above) ────────────────────
+    if ('method' in msg && msg.method === 'tunnel.ping') {
+      this.sendPong();
       return;
     }
 
@@ -303,7 +302,7 @@ export class TunnelAgent {
   }
 
   private sendPong(): void {
-    this.send({
+    this.sendSigned({
       jsonrpc: '2.0',
       method: 'tunnel.pong',
       params: {
@@ -314,7 +313,7 @@ export class TunnelAgent {
           platform: platform(),
           arch: arch(),
           osVersion: release(),
-          agentVersion: '0.1.0',
+          agentVersion: '0.1.1',
         },
       },
     });

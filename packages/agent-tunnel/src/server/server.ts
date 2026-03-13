@@ -56,6 +56,10 @@ export function startTunnelServer(config?: TunnelServerConfig): TunnelServer {
 
   app.get('/health', (c) => c.json({ status: 'ok', connections: relay.getConnectedCount() }));
 
+  relay.on('message:pong', (data: { tunnelId: string }) => {
+    heartbeat.recordPong(data.tunnelId);
+  });
+
   heartbeat.start();
 
   const bunServer = Bun.serve({

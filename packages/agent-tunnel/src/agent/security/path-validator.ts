@@ -24,8 +24,13 @@ export function validatePath(
   let resolved: string;
   try {
     resolved = realpathSync(normalized);
-  } catch {
-    resolved = normalized;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      resolved = normalized;
+    } else {
+      throw new Error(`Access denied: cannot resolve path "${path}" (${code})`);
+    }
   }
 
   for (const blocked of blockedPaths) {
