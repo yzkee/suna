@@ -43,7 +43,7 @@ interface ChannelConfigDialogProps {
 
 const CHANNEL_OPTIONS: { type: ChannelType; label: string; icon: React.ComponentType<{ className?: string }>; available: boolean }[] = [
   { type: 'slack', label: 'Slack', icon: SlackIcon, available: true },
-  { type: 'telegram', label: 'Telegram', icon: TelegramIcon, available: false },
+  { type: 'telegram', label: 'Telegram', icon: TelegramIcon, available: true },
   { type: 'discord', label: 'Discord', icon: DiscordIcon, available: false },
   { type: 'whatsapp', label: 'WhatsApp', icon: WhatsAppIcon, available: false },
   { type: 'teams', label: 'Teams', icon: Users, available: false },
