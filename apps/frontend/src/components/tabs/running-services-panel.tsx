@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Activity,
   Braces,
+  CheckCircle2,
   Clock,
   Code2,
   ExternalLink,
@@ -11,19 +12,24 @@ import {
   FolderOpen,
   Gem,
   Globe,
-  Link2,
   Hexagon,
   Loader2,
+  Search,
   Server,
-  Tag,
+  Settings,
   TerminalSquare,
+  X,
   Zap,
   type LucideIcon,
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SpotlightCard } from '@/components/ui/spotlight-card';
+import { Ripple } from '@/components/ui/ripple';
+import { PageHeader } from '@/components/ui/page-header';
 import { useTabStore, openTabAndNavigate, type Tab } from '@/stores/tab-store';
 import { useOpenCodePtyList } from '@/hooks/opencode/use-opencode-pty';
 import { useSandboxServices, type SandboxService } from '@/hooks/use-sandbox-services';
@@ -52,9 +58,10 @@ interface RunningService {
   sourcePath?: string;
   pid?: number;
   hasTab?: boolean;
-  /** Whether this service is managed by the deployer */
   managed?: boolean;
 }
+
+type FilterKey = 'all' | 'apps' | 'terminals';
 
 // ============================================================================
 // Helpers
@@ -76,33 +83,27 @@ function formatTimeAgo(dateStr: string | undefined): string {
   }
 }
 
-const FRAMEWORK_STYLES: Record<string, { bg: string; text: string; label: string; icon: LucideIcon; iconBg: string; iconText: string }> = {
-  nextjs:  { bg: 'bg-zinc-800 dark:bg-zinc-200', text: 'text-white dark:text-zinc-900', label: 'Next.js', icon: Hexagon, iconBg: 'bg-zinc-500/10', iconText: 'text-zinc-600 dark:text-zinc-300' },
-  vite:    { bg: 'bg-purple-500/15', text: 'text-purple-600 dark:text-purple-300', label: 'Vite', icon: Zap, iconBg: 'bg-purple-500/10', iconText: 'text-purple-600 dark:text-purple-400' },
-  cra:     { bg: 'bg-cyan-500/15', text: 'text-cyan-600 dark:text-cyan-300', label: 'CRA', icon: Globe, iconBg: 'bg-cyan-500/10', iconText: 'text-cyan-600 dark:text-cyan-400' },
-  node:    { bg: 'bg-green-500/15', text: 'text-green-600 dark:text-green-300', label: 'Node.js', icon: Hexagon, iconBg: 'bg-green-500/10', iconText: 'text-green-600 dark:text-green-400' },
-  python:  { bg: 'bg-yellow-500/15', text: 'text-yellow-600 dark:text-yellow-300', label: 'Python', icon: Code2, iconBg: 'bg-yellow-500/10', iconText: 'text-yellow-600 dark:text-yellow-400' },
-  static:  { bg: 'bg-blue-500/15', text: 'text-blue-600 dark:text-blue-300', label: 'Static', icon: FileCode2, iconBg: 'bg-blue-500/10', iconText: 'text-blue-600 dark:text-blue-400' },
-  go:      { bg: 'bg-sky-500/15', text: 'text-sky-600 dark:text-sky-300', label: 'Go', icon: Braces, iconBg: 'bg-sky-500/10', iconText: 'text-sky-600 dark:text-sky-400' },
-  ruby:    { bg: 'bg-red-500/15', text: 'text-red-600 dark:text-red-300', label: 'Ruby', icon: Gem, iconBg: 'bg-red-500/10', iconText: 'text-red-600 dark:text-red-400' },
-  java:    { bg: 'bg-orange-500/15', text: 'text-orange-600 dark:text-orange-300', label: 'Java', icon: Code2, iconBg: 'bg-orange-500/10', iconText: 'text-orange-600 dark:text-orange-400' },
-  rust:    { bg: 'bg-amber-500/15', text: 'text-amber-600 dark:text-amber-300', label: 'Rust', icon: Braces, iconBg: 'bg-amber-500/10', iconText: 'text-amber-600 dark:text-amber-400' },
+const FRAMEWORK_LABELS: Record<string, string> = {
+  nextjs: 'Next.js',
+  vite: 'Vite',
+  cra: 'CRA',
+  node: 'Node.js',
+  python: 'Python',
+  static: 'Static',
+  go: 'Go',
+  ruby: 'Ruby',
+  java: 'Java',
+  rust: 'Rust',
 };
 
-function getFrameworkStyle(fw: string) {
+function getFrameworkLabel(fw: string): string | null {
   if (!fw || fw === 'unknown') return null;
-  return FRAMEWORK_STYLES[fw] || { bg: 'bg-muted', text: 'text-muted-foreground', label: fw };
+  return FRAMEWORK_LABELS[fw] || fw;
 }
 
 function shortenPath(path: string): string {
   if (!path) return '';
   return path.replace(/^\/workspace\/?/, '') || '/';
-}
-
-function truncateMiddle(value: string, keepStart = 10, keepEnd = 8): string {
-  if (!value) return '';
-  if (value.length <= keepStart + keepEnd + 1) return value;
-  return `${value.slice(0, keepStart)}...${value.slice(-keepEnd)}`;
 }
 
 function compactUrl(url: string): string {
@@ -120,7 +121,7 @@ function compactUrl(url: string): string {
 // ServiceCard
 // ============================================================================
 
-function ServiceCard({ service }: { service: RunningService }) {
+function ServiceCard({ service, index }: { service: RunningService; index: number }) {
   const handleOpen = useCallback(() => {
     if (service.tabId) {
       const store = useTabStore.getState();
@@ -146,310 +147,132 @@ function ServiceCard({ service }: { service: RunningService }) {
     }
   }, [service]);
 
-  const isDeployment = service.kind === 'deployment' || !!service.deploymentId;
   const isTerminal = service.kind === 'terminal';
-  const kindLabel = isTerminal ? 'terminal' : isDeployment ? 'deployment' : 'preview';
-  const fwStyle = service.framework && service.framework !== 'unknown' ? getFrameworkStyle(service.framework) : null;
-  // If status is unknown but it has an open tab, treat as running
+  const isDeployment = service.kind === 'deployment' || !!service.deploymentId;
   const isRunning = service.status === 'running' || (service.status === 'unknown' && !!service.hasTab);
-  const statusLabel = isRunning ? 'running' : service.status;
+  const fwLabel = service.framework ? getFrameworkLabel(service.framework) : null;
 
-  // Pick icon & color based on framework, falling back to generic icons
-  const Icon = isTerminal
-    ? TerminalSquare
-    : fwStyle?.icon ?? (isDeployment ? Server : Globe);
-  const iconBg = isTerminal
-    ? undefined
-    : (isRunning && fwStyle)
-      ? fwStyle.iconBg
-      : undefined;
-  const iconText = isTerminal
-    ? undefined
-    : (isRunning && fwStyle)
-      ? fwStyle.iconText
-      : undefined;
+  const Icon = isTerminal ? TerminalSquare : isDeployment ? Server : Globe;
 
   return (
-    <button
-      onClick={handleOpen}
-      className={cn(
-        'w-full text-left rounded-xl border transition-all duration-200 cursor-pointer group/card',
-        'bg-card hover:bg-accent/50',
-        'border-border/40 hover:border-border/70',
-        'shadow-sm hover:shadow-md',
-      )}
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8, scale: 0.95 }}
+      transition={{ duration: 0.3, delay: Math.min(index * 0.03, 0.6) }}
     >
-      {/* Top bar: icon + name + status */}
-      <div className="flex items-center gap-3 px-4 pt-3.5 pb-2">
-        {/* Icon */}
-        <div className={cn(
-          'w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0',
-          isRunning
-            ? (iconBg || 'bg-emerald-500/10')
-            : 'bg-muted text-muted-foreground',
-          isRunning && (iconText || 'text-emerald-600 dark:text-emerald-400'),
-        )}>
-          <Icon className="w-[18px] h-[18px]" />
-        </div>
-
-        {/* Name + port */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-[13px] font-semibold text-foreground truncate">
-              {service.name}
-            </span>
-            {service.hasTab && (
-              <Badge variant="outline" className="h-[18px] px-1.5 text-[9px] font-medium border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/5 flex-shrink-0">
-                open
-              </Badge>
-            )}
+      <SpotlightCard className="bg-card border border-border/50">
+        <div onClick={handleOpen} className="p-4 sm:p-5 flex flex-col h-full cursor-pointer group">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="relative">
+              <div className="flex items-center justify-center w-9 h-9 rounded-[10px] bg-muted border border-border/50 shrink-0">
+                <Icon className="h-4.5 w-4.5 text-foreground" />
+              </div>
+              {isRunning && (
+                <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500 border-2 border-background" />
+                </span>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <h3 className="text-sm font-semibold text-foreground truncate">{service.name}</h3>
+                {isRunning ? (
+                  <Badge variant="highlight" className="text-[10px] shrink-0">Running</Badge>
+                ) : (
+                  <Badge variant="secondary" className="text-[10px] shrink-0">{service.status}</Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="text-xs text-muted-foreground">
+                  {isTerminal ? 'Terminal' : isDeployment ? 'Deployment' : 'Preview'}
+                </span>
+                {service.port != null && service.port > 0 && (
+                  <span className="text-xs text-muted-foreground/50 font-mono">:{service.port}</span>
+                )}
+                {fwLabel && (
+                  <span className="text-xs text-muted-foreground/50">{fwLabel}</span>
+                )}
+              </div>
+            </div>
           </div>
-          {service.port != null && service.port > 0 && (
-            <span className="text-[11px] font-mono text-muted-foreground/60 tabular-nums">
-              localhost:{service.port}
-            </span>
-          )}
-        </div>
 
-        {/* Status dot + open button */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <span className={cn(
-            'h-2 w-2 rounded-full flex-shrink-0',
-            isRunning ? 'bg-emerald-500' : 'bg-muted-foreground/40',
-          )} />
-          <div className="opacity-0 group-hover/card:opacity-100 transition-opacity">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="p-1.5 -m-1 rounded-lg hover:bg-muted text-muted-foreground/40 hover:text-muted-foreground transition-colors">
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="left" className="text-xs">
-                {service.hasTab ? 'Focus tab' : 'Open preview'}
-              </TooltipContent>
-            </Tooltip>
+          <div className="h-[34px] mb-3">
+            <p className="text-xs text-muted-foreground/80 leading-relaxed line-clamp-2">
+              {service.proxyUrl ? compactUrl(service.proxyUrl) : service.sourcePath ? shortenPath(service.sourcePath) : service.sessionTitle || '\u00A0'}
+            </p>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-muted-foreground/50">
+              {service.startedAt ? formatTimeAgo(service.startedAt) : ''}
+            </span>
+            <div className="flex items-center gap-1">
+              {service.hasTab && (
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Tab open</Badge>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2.5 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open
+              </Button>
+            </div>
           </div>
         </div>
-      </div>
-
-      {/* Metadata pills */}
-      {(fwStyle || service.sourcePath || service.startedAt || service.pid || service.managed !== undefined || service.id || service.deploymentId || service.sessionId || service.tabId || service.proxyUrl) && (
-        <div className="flex flex-wrap items-center gap-1.5 px-4 pb-3 pt-0.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className={cn(
-                'inline-flex items-center gap-1 text-[10px] font-medium px-2 py-[3px] rounded-md leading-none',
-                isTerminal
-                  ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
-                  : isDeployment
-                    ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300'
-                    : 'bg-sky-500/10 text-sky-700 dark:text-sky-300',
-              )}>
-                {isTerminal ? <TerminalSquare className="h-2.5 w-2.5" /> : isDeployment ? <Server className="h-2.5 w-2.5" /> : <Globe className="h-2.5 w-2.5" />}
-                {kindLabel}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs">
-              Service type
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className={cn(
-                'inline-flex items-center gap-1 text-[10px] font-medium px-2 py-[3px] rounded-md leading-none',
-                isRunning
-                  ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                  : 'bg-muted text-muted-foreground',
-              )}>
-                <span className={cn('h-1.5 w-1.5 rounded-full', isRunning ? 'bg-emerald-500' : 'bg-muted-foreground/50')} />
-                {statusLabel}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs">
-              Service status
-            </TooltipContent>
-          </Tooltip>
-
-          {fwStyle && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className={cn(
-                  'inline-flex items-center text-[10px] font-semibold px-2 py-[3px] rounded-md leading-none',
-                  fwStyle.bg, fwStyle.text,
-                )}>
-                  {fwStyle.label}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">
-                Detected framework
-              </TooltipContent>
-            </Tooltip>
-          )}
-
-          {service.proxyUrl && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/60 bg-muted/50 px-2 py-[3px] rounded-md leading-none">
-                  <Link2 className="h-2.5 w-2.5 flex-shrink-0" />
-                  <span className="font-mono truncate max-w-[180px]">{compactUrl(service.proxyUrl)}</span>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs max-w-[320px] break-all">
-                {service.proxyUrl}
-              </TooltipContent>
-            </Tooltip>
-          )}
-
-          {service.managed !== undefined && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className={cn(
-                  'inline-flex items-center text-[10px] font-medium px-2 py-[3px] rounded-md leading-none',
-                  service.managed
-                    ? 'bg-primary/10 text-primary/70'
-                    : 'bg-muted/60 text-muted-foreground/60',
-                )}>
-                  {service.managed ? 'deployed' : 'manual'}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">
-                {service.managed ? 'Started via the deploy system' : 'Started manually (e.g. from a terminal)'}
-              </TooltipContent>
-            </Tooltip>
-          )}
-
-          {service.id && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/50 bg-muted/40 px-2 py-[3px] rounded-md leading-none font-mono">
-                  <Tag className="h-2.5 w-2.5 flex-shrink-0" />
-                  svc {truncateMiddle(service.id)}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs max-w-[320px] break-all">
-                Service ID: {service.id}
-              </TooltipContent>
-            </Tooltip>
-          )}
-
-          {service.deploymentId && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/50 bg-muted/40 px-2 py-[3px] rounded-md leading-none font-mono">
-                  deploy {truncateMiddle(service.deploymentId)}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs max-w-[320px] break-all">
-                Deployment ID: {service.deploymentId}
-              </TooltipContent>
-            </Tooltip>
-          )}
-
-          {service.sessionId && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/50 bg-muted/40 px-2 py-[3px] rounded-md leading-none font-mono">
-                  session {truncateMiddle(service.sessionId)}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs max-w-[320px] break-all">
-                Session ID: {service.sessionId}
-              </TooltipContent>
-            </Tooltip>
-          )}
-
-          {service.tabId && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/45 bg-muted/30 px-2 py-[3px] rounded-md leading-none font-mono">
-                  tab {truncateMiddle(service.tabId)}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs max-w-[320px] break-all">
-                Tab ID: {service.tabId}
-              </TooltipContent>
-            </Tooltip>
-          )}
-
-          {service.sourcePath && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/50 bg-muted/50 px-2 py-[3px] rounded-md leading-none">
-                  <FolderOpen className="h-2.5 w-2.5 flex-shrink-0" />
-                  <span className="font-mono truncate max-w-[160px]">{shortenPath(service.sourcePath)}</span>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">
-                Working directory: {service.sourcePath}
-              </TooltipContent>
-            </Tooltip>
-          )}
-
-          {service.startedAt && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/50 bg-muted/50 px-2 py-[3px] rounded-md leading-none">
-                  <Clock className="h-2.5 w-2.5 flex-shrink-0" />
-                  <span className="tabular-nums">{formatTimeAgo(service.startedAt)}</span>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">
-                Started {new Date(service.startedAt).toLocaleString()}
-              </TooltipContent>
-            </Tooltip>
-          )}
-
-          {service.pid != null && service.pid > 0 && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex items-center text-[10px] text-muted-foreground/40 bg-muted/40 px-2 py-[3px] rounded-md font-mono tabular-nums leading-none">
-                  PID {service.pid}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">
-                Process ID inside the sandbox
-              </TooltipContent>
-            </Tooltip>
-          )}
-        </div>
-      )}
-
-      {/* Session association */}
-      {service.sessionTitle && (
-        <div className="flex items-center gap-2 px-4 pb-3 pt-0">
-          <div className="h-1 w-1 rounded-full bg-primary/50 flex-shrink-0" />
-          <span className="text-[11px] text-primary/60 truncate leading-none">
-            {service.sessionTitle}
-          </span>
-        </div>
-      )}
-    </button>
+      </SpotlightCard>
+    </motion.div>
   );
 }
 
 // ============================================================================
-// Section header
+// Loading skeleton
 // ============================================================================
 
-function SectionHeader({
-  title,
-  icon: SectionIcon,
-  count,
-}: {
-  title: string;
-  icon: typeof Activity;
-  count: number;
-}) {
+function LoadingSkeleton() {
   return (
-    <div className="flex items-center gap-2 px-4 pt-5 pb-2.5">
-      <SectionIcon className="h-3.5 w-3.5 text-muted-foreground/40" />
-      <span className="text-[11px] font-semibold text-muted-foreground/50 uppercase tracking-wider">
-        {title}
-      </span>
-      <Badge variant="secondary" className="h-[18px] px-1.5 text-[10px] font-mono bg-muted/50 text-muted-foreground/60">
-        {count}
-      </Badge>
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      {[1, 2, 3, 4].map((i) => (
+        <div key={i} className="rounded-2xl border dark:bg-card p-4 sm:p-5">
+          <div className="flex items-center gap-3 mb-3">
+            <Skeleton className="h-9 w-9 rounded-[10px]" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+          </div>
+          <Skeleton className="h-3 w-full mb-1" />
+          <Skeleton className="h-3 w-4/5 mb-3" />
+          <div className="flex justify-end">
+            <Skeleton className="h-8 w-16" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ============================================================================
+// Empty state
+// ============================================================================
+
+function EmptyState() {
+  return (
+    <div className="relative bg-muted/20 rounded-3xl border border-dashed border-border/50 flex flex-col items-center justify-center py-20 px-4 overflow-hidden">
+      <Ripple mainCircleSize={160} mainCircleOpacity={0.12} numCircles={6} />
+      <div className="relative z-10 flex flex-col items-center">
+        <div className="w-16 h-16 bg-muted border rounded-2xl flex items-center justify-center mb-4">
+          <Activity className="h-7 w-7 text-muted-foreground" />
+        </div>
+        <h3 className="text-lg font-semibold text-foreground mb-2">No running services</h3>
+        <p className="text-sm text-muted-foreground text-center leading-relaxed max-w-md">
+          Services will appear here when you deploy apps, open previews, or start terminals.
+        </p>
+      </div>
     </div>
   );
 }
@@ -464,6 +287,8 @@ export function RunningServicesPanel() {
   const { data: sessions } = useOpenCodeSessions();
   const tabs = useTabStore((s) => s.tabs);
   const tabOrder = useTabStore((s) => s.tabOrder);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
 
   const activeServer = useServerStore((s) => {
     return s.servers.find((srv) => srv.id === s.activeServerId) ?? null;
@@ -478,7 +303,6 @@ export function RunningServicesPanel() {
     return map;
   }, [sessions]);
 
-  // Build preview tab lookup by port
   const previewTabByPort = useMemo(() => {
     const map = new Map<number, Tab>();
     for (const id of tabOrder) {
@@ -496,15 +320,11 @@ export function RunningServicesPanel() {
     const terminals: RunningService[] = [];
     const seenPorts = new Set<number>();
 
-    // ── 1. Start from backend services (the source of truth) ──
     if (services) {
       for (const svc of services) {
         seenPorts.add(svc.port);
-
-        // Check if there's a preview tab open for this port
         const tab = previewTabByPort.get(svc.port);
 
-        // Session context from the tab
         let sessionTitle: string | undefined;
         if (tab) {
           const sourceSessionId = tab.metadata?.sourceSessionId as string | undefined;
@@ -515,7 +335,6 @@ export function RunningServicesPanel() {
           }
         }
 
-        // Build proxy URL for services without a tab
         let proxyUrl = tab ? ((tab.metadata?.url as string) || '') : '';
         if (!proxyUrl) {
           const subdomainOpts = getSubdomainOpts();
@@ -525,7 +344,6 @@ export function RunningServicesPanel() {
               || getProxyBaseUrl(svc.port, serverUrl, subdomainOpts);
         }
 
-        // Name: prefer backend service name, fallback to tab title
         const svcNameIsGeneric = !svc.name || svc.name === `service:${svc.port}` || svc.name === `port-${svc.port}`;
         const name = svcNameIsGeneric
           ? (tab?.title || svc.name || `localhost:${svc.port}`)
@@ -552,18 +370,14 @@ export function RunningServicesPanel() {
       }
     }
 
-    // ── 2. Preview tabs that have no matching backend service ──
-    //    (e.g. manually typed localhost URL, or service stopped but tab stayed)
     for (const [port, tab] of previewTabByPort) {
       if (seenPorts.has(port)) continue;
-
       const sourceSessionId = tab.metadata?.sourceSessionId as string | undefined;
       const sourceSessionTitle = tab.metadata?.sourceSessionTitle as string | undefined;
       let sessionTitle = sourceSessionTitle;
       if (!sessionTitle && sourceSessionId) {
         sessionTitle = sessionMap.get(sourceSessionId)?.title;
       }
-
       apps.push({
         id: `app:${port}`,
         kind: 'preview',
@@ -578,7 +392,6 @@ export function RunningServicesPanel() {
       });
     }
 
-    // ── 3. Terminal tabs ──
     const terminalTabs = tabOrder
       .map((id) => tabs[id])
       .filter((t): t is Tab => !!t && t.type === 'terminal');
@@ -598,67 +411,143 @@ export function RunningServicesPanel() {
   }, [tabs, tabOrder, services, previewTabByPort, activeServer, serverUrl, sessionMap]);
 
   const isLoading = servicesLoading || ptysLoading;
-  const totalCount = appServices.length + terminalServices.length;
+
+  const counts = useMemo(() => ({
+    all: appServices.length + terminalServices.length,
+    apps: appServices.length,
+    terminals: terminalServices.length,
+  }), [appServices, terminalServices]);
+
+  const filteredServices = useMemo(() => {
+    let items: RunningService[] = [];
+    if (activeFilter === 'all') items = [...appServices, ...terminalServices];
+    else if (activeFilter === 'apps') items = appServices;
+    else items = terminalServices;
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      items = items.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          s.framework?.toLowerCase().includes(q) ||
+          s.proxyUrl?.toLowerCase().includes(q) ||
+          s.sessionTitle?.toLowerCase().includes(q),
+      );
+    }
+
+    return items;
+  }, [appServices, terminalServices, activeFilter, searchQuery]);
 
   return (
-    <div className="flex flex-col h-full bg-background">
-      {/* Header */}
-      <div className="flex items-center justify-between h-12 px-4 border-b shrink-0">
-        <div className="flex items-center gap-2.5">
-          <Activity className="h-4 w-4 text-foreground/70" />
-          <span className="text-sm font-medium text-foreground">Running Services</span>
-          {totalCount > 0 && (
-            <Badge variant="secondary" className="h-5 px-2 text-[10px] font-mono">
-              {totalCount}
-            </Badge>
-          )}
-        </div>
-        {isLoading && (
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/50" />
-        )}
+    <div className="flex-1 overflow-y-auto">
+      {/* Page header */}
+      <div className="container mx-auto max-w-7xl px-3 sm:px-4 py-4 sm:py-8 animate-in fade-in-0 slide-in-from-bottom-4 duration-500 fill-mode-both">
+        <PageHeader icon={Activity}>
+          <div className="space-y-2 sm:space-y-4">
+            <div className="text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight">
+              <span className="text-primary">Running Services</span>
+            </div>
+          </div>
+        </PageHeader>
       </div>
 
-      {/* Content */}
-      <ScrollArea className="flex-1">
-        {totalCount === 0 && !isLoading ? (
-          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-            <div className="w-14 h-14 rounded-2xl bg-muted/30 flex items-center justify-center mb-4">
-              <Activity className="h-7 w-7 opacity-20" />
+      <div className="container mx-auto max-w-7xl px-3 sm:px-4">
+        {/* Search + filter bar */}
+        <div className="flex items-center gap-2 sm:gap-4 pb-3 sm:pb-4 pt-2 sm:pt-3 animate-in fade-in-0 slide-in-from-bottom-4 duration-500 fill-mode-both delay-75">
+          <div className="flex-1 max-w-md">
+            <div className="relative group">
+              <input
+                type="text"
+                placeholder="Search services..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-11 w-full rounded-2xl border border-input bg-card px-10 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+              />
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors">
+                <Search className="h-4 w-4" />
+              </div>
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded-md p-0.5 transition-colors cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
             </div>
-            <p className="text-sm font-medium">No running services</p>
-            <p className="text-xs text-muted-foreground/50 mt-1.5 text-center px-8 leading-relaxed">
-              Services will appear here when you deploy apps, open previews, or start terminals.
-            </p>
           </div>
-        ) : (
-          <>
-            {appServices.length > 0 && (
-              <>
-                <SectionHeader title="Apps & Previews" icon={Globe} count={appServices.length} />
-                <div className="px-4 space-y-2.5">
-                  {appServices.map((s) => (
-                    <ServiceCard key={s.id} service={s} />
+
+          {/* Filter segmented control */}
+          <div className="hidden sm:flex items-center gap-1 rounded-2xl border border-border bg-muted/30 p-1">
+            {([
+              { key: 'all' as FilterKey, label: 'All' },
+              { key: 'apps' as FilterKey, label: 'Apps & Previews' },
+              { key: 'terminals' as FilterKey, label: 'Terminals' },
+            ] as const).map((f) => (
+              <button
+                key={f.key}
+                onClick={() => setActiveFilter(f.key)}
+                className={cn(
+                  'px-3 py-1.5 text-xs font-medium rounded-xl transition-all cursor-pointer',
+                  activeFilter === f.key
+                    ? 'bg-background text-foreground border border-border/50 shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-background/70 border border-transparent',
+                )}
+              >
+                {f.label}
+                {counts[f.key] > 0 && (
+                  <span className="ml-1 tabular-nums opacity-60">{counts[f.key]}</span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Mobile filter */}
+          <div className="sm:hidden">
+            <select
+              value={activeFilter}
+              onChange={(e) => setActiveFilter(e.target.value as FilterKey)}
+              className="h-11 rounded-2xl border border-input bg-card px-3 text-sm"
+            >
+              <option value="all">All ({counts.all})</option>
+              <option value="apps">Apps ({counts.apps})</option>
+              <option value="terminals">Terminals ({counts.terminals})</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="pb-6 sm:pb-8 animate-in fade-in-0 slide-in-from-bottom-4 duration-500 fill-mode-both delay-150">
+          {isLoading ? (
+            <LoadingSkeleton />
+          ) : counts.all === 0 ? (
+            <EmptyState />
+          ) : filteredServices.length === 0 && searchQuery ? (
+            <div className="text-center py-12 text-muted-foreground text-sm">
+              No services matching &ldquo;{searchQuery}&rdquo;
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  {activeFilter === 'all' ? 'All Services' : activeFilter === 'apps' ? 'Apps & Previews' : 'Terminals'}
+                </span>
+                <Badge variant="secondary" className="text-xs tabular-nums">
+                  {filteredServices.length}
+                </Badge>
+              </div>
+
+              <AnimatePresence mode="popLayout">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {filteredServices.map((s, i) => (
+                    <ServiceCard key={s.id} service={s} index={i} />
                   ))}
                 </div>
-              </>
-            )}
-
-            {terminalServices.length > 0 && (
-              <>
-                <SectionHeader title="Terminals" icon={TerminalSquare} count={terminalServices.length} />
-                <div className="px-4 space-y-2.5">
-                  {terminalServices.map((s) => (
-                    <ServiceCard key={s.id} service={s} />
-                  ))}
-                </div>
-              </>
-            )}
-
-            {/* Bottom spacer */}
-            <div className="h-4" />
-          </>
-        )}
-      </ScrollArea>
+              </AnimatePresence>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
