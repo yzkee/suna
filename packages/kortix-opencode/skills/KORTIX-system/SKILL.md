@@ -29,7 +29,11 @@ The Kortix sandbox is a Docker container running Alpine Linux with a full XFCE d
 
 **CRITICAL: Only `/workspace` persists across container restarts/updates. Everything else resets.**
 
-| What persists | Path | Notes |
+The `/workspace` directory is a Docker named volume. It survives container stops, restarts, image updates, and recreates. Everything outside `/workspace` is the ephemeral container layer — gone when the container is recreated from a new image.
+
+### What Persists Automatically
+
+| What | Path | Notes |
 |---|---|---|
 | User files, repos, data | `/workspace/*` | The workspace IS the volume |
 | Installed skills (marketplace) | `/workspace/.opencode/skills/` | Survive restarts |
@@ -38,16 +42,55 @@ The Kortix sandbox is a Docker container running Alpine Linux with a full XFCE d
 | Browser profile | `/workspace/.browser-profile/` | Chrome data |
 | Semantic search index | `/workspace/.lss/` | Rebuilt automatically if missing |
 | Sandbox state | `/workspace/.kortix/` | Update status, loop state |
-| `pip install --user` packages | `/workspace/.local/lib/python3.12/` | Uses `--user` flag |
-| npm projects in `/workspace/` | `/workspace/<project>/node_modules/` | Project-local installs |
+| **pip packages** | `/workspace/.local/lib/python3.*/` | `PIP_USER=1` + `PYTHONUSERBASE=/workspace/.local` — **all pip installs auto-persist** |
+| **npm -g packages** | `/workspace/.npm-global/` | `NPM_CONFIG_PREFIX=/workspace/.npm-global` — **all npm -g installs auto-persist** |
+| npm project packages | `/workspace/<project>/node_modules/` | Project-local installs in workspace |
+| **apk packages (via manifest)** | `/workspace/.kortix/packages/apk-packages.txt` | Use `apk-persist` — **auto-restored on boot** |
 
-| What does NOT persist | Path | Notes |
+### What Does NOT Persist (Ephemeral Layer)
+
+| What | Path | Notes |
 |---|---|---|
-| `apt install` / `apk add` packages | `/usr/bin/`, `/usr/lib/` | **Gone on restart.** Container layer is ephemeral. |
-| `npm install -g` packages | `/usr/local/lib/` | **Gone on restart.** |
-| `pip install` (without --user) | `/lsiopy/lib/python3.12/` | **Gone on restart.** |
+| Raw `apk add` (without wrapper) | `/usr/bin/`, `/usr/lib/` | **Gone on restart.** Use `apk-persist` instead. |
 | System config changes | `/etc/` | **Gone on restart.** |
 | Files in `/opt/`, `/tmp/`, `/root/` | Various | **Gone on restart.** |
+
+### How to Install Packages (Persistent)
+
+```bash
+# Python packages — just use pip, it auto-persists
+pip install requests pandas flask
+# Persists to /workspace/.local/ — survives restarts, no flags needed
+
+# npm global packages — just use npm -g, it auto-persists
+npm install -g typescript ts-node prettier
+# Persists to /workspace/.npm-global/ — survives restarts
+
+# System (apk) packages — use the apk-persist wrapper
+apk-persist ffmpeg imagemagick sqlite
+# Installs AND saves to manifest — auto-restored on container restart
+
+# View saved apk packages
+apk-persist --list
+```
+
+### How It Works (Update-Safe)
+
+When a new image is pulled and the container is recreated:
+1. `/workspace` volume is preserved (Docker volume survives container lifecycle)
+2. **pip** packages are already in `/workspace/.local/` — just work
+3. **npm -g** packages are already in `/workspace/.npm-global/` — just work
+4. **apk** packages are re-installed from `/workspace/.kortix/packages/apk-packages.txt` by the `99-restore-packages` init script
+5. **PATH** is set globally via ENV: `/workspace/.npm-global/bin:/workspace/.local/bin:...`
+
+### Key ENV Variables for Persistence
+
+| Variable | Value | Effect |
+|---|---|---|
+| `PYTHONUSERBASE` | `/workspace/.local` | pip writes to persistent volume |
+| `PIP_USER` | `1` | Forces `--user` on all pip installs |
+| `NPM_CONFIG_PREFIX` | `/workspace/.npm-global` | npm -g writes to persistent volume |
+| `PATH` | Includes `/workspace/.npm-global/bin:/workspace/.local/bin` | Persistent binaries always found |
 
 **Rule: If it's not under `/workspace/`, it will not survive a container update or recreate. Always store persistent data under `/workspace/`.**
 
@@ -587,6 +630,7 @@ description: "Comprehensive description with trigger phrases. The agent reads ON
 | 96 | `96-fix-bun-pty` | Patches bun-pty `.so` files for musl compatibility |
 | 97 | `97-secrets-to-s6-env` | Syncs encrypted secrets → s6 environment. Seeds template keys on first run. |
 | 98 | `98-kortix-env` | ECONNRESET guard for NODE_OPTIONS (crash protection) |
+| 99 | `99-restore-packages` | Restores user-installed apk packages from manifest, verifies pip/npm persistence, injects persistent PATH into s6 |
 
 ## Runtimes & Tools
 
@@ -602,6 +646,7 @@ description: "Comprehensive description with trigger phrases. The agent reads ON
 | `opencode` | OpenCode CLI — `opencode serve` (API), `opencode web` (UI) |
 | `agent-browser` | Headless browser automation (npm global, uses system Chromium) |
 | `ocx` | Marketplace component installer — `ocx add kortix/<name>` |
+| `apk-persist` | Persistent Alpine package installer — installs + saves manifest for auto-restore on restart |
 | `lss-sync` | File watcher for semantic search indexing |
 | `lss` | Semantic search CLI (BM25 + embeddings) |
 | `git`, `curl`, `uv`, `bun` | Standard tooling |

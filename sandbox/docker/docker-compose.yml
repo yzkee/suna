@@ -51,6 +51,9 @@ services:
       - DISPLAY=:1
       - LSS_DIR=/workspace/.lss
       - KORTIX_WORKSPACE=/workspace
+      - PYTHONUSERBASE=/workspace/.local
+      - PIP_USER=1
+      - NPM_CONFIG_PREFIX=/workspace/.npm-global
       - SECRET_FILE_PATH=/workspace/.secrets/.secrets.json
       - SALT_FILE_PATH=/workspace/.secrets/.salt
       # Default: API on host (pnpm run dev). Override for Docker-to-Docker.

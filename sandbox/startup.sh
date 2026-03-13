@@ -27,7 +27,12 @@ mkdir -p \
   /workspace/.local/share/opencode/log \
   /workspace/.local/share/opencode/storage \
   /workspace/.local/share/opencode/snapshot \
+  /workspace/.local/bin \
+  /workspace/.local/lib \
+  /workspace/.npm-global/bin \
+  /workspace/.npm-global/lib \
   /workspace/.kortix \
+  /workspace/.kortix/packages \
   /workspace/.kortix-state \
   /workspace/.secrets \
   /workspace/.config \

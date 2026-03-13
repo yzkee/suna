@@ -184,7 +184,11 @@ _fix_cursor_node
 
 # ── Login profile for SSH sessions ──────────────────────────────────────────
 cat > /config/.profile <<'PROFILE'
-export PATH="$HOME/.local/bin:$PATH"
+# Persistent package paths — pip (--user), npm (-g), and local bins
+export PATH="/workspace/.npm-global/bin:/workspace/.local/bin:$HOME/.local/bin:$PATH"
+export PYTHONUSERBASE=/workspace/.local
+export PIP_USER=1
+export NPM_CONFIG_PREFIX=/workspace/.npm-global
 
 # ── Source .bashrc for login shells ──
 # Login shells (bash -l) only read .profile, not .bashrc. Source it
@@ -252,6 +256,11 @@ alias ls='ls --color=auto'
 alias grep='grep --color=auto'
 alias ..='cd ..'
 alias ...='cd ../..'
+
+# Persistent package management — use these instead of raw apk/pip/npm
+# pip install <pkg>      → auto-persists (PIP_USER=1 → /workspace/.local/)
+# npm install -g <pkg>   → auto-persists (NPM_CONFIG_PREFIX → /workspace/.npm-global/)
+# apk-persist <pkg>      → installs + saves to manifest (auto-restored on restart)
 
 # Load readline config (case-insensitive completion, etc.)
 [ -f "$HOME/.inputrc" ] && export INPUTRC="$HOME/.inputrc"
