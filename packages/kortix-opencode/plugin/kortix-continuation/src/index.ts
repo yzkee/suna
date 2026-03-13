@@ -3,16 +3,17 @@ export {
 	type ContinuationFeatures,
 	type ContinuationThresholds,
 	type ContinuationState,
-	type LoopMode,
-	type LoopConfig,
 	type LoopState,
 	DEFAULT_CONFIG,
 	DEFAULT_FEATURES,
 	DEFAULT_THRESHOLDS,
-	DEFAULT_LOOP_CONFIGS,
+	AUTOWORK_LOOP_CONFIG,
+	AUTOWORK_KEYWORDS,
+	INTERNAL_MARKER,
+	CODE_BLOCK_PATTERN,
+	INLINE_CODE_PATTERN,
 	createInitialState,
 	createInitialLoopState,
-	allFeaturesEnabled,
 	mergeConfig,
 } from "./config"
 
@@ -47,21 +48,19 @@ export {
 } from "./planner"
 
 export {
-	type UltraworkOptions,
-	activateUltrawork,
-	deactivateUltrawork,
-	shouldSuggestUltrawork,
-} from "./ultrawork"
-
-export {
 	type LoopAction,
 	type LoopDecision,
 	evaluateLoop,
 	startLoop,
 	stopLoop,
+	markStopped,
+	clearStopped,
+	recordAbort,
 	advanceIteration,
+	recordFailure,
 	enterVerification,
 	exitVerification,
+	checkLoopSafetyGates,
 	persistLoopState,
 	loadPersistedLoopState,
 } from "./loop"

@@ -1,20 +1,22 @@
 /**
- * Continuation Engine — Core session.idle evaluator
+ * Continuation Engine — Passive session.idle evaluator
  *
- * Combines signals from IntentGate, TodoEnforcer, and safety limits
- * to decide whether to inject a continuation prompt when session goes idle.
+ * Used only when no active autowork loop is running. Combines signals from
+ * IntentGate and TodoEnforcer to decide whether to inject a continuation
+ * prompt when the session goes idle.
  *
- * This is the single entry point called from the plugin's session.idle hook.
- * It does NOT call promptAsync itself — it returns a decision that the
- * plugin hook acts on.
+ * The active autowork loop is handled directly in loop.ts / index.ts.
+ * This engine is the "passive continuation" fallback for when the user
+ * hasn't explicitly started a loop but has incomplete tracked work.
  */
 
 import type { Todo } from "@opencode-ai/sdk"
 import type { ContinuationConfig, ContinuationState } from "./config"
+import { INTERNAL_MARKER } from "./config"
 import { classifyIntent, type IntentResult } from "./intent-gate"
 import { evaluateTodos, formatRemainingWork, type TodoEnforcerResult } from "./todo-enforcer"
 
-// ─── Decision Types ──────────────────────────────────────────────────────────
+// ─── Decision Types ───────────────────────────────────────────────────────────
 
 export type ContinuationAction = "continue" | "stop"
 
@@ -32,23 +34,13 @@ export interface ContinuationDecision {
 	}
 }
 
-// ─── Safety Checks ───────────────────────────────────────────────────────────
+// ─── Safety Checks ────────────────────────────────────────────────────────────
 
 function checkSafetyLimits(
 	config: ContinuationConfig,
 	state: ContinuationState,
 ): string | null {
 	const now = Date.now()
-
-	// Cooldown check
-	if (now - state.lastContinuationAt < config.thresholds.cooldownMs) {
-		return `cooldown: ${config.thresholds.cooldownMs}ms not elapsed`
-	}
-
-	// Consecutive continuation limit
-	if (state.consecutiveContinuations >= config.thresholds.maxContinuations) {
-		return `max consecutive continuations reached (${config.thresholds.maxContinuations})`
-	}
 
 	// Session-wide limit
 	if (state.totalSessionContinuations >= config.thresholds.maxSessionContinuations) {
@@ -66,7 +58,6 @@ function checkSafetyLimits(
 // ─── Continuation Prompt Builder ─────────────────────────────────────────────
 
 function buildContinuationPrompt(
-	intent: IntentResult,
 	todoResult: TodoEnforcerResult | null,
 	state: ContinuationState,
 ): string {
@@ -74,7 +65,7 @@ function buildContinuationPrompt(
 
 	parts.push(`[SYSTEM REMINDER - TODO CONTINUATION]`)
 	parts.push(`You have unfinished work. Continue from where you left off.`)
-	parts.push(`Continuation #${state.consecutiveContinuations + 1} of max ${state.consecutiveContinuations + 5}.`)
+	parts.push(`Session continuations so far: ${state.totalSessionContinuations}.`)
 
 	if (todoResult && todoResult.remainingItems.length > 0) {
 		parts.push("")
@@ -83,20 +74,23 @@ function buildContinuationPrompt(
 
 	parts.push("")
 	parts.push(`Pick up the next pending/in-progress item and continue working. Do not re-explain what was already done.`)
+	parts.push(INTERNAL_MARKER)
 
 	return parts.join("\n")
 }
 
-// ─── Main Evaluator ──────────────────────────────────────────────────────────
+// ─── Main Evaluator ───────────────────────────────────────────────────────────
 
 /**
- * Evaluate whether a session should continue after going idle.
+ * Evaluate whether a session should passively continue after going idle.
+ * Only called when no active autowork loop is running.
  *
- * Call flow:
- *   1. Safety limits → stop if exceeded
- *   2. IntentGate → classify last assistant message
- *   3. TodoEnforcer → check for unfinished tracked work
- *   4. Combine signals → decide
+ * Decision flow:
+ *   1. Feature check — continuation must be enabled
+ *   2. Safety limits — session cap and min work duration
+ *   3. IntentGate — classify last assistant message (stop on completed/blocked/answer)
+ *   4. TodoEnforcer — check for unfinished tracked work → continue if unfinished
+ *   5. Default → stop (conservative)
  */
 export function evaluate(
 	config: ContinuationConfig,
@@ -105,12 +99,10 @@ export function evaluate(
 	hadToolCalls: boolean,
 	todos: Todo[],
 ): ContinuationDecision {
-	// Feature check
 	if (!config.features.continuation) {
 		return { action: "stop", prompt: null, reason: "continuation disabled", signals: {} }
 	}
 
-	// Safety limits
 	const safetyViolation = checkSafetyLimits(config, state)
 	if (safetyViolation) {
 		return {
@@ -126,7 +118,6 @@ export function evaluate(
 	if (config.features.intentGate) {
 		intentResult = classifyIntent(lastAssistantText, hadToolCalls, todos)
 
-		// Hard stops from intent classification
 		if (intentResult.intent === "completed") {
 			return { action: "stop", prompt: null, reason: "intent: completed", signals: { intent: intentResult } }
 		}
@@ -139,9 +130,12 @@ export function evaluate(
 		if (intentResult.intent === "answer") {
 			return { action: "stop", prompt: null, reason: "intent: answer-only", signals: { intent: intentResult } }
 		}
+		if (intentResult.intent === "blocked-question") {
+			return { action: "stop", prompt: null, reason: "intent: pending question awaiting user", signals: { intent: intentResult } }
+		}
 	}
 
-	// TodoEnforcer — the primary signal for continuation
+	// TodoEnforcer — primary signal for passive continuation
 	let todoResult: TodoEnforcerResult | undefined
 	if (config.features.todoEnforcer) {
 		todoResult = evaluateTodos(todos)
@@ -164,32 +158,21 @@ export function evaluate(
 			}
 		}
 
-		// Unfinished work → continue
 		if (todoResult.verdict === "unfinished") {
-			const prompt = buildContinuationPrompt(
-				intentResult ?? { intent: "unknown", reason: "gate disabled", shouldContinue: true },
-				todoResult,
-				state,
-			)
 			return {
 				action: "continue",
-				prompt,
+				prompt: buildContinuationPrompt(todoResult, state),
 				reason: `todos: ${todoResult.reason}`,
 				signals: { intent: intentResult, todo: todoResult },
 			}
 		}
 	}
 
-	// Intent-only mode (no todo enforcer): rely on intent classification
+	// Intent-only fallback (no todo enforcer)
 	if (intentResult?.shouldContinue) {
-		const prompt = buildContinuationPrompt(
-			intentResult,
-			todoResult ?? null,
-			state,
-		)
 		return {
 			action: "continue",
-			prompt,
+			prompt: buildContinuationPrompt(todoResult ?? null, state),
 			reason: `intent: ${intentResult.reason}`,
 			signals: { intent: intentResult },
 		}

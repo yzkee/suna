@@ -19,6 +19,7 @@ export type Intent =
 	| "planning"            // Laid out a plan, may need to execute
 	| "blocked-human"       // Waiting on the user for input/decision/credentials
 	| "blocked-external"    // Waiting on external dependency (OAuth, API key, etc.)
+	| "blocked-question"    // Waiting for user to answer a question tool call
 	| "completed"           // Explicitly signaled completion
 	| "unknown"             // Can't classify — fall through to other signals
 
@@ -63,6 +64,13 @@ const ANSWER_ONLY_PATTERNS = [
 	/(?:^the (?:answer|reason|explanation) is)/i,
 ]
 
+// Patterns that indicate the agent used the question tool (awaiting user answer)
+const PENDING_QUESTION_PATTERNS = [
+	/\[question tool\]/i,
+	/awaiting your (response|answer|input)/i,
+	/please (answer|respond to) (the|this) question/i,
+]
+
 // Patterns indicating a plan was laid out
 const PLANNING_PATTERNS = [
 	/(?:here'?s? (?:the|my|a) plan)/i,
@@ -88,6 +96,13 @@ export function classifyIntent(
 	// Empty response — likely still processing or error
 	if (!text && !hadToolCalls) {
 		return { intent: "unknown", reason: "empty response", shouldContinue: false }
+	}
+
+	// 0. Check for pending question (agent waiting for user answer)
+	for (const pattern of PENDING_QUESTION_PATTERNS) {
+		if (pattern.test(text)) {
+			return { intent: "blocked-question", reason: "pending question awaiting user", shouldContinue: false }
+		}
 	}
 
 	// 1. Check for explicit completion signals
