@@ -154,6 +154,10 @@ app.use('*', async (c, next) => {
   if (pathname === '/kortix/health') return next()
   // Skip docs endpoints — API docs should be accessible without auth
   if (pathname === '/docs' || pathname === '/docs/openapi.json') return next()
+  // Skip auth for channel webhook endpoints — external services (e.g. Telegram)
+  // send webhook POSTs that cannot carry our INTERNAL_SERVICE_KEY.
+  // The channel adapter verifies authenticity via its own secret token header.
+  if (pathname.startsWith('/channels/api/webhooks/')) return next()
 
   // Skip auth for requests from inside the sandbox (localhost/loopback)
   if (isLocalRequest(c)) return next()

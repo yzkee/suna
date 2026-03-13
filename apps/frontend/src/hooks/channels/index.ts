@@ -31,3 +31,16 @@ export {
   type DetectUrlResult,
   type GenerateManifestResult,
 } from './use-slack-wizard';
+
+export {
+  useTelegramDetectUrl,
+  useTelegramVerifyToken,
+  useTelegramConnect,
+} from './use-telegram-wizard';
+
+export {
+  useNgrokStatus,
+  useNgrokStart,
+  type NgrokStatus,
+  type NgrokStartResult,
+} from './use-ngrok';

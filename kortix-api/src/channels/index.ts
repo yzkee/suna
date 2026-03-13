@@ -24,6 +24,39 @@ for (const [type, adapter] of adapters) {
   adapter.registerRoutes(webhooksRouter);
 }
 
+// ── Telegram webhook proxy ──────────────────────────────────────────────────
+// Telegram is fully sandbox-direct (no DB, no adapter on kortix-api).
+// This proxy just forwards webhook POSTs to the sandbox's kortix-master,
+// which routes them to opencode-channels. The bot validates Telegram's
+// secret token header — no auth needed here.
+// This lets both Slack and Telegram share a single ngrok tunnel on port 8008.
+webhooksRouter.post('/telegram', async (c) => {
+  const sandboxUrl = `http://localhost:${config.SANDBOX_PORT_BASE || 14000}`;
+  const rawBody = await c.req.text();
+
+  const headers: Record<string, string> = {
+    'Content-Type': c.req.header('Content-Type') || 'application/json',
+  };
+  // Pass through Telegram's secret token header for validation by the bot
+  const secretToken = c.req.header('X-Telegram-Bot-Api-Secret-Token');
+  if (secretToken) {
+    headers['X-Telegram-Bot-Api-Secret-Token'] = secretToken;
+  }
+  // Add service key so the sandbox auth middleware lets it through
+  if (config.INTERNAL_SERVICE_KEY) {
+    headers['Authorization'] = `Bearer ${config.INTERNAL_SERVICE_KEY}`;
+  }
+
+  // Fire-and-forget — return 200 immediately (Telegram retries on failure)
+  fetch(`${sandboxUrl}/channels/api/webhooks/telegram`, {
+    method: 'POST',
+    headers,
+    body: rawBody,
+  }).catch(err => console.error('[TELEGRAM] Proxy to sandbox failed:', err));
+
+  return c.text('OK');
+});
+
 channelsApp.route('/webhooks', webhooksRouter);
 
 async function startChannelService(): Promise<void> {

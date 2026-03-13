@@ -13,8 +13,13 @@ import {
   Copy,
   Globe,
   AlertCircle,
+  Terminal,
+  ChevronDown,
+  ChevronUp,
+  Play,
 } from 'lucide-react';
-import { useDetectPublicUrl, useGenerateManifest } from '@/hooks/channels';
+import { useGenerateManifest } from '@/hooks/channels';
+import { useNgrokStatus, useNgrokStart } from '@/hooks/channels';
 import { useSavePlatformCredentials } from '@/hooks/channels';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -29,7 +34,7 @@ type WizardStep = 1 | 2 | 3;
 
 function StepIndicator({ current }: { current: WizardStep }) {
   const steps = [
-    { num: 1 as const, label: 'Detect URL' },
+    { num: 1 as const, label: 'Public URL' },
     { num: 2 as const, label: 'Create App' },
     { num: 3 as const, label: 'Credentials' },
   ];
@@ -78,8 +83,11 @@ export function SlackSetupWizard({ onSaved, onBack, sandboxId }: SlackSetupWizar
   const [step, setStep] = useState<WizardStep>(1);
 
   // Step 1 state
-  const detectQuery = useDetectPublicUrl();
+  const SLACK_PORT = 8008;
+  const ngrokQuery = useNgrokStatus(SLACK_PORT);
+  const ngrokStart = useNgrokStart();
   const [publicUrl, setPublicUrl] = useState('');
+  const [showLocalDev, setShowLocalDev] = useState(false);
 
   // Step 2 state
   const [botName, setBotName] = useState('Kortix Agent');
@@ -93,14 +101,26 @@ export function SlackSetupWizard({ onSaved, onBack, sandboxId }: SlackSetupWizar
   const [signingSecret, setSigningSecret] = useState('');
   const saveMutation = useSavePlatformCredentials();
 
-  // Pre-fill URL when detection completes
+  // Auto-fill URL when ngrok detected
   useEffect(() => {
-    if (detectQuery.data?.detected && detectQuery.data.url && !publicUrl) {
-      setPublicUrl(detectQuery.data.url);
+    if (ngrokQuery.data?.detected && ngrokQuery.data.url && !publicUrl) {
+      setPublicUrl(ngrokQuery.data.url);
     }
-  }, [detectQuery.data, publicUrl]);
+  }, [ngrokQuery.data, publicUrl]);
 
   // Step 1 handlers
+  const handleStartNgrok = async () => {
+    try {
+      const result = await ngrokStart.mutateAsync({ port: SLACK_PORT });
+      if (result.url) {
+        setPublicUrl(result.url);
+        toast.success('ngrok tunnel started');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to start ngrok');
+    }
+  };
+
   const handleStep1Next = () => {
     if (!publicUrl.trim()) {
       toast.error('Please enter a public URL');
@@ -154,64 +174,119 @@ export function SlackSetupWizard({ onSaved, onBack, sandboxId }: SlackSetupWizar
     }
   };
 
+  // Ngrok helpers
+  const ngrokInstalled = ngrokQuery.data?.ngrokInstalled ?? false;
+
   return (
     <div>
       <StepIndicator current={step} />
 
-      {/* Step 1: Detect URL */}
+      {/* Step 1: Public URL */}
       {step === 1 && (
         <div className="space-y-4 px-6 pb-6">
-          <div className="space-y-1">
-            <p className="text-sm text-muted-foreground">
-              Slack needs a public URL to send webhooks. We'll try to detect your ngrok tunnel automatically.
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Make sure your tunnel points to port <span className="font-mono font-medium text-foreground">8008</span> (kortix-api).
-            </p>
-          </div>
+          <p className="text-sm text-muted-foreground">
+            Enter the public URL where Slack will send webhook events.
+            This should point to <span className="font-mono font-medium text-foreground">kortix-api</span> (port {SLACK_PORT}).
+          </p>
 
-          <div className="rounded-xl border p-3">
-            {detectQuery.isLoading ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Detecting ngrok tunnel...
-              </div>
-            ) : detectQuery.data?.detected ? (
-              <div className="flex items-center gap-2 text-sm">
-                <div className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500/15">
-                  <Check className="h-3 w-3 text-emerald-600" />
-                </div>
-                <span className="text-emerald-600 font-medium">
-                  {detectQuery.data.source === 'ngrok' ? 'ngrok tunnel detected' : 'Public URL configured'}
-                </span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 text-sm">
-                <div className="flex items-center justify-center w-5 h-5 rounded-full bg-amber-500/15">
-                  <AlertCircle className="h-3 w-3 text-amber-600" />
-                </div>
-                <span className="text-amber-600 font-medium">
-                  No tunnel detected — enter your public URL manually
-                </span>
-              </div>
-            )}
-          </div>
-
+          {/* URL input — the primary element */}
           <div className="space-y-2">
             <Label htmlFor="public-url">Public URL</Label>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="public-url"
-                  value={publicUrl}
-                  onChange={(e) => setPublicUrl(e.target.value)}
-                  placeholder="https://abc123.ngrok-free.app"
-                  className="pl-9 rounded-xl focus:ring-2 focus:ring-primary/50"
-                />
-              </div>
+            <div className="relative">
+              <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                id="public-url"
+                value={publicUrl}
+                onChange={(e) => setPublicUrl(e.target.value)}
+                placeholder="https://yourdomain.com"
+                className="pl-9 rounded-xl focus:ring-2 focus:ring-primary/50"
+              />
             </div>
           </div>
+
+          {/* Local dev helper — collapsed by default */}
+          <button
+            onClick={() => setShowLocalDev(!showLocalDev)}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
+          >
+            <Terminal className="h-3 w-3" />
+            <span>Local development (ngrok)</span>
+            {showLocalDev ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
+          </button>
+
+          {showLocalDev && (
+            <div className="rounded-xl border bg-muted/30 p-4 space-y-3 text-xs">
+              <p className="text-muted-foreground">
+                If you&apos;re running locally and your machine isn&apos;t publicly reachable,
+                use <a href="https://ngrok.com" target="_blank" rel="noopener noreferrer" className="underline text-foreground">ngrok</a> to
+                create a tunnel to kortix-api.
+              </p>
+
+              {/* Detection status */}
+              <div className="rounded-lg border p-2.5">
+                {ngrokQuery.isLoading ? (
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Detecting tunnel...</span>
+                  </div>
+                ) : ngrokQuery.data?.detected ? (
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-center w-4 h-4 rounded-full bg-emerald-500/15">
+                      <Check className="h-2.5 w-2.5 text-emerald-600" />
+                    </div>
+                    <span className="text-emerald-600 font-medium">Tunnel detected</span>
+                    {ngrokQuery.data.portMatches === false && (
+                      <span className="text-amber-600 ml-1">
+                        (port {ngrokQuery.data.forwardPort} — expected {SLACK_PORT})
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center justify-center w-4 h-4 rounded-full bg-amber-500/15">
+                        <AlertCircle className="h-2.5 w-2.5 text-amber-600" />
+                      </div>
+                      <span className="text-amber-600 font-medium">No tunnel running</span>
+                    </div>
+                    {ngrokInstalled && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleStartNgrok}
+                        disabled={ngrokStart.isPending}
+                        className="rounded-lg text-[11px] h-6 px-2"
+                      >
+                        {ngrokStart.isPending ? (
+                          <>
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            Starting...
+                          </>
+                        ) : (
+                          <>
+                            <Play className="h-3 w-3 mr-1" />
+                            Start on port {SLACK_PORT}
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1.5 text-muted-foreground">
+                <p className="font-medium text-foreground">Manual setup:</p>
+                <pre className="bg-background rounded-lg p-2 font-mono text-[11px] overflow-x-auto">
+                  ngrok http {SLACK_PORT}
+                </pre>
+                <p>
+                  Port <span className="font-mono text-foreground">{SLACK_PORT}</span> is
+                  kortix-api. On a VPS you&apos;d use a reverse proxy (nginx, caddy) pointing
+                  to this port instead.
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="flex justify-between items-center gap-2 pt-2">
             <Button variant="outline" onClick={onBack} className="rounded-xl">
@@ -309,11 +384,11 @@ export function SlackSetupWizard({ onSaved, onBack, sandboxId }: SlackSetupWizar
                         <ExternalLink className="h-3 w-3" />
                       </a>
                     </li>
-                    <li>Click <strong>"Create New App"</strong> then <strong>"From a manifest"</strong></li>
+                    <li>Click <strong>&quot;Create New App&quot;</strong> then <strong>&quot;From a manifest&quot;</strong></li>
                     <li>Select your workspace, click Next</li>
                     <li>Switch to the <strong>JSON</strong> tab, paste the manifest above</li>
                     <li>Click <strong>Next</strong>, review, then <strong>Create</strong></li>
-                    <li>Go to <strong>"Install App"</strong> and install to your workspace</li>
+                    <li>Go to <strong>&quot;Install App&quot;</strong> and install to your workspace</li>
                   </ol>
                 </div>
               </>

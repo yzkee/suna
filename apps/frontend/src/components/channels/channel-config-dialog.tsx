@@ -11,7 +11,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Users,
   Mic,
@@ -29,6 +28,7 @@ import { TelegramIcon } from '@/components/ui/icons/telegram';
 import { DiscordIcon } from '@/components/ui/icons/discord';
 import { WhatsAppIcon } from '@/components/ui/icons/whatsapp';
 import { SlackSetupWizard } from './slack-setup-wizard';
+import { TelegramSetupWizard } from './telegram-setup-wizard';
 import { usePlatformCredentialStatus } from '@/hooks/channels';
 import { useSandbox } from '@/hooks/platform/use-sandbox';
 import { useServerStore, isCloudMode } from '@/stores/server-store';
@@ -53,11 +53,9 @@ const CHANNEL_OPTIONS: { type: ChannelType; label: string; icon: React.Component
 ];
 
 export function ChannelConfigDialog({ open, onOpenChange, onCreated }: ChannelConfigDialogProps) {
-  const [step, setStep] = useState<'type' | 'slack-wizard' | 'config'>('type');
+  const [step, setStep] = useState<'type' | 'slack-wizard' | 'telegram-wizard' | 'config'>('type');
   const [channelType, setChannelType] = useState<ChannelType | null>(null);
   const [name, setName] = useState('');
-  const [botToken, setBotToken] = useState('');
-  const [systemPrompt, setSystemPrompt] = useState('');
 
   const { sandbox } = useSandbox();
   const createMutation = useCreateChannel();
@@ -89,8 +87,6 @@ export function ChannelConfigDialog({ open, onOpenChange, onCreated }: ChannelCo
     setStep('type');
     setChannelType(null);
     setName('');
-    setBotToken('');
-    setSystemPrompt('');
     onOpenChange(false);
   };
 
@@ -147,6 +143,11 @@ export function ChannelConfigDialog({ open, onOpenChange, onCreated }: ChannelCo
       }
       return;
     }
+    if (type === 'telegram') {
+      setChannelType('telegram');
+      setStep('telegram-wizard');
+      return;
+    }
     setChannelType(type);
     setName(`My ${CHANNEL_OPTIONS.find((o) => o.type === type)?.label} Bot`);
     setStep('config');
@@ -166,7 +167,6 @@ export function ChannelConfigDialog({ open, onOpenChange, onCreated }: ChannelCo
         channel_type: channelType,
         name,
         credentials: buildCredentials(),
-        system_prompt: systemPrompt || null,
       });
       toast.success('Channel created successfully');
       handleClose();
@@ -178,8 +178,6 @@ export function ChannelConfigDialog({ open, onOpenChange, onCreated }: ChannelCo
 
   const buildCredentials = (): Record<string, unknown> => {
     switch (channelType) {
-      case 'telegram':
-        return { botToken };
       default:
         return {};
     }
@@ -188,15 +186,39 @@ export function ChannelConfigDialog({ open, onOpenChange, onCreated }: ChannelCo
   const isValid = (): boolean => {
     if (!name.trim()) return false;
     if (!sandbox) return false;
-    switch (channelType) {
-      case 'telegram':
-        return !!botToken.trim();
-      default:
-        return true;
-    }
+    return true;
   };
 
   if (!open) return null;
+
+  if (step === 'telegram-wizard') {
+    return (
+      <Dialog open={open} onOpenChange={handleClose}>
+        <DialogContent className="sm:max-w-xl p-0 overflow-hidden">
+          <div className="px-6 pt-6">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2.5">
+                <div className="flex items-center justify-center w-9 h-9 rounded-[10px] bg-muted border border-border/50">
+                  <TelegramIcon className="h-4.5 w-4.5" />
+                </div>
+                Connect Telegram
+              </DialogTitle>
+              <DialogDescription className="mt-1.5">
+                Connect a Telegram bot to your instance
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          <TelegramSetupWizard
+            onBack={() => { setStep('type'); setChannelType(null); }}
+            onCreated={() => {
+              handleClose();
+              onCreated?.();
+            }}
+          />
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   if (step === 'slack-wizard') {
     return (
@@ -327,45 +349,6 @@ export function ChannelConfigDialog({ open, onOpenChange, onCreated }: ChannelCo
               placeholder="My Bot"
               className="rounded-xl focus:ring-2 focus:ring-primary/50"
             />
-          </div>
-          {channelType === 'telegram' && (
-            <div className="space-y-2">
-              <Label htmlFor="bot-token">Bot Token</Label>
-              <Input
-                id="bot-token"
-                type="password"
-                value={botToken}
-                onChange={(e) => setBotToken(e.target.value)}
-                placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
-                className="rounded-xl focus:ring-2 focus:ring-primary/50"
-              />
-              <p className="text-xs text-muted-foreground">
-                Get this from{' '}
-                <a
-                  href="https://t.me/BotFather"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline"
-                >
-                  @BotFather
-                </a>{' '}
-                on Telegram
-              </p>
-            </div>
-          )}
-          <div className="space-y-2">
-            <Label htmlFor="system-prompt">System Prompt (optional)</Label>
-            <Textarea
-              id="system-prompt"
-              value={systemPrompt}
-              onChange={(e) => setSystemPrompt(e.target.value)}
-              placeholder="You are a helpful assistant..."
-              rows={3}
-              className="rounded-xl focus:ring-2 focus:ring-primary/50"
-            />
-            <p className="text-xs text-muted-foreground">
-              Prepended to every message sent to the agent
-            </p>
           </div>
         </div>
         <div className="flex justify-between gap-2 px-6 pb-6">

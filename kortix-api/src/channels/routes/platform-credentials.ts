@@ -123,11 +123,7 @@ export function createPlatformCredentialsRouter(): Hono<AppEnv> {
       return c.json({
         configured: false,
         source: 'none',
-        fields: {
-          clientId: false,
-          clientSecret: false,
-          signingSecret: false,
-        },
+        fields: { clientId: false, clientSecret: false, signingSecret: false },
       });
     }
 
@@ -155,66 +151,68 @@ export function createPlatformCredentialsRouter(): Hono<AppEnv> {
     }
 
     const body = await c.req.json() as Record<string, unknown>;
+    const userId = c.get('userId') as string;
+    const accountId = await resolveAccountId(userId);
+
+    let credentialsToEncrypt: Record<string, unknown>;
 
     if (channelType === 'slack') {
-      const { clientId, clientSecret, signingSecret, sandbox_id } = body as {
+      const { clientId, clientSecret, signingSecret } = body as {
         clientId?: string;
         clientSecret?: string;
         signingSecret?: string;
-        sandbox_id?: string | null;
       };
 
       if (!clientId || !clientSecret || !signingSecret) {
         return c.json({ error: 'clientId, clientSecret, and signingSecret are all required' }, 400);
       }
-
-      const userId = c.get('userId') as string;
-      const accountId = await resolveAccountId(userId);
-      const sandboxId = sandbox_id || null;
-      const encrypted = await encryptCredentials({ clientId, clientSecret, signingSecret });
-
-      const existingConditions = [
-        eq(channelPlatformCredentials.accountId, accountId),
-        eq(channelPlatformCredentials.channelType, channelType),
-      ];
-
-      if (sandboxId) {
-        existingConditions.push(eq(channelPlatformCredentials.sandboxId, sandboxId));
-      } else {
-        existingConditions.push(isNull(channelPlatformCredentials.sandboxId));
-      }
-
-      const [existing] = await db
-        .select({ id: channelPlatformCredentials.id })
-        .from(channelPlatformCredentials)
-        .where(and(...existingConditions));
-
-      if (existing) {
-        await db
-          .update(channelPlatformCredentials)
-          .set({ credentials: encrypted, updatedAt: new Date() })
-          .where(eq(channelPlatformCredentials.id, existing.id));
-      } else {
-        await db
-          .insert(channelPlatformCredentials)
-          .values({
-            accountId,
-            sandboxId,
-            channelType,
-            credentials: encrypted,
-          });
-      }
-
-      clearPlatformCredentialsCache();
-
-      return c.json({
-        success: true,
-        configured: true,
-        source: 'db',
-      });
+      credentialsToEncrypt = { clientId, clientSecret, signingSecret };
+    } else {
+      return c.json({ error: 'Not implemented' }, 501);
     }
 
-    return c.json({ error: 'Not implemented' }, 501);
+    const sandboxId = (body.sandbox_id as string) || null;
+    const encrypted = await encryptCredentials(credentialsToEncrypt);
+
+    const existingConditions = [
+      eq(channelPlatformCredentials.accountId, accountId),
+      eq(channelPlatformCredentials.channelType, channelType),
+    ];
+
+    if (sandboxId) {
+      existingConditions.push(eq(channelPlatformCredentials.sandboxId, sandboxId));
+    } else {
+      existingConditions.push(isNull(channelPlatformCredentials.sandboxId));
+    }
+
+    const [existing] = await db
+      .select({ id: channelPlatformCredentials.id })
+      .from(channelPlatformCredentials)
+      .where(and(...existingConditions));
+
+    if (existing) {
+      await db
+        .update(channelPlatformCredentials)
+        .set({ credentials: encrypted, updatedAt: new Date() })
+        .where(eq(channelPlatformCredentials.id, existing.id));
+    } else {
+      await db
+        .insert(channelPlatformCredentials)
+        .values({
+          accountId,
+          sandboxId,
+          channelType,
+          credentials: encrypted,
+        });
+    }
+
+    clearPlatformCredentialsCache();
+
+    return c.json({
+      success: true,
+      configured: true,
+      source: 'db',
+    });
   });
 
   // Delete platform credentials
