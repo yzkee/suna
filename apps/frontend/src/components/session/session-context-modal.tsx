@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, ChevronDown, ChevronRight, Network } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Dialog,
@@ -16,9 +16,10 @@ import {
   AccordionContent,
 } from '@/components/ui/accordion';
 import type { MessageWithParts } from '@/ui/types';
-import { COST_MARKUP } from '@/ui/turns';
+import { COST_MARKUP, childMapByParent, allDescendantIds } from '@/ui/turns';
 import type { ProviderListResponse } from '@/hooks/opencode/use-opencode-sessions';
 import type { Session, AssistantMessage, Message, Part } from '@opencode-ai/sdk/v2/client';
+import { useSyncStore } from '@/stores/opencode-sync-store';
 
 // ============================================================================
 // Context metrics — ported 1:1 from SolidJS session-context-metrics.ts
@@ -263,6 +264,167 @@ function RawMessage({ message, parts, formatTime }: {
 }
 
 // ============================================================================
+// Sub-session aggregate types & helpers
+// ============================================================================
+
+interface SubSessionCostInfo {
+  id: string;
+  title: string;
+  cost: number;
+  messages: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  children: SubSessionCostInfo[];
+}
+
+/**
+ * Compute cost info for a sub-session from its raw messages in the sync store.
+ */
+function computeSubSessionCost(
+  sessionId: string,
+  title: string,
+  storeMessages: Record<string, Message[]>,
+  childMap: Map<string, string[]>,
+  allSessions: Session[],
+): SubSessionCostInfo {
+  const msgs = storeMessages[sessionId] ?? [];
+  const cost = msgs.reduce((sum, msg) => sum + (msg.role === 'assistant' ? (msg.cost ?? 0) : 0), 0) * COST_MARKUP;
+
+  // Sum tokens across all assistant messages (cumulative, not just last)
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let reasoningTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheWriteTokens = 0;
+  for (const msg of msgs) {
+    if (msg.role !== 'assistant') continue;
+    const t = (msg as AssistantMessage).tokens;
+    if (!t) continue;
+    inputTokens += t.input ?? 0;
+    outputTokens += t.output ?? 0;
+    reasoningTokens += t.reasoning ?? 0;
+    cacheReadTokens += t.cache?.read ?? 0;
+    cacheWriteTokens += t.cache?.write ?? 0;
+  }
+
+  const directChildren = childMap.get(sessionId) ?? [];
+  const children = directChildren.map((childId) => {
+    const childSession = allSessions.find((s) => s.id === childId);
+    return computeSubSessionCost(
+      childId,
+      childSession?.title ?? childId.slice(0, 12),
+      storeMessages,
+      childMap,
+      allSessions,
+    );
+  });
+
+  return {
+    id: sessionId,
+    title,
+    cost,
+    messages: msgs.length,
+    inputTokens,
+    outputTokens,
+    reasoningTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    children,
+  };
+}
+
+/**
+ * Recursively sum all costs from a SubSessionCostInfo tree.
+ */
+function sumTreeCosts(node: SubSessionCostInfo): {
+  cost: number;
+  messages: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+} {
+  let cost = node.cost;
+  let messages = node.messages;
+  let inputTokens = node.inputTokens;
+  let outputTokens = node.outputTokens;
+  let reasoningTokens = node.reasoningTokens;
+  let cacheReadTokens = node.cacheReadTokens;
+  let cacheWriteTokens = node.cacheWriteTokens;
+  for (const child of node.children) {
+    const sub = sumTreeCosts(child);
+    cost += sub.cost;
+    messages += sub.messages;
+    inputTokens += sub.inputTokens;
+    outputTokens += sub.outputTokens;
+    reasoningTokens += sub.reasoningTokens;
+    cacheReadTokens += sub.cacheReadTokens;
+    cacheWriteTokens += sub.cacheWriteTokens;
+  }
+  return { cost, messages, inputTokens, outputTokens, reasoningTokens, cacheReadTokens, cacheWriteTokens };
+}
+
+// ============================================================================
+// Sub-session tree component
+// ============================================================================
+
+function SubSessionTreeNode({
+  node,
+  usd,
+  depth = 0,
+}: {
+  node: SubSessionCostInfo;
+  usd: Intl.NumberFormat;
+  depth?: number;
+}) {
+  const [expanded, setExpanded] = useState(depth < 1);
+  const hasChildren = node.children.length > 0;
+  const totals = useMemo(() => sumTreeCosts(node), [node]);
+
+  return (
+    <div className={cn('flex flex-col', depth > 0 && 'ml-4 border-l border-border/30 pl-3')}>
+      <button
+        onClick={() => hasChildren && setExpanded(!expanded)}
+        className={cn(
+          'flex items-center gap-2 py-1.5 text-xs w-full text-left',
+          hasChildren && 'cursor-pointer hover:bg-muted/40 rounded-md px-1.5 -mx-1.5',
+          !hasChildren && 'cursor-default',
+        )}
+      >
+        {hasChildren ? (
+          expanded ? <ChevronDown className="size-3 shrink-0 text-muted-foreground" /> : <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
+        ) : (
+          <div className="size-3 shrink-0" />
+        )}
+        <span className="truncate font-medium text-foreground min-w-0">{node.title}</span>
+        <span className="shrink-0 text-muted-foreground ml-auto tabular-nums">
+          {usd.format(node.cost)}
+        </span>
+        {hasChildren && (
+          <span className="shrink-0 text-muted-foreground/50 text-[10px] tabular-nums">
+            (tree: {usd.format(totals.cost)})
+          </span>
+        )}
+        <span className="shrink-0 text-muted-foreground/60 text-[10px]">
+          {node.messages} msgs
+        </span>
+      </button>
+      {expanded && hasChildren && (
+        <div className="flex flex-col">
+          {node.children.map((child) => (
+            <SubSessionTreeNode key={child.id} node={child} usd={usd} depth={depth + 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 // Main modal component
 // ============================================================================
 
@@ -272,6 +434,7 @@ interface SessionContextModalProps {
   messages: MessageWithParts[] | undefined;
   session: Session | undefined;
   providers: ProviderListResponse | undefined;
+  allSessions?: Session[];
 }
 
 export function SessionContextModal({
@@ -280,6 +443,7 @@ export function SessionContextModal({
   messages,
   session,
   providers,
+  allSessions,
 }: SessionContextModalProps) {
   const [copiedAll, setCopiedAll] = useState(false);
 
@@ -312,6 +476,31 @@ export function SessionContextModal({
     if (!ctx?.input || !messages) return [];
     return estimateBreakdown(messages, ctx.input);
   }, [ctx?.input, messages]);
+
+  // ---- Sub-session aggregation ----
+  const storeMessages = useSyncStore((s) => s.messages);
+
+  const childMap = useMemo(
+    () => (allSessions ? childMapByParent(allSessions) : new Map<string, string[]>()),
+    [allSessions],
+  );
+
+  const descendantIds = useMemo(
+    () => (session ? allDescendantIds(childMap, session.id) : []),
+    [childMap, session],
+  );
+
+  const hasSubSessions = descendantIds.length > 0;
+
+  const subSessionTree = useMemo(() => {
+    if (!session || !hasSubSessions || !allSessions) return null;
+    return computeSubSessionCost(session.id, session.title ?? session.id, storeMessages, childMap, allSessions);
+  }, [session, hasSubSessions, allSessions, storeMessages, childMap]);
+
+  const aggregateTotals = useMemo(() => {
+    if (!subSessionTree) return null;
+    return sumTreeCosts(subSessionTree);
+  }, [subSessionTree]);
 
   const stats = useMemo(() => [
     { label: 'Session', value: session?.title ?? session?.id ?? '—' },
@@ -355,6 +544,38 @@ export function SessionContextModal({
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto -mx-6 px-6 pb-4 space-y-8">
+          {/* Aggregate totals — shown when sub-sessions exist */}
+          {hasSubSessions && aggregateTotals && (
+            <div className="flex flex-col gap-3 p-4 rounded-lg border border-primary/20 bg-primary/5">
+              <div className="flex items-center gap-2">
+                <Network className="size-4 text-primary" />
+                <div className="text-sm font-semibold text-foreground">
+                  Aggregate Totals
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    (this session + {descendantIds.length} sub-session{descendantIds.length !== 1 ? 's' : ''})
+                  </span>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <Stat label="Total Cost" value={
+                  <span className="text-primary font-semibold">{usd.format(aggregateTotals.cost)}</span>
+                } />
+                <Stat label="Total Messages" value={aggregateTotals.messages.toLocaleString()} />
+                <Stat label="Input Tokens" value={fmt.number(aggregateTotals.inputTokens)} />
+                <Stat label="Output Tokens" value={fmt.number(aggregateTotals.outputTokens)} />
+                <Stat label="Reasoning Tokens" value={fmt.number(aggregateTotals.reasoningTokens)} />
+                <Stat label="Cache Tokens" value={`${fmt.number(aggregateTotals.cacheReadTokens)} / ${fmt.number(aggregateTotals.cacheWriteTokens)}`} />
+              </div>
+            </div>
+          )}
+
+          {/* This session label when sub-sessions exist */}
+          {hasSubSessions && (
+            <div className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+              This Session Only
+            </div>
+          )}
+
           {/* Stats grid — 1:1 from SolidJS */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {stats.map((stat) => (
@@ -382,6 +603,18 @@ export function SessionContextModal({
                     <div>{BREAKDOWN_LABELS[segment.key]}</div>
                     <div className="text-muted-foreground/60">{segment.percent}%</div>
                   </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Sub-session cost tree */}
+          {hasSubSessions && subSessionTree && subSessionTree.children.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <div className="text-xs text-muted-foreground">Sub-Session Breakdown</div>
+              <div className="border rounded-lg p-3 bg-muted/20">
+                {subSessionTree.children.map((child) => (
+                  <SubSessionTreeNode key={child.id} node={child} usd={usd} />
                 ))}
               </div>
             </div>

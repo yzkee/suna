@@ -89,6 +89,7 @@ import {
 	useOpenCodeCommands,
 	useOpenCodeProviders,
 	useOpenCodeSession,
+	useOpenCodeSessions,
 	useRevertSession,
 	useSendOpenCodeMessage,
 	useUnrevertSession,
@@ -2981,6 +2982,7 @@ export function SessionChat({
 	const { data: agents } = useOpenCodeAgents();
 	const { data: commands } = useOpenCodeCommands();
 	const { data: providers } = useOpenCodeProviders();
+	const { data: allSessions } = useOpenCodeSessions();
 	const { data: config } = useOpenCodeConfig();
 	const sendMessage = useSendOpenCodeMessage();
 	const abortSession = useAbortOpenCodeSession();
@@ -4570,6 +4572,7 @@ export function SessionChat({
 				messages={messages}
 				session={session}
 				providers={providers}
+				allSessions={allSessions}
 			/>
 
 			{/* Content area — loading, not-found, or actual messages */}
