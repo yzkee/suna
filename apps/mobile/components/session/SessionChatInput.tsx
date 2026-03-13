@@ -7,7 +7,7 @@
  * - Multiline text input
  */
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   TextInput,
@@ -15,6 +15,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  Animated,
 } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
@@ -79,6 +80,73 @@ export function SessionChatInput({
   const [showAgentSheet, setShowAgentSheet] = useState(false);
   const [showModelSheet, setShowModelSheet] = useState(false);
 
+  // ── Animated placeholder ────────────────────────────────────────────────
+  const placeholderVariants = useMemo(
+    () => [
+      placeholder,
+      'Ask about any file in this project',
+      'Ask for changed files and diffs',
+      'Ask to compact when context is full',
+      'Reference files with @',
+    ],
+    [placeholder],
+  );
+
+  const [placeholderIndex, setPlaceholderIndex] = useState(0);
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const slideAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (text.trim().length > 0) return;
+
+    const interval = setInterval(() => {
+      // Exit: fade out + slide up
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: -8,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        // Switch text
+        setPlaceholderIndex((i) => (i + 1) % placeholderVariants.length);
+        // Reset position to below
+        slideAnim.setValue(8);
+        // Enter: fade in + slide up to center
+        Animated.parallel([
+          Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 350,
+            useNativeDriver: true,
+          }),
+          Animated.timing(slideAnim, {
+            toValue: 0,
+            duration: 350,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      });
+    }, 6000);
+
+    return () => clearInterval(interval);
+  }, [text, placeholderVariants.length, fadeAnim, slideAnim]);
+
+  // Reset animation when user clears input
+  useEffect(() => {
+    if (text.trim().length === 0) {
+      fadeAnim.setValue(1);
+      slideAnim.setValue(0);
+    }
+  }, [text, fadeAnim, slideAnim]);
+
+  const showAnimatedPlaceholder = text.trim().length === 0;
+  // ────────────────────────────────────────────────────────────────────────
+
   const canSend = text.trim().length > 0 && !disabled;
   const hasToolbar = agents.length > 0 || models.length > 0;
 
@@ -112,12 +180,29 @@ export function SessionChatInput({
               isDark ? 'bg-zinc-900' : 'bg-zinc-100'
             }`}
           >
+            {/* Animated placeholder overlay */}
+            {showAnimatedPlaceholder && (
+              <Animated.Text
+                pointerEvents="none"
+                style={{
+                  position: 'absolute',
+                  left: 16,
+                  top: Platform.OS === 'ios' ? 14 : 12,
+                  fontSize: 16,
+                  color: isDark ? '#52525b' : '#a1a1aa',
+                  opacity: fadeAnim,
+                  transform: [{ translateY: slideAnim }],
+                }}
+              >
+                {placeholderVariants[placeholderIndex]}
+              </Animated.Text>
+            )}
             <TextInput
               ref={inputRef}
               value={text}
               onChangeText={setText}
-              placeholder={placeholder}
-              placeholderTextColor={isDark ? '#52525b' : '#a1a1aa'}
+              placeholder=""
+              placeholderTextColor="transparent"
               multiline
               maxLength={10000}
               style={{
