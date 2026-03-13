@@ -4,15 +4,14 @@
  * Uses the sync store (hydrated by useSessionSync, kept live by SSE)
  * as the single source of truth for messages.
  *
- * Sends messages via fire-and-forget promptAsync.
+ * Sends messages via fire-and-forget promptAsync with agent/model/variant.
  */
 
-import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
+import React, { useMemo, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   FlatList,
   TouchableOpacity,
-  ActivityIndicator,
 } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
@@ -22,13 +21,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSyncStore } from '@/lib/opencode/sync-store';
 import { useSessionSync } from '@/lib/opencode/session-sync';
 import { groupMessagesIntoTurns } from '@/lib/opencode/turns';
-import type { Turn, SessionStatus, Session } from '@/lib/opencode/types';
+import type { Turn } from '@/lib/opencode/types';
 import { useSession } from '@/lib/platform/hooks';
 import { useSandboxContext } from '@/contexts/SandboxContext';
+import {
+  useOpenCodeAgents,
+  useOpenCodeModels,
+  useOpenCodeConfig,
+} from '@/lib/opencode/hooks/use-opencode-data';
+import { useResolvedConfig } from '@/lib/opencode/hooks/use-local-config';
 import { getAuthToken } from '@/api/config';
 import { log } from '@/lib/logger';
 
-import { SessionChatInput } from './SessionChatInput';
+import { SessionChatInput, type PromptOptions } from './SessionChatInput';
 import { SessionTurn } from './SessionTurn';
 
 interface SessionPageProps {
@@ -49,34 +54,38 @@ export function SessionPage({ sessionId, onBack }: SessionPageProps) {
   // Hydrate messages from REST on mount; SSE keeps store updated after
   useSessionSync(sandboxUrl, sessionId);
 
-  // Read messages from sync store (single source of truth)
-  // IMPORTANT: don't use `|| []` — creates new array ref each render → infinite loop
+  // Read messages from sync store
   const messages = useSyncStore((s) => s.messages[sessionId]);
   const sessionStatus = useSyncStore((s) => s.sessionStatus[sessionId]);
   const safeMessages = useMemo(() => messages ?? [], [messages]);
 
-  // Derive busy state
   const isBusy = sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry';
+
+  // Agent/model/variant config
+  const { data: agents = [] } = useOpenCodeAgents(sandboxUrl);
+  const { data: visibleModels = [], allModels = [], defaults } = useOpenCodeModels(sandboxUrl);
+  const { data: config } = useOpenCodeConfig(sandboxUrl);
+
+  // Resolution uses ALL models (fallback chain); selector shows only visible
+  const resolved = useResolvedConfig(agents, allModels, config, defaults);
 
   // Group messages into turns
   const turns = useMemo(() => groupMessagesIntoTurns(safeMessages), [safeMessages]);
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll
   const messageCount = safeMessages.length;
   useEffect(() => {
     if (turns.length > 0) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     }
   }, [turns.length, messageCount]);
 
-  // Send handler — fire-and-forget promptAsync
+  // Send handler
   const handleSend = useCallback(
-    async (text: string) => {
+    async (text: string, options: PromptOptions) => {
       if (!sandboxUrl) return;
 
-      // Optimistic: add user message to sync store immediately
+      // Optimistic user message
       const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const partId = `prt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
@@ -89,37 +98,36 @@ export function SessionPage({ sessionId, onBack }: SessionPageProps) {
         },
         parts: [{ type: 'text', id: partId, text }],
       });
-
-      // Set status to busy
       useSyncStore.getState().setStatus(sessionId, { type: 'busy' });
 
-      // Scroll to bottom
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 50);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 50);
 
-      // Fire-and-forget: POST /session/{id}/prompt
+      // Build prompt payload (matches frontend POST /session/{id}/message)
+      const payload: Record<string, any> = {
+        parts: [{ type: 'text', text }],
+      };
+      if (options.model) payload.model = options.model;
+      if (options.agent) payload.agent = options.agent;
+      if (options.variant) payload.variant = options.variant;
+
       try {
         const token = await getAuthToken();
-        const res = await fetch(`${sandboxUrl}/session/${sessionId}/prompt`, {
+        const res = await fetch(`${sandboxUrl}/session/${sessionId}/message`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-          body: JSON.stringify({
-            parts: [{ type: 'text', text }],
-          }),
+          body: JSON.stringify(payload),
         });
 
         if (!res.ok) {
           const errorText = await res.text().catch(() => '');
           log.error('❌ [SessionPage] Prompt failed:', res.status, errorText);
-          // Reset to idle on error
           useSyncStore.getState().setStatus(sessionId, { type: 'idle' });
         }
-      } catch (err) {
-        log.error('❌ [SessionPage] Prompt error:', err);
+      } catch (err: any) {
+        log.error('❌ [SessionPage] Prompt error:', err?.message || err);
         useSyncStore.getState().setStatus(sessionId, { type: 'idle' });
       }
     },
@@ -129,10 +137,7 @@ export function SessionPage({ sessionId, onBack }: SessionPageProps) {
   // Stop handler
   const handleStop = useCallback(async () => {
     if (!sandboxUrl) return;
-
-    // Optimistic: set idle
     useSyncStore.getState().setStatus(sessionId, { type: 'idle' });
-
     try {
       const token = await getAuthToken();
       await fetch(`${sandboxUrl}/session/${sessionId}/abort`, {
@@ -142,8 +147,8 @@ export function SessionPage({ sessionId, onBack }: SessionPageProps) {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
-    } catch (err) {
-      log.error('❌ [SessionPage] Abort error:', err);
+    } catch (err: any) {
+      log.error('❌ [SessionPage] Abort error:', err?.message || err);
     }
   }, [sandboxUrl, sessionId]);
 
@@ -176,18 +181,11 @@ export function SessionPage({ sessionId, onBack }: SessionPageProps) {
             className="mr-3 p-1"
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Ionicons
-              name="chevron-back"
-              size={24}
-              color={isDark ? '#fafafa' : '#18181b'}
-            />
+            <Ionicons name="chevron-back" size={24} color={isDark ? '#fafafa' : '#18181b'} />
           </TouchableOpacity>
-
           <View className="flex-1">
             <Text
-              className={`text-base font-semibold ${
-                isDark ? 'text-white' : 'text-zinc-900'
-              }`}
+              className={`text-base font-semibold ${isDark ? 'text-white' : 'text-zinc-900'}`}
               numberOfLines={1}
             >
               {title}
@@ -208,22 +206,27 @@ export function SessionPage({ sessionId, onBack }: SessionPageProps) {
         data={turns}
         renderItem={renderTurn}
         keyExtractor={(item) => item.userMessage.info.id}
-        contentContainerStyle={{
-          paddingTop: 16,
-          paddingBottom: 16,
-        }}
+        contentContainerStyle={{ paddingTop: 16, paddingBottom: 16 }}
         showsVerticalScrollIndicator={false}
-        onContentSizeChange={() => {
-          flatListRef.current?.scrollToEnd({ animated: false });
-        }}
+        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
       />
 
-      {/* Chat input */}
+      {/* Chat input with toolbar */}
       <View style={{ paddingBottom: insets.bottom }}>
         <SessionChatInput
           onSend={handleSend}
           onStop={handleStop}
           isBusy={isBusy}
+          agent={resolved.agent}
+          agents={resolved.agents}
+          model={resolved.model}
+          models={visibleModels}
+          modelKey={resolved.modelKey}
+          variant={resolved.variant}
+          variants={resolved.variants}
+          onAgentChange={resolved.setAgent}
+          onModelChange={resolved.setModel}
+          onVariantCycle={resolved.cycleVariant}
         />
       </View>
     </View>

@@ -28,7 +28,13 @@ import { useSyncStore } from '@/lib/opencode/sync-store';
 import { getAuthToken } from '@/api/config';
 import type { Session } from '@/lib/opencode/types';
 import { SessionPage } from '@/components/session/SessionPage';
-import { SessionChatInput } from '@/components/session/SessionChatInput';
+import { SessionChatInput, type PromptOptions } from '@/components/session/SessionChatInput';
+import {
+  useOpenCodeAgents,
+  useOpenCodeModels,
+  useOpenCodeConfig,
+} from '@/lib/opencode/hooks/use-opencode-data';
+import { useResolvedConfig } from '@/lib/opencode/hooks/use-local-config';
 import { log } from '@/lib/logger';
 
 // ─── Session list item (extracted to avoid re-renders) ──────────────────────
@@ -106,6 +112,12 @@ export default function HomeScreen() {
     useSessions(sandboxUrl);
   const createSession = useCreateSession(sandboxUrl);
 
+  // Agent/model/variant for dashboard input
+  const { data: agents = [] } = useOpenCodeAgents(sandboxUrl);
+  const { data: dashVisibleModels = [], allModels: dashAllModels = [], defaults: dashDefaults } = useOpenCodeModels(sandboxUrl);
+  const { data: dashConfig } = useOpenCodeConfig(sandboxUrl);
+  const resolved = useResolvedConfig(agents, dashAllModels, dashConfig, dashDefaults);
+
   // Stable error message (prevents re-render loops from error object identity)
   const sandboxErrorMsg = sandboxError?.message || null;
 
@@ -135,7 +147,7 @@ export default function HomeScreen() {
   const handleBack = useCallback(() => setActiveSessionId(null), []);
 
   const handleDashboardSend = useCallback(
-    async (text: string) => {
+    async (text: string, options: PromptOptions) => {
       if (!sandboxUrl) return;
       try {
         const session = await createSession.mutateAsync({});
@@ -155,14 +167,21 @@ export default function HomeScreen() {
         });
         useSyncStore.getState().setStatus(session.id, { type: 'busy' });
 
+        const payload: Record<string, any> = {
+          parts: [{ type: 'text', text }],
+        };
+        if (options.model) payload.model = options.model;
+        if (options.agent) payload.agent = options.agent;
+        if (options.variant) payload.variant = options.variant;
+
         const token = await getAuthToken();
-        fetch(`${sandboxUrl}/session/${session.id}/prompt`, {
+        fetch(`${sandboxUrl}/session/${session.id}/message`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-          body: JSON.stringify({ parts: [{ type: 'text', text }] }),
+          body: JSON.stringify(payload),
         }).catch((err) => {
           log.error('❌ [Home] Dashboard prompt failed:', err);
           useSyncStore.getState().setStatus(session.id, { type: 'idle' });
@@ -351,6 +370,16 @@ export default function HomeScreen() {
                   onSend={handleDashboardSend}
                   placeholder="Ask anything..."
                   disabled={!sandboxUrl}
+                  agent={resolved.agent}
+                  agents={resolved.agents}
+                  model={resolved.model}
+                  models={dashVisibleModels}
+                  modelKey={resolved.modelKey}
+                  variant={resolved.variant}
+                  variants={resolved.variants}
+                  onAgentChange={resolved.setAgent}
+                  onModelChange={resolved.setModel}
+                  onVariantCycle={resolved.cycleVariant}
                 />
               </View>
             </View>
