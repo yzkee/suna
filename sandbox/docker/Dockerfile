@@ -72,6 +72,15 @@ RUN mkdir -p /opt/bun/install/cache && chmod -R 777 /opt/bun
 # ── uv (Python package runner) ───────────────────────────────────────────────
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
+# ── lss — Local Semantic Search CLI ──────────────────────────────────────────
+# Provides `lss` (search) and `lss-sync` (file watcher) commands.
+# Explicitly use the base image's virtualenv pip to ensure binaries land in
+# /lsiopy/bin/ (which is in PATH) and not in some user-local dir.
+ARG LSS_VERSION=0.5.5
+RUN /lsiopy/bin/pip install --no-cache-dir "local-semantic-search==${LSS_VERSION}" \
+    && test -x /lsiopy/bin/lss \
+    && /lsiopy/bin/lss --version
+
 # ── bun-pty musl .so ──────────────────────────────────────────────────────────
 COPY --from=rust-pty-builder /build/librust_pty.so /opt/bun-pty-musl/librust_pty.so
 RUN chmod 644 /opt/bun-pty-musl/librust_pty.so
@@ -105,7 +114,7 @@ ENV KORTIX_WORKSPACE=/workspace
 
 # ── Services (s6-rc.d longrun) ──────────────────────────────────────────────
 COPY sandbox/s6-services/ /etc/s6-overlay/s6-rc.d/
-RUN for svc in svc-kortix-master svc-sshd svc-opencode-serve svc-opencode-web svc-opencode-channels svc-chromium-persistent svc-agent-browser-viewer; do \
+RUN for svc in svc-kortix-master svc-sshd svc-opencode-serve svc-opencode-web svc-opencode-channels svc-chromium-persistent svc-agent-browser-viewer svc-agent-browser-session; do \
         touch "/etc/s6-overlay/s6-rc.d/user/contents.d/${svc}"; \
     done \
     && chmod +x /etc/s6-overlay/s6-rc.d/svc-*/run \
