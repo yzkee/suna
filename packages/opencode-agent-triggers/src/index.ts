@@ -6,15 +6,22 @@ export { CronManager } from "./cron-manager.js"
 export { CronClient } from "./cron-client.js"
 export { buildCronTriggerEventText, dispatchCronTriggerViaHttp } from "./opencode-http-dispatch.js"
 export { WebhookTriggerServer } from "./webhook-server.js"
+export { ListenerStore } from "./listener-store.js"
 export { TriggerManager } from "./trigger-manager.js"
 export { createAgentTriggersPlugin } from "./plugin.js"
 export type {
   AgentTriggerConfig,
   AgentTriggersPluginOptions,
+  CronExecutionRecord,
+  CronExecutionStatus,
   CronTriggerConfig,
   CronTriggerRecord,
   DiscoveredAgent,
+  EventListenerRecord,
   MinimalOpenCodeClient,
+  PipedreamClientOptions,
+  PipedreamSourceConfig,
+  PipedreamTriggerConfig,
   PluginContextShape,
   TriggerKind,
   TriggerSyncResult,

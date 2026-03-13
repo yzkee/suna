@@ -10,6 +10,22 @@ const integrationsRouter = new Hono()
 // always enforces INTERNAL_SERVICE_KEY on all routes (auto-generated if not set).
 
 /**
+ * Guard: ensure KORTIX_TOKEN is available before proxying to kortix-api.
+ * The bootstrap-env service restores it at boot if needed, so this should
+ * only fire if something went seriously wrong.
+ */
+integrationsRouter.use('*', async (c, next) => {
+  if (!config.KORTIX_TOKEN) {
+    console.error('[Integrations Proxy] KORTIX_TOKEN is not set — cannot authenticate to kortix-api. Sandbox may need to be restarted.')
+    return c.json({
+      error: 'Integration unavailable: sandbox authentication token (KORTIX_TOKEN) is not configured. Try restarting the sandbox.',
+    }, 503)
+  }
+
+  await next()
+})
+
+/**
  * POST /api/integrations/token
  * Proxy to kortix-api: POST /v1/integrations/token
  * Used by agent tools to fetch OAuth tokens for third-party APIs.
@@ -290,6 +306,130 @@ integrationsRouter.post('/run-action',
     } catch (err) {
       console.error('[Integrations Proxy] Run action error:', err)
       return c.json({ error: 'Failed to run action' }, 502)
+    }
+  },
+)
+
+// ─── Trigger management proxy routes ──────────────────────────────────────────
+
+integrationsRouter.get('/triggers/available', async (c) => {
+    try {
+      const appSlug = c.req.query('app')
+      const query = c.req.query('q')
+      const limit = c.req.query('limit')
+
+      const params = new URLSearchParams()
+      if (appSlug) params.set('app', appSlug)
+      if (query) params.set('q', query)
+      if (limit) params.set('limit', limit)
+
+      const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
+      const res = await fetch(`${apiUrl}/integrations/triggers/available?${params.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${config.KORTIX_TOKEN}`,
+        },
+        signal: AbortSignal.timeout(15_000),
+      })
+
+      const data = await res.json()
+      if (!res.ok) return c.json(data, res.status as any)
+      return c.json(data)
+    } catch (err) {
+      console.error('[Integrations Proxy] List available triggers error:', err)
+      return c.json({ error: 'Failed to list available triggers' }, 502)
+    }
+  },
+)
+
+integrationsRouter.post('/triggers/deploy', async (c) => {
+    try {
+      const body = await c.req.json()
+      const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
+      const res = await fetch(`${apiUrl}/integrations/triggers/deploy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${config.KORTIX_TOKEN}`,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30_000),
+      })
+
+      const data = await res.json()
+      if (!res.ok) return c.json(data, res.status as any)
+
+      c.header('Cache-Control', 'no-store')
+      return c.json(data)
+    } catch (err) {
+      console.error('[Integrations Proxy] Deploy trigger error:', err)
+      return c.json({ error: 'Failed to deploy trigger' }, 502)
+    }
+  },
+)
+
+integrationsRouter.get('/triggers/deployed', async (c) => {
+    try {
+      const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
+      const res = await fetch(`${apiUrl}/integrations/triggers/deployed`, {
+        headers: {
+          Authorization: `Bearer ${config.KORTIX_TOKEN}`,
+        },
+        signal: AbortSignal.timeout(15_000),
+      })
+
+      const data = await res.json()
+      if (!res.ok) return c.json(data, res.status as any)
+      return c.json(data)
+    } catch (err) {
+      console.error('[Integrations Proxy] List deployed triggers error:', err)
+      return c.json({ error: 'Failed to list deployed triggers' }, 502)
+    }
+  },
+)
+
+integrationsRouter.delete('/triggers/deployed/:id', async (c) => {
+    try {
+      const id = c.req.param('id')
+      const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
+      const res = await fetch(`${apiUrl}/integrations/triggers/deployed/${id}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${config.KORTIX_TOKEN}`,
+        },
+        signal: AbortSignal.timeout(15_000),
+      })
+
+      const data = await res.json()
+      if (!res.ok) return c.json(data, res.status as any)
+      return c.json(data)
+    } catch (err) {
+      console.error('[Integrations Proxy] Delete trigger error:', err)
+      return c.json({ error: 'Failed to delete trigger' }, 502)
+    }
+  },
+)
+
+integrationsRouter.put('/triggers/deployed/:id', async (c) => {
+    try {
+      const id = c.req.param('id')
+      const body = await c.req.json()
+      const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
+      const res = await fetch(`${apiUrl}/integrations/triggers/deployed/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${config.KORTIX_TOKEN}`,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(15_000),
+      })
+
+      const data = await res.json()
+      if (!res.ok) return c.json(data, res.status as any)
+      return c.json(data)
+    } catch (err) {
+      console.error('[Integrations Proxy] Update trigger error:', err)
+      return c.json({ error: 'Failed to update trigger' }, 502)
     }
   },
 )

@@ -426,153 +426,19 @@ curl "http://localhost:8000/kortix/cron/executions/by-trigger/{triggerId}"
 
 ### Standalone Package
 
-Cron and webhook trigger support lives in the standalone package `@kortix/opencode-agent-triggers`.
+Cron, webhook, and event trigger support lives in `@kortix/opencode-agent-triggers`. Tools: `agent_triggers`, `sync_agent_triggers`, `cron_triggers`, `event_triggers`.
 
-- `createAgentTriggersPlugin()` adds declarative agent triggers to any OpenCode plugin stack
-- Cron trigger declarations sync into the embedded scheduler shipped by `@kortix/opencode-agent-triggers`
-- Webhook declarations boot a local webhook server and dispatch into OpenCode sessions
-- Tools exposed by the package: `agent_triggers`, `sync_agent_triggers`, `event_triggers`
-- Default cron state path: `.opencode/agent-triggers/cron-state.json`
-- Default listener state path: `.opencode/agent-triggers/listener-state.json`
+**For full trigger documentation, see [agent-triggers.md](./agent-triggers.md).**
 
-Webhook example:
+Quick summary of trigger types:
 
-```yaml
-triggers:
-  - name: "Inbound Event"
-    enabled: true
-    source:
-      type: "webhook"
-      path: "/hooks/inbound"
-      method: "POST"
-      secret: "top-secret"
-    execution:
-      prompt: "Handle the inbound webhook payload"
-      session_mode: "reuse"
-```
-
-Pipedream event trigger example:
-
-```yaml
-triggers:
-  - name: "New GitHub PR"
-    enabled: true
-    source:
-      type: "pipedream"
-      app: "github"
-      componentKey: "github-new-pull-request"
-      configuredProps:
-        repo: "owner/repo"
-    execution:
-      prompt: "Review the new pull request: {{ title }} by {{ user }}"
-      session_mode: "new"
-    context:
-      extract:
-        title: "body.pull_request.title"
-        user: "body.pull_request.user.login"
-```
-
-Cron example:
-
-```yaml
-triggers:
-  - name: "Weekly Reflection"
-    enabled: false
-    source:
-      type: "cron"
-      expr: "0 0 10 * * 6"
-      timezone: "UTC"
-    execution:
-      prompt: "Generate a weekly reflection"
-```
-
----
-
-## Agent Triggers — Declarative Scheduled Triggers
-
-Define scheduled triggers directly in agent markdown files. The `@kortix/opencode-agent-triggers` plugin parses these on startup and registers them with its embedded scheduler and webhook runtime.
-
-### Defining Triggers in Agent.md
-
-Add a `triggers` array to the agent's YAML frontmatter:
-
-```yaml
----
-description: "My Agent"
-mode: primary
-triggers:
-  - name: "Daily Report"
-    enabled: true
-    source:
-      type: "cron"
-      expr: "0 0 9 * * *"
-      timezone: "America/New_York"
-    execution:
-      prompt: "Generate the daily report"
-      model_id: "kortix/power"
-      session_mode: "reuse"
----
-
-# Agent system prompt...
-```
-
-### Trigger Properties
-
-| Field | Required | Description |
+| Type | How it works | Example |
 |---|---|---|
-| `name` | Yes | Human-readable name (unique within agent) |
-| `source.type` | Yes | Trigger source: `cron`, `webhook`, or `pipedream` |
-| `source.expr` | Cron only | 6-field cron expression |
-| `source.timezone` | No | IANA timezone (default: UTC) |
-| `source.path` | Webhook only | HTTP endpoint path |
-| `source.method` | Webhook only | HTTP method (default: POST) |
-| `source.secret` | Webhook only | Shared secret for authenticated delivery |
-| `source.app` | Pipedream only | App slug (e.g. `github`, `gmail`, `slack`) |
-| `source.componentKey` | Pipedream only | Pipedream trigger component key (e.g. `github-new-pull-request`) |
-| `source.configuredProps` | Pipedream only | Component-specific configuration props |
-| `execution.prompt` | Yes | Prompt sent to agent when triggered |
-| `execution.model_id` | No | Override model for this trigger |
-| `execution.session_mode` | No | `new` (default) or `reuse` |
-| `context.extract` | No | Map prompt template variables from trigger event data |
-| `context.include_raw` | No | Include the raw normalized trigger event in the final prompt |
-| `enabled` | No | Set to `false` to disable without deleting |
+| **Cron** | Embedded scheduler in sandbox | `cron_triggers action=create name="Daily" cron_expr="0 0 9 * * *" prompt="..."` |
+| **Webhook** | HTTP server on port 8099 | Define in agent.md YAML: `source.type: webhook`, `source.path: /hooks/deploy` |
+| **Event (Pipedream)** | Pipedream watches external apps, POSTs events to sandbox | `event_triggers action=setup app=gmail component_key=gmail-new-email-received ...` |
 
-### Tools
-
-| Tool | Description |
-|---|---|
-| `agent_triggers` | List all triggers defined in agent.md files and their registration status |
-| `sync_agent_triggers` | Re-sync triggers from agent.md files to the embedded scheduler and webhook runtime |
-| `event_triggers` | Manage Pipedream event-driven triggers (setup, list, remove, pause, resume listeners) |
-
-#### `event_triggers` Actions
-
-| Action | Description |
-|---|---|
-| `list_available` | List available Pipedream trigger components for an app (e.g. `app: "github"`) |
-| `setup` | Deploy a new event listener — creates listener record, deploys trigger via Pipedream, registers webhook |
-| `list` | List all active event listeners, optionally filtered by agent or app |
-| `get` | Get details of a specific listener by ID |
-| `remove` | Delete a listener and its deployed Pipedream trigger |
-| `pause` | Pause a listener (stops receiving events) |
-| `resume` | Resume a paused listener |
-
-### How It Works
-
-1. On plugin startup, triggers are auto-synced immediately
-2. Each cron trigger is registered with name `{agent_name}:{trigger_name}`
-3. Cron state is persisted in `.opencode/agent-triggers/cron-state.json` by default
-4. Listener state is persisted in `.opencode/agent-triggers/listener-state.json` by default
-5. Use `sync_agent_triggers` to refresh after editing the agent markdown
-6. Event triggers route through: Pipedream → kortix-api → kortix-master → agent-triggers webhook server → session dispatch
-
-### Example: Kortix Agent Triggers
-
-The kortix.md agent includes these example triggers:
-
-- **Daily Standup** (enabled): Daily at 9 AM America/New_York
-- **Hourly Health Check** (enabled): Every hour
-- **Weekly Report** (disabled): Every Monday at 10 AM
+Event triggers are the most powerful — they connect Gmail, GitHub, Slack, Notion, etc. to the agent. Pipedream handles all polling/watching on their infrastructure. The sandbox just receives events. Prerequisites: app connected via OAuth, `SANDBOX_PUBLIC_URL` set, `KORTIX_TOKEN` set.
 
 ---
 
@@ -772,7 +638,7 @@ Natively discovered from `/opt/opencode/tools/`:
 | Image Search | `image-search.ts` | Serper Google Images API |
 | Scrape Webpage | `scrape-webpage.ts` | Firecrawl web scraping |
 | Show | `show.ts` | Present outputs to user UI (images, files, URLs, text, errors) |
-| Agent Triggers | `@kortix/opencode-agent-triggers` plugin | Embedded cron + webhook + Pipedream event triggers defined in agent markdown (includes `agent_triggers`, `event_triggers`, `sync_agent_triggers` tools) |
+| Agent Triggers | `@kortix/opencode-agent-triggers` plugin | Embedded cron + webhook + Pipedream event triggers (tools: `agent_triggers`, `cron_triggers`, `event_triggers`, `sync_agent_triggers`). See [agent-triggers.md](./agent-triggers.md) for full docs. |
 
 **Moved to on-demand skills (loaded via `skill()` tool):**
 

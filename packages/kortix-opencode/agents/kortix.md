@@ -8,7 +8,7 @@ permission:
   bash: allow
   context7_query-docs: allow
   'context7_resolve-library-id': allow
-   edit: allow
+  edit: allow
   get_mem: allow
   get_tool_output: allow
   glob: allow

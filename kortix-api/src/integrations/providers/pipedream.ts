@@ -11,6 +11,10 @@ import type {
   ActionSummary,
   ActionParam,
   ActionRunResult,
+  TriggerComponentInfo,
+  TriggerDeployResult,
+  TriggerDeployedInfo,
+  TriggerListResult,
 } from './types';
 
 interface PipedreamConfig {
@@ -473,5 +477,182 @@ export class PipedreamProvider implements AuthProvider {
         error: `Action execution failed: ${err}`,
       };
     }
+  }
+
+  // ─── Trigger methods (Pipedream Connect event sources) ──────────────────────
+
+  async listAvailableTriggers(app: string, query?: string, limit = 50): Promise<TriggerComponentInfo[]> {
+    const params = new URLSearchParams({ app, limit: String(limit) });
+    if (query) params.set('q', query);
+
+    const data = await this.apiRequest<{
+      data: Array<{
+        key: string;
+        name: string;
+        version: string;
+        description?: string;
+        configurable_props?: Array<{
+          name: string;
+          type: string;
+          label?: string;
+          description?: string;
+          optional?: boolean;
+          remoteOptions?: boolean;
+        }>;
+      }>;
+    }>('GET', `/v1/connect/${this.projectId}/triggers?${params.toString()}`);
+
+    return (data.data || []).map((t) => ({
+      key: t.key,
+      name: t.name,
+      version: t.version,
+      description: t.description,
+      configurableProps: (t.configurable_props || [])
+        .filter((p) => p.name !== 'app' && p.name !== 'timer')
+        .map((p) => ({
+          name: p.name,
+          type: p.type,
+          label: p.label,
+          description: p.description,
+          optional: p.optional,
+          remoteOptions: p.remoteOptions,
+        })),
+    }));
+  }
+
+  async deployTrigger(
+    accountId: string,
+    app: string,
+    componentKey: string,
+    configuredProps: Record<string, unknown>,
+    webhookUrl: string,
+  ): Promise<TriggerDeployResult> {
+    // Find the user's connected account for this app to get authProvisionId
+    const accounts = await this.listAccounts(accountId);
+    const account = accounts.find((a) => a.app === app);
+    if (!account) {
+      throw new Error(`No connected account found for app "${app}". The user needs to connect it first.`);
+    }
+
+    const body: Record<string, unknown> = {
+      id: componentKey,
+      external_user_id: accountId,
+      webhook_url: webhookUrl,
+      configured_props: {
+        [app]: { authProvisionId: account.id },
+        ...configuredProps,
+      },
+    };
+
+    const data = await this.apiRequest<{
+      data: {
+        id: string;
+        type?: string;
+        active?: boolean;
+        component_key?: string;
+        configured_props?: Record<string, unknown>;
+      };
+    }>('POST', `/v1/connect/${this.projectId}/triggers/deploy`, body);
+
+    const result = data.data;
+    return {
+      deployedTriggerId: result.id,
+      active: result.active ?? true,
+      componentKey: result.component_key,
+      configuredProps: result.configured_props,
+    };
+  }
+
+  async listDeployedTriggers(accountId: string): Promise<TriggerListResult> {
+    const params = new URLSearchParams({ external_user_id: accountId });
+
+    const data = await this.apiRequest<{
+      data: Array<{
+        id: string;
+        type: string;
+        component_key?: string;
+        active?: boolean;
+        name?: string;
+        created_at?: number;
+        updated_at?: number;
+        configured_props?: Record<string, unknown>;
+      }>;
+    }>('GET', `/v1/connect/${this.projectId}/deployed-triggers?${params.toString()}`);
+
+    return {
+      triggers: (data.data || []).map((t) => ({
+        id: t.id,
+        type: t.type,
+        componentKey: t.component_key,
+        active: t.active ?? true,
+        name: t.name,
+        createdAt: t.created_at,
+        updatedAt: t.updated_at,
+        configuredProps: t.configured_props,
+      })),
+    };
+  }
+
+  async deleteDeployedTrigger(accountId: string, deployedTriggerId: string): Promise<void> {
+    await this.apiRequest<void>(
+      'DELETE',
+      `/v1/connect/${this.projectId}/deployed-triggers/${deployedTriggerId}?external_user_id=${encodeURIComponent(accountId)}&ignore_hook_errors=true`,
+    );
+  }
+
+  async pauseDeployedTrigger(accountId: string, deployedTriggerId: string): Promise<TriggerDeployedInfo> {
+    const data = await this.apiRequest<{
+      id: string;
+      type: string;
+      component_key?: string;
+      active?: boolean;
+      name?: string;
+      created_at?: number;
+      updated_at?: number;
+      configured_props?: Record<string, unknown>;
+    }>(
+      'PUT',
+      `/v1/connect/${this.projectId}/deployed-triggers/${deployedTriggerId}?external_user_id=${encodeURIComponent(accountId)}`,
+      { active: false },
+    );
+
+    return {
+      id: data.id,
+      type: data.type,
+      componentKey: data.component_key,
+      active: data.active ?? false,
+      name: data.name,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+      configuredProps: data.configured_props,
+    };
+  }
+
+  async resumeDeployedTrigger(accountId: string, deployedTriggerId: string): Promise<TriggerDeployedInfo> {
+    const data = await this.apiRequest<{
+      id: string;
+      type: string;
+      component_key?: string;
+      active?: boolean;
+      name?: string;
+      created_at?: number;
+      updated_at?: number;
+      configured_props?: Record<string, unknown>;
+    }>(
+      'PUT',
+      `/v1/connect/${this.projectId}/deployed-triggers/${deployedTriggerId}?external_user_id=${encodeURIComponent(accountId)}`,
+      { active: true },
+    );
+
+    return {
+      id: data.id,
+      type: data.type,
+      componentKey: data.component_key,
+      active: data.active ?? true,
+      name: data.name,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+      configuredProps: data.configured_props,
+    };
   }
 }

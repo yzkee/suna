@@ -97,7 +97,7 @@ ENV KORTIX_WORKSPACE=/workspace
 
 # ── Services (s6-rc.d longrun) ──────────────────────────────────────────────
 COPY sandbox/s6-services/ /etc/s6-overlay/s6-rc.d/
-RUN for svc in svc-kortix-master svc-sshd svc-opencode-serve svc-opencode-web svc-opencode-channels; do \
+RUN for svc in svc-kortix-master svc-sshd svc-opencode-serve svc-opencode-web svc-opencode-channels svc-agent-browser-viewer; do \
         touch "/etc/s6-overlay/s6-rc.d/user/contents.d/${svc}"; \
     done \
     && chmod +x /etc/s6-overlay/s6-rc.d/svc-*/run \
@@ -133,6 +133,8 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
     mkdir -p /opt/opencode-agent-triggers && \
     rsync -a --exclude=node_modules --exclude=bun.lock --exclude=.git \
       /opt/build/opencode-agent-triggers/ /opt/opencode-agent-triggers/ && \
+    cd /opt/opencode-agent-triggers && bun install --production 2>&1 && \
+    echo "[docker] opencode-agent-triggers: bun install OK" && \
     \
     # ── 2. kortix-master ── \
     mkdir -p /opt/kortix-master && \
@@ -159,8 +161,14 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
       /opt/build/kortix-opencode/ /opt/opencode/ && \
     # Wire triggers dependency for container layout (only if package.json exists) \
     if [ -f /opt/opencode/package.json ]; then \
+      sed -i 's|"@kortix/opencode-agent-triggers": "[^"]*"|"@kortix/opencode-agent-triggers": "file:../opencode-agent-triggers"|' /opt/opencode/package.json && \
       cd /opt/opencode && bun install 2>&1 && \
       test -d /opt/opencode/node_modules && \
+      # Ensure agent-triggers is a direct symlink (bun's file: resolution creates \
+      # per-file symlinks that break when docker-compose.dev.yml bind-mounts src/) \
+      rm -rf /opt/opencode/node_modules/@kortix/opencode-agent-triggers && \
+      mkdir -p /opt/opencode/node_modules/@kortix && \
+      ln -s /opt/opencode-agent-triggers /opt/opencode/node_modules/@kortix/opencode-agent-triggers && \
       echo "[docker] opencode: bun install OK"; \
     else \
       echo "[docker] opencode: no package.json — skipping bun install (config-only package)"; \
@@ -223,24 +231,36 @@ RUN chmod +x /opt/startup.sh
 
 # ── Environment ───────────────────────────────────────────────────────────────
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium-browser
-ENV AGENT_BROWSER_PRIMARY_SESSION=default
+ENV AGENT_BROWSER_PRIMARY_SESSION=kortix
 ENV AGENT_BROWSER_STREAM_PORT=9223
 ENV AGENT_BROWSER_HEADED=1
 ENV AGENT_BROWSER_PROFILE=/workspace/.browser-profile
-ENV AGENT_BROWSER_SOCKET_DIR=/workspace/.agent-browser
+ENV AGENT_BROWSER_SOCKET_DIR=/tmp/agent-browser
 ENV AGENT_BROWSER_ARGS="--no-sandbox,--disable-setuid-sandbox,--disable-gpu,--disable-dev-shm-usage,--disable-blink-features=AutomationControlled,--disable-features=VizDisplayCompositor"
 ENV AGENT_BROWSER_USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+ENV AGENT_BROWSER_IDLE_TIMEOUT_MS=0
 ENV OPENCODE_CONFIG_DIR=/opt/opencode
 ENV SANDBOX_VERSION=${SANDBOX_VERSION}
 
-# ── Desktop config ───────────────────────────────────────────────────────────
+# ── Desktop config — Selkies streaming ───────────────────────────────────────
+# Ports
 ENV CUSTOM_PORT=6080
 ENV CUSTOM_HTTPS_PORT=6081
-ENV SELKIES_IS_MANUAL_RESOLUTION_MODE=true
-ENV SELKIES_MANUAL_WIDTH=1920
-ENV SELKIES_MANUAL_HEIGHT=1080
-ENV SELKIES_USE_CSS_SCALING=true
 ENV TITLE="Kortix Computer"
+# Resolution: auto-adapt to iframe/browser size (no manual lock)
+# Encoder: x264enc locked, 60 FPS locked, CRF 18 (near-lossless), full 4:4:4 color
+ENV SELKIES_ENCODER="x264enc"
+ENV SELKIES_FRAMERATE="60"
+ENV SELKIES_H264_CRF="18"
+ENV SELKIES_H264_FULLCOLOR=true
+ENV SELKIES_USE_CSS_SCALING=true
+# Paint-overs: high quality for static scenes (sharp text/UI)
+ENV SELKIES_USE_PAINT_OVER_QUALITY=true
+ENV SELKIES_PAINT_OVER_JPEG_QUALITY="90"
+ENV SELKIES_H264_PAINTOVER_CRF="12"
+# Cursors: CSS cursors for lower latency
+ENV SELKIES_USE_BROWSER_CURSORS=true
+
 
 EXPOSE 22 3456 6080 6081 3111 3210 8000 9223 9224
 

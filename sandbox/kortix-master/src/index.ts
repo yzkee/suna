@@ -27,6 +27,7 @@ import marketplaceRouter from './routes/marketplace'
 import { coreSupervisor } from './services/core-supervisor'
 import { getCronManager } from './services/cron-manager'
 import { config } from './config'
+import { loadBootstrapEnv, saveBootstrapEnv } from './services/bootstrap-env'
 import { HealthResponse, PortsResponse } from './schemas/common'
 
 // ─── Changelog ──────────────────────────────────────────────────────────────
@@ -54,6 +55,10 @@ process.on('unhandledRejection', (reason) => {
 })
 
 const app = new Hono()
+
+// ─── Bootstrap: restore core env vars if missing from process.env ───────────
+// Must run BEFORE SecretStore because KORTIX_TOKEN is the encryption key.
+loadBootstrapEnv()
 
 // Initialize secret store and load ENV variables
 const secretStore = new SecretStore()
@@ -83,6 +88,8 @@ await secretStore.loadIntoProcessEnv()
   if (synced > 0) {
     console.log(`[Kortix Master] Synced ${synced} core env var(s) to s6 env dir`)
   }
+  // Persist core vars so they survive across restarts even if Docker env is lost
+  saveBootstrapEnv()
 }
 
 // Two-way sync: OpenCode auth.json ↔ SecretStore (provider API keys)
@@ -158,6 +165,10 @@ app.use('*', async (c, next) => {
   // send webhook POSTs that cannot carry our INTERNAL_SERVICE_KEY.
   // The channel adapter verifies authenticity via its own secret token header.
   if (pathname.startsWith('/channels/api/webhooks/')) return next()
+  // Skip auth for Pipedream event delivery — Pipedream POSTs events to
+  // /events/pipedream/:listenerId. The listener ID acts as a secret token
+  // (UUID, not guessable). Events are forwarded to the agent-triggers webhook server.
+  if (pathname.startsWith('/events/pipedream/')) return next()
 
   // Skip auth for requests from inside the sandbox (localhost/loopback)
   if (isLocalRequest(c)) return next()
@@ -321,6 +332,32 @@ app.route('/kortix/marketplace', marketplaceRouter)
 
 // Integration proxy — /api/integrations/* forwards to kortix-api
 app.route('/api/integrations', integrationsRouter)
+
+// Pipedream event receiver — forwards events from Pipedream to the
+// agent-triggers webhook server (port 8099). Auth is skipped for this
+// path (see auth middleware above) — the listener ID (UUID) is the secret.
+app.post('/events/pipedream/:listenerId', async (c) => {
+  const listenerId = c.req.param('listenerId')
+  try {
+    const body = await c.req.text()
+    const res = await fetch(`http://localhost:8099/events/pipedream/${listenerId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': c.req.header('content-type') || 'application/json',
+        // Forward Pipedream headers that might be useful for verification
+        ...(c.req.header('x-pd-delivery-id') ? { 'x-pd-delivery-id': c.req.header('x-pd-delivery-id')! } : {}),
+        ...(c.req.header('x-pd-signature') ? { 'x-pd-signature': c.req.header('x-pd-signature')! } : {}),
+      },
+      body,
+      signal: AbortSignal.timeout(10_000),
+    })
+    const data = await res.json()
+    return c.json(data, res.status as any)
+  } catch (err) {
+    console.error(`[Kortix Master] Pipedream event forward error for ${listenerId}:`, err)
+    return c.json({ ok: false, error: 'Failed to forward event to agent-triggers' }, 502)
+  }
+})
 
 // Dynamic port proxy — /proxy/:port/* forwards to localhost:{port} inside the sandbox
 app.route('/proxy', proxyRouter)

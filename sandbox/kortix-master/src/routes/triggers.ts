@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { discoverAgentsWithTriggers } from '@kortix/opencode-agent-triggers'
+import { discoverAgentsWithTriggers, type WebhookTriggerConfig } from '@kortix/opencode-agent-triggers'
 import { getCronManager } from '../services/cron-manager'
 
 const triggersRouter = new Hono()
@@ -35,7 +35,7 @@ triggersRouter.get('/', (c) => {
     })),
     ...discovered.flatMap((agent) =>
       agent.triggers
-        .filter((trigger) => trigger.source.type === 'webhook')
+        .filter((trigger): trigger is WebhookTriggerConfig => trigger.source.type === 'webhook')
         .map((trigger) => ({
           id: `${agent.name}:${trigger.name}`,
           triggerId: null,

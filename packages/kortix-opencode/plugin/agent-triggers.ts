@@ -3,7 +3,11 @@ import { createAgentTriggersPlugin } from "@kortix/opencode-agent-triggers"
 export default createAgentTriggersPlugin({
   directory: "/workspace",
   cronStatePath: "/tmp/kortix-agent-triggers/cron-state.json",
+  listenerStatePath: "/tmp/kortix-agent-triggers/listener-state.json",
   webhookHost: "0.0.0.0",
   webhookPort: 8099,
-  publicBaseUrl: "http://localhost:8099",
+  // publicBaseUrl is used to build webhook URLs for Pipedream.
+  // In production, this should be the sandbox's public URL (e.g. via SANDBOX_PUBLIC_URL env).
+  // For now, use localhost — events are forwarded via kortix-master.
+  publicBaseUrl: process.env.SANDBOX_PUBLIC_URL || "http://localhost:8000",
 })
