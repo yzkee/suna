@@ -110,9 +110,12 @@ export function SessionPage({ sessionId, onBack }: SessionPageProps) {
       if (options.agent) payload.agent = options.agent;
       if (options.variant) payload.variant = options.variant;
 
+      // Use prompt_async — returns immediately, SSE handles updates.
+      // The blocking /session/{id}/message endpoint hangs until AI finishes,
+      // which causes RN fetch to stall/timeout.
       try {
         const token = await getAuthToken();
-        const res = await fetch(`${sandboxUrl}/session/${sessionId}/message`, {
+        const res = await fetch(`${sandboxUrl}/session/${sessionId}/prompt_async`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -125,6 +128,8 @@ export function SessionPage({ sessionId, onBack }: SessionPageProps) {
           const errorText = await res.text().catch(() => '');
           log.error('❌ [SessionPage] Prompt failed:', res.status, errorText);
           useSyncStore.getState().setStatus(sessionId, { type: 'idle' });
+        } else {
+          log.log('✅ [SessionPage] Prompt sent (async)');
         }
       } catch (err: any) {
         log.error('❌ [SessionPage] Prompt error:', err?.message || err);

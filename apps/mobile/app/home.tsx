@@ -175,7 +175,7 @@ export default function HomeScreen() {
         if (options.variant) payload.variant = options.variant;
 
         const token = await getAuthToken();
-        fetch(`${sandboxUrl}/session/${session.id}/message`, {
+        fetch(`${sandboxUrl}/session/${session.id}/prompt_async`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
