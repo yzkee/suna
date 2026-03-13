@@ -240,7 +240,18 @@ export class TriggerManager {
     for (const agent of agents) {
       for (const trigger of agent.triggers) {
         if (trigger.source.type !== "webhook" || trigger.enabled === false) continue
-        routes.push({ agentName: agent.name, trigger: trigger as WebhookTriggerConfig })
+        const webhookTrigger = trigger as WebhookTriggerConfig
+        // Namespace webhook path with agent name to prevent collisions.
+        // e.g. agent "ops" with path "/inbound" → "/ops/inbound"
+        const rawPath = webhookTrigger.source.path
+        const prefixed = rawPath.startsWith(`/${agent.name}/`) || rawPath === `/${agent.name}`
+          ? rawPath
+          : `/${agent.name}${rawPath.startsWith("/") ? rawPath : `/${rawPath}`}`
+        const namespacedTrigger: WebhookTriggerConfig = {
+          ...webhookTrigger,
+          source: { ...webhookTrigger.source, path: prefixed },
+        }
+        routes.push({ agentName: agent.name, trigger: namespacedTrigger })
       }
     }
     this.webhookServer.setRoutes(routes)

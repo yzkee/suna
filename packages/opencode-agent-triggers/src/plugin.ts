@@ -45,7 +45,11 @@ export function createAgentTriggersPlugin(options: AgentTriggersPluginOptions = 
                 if (trigger.source.type === "cron") {
                   lines.push(`- [cron] ${trigger.name} | ${trigger.source.expr} | enabled=${trigger.enabled !== false}`)
                 } else {
-                  lines.push(`- [webhook] ${trigger.name} | ${(trigger.source.method ?? "POST").toUpperCase()} ${state.publicBaseUrl}${trigger.source.path} | enabled=${trigger.enabled !== false}`)
+                  const rawPath = trigger.source.path
+                  const namespacedPath = rawPath.startsWith(`/${agent.name}/`) || rawPath === `/${agent.name}`
+                    ? rawPath
+                    : `/${agent.name}${rawPath.startsWith("/") ? rawPath : `/${rawPath}`}`
+                  lines.push(`- [webhook] ${trigger.name} | ${(trigger.source.method ?? "POST").toUpperCase()} ${state.publicBaseUrl}${namespacedPath} | enabled=${trigger.enabled !== false}`)
                 }
               }
               lines.push("")
