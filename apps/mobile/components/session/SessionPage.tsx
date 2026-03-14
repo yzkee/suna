@@ -44,9 +44,10 @@ interface SessionPageProps {
   sessionId: string;
   onBack: () => void;
   onOpenDrawer?: () => void;
+  onOpenRightDrawer?: () => void;
 }
 
-export function SessionPage({ sessionId, onBack, onOpenDrawer }: SessionPageProps) {
+export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer }: SessionPageProps) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
@@ -319,6 +320,13 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer }: SessionPageProp
               </View>
             )}
           </View>
+          <TouchableOpacity
+            onPress={onOpenRightDrawer}
+            className="ml-3 p-1"
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="apps-outline" size={20} color={isDark ? '#F8F8F8' : '#121215'} />
+          </TouchableOpacity>
         </View>
       </View>
 

@@ -42,6 +42,7 @@ import {
 } from '@/lib/opencode/hooks/use-opencode-data';
 import { useResolvedConfig } from '@/lib/opencode/hooks/use-local-config';
 import { useTabStore } from '@/stores/tab-store';
+import { RightDrawerContent } from '@/components/session/RightDrawerContent';
 import { log } from '@/lib/logger';
 
 // ─── Animated collapsible wrapper ────────────────────────────────────────────
@@ -205,6 +206,7 @@ export default function HomeScreen() {
 
   // State
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [rightDrawerOpen, setRightDrawerOpen] = useState(false);
 
   // Persisted tab state (survives app restarts)
   const activeSessionId = useTabStore((s) => s.activeSessionId);
@@ -263,6 +265,8 @@ export default function HomeScreen() {
 
   const handleDrawerOpen = useCallback(() => setDrawerOpen(true), []);
   const handleDrawerClose = useCallback(() => setDrawerOpen(false), []);
+  const handleRightDrawerOpen = useCallback(() => setRightDrawerOpen(true), []);
+  const handleRightDrawerClose = useCallback(() => setRightDrawerOpen(false), []);
 
   const handleNewSession = useCallback(async () => {
     if (!sandboxUrl) return;
@@ -544,6 +548,11 @@ export default function HomeScreen() {
     handleDelete,
   ]);
 
+  const renderRightDrawerContent = useCallback(
+    () => <RightDrawerContent onClose={handleRightDrawerClose} />,
+    [handleRightDrawerClose],
+  );
+
   // ── Render ──
 
   return (
@@ -565,6 +574,19 @@ export default function HomeScreen() {
         swipeMinDistance={30}
         renderDrawerContent={renderDrawerContent}
       >
+        <Drawer
+          open={rightDrawerOpen}
+          onOpen={handleRightDrawerOpen}
+          onClose={handleRightDrawerClose}
+          drawerPosition="right"
+          drawerType="slide"
+          drawerStyle={{ width: '80%', backgroundColor: 'transparent' }}
+          overlayStyle={{
+            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(0, 0, 0, 0.2)',
+          }}
+          swipeEnabled={false}
+          renderDrawerContent={renderRightDrawerContent}
+        >
         <View className="flex-1 bg-background">
           {/* Loading sandbox */}
           {sandboxLoading ? (
@@ -588,7 +610,7 @@ export default function HomeScreen() {
 
           /* Active session */
           ) : activeSessionId && !showTabsOverview ? (
-            <SessionPage sessionId={activeSessionId} onBack={handleBack} onOpenDrawer={handleDrawerOpen} />
+            <SessionPage sessionId={activeSessionId} onBack={handleBack} onOpenDrawer={handleDrawerOpen} onOpenRightDrawer={handleRightDrawerOpen} />
 
           /* Tabs overview */
           ) : showTabsOverview ? (
@@ -610,17 +632,26 @@ export default function HomeScreen() {
                 style={{ paddingTop: insets.top }}
                 className="px-4 pb-3 bg-background"
               >
-                <View className="flex-row items-center">
+                <View className="flex-row items-center justify-between">
+                  <View className="flex-row items-center">
+                    <TouchableOpacity
+                      onPress={handleDrawerOpen}
+                      className="mr-3 p-1"
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Ionicons name="menu" size={24} color={isDark ? '#F8F8F8' : '#121215'} />
+                    </TouchableOpacity>
+                    <Text className="text-lg font-bold text-foreground">
+                      Kortix
+                    </Text>
+                  </View>
                   <TouchableOpacity
-                    onPress={handleDrawerOpen}
-                    className="mr-3 p-1"
+                    onPress={handleRightDrawerOpen}
+                    className="p-1"
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
-                    <Ionicons name="menu" size={24} color={isDark ? '#F8F8F8' : '#121215'} />
+                    <Ionicons name="apps-outline" size={20} color={isDark ? '#F8F8F8' : '#121215'} />
                   </TouchableOpacity>
-                  <Text className="text-lg font-bold text-foreground">
-                    Kortix
-                  </Text>
                 </View>
               </View>
 
@@ -681,6 +712,7 @@ export default function HomeScreen() {
             </View>
           )}
         </View>
+        </Drawer>
       </Drawer>
     </>
   );
