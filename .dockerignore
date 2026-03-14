@@ -1,31 +1,5 @@
-node_modules
-**/node_modules
-.next
-**/.next
-!apps/frontend/.next
-!apps/frontend/.next/standalone
-!apps/frontend/.next/standalone/**
-!apps/frontend/.next/static
-!apps/frontend/.next/static/**
+# ── Exclude everything heavy first ──
 /.git
-**/.env
-**/.env.*
-dist
-**/dist
-docs
-**/docs
-tests
-**/tests
-!sandbox/tests
-!sandbox/tests/**
-*.test.ts
-*.test.tsx
-*.spec.ts
-*.spec.tsx
-__tests__
-**/__tests__
-coverage
-**/coverage
 .DS_Store
 **/.DS_Store
 *.log
@@ -38,5 +12,46 @@ coverage
 **/.vercel
 .buildx-cache
 **/.buildx-cache
+
+# ── Env files ──
+**/.env
+**/.env.*
+
+# ── Test files ──
+tests
+**/tests
+!sandbox/tests
+!sandbox/tests/**
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+__tests__
+**/__tests__
+coverage
+**/coverage
+
+# ── Build artifacts ──
+dist
+**/dist
+docs
+**/docs
 *.md
 !packages/kortix-opencode/**/*.md
+
+# ── Node modules (exclude all EXCEPT standalone output) ──
+# The standalone output is self-contained and MUST keep its node_modules.
+# We exclude node_modules broadly, then whitelist the standalone tree.
+node_modules
+**/node_modules
+
+# ── Next.js build outputs ──
+.next
+**/.next
+
+# ── Whitelist: frontend standalone output (MUST come LAST to override excludes above) ──
+!apps/frontend/.next
+!apps/frontend/.next/standalone
+!apps/frontend/.next/standalone/**
+!apps/frontend/.next/static
+!apps/frontend/.next/static/**
