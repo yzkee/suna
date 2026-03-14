@@ -23,8 +23,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSyncStore } from '@/lib/opencode/sync-store';
 import { useSessionSync } from '@/lib/opencode/session-sync';
 import { groupMessagesIntoTurns } from '@/lib/opencode/turns';
-import type { Turn } from '@/lib/opencode/types';
-import { useSession } from '@/lib/platform/hooks';
+import type { Turn, QuestionRequest } from '@/lib/opencode/types';
+import { useSession, replyToQuestion, rejectQuestion } from '@/lib/platform/hooks';
 import { useSandboxContext } from '@/contexts/SandboxContext';
 import {
   useOpenCodeAgents,
@@ -37,6 +37,7 @@ import { log } from '@/lib/logger';
 
 import { SessionChatInput, type PromptOptions } from './SessionChatInput';
 import { SessionTurn } from './SessionTurn';
+import { QuestionPrompt } from './QuestionPrompt';
 
 interface SessionPageProps {
   sessionId: string;
@@ -61,9 +62,13 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer }: SessionPageProp
   // Read messages from sync store
   const messages = useSyncStore((s) => s.messages[sessionId]);
   const sessionStatus = useSyncStore((s) => s.sessionStatus[sessionId]);
+  const pendingQuestions = useSyncStore((s) => s.questions[sessionId]) ?? [];
   const safeMessages = useMemo(() => messages ?? [], [messages]);
 
   const isBusy = sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry';
+
+  // The first pending question for this session (if any)
+  const activeQuestion: QuestionRequest | undefined = pendingQuestions[0];
 
   // Agent/model/variant config
   const { data: agents = [] } = useOpenCodeAgents(sandboxUrl);
@@ -174,6 +179,37 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer }: SessionPageProp
     }
   }, [sandboxUrl, sessionId]);
 
+  // Question reply/reject handlers
+  const handleQuestionReply = useCallback(
+    async (requestId: string, answers: string[][]) => {
+      if (!sandboxUrl) return;
+      // Optimistically remove from store
+      useSyncStore.getState().removeQuestion(sessionId, requestId);
+      try {
+        await replyToQuestion(sandboxUrl, requestId, answers);
+      } catch (err: any) {
+        log.error('Failed to reply to question:', err?.message || err);
+      }
+    },
+    [sandboxUrl, sessionId],
+  );
+
+  const handleQuestionReject = useCallback(
+    async (requestId: string) => {
+      if (!sandboxUrl) return;
+      // Optimistically remove from store
+      useSyncStore.getState().removeQuestion(sessionId, requestId);
+      try {
+        await rejectQuestion(sandboxUrl, requestId);
+      } catch (err: any) {
+        log.error('Failed to reject question:', err?.message || err);
+      }
+      // Also abort the session (matches frontend behavior)
+      handleStop();
+    },
+    [sandboxUrl, sessionId, handleStop],
+  );
+
   // Track last turn height for footer sizing
   const turnHeights = useRef<Record<string, number>>({});
   const [lastTurnHeight, setLastTurnHeight] = useState(80);
@@ -271,6 +307,15 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer }: SessionPageProp
         style={{ height: 40, marginTop: -40, zIndex: 1 }}
         pointerEvents="none"
       />
+
+      {/* Pending question prompt */}
+      {activeQuestion && (
+        <QuestionPrompt
+          request={activeQuestion}
+          onReply={handleQuestionReply}
+          onReject={handleQuestionReject}
+        />
+      )}
 
       {/* Chat input with toolbar */}
       <View>

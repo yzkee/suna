@@ -327,3 +327,36 @@ export function useAbortSession(sandboxUrl: string | undefined) {
     },
   });
 }
+
+// ─── Question Reply / Reject ────────────────────────────────────────────────
+
+/**
+ * Reply to a pending question.
+ * POST {sandboxUrl}/question/reply
+ */
+export async function replyToQuestion(
+  sandboxUrl: string,
+  requestId: string,
+  answers: string[][],
+): Promise<void> {
+  log.log('💬 [replyToQuestion] Replying to:', requestId);
+  await opencodeFetch<void>(sandboxUrl, '/question/reply', {
+    method: 'POST',
+    body: JSON.stringify({ requestID: requestId, answers }),
+  });
+}
+
+/**
+ * Reject (dismiss) a pending question.
+ * POST {sandboxUrl}/question/reject
+ */
+export async function rejectQuestion(
+  sandboxUrl: string,
+  requestId: string,
+): Promise<void> {
+  log.log('❌ [rejectQuestion] Rejecting:', requestId);
+  await opencodeFetch<void>(sandboxUrl, '/question/reject', {
+    method: 'POST',
+    body: JSON.stringify({ requestID: requestId }),
+  });
+}
