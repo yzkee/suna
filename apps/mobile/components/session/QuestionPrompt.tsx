@@ -220,7 +220,7 @@ export function QuestionPrompt({
         overflow: 'hidden',
         marginHorizontal: 16,
         marginBottom: 6,
-        backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.7)',
+        backgroundColor: isDark ? '#1a1a1d' : '#ffffff',
       }}
     >
       {/* ── Header ── */}

@@ -73,15 +73,41 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer }: SessionPageProp
   const hasQuestion = !!activeQuestion;
 
   // Animate crossfade between chat input and question prompt
-  // 0 = show input, 1 = show question
+  // inputAnim: 1 = visible, 0 = hidden (faded down)
+  // questionAnim: 1 = visible, 0 = hidden (faded down)
+  const inputAnim = useRef(new Animated.Value(1)).current;
   const questionAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    Animated.timing(questionAnim, {
-      toValue: hasQuestion ? 1 : 0,
-      duration: 250,
-      useNativeDriver: false,
-    }).start();
-  }, [hasQuestion, questionAnim]);
+    if (hasQuestion) {
+      // Textarea fades out downward, then question fades in from bottom
+      Animated.sequence([
+        Animated.timing(inputAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(questionAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      // Question fades out downward, then textarea fades in from bottom
+      Animated.sequence([
+        Animated.timing(questionAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(inputAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [hasQuestion, inputAnim, questionAnim]);
 
   // Agent/model/variant config
   const { data: agents = [] } = useOpenCodeAgents(sandboxUrl);
@@ -315,65 +341,79 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer }: SessionPageProp
         }}
       />
 
-      {/* Fade gradient above input — overlaps bottom of FlatList */}
-      <LinearGradient
-        colors={isDark ? ['rgba(18,18,21,0)', 'rgba(18,18,21,1)'] : ['rgba(245,245,245,0)', 'rgba(245,245,245,1)']}
-        style={{ height: 40, marginTop: -40, zIndex: 1 }}
-        pointerEvents="none"
-      />
-
-      {/* Question prompt — slides in, replaces chat input */}
-      <Animated.View
-        style={{
-          opacity: questionAnim,
-          maxHeight: questionAnim.interpolate({
-            inputRange: [0, 1],
-            outputRange: [0, 400],
-          }),
-          overflow: 'hidden',
-        }}
-        pointerEvents={hasQuestion ? 'auto' : 'none'}
-      >
-        {activeQuestion && (
-          <QuestionPrompt
-            request={activeQuestion}
-            onReply={handleQuestionReply}
-            onReject={handleQuestionReject}
-          />
-        )}
-      </Animated.View>
-
-      {/* Chat input — slides out when question is shown */}
-      <Animated.View
-        style={{
-          opacity: questionAnim.interpolate({
-            inputRange: [0, 1],
-            outputRange: [1, 0],
-          }),
-          maxHeight: questionAnim.interpolate({
-            inputRange: [0, 1],
-            outputRange: [200, 0],
-          }),
-          overflow: 'hidden',
-        }}
-        pointerEvents={hasQuestion ? 'none' : 'auto'}
-      >
-        <SessionChatInput
-          onSend={handleSend}
-          onStop={handleStop}
-          isBusy={isBusy}
-          agent={resolved.agent}
-          agents={resolved.agents}
-          model={resolved.model}
-          models={visibleModels}
-          modelKey={resolved.modelKey}
-          variant={resolved.variant}
-          variants={resolved.variants}
-          onAgentChange={resolved.setAgent}
-          onModelChange={resolved.setModel}
-          onVariantCycle={resolved.cycleVariant}
+      {/* Fade gradient above input — only when textarea is shown */}
+      {!hasQuestion && (
+        <LinearGradient
+          colors={isDark ? ['rgba(18,18,21,0)', 'rgba(18,18,21,1)'] : ['rgba(245,245,245,0)', 'rgba(245,245,245,1)']}
+          style={{ height: 40, marginTop: -40, zIndex: 1 }}
+          pointerEvents="none"
         />
-      </Animated.View>
+      )}
+
+      {/* Bottom area — question prompt and chat input share the same slot */}
+      <View>
+        {/* Chat input — fades out downward when question appears */}
+        <Animated.View
+          style={{
+            opacity: inputAnim,
+            transform: [{
+              translateY: inputAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [30, 0],
+              }),
+            }],
+          }}
+          pointerEvents={hasQuestion ? 'none' : 'auto'}
+        >
+          <SessionChatInput
+            onSend={handleSend}
+            onStop={handleStop}
+            isBusy={isBusy}
+            agent={resolved.agent}
+            agents={resolved.agents}
+            model={resolved.model}
+            models={visibleModels}
+            modelKey={resolved.modelKey}
+            variant={resolved.variant}
+            variants={resolved.variants}
+            onAgentChange={resolved.setAgent}
+            onModelChange={resolved.setModel}
+            onVariantCycle={resolved.cycleVariant}
+          />
+        </Animated.View>
+
+        {/* Question prompt — overlays on top of input, fades in from bottom */}
+        {activeQuestion && (
+          <View
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: isDark ? '#121215' : '#f5f5f5',
+            }}
+          >
+            <Animated.View
+              style={{
+                opacity: questionAnim,
+                transform: [{
+                  translateY: questionAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [30, 0],
+                  }),
+                }],
+              }}
+              pointerEvents={hasQuestion ? 'auto' : 'none'}
+            >
+              <QuestionPrompt
+                request={activeQuestion}
+                onReply={handleQuestionReply}
+                onReject={handleQuestionReject}
+              />
+            </Animated.View>
+          </View>
+        )}
+      </View>
     </View>
   );
 }
