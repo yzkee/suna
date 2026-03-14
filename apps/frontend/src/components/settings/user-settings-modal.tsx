@@ -1974,7 +1974,7 @@ function TransactionsTab() {
             <div>
                 <h3 className="text-lg font-semibold mb-0.5">Billing History</h3>
                 <p className="text-sm text-muted-foreground">
-                    All payments — plan grants, credit top-ups, auto top-ups, and compute usage.
+                    Paid billing events only — subscription renewals, credit top-ups, auto top-ups, and refunds.
                 </p>
             </div>
             <BillingHistory />

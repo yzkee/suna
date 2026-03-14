@@ -1,4 +1,4 @@
-import { eq, desc, sql, and, gte } from 'drizzle-orm';
+import { eq, desc, sql, and, gte, inArray } from 'drizzle-orm';
 import { creditLedger, creditUsage, creditPurchases } from '../../shared/db-schema';
 import { db } from '../../shared/db';
 
@@ -11,11 +11,20 @@ export async function getTransactions(
   accountId: string,
   limit: number,
   offset: number,
-  typeFilter?: string,
+  typeFilter?: string | string[],
 ) {
   const conditions = [eq(creditLedger.accountId, accountId)];
-  if (typeFilter) {
-    conditions.push(eq(creditLedger.type, typeFilter));
+
+  const typeFilters = Array.isArray(typeFilter)
+    ? typeFilter.filter(Boolean)
+    : typeFilter
+      ? [typeFilter]
+      : [];
+
+  if (typeFilters.length === 1) {
+    conditions.push(eq(creditLedger.type, typeFilters[0]!));
+  } else if (typeFilters.length > 1) {
+    conditions.push(inArray(creditLedger.type, typeFilters));
   }
 
   const where = conditions.length === 1 ? conditions[0] : and(...conditions)!;

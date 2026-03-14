@@ -9,7 +9,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -19,37 +18,19 @@ import {
   CreditCard,
   Zap,
   ArrowDownCircle,
-  ArrowUpCircle,
   RotateCcw,
+  CalendarSync,
   Clock,
-  Gift,
-  Infinity,
-  Bot,
-  TrendingDown,
   ChevronLeft,
   ChevronRight,
   Receipt,
+  Wallet,
 } from 'lucide-react';
 import { useTransactions } from '@/hooks/billing/use-transactions';
 import { cn } from '@/lib/utils';
-import { formatCredits } from '@kortix/shared';
+import { creditsToDollars, formatCredits } from '@kortix/shared';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-type TxType =
-  | 'tier_grant'
-  | 'purchase'
-  | 'admin_grant'
-  | 'promotional'
-  | 'usage'
-  | 'refund'
-  | 'adjustment'
-  | 'expired'
-  | 'daily_refresh'
-  | 'auto_topup'
-  | string;
-
-type FilterTab = 'all' | 'topups' | 'plan' | 'usage';
+type FilterTab = 'all' | 'topups' | 'subscription' | 'refunds';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -64,9 +45,7 @@ function formatDate(dateString: string) {
 }
 
 function formatDollars(creditsAsDisplayed: number): string {
-  // credits are already multiplied by CREDITS_PER_DOLLAR (1000) in the hook
-  // So to get dollars: credits / 1000
-  const dollars = Math.abs(creditsAsDisplayed) / 1000;
+  const dollars = Math.abs(creditsToDollars(creditsAsDisplayed));
   if (dollars === 0) return '$0.00';
   if (dollars < 0.01) return `< $0.01`;
   return `$${dollars.toFixed(2)}`;
@@ -77,105 +56,80 @@ function formatDollars(creditsAsDisplayed: number): string {
 interface TypeConfig {
   label: string;
   icon: React.ElementType;
-  iconClass: string;
   badgeClass: string;
   category: FilterTab;
+  paymentLabel: string;
 }
 
 const TYPE_CONFIG: Record<string, TypeConfig> = {
   tier_grant: {
-    label: 'Plan Credits',
-    icon: Zap,
-    iconClass: 'text-primary',
-    badgeClass: 'bg-primary/10 text-primary border-primary/20',
-    category: 'plan',
+    label: 'Subscription',
+    icon: CalendarSync,
+    badgeClass: 'bg-sky-500/10 text-sky-600 border-sky-500/20',
+    category: 'subscription',
+    paymentLabel: 'Monthly plan',
   },
   daily_refresh: {
     label: 'Daily Refresh',
     icon: RotateCcw,
-    iconClass: 'text-blue-500',
     badgeClass: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
-    category: 'plan',
+    category: 'all',
+    paymentLabel: 'Refresh',
   },
   purchase: {
     label: 'Credit Top-up',
     icon: CreditCard,
-    iconClass: 'text-emerald-500',
     badgeClass: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
     category: 'topups',
+    paymentLabel: 'One-time top-up',
   },
   auto_topup: {
     label: 'Auto Top-up',
     icon: RotateCcw,
-    iconClass: 'text-emerald-500',
     badgeClass: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
     category: 'topups',
-  },
-  usage: {
-    label: 'Usage',
-    icon: Bot,
-    iconClass: 'text-orange-500',
-    badgeClass: 'bg-orange-500/10 text-orange-600 border-orange-500/20',
-    category: 'usage',
+    paymentLabel: 'Automatic top-up',
   },
   refund: {
     label: 'Refund',
     icon: ArrowDownCircle,
-    iconClass: 'text-emerald-500',
     badgeClass: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
-    category: 'topups',
-  },
-  promotional: {
-    label: 'Promo Credits',
-    icon: Gift,
-    iconClass: 'text-violet-500',
-    badgeClass: 'bg-violet-500/10 text-violet-600 border-violet-500/20',
-    category: 'plan',
-  },
-  admin_grant: {
-    label: 'Admin Grant',
-    icon: Gift,
-    iconClass: 'text-violet-500',
-    badgeClass: 'bg-violet-500/10 text-violet-600 border-violet-500/20',
-    category: 'plan',
+    category: 'refunds',
+    paymentLabel: 'Refund',
   },
   adjustment: {
     label: 'Adjustment',
-    icon: ArrowUpCircle,
-    iconClass: 'text-muted-foreground',
+    icon: Zap,
     badgeClass: 'bg-muted text-muted-foreground border-border',
     category: 'all',
+    paymentLabel: 'Adjustment',
   },
   expired: {
     label: 'Expired',
     icon: Clock,
-    iconClass: 'text-red-500',
     badgeClass: 'bg-red-500/10 text-red-600 border-red-500/20',
-    category: 'usage',
+    category: 'all',
+    paymentLabel: 'Expired',
   },
 };
 
 function getTypeConfig(type: string): TypeConfig {
-  // Handle auto_topup embedded in description
-  if (type === 'purchase') return TYPE_CONFIG.purchase;
   return (
     TYPE_CONFIG[type] ?? {
       label: type,
       icon: Receipt,
-      iconClass: 'text-muted-foreground',
       badgeClass: 'bg-muted text-muted-foreground border-border',
       category: 'all' as FilterTab,
+      paymentLabel: 'Payment',
     }
   );
 }
 
-// Map filter tab → type filter for API
-const TAB_TYPE_FILTERS: Record<FilterTab, string | undefined> = {
-  all: undefined,
-  topups: undefined, // client-side filtered
-  plan: undefined,   // client-side filtered
-  usage: 'usage',
-};
+const PAYMENT_TYPES = ['purchase', 'auto_topup', 'tier_grant', 'refund'] as const;
+
+function isPaymentTransaction(type: string) {
+  return PAYMENT_TYPES.includes(type as (typeof PAYMENT_TYPES)[number]);
+}
 
 // ─── Summary stats strip ─────────────────────────────────────────────────────
 
@@ -184,39 +138,37 @@ interface SummaryStatsProps {
 }
 
 function SummaryStats({ transactions }: SummaryStatsProps) {
-  const txList = transactions?.transactions ?? [];
+  const txList = (transactions?.transactions ?? []).filter((tx) => isPaymentTransaction(tx.type));
 
-  const totalAdded = txList
-    .filter((t) => t.amount > 0)
-    .reduce((s, t) => s + t.amount, 0);
-
-  const totalUsed = txList
-    .filter((t) => t.amount < 0 && t.type === 'usage')
-    .reduce((s, t) => s + Math.abs(t.amount), 0);
-
-  const totalPurchased = txList
+  const totalCreditsPurchased = txList
     .filter((t) => t.type === 'purchase' || t.type === 'auto_topup')
     .reduce((s, t) => s + t.amount, 0);
 
+  const totalCharged = txList
+    .filter((t) => t.type === 'purchase' || t.type === 'auto_topup')
+    .reduce((s, t) => s + t.amount, 0);
+
+  const recurringPayments = txList.filter((t) => t.type === 'tier_grant').length;
+
   return (
-    <div className="grid grid-cols-3 gap-3 mb-5">
+    <div className="mb-4 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
       {[
         {
-          label: 'Credits Added',
-          value: formatCredits(totalAdded),
-          icon: ArrowUpCircle,
+          label: 'Charged',
+          value: formatDollars(totalCharged),
+          icon: Wallet,
           cls: 'text-emerald-500',
         },
         {
-          label: 'Credits Used',
-          value: formatCredits(totalUsed),
-          icon: TrendingDown,
-          cls: 'text-orange-500',
+          label: 'Credits Added',
+          value: formatCredits(totalCreditsPurchased),
+          icon: CreditCard,
+          cls: 'text-sky-500',
         },
         {
-          label: 'Purchased',
-          value: formatDollars(totalPurchased),
-          icon: CreditCard,
+          label: 'Subscription Charges',
+          value: recurringPayments.toString(),
+          icon: CalendarSync,
           cls: 'text-primary',
         },
       ].map((stat) => {
@@ -224,13 +176,13 @@ function SummaryStats({ transactions }: SummaryStatsProps) {
         return (
           <div
             key={stat.label}
-            className="rounded-xl border border-border bg-card px-4 py-3 flex items-center gap-3"
+            className="flex items-center gap-3 rounded-xl border border-border/70 bg-card/70 px-3.5 py-3"
           >
             <div className={cn('rounded-lg bg-muted p-1.5', stat.cls)}>
               <Icon className="h-3.5 w-3.5" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">{stat.label}</p>
+              <p className="text-[11px] text-muted-foreground">{stat.label}</p>
               <p className="text-sm font-semibold tabular-nums">{stat.value}</p>
             </div>
           </div>
@@ -247,31 +199,28 @@ const LIMIT = 50;
 const FILTER_TABS: { id: FilterTab; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'topups', label: 'Top-ups' },
-  { id: 'plan', label: 'Plan & Grants' },
-  { id: 'usage', label: 'Usage' },
+  { id: 'subscription', label: 'Subscription' },
+  { id: 'refunds', label: 'Refunds' },
 ];
 
 export default function BillingHistory() {
   const [tab, setTab] = useState<FilterTab>('all');
   const [offset, setOffset] = useState(0);
 
-  // For the 'usage' tab we can use the server-side type_filter
-  const serverTypeFilter = tab === 'usage' ? 'usage' : undefined;
-
   const { data, isLoading, error, refetch } = useTransactions(
     LIMIT,
     offset,
-    serverTypeFilter,
+    [...PAYMENT_TYPES],
   );
 
-  const allTx = data?.transactions ?? [];
+  const allTx = (data?.transactions ?? []).filter((tx) => isPaymentTransaction(tx.type));
 
-  // Client-side filter for plan / topups tabs (since they are multi-type)
   const transactions = allTx.filter((tx) => {
-    if (tab === 'all' || tab === 'usage') return true;
+    if (tab === 'all') return true;
     const config = getTypeConfig(tx.type);
     if (tab === 'topups') return config.category === 'topups';
-    if (tab === 'plan') return config.category === 'plan';
+    if (tab === 'subscription') return config.category === 'subscription';
+    if (tab === 'refunds') return config.category === 'refunds';
     return true;
   });
 
@@ -285,7 +234,7 @@ export default function BillingHistory() {
     return (
       <div className="space-y-4">
         {/* Stats skeleton */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {[...Array(3)].map((_, i) => (
             <Skeleton key={i} className="h-14 w-full rounded-xl" />
           ))}
@@ -318,17 +267,17 @@ export default function BillingHistory() {
       <SummaryStats transactions={data} />
 
       {/* Filter tabs + refresh */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-1">
           {FILTER_TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => handleTabChange(t.id)}
               className={cn(
-                'px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer',
+                'cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
                 tab === t.id
-                  ? 'text-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
+                  ? 'bg-muted text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
               )}
             >
               {t.label}
@@ -348,38 +297,32 @@ export default function BillingHistory() {
 
       {/* Table */}
       {transactions.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-center">
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/70 py-10 text-center">
           <Receipt className="h-8 w-8 text-muted-foreground/40 mb-3" />
-          <p className="text-sm text-muted-foreground">No transactions found</p>
+          <p className="text-sm text-muted-foreground">No billing events found</p>
           <p className="text-xs text-muted-foreground/60 mt-1">
             {tab !== 'all'
-              ? 'Try switching to "All" to see your full history'
-              : 'Your billing history will appear here once you have activity'}
+              ? 'Try switching to "All" to see your full payment history'
+              : 'Subscription renewals, top-ups, and refunds will show up here'}
           </p>
         </div>
       ) : (
         <>
-          <div className="rounded-xl border border-border overflow-hidden">
-            <Table>
+          <div className="overflow-hidden rounded-xl border border-border/70 bg-card/30">
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow className="hover:bg-transparent border-b border-border">
-                  <TableHead className="text-xs font-medium text-muted-foreground w-[160px]">
+                  <TableHead className="w-[150px] px-3 text-[11px] font-medium text-muted-foreground">
                     Date
                   </TableHead>
-                  <TableHead className="text-xs font-medium text-muted-foreground w-[130px]">
-                    Type
+                  <TableHead className="w-[140px] px-3 text-[11px] font-medium text-muted-foreground">
+                    Payment
                   </TableHead>
-                  <TableHead className="text-xs font-medium text-muted-foreground">
-                    Description
+                  <TableHead className="px-3 text-[11px] font-medium text-muted-foreground">
+                    Details
                   </TableHead>
-                  <TableHead className="text-xs font-medium text-muted-foreground text-center w-[90px]">
-                    Credit Type
-                  </TableHead>
-                  <TableHead className="text-xs font-medium text-muted-foreground text-right w-[110px]">
-                    Credits
-                  </TableHead>
-                  <TableHead className="text-xs font-medium text-muted-foreground text-right w-[110px]">
-                    Balance
+                  <TableHead className="w-[110px] px-3 text-right text-[11px] font-medium text-muted-foreground">
+                    Amount
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -387,8 +330,7 @@ export default function BillingHistory() {
                 {transactions.map((tx, idx) => {
                   const config = getTypeConfig(tx.type);
                   const Icon = config.icon;
-                  const isCredit = tx.amount > 0;
-                  const isExpired = tx.type === 'expired';
+                  const isRefund = tx.type === 'refund';
 
                   return (
                     <TableRow
@@ -398,16 +340,14 @@ export default function BillingHistory() {
                         idx % 2 === 1 ? 'bg-muted/20' : 'bg-transparent',
                       )}
                     >
-                      {/* Date */}
-                      <TableCell className="font-mono text-[11px] text-muted-foreground py-3">
+                      <TableCell className="px-3 py-2.5 font-mono text-[11px] text-muted-foreground">
                         {formatDate(tx.created_at)}
                       </TableCell>
 
-                      {/* Type badge */}
-                      <TableCell className="py-3">
+                      <TableCell className="px-3 py-2.5 align-top">
                         <span
                           className={cn(
-                            'inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded-md border',
+                            'inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium',
                             config.badgeClass,
                           )}
                         >
@@ -416,51 +356,27 @@ export default function BillingHistory() {
                         </span>
                       </TableCell>
 
-                      {/* Description */}
-                      <TableCell className="py-3">
-                        <span className="text-xs text-foreground/80 line-clamp-1">
-                          {tx.description || '—'}
-                        </span>
+                      <TableCell className="px-3 py-2.5">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-foreground/90">{config.paymentLabel}</p>
+                          <p className="line-clamp-2 whitespace-normal break-words text-[11px] text-muted-foreground">
+                            {tx.description || '—'}
+                          </p>
+                        </div>
                       </TableCell>
 
-                      {/* Credit type (expiring / permanent) */}
-                      <TableCell className="py-3 text-center">
-                        {tx.is_expiring !== undefined && (
-                          tx.is_expiring ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] text-orange-500/80">
-                              <Clock className="h-2.5 w-2.5" />
-                              Expiring
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-[10px] text-blue-500/80">
-                              <Infinity className="h-2.5 w-2.5" />
-                              Permanent
-                            </span>
-                          )
-                        )}
-                      </TableCell>
-
-                      {/* Credits +/- */}
-                      <TableCell className="py-3 text-right">
+                      <TableCell className="px-3 py-2.5 text-right align-top">
                         <span
                           className={cn(
                             'font-mono text-xs font-semibold tabular-nums',
-                            isExpired
-                              ? 'text-red-500'
-                              : isCredit
-                              ? 'text-emerald-600 dark:text-emerald-400'
-                              : 'text-red-500 dark:text-red-400',
+                            isRefund ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground',
                           )}
                         >
-                          {isCredit ? '+' : ''}
-                          {formatCredits(tx.amount, { showDecimals: true })}
+                          {isRefund ? '+' : ''}
+                          {formatDollars(tx.amount)}
                         </span>
-                      </TableCell>
-
-                      {/* Balance after */}
-                      <TableCell className="py-3 text-right">
-                        <span className="font-mono text-xs text-muted-foreground tabular-nums">
-                          {formatCredits(tx.balance_after, { showDecimals: true })}
+                        <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                          {formatCredits(Math.abs(tx.amount))} credits
                         </span>
                       </TableCell>
                     </TableRow>
@@ -476,7 +392,7 @@ export default function BillingHistory() {
               <p className="text-xs text-muted-foreground">
                 Showing {offset + 1}–
                 {Math.min(offset + LIMIT, data.pagination.total)} of{' '}
-                {data.pagination.total} transactions
+                {data.pagination.total} billing events
               </p>
               <div className="flex items-center gap-1.5">
                 <Button

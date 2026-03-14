@@ -8,7 +8,17 @@ export interface CreditTransaction {
   created_at: string;
   amount: number;
   balance_after: number;
-  type: 'tier_grant' | 'purchase' | 'admin_grant' | 'promotional' | 'usage' | 'refund' | 'adjustment' | 'expired';
+  type:
+    | 'tier_grant'
+    | 'purchase'
+    | 'admin_grant'
+    | 'promotional'
+    | 'usage'
+    | 'refund'
+    | 'adjustment'
+    | 'expired'
+    | 'auto_topup'
+    | 'daily_refresh';
   description: string;
   is_expiring?: boolean;
   expires_at?: string;
@@ -48,18 +58,22 @@ export interface TransactionsSummary {
 export function useTransactions(
   limit: number = 50,
   offset: number = 0,
-  typeFilter?: string
+  typeFilter?: string | string[]
 ) {
+  const normalizedTypeFilter = Array.isArray(typeFilter)
+    ? typeFilter.join(',')
+    : typeFilter;
+
   return useQuery<TransactionsResponse>({
-    queryKey: [...accountStateKeys.transactions(limit, offset), typeFilter],
+    queryKey: [...accountStateKeys.transactions(limit, offset), normalizedTypeFilter],
     queryFn: async () => {
       const params = new URLSearchParams({
         limit: limit.toString(),
         offset: offset.toString(),
       });
 
-      if (typeFilter) {
-        params.append('type_filter', typeFilter);
+      if (normalizedTypeFilter) {
+        params.append('type_filter', normalizedTypeFilter);
       }
 
       const response = await backendApi.get(`/billing/transactions?${params.toString()}`);
@@ -70,7 +84,7 @@ export function useTransactions(
       const data = response.data as TransactionsResponse;
       return {
         ...data,
-        transactions: data.transactions.map(tx => ({
+        transactions: data.transactions.map((tx) => ({
           ...tx,
           amount: dollarsToCredits(tx.amount),
           balance_after: dollarsToCredits(tx.balance_after),
