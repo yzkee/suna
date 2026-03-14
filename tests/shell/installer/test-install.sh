@@ -3,7 +3,7 @@
 # ║  Test Suite: get-kortix.sh (unified installer)                             ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 SCRIPT="$ROOT_DIR/scripts/get-kortix.sh"
 
 PASS=0; FAIL=0; TOTAL=0

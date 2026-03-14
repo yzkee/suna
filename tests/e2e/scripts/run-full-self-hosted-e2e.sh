@@ -34,10 +34,12 @@ fi
 echo "[e2e] Running installer (local mode, minimal prompts)"
 printf "y\n\n\n\nn\nn\n" | bash "scripts/get-kortix.sh" >"$INSTALL_LOG" 2>&1
 
-echo "[e2e] Building local frontend image with current source"
-pnpm --dir apps/frontend install >/dev/null
-NEXT_OUTPUT=standalone pnpm --dir apps/frontend run build >/dev/null
-docker build -f "apps/frontend/Dockerfile" -t "kortix/kortix-frontend:latest" . >/dev/null
+echo "[e2e] Building local frontend image (multi-stage Docker build)"
+docker build -f "apps/frontend/Dockerfile" \
+  --build-arg NEXT_PUBLIC_SUPABASE_URL="${NEXT_PUBLIC_SUPABASE_URL:-http://localhost:8000}" \
+  --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}" \
+  --build-arg NEXT_PUBLIC_BACKEND_URL="${NEXT_PUBLIC_BACKEND_URL:-http://localhost:8008/v1}" \
+  -t "kortix/kortix-frontend:latest" . >/dev/null
 
 echo "[e2e] Building local API image with current source"
 docker build --build-arg SERVICE=kortix-api -f "kortix-api/Dockerfile" -t "kortix/kortix-api:latest" . >/dev/null

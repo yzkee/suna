@@ -37,9 +37,9 @@ run_suite() {
 echo ""
 printf "${BOLD}${CYAN}  Kortix — Full Test Suite${NC}\n"
 
-run_suite "Installer Structure" "bash $SCRIPT_DIR/test-install.sh"
-run_suite "Embedded CLI"        "bash $SCRIPT_DIR/test-cli.sh"
-run_suite "Security Features"   "bash $SCRIPT_DIR/test-security.sh"
+run_suite "Installer Structure" "bash $SCRIPT_DIR/installer/test-install.sh"
+run_suite "Embedded CLI"        "bash $SCRIPT_DIR/cli/test-cli.sh"
+run_suite "Security Features"   "bash $SCRIPT_DIR/security/test-security.sh"
 
 echo ""
 printf "${BOLD}  Results: ${GREEN}%d passed${NC}" "$PASSED"
@@ -51,7 +51,7 @@ echo ""
 
 if [ "$FAILED" -gt 0 ]; then
   echo "  ${BOLD}Note:${NC} VPS E2E tests are separate. Run on the VPS:"
-  echo "    bash scripts/tests/test-vps-e2e.sh <domain> [user] [password]"
+  echo "    bash tests/shell/vps/test-vps-e2e.sh <domain> [user] [password]"
   echo ""
 fi
 

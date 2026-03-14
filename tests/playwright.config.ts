@@ -4,15 +4,16 @@ const baseURL = process.env.E2E_BASE_URL || 'http://localhost:13737';
 const apiURL = process.env.E2E_API_URL || 'http://localhost:13738/v1';
 
 export default defineConfig({
-  testDir: './specs',
-  timeout: 180_000,
+  testDir: './e2e/specs',
+  timeout: 300_000,
   expect: {
     timeout: 30_000,
   },
   fullyParallel: false,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
-  reporter: [['list'], ['html', { open: 'never' }]],
+  workers: 1, // sequential — tests depend on prior state
+  reporter: [['list'], ['html', { open: 'never', outputFolder: '../test-results/html' }]],
+  outputDir: '../test-results/artifacts',
   use: {
     baseURL,
     trace: 'retain-on-failure',

@@ -1,10 +1,22 @@
 {
-  "name": "@kortix/e2e-tests",
+  "name": "@kortix/tests",
   "version": "0.1.0",
-  "description": "Kortix end-to-end testing suite",
+  "private": true,
+  "description": "Unified Kortix test suite — E2E, shell, security, installer",
   "scripts": {
-    "test": "bash e2e/test-self-hosted-install.sh",
-    "test:quick": "bash e2e/test-auth-flow.sh",
-    "test:ci": "bash e2e/test-self-hosted-install.sh --ci"
+    "test": "bash shell/run-all.sh && npx playwright test -c playwright.config.ts",
+    "test:e2e": "bash e2e/self-hosted-e2e.sh",
+    "test:e2e:install-only": "bash e2e/test-self-hosted-install.sh",
+    "test:e2e:browser": "npx playwright test -c playwright.config.ts",
+    "test:e2e:browser:headed": "npx playwright test -c playwright.config.ts --headed",
+    "test:shell": "bash shell/run-all.sh",
+    "test:shell:installer": "bash shell/installer/test-install.sh",
+    "test:shell:cli": "bash shell/cli/test-cli.sh",
+    "test:shell:security": "bash shell/security/test-security.sh",
+    "test:shell:vps": "bash shell/vps/test-vps-e2e.sh",
+    "playwright:install": "npx playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0"
   }
 }
