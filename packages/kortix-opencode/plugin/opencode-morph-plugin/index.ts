@@ -11,22 +11,35 @@ import { type Plugin, tool } from "@opencode-ai/plugin";
 import { MorphClient, WarpGrepClient, CompactClient } from "@morphllm/morphsdk";
 import type { WarpGrepResult, CompactResult } from "@morphllm/morphsdk";
 import type { Part, TextPart, ToolPart, Message } from "@opencode-ai/sdk";
+import { createHash } from "node:crypto";
+import { isAbsolute, resolve as resolvePath } from "node:path";
 
 // Config from environment — only MORPH_API_KEY is required
 const MORPH_API_KEY = process.env.MORPH_API_KEY;
 const MORPH_API_URL = "https://api.morphllm.com";
 const MORPH_TIMEOUT = 30000;
 const MORPH_WARP_GREP_TIMEOUT = 60000;
-const MORPH_COMPACT_TIMEOUT = 120000;
+const MORPH_COMPACT_TIMEOUT = 60000;
+const GITHUB_RESOLVER_TIMEOUT = 10000;
+const GITHUB_REPO_API_URL = "https://api.github.com/repos";
+const GITHUB_REPO_SEARCH_URL = "https://api.github.com/search/repositories";
+const GITHUB_REPO_SUGGESTION_LIMIT = 5;
 
 // Compaction config — threshold and ratio are user-tunable
 const COMPACT_CHAR_THRESHOLD = parseInt(
-  process.env.MORPH_COMPACT_CHAR_THRESHOLD || "140000",
+  process.env.MORPH_COMPACT_CHAR_THRESHOLD || "100000",
   10,
 );
-const COMPACT_PRESERVE_RECENT = 6;
+const COMPACT_PRESERVE_RECENT = parseInt(
+  process.env.MORPH_COMPACT_PRESERVE_RECENT || "6",
+  10,
+);
 const COMPACT_RATIO = parseFloat(
   process.env.MORPH_COMPACT_RATIO || "0.3",
+);
+const COMPACT_MIN_UNCACHED_CHARS = parseInt(
+  process.env.MORPH_COMPACT_MIN_UNCACHED_CHARS || "16000",
+  10,
 );
 
 /**
@@ -35,6 +48,8 @@ const COMPACT_RATIO = parseFloat(
  */
 const MORPH_EDIT_ENABLED = process.env.MORPH_EDIT !== "false";
 const MORPH_WARPGREP_ENABLED = process.env.MORPH_WARPGREP !== "false";
+const MORPH_WARPGREP_GITHUB_ENABLED =
+  process.env.MORPH_WARPGREP_GITHUB !== "false";
 const MORPH_COMPACT_ENABLED = process.env.MORPH_COMPACT !== "false";
 
 /**
@@ -50,43 +65,52 @@ const PLUGIN_VERSION = "2.0.0";
 
 /** Canonical marker string used for lazy edit placeholders */
 const EXISTING_CODE_MARKER = "// ... existing code ...";
+const MORPH_ROUTING_HINT_HEADER = "Morph plugin routing hints:";
 
 /**
  * Shared MorphClient — FastApply uses morph.fastApply.applyEdit()
  * with MORPH_API_URL passed as per-call override.
  */
-const morph = new MorphClient({
-  apiKey: MORPH_API_KEY,
-  timeout: MORPH_TIMEOUT,
-});
+const morph = MORPH_API_KEY
+  ? new MorphClient({
+      apiKey: MORPH_API_KEY,
+      timeout: MORPH_TIMEOUT,
+    })
+  : null;
 
 /**
  * Separate WarpGrep client with its own timeout (typically longer than fast apply).
  */
-const warpGrep = new WarpGrepClient({
-  morphApiKey: MORPH_API_KEY,
-  morphApiUrl: MORPH_API_URL,
-  timeout: MORPH_WARP_GREP_TIMEOUT,
-});
+const warpGrep = MORPH_API_KEY
+  ? new WarpGrepClient({
+      morphApiKey: MORPH_API_KEY,
+      morphApiUrl: MORPH_API_URL,
+      timeout: MORPH_WARP_GREP_TIMEOUT,
+    })
+  : null;
 
 /**
  * Separate CompactClient for context compaction.
  */
-const compactClient = new CompactClient({
-  morphApiKey: MORPH_API_KEY,
-  morphApiUrl: MORPH_API_URL,
-  timeout: MORPH_COMPACT_TIMEOUT,
-});
+const compactClient = MORPH_API_KEY
+  ? new CompactClient({
+      morphApiKey: MORPH_API_KEY,
+      morphApiUrl: MORPH_API_URL,
+      timeout: MORPH_COMPACT_TIMEOUT,
+    })
+  : null;
 
 /**
- * Cache for compaction results.
- * Keyed by a hash of the message IDs that were compacted,
- * so we don't re-compact the same messages on every LLM call.
+ * Per-session compaction cache.
+ * Stores incrementally compacted prefix chunks so a growing conversation
+ * can reuse prior compaction work instead of recompacting the full old window.
  */
-let compactCache: {
-  messageIdHash: string;
+type CompactCacheChunk = {
+  messageKeys: string[];
   result: CompactResult;
-} | null = null;
+};
+
+const compactCache = new Map<string, CompactCacheChunk[]>();
 
 /**
  * Normalize code_edit input from LLM tool calls.
@@ -104,7 +128,7 @@ function normalizeCodeEditInput(codeEdit: string): string {
   const firstLine = lines[0];
   const lastLine = lines[lines.length - 1];
 
-  if (/^```[\w-]*$/.test(firstLine!) && /^```$/.test(lastLine!)) {
+  if (/^```[\w-]*$/.test(firstLine) && /^```$/.test(lastLine)) {
     return lines.slice(1, -1).join("\n");
   }
 
@@ -176,11 +200,180 @@ function estimateTotalChars(
   return total;
 }
 
-/**
- * Simple hash of message IDs for cache keying.
- */
-function hashMessageIds(messages: { info: Message }[]): string {
-  return messages.map((m) => m.info.id).join("|");
+function getMessageCacheKey(message: { info: Message; parts: Part[] }): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        id: message.info.id,
+        role: message.info.role,
+        parts: message.parts.map((part) => ({
+          type: part.type,
+          content: serializePart(part),
+        })),
+      }),
+    )
+    .digest("hex");
+}
+
+function getMessageCacheKeys(
+  messages: { info: Message; parts: Part[] }[],
+): string[] {
+  return messages.map(getMessageCacheKey);
+}
+
+function getMatchedCompactChunks(
+  cachedChunks: CompactCacheChunk[],
+  messageKeys: string[],
+): { matchedChunks: CompactCacheChunk[]; matchedMessageCount: number } {
+  const matchedChunks: CompactCacheChunk[] = [];
+  let matchedMessageCount = 0;
+
+  for (const chunk of cachedChunks) {
+    const nextCount = matchedMessageCount + chunk.messageKeys.length;
+    if (nextCount > messageKeys.length) break;
+
+    const matches = chunk.messageKeys.every(
+      (key, index) => messageKeys[matchedMessageCount + index] === key,
+    );
+    if (!matches) break;
+
+    matchedChunks.push(chunk);
+    matchedMessageCount = nextCount;
+  }
+
+  return { matchedChunks, matchedMessageCount };
+}
+
+function buildCompactedMessagesFromChunks(
+  chunks: CompactCacheChunk[],
+  sourceMessages: { info: Message; parts: Part[] }[],
+): { info: Message; parts: Part[] }[] {
+  const compactedMessages: { info: Message; parts: Part[] }[] = [];
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    compactedMessages.push(
+      buildCompactedMessage(
+        sourceMessages[offset]!,
+        chunk.result,
+        chunk.messageKeys.length,
+      ),
+    );
+    offset += chunk.messageKeys.length;
+  }
+
+  return compactedMessages;
+}
+
+function resolveSessionFilepath(
+  targetFilepath: string,
+  sessionDirectory: string,
+): string {
+  return isAbsolute(targetFilepath)
+    ? targetFilepath
+    : resolvePath(sessionDirectory, targetFilepath);
+}
+
+function resolveSessionRepoRoot(
+  sessionDirectory: string,
+  sessionWorktree: string,
+): string {
+  return sessionWorktree || sessionDirectory;
+}
+
+function appendRuntimeNotes(description: string, notes: string[]): string {
+  if (notes.length === 0) return description;
+
+  return `${description}\n\nRuntime notes:\n${notes.map((note) => `- ${note}`).join("\n")}`;
+}
+
+function buildToolRuntimeNotes(toolID: string): string[] {
+  switch (toolID) {
+    case "morph_edit": {
+      const notes = [
+        "Relative paths resolve from the active session directory.",
+      ];
+
+      if (!ALLOW_READONLY_AGENTS) {
+        notes.push(
+          `Blocked in readonly agents: ${READONLY_AGENTS.join(", ")}.`,
+        );
+      }
+
+      if (!MORPH_API_KEY) {
+        notes.push("Currently unavailable until MORPH_API_KEY is configured.");
+      }
+
+      return notes;
+    }
+
+    case "warpgrep_codebase_search": {
+      const notes = [
+        "Searches the current project worktree, not just the immediate cwd.",
+      ];
+
+      if (!MORPH_API_KEY) {
+        notes.push("Currently unavailable until MORPH_API_KEY is configured.");
+      }
+
+      return notes;
+    }
+
+    case "warpgrep_github_search": {
+      const notes = [
+        "Use this for public GitHub source questions, not the current checked-out repo.",
+      ];
+
+      if (!MORPH_API_KEY) {
+        notes.push("Currently unavailable until MORPH_API_KEY is configured.");
+      }
+
+      return notes;
+    }
+
+    default:
+      return [];
+  }
+}
+
+function buildMorphSystemRoutingHint(): string | null {
+  if (!MORPH_API_KEY) {
+    return [
+      MORPH_ROUTING_HINT_HEADER,
+      "- Morph remote tools are currently unavailable because MORPH_API_KEY is not configured.",
+      "- Use native edit/write/grep tools until Morph credentials are configured.",
+    ].join("\n");
+  }
+
+  const lines = [MORPH_ROUTING_HINT_HEADER];
+
+  if (MORPH_EDIT_ENABLED) {
+    lines.push(
+      "- Prefer morph_edit for large or scattered edits inside existing files.",
+    );
+    lines.push("- Use native edit for small exact replacements.");
+    lines.push("- Use write for brand new files.");
+
+    if (!ALLOW_READONLY_AGENTS) {
+      lines.push(
+        `- morph_edit is blocked in readonly agents: ${READONLY_AGENTS.join(", ")}.`,
+      );
+    }
+  }
+
+  if (MORPH_WARPGREP_ENABLED) {
+    lines.push(
+      "- Use warpgrep_codebase_search for exploratory local codebase questions.",
+    );
+  }
+
+  if (MORPH_WARPGREP_GITHUB_ENABLED) {
+    lines.push(
+      "- Use warpgrep_github_search for public GitHub source questions.",
+    );
+  }
+
+  return lines.length > 1 ? lines.join("\n") : null;
 }
 
 /**
@@ -221,6 +414,286 @@ function formatWarpGrepResult(result: WarpGrepResult): string {
   return parts.join("\n");
 }
 
+type PublicRepoContextSearchArgs = {
+  search_term: string;
+  owner_repo?: string;
+  github_url?: string;
+  branch?: string;
+};
+
+type GitHubRepo = string; // "owner/repo"
+
+type GitHubRepoSuggestion = {
+  fullName: string;
+  htmlUrl: string;
+  description?: string;
+  stars: number;
+  ownerLogin: string;
+  name: string;
+};
+
+type GitHubRepoLookupResult =
+  | {
+      status: "found";
+      fullName: string;
+      defaultBranch?: string;
+      htmlUrl?: string;
+    }
+  | {
+      status: "not_found";
+      detail: string;
+    }
+  | {
+      status: "unavailable";
+      detail: string;
+    };
+
+const GITHUB_OWNER_REPO_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+
+function tokenizeSuggestionQuery(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 2);
+}
+
+function buildGitHubSuggestionQueries(
+  repo: GitHubRepo,
+  searchTerm: string,
+): string[] {
+  const [owner, repoName] = repo.split("/");
+  const searchTokens = tokenizeSuggestionQuery(searchTerm).slice(0, 3);
+  const queries = new Set<string>();
+
+  if (owner) queries.add(`user:${owner}`);
+  if (owner && repoName) queries.add(`${repoName} user:${owner}`);
+  if (repoName) queries.add(repoName);
+  if (searchTokens.length > 0 && repoName) {
+    queries.add(`${repoName} ${searchTokens.join(" ")}`);
+  }
+
+  return Array.from(queries).slice(0, 4);
+}
+
+function formatPublicRepoResolutionFailure(
+  repo: GitHubRepo,
+  detail?: string,
+  suggestions: GitHubRepoSuggestion[] = [],
+): string {
+  const parts: string[] = [
+    `Repository not found: ${repo}\n\nThis repository does not exist or is private. Do NOT keep guessing other repo names.`,
+  ];
+  if (suggestions.length > 0) {
+    const list = suggestions.map((s) => `- ${s.fullName}${s.description ? ` - ${s.description}` : ""}`).join("\n");
+    parts.push(`Public repos found under this org:\n${list}\n\nIf one of these looks right, retry with that owner_repo.`);
+  }
+  parts.push(`If the package or SDK is closed-source or private:\n- Check the ecosystem registry or package page for repository metadata before guessing more names\n- Use the registry that matches the environment: npm for Node/TypeScript, crates.io for Rust, PyPI for Python, pkg.go.dev for Go, etc.\n- The real source repo may be under a different org or name\n- Stop trying variations and report that the source is not publicly available`);
+  return parts.join("\n\n");
+}
+
+function resolvePublicRepoLocator(
+  args: PublicRepoContextSearchArgs,
+): { repo: GitHubRepo } | { error: string } {
+  const ownerRepo = args.owner_repo?.trim();
+  const githubUrl = args.github_url?.trim();
+
+  if (ownerRepo && githubUrl) {
+    return {
+      error: `Error: Provide either owner_repo or github_url, not both.
+
+Use owner_repo for values like "owner/repo" or github_url for full URLs like "https://github.com/owner/repo".`,
+    };
+  }
+
+  if (!ownerRepo && !githubUrl) {
+    return {
+      error: `Error: Missing repository target.
+
+Provide exactly one of:
+- owner_repo: "owner/repo"
+- github_url: "https://github.com/owner/repo"`,
+    };
+  }
+
+  if (ownerRepo) {
+    if (!GITHUB_OWNER_REPO_PATTERN.test(ownerRepo)) {
+      return {
+        error: `Error: owner_repo must be a GitHub repository in "owner/repo" format.
+
+Received: "${ownerRepo}"
+
+Examples:
+- "owner/repo"
+- "org/project"
+- "team/package"
+
+If you have a full URL, use github_url instead.`,
+      };
+    }
+
+    return { repo: ownerRepo };
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(githubUrl!);
+  } catch {
+    return {
+      error: `Error: github_url must be a valid GitHub repository URL.
+
+Received: "${githubUrl}"
+
+Example:
+- "https://github.com/owner/repo"`,
+    };
+  }
+
+  if (!["github.com", "www.github.com"].includes(parsed.hostname)) {
+    return {
+      error: `Error: github_url must point to github.com.
+
+Received host: "${parsed.hostname}"
+
+Example:
+- "https://github.com/owner/repo"`,
+    };
+  }
+
+  const pathParts = parsed.pathname
+    .split("/")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (pathParts.length < 2) {
+    return {
+      error: `Error: github_url must include both owner and repository name.
+
+Received: "${githubUrl}"
+
+Example:
+- "https://github.com/owner/repo"`,
+    };
+  }
+
+  const owner = pathParts[0]!;
+  const repoName = pathParts[1]!.replace(/\.git$/, "");
+  const canonicalRepo = `${owner}/${repoName}`;
+
+  if (!GITHUB_OWNER_REPO_PATTERN.test(canonicalRepo)) {
+    return {
+      error: `Error: github_url did not resolve to a valid GitHub owner/repo locator.
+
+Received: "${githubUrl}"`,
+    };
+  }
+
+  return { repo: canonicalRepo };
+}
+
+function githubHeaders(): Record<string, string> {
+  return {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "@morphllm/opencode-morph-plugin",
+  };
+}
+
+async function withGitHubTimeout<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), GITHUB_RESOLVER_TIMEOUT);
+  try {
+    return await fn(ctrl.signal);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function lookupGitHubRepository(
+  repo: GitHubRepo,
+): Promise<GitHubRepoLookupResult> {
+  return withGitHubTimeout(async (signal) => {
+    try {
+      const response = await fetch(`${GITHUB_REPO_API_URL}/${repo}`, {
+        headers: githubHeaders(),
+        signal,
+      });
+
+      if (response.status === 404) return { status: "not_found", detail: "GitHub repository not found" };
+      if (!response.ok) return { status: "unavailable", detail: `GitHub repo lookup failed with status ${response.status}` };
+
+      const body = (await response.json()) as {
+        full_name?: string;
+        default_branch?: string;
+        html_url?: string;
+      };
+
+      return {
+        status: "found",
+        fullName: body.full_name || repo,
+        defaultBranch: body.default_branch,
+        htmlUrl: body.html_url,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown GitHub repo lookup error";
+      return { status: "unavailable", detail: message };
+    }
+  });
+}
+
+async function fetchGitHubRepoSuggestions(
+  repo: GitHubRepo,
+  searchTerm: string,
+): Promise<GitHubRepoSuggestion[]> {
+  return withGitHubTimeout(async (signal) => {
+    const queries = buildGitHubSuggestionQueries(repo, searchTerm);
+
+    const results = await Promise.all(
+      queries.map(async (query) => {
+        const url = new URL(GITHUB_REPO_SEARCH_URL);
+        url.searchParams.set("q", query);
+        url.searchParams.set("sort", "stars");
+        url.searchParams.set("order", "desc");
+        url.searchParams.set("per_page", String(GITHUB_REPO_SUGGESTION_LIMIT));
+
+        const response = await fetch(url.toString(), { headers: githubHeaders(), signal });
+        if (!response.ok) return [];
+
+        const body = (await response.json()) as {
+          items?: Array<{
+            full_name?: string;
+            html_url?: string;
+            description?: string | null;
+            stargazers_count?: number;
+            name?: string;
+            owner?: { login?: string };
+          }>;
+        };
+
+        return (body.items || []).filter(
+          (item) => item.full_name && item.html_url && item.name && item.owner?.login,
+        );
+      }),
+    );
+
+    const candidates = new Map<string, GitHubRepoSuggestion>();
+    for (const items of results) {
+      for (const item of items) {
+        if (!candidates.has(item.full_name!)) {
+          candidates.set(item.full_name!, {
+            fullName: item.full_name!,
+            htmlUrl: item.html_url!,
+            description: item.description || undefined,
+            stars: item.stargazers_count || 0,
+            ownerLogin: item.owner!.login!,
+            name: item.name!,
+          });
+        }
+      }
+    }
+
+    return Array.from(candidates.values()).slice(0, GITHUB_REPO_SUGGESTION_LIMIT);
+  });
+}
+
 const MorphPlugin: Plugin = async ({ directory, client }) => {
   const log = async (
     level: "debug" | "info" | "warn" | "error",
@@ -239,15 +712,28 @@ const MorphPlugin: Plugin = async ({ directory, client }) => {
     }
   };
 
+  const showToast = async (
+    variant: "info" | "success" | "warning" | "error",
+    message: string,
+  ) => {
+    try {
+      await client.tui?.showToast({
+        body: { title: "Morph Compact", message, variant, duration: 2000 },
+      });
+    } catch {}
+  };
+
   if (!MORPH_API_KEY) {
     await log(
       "warn",
-      "MORPH_API_KEY not set - morph tools will be disabled",
+      "MORPH_API_KEY not set - morph plugin disabled",
     );
+    return {};
   } else {
     const features = [
       MORPH_EDIT_ENABLED && "edit",
       MORPH_WARPGREP_ENABLED && "warpgrep",
+      MORPH_WARPGREP_GITHUB_ENABLED && "warpgrep-github",
       MORPH_COMPACT_ENABLED && "compact",
     ].filter(Boolean);
     await log("info", `Plugin v${PLUGIN_VERSION} loaded [${features.join(", ")}]`);
@@ -325,9 +811,10 @@ Options:
 3. Set MORPH_ALLOW_READONLY_AGENTS=true to override this restriction`;
           }
 
-          const filepath = target_filepath.startsWith("/")
-            ? target_filepath
-            : `${directory}/${target_filepath}`;
+          const filepath = resolveSessionFilepath(
+            target_filepath,
+            context.directory,
+          );
 
           if (!MORPH_API_KEY) {
             return `Error: MORPH_API_KEY not configured.
@@ -385,7 +872,7 @@ If you truly want to replace the entire file, use the 'write' tool instead.`;
 
           // Call Morph SDK to merge the edit
           const startTime = Date.now();
-          const result = await morph.fastApply.applyEdit(
+          const result = await morph!.fastApply.applyEdit(
             {
               originalCode,
               codeEdit: normalizedCodeEdit,
@@ -511,9 +998,12 @@ Get your API key at: https://morphllm.com/dashboard/api-keys`;
           const startTime = Date.now();
 
           try {
-            const generator = warpGrep.execute({
+            const generator = warpGrep!.execute({
               searchTerm: args.search_term,
-              repoRoot: directory,
+              repoRoot: resolveSessionRepoRoot(
+                context.directory,
+                context.worktree,
+              ),
               streamSteps: true,
             });
 
@@ -557,13 +1047,136 @@ Try rephrasing your search term or using grep for exact keyword searches.`;
     });
   }
 
+  if (MORPH_WARPGREP_GITHUB_ENABLED) {
+    tools.warpgrep_github_search = tool({
+        description: `Grounded code context search for public GitHub repositories. Uses Morph's hosted WarpGrep to search indexed public repos without cloning them locally.
+
+PREFER this tool over web search or docs fetching when the question is about how an open-source library or SDK works internally. If the user asks how something works in a library or package from any ecosystem, find its GitHub repo and search it here instead of fetching docs URLs.
+
+Use this when:
+- User asks how an external library/SDK works (auth, retries, sessions, internals)
+- You need to understand implementation details of any open-source dependency
+- Docs URLs are failing or returning 404s — search the source instead
+- User asks about a framework or tool they didn't provide a repo for — infer the canonical GitHub repo from the matching ecosystem (npm, crates.io, PyPI, pkg.go.dev, etc.) before guessing owner/repo variants
+
+This tool is for public remote repos. For the current checked-out workspace, use warpgrep_codebase_search instead.
+
+Provide exactly one repository locator:
+- owner_repo: "owner/repo"
+- github_url: "https://github.com/owner/repo"`,
+
+        args: {
+          search_term: tool.schema
+            .string()
+            .describe(
+              "Natural language query describing what to find or understand in the public repository",
+            ),
+          owner_repo: tool.schema
+            .string()
+            .optional()
+            .describe(
+              'GitHub repository in "owner/repo" format, for example "owner/repo"',
+            ),
+          github_url: tool.schema
+            .string()
+            .optional()
+            .describe(
+              'Full GitHub repository URL, for example "https://github.com/owner/repo"',
+            ),
+          branch: tool.schema
+            .string()
+            .optional()
+            .describe(
+              "Optional branch name to search instead of the repository default branch",
+            ),
+        },
+
+        async execute(args) {
+          if (!MORPH_API_KEY) {
+            return `Error: MORPH_API_KEY not configured.
+
+To use warpgrep_github_search, set the MORPH_API_KEY environment variable.
+Get your API key at: https://morphllm.com/dashboard/api-keys`;
+          }
+
+          const locator = resolvePublicRepoLocator(args);
+          if ("error" in locator) {
+            return locator.error;
+          }
+          const repo = locator.repo;
+
+          const startTime = Date.now();
+          const repoLookup = await lookupGitHubRepository(repo);
+
+          if (repoLookup.status === "not_found") {
+            const suggestions = await fetchGitHubRepoSuggestions(repo, args.search_term).catch(() => []);
+            return formatPublicRepoResolutionFailure(repo, repoLookup.detail, suggestions);
+          }
+
+          if (repoLookup.status === "unavailable") {
+            await log("warn", `GitHub repo lookup unavailable for ${repo}: ${repoLookup.detail}`);
+          }
+
+          try {
+            const result = await warpGrep!.searchGitHub({
+              searchTerm: args.search_term,
+              github: repo,
+              branch: args.branch,
+            });
+
+            const duration = Date.now() - startTime;
+            const contextCount = result.contexts?.length ?? 0;
+
+            await log("info", `Public repo context: ${repo} → ${contextCount} contexts (${duration}ms)`);
+
+            if (!result.success) {
+              const suggestions = await fetchGitHubRepoSuggestions(repo, args.search_term).catch(() => []);
+              return formatPublicRepoResolutionFailure(repo, result.error, suggestions);
+            }
+
+            return `Repository: ${repo}\n\n${formatWarpGrepResult(result)}`;
+          } catch (err) {
+            const error = err as Error;
+            const duration = Date.now() - startTime;
+            await log("error", `Public repo context search failed for ${repo} after ${duration}ms: ${error.message}`);
+            const suggestions = await fetchGitHubRepoSuggestions(repo, args.search_term).catch(() => []);
+            return formatPublicRepoResolutionFailure(repo, error.message, suggestions);
+          }
+        },
+    });
+  }
+
   // Build hooks object, conditionally including compaction hooks
   const hooks: Record<string, any> = {
     tool: tools,
   };
 
+  hooks["tool.definition"] = async (input: any, output: any) => {
+    const notes = buildToolRuntimeNotes(input.toolID);
+    if (notes.length === 0) return;
+
+    output.description = appendRuntimeNotes(output.description, notes);
+  };
+
+  const systemRoutingHint = buildMorphSystemRoutingHint();
+  if (systemRoutingHint) {
+    hooks["experimental.chat.system.transform"] = async (
+      _input: any,
+      output: any,
+    ) => {
+      const alreadyPresent = output.system.some((entry: string) =>
+        entry.includes(MORPH_ROUTING_HINT_HEADER),
+      );
+      if (!alreadyPresent) {
+        output.system.push(systemRoutingHint);
+      }
+    };
+  }
+
   // Customize tool output display in TUI
   hooks["tool.execute.after"] = async (input: any, output: any) => {
+      const morphMeta = { ...output.metadata, provider: "morph", version: PLUGIN_VERSION };
+
       if (input.tool === "morph_edit") {
         const fileMatch = output.output.match(/Applied edit to (.+?)\n/);
         const statsMatch = output.output.match(/\+(\d+) -(\d+) lines/);
@@ -600,11 +1213,7 @@ Try rephrasing your search term or using grep for exact keyword searches.`;
           output.title = `Morph: failed`;
         }
 
-        output.metadata = {
-          ...output.metadata,
-          provider: "morph",
-          version: PLUGIN_VERSION,
-        };
+        output.metadata = morphMeta;
       }
 
       if (input.tool === "warpgrep_codebase_search") {
@@ -612,7 +1221,7 @@ Try rephrasing your search term or using grep for exact keyword searches.`;
         const failMatch = output.output.match(
           /^(Search failed|WarpGrep search failed):/,
         );
-        const noResultMatch = output.output.match(/^No relevant code found/);
+        const noResultMatch = output.output.match(/^No relevant code found/m);
 
         if (failMatch) {
           output.title = "WarpGrep: search failed";
@@ -622,11 +1231,27 @@ Try rephrasing your search term or using grep for exact keyword searches.`;
           output.title = `WarpGrep: ${fileMatches.length} contexts`;
         }
 
-        output.metadata = {
-          ...output.metadata,
-          provider: "morph",
-          version: PLUGIN_VERSION,
-        };
+        output.metadata = morphMeta;
+      }
+
+      if (input.tool === "warpgrep_github_search") {
+        const repoMatch = output.output.match(/^Repository: (.+?)$/m);
+        const fileMatches = output.output.match(/<file path="[^"]+"/g);
+        const repo = repoMatch?.[1];
+
+        if (output.output.match(/^Repository resolution failed/m)) {
+          output.title = repo ? `Public repo: unresolved (${repo})` : "Public repo: unresolved";
+        } else if (output.output.match(/^Public repo context search failed/)) {
+          output.title = repo ? `Public repo: failed (${repo})` : "Public repo: search failed";
+        } else if (output.output.match(/^Repository: .+\n\nNo relevant code found/m)) {
+          output.title = repo ? `Public repo: no results (${repo})` : "Public repo: no results";
+        } else if (fileMatches) {
+          output.title = repo
+            ? `Public repo: ${repo} (${fileMatches.length} contexts)`
+            : `Public repo: ${fileMatches.length} contexts`;
+        }
+
+        output.metadata = morphMeta;
       }
   };
 
@@ -649,46 +1274,82 @@ Try rephrasing your search term or using grep for exact keyword searches.`;
 
       if (olderMessages.length === 0) return;
 
-      // Check cache — if we've already compacted these exact messages, reuse
-      const currentHash = hashMessageIds(olderMessages);
-      if (compactCache && compactCache.messageIdHash === currentHash) {
-        // Rebuild output from cached compaction
-        const compactedMsg = buildCompactedMessage(
-          olderMessages[0]!,
-          compactCache.result,
-          olderMessages.length,
-        );
-        output.messages = [compactedMsg, ...recentMessages];
+      const sessionID = olderMessages[0]!.info.sessionID;
+      const olderMessageKeys = getMessageCacheKeys(olderMessages);
+      const sessionCache = compactCache.get(sessionID) ?? [];
+      const { matchedChunks, matchedMessageCount } = getMatchedCompactChunks(
+        sessionCache,
+        olderMessageKeys,
+      );
+      if (matchedChunks.length !== sessionCache.length) {
+        compactCache.set(sessionID, matchedChunks);
+      }
+
+      const cachedCompactedMessages = buildCompactedMessagesFromChunks(
+        matchedChunks,
+        olderMessages,
+      );
+      const uncachedOlderMessages = olderMessages.slice(matchedMessageCount);
+
+      if (uncachedOlderMessages.length === 0) {
+        output.messages = [...cachedCompactedMessages, ...recentMessages];
         return;
       }
 
-      // Convert to compact API format and call Morph
-      const compactInput = messagesToCompactInput(olderMessages);
+      const uncachedChars = estimateTotalChars(uncachedOlderMessages);
+      if (uncachedChars < COMPACT_MIN_UNCACHED_CHARS) {
+        if (cachedCompactedMessages.length > 0) {
+          output.messages = [
+            ...cachedCompactedMessages,
+            ...uncachedOlderMessages,
+            ...recentMessages,
+          ];
+        }
+        return;
+      }
+
+      const compactInput = messagesToCompactInput(uncachedOlderMessages);
       if (compactInput.length === 0) return;
 
       try {
-        const result = await compactClient.compact({
+        const result = await compactClient!.compact({
           messages: compactInput,
           compressionRatio: COMPACT_RATIO,
-          preserveRecent: 0, // we handle preservation ourselves
+          preserveRecent: 0,
         });
 
-        // Cache the result
-        compactCache = { messageIdHash: currentHash, result };
+        const newChunk: CompactCacheChunk = {
+          messageKeys: olderMessageKeys.slice(matchedMessageCount),
+          result,
+        };
+        const updatedChunks = [...matchedChunks, newChunk];
+        compactCache.set(sessionID, updatedChunks);
 
         const compactedMsg = buildCompactedMessage(
-          olderMessages[0]!,
+          uncachedOlderMessages[0]!,
           result,
-          olderMessages.length,
+          uncachedOlderMessages.length,
         );
-        output.messages = [compactedMsg, ...recentMessages];
+        output.messages = [
+          ...cachedCompactedMessages,
+          compactedMsg,
+          ...recentMessages,
+        ];
 
         await log(
           "info",
-          `Compact: ${olderMessages.length} messages → ${Math.round(result.usage.compression_ratio * 100)}% kept (${result.usage.processing_time_ms}ms)`,
+          matchedMessageCount > 0
+            ? `Compact: ${uncachedOlderMessages.length} new messages → ${Math.round(result.usage.compression_ratio * 100)}% kept (${result.usage.processing_time_ms}ms, ${matchedMessageCount} cached)`
+            : `Compact: ${uncachedOlderMessages.length} messages → ${Math.round(result.usage.compression_ratio * 100)}% kept (${result.usage.processing_time_ms}ms)`,
+        );
+        await showToast(
+          "success",
+          matchedMessageCount > 0
+            ? `${uncachedOlderMessages.length} new messages compacted (${matchedMessageCount} cached) | ${result.usage.processing_time_ms}ms`
+            : `${uncachedOlderMessages.length} messages compacted (${Math.round(result.usage.compression_ratio * 100)}% kept) | ${result.usage.processing_time_ms}ms`,
         );
       } catch (err) {
-        // On failure, leave messages unchanged — OpenCode's built-in compact
+        // On failure, leave messages unchanged — OpenCode's built-in compaction
         // will handle context overflow if needed
         await log(
           "warn",
