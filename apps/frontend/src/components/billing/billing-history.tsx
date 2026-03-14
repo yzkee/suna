@@ -309,13 +309,13 @@ export default function BillingHistory() {
       ) : (
         <>
           <div className="overflow-hidden rounded-xl border border-border/70 bg-card/30">
-            <Table className="table-fixed">
+            <Table className="min-w-[760px]">
               <TableHeader>
                 <TableRow className="hover:bg-transparent border-b border-border">
-                  <TableHead className="w-[150px] px-3 text-[11px] font-medium text-muted-foreground">
+                  <TableHead className="w-[190px] px-3 text-[11px] font-medium text-muted-foreground">
                     Date
                   </TableHead>
-                  <TableHead className="w-[140px] px-3 text-[11px] font-medium text-muted-foreground">
+                  <TableHead className="w-[170px] px-3 text-[11px] font-medium text-muted-foreground">
                     Payment
                   </TableHead>
                   <TableHead className="px-3 text-[11px] font-medium text-muted-foreground">
@@ -347,7 +347,7 @@ export default function BillingHistory() {
                       <TableCell className="px-3 py-2.5 align-top">
                         <span
                           className={cn(
-                            'inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium',
+                            'inline-flex whitespace-nowrap items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium',
                             config.badgeClass,
                           )}
                         >
