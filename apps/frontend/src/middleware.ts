@@ -59,6 +59,25 @@ const PROTECTED_ROUTES = [
   '/projects',
   '/workspace',
   '/settings',
+  // Tab-only routes (no dedicated page.tsx in earlier versions — now have one)
+  '/browser',
+  '/desktop',
+  '/memory',
+  '/services',
+  '/sessions',
+  '/terminal',
+  '/files',
+  '/channels',
+  '/integrations',
+  '/tunnel',
+  '/scheduled-tasks',
+  '/commands',
+  '/tools',
+  '/configuration',
+  '/deployments',
+  '/changelog',
+  '/admin',
+  '/legacy',
 ];
 
 // App store links for mobile redirect
