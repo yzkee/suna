@@ -172,7 +172,7 @@ export function SessionChatInput({
     <>
       <View>
         {/* Text input area */}
-        <View className="px-4 pt-1 pb-2">
+        <View className="px-4 pt-1 pb-3">
           <View className="rounded-2xl px-4 pt-2 pb-1 bg-card border border-border">
             {/* Animated placeholder overlay */}
             {showAnimatedPlaceholder && (

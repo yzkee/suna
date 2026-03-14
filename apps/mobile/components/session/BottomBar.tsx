@@ -2,21 +2,16 @@
  * BottomBar — Browser-like bottom toolbar.
  *
  * Shows: Back | Forward | + New Session | Tabs (count) | More (...)
- * The "More" menu shows session-specific actions when a session is active.
+ * The "More" menu shows session-specific actions via a bottom sheet.
  */
 
-import React, { useState, useCallback } from 'react';
-import {
-  View,
-  TouchableOpacity,
-  Modal,
-  Pressable,
-  Alert,
-} from 'react-native';
+import React, { useCallback, useRef, useMemo } from 'react';
+import { View, TouchableOpacity } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { BottomSheetModal, BottomSheetBackdrop, BottomSheetView } from '@gorhom/bottom-sheet';
 
 interface BottomBarProps {
   /** Currently active session ID (null = on dashboard) */
@@ -40,6 +35,7 @@ interface BottomBarProps {
   onExportTranscript?: () => void;
   onViewChanges?: () => void;
   onDiagnostics?: () => void;
+  onArchiveSession?: () => void;
 }
 
 export function BottomBar({
@@ -55,11 +51,12 @@ export function BottomBar({
   onExportTranscript,
   onViewChanges,
   onDiagnostics,
+  onArchiveSession,
 }: BottomBarProps) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
-  const [showMenu, setShowMenu] = useState(false);
+  const sheetRef = useRef<BottomSheetModal>(null);
 
   const hasActiveSession = !!activeSessionId;
   const iconColor = isDark ? '#F8F8F8' : '#121215';
@@ -67,31 +64,52 @@ export function BottomBar({
 
   const handleMore = useCallback(() => {
     if (!hasActiveSession) return;
-    setShowMenu(true);
+    sheetRef.current?.present();
   }, [hasActiveSession]);
 
-  const menuItems = [
+  const closeSheet = useCallback(() => {
+    sheetRef.current?.dismiss();
+  }, []);
+
+  const menuItems = useMemo(() => [
     {
       icon: 'alert-circle-outline' as const,
       label: 'Diagnostics',
-      onPress: () => { setShowMenu(false); onDiagnostics?.(); },
+      onPress: () => { closeSheet(); onDiagnostics?.(); },
     },
     {
       icon: 'git-compare-outline' as const,
       label: 'View changes',
-      onPress: () => { setShowMenu(false); onViewChanges?.(); },
+      onPress: () => { closeSheet(); onViewChanges?.(); },
     },
     {
       icon: 'download-outline' as const,
       label: 'Export transcript',
-      onPress: () => { setShowMenu(false); onExportTranscript?.(); },
+      onPress: () => { closeSheet(); onExportTranscript?.(); },
     },
     {
       icon: 'layers-outline' as const,
       label: 'Compact session',
-      onPress: () => { setShowMenu(false); onCompactSession?.(); },
+      onPress: () => { closeSheet(); onCompactSession?.(); },
     },
-  ];
+    {
+      icon: 'archive-outline' as const,
+      label: 'Archive session',
+      onPress: () => { closeSheet(); onArchiveSession?.(); },
+    },
+  ], [closeSheet, onDiagnostics, onViewChanges, onExportTranscript, onCompactSession, onArchiveSession]);
+
+  const renderBackdrop = useCallback(
+    (props: any) => (
+      <BottomSheetBackdrop
+        {...props}
+        disappearsOnIndex={-1}
+        appearsOnIndex={0}
+        opacity={0.4}
+      />
+    ),
+    [],
+  );
 
   return (
     <>
@@ -145,7 +163,8 @@ export function BottomBar({
           activeOpacity={0.6}
           hitSlop={6}
         >
-          <View className="h-6 w-6 rounded border-[1.5px] items-center justify-center"
+          <View
+            className="h-6 w-6 rounded border-[1.5px] items-center justify-center"
             style={{ borderColor: iconColor }}
           >
             <Text className="text-xs font-bold text-foreground" style={{ fontSize: 10, lineHeight: 12 }}>
@@ -170,53 +189,36 @@ export function BottomBar({
         </TouchableOpacity>
       </View>
 
-      {/* More menu modal */}
-      <Modal
-        visible={showMenu}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowMenu(false)}
+      {/* More menu — bottom sheet */}
+      <BottomSheetModal
+        ref={sheetRef}
+        enableDynamicSizing
+        enablePanDownToClose
+        backdropComponent={renderBackdrop}
+        backgroundStyle={{
+          backgroundColor: isDark ? '#161618' : '#FFFFFF',
+          borderTopLeftRadius: 20,
+          borderTopRightRadius: 20,
+        }}
+        handleIndicatorStyle={{
+          backgroundColor: isDark ? '#3f3f46' : '#d4d4d8',
+          width: 40,
+        }}
       >
-        <Pressable
-          className="flex-1"
-          onPress={() => setShowMenu(false)}
-        >
-          <View className="flex-1" />
-        </Pressable>
-
-        <View className="mx-4 mb-4 rounded-2xl bg-card border border-border overflow-hidden"
-          style={{
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: -4 },
-            shadowOpacity: isDark ? 0.4 : 0.1,
-            shadowRadius: 16,
-            elevation: 8,
-          }}
-        >
-          {menuItems.map((item, idx) => (
+        <BottomSheetView style={{ paddingBottom: insets.bottom + 12 }}>
+          {menuItems.map((item) => (
             <TouchableOpacity
               key={item.label}
               onPress={item.onPress}
-              className={`flex-row items-center px-5 py-3.5 ${
-                idx < menuItems.length - 1 ? 'border-b border-border/50' : ''
-              }`}
+              className="flex-row items-center px-6 py-3.5"
               activeOpacity={0.6}
             >
               <Ionicons name={item.icon} size={20} color={iconColor} />
-              <Text className="text-sm ml-3 text-foreground">{item.label}</Text>
+              <Text className="text-[15px] ml-4 text-foreground">{item.label}</Text>
             </TouchableOpacity>
           ))}
-        </View>
-
-        {/* Cancel */}
-        <TouchableOpacity
-          onPress={() => setShowMenu(false)}
-          className="mx-4 mb-6 rounded-2xl bg-card border border-border py-3.5 items-center"
-          activeOpacity={0.6}
-        >
-          <Text className="text-sm font-medium text-foreground">Cancel</Text>
-        </TouchableOpacity>
-      </Modal>
+        </BottomSheetView>
+      </BottomSheetModal>
     </>
   );
 }

@@ -667,6 +667,7 @@ export default function HomeScreen() {
               onExportTranscript={() => log.log('TODO: export transcript')}
               onViewChanges={() => log.log('TODO: view changes')}
               onDiagnostics={() => log.log('TODO: diagnostics')}
+              onArchiveSession={() => { if (activeSessionId) handleArchive(activeSessionId); }}
             />
           </View>
         </View>
