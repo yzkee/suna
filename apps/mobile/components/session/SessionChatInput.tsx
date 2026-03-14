@@ -170,7 +170,7 @@ export function SessionChatInput({
 
   return (
     <>
-      <View className="border-t border-border bg-background">
+      <View className="bg-background">
         {/* Text input area */}
         <View className="px-4 pt-2">
           <View className="rounded-2xl px-4 pt-2 pb-1 bg-card border border-border">

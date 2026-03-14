@@ -14,6 +14,7 @@ import {
   TouchableOpacity,
   useWindowDimensions,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -261,6 +262,13 @@ export function SessionPage({ sessionId, onBack }: SessionPageProps) {
             });
           }, 200);
         }}
+      />
+
+      {/* Fade gradient above input — overlaps bottom of FlatList */}
+      <LinearGradient
+        colors={isDark ? ['rgba(18,18,21,0)', 'rgba(18,18,21,1)'] : ['rgba(245,245,245,0)', 'rgba(245,245,245,1)']}
+        style={{ height: 40, marginTop: -40, zIndex: 1 }}
+        pointerEvents="none"
       />
 
       {/* Chat input with toolbar */}
