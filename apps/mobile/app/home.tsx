@@ -237,6 +237,11 @@ export default function HomeScreen() {
     }
   }, [activeSessionId]);
 
+  const closeAllTabs = useCallback(() => {
+    setOpenTabIds([]);
+    setActiveSessionId(null);
+  }, []);
+
   const canGoBack = historyIndex > 0;
   const canGoForward = historyIndex < sessionHistory.length - 1;
 
@@ -620,6 +625,7 @@ export default function HomeScreen() {
               activeSessionId={activeSessionId}
               onSelectTab={(id) => navigateToSession(id)}
               onCloseTab={closeTab}
+              onCloseAll={closeAllTabs}
               onNewSession={handleNewSession}
               onDismiss={() => setShowTabsOverview(false)}
             />
@@ -674,31 +680,33 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {/* Bottom bar */}
-          <View>
-            <BottomBar
-              activeSessionId={activeSessionId}
-              tabCount={openTabIds.length}
-              canGoBack={canGoBack}
-              canGoForward={canGoForward}
-              onBack={handleHistoryBack}
-              onForward={handleHistoryForward}
-              onNewSession={handleNewSession}
-              onOpenTabs={() => setShowTabsOverview(true)}
-              onCompactSession={() => {
-                if (activeSessionId) {
-                  Alert.alert('Compact Session', 'Compact this session to reduce context size?', [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Compact', onPress: () => log.log('TODO: compact session') },
-                  ]);
-                }
-              }}
-              onExportTranscript={() => log.log('TODO: export transcript')}
-              onViewChanges={() => log.log('TODO: view changes')}
-              onDiagnostics={() => log.log('TODO: diagnostics')}
-              onArchiveSession={() => { if (activeSessionId) handleArchive(activeSessionId); }}
-            />
-          </View>
+          {/* Bottom bar — hidden when tabs overview is showing */}
+          {!showTabsOverview && (
+            <View>
+              <BottomBar
+                activeSessionId={activeSessionId}
+                tabCount={openTabIds.length}
+                canGoBack={canGoBack}
+                canGoForward={canGoForward}
+                onBack={handleHistoryBack}
+                onForward={handleHistoryForward}
+                onNewSession={handleNewSession}
+                onOpenTabs={() => setShowTabsOverview(true)}
+                onCompactSession={() => {
+                  if (activeSessionId) {
+                    Alert.alert('Compact Session', 'Compact this session to reduce context size?', [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Compact', onPress: () => log.log('TODO: compact session') },
+                    ]);
+                  }
+                }}
+                onExportTranscript={() => log.log('TODO: export transcript')}
+                onViewChanges={() => log.log('TODO: view changes')}
+                onDiagnostics={() => log.log('TODO: diagnostics')}
+                onArchiveSession={() => { if (activeSessionId) handleArchive(activeSessionId); }}
+              />
+            </View>
+          )}
         </View>
       </Drawer>
     </>
