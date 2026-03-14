@@ -194,49 +194,18 @@ export default function HomeScreen() {
         className="flex-1 bg-background"
         style={{ paddingTop: insets.top }}
       >
-        {/* Logo + close */}
-        <View className="flex-row items-center justify-between px-4 pt-3 pb-4">
-          <Text className="text-lg font-bold text-foreground">
-            Kortix
-          </Text>
-          <TouchableOpacity
-            onPress={handleDrawerClose}
-            className="p-1"
-            hitSlop={8}
-            activeOpacity={0.6}
-          >
-            <Ionicons name="chevron-back" size={20} color={mutedColor} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Nav items */}
-        <View className="px-2 pb-2">
-          {/* New session */}
+        {/* Search + New session */}
+        <View className="flex-row items-center px-3 pt-2 pb-3">
+          <View className="flex-1 flex-row items-center rounded-xl bg-card border border-border px-3 py-2 mr-2">
+            <Ionicons name="search-outline" size={18} color={mutedColor} />
+            <Text className="text-sm ml-2 text-muted-foreground">Search</Text>
+          </View>
           <TouchableOpacity
             onPress={handleNewSession}
-            className="flex-row items-center rounded-lg px-3 py-2.5 mb-0.5"
+            className="h-9 w-9 items-center justify-center rounded-xl bg-card border border-border"
             activeOpacity={0.6}
           >
-            <Ionicons name="create-outline" size={20} color={iconColor} />
-            <Text className="text-sm ml-3 text-foreground">New session</Text>
-          </TouchableOpacity>
-
-          {/* Search */}
-          <TouchableOpacity
-            className="flex-row items-center rounded-lg px-3 py-2.5 mb-0.5"
-            activeOpacity={0.6}
-          >
-            <Ionicons name="search-outline" size={20} color={iconColor} />
-            <Text className="text-sm ml-3 text-foreground">Search</Text>
-          </TouchableOpacity>
-
-          {/* Marketplace */}
-          <TouchableOpacity
-            className="flex-row items-center rounded-lg px-3 py-2.5 mb-0.5"
-            activeOpacity={0.6}
-          >
-            <Ionicons name="sparkles-outline" size={20} color={iconColor} />
-            <Text className="text-sm ml-3 text-foreground">Marketplace</Text>
+            <Ionicons name="create-outline" size={18} color={iconColor} />
           </TouchableOpacity>
         </View>
 
