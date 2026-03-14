@@ -335,8 +335,8 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer }: SessionPageProp
             style={{
               // Fill remaining viewport so the last turn's user bubble
               // sits at the top. Subtract: header (~60+insets), input (~120+insets),
-              // and the actual measured last turn height.
-              height: Math.max(0, windowHeight - insets.top - insets.bottom - 160 - lastTurnHeight),
+              // footer bar (~50), and the actual measured last turn height.
+              height: Math.max(0, windowHeight - insets.top - insets.bottom - 210 - lastTurnHeight),
             }}
           />
         }
