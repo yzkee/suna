@@ -3,7 +3,8 @@ const path = require("path");
 
 const html = fs.readFileSync("/opt/agent-browser-viewer/index.html");
 const socketDirs = Array.from(new Set([
-  process.env.AGENT_BROWSER_SOCKET_DIR || "/tmp/agent-browser",
+  process.env.AGENT_BROWSER_SOCKET_DIR || "/dev/shm/agent-browser",
+  "/dev/shm/agent-browser",
   "/tmp/agent-browser",
   "/workspace/.agent-browser",
 ]));

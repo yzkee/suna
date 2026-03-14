@@ -80,7 +80,7 @@ function resolveRouteTab(pathname: string): Omit<Tab, 'openedAt'> | null {
     '/skills': { title: 'Skills Browser', type: 'page' },
     '/tools': { title: 'Tools', type: 'page' },
     '/commands': { title: 'Commands', type: 'page' },
-    '/projects': { title: 'Workspace', type: 'page' },
+    '/projects': { title: 'Projects', type: 'page' },
     '/files': { title: 'Files', type: 'page' },
     '/configuration': { title: 'Workspace', type: 'page' },
     '/settings/credentials': { title: 'Integrations', type: 'settings' },
@@ -118,6 +118,16 @@ function resolveRouteTab(pathname: string): Omit<Tab, 'openedAt'> | null {
       id: `page:${pathname}`,
       title: 'Agent',
       type: 'page',
+      href: pathname,
+    };
+  }
+
+  const projectMatch = pathname.match(/^\/projects\/([^/]+)$/);
+  if (projectMatch) {
+    return {
+      id: `page:${pathname}`,
+      title: 'Project',
+      type: 'page' as const,
       href: pathname,
     };
   }

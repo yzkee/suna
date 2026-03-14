@@ -1,0 +1,121 @@
+#!/usr/bin/with-contenv bash
+# Agent Browser Session — manages the persistent "kortix" daemon.
+# Connects to Chrome via CDP on port 9222. JPEG stream on 9223.
+# Socket in /dev/shm/agent-browser/ (tmpfs).
+
+echo "[agent-browser-session] Starting"
+
+SOCKET_DIR="${AGENT_BROWSER_SOCKET_DIR:-/dev/shm/agent-browser}"
+mkdir -p "$SOCKET_DIR"
+if [ "$(id -u)" -eq 0 ]; then
+  chown abc:users "$SOCKET_DIR" 2>/dev/null || true
+fi
+
+# ── Check if a working daemon already exists ──────────────────────────────
+if [ -S "$SOCKET_DIR/kortix.sock" ]; then
+  EXISTING_PID=$(pgrep -n -f "node.*dist/daemon.js" 2>/dev/null)
+  if [ -n "$EXISTING_PID" ] && kill -0 "$EXISTING_PID" 2>/dev/null; then
+    echo "[agent-browser-session] Daemon already running (pid $EXISTING_PID), monitoring..."
+    echo "$EXISTING_PID" > "$SOCKET_DIR/kortix.pid"
+    # Skip to monitoring loop
+    while true; do
+      if ! kill -0 "$EXISTING_PID" 2>/dev/null; then
+        echo "[agent-browser-session] Daemon died, restarting..."
+        exit 1
+      fi
+      if [ ! -S "$SOCKET_DIR/kortix.sock" ]; then
+        echo "[agent-browser-session] Socket disappeared, restarting..."
+        exit 1
+      fi
+      sleep 10
+    done
+  fi
+fi
+
+# ── No existing daemon — clean start ──────────────────────────────────────
+pkill -9 -f "node.*dist/daemon.js" 2>/dev/null || true
+sleep 2
+rm -f "$SOCKET_DIR"/*.sock "$SOCKET_DIR"/*.pid "$SOCKET_DIR"/*.stream "$SOCKET_DIR"/*.port 2>/dev/null || true
+
+# Wait for port 9223 to be free
+for i in $(seq 1 15); do
+  if node -e "const s=require('net').createServer();s.listen(9223,'127.0.0.1',()=>{s.close();process.exit(0)});s.on('error',()=>process.exit(1))" 2>/dev/null; then
+    break
+  fi
+  [ "$i" = "15" ] && echo "[agent-browser-session] WARNING: port 9223 still busy after 15s"
+  sleep 1
+done
+
+# ── Wait for Chrome CDP ───────────────────────────────────────────────────
+for i in $(seq 1 60); do
+  if curl -sf http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
+    echo "[agent-browser-session] Chrome CDP ready"
+    break
+  fi
+  [ "$i" = "60" ] && { echo "[agent-browser-session] ERROR: Chrome CDP not ready"; exit 1; }
+  sleep 1
+done
+
+# ── Start daemon via CLI ──────────────────────────────────────────────────
+echo "[agent-browser-session] Connecting via CDP..."
+
+if [ "$(id -u)" -eq 0 ]; then
+  s6-setuidgid abc env \
+    HOME=/workspace DISPLAY=:1 \
+    AGENT_BROWSER_SOCKET_DIR="$SOCKET_DIR" \
+    AGENT_BROWSER_STREAM_PORT=9223 \
+    AGENT_BROWSER_IDLE_TIMEOUT_MS=0 \
+    AGENT_BROWSER_SESSION=kortix \
+    agent-browser --cdp 9222 --session kortix open about:blank \
+    >> /tmp/agent-browser-session.log 2>&1
+else
+  env HOME=/workspace DISPLAY=:1 \
+    AGENT_BROWSER_SOCKET_DIR="$SOCKET_DIR" \
+    AGENT_BROWSER_STREAM_PORT=9223 \
+    AGENT_BROWSER_IDLE_TIMEOUT_MS=0 \
+    AGENT_BROWSER_SESSION=kortix \
+    agent-browser --cdp 9222 --session kortix open about:blank \
+    >> /tmp/agent-browser-session.log 2>&1
+fi
+
+# Wait for socket
+for i in $(seq 1 15); do
+  if [ -S "$SOCKET_DIR/kortix.sock" ]; then
+    echo "[agent-browser-session] Socket ready"
+    break
+  fi
+  sleep 1
+done
+
+if [ ! -S "$SOCKET_DIR/kortix.sock" ]; then
+  echo "[agent-browser-session] ERROR: Socket not created"
+  cat /tmp/agent-browser-session.log 2>/dev/null | tail -10
+  sleep 5
+  exit 1
+fi
+
+# Find actual daemon PID
+DAEMON_PID=$(pgrep -n -f "node.*dist/daemon.js" 2>/dev/null)
+if [ -n "$DAEMON_PID" ]; then
+  echo "$DAEMON_PID" > "$SOCKET_DIR/kortix.pid"
+  echo "[agent-browser-session] Daemon running (pid $DAEMON_PID)"
+fi
+
+# ── Monitor loop ──────────────────────────────────────────────────────────
+while true; do
+  if [ -n "$DAEMON_PID" ] && ! kill -0 "$DAEMON_PID" 2>/dev/null; then
+    NEW_PID=$(pgrep -n -f "node.*dist/daemon.js" 2>/dev/null)
+    if [ -n "$NEW_PID" ] && kill -0 "$NEW_PID" 2>/dev/null; then
+      DAEMON_PID=$NEW_PID
+      echo "$DAEMON_PID" > "$SOCKET_DIR/kortix.pid"
+    else
+      echo "[agent-browser-session] Daemon died"
+      exit 1
+    fi
+  fi
+  if [ ! -S "$SOCKET_DIR/kortix.sock" ]; then
+    echo "[agent-browser-session] Socket gone"
+    exit 1
+  fi
+  sleep 10
+done

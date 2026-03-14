@@ -87,7 +87,7 @@ RUN chmod 644 /opt/bun-pty-musl/librust_pty.so
 ENV BUN_PTY_LIB=/opt/bun-pty-musl/librust_pty.so
 
 # ── Workspace ───────────────────────────────────────────────────────────────
-RUN mkdir -p /workspace/.agent-browser /workspace/.browser-profile \
+RUN mkdir -p /workspace/.browser-profile \
     /workspace/.lss /workspace/.cache/opencode /workspace/presentations \
     /workspace/.local/share/opencode /workspace/.local/share/opencode/log \
     /workspace/.local/share/opencode/storage /workspace/.local/share/opencode/snapshot \
@@ -237,6 +237,19 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
     rm -f /usr/local/lib/node_modules/opencode-ai/bin/.opencode 2>/dev/null || true && \
     echo "[docker] Global binaries: opencode=$(opencode --version 2>/dev/null || echo '?'), agent-browser, ocx, portless" && \
     \
+    # ── 10b. Fix agent-browser native binary on Alpine musl ── \
+    # The Rust native binary requires glibc's __res_init which doesn't exist in musl. \
+    # Compile a tiny stub .so and create a wrapper that LD_PRELOADs it. \
+    printf 'int __res_init(void){return 0;}\n' > /tmp/res_init_stub.c && \
+    gcc -shared -o /usr/local/lib/libres_init.so /tmp/res_init_stub.c && \
+    rm -f /tmp/res_init_stub.c && \
+    # Create wrapper that sets LD_PRELOAD before calling the real binary \
+    REAL_AB="$(readlink -f /usr/local/bin/agent-browser)" && \
+    mv /usr/local/bin/agent-browser /usr/local/bin/agent-browser-real && \
+    printf '#!/bin/sh\nexport LD_PRELOAD=/usr/local/lib/libres_init.so\nexec /usr/local/bin/agent-browser-real "$@"\n' > /usr/local/bin/agent-browser && \
+    chmod +x /usr/local/bin/agent-browser && \
+    echo "[docker] agent-browser musl shim installed" && \
+    \
     # ── 11. Fix ownership ── \
     chown -R 1000:1000 /opt/kortix-master /opt/opencode /opt/kortix \
       /opt/opencode-agent-triggers /opt/agent-browser-viewer /opt/opencode-channels \
@@ -267,15 +280,13 @@ ENV PATH="/workspace/.npm-global/bin:/workspace/.local/bin:${PATH}"
 
 # ── Environment ───────────────────────────────────────────────────────────────
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV AGENT_BROWSER_SESSION=kortix
 ENV AGENT_BROWSER_PRIMARY_SESSION=kortix
-ENV AGENT_BROWSER_STREAM_PORT=9223
 ENV AGENT_BROWSER_HEADED=1
-ENV AGENT_BROWSER_PROFILE=/workspace/.browser-profile
-ENV AGENT_BROWSER_SOCKET_DIR=/workspace/.agent-browser
+ENV AGENT_BROWSER_SOCKET_DIR=/dev/shm/agent-browser
 ENV AGENT_BROWSER_ARGS="--no-sandbox,--disable-gpu,--disable-dev-shm-usage,--disable-infobars,--disable-blink-features=AutomationControlled,--disable-features=VizDisplayCompositor"
 ENV AGENT_BROWSER_USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 ENV AGENT_BROWSER_IDLE_TIMEOUT_MS=0
-ENV AGENT_BROWSER_CDP=9222
 ENV OPENCODE_CONFIG_DIR=/opt/opencode
 ENV SANDBOX_VERSION=${SANDBOX_VERSION}
 
