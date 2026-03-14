@@ -42,7 +42,7 @@ import {
 import { SessionContextModal } from "@/components/session/session-context-modal";
 import { TurnErrorDisplay } from "@/components/session/session-error-banner";
 import { SessionSiteHeader } from "@/components/session/session-site-header";
-import { QuestionPrompt } from "@/components/session/question-prompt";
+import { QuestionPrompt, type QuestionPromptHandle, type QuestionAction } from "@/components/session/question-prompt";
 import { SessionWelcome } from "@/components/session/session-welcome";
 import { FileCard } from "@/components/file-previews/FileCard";
 import {
@@ -2899,6 +2899,14 @@ export function SessionChat({
 	// ---- Context modal ----
 	const [contextModalOpen, setContextModalOpen] = useState(false);
 
+	// ---- Question prompt ref + action state (for unified send button) ----
+	const questionPromptRef = useRef<QuestionPromptHandle>(null);
+	const [questionAction, setQuestionAction] = useState<{ label: string | null; canAct: boolean }>({ label: null, canAct: true });
+	const handleQuestionActionChange = useCallback((action: QuestionAction, canAct: boolean) => {
+		const label = action === 'next' ? 'Next' : action === 'submit' ? 'Submit' : null;
+		setQuestionAction({ label, canAct });
+	}, []);
+
 	// ---- Reply-to state (text selection → reply) ----
 	const [replyTo, setReplyTo] = useState<ReplyToContext | null>(null);
 	const handleClearReply = useCallback(() => setReplyTo(null), []);
@@ -4852,8 +4860,16 @@ export function SessionChat({
 				onContextClick={() => setContextModalOpen(true)}
 				replyTo={replyTo}
 				onClearReply={handleClearReply}
-				lockForQuestion={!!renderedQuestion}
-				inputSlot={
+			lockForQuestion={!!renderedQuestion}
+			onCustomAnswer={(text) => {
+				questionPromptRef.current?.submitCustomAnswer(text);
+			}}
+			questionButtonLabel={renderedQuestion ? questionAction.label : null}
+			questionCanAct={questionAction.canAct}
+			onQuestionAction={() => {
+				questionPromptRef.current?.performAction();
+			}}
+			inputSlot={
 					renderedQuestion || queuedMessages.length > 0 ? (
 						<>
 							{renderedQuestion && (
@@ -4865,11 +4881,13 @@ export function SessionChat({
 											: "max-h-0 opacity-0 -translate-y-1 duration-320 pointer-events-none",
 									)}
 								>
-									<QuestionPrompt
-										request={renderedQuestion}
-										onReply={handleQuestionReply}
-										onReject={handleQuestionReject}
-									/>
+								<QuestionPrompt
+									ref={questionPromptRef}
+									request={renderedQuestion}
+									onReply={handleQuestionReply}
+									onReject={handleQuestionReject}
+									onActionChange={handleQuestionActionChange}
+								/>
 								</div>
 							)}
 							{queuedMessages.length > 0 && (

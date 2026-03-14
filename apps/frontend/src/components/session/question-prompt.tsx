@@ -5,13 +5,14 @@
  * - Expandable body with question options
  * - Single-question immediate submit on pick
  * - Multi-select toggle + Next/Confirm flow
- * - "Type your own answer" inline input
+ * - Custom answers typed in the main chat textarea (no nested input)
  */
 
 "use client";
 
-import { MessageCircle, Pencil, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { MessageCircle, X } from "lucide-react";
+import { useCallback, useEffect, useImperativeHandle, useState } from "react";
+import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
@@ -53,21 +54,40 @@ function QuestionMarkdown({ content, className }: { content: string; className?:
 // Props
 // ---------------------------------------------------------------------------
 
+/** The action the main send button should perform when a question is active. */
+export type QuestionAction = 'send' | 'next' | 'submit' | 'add';
+
+/** Methods exposed via ref for parent-driven interaction. */
+export interface QuestionPromptHandle {
+	/** Submit a custom answer (typed in the main chat textarea) for the current question. */
+	submitCustomAnswer: (text: string) => void;
+	/** Whether the current question accepts a custom text answer. */
+	acceptsCustom: boolean;
+	/** What action the main send button should show/perform. */
+	action: QuestionAction;
+	/** Whether the action can be performed right now (e.g. multi-select has selections). */
+	canAct: boolean;
+	/** Perform the current action (next/submit). Called by the main send button. */
+	performAction: () => void;
+}
+
 interface QuestionPromptProps {
 	request: QuestionRequest;
 	onReply: (requestId: string, answers: QuestionAnswer[]) => void;
 	onReject: (requestId: string) => void;
+	/** Called whenever the question's action state changes (for syncing to the send button). */
+	onActionChange?: (action: QuestionAction, canAct: boolean) => void;
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function QuestionPrompt({
-	request,
-	onReply,
-	onReject,
-}: QuestionPromptProps) {
+export const QuestionPrompt = React.forwardRef<QuestionPromptHandle, QuestionPromptProps>(
+	function QuestionPrompt(
+		{ request, onReply, onReject, onActionChange },
+		ref,
+	) {
 	const questions = request.questions;
 	const isSingle = questions.length === 1 && !questions[0].multiple;
 
@@ -75,12 +95,7 @@ export function QuestionPrompt({
 	const [answers, setAnswers] = useState<QuestionAnswer[]>(() =>
 		questions.map(() => []),
 	);
-	const [customInputs, setCustomInputs] = useState<string[]>(() =>
-		questions.map(() => ""),
-	);
-	const [editing, setEditing] = useState(false);
 	const [replying, setReplying] = useState(false);
-	const inputRef = useRef<HTMLInputElement>(null);
 
 	const isConfirm = tab === questions.length;
 	const currentQuestion = questions[tab] as QuestionInfo | undefined;
@@ -89,28 +104,15 @@ export function QuestionPrompt({
 	const currentAnswers = answers[tab] ?? [];
 	const showCustom = currentQuestion?.custom !== false;
 
-	// Auto-focus input when editing
-	useEffect(() => {
-		if (editing && inputRef.current) {
-			inputRef.current.focus();
-		}
-	}, [editing]);
-
 	// -----------------------------------------------------------------------
 	// Handlers
 	// -----------------------------------------------------------------------
 
 	const pick = useCallback(
-		(answer: string, isCustom = false) => {
+		(answer: string) => {
 			const next = [...answers];
 			next[tab] = [answer];
 			setAnswers(next);
-
-			if (isCustom) {
-				const nextCustom = [...customInputs];
-				nextCustom[tab] = answer;
-				setCustomInputs(nextCustom);
-			}
 
 			if (isSingle) {
 				setReplying(true);
@@ -120,9 +122,8 @@ export function QuestionPrompt({
 
 			// Advance to next tab
 			setTab(tab + 1);
-			setEditing(false);
 		},
-		[answers, customInputs, tab, isSingle, request.id, onReply],
+		[answers, tab, isSingle, request.id, onReply],
 	);
 
 	const toggle = useCallback(
@@ -143,10 +144,6 @@ export function QuestionPrompt({
 	const selectOption = useCallback(
 		(optIndex: number) => {
 			const opts = currentQuestion?.options ?? [];
-			if (showCustom && optIndex === opts.length) {
-				setEditing(true);
-				return;
-			}
 			const opt = opts[optIndex];
 			if (!opt) return;
 
@@ -156,16 +153,14 @@ export function QuestionPrompt({
 				pick(opt.label);
 			}
 		},
-		[currentQuestion?.options, isMulti, showCustom, toggle, pick],
+		[currentQuestion?.options, isMulti, toggle, pick],
 	);
 
+	/** Called by the parent (via ref) when the user types a custom answer in the main textarea and hits send. */
 	const handleCustomSubmit = useCallback(
 		(value: string) => {
 			const trimmed = value.trim();
-			if (!trimmed) {
-				setEditing(false);
-				return;
-			}
+			if (!trimmed) return;
 
 			if (isMulti) {
 				const existing = answers[tab] ?? [];
@@ -175,18 +170,33 @@ export function QuestionPrompt({
 					updated[tab] = next;
 					setAnswers(updated);
 				}
-				setEditing(false);
-				const nextCustom = [...customInputs];
-				nextCustom[tab] = "";
-				setCustomInputs(nextCustom);
 				return;
 			}
 
-			pick(trimmed, true);
-			setEditing(false);
+			pick(trimmed);
 		},
-		[isMulti, answers, customInputs, tab, pick],
+		[isMulti, answers, tab, pick],
 	);
+
+	const advanceToNext = useCallback(() => {
+		if (currentAnswers.length > 0) {
+			setTab(tab + 1);
+		}
+	}, [currentAnswers.length, tab]);
+
+	// Derive what action the main send button should represent
+	const action: QuestionAction = (() => {
+		if (isSingle) return 'send';
+		if (isConfirm) return 'submit';
+		// Any non-confirm tab in a multi-question flow shows "Next"
+		return 'next';
+	})();
+
+	const canAct = (() => {
+		if (action === 'submit') return true;
+		if (action === 'next') return currentAnswers.length > 0;
+		return true;
+	})();
 
 	const submit = useCallback(() => {
 		setReplying(true);
@@ -194,28 +204,30 @@ export function QuestionPrompt({
 		onReply(request.id, finalAnswers);
 	}, [answers, questions, request.id, onReply]);
 
-	useEffect(() => {
-		if (!isConfirm || replying) return;
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
-			const target = e.target as HTMLElement | null;
-			if (target) {
-				const tag = target.tagName;
-				if (
-					tag === "INPUT" ||
-					tag === "TEXTAREA" ||
-					tag === "SELECT" ||
-					target.isContentEditable
-				) {
-					return;
-				}
-			}
-			e.preventDefault();
+	const performAction = useCallback(() => {
+		if (action === 'submit') {
 			submit();
-		};
-		window.addEventListener("keydown", onKeyDown);
-		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [isConfirm, replying, submit]);
+		} else if (action === 'next') {
+			advanceToNext();
+		}
+		// 'send' is handled by SessionChatInput directly (custom answer)
+	}, [action, submit, advanceToNext]);
+
+	// Notify parent of action state changes
+	useEffect(() => {
+		onActionChange?.(action, canAct);
+	}, [action, canAct, onActionChange]);
+
+	// Expose imperative handle for parent-driven interaction
+	useImperativeHandle(ref, () => ({
+		submitCustomAnswer: handleCustomSubmit,
+		acceptsCustom: showCustom && !isConfirm,
+		action,
+		canAct,
+		performAction,
+	}), [handleCustomSubmit, showCustom, isConfirm, action, canAct, performAction]);
+
+
 
 	const reject = useCallback(() => {
 		setReplying(true);
@@ -287,7 +299,6 @@ export function QuestionPrompt({
 										key={i}
 										onClick={() => {
 											setTab(i);
-											setEditing(false);
 										}}
 										className={cn(
 											"flex items-center gap-1 px-2 py-0.5 text-sm font-medium rounded-md border transition-all duration-150 cursor-pointer whitespace-nowrap",
@@ -322,7 +333,6 @@ export function QuestionPrompt({
 							<button
 								onClick={() => {
 									setTab(questions.length);
-									setEditing(false);
 								}}
 							className={cn(
 								"px-2 py-0.5 text-sm font-medium rounded-md border transition-all duration-150 cursor-pointer",
@@ -340,52 +350,43 @@ export function QuestionPrompt({
 						{/* Confirm / review tab */}
 						{isConfirm ? (
 							<div className="space-y-0.5">
-								{questions.map((q, i) => {
-									const ans = answers[i] ?? [];
-									const done = ans.length > 0;
-									return (
-										<div
-											key={i}
+							{questions.map((q, i) => {
+								const ans = answers[i] ?? [];
+								const done = ans.length > 0;
+								return (
+									<div
+										key={i}
+										className={cn(
+											"flex items-center gap-1.5 py-0.5",
+											!done && "opacity-40",
+										)}
+									>
+										<span
 											className={cn(
-												"flex items-center gap-1.5 py-0.5",
-												!done && "opacity-40",
+												"size-3 rounded-sm flex-shrink-0 flex items-center justify-center border",
+												done ? "border-border bg-muted" : "border-border",
 											)}
 										>
-											<span
-												className={cn(
-													"size-3 rounded-sm flex-shrink-0 flex items-center justify-center border",
-													done ? "border-border bg-muted" : "border-border",
-												)}
-											>
-												{done && (
-													<svg viewBox="0 0 12 12" fill="none" width="7" height="7">
-														<path d="M3 7.17905L5.02703 8.85135L9 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square" className="text-foreground" />
-													</svg>
-												)}
-											</span>
-											<span
-										className={cn(
-													"text-sm leading-tight flex-1 min-w-0",
-													done ? "text-foreground" : "text-muted-foreground",
-												)}
-											>
-												<span className="truncate block">{q.header || q.question}</span>
-											</span>
-											<span className="text-sm text-muted-foreground truncate max-w-[40%] shrink-0">
-												{ans.length > 0 ? ans.join(", ") : "\u2014"}
-											</span>
-										</div>
-									);
-								})}
-								<div className="flex items-center justify-end pt-2">
-									<button
-										autoFocus={isConfirm}
-										onClick={submit}
-										className="min-h-9 px-4 py-1.5 text-sm font-medium rounded-lg bg-foreground text-background hover:bg-foreground/90 transition-all cursor-pointer"
-									>
-										Submit
-									</button>
-								</div>
+											{done && (
+												<svg viewBox="0 0 12 12" fill="none" width="7" height="7">
+													<path d="M3 7.17905L5.02703 8.85135L9 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square" className="text-foreground" />
+												</svg>
+											)}
+										</span>
+										<span
+									className={cn(
+												"text-sm leading-tight flex-1 min-w-0",
+												done ? "text-foreground" : "text-muted-foreground",
+											)}
+										>
+											<span className="truncate block">{q.header || q.question}</span>
+										</span>
+										<span className="text-sm text-muted-foreground truncate max-w-[40%] shrink-0">
+											{ans.length > 0 ? ans.join(", ") : "\u2014"}
+										</span>
+									</div>
+								);
+							})}
 							</div>
 						) : currentQuestion ? (
 							<div className="space-y-1">
@@ -444,82 +445,14 @@ export function QuestionPrompt({
 										);
 									})}
 
-									{/* Type own answer */}
-									{showCustom && !editing && (
-										<button
-											onClick={() => selectOption(options.length)}
-											className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left cursor-pointer group border border-transparent hover:bg-muted/40 transition-colors"
-										>
-									<Pencil className="size-3.5 text-muted-foreground/30 group-hover:text-muted-foreground/60 flex-shrink-0 transition-colors" />
-									<span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors">
-										Type your own answer
-									</span>
-								</button>
-							)}
 
-									{/* Custom input */}
-									{editing && (
-										<form
-											className="flex items-center gap-1.5 mt-1"
-											onSubmit={(e) => {
-												e.preventDefault();
-												handleCustomSubmit(inputRef.current?.value ?? "");
-											}}
-										>
-											<input
-												ref={inputRef}
-												type="text"
-												placeholder="Type your answer..."
-												defaultValue={customInputs[tab]}
-												onKeyDown={(e) => {
-													if (e.key === "Escape") {
-														e.preventDefault();
-														setEditing(false);
-													}
-												}}
-											className="h-8 flex-1 min-w-0 px-3 text-sm bg-background/90 border border-border/70 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/25 focus:border-primary/40 transition-all"
-										/>
-										<button
-											type="submit"
-											className="h-8 px-2.5 text-sm font-medium rounded-md bg-foreground text-background hover:bg-foreground/90 transition-all duration-150 cursor-pointer shrink-0"
-										>
-												{isMulti ? "Add" : "Go"}
-											</button>
-											<button
-												type="button"
-												onClick={() => setEditing(false)}
-												className="size-8 inline-flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-muted/50 cursor-pointer shrink-0"
-											>
-												<X className="size-3.5" />
-											</button>
-										</form>
-									)}
 								</div>
 
-								{/* Next button for multi-select */}
-								{!isSingle && isMulti && (
-									<div className="flex items-center justify-end">
-									<button
-										onClick={() => {
-											setTab(tab + 1);
-											setEditing(false);
-										}}
-										disabled={currentAnswers.length === 0}
-										className={cn(
-											"min-h-9 px-4 py-1.5 text-sm font-medium rounded-lg transition-all",
-											currentAnswers.length > 0
-												? "bg-muted text-foreground hover:bg-muted/80 cursor-pointer"
-												: "bg-muted/30 text-muted-foreground/50 cursor-not-allowed",
-										)}
-									>
-											Next
-										</button>
-									</div>
-								)}
+
 							</div>
 						) : null}
 					</div>
 				</div>
 		</div>
 	);
-}
+});

@@ -941,8 +941,16 @@ export interface SessionChatInputProps {
   replyTo?: { text: string } | null;
   /** Callback to clear the reply context */
   onClearReply?: () => void;
-  /** When true, hide freeform composer while a structured question is active */
+  /** When true, a structured question is active — send submits a custom answer instead of a chat message */
   lockForQuestion?: boolean;
+  /** Called instead of onSend when lockForQuestion is true and the user submits text */
+  onCustomAnswer?: (text: string) => void;
+  /** Label for the send button when a question is active (e.g. "Next", "Submit"). Null = default arrow icon. */
+  questionButtonLabel?: string | null;
+  /** Whether the question action can be performed (controls send button disabled state during questions). */
+  questionCanAct?: boolean;
+  /** Called when the send button is clicked during a question and there's no text (i.e. the action is next/submit, not a custom answer). */
+  onQuestionAction?: () => void;
 }
 
 export function SessionChatInput({
@@ -974,6 +982,10 @@ export function SessionChatInput({
   replyTo,
   onClearReply,
   lockForQuestion = false,
+  onCustomAnswer,
+  questionButtonLabel = null,
+  questionCanAct = true,
+  onQuestionAction,
 }: SessionChatInputProps) {
   const placeholderVariants = useMemo(
     () => [
@@ -1043,7 +1055,7 @@ export function SessionChatInput({
     };
 
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if (disabled || lockForQuestion) return;
+      if (disabled) return;
       if (e.defaultPrevented) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (typeof e.key !== 'string') return;
@@ -1065,7 +1077,7 @@ export function SessionChatInput({
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [disabled, lockForQuestion]);
+  }, [disabled]);
 
   // Sessions for @ mention search
   const { data: allSessions } = useOpenCodeSessions();
@@ -1364,6 +1376,24 @@ export function SessionChatInput({
       return;
     }
 
+    // If a question is active, route through question logic
+    if (lockForQuestion) {
+      const trimmed = text.trim();
+      if (trimmed && onCustomAnswer) {
+        // User typed a custom answer — submit it
+        onCustomAnswer(trimmed);
+        setText('');
+        if (textareaRef.current) textareaRef.current.style.height = 'auto';
+        return;
+      }
+      // No text — perform the question action (next/submit)
+      if (onQuestionAction) {
+        onQuestionAction();
+        return;
+      }
+      return;
+    }
+
     const trimmed = text.trim();
     if ((!trimmed && attachedFiles.length === 0) || disabled) return;
 
@@ -1400,7 +1430,7 @@ export function SessionChatInput({
       // Restore the text so the user can retry
       setText(trimmed);
     }
-  }, [text, isBusy, disabled, onSend, onCommand, stagedCommand, attachedFiles, mentions, sessionId, enqueue, pushHistory]);
+  }, [text, isBusy, disabled, onSend, onCommand, stagedCommand, attachedFiles, mentions, sessionId, enqueue, pushHistory, lockForQuestion, onCustomAnswer, onQuestionAction]);
 
   const handleSelectCommand = (cmd: Command) => {
     // Stage the command — show an args input instead of executing immediately
@@ -1748,14 +1778,7 @@ export function SessionChatInput({
           )}
 
           <div
-            aria-hidden={lockForQuestion}
-            className={cn(
-              "flex flex-col gap-1 px-3.5 overflow-hidden transition-[max-height,opacity,transform] ease-in-out",
-              lockForQuestion ? "duration-500" : "duration-800 delay-75",
-              lockForQuestion
-                ? "max-h-0 opacity-0 -translate-y-1 pointer-events-none"
-                : "max-h-[320px] opacity-100 translate-y-0",
-            )}
+            className="flex flex-col gap-1 px-3.5 max-h-[320px] opacity-100 translate-y-0"
           >
             <div className="relative w-full">
               {/* Add to queue button — floats top-right of textarea when busy and text is typed */}
@@ -1780,6 +1803,11 @@ export function SessionChatInput({
                   aria-hidden
                   className="absolute left-0.5 top-4 h-6 w-[calc(100%-0.5rem)] text-[16px] sm:text-[15px] text-muted-foreground pointer-events-none overflow-hidden"
                 >
+                  {lockForQuestion ? (
+                    <div className="absolute inset-0">
+                      {questionButtonLabel ? 'Or type your own answer...' : 'Type your answer...'}
+                    </div>
+                  ) : (
                   <AnimatePresence mode="wait" initial={false}>
                     <motion.div
                       key={`${placeholderIndex}:${placeholderVariants[placeholderIndex]}`}
@@ -1799,6 +1827,7 @@ export function SessionChatInput({
                       {placeholderVariants[placeholderIndex]}
                     </motion.div>
                   </AnimatePresence>
+                  )}
                 </div>
               )}
               {text.trim().length === 0 && stagedCommand && (
@@ -1843,7 +1872,7 @@ export function SessionChatInput({
                 }}
                 placeholder=""
                 rows={1}
-                disabled={disabled || lockForQuestion}
+                disabled={disabled}
                 className={cn(
                   'relative w-full bg-transparent border-none shadow-none focus-visible:ring-0 px-0.5 pb-6 pt-4 min-h-[72px] max-h-[200px] overflow-y-auto resize-none rounded-[24px] text-[16px] sm:text-[15px] outline-none placeholder:text-muted-foreground disabled:opacity-50',
                   highlightSegments && 'caret-foreground text-transparent',
@@ -1869,23 +1898,14 @@ export function SessionChatInput({
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    disabled={lockForQuestion}
-                    onClick={() => {
-                      if (lockForQuestion) return;
-                      fileInputRef.current?.click();
-                    }}
-                    className={cn(
-                      "inline-flex items-center justify-center h-8 w-8 rounded-xl transition-colors",
-                      lockForQuestion
-                        ? "text-muted-foreground/40 cursor-not-allowed"
-                        : "text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer",
-                    )}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex items-center justify-center h-8 w-8 rounded-xl transition-colors text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer"
                   >
                     <Paperclip className="h-4 w-4" strokeWidth={2} />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="top">
-                  <p>{lockForQuestion ? 'File upload disabled while answering question' : 'Attach files'}</p>
+                  <p>Attach files</p>
                 </TooltipContent>
               </Tooltip>
 
@@ -1921,10 +1941,10 @@ export function SessionChatInput({
 
               <VoiceRecorder
                 onTranscription={handleTranscription}
-                disabled={disabled || isBusy || lockForQuestion}
+                disabled={disabled || isBusy}
               />
 
-              {isBusy && onStop && (
+              {isBusy && onStop && !lockForQuestion && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -1938,27 +1958,31 @@ export function SessionChatInput({
                   <TooltipContent side="top"><p>Stop</p></TooltipContent>
                 </Tooltip>
               )}
-              {!isBusy && (
-                <div
-                  aria-hidden={lockForQuestion}
-                  className={cn(
-                    "transition-[width,opacity] ease-in-out overflow-hidden",
-                    lockForQuestion ? "duration-500" : "duration-800 delay-75",
-                    lockForQuestion ? "w-0 opacity-0 pointer-events-none" : "w-8 opacity-100",
+              {(!isBusy || lockForQuestion) && (
+                <div className="opacity-100">
+                  {lockForQuestion && questionButtonLabel && !text.trim() ? (
+                    <Button
+                      size="sm"
+                      disabled={!questionCanAct || disabled}
+                      onClick={handleSubmit}
+                      className="flex-shrink-0 h-8 rounded-full px-3.5 text-xs font-medium"
+                    >
+                      {questionButtonLabel}
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      disabled={lockForQuestion ? (!canSubmit && !questionCanAct) || disabled : !canSubmit || disabled}
+                      onClick={handleSubmit}
+                      className="flex-shrink-0 h-8 w-8 rounded-full p-0"
+                    >
+                      {disabled ? (
+                        <div className="size-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <ArrowUp className="size-4" />
+                      )}
+                    </Button>
                   )}
-                >
-                  <Button
-                    size="sm"
-                    disabled={!canSubmit || disabled || lockForQuestion}
-                    onClick={handleSubmit}
-                    className="flex-shrink-0 h-8 w-8 rounded-full p-0"
-                  >
-                    {disabled ? (
-                      <div className="size-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <ArrowUp className="size-4" />
-                    )}
-                  </Button>
                 </div>
               )}
             </div>

@@ -1223,7 +1223,7 @@ importers:
         version: 0.7.1
       agent-tunnel:
         specifier: npm:@kortix/agent-tunnel@*
-        version: link:../agent-tunnel
+        version: /@kortix/agent-tunnel@0.1.1
       bun-pty:
         specifier: ^0.3.0
         version: 0.3.2
@@ -5894,6 +5894,13 @@ packages:
       '@solid-primitives/refs': 1.1.2(solid-js@1.9.11)
       '@solid-primitives/utils': 6.3.2(solid-js@1.9.11)
       solid-js: 1.9.11
+    dev: false
+
+  /@kortix/agent-tunnel@0.1.1:
+    resolution: {integrity: sha512-r3T2g9ig+PcpIOSNT4wNxmX/2dmJtL62GV6fRTeNW3gogXYoGdXs01FGsg2W0DbHEeGfuICUKJRhAUXmgUEpbA==}
+    hasBin: true
+    dependencies:
+      hono: 4.12.3
     dev: false
 
   /@kurkle/color@0.3.4:
