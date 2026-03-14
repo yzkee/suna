@@ -625,11 +625,13 @@ export function getSubdomainOpts(): { sandboxId: string; backendPort: number } |
 export function deriveSubdomainOpts(
   server: ServerEntry | null | undefined,
 ): { sandboxId: string; backendPort: number } | undefined {
+  // Cloud providers use their own URL scheme — no subdomain proxy.
   if (server?.provider === 'daytona' || server?.provider === 'hetzner') return undefined;
-  // For local_docker without a sandboxId yet, fall back to the container name.
-  const sandboxId = server?.sandboxId || (server?.provider === 'local_docker' ? 'kortix-sandbox' : '');
-  // Don't return opts with empty sandboxId — callers need a real ID.
-  if (!sandboxId) return undefined;
+  // For all local/self-hosted modes (local_docker, null server, unknown provider),
+  // always fall back to 'kortix-sandbox' — the Docker container name.
+  // This ensures proxy rewriting NEVER silently degrades to raw localhost URLs
+  // just because the store hasn't hydrated the sandboxId yet.
+  const sandboxId = server?.sandboxId || 'kortix-sandbox';
   return {
     sandboxId,
     backendPort: getBackendPort(),

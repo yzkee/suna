@@ -4,9 +4,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ExternalLink, RefreshCw, Loader2, Monitor, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { useServerStore, getActiveOpenCodeUrl, getSubdomainOpts } from '@/stores/server-store';
-import { getProxyBaseUrl } from '@/lib/utils/sandbox-url';
-import { getDirectPortUrl, SANDBOX_PORTS } from '@/lib/platform-client';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
+import { SANDBOX_PORTS } from '@/lib/platform-client';
 import { useAuthenticatedPreviewUrl } from '@/hooks/use-authenticated-preview-url';
 
 /**
@@ -27,23 +26,13 @@ export function DesktopTabContent() {
   const [refreshKey, setRefreshKey] = useState(0);
   const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const activeServer = useServerStore((s) =>
-    s.servers.find((srv) => srv.id === s.activeServerId) ?? null,
-  );
-  const serverUrl = activeServer?.url || getActiveOpenCodeUrl();
+  const { getServiceUrl } = useSandboxProxy();
 
   // Build the Selkies desktop URL for port 6080
   const rawDesktopUrl = useMemo(() => {
     const port = parseInt(SANDBOX_PORTS.DESKTOP, 10); // 6080
-    const subdomainOpts = getSubdomainOpts();
-    const url = subdomainOpts
-      ? getProxyBaseUrl(port, serverUrl, subdomainOpts)
-      : activeServer
-        ? (getDirectPortUrl(activeServer, SANDBOX_PORTS.DESKTOP) ??
-           getProxyBaseUrl(port, serverUrl, subdomainOpts))
-        : getProxyBaseUrl(port, serverUrl, subdomainOpts);
-    return url || '';
-  }, [activeServer, serverUrl]);
+    return getServiceUrl(port) || '';
+  }, [getServiceUrl]);
 
   const previewUrl = useAuthenticatedPreviewUrl(rawDesktopUrl);
 

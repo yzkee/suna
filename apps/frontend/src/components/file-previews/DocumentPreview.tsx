@@ -10,6 +10,7 @@ import { Project } from '@/types/project';
 import { getExtension } from '@/lib/utils/file-types';
 import { getFileUrl } from '@/lib/utils/file-utils';
 import { cn } from '@/lib/utils';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
 
 export interface DocumentPreviewProps {
     filepath: string;
@@ -24,6 +25,7 @@ export function DocumentPreview({
     project,
     className,
 }: DocumentPreviewProps) {
+    const { subdomainOpts } = useSandboxProxy();
     const extension = getExtension(filepath);
     const isHtml = extension === 'html' || extension === 'htm';
     const isMarkdown = extension === 'md' || extension === 'markdown';
@@ -44,7 +46,7 @@ export function DocumentPreview({
     // HTML Preview
     if (isHtml) {
         const htmlPreviewUrl = project?.sandbox?.sandbox_url
-            ? constructHtmlPreviewUrl(project.sandbox.sandbox_url, filepath)
+            ? constructHtmlPreviewUrl(project.sandbox.sandbox_url, filepath, subdomainOpts)
             : getFileUrl(sandboxId, filepath);
         
         return (
@@ -86,4 +88,3 @@ export function DocumentPreview({
     
     return null;
 }
-

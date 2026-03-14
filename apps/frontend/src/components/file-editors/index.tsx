@@ -15,6 +15,7 @@ import { DocxRenderer } from '@/components/file-renderers/docx-renderer';
 import { HtmlRenderer } from '@/components/file-renderers/html-renderer';
 import { CanvasRenderer } from '@/components/file-renderers/canvas-renderer';
 import { constructHtmlPreviewUrl } from '@/lib/utils/url';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
 import { processUnicodeContent, getFileTypeFromExtension, getLanguageFromExtension } from './utils';
 
 // Lazy load SpreadsheetViewer as it imports Syncfusion (~1-2 MB)
@@ -152,6 +153,7 @@ export function EditableFileRenderer({
   hideMarkdownToolbarActions = false,
   onMarkdownEditorReady,
 }: EditableFileRendererProps) {
+  const { subdomainOpts } = useSandboxProxy();
   const fileType = getEditableFileType(fileName);
   const isHtmlFile = fileName.toLowerCase().endsWith('.html') || fileName.toLowerCase().endsWith('.htm');
 
@@ -162,10 +164,10 @@ export function EditableFileRenderer({
       return URL.createObjectURL(blob);
     }
     if (isHtmlFile && project?.sandbox?.sandbox_url && (filePath || fileName)) {
-      return constructHtmlPreviewUrl(project.sandbox.sandbox_url, filePath || fileName);
+      return constructHtmlPreviewUrl(project.sandbox.sandbox_url, filePath || fileName, subdomainOpts);
     }
     return undefined;
-  }, [isHtmlFile, content, project?.sandbox?.sandbox_url, filePath, fileName]);
+  }, [isHtmlFile, content, project?.sandbox?.sandbox_url, filePath, fileName, subdomainOpts]);
 
   // Cleanup blob URLs
   React.useEffect(() => {
@@ -317,5 +319,3 @@ export { UnifiedMarkdown } from '@/components/markdown';
 
 // Re-export utilities
 export { processUnicodeContent, getFileTypeFromExtension, getLanguageFromExtension } from './utils';
-
-

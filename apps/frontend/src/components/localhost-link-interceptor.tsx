@@ -15,7 +15,7 @@
  */
 
 import { useEffect } from 'react';
-import { useServerStore, getActiveOpenCodeUrl, getSubdomainOpts } from '@/stores/server-store';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
 import {
   isProxiableLocalhostUrl,
   parseLocalhostUrl,
@@ -24,7 +24,6 @@ import {
   isWebProxyUrl,
   parseWebProxyUrl,
   buildWebProxyUrl,
-  rewriteLocalhostUrl,
   toInternalUrl,
 } from '@/lib/utils/sandbox-url';
 import { openTabAndNavigate } from '@/stores/tab-store';
@@ -52,6 +51,8 @@ function parseIntegrationConnectUrl(href: string): { appSlug: string; sandboxId?
 }
 
 export function LocalhostLinkInterceptor() {
+  const { activeServer, serverUrl, rewritePortPath } = useSandboxProxy();
+
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       // Only intercept plain left-clicks (no modifier keys)
@@ -83,19 +84,13 @@ export function LocalhostLinkInterceptor() {
       } catch { /* not a valid URL, skip */ }
 
       // Resolve the proxy URL using the active server
-      const state = useServerStore.getState();
-      const activeServer =
-        state.servers.find((s) => s.id === state.activeServerId) ?? null;
-      const serverUrl = activeServer?.url || getActiveOpenCodeUrl();
-      const subdomainOpts = getSubdomainOpts();
-
       // ── Case 1: Fresh localhost:PORT URL (not yet proxied) ──
       if (isProxiableLocalhostUrl(href)) {
         const parsed = parseLocalhostUrl(href);
         if (!parsed) return;
 
         const { port, path } = parsed;
-        const proxyUrl = rewriteLocalhostUrl(port, path, serverUrl, subdomainOpts);
+        const proxyUrl = rewritePortPath(port, path);
         const internalUrl = toInternalUrl(port, path);
 
         e.preventDefault();
@@ -121,7 +116,7 @@ export function LocalhostLinkInterceptor() {
           const parsed = parseLocalhostUrl(internal);
           if (parsed) {
             const { port, path } = parsed;
-            const proxyUrl = rewriteLocalhostUrl(port, path, serverUrl, subdomainOpts);
+            const proxyUrl = rewritePortPath(port, path);
             const internalUrl = toInternalUrl(port, path);
 
             e.preventDefault();
@@ -165,7 +160,7 @@ export function LocalhostLinkInterceptor() {
 
     document.addEventListener('click', handleClick, { capture: true });
     return () => document.removeEventListener('click', handleClick, { capture: true });
-  }, []);
+  }, [activeServer, rewritePortPath, serverUrl]);
 
   return null;
 }

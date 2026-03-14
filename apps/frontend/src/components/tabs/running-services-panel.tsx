@@ -34,9 +34,8 @@ import { useTabStore, openTabAndNavigate, type Tab } from '@/stores/tab-store';
 import { useOpenCodePtyList } from '@/hooks/opencode/use-opencode-pty';
 import { useSandboxServices, type SandboxService } from '@/hooks/use-sandbox-services';
 import { useOpenCodeSessions, type Session } from '@/hooks/opencode/use-opencode-sessions';
-import { useServerStore, getActiveOpenCodeUrl, getSubdomainOpts } from '@/stores/server-store';
-import { getProxyBaseUrl } from '@/lib/utils/sandbox-url';
-import { getDirectPortUrl } from '@/lib/platform-client';
+import { useServerStore } from '@/stores/server-store';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
 
 // ============================================================================
 // Types
@@ -293,7 +292,7 @@ export function RunningServicesPanel() {
   const activeServer = useServerStore((s) => {
     return s.servers.find((srv) => srv.id === s.activeServerId) ?? null;
   });
-  const serverUrl = activeServer?.url || getActiveOpenCodeUrl();
+  const { getServiceUrl } = useSandboxProxy();
 
   const sessionMap = useMemo(() => {
     const map = new Map<string, Session>();
@@ -337,11 +336,7 @@ export function RunningServicesPanel() {
 
         let proxyUrl = tab ? ((tab.metadata?.url as string) || '') : '';
         if (!proxyUrl) {
-          const subdomainOpts = getSubdomainOpts();
-          proxyUrl = subdomainOpts
-            ? getProxyBaseUrl(svc.port, serverUrl, subdomainOpts)
-            : (activeServer ? getDirectPortUrl(activeServer, String(svc.port)) : null)
-              || getProxyBaseUrl(svc.port, serverUrl, subdomainOpts);
+          proxyUrl = getServiceUrl(svc.port);
         }
 
         const svcNameIsGeneric = !svc.name || svc.name === `service:${svc.port}` || svc.name === `port-${svc.port}`;
@@ -408,7 +403,7 @@ export function RunningServicesPanel() {
     }
 
     return { appServices: apps, terminalServices: terminals };
-  }, [tabs, tabOrder, services, previewTabByPort, activeServer, serverUrl, sessionMap]);
+  }, [tabs, tabOrder, services, previewTabByPort, getServiceUrl, sessionMap]);
 
   const isLoading = servicesLoading || ptysLoading;
 

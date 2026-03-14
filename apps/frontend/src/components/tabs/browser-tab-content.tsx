@@ -4,9 +4,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ExternalLink, RefreshCw, Loader2, Globe, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { useServerStore, getActiveOpenCodeUrl, getSubdomainOpts } from '@/stores/server-store';
-import { getProxyBaseUrl } from '@/lib/utils/sandbox-url';
-import { getDirectPortUrl, SANDBOX_PORTS } from '@/lib/platform-client';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
+import { SANDBOX_PORTS } from '@/lib/platform-client';
 import { useAuthenticatedPreviewUrl } from '@/hooks/use-authenticated-preview-url';
 
 /**
@@ -16,8 +15,7 @@ import { useAuthenticatedPreviewUrl } from '@/hooks/use-authenticated-preview-ur
  * CDP Page.startScreencast JPEG frames. The viewer handles input forwarding
  * (mouse, keyboard, touch) and session management.
  *
- * Pre-selects the "kortix" session via ?session=kortix so the user immediately
- * sees the persistent browser without needing to click a session card.
+ * Starts on the session overview so the user can pick a browser explicitly.
  */
 export function BrowserTabContent() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -26,37 +24,15 @@ export function BrowserTabContent() {
   const [refreshKey, setRefreshKey] = useState(0);
   const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const activeServer = useServerStore((s) =>
-    s.servers.find((srv) => srv.id === s.activeServerId) ?? null,
-  );
-  const serverUrl = activeServer?.url || getActiveOpenCodeUrl();
+  const { getServiceUrl } = useSandboxProxy();
 
   // Build the viewer proxy URL for port 9224
   const rawViewerUrl = useMemo(() => {
     const port = parseInt(SANDBOX_PORTS.BROWSER_VIEWER, 10); // 9224
-    const subdomainOpts = getSubdomainOpts();
-    const url = subdomainOpts
-      ? getProxyBaseUrl(port, serverUrl, subdomainOpts)
-      : activeServer
-        ? (getDirectPortUrl(activeServer, SANDBOX_PORTS.BROWSER_VIEWER) ??
-           getProxyBaseUrl(port, serverUrl, subdomainOpts))
-        : getProxyBaseUrl(port, serverUrl, subdomainOpts);
-    return url || '';
-  }, [activeServer, serverUrl]);
+    return getServiceUrl(port) || '';
+  }, [getServiceUrl]);
 
-  // Append ?session=kortix for immediate focus mode
-  const rawViewerUrlWithSession = useMemo(() => {
-    if (!rawViewerUrl) return '';
-    try {
-      const u = new URL(rawViewerUrl);
-      u.searchParams.set('session', 'kortix');
-      return u.toString();
-    } catch {
-      return rawViewerUrl + (rawViewerUrl.includes('?') ? '&' : '?') + 'session=kortix';
-    }
-  }, [rawViewerUrl]);
-
-  const previewUrl = useAuthenticatedPreviewUrl(rawViewerUrlWithSession);
+  const previewUrl = useAuthenticatedPreviewUrl(rawViewerUrl);
 
   const clearLoadTimeout = useCallback(() => {
     if (loadTimeoutRef.current) {

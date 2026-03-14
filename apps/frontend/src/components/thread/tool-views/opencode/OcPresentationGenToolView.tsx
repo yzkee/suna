@@ -19,8 +19,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { ToolViewIconTitle } from '../shared/ToolViewIconTitle';
 import { ToolViewFooter } from '../shared/ToolViewFooter';
 import { LoadingState } from '../shared/LoadingState';
-import { useServerStore, getActiveOpenCodeUrl, deriveSubdomainOpts } from '@/stores/server-store';
-import { proxyLocalhostUrl } from '@/lib/utils/sandbox-url';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
 
 // ============================================================================
 // Parsing
@@ -66,12 +65,14 @@ const ACTION_LABELS: Record<string, string> = {
   export_pdf: 'Export PDF',
   export_pptx: 'Export PPTX',
   preview: 'Preview',
+  serve: 'Serve',
 };
 
 function getActionIcon(action: string) {
   switch (action) {
     case 'create_slide': return FileText;
-    case 'preview': return Eye;
+    case 'preview':
+    case 'serve': return Eye;
     case 'export_pdf':
     case 'export_pptx': return Download;
     case 'delete_slide':
@@ -110,17 +111,12 @@ export function OcPresentationGenToolView({
   const ActionIcon = getActionIcon(action);
 
   // Proxy-rewrite viewer URL so localhost:3210 → subdomain URL
-  const activeServer = useServerStore((s) =>
-    s.servers.find((srv) => srv.id === s.activeServerId) ?? null,
-  );
-  const serverUrl = activeServer?.url || getActiveOpenCodeUrl();
-  const mappedPorts = activeServer?.mappedPorts;
-  const subdomainOpts = useMemo(() => deriveSubdomainOpts(activeServer), [activeServer]);
+  const { proxyUrl } = useSandboxProxy();
 
   const viewerUrl = useMemo(() => {
     if (!parsed?.viewer_url) return undefined;
-    return proxyLocalhostUrl(parsed.viewer_url, serverUrl, mappedPorts, subdomainOpts);
-  }, [parsed?.viewer_url, serverUrl, mappedPorts, subdomainOpts]);
+    return proxyUrl(parsed.viewer_url);
+  }, [parsed?.viewer_url, proxyUrl]);
 
   // Subtitle
   const subtitle = useMemo(() => {
@@ -207,8 +203,8 @@ export function OcPresentationGenToolView({
               </div>
             )}
 
-            {/* Success: Preview */}
-            {parsed?.success && action === 'preview' && (
+            {/* Success: Preview / Serve */}
+            {parsed?.success && (action === 'preview' || action === 'serve') && (
               <div className="space-y-3">
                 {viewerUrl && (
                   <a
@@ -281,7 +277,7 @@ export function OcPresentationGenToolView({
             )}
 
             {/* Success: Generic (list, delete, etc.) */}
-            {parsed?.success && !['create_slide', 'validate_slide', 'preview', 'export_pdf', 'export_pptx'].includes(action) && (
+            {parsed?.success && !['create_slide', 'validate_slide', 'preview', 'serve', 'export_pdf', 'export_pptx'].includes(action) && (
               <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/50">
                 <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />
                 <p className="text-sm text-foreground">

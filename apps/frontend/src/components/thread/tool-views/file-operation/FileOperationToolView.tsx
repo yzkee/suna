@@ -46,6 +46,7 @@ import { Tabs, TabsContent, TabsListCompact, TabsTriggerCompact } from "@/compon
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { FileDownloadButton } from '../shared/FileDownloadButton';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
 
 import {
   getLanguageFromFileName,
@@ -215,6 +216,7 @@ export function FileOperationToolView({
   messages,
   streamingText,
 }: ToolViewProps) {
+  const { subdomainOpts } = useSandboxProxy();
   const { resolvedTheme } = useTheme();
   const isDarkTheme = resolvedTheme === 'dark';
 
@@ -715,7 +717,7 @@ export function FileOperationToolView({
 
   const htmlPreviewUrl =
     isHtml && project?.sandbox?.sandbox_url && processedFilePath
-      ? constructHtmlPreviewUrl(project.sandbox.sandbox_url, processedFilePath)
+      ? constructHtmlPreviewUrl(project.sandbox.sandbox_url, processedFilePath, subdomainOpts)
       : undefined;
 
   const FileIcon = getFileIcon(fileName);

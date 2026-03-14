@@ -94,15 +94,15 @@ import {
 	parseStructuredOutput,
 } from "@/lib/utils/structured-output";
 import { useAuthenticatedPreviewUrl } from "@/hooks/use-authenticated-preview-url";
+import { useSandboxProxy } from "@/hooks/use-sandbox-proxy";
 import { useFileContent } from "@/features/files/hooks/use-file-content";
 import {
 	isAppRouteUrl,
 	isProxiableLocalhostUrl,
 	parseLocalhostUrl,
-	proxyLocalhostUrl,
 } from "@/lib/utils/sandbox-url";
 import { useOpenCodePendingStore } from "@/stores/opencode-pending-store";
-import { useServerStore, getActiveOpenCodeUrl, deriveSubdomainOpts } from "@/stores/server-store";
+import { useServerStore } from "@/stores/server-store";
 import { openTabAndNavigate } from "@/stores/tab-store";
 import { enrichPreviewMetadata } from "@/lib/utils/session-context";
 import { PreWithPaths } from "@/components/common/clickable-path";
@@ -147,25 +147,20 @@ const MD_FLUSH_CLASSES =
 // ============================================================================
 
 function useProxyUrl(localhostUrl: string): { proxyUrl: string; port: number } | null {
-	const activeServer = useServerStore((s) => {
-		return s.servers.find((srv) => srv.id === s.activeServerId) ?? null;
-	});
-	const serverUrl = activeServer?.url || getActiveOpenCodeUrl();
-	const mappedPorts = activeServer?.mappedPorts;
-	const subdomainOpts = useMemo(() => deriveSubdomainOpts(activeServer), [activeServer]);
+	const { proxyUrl } = useSandboxProxy();
 
 	return useMemo(() => {
 		if (!localhostUrl) return null;
 		if (!isProxiableLocalhostUrl(localhostUrl)) return null;
 		const parsed = parseLocalhostUrl(localhostUrl);
 		if (!parsed) return null;
-		const proxyUrl = proxyLocalhostUrl(localhostUrl, serverUrl, mappedPorts, subdomainOpts);
-		if (!proxyUrl) return null;
+		const resolvedProxyUrl = proxyUrl(localhostUrl);
+		if (!resolvedProxyUrl) return null;
 		return {
-			proxyUrl,
+			proxyUrl: resolvedProxyUrl,
 			port: parsed.port,
 		};
-	}, [localhostUrl, serverUrl, mappedPorts, subdomainOpts]);
+	}, [localhostUrl, proxyUrl]);
 }
 
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
@@ -3804,22 +3799,18 @@ function PresentationGenTool({
 	const isError = parsed ? !parsed.success : false;
 
 	// Proxy-rewrite viewer URL so localhost:3210 → subdomain URL
-	const activeServer = useServerStore((s) =>
-		s.servers.find((srv) => srv.id === s.activeServerId) ?? null,
-	);
-	const subdomainOpts2 = useMemo(() => deriveSubdomainOpts(activeServer), [activeServer]);
+	const { proxyUrl } = useSandboxProxy();
 	const viewerProxyUrl = useMemo(() => {
 		if (!parsed?.viewer_url) return undefined;
-		const sUrl = activeServer?.url || getActiveOpenCodeUrl();
-		return proxyLocalhostUrl(parsed.viewer_url, sUrl, activeServer?.mappedPorts, subdomainOpts2);
-	}, [parsed?.viewer_url, activeServer?.url, activeServer?.mappedPorts, subdomainOpts2]);
+		return proxyUrl(parsed.viewer_url);
+	}, [parsed?.viewer_url, proxyUrl]);
 
 	// Build a nice trigger subtitle
 	const triggerSubtitle = useMemo(() => {
 		if (action === "create_slide" && slideTitle) {
 			return `Slide ${slideNumber || "?"}: ${slideTitle}`;
 		}
-		if (action === "preview") return presentationName;
+		if (action === "preview" || action === "serve") return presentationName;
 		if (action === "export_pdf") return `${presentationName} → PDF`;
 		if (action === "export_pptx") return `${presentationName} → PPTX`;
 		if (action === "list_slides") return presentationName;
@@ -3842,6 +3833,7 @@ function PresentationGenTool({
 			export_pdf: "Export PDF",
 			export_pptx: "Export PPTX",
 			preview: "Preview",
+			serve: "Serve",
 		};
 		return labels[action ?? ""] || action;
 	}, [action]);
@@ -3934,12 +3926,12 @@ function PresentationGenTool({
 					)}
 
 					{/* Preview — embedded iframe */}
-					{action === "preview" && parsed.viewer_url && (
-						<InlineServicePreview
-							url={parsed.viewer_url}
-							label={`Presentation: ${parsed.presentation_name || presentationName || "Viewer"}`}
-						/>
-					)}
+				{(action === "preview" || action === "serve") && parsed.viewer_url && (
+					<InlineServicePreview
+						url={parsed.viewer_url}
+						label={`Presentation: ${parsed.presentation_name || presentationName || "Viewer"}`}
+					/>
+				)}
 
 					{/* Export success */}
 					{(action === "export_pdf" || action === "export_pptx") && (
@@ -3957,6 +3949,7 @@ function PresentationGenTool({
 						"create_slide",
 						"validate_slide",
 						"preview",
+						"serve",
 						"export_pdf",
 						"export_pptx",
 					].includes(action as string) && (
@@ -3969,7 +3962,7 @@ function PresentationGenTool({
 					)}
 
 					{/* File paths */}
-					{parsed.slide_file && action !== "preview" && (
+					{parsed.slide_file && action !== "preview" && action !== "serve" && (
 						<div className="text-[10px] text-muted-foreground/50 font-mono truncate">
 							{parsed.slide_file}
 						</div>

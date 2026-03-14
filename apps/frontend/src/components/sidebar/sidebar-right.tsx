@@ -18,11 +18,10 @@ import {
   SIDEBAR_RIGHT_WIDTH,
   SIDEBAR_RIGHT_WIDTH_ICON,
 } from '@/components/ui/sidebar-right-provider';
-import { useServerStore, getActiveOpenCodeUrl, getSubdomainOpts } from '@/stores/server-store';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
 import { useCreatePty } from '@/hooks/opencode/use-opencode-pty';
 import { openTabAndNavigate } from '@/stores/tab-store';
-import { getProxyBaseUrl } from '@/lib/utils/sandbox-url';
-import { getDirectPortUrl, SANDBOX_PORTS } from '@/lib/platform-client';
+import { SANDBOX_PORTS } from '@/lib/platform-client';
 import { SSHKeyDialog } from '@/components/sidebar/ssh-key-dialog';
 import {
   getItemsByGroup,
@@ -51,10 +50,7 @@ export function SidebarRight() {
   const pathname = usePathname();
   const [sshDialogOpen, setSSHDialogOpen] = useState(false);
 
-  const activeServer = useServerStore((s) => {
-    return s.servers.find((srv) => srv.id === s.activeServerId) ?? null;
-  });
-  const serverUrl = activeServer?.url || getActiveOpenCodeUrl();
+  const { getServiceUrl } = useSandboxProxy();
 
   // Create new PTY terminal → opens as a tab
   const createPty = useCreatePty();
@@ -84,14 +80,7 @@ export function SidebarRight() {
    */
   const openSandboxServiceTab = useCallback(
     (containerPort: string, title: string) => {
-      const subdomainOpts = getSubdomainOpts();
-      // Prefer subdomain URL for local mode (more reliable auth flow).
-      // Fall back to path-based URL for cloud/Daytona mode.
-      const url = subdomainOpts
-        ? getProxyBaseUrl(parseInt(containerPort, 10), serverUrl, subdomainOpts)
-        : activeServer
-          ? (getDirectPortUrl(activeServer, containerPort) || getProxyBaseUrl(parseInt(containerPort, 10), serverUrl, subdomainOpts))
-          : getProxyBaseUrl(parseInt(containerPort, 10), serverUrl, subdomainOpts);
+      const url = getServiceUrl(parseInt(containerPort, 10));
 
       const tabId = `preview:${containerPort}`;
       const tabHref = `/p/${containerPort}`;
@@ -108,7 +97,7 @@ export function SidebarRight() {
         },
       });
     },
-    [activeServer, serverUrl],
+    [getServiceUrl],
   );
 
   /** Generic handler for any registry item in the right sidebar */

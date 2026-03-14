@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { constructHtmlPreviewUrl } from '@/lib/utils/url';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
 import { downloadPresentation, DownloadFormat, handleGoogleSlidesUpload } from '../utils/presentation-utils';
 import { useDownloadRestriction } from '@/hooks/billing';
 
@@ -56,6 +57,7 @@ export function FullScreenPresentationViewer({
   sandboxUrl,
   initialSlide = 1,
 }: FullScreenPresentationViewerProps) {
+  const { subdomainOpts } = useSandboxProxy();
   const [metadata, setMetadata] = useState<PresentationMetadata | null>(null);
   const [currentSlide, setCurrentSlide] = useState(initialSlide);
   const [isLoading, setIsLoading] = useState(false);
@@ -114,7 +116,8 @@ export function FullScreenPresentationViewer({
       
       const metadataUrl = constructHtmlPreviewUrl(
         sandboxUrl, 
-        `presentations/${sanitizedPresentationName}/metadata.json`
+        `presentations/${sanitizedPresentationName}/metadata.json`,
+        subdomainOpts
       );
       
       const urlWithCacheBust = `${metadataUrl}?t=${Date.now()}`;
@@ -160,7 +163,7 @@ export function FullScreenPresentationViewer({
       
       return; // Keep loading state, don't set error
     }
-  }, [presentationName, sandboxUrl]);
+  }, [presentationName, sandboxUrl, subdomainOpts]);
 
   // Sync currentSlide with initialSlide when modal opens (not on every initialSlide change)
   useEffect(() => {
@@ -377,7 +380,7 @@ export function FullScreenPresentationViewer({
         );
       }
 
-      const slideUrl = constructHtmlPreviewUrl(sandboxUrl, slide.file_path);
+      const slideUrl = constructHtmlPreviewUrl(sandboxUrl, slide.file_path, subdomainOpts);
       // Add cache-busting to iframe src to ensure fresh content
       const slideUrlWithCacheBust = `${slideUrl}?t=${refreshTimestamp}`;
 
@@ -427,7 +430,7 @@ export function FullScreenPresentationViewer({
     
     SlideIframeComponent.displayName = 'SlideIframeComponent';
     return SlideIframeComponent;
-  }, [sandboxUrl, refreshTimestamp, showEditor]);
+  }, [sandboxUrl, refreshTimestamp, showEditor, subdomainOpts]);
 
   // Render slide iframe with proper scaling
   const renderSlide = useMemo(() => {
