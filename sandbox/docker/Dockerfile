@@ -140,6 +140,10 @@ RUN chmod +x /custom-cont-init.d/*
 COPY sandbox/scripts/apk-persist /usr/local/bin/apk-persist
 RUN chmod +x /usr/local/bin/apk-persist
 
+# ── E2E test scripts ────────────────────────────────────────────────────────
+COPY sandbox/tests/ /opt/tests/
+RUN chmod +x /opt/tests/*.sh 2>/dev/null || true
+
 # ── Copy source packages to build staging area ──────────────────────────────
 COPY sandbox/kortix-master  /opt/build/kortix-master
 COPY sandbox/s6-services/svc-agent-browser-viewer/index.html /opt/build/browser-viewer/index.html
