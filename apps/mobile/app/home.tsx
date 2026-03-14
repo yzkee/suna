@@ -34,6 +34,7 @@ import type { Session } from '@/lib/opencode/types';
 import { SessionPage } from '@/components/session/SessionPage';
 import { SessionChatInput, type PromptOptions } from '@/components/session/SessionChatInput';
 import { BottomBar } from '@/components/session/BottomBar';
+import { TabsOverview } from '@/components/session/TabsOverview';
 import {
   useOpenCodeAgents,
   useOpenCodeModels,
@@ -204,6 +205,10 @@ export default function HomeScreen() {
   // State
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [showTabsOverview, setShowTabsOverview] = useState(false);
+
+  // Open tabs — sessions the user has visited (like browser tabs)
+  const [openTabIds, setOpenTabIds] = useState<string[]>([]);
 
   // Session navigation history (for back/forward)
   const [sessionHistory, setSessionHistory] = useState<string[]>([]);
@@ -211,7 +216,12 @@ export default function HomeScreen() {
 
   const navigateToSession = useCallback((sessionId: string | null) => {
     setActiveSessionId(sessionId);
+    setShowTabsOverview(false);
     if (sessionId) {
+      // Add to open tabs if not already there
+      setOpenTabIds((prev) =>
+        prev.includes(sessionId) ? prev : [...prev, sessionId],
+      );
       setSessionHistory((prev) => {
         const trimmed = prev.slice(0, historyIndex + 1);
         return [...trimmed, sessionId];
@@ -219,6 +229,13 @@ export default function HomeScreen() {
       setHistoryIndex((prev) => prev + 1);
     }
   }, [historyIndex]);
+
+  const closeTab = useCallback((sessionId: string) => {
+    setOpenTabIds((prev) => prev.filter((id) => id !== sessionId));
+    if (activeSessionId === sessionId) {
+      setActiveSessionId(null);
+    }
+  }, [activeSessionId]);
 
   const canGoBack = historyIndex > 0;
   const canGoForward = historyIndex < sessionHistory.length - 1;
@@ -592,8 +609,20 @@ export default function HomeScreen() {
             </View>
 
           /* Active session */
-          ) : activeSessionId ? (
+          ) : activeSessionId && !showTabsOverview ? (
             <SessionPage sessionId={activeSessionId} onBack={handleBack} onOpenDrawer={handleDrawerOpen} />
+
+          /* Tabs overview */
+          ) : showTabsOverview ? (
+            <TabsOverview
+              sessions={activeSessions}
+              openTabIds={openTabIds}
+              activeSessionId={activeSessionId}
+              onSelectTab={(id) => navigateToSession(id)}
+              onCloseTab={closeTab}
+              onNewSession={handleNewSession}
+              onDismiss={() => setShowTabsOverview(false)}
+            />
 
           /* Dashboard */
           ) : (
@@ -649,13 +678,13 @@ export default function HomeScreen() {
           <View>
             <BottomBar
               activeSessionId={activeSessionId}
-              tabCount={activeSessions.length}
+              tabCount={openTabIds.length}
               canGoBack={canGoBack}
               canGoForward={canGoForward}
               onBack={handleHistoryBack}
               onForward={handleHistoryForward}
               onNewSession={handleNewSession}
-              onOpenTabs={() => setDrawerOpen(true)}
+              onOpenTabs={() => setShowTabsOverview(true)}
               onCompactSession={() => {
                 if (activeSessionId) {
                   Alert.alert('Compact Session', 'Compact this session to reduce context size?', [
