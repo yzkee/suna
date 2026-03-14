@@ -5,7 +5,7 @@ description: "Create, manage, validate, preview, and export HTML presentation sl
 
 # Presentations
 
-1920x1080 HTML slide decks. Inter font, D3.js, and Chart.js pre-loaded. Viewer at `http://localhost:3210`.
+1920x1080 HTML slide decks. Inter font, D3.js, and Chart.js pre-loaded.
 
 ```
 SCRIPT=~/.opencode/skills/presentations/presentation.ts
@@ -38,8 +38,35 @@ bun run "$SCRIPT" export_pdf '{"presentation_name":"my-deck"}'
 # Export to PPTX
 bun run "$SCRIPT" export_pptx '{"presentation_name":"my-deck"}'
 
-# Get viewer URL
+# Generate viewer HTML (no server)
 bun run "$SCRIPT" preview '{"presentation_name":"my-deck"}'
+
+# Start on-demand viewer server (port 3210 by default)
+bun run "$SCRIPT" serve '{"port":3210}'
+```
+
+## Viewer Server
+
+The viewer is **not** a persistent background service. Start it on-demand with the `serve` action when you need to preview slides:
+
+```bash
+bun run "$SCRIPT" serve '{"port":3210}'
+```
+
+This starts a Bun server on port 3210 that serves all presentations under the `presentations/` directory. Use `portless` when running in the sandbox:
+
+```bash
+portless presentation-viewer bun run "$SCRIPT" serve '{"port":3210}'
+```
+
+URL scheme:
+- `http://localhost:3210/` — index listing all presentations
+- `http://localhost:3210/presentations/<name>/` — viewer for that deck
+- `http://localhost:3210/presentations/<name>/slide_01.html` — raw slide file
+
+After starting the server, show the URL to the user via `show`:
+```
+show(action="show", type="url", url="http://localhost:3210/presentations/<name>/", title="Slide Preview")
 ```
 
 ## Slide HTML Rules
@@ -76,10 +103,5 @@ bun run "$SCRIPT" preview '{"presentation_name":"my-deck"}'
 ## Workflow
 
 ```
-create_slide × N → validate_slide → preview → export_pdf / export_pptx
-```
-
-After `preview`, show the viewer URL to the user via the `show` tool:
-```
-show(action="show", type="url", url="http://localhost:3210/presentations/<name>/", title="Slide Preview")
+create_slide × N → validate_slide → serve → show viewer URL → export_pdf / export_pptx
 ```

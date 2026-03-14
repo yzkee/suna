@@ -39,7 +39,6 @@ const LEGACY_S6_SERVICES = [
   'svc-opencode-serve',
   'svc-opencode-web',
   'svc-agent-browser-viewer',
-  'svc-presentation-viewer',
   'svc-static-web',
 ] as const
 
@@ -133,18 +132,14 @@ export class CoreSupervisor {
       'sudo bash /etc/s6-overlay/s6-rc.d/svc-opencode-serve/run',
       'sudo bash /etc/s6-overlay/s6-rc.d/svc-opencode-web/run',
       'sudo bash /etc/s6-overlay/s6-rc.d/svc-opencode-channels/run',
-      'sudo bash /etc/s6-overlay/s6-rc.d/svc-presentation-viewer/run',
       'sudo bash /etc/s6-overlay/s6-rc.d/svc-static-web/run',
       'sudo bash /etc/s6-overlay/s6-rc.d/svc-agent-browser-viewer/run',
       '/usr/local/bin/opencode serve --port 4096 --hostname 0.0.0.0',
       '/usr/local/bin/opencode web --port 3111 --hostname 0.0.0.0',
       '/opt/opencode-channels/src/index.ts',
-      '/opt/services/presentation-viewer.js',
       '/opt/services/static-web.js',
       '/opt/services/agent-browser-viewer.js',
-      // Legacy temp file patterns (pre-extraction)
-      '/tmp/pres-viewer-server.js',
-      '/tmp/static-web-server.js',
+      '/tmp/static-web-server.js', // legacy temp file
     ]
 
     for (const pattern of patterns) {
