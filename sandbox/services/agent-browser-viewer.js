@@ -85,28 +85,24 @@ function getSessions() {
   return Array.from(sessionsByName.values());
 }
 
-// Track active SSE-to-WS bridges per port
+// Track active SSE-to-WS bridges per port.
+// Each bridge keeps a persistent WS connection to the stream server and caches
+// the last frame so new SSE clients get an immediate image instead of waiting
+// for the next paint event (which may never come on a static page).
 const bridges = new Map();
 
 function removeClient(port, client) {
   const bridge = bridges.get(port);
   if (!bridge) return;
   bridge.clients.delete(client);
-  if (bridge.clients.size === 0) {
-    if (bridge.retryTimer) {
-      clearTimeout(bridge.retryTimer);
-      bridge.retryTimer = null;
-    }
-    if (bridge.ws) {
-      try { bridge.ws.close(); } catch {}
-      bridge.ws = null;
-    }
-    bridges.delete(port);
-  }
+  // Don't tear down the bridge when the last client leaves.
+  // Keep the WS alive so we continue caching the latest frame.
+  // The bridge will be cleaned up if the WS connection itself dies
+  // AND there are no clients.
 }
 
 function scheduleReconnect(port, bridge, delayMs) {
-  if (bridge.retryTimer || bridge.clients.size === 0) return;
+  if (bridge.retryTimer) return;
   bridge.retryTimer = setTimeout(() => {
     bridge.retryTimer = null;
     connectBridge(port, bridge);
@@ -114,7 +110,7 @@ function scheduleReconnect(port, bridge, delayMs) {
 }
 
 function connectBridge(port, bridge) {
-  if (bridge.connecting || bridge.ws || bridge.clients.size === 0) return;
+  if (bridge.connecting || bridge.ws) return;
   bridge.connecting = true;
 
   try {
@@ -135,6 +131,16 @@ function connectBridge(port, bridge) {
 
     ws.addEventListener("message", (event) => {
       const msg = typeof event.data === "string" ? event.data : event.data.toString();
+
+      // Cache frame messages for replay to new clients
+      try {
+        const parsed = JSON.parse(msg);
+        if (parsed.type === "frame" && parsed.data) {
+          bridge.lastFrame = msg;
+          bridge.lastFrameTime = Date.now();
+        }
+      } catch {}
+
       for (const client of bridge.clients) {
         try { client.enqueue("data: " + msg + "\n\n"); } catch {}
       }
@@ -146,6 +152,7 @@ function connectBridge(port, bridge) {
       for (const client of bridge.clients) {
         try { client.enqueue("event: status\ndata: {\"connected\":false}\n\n"); } catch {}
       }
+      // Always try to reconnect — keep the bridge alive for frame caching
       scheduleReconnect(port, bridge, 900);
     });
 
@@ -167,10 +174,27 @@ function getOrCreateBridge(port) {
     return existing;
   }
 
-  const bridge = { ws: null, clients: new Set(), connecting: false, retryTimer: null, pendingInputs: [] };
+  const bridge = {
+    ws: null,
+    clients: new Set(),
+    connecting: false,
+    retryTimer: null,
+    pendingInputs: [],
+    lastFrame: null,      // Cached last frame JSON string
+    lastFrameTime: 0,     // Timestamp of last cached frame
+  };
   bridges.set(port, bridge);
   return bridge;
 }
+
+// Pre-connect known session bridges so we start caching frames immediately.
+// This ensures the first viewer client gets an instant frame.
+setTimeout(() => {
+  for (const known of KNOWN_SESSIONS) {
+    const bridge = getOrCreateBridge(known.port);
+    connectBridge(known.port, bridge);
+  }
+}, 2000);
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -213,6 +237,14 @@ Bun.serve({
           streamClient = encoder;
           bridge.clients.add(encoder);
           controller.enqueue(new TextEncoder().encode(":ok\n\n"));
+
+          // Immediately replay the cached last frame if available (< 30s old).
+          // This gives instant visual feedback instead of waiting for the next
+          // paint event on a potentially static page.
+          if (bridge.lastFrame && (Date.now() - bridge.lastFrameTime) < 30000) {
+            try { encoder.enqueue("data: " + bridge.lastFrame + "\n\n"); } catch {}
+          }
+
           connectBridge(port, bridge);
         },
         cancel() {

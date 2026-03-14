@@ -185,8 +185,12 @@ assert_contains "Sessions API returns kortix" "kortix" "$SESSIONS"
 assert_contains "Sessions API has port 9223" "9223" "$SESSIONS"
 
 # Test SSE stream endpoint
-STREAM_RESPONSE=$(curl -sf -N "http://127.0.0.1:9224/stream?port=9223" --max-time 3 2>/dev/null || echo "")
-assert_contains "Stream endpoint connects" "status" "$STREAM_RESPONSE"
+STREAM_RESPONSE=$(curl -sS -N "http://127.0.0.1:9224/stream?port=9223" --max-time 10 2>/dev/null || true)
+if echo "$STREAM_RESPONSE" | grep -qE 'status|"connected":true|"type":"frame"'; then
+  pass "Stream endpoint connects"
+else
+  fail "Stream endpoint connects" "expected status or frame event"
+fi
 
 # --------------------------------------------------------------------------
 echo ""
