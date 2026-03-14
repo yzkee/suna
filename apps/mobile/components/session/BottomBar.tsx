@@ -1,0 +1,224 @@
+/**
+ * BottomBar — Browser-like bottom toolbar.
+ *
+ * Shows: Back | Forward | + New Session | Tabs (count) | More (...)
+ * The "More" menu shows session-specific actions via a bottom sheet.
+ */
+
+import React, { useCallback, useRef, useMemo } from 'react';
+import { View, TouchableOpacity } from 'react-native';
+import { Text } from '@/components/ui/text';
+import { useColorScheme } from 'nativewind';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { BottomSheetModal, BottomSheetBackdrop, BottomSheetView } from '@gorhom/bottom-sheet';
+
+interface BottomBarProps {
+  /** Currently active session ID (null = on dashboard) */
+  activeSessionId: string | null;
+  /** Number of open session tabs */
+  tabCount: number;
+  /** Navigate to the previous session in history */
+  onBack?: () => void;
+  /** Navigate to the next session in history */
+  onForward?: () => void;
+  /** Create a new session */
+  onNewSession: () => void;
+  /** Open the tabs overview */
+  onOpenTabs: () => void;
+  /** Whether back navigation is available */
+  canGoBack?: boolean;
+  /** Whether forward navigation is available */
+  canGoForward?: boolean;
+  /** Session actions */
+  onCompactSession?: () => void;
+  onExportTranscript?: () => void;
+  onViewChanges?: () => void;
+  onDiagnostics?: () => void;
+  onArchiveSession?: () => void;
+}
+
+export function BottomBar({
+  activeSessionId,
+  tabCount,
+  onBack,
+  onForward,
+  onNewSession,
+  onOpenTabs,
+  canGoBack = false,
+  canGoForward = false,
+  onCompactSession,
+  onExportTranscript,
+  onViewChanges,
+  onDiagnostics,
+  onArchiveSession,
+}: BottomBarProps) {
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === 'dark';
+  const insets = useSafeAreaInsets();
+  const sheetRef = useRef<BottomSheetModal>(null);
+
+  const hasActiveSession = !!activeSessionId;
+  const iconColor = isDark ? '#F8F8F8' : '#121215';
+  const disabledColor = isDark ? '#3a3a3a' : '#c8c8c8';
+
+  const handleMore = useCallback(() => {
+    if (!hasActiveSession) return;
+    sheetRef.current?.present();
+  }, [hasActiveSession]);
+
+  const closeSheet = useCallback(() => {
+    sheetRef.current?.dismiss();
+  }, []);
+
+  const menuItems = useMemo(() => [
+    {
+      icon: 'alert-circle-outline' as const,
+      label: 'Diagnostics',
+      onPress: () => { closeSheet(); onDiagnostics?.(); },
+    },
+    {
+      icon: 'git-compare-outline' as const,
+      label: 'View changes',
+      onPress: () => { closeSheet(); onViewChanges?.(); },
+    },
+    {
+      icon: 'download-outline' as const,
+      label: 'Export transcript',
+      onPress: () => { closeSheet(); onExportTranscript?.(); },
+    },
+    {
+      icon: 'layers-outline' as const,
+      label: 'Compact session',
+      onPress: () => { closeSheet(); onCompactSession?.(); },
+    },
+    {
+      icon: 'archive-outline' as const,
+      label: 'Archive session',
+      onPress: () => { closeSheet(); onArchiveSession?.(); },
+    },
+  ], [closeSheet, onDiagnostics, onViewChanges, onExportTranscript, onCompactSession, onArchiveSession]);
+
+  const renderBackdrop = useCallback(
+    (props: any) => (
+      <BottomSheetBackdrop
+        {...props}
+        disappearsOnIndex={-1}
+        appearsOnIndex={0}
+        opacity={0.4}
+      />
+    ),
+    [],
+  );
+
+  return (
+    <>
+      <View
+        className="flex-row items-center justify-around bg-card border-t border-border px-2 pt-1.5"
+        style={{ paddingBottom: insets.bottom + 2 }}
+      >
+        {/* Back */}
+        <TouchableOpacity
+          onPress={onBack}
+          disabled={!canGoBack}
+          className="items-center justify-center p-2"
+          activeOpacity={0.6}
+          hitSlop={6}
+        >
+          <Ionicons
+            name="chevron-back"
+            size={22}
+            color={canGoBack ? iconColor : disabledColor}
+          />
+        </TouchableOpacity>
+
+        {/* Forward */}
+        <TouchableOpacity
+          onPress={onForward}
+          disabled={!canGoForward}
+          className="items-center justify-center p-2"
+          activeOpacity={0.6}
+          hitSlop={6}
+        >
+          <Ionicons
+            name="chevron-forward"
+            size={22}
+            color={canGoForward ? iconColor : disabledColor}
+          />
+        </TouchableOpacity>
+
+        {/* New Session (+) */}
+        <TouchableOpacity
+          onPress={onNewSession}
+          className="items-center justify-center h-9 w-9 rounded-full bg-muted"
+          activeOpacity={0.6}
+        >
+          <Ionicons name="add" size={24} color={iconColor} />
+        </TouchableOpacity>
+
+        {/* Tabs */}
+        <TouchableOpacity
+          onPress={onOpenTabs}
+          className="items-center justify-center p-2"
+          activeOpacity={0.6}
+          hitSlop={6}
+        >
+          <View
+            className="h-6 w-6 rounded border-[1.5px] items-center justify-center"
+            style={{ borderColor: iconColor }}
+          >
+            <Text className="text-xs font-bold text-foreground" style={{ fontSize: 10, lineHeight: 12 }}>
+              {tabCount > 99 ? '99' : tabCount}
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        {/* More (...) */}
+        <TouchableOpacity
+          onPress={handleMore}
+          disabled={!hasActiveSession}
+          className="items-center justify-center p-2"
+          activeOpacity={0.6}
+          hitSlop={6}
+        >
+          <Ionicons
+            name="ellipsis-horizontal"
+            size={22}
+            color={hasActiveSession ? iconColor : disabledColor}
+          />
+        </TouchableOpacity>
+      </View>
+
+      {/* More menu — bottom sheet */}
+      <BottomSheetModal
+        ref={sheetRef}
+        enableDynamicSizing
+        enablePanDownToClose
+        backdropComponent={renderBackdrop}
+        backgroundStyle={{
+          backgroundColor: isDark ? '#161618' : '#FFFFFF',
+          borderTopLeftRadius: 20,
+          borderTopRightRadius: 20,
+        }}
+        handleIndicatorStyle={{
+          backgroundColor: isDark ? '#3f3f46' : '#d4d4d8',
+          width: 40,
+        }}
+      >
+        <BottomSheetView style={{ paddingBottom: insets.bottom + 12 }}>
+          {menuItems.map((item) => (
+            <TouchableOpacity
+              key={item.label}
+              onPress={item.onPress}
+              className="flex-row items-center px-6 py-3.5"
+              activeOpacity={0.6}
+            >
+              <Ionicons name={item.icon} size={20} color={iconColor} />
+              <Text className="text-[15px] ml-4 text-foreground">{item.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </BottomSheetView>
+      </BottomSheetModal>
+    </>
+  );
+}
