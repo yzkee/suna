@@ -1,13 +1,13 @@
 {
-  "version": "0.8.3",
+  "version": "0.8.4",
   "channel": "stable",
   "images": {
-    "sandbox": "kortix/computer:0.8.3",
-    "api": "kortix/kortix-api:0.8.3",
-    "frontend": "kortix/kortix-frontend:0.8.3"
+    "sandbox": "kortix/computer:0.8.4",
+    "api": "kortix/kortix-api:0.8.4",
+    "frontend": "kortix/kortix-frontend:0.8.4"
   },
   "snapshots": {
-    "daytona": "kortix-sandbox-v0.8.3",
-    "hetzner": "kortix-computer-v0.8.3"
+    "daytona": "kortix-sandbox-v0.8.4",
+    "hetzner": "kortix-computer-v0.8.4"
   }
 }

@@ -1,14 +1,34 @@
 [
   {
-    "version": "0.8.3",
-    "date": "2026-03-14",
-    "title": "Launch mobile app and refresh cross-device workspace flows",
-    "description": "Ships the first Kortix mobile app alongside major browser, desktop, and workspace UX upgrades so the latest product surfaces stay in sync across devices.",
+    "version": "0.8.4",
+    "date": "2026-03-15",
+    "title": "Polish self-hosted builds, PTY tooling, and release flow",
+    "description": "Stabilizes the self-hosted shipping path after 0.8.3 with installer and standalone build fixes, new PTY tooling for long-running commands, cleaner frontend/runtime configuration, and stronger release verification.",
     "changes": [
       {
-        "type": "feature",
-        "text": "New Expo-based Kortix mobile app with native iOS and Android shells, onboarding, chat, tools, files, billing, and settings flows"
+        "type": "fix",
+        "text": "Self-hosted installs and standalone frontend builds are more reliable again, including restored /install handling, URL rewriting, and Docker packaging fixes"
       },
+      {
+        "type": "feature",
+        "text": "New opencode-pty support adds managed PTY sessions for long-running commands with live session tooling in the OpenCode runtime"
+      },
+      {
+        "type": "refactor",
+        "text": "Frontend and runtime cleanup removes stale onboarding/dashboard code, aligns runtime config and bundled tooling, and softens Graphite dark mode"
+      },
+      {
+        "type": "test",
+        "text": "Release verification is stronger with Hetzner snapshot support in ship, a consolidated tests/ layout, and expanded self-hosted Playwright and shell coverage"
+      }
+    ]
+  },
+  {
+    "version": "0.8.3",
+    "date": "2026-03-14",
+    "title": "Refresh browser, desktop, and workspace flows",
+    "description": "Focuses this release on the browser and desktop experience, a drive-style workspace refresh, and stronger automation plumbing, alongside sandbox and runtime reliability fixes.",
+    "changes": [
       {
         "type": "feature",
         "text": "Dedicated Browser and Desktop dashboard experiences with improved sandbox proxying, tab routing, and hard-reload handling"
@@ -18,8 +38,12 @@
         "text": "Drive-style workspace refresh with richer grid/list browsing, previews, thumbnails, history, and directory download flows"
       },
       {
+        "type": "feature",
+        "text": "Bidirectional channels, multi-account integrations, and event-driven triggers work more reliably across sandboxes"
+      },
+      {
         "type": "fix",
-        "text": "File preview and dashboard dialog interactions are cleaner, including fewer overlay flashes and fewer blocked floating promos"
+        "text": "Sandbox/runtime stability improves with package persistence, local semantic search, and cleaner update/version handling"
       }
     ]
   },

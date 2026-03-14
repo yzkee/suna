@@ -229,6 +229,8 @@ if (DOCKER) {
   // Sandbox
   run(`docker buildx build \
     --platform linux/amd64,linux/arm64 \
+    --provenance=false \
+    --sbom=false \
     -f sandbox/docker/Dockerfile \
     --build-arg SANDBOX_VERSION=${version} \
     -t kortix/computer:${version} \
@@ -239,6 +241,8 @@ if (DOCKER) {
   // API
   run(`docker buildx build \
     --platform linux/amd64,linux/arm64 \
+    --provenance=false \
+    --sbom=false \
     --build-arg SERVICE=kortix-api \
     -f kortix-api/Dockerfile \
     -t kortix/kortix-api:${version} \
@@ -250,6 +254,8 @@ if (DOCKER) {
   info('Building frontend...')
   run(`docker buildx build \
     --platform linux/amd64,linux/arm64 \
+    --provenance=false \
+    --sbom=false \
     -f apps/frontend/Dockerfile \
     -t kortix/kortix-frontend:${version} \
     -t kortix/kortix-frontend:latest \
