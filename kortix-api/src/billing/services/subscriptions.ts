@@ -553,7 +553,6 @@ export async function confirmCheckoutSession(params: {
 
   const sessionAccountId = session.metadata?.account_id;
   if (!sessionAccountId || sessionAccountId !== accountId) {
-    console.error(`[billing] confirm-checkout-session mismatch: requestAccountId=${accountId} sessionAccountId=${sessionAccountId} sessionId=${sessionId}`);
     throw new BillingError('Checkout session does not belong to this account');
   }
 
