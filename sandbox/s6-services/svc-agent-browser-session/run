@@ -35,16 +35,30 @@ if [ -f "$STREAM_SERVER" ] && ! grep -q '_lastFrameAt' "$STREAM_SERVER" 2>/dev/n
         '                    resolve();',
         '                    this._lastFrameAt = 0;',
         '                    setInterval(() => {',
-        '                        if (!this.isScreencasting || this.clients.size === 0) return;',
+        '                        if (this.clients.size === 0) return;',
+        '                        if (!this.isScreencasting) {',
+        '                            this.startScreencast().then(() => {',
+        '                                try { this.browser.getPage().evaluate(\"window.scrollBy(0,0)\").catch(()=>{}); } catch {}',
+        '                            }).catch(() => {});',
+        '                            return;',
+        '                        }',
         '                        const staleMs = this._lastFrameAt ? Date.now() - this._lastFrameAt : 0;',
         '                        const bActive = typeof this.browser.isScreencasting === \"function\" ? this.browser.isScreencasting() : true;',
         '                        if (!bActive || (this._lastFrameAt > 0 && staleMs > 4000)) {',
         '                            this.isScreencasting = false; this._lastFrameAt = 0;',
-        '                            this.startScreencast().catch(() => {});',
+        '                            this.startScreencast().then(() => {',
+        '                                try { this.browser.getPage().evaluate(\"window.scrollBy(0,0)\").catch(()=>{}); } catch {}',
+        '                            }).catch(() => {});',
         '                        }',
-        '                    }, 3000);',
+        '                    }, 2000);',
         '                });',
       ].join('\n')
+    );
+    // 4. EADDRINUSE: don't crash if another daemon already has the stream port.
+    //    Just skip the stream server and let the existing one handle streaming.
+    c = c.replace(
+      \"this.wss.on('error', (error) => {\\n                    console.error('[StreamServer] WebSocket error:', error);\\n                    reject(error);\\n                });\",
+      \"this.wss.on('error', (error) => {\\n                    if (error.code === 'EADDRINUSE') {\\n                        console.log('[StreamServer] Port ' + this.port + ' in use, reusing existing stream server');\\n                        this.wss = null;\\n                        resolve();\\n                        return;\\n                    }\\n                    console.error('[StreamServer] WebSocket error:', error);\\n                    reject(error);\\n                });\"
     );
     fs.writeFileSync('$STREAM_SERVER', c);
     console.log('[patch] stream-server.js patched');
