@@ -66,24 +66,15 @@ permission:
   worktree_create: allow
   worktree_delete: allow
   write: allow
-  # kortix-auto-projects tools
+  # kortix-orchestrator plugin
   project_create: allow
   project_get: allow
   project_list: allow
   project_update: allow
-  milestone_create: allow
-  milestone_update: allow
-  milestone_list: allow
-  task_create: allow
-  task_update: allow
-  task_list: allow
-  task_ready: allow
-  task_complete: allow
-  task_fail: allow
-  task_block_human: allow
-  dep_add: allow
-  dep_remove: allow
-  update_log: allow
+  session_spawn: allow
+  session_list_spawned: allow
+  session_read: allow
+  session_message: allow
 triggers:
   - name: "Weekly Reflection"
     enabled: true

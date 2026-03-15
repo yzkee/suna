@@ -78,7 +78,8 @@
     "./plugin/kortix-continuation/index.ts",
     // "./plugin/opencode-morph-plugin/index.ts",
     "./plugin/orphan-tool-fixer.ts",
-    "./plugin/agent-triggers.ts"
+    "./plugin/agent-triggers.ts",
+    "./plugin/kortix-orchestrator/index.ts"
   ],
   "mcp": {
     "context7": {
