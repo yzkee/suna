@@ -1,92 +1,50 @@
 ---
 name: kortix-system
-description: "Complete Kortix sandbox system reference. Covers: container image, s6 services, filesystem layout, persistence model, environment variables, secrets management (API for setting/getting/deleting env vars), ports, runtimes, init scripts, cloud mode, desktop environment, cron triggers (scheduled agent execution), semantic search (lss), session search & management (API + on-disk queries), skill creation guide, and all installed tooling. Load this skill when you need to: understand the sandbox, debug services, configure the environment, set API keys/secrets, schedule cron jobs, search files semantically, query session data, or create new skills."
+description: "Complete Kortix platform reference. Covers: sandbox architecture (container, services, ports, filesystem), persistence, environment & secrets, OpenCode framework (agents, skills, tools, commands, sessions, providers, plugins, REST/SSE API), memory & session search (plugin, LTM, lss, SQLite, grep), OAuth integrations (Pipedream), channels (Slack/Telegram/Discord bridge), agent tunnel (local machine control), agent triggers (cron/webhook/pipedream), OCX registry (skill discovery & install), skill authoring, and operations/debugging. Load this skill for ANY Kortix system question."
 ---
 
 # Kortix System Reference
 
-Use this skill for sandbox and runtime questions: persistence, services, secrets, cloud env, triggers, semantic search, session retrieval, and skill authoring.
-
-This skill now uses a staged structure like `PerplexitySkills`: keep `SKILL.md` as the routing layer, then read the relevant file in `references/` before answering or changing system-facing behavior.
+The single source of truth for the entire Kortix platform. Read the relevant reference file below before answering system questions.
 
 ## Reference Map
 
-- `references/overview.md`
-  - container image
-  - key paths
-  - projects
-  - services and ports
-  - Kortix Master routing
-  - runtimes and OpenCode defaults
-- `references/persistence.md`
-  - what persists vs what resets
-  - where long-lived files belong
-  - pip, npm, and apk install rules
-- `references/environment-and-secrets.md`
-  - env model
-  - localhost auth behavior
-  - secret APIs
-  - encryption details
-- `references/integrations.md`
-  - OAuth integration architecture
-  - integration tool workflow
-  - `proxyFetch()` guidance
-- `references/agent-triggers.md`
-  - cron, webhook, and Pipedream event triggers
-  - trigger tools and HTTP APIs
-  - listener lifecycle and architecture
-- `references/search-memory-sessions.md`
-  - `lss` usage
-  - memory plugin facts
-  - session storage and retrieval paths
-- `references/skill-authoring.md`
-  - skill layout
-  - `SKILL.md` format
-  - progressive-disclosure rules
-- `references/operations-and-debugging.md`
-  - init scripts
-  - service checks
-  - health checks
-  - Docker development notes
+| # | File | Covers |
+|---|------|--------|
+| 01 | `references/01-architecture.md` | Container image, key paths, services & ports, auth model, runtimes |
+| 02 | `references/02-persistence.md` | What persists vs resets, safe install patterns, boot flow |
+| 03 | `references/03-environment-and-secrets.md` | Env vars, cloud mode, secret API, encryption |
+| 04 | `references/04-opencode-framework.md` | Agents, skills, tools, commands, sessions, providers, plugins, config, REST API, SSE |
+| 05 | `references/05-memory-and-sessions.md` | Memory plugin, LTM, filesystem persistence, session search (plugin, SQL, REST, grep, lss) |
+| 06 | `references/06-integrations.md` | OAuth apps, Pipedream actions, proxyFetch, trigger management |
+| 07 | `references/07-channels.md` | Slack/Telegram/Discord bridge, sending messages, session tracking, DB schema |
+| 08 | `references/08-agent-tunnel.md` | Local machine control: files, shell, screenshots, mouse/keyboard, accessibility tree |
+| 09 | `references/09-agent-triggers.md` | Cron, webhook, Pipedream event triggers; declarative frontmatter; HTTP API |
+| 10 | `references/10-registry.md` | OCX registry, skill discovery, install workflow |
+| 11 | `references/11-skill-authoring.md` | Skill layout, SKILL.md format, progressive disclosure |
+| 12 | `references/12-operations.md` | Init scripts, health checks, Docker dev, common issues |
 
-## How to Use This Skill
+## Routing — Read the Right File
 
-### For architecture or sandbox questions
-
-Read `references/overview.md` first.
-
-### For persistence or package installation questions
-
-Read `references/persistence.md` first.
-
-### For API keys, env vars, auth, or secret propagation
-
-Read `references/environment-and-secrets.md` first.
-
-### For Gmail, Slack, GitHub, Sheets, or OAuth-backed tooling
-
-Read `references/integrations.md` first.
-
-### For cron schedules, webhooks, or event-driven automation
-
-Read `references/agent-triggers.md` first.
-
-### For semantic search, memory, or session lookup
-
-Read `references/search-memory-sessions.md` first.
-
-### For building or refactoring more skills
-
-Read `references/skill-authoring.md` first.
-
-### For health checks, boot order, or Docker debugging
-
-Read `references/operations-and-debugging.md` first.
+| Question domain | Read first |
+|---|---|
+| Sandbox architecture, paths, services, ports | `01-architecture.md` |
+| What survives restarts, package installation | `02-persistence.md` |
+| API keys, env vars, secrets, auth tokens | `03-environment-and-secrets.md` |
+| How agents/skills/tools/commands work, API endpoints | `04-opencode-framework.md` |
+| Memory, observations, LTM, session search/retrieval | `05-memory-and-sessions.md` |
+| Gmail, Slack, GitHub OAuth, Pipedream actions | `06-integrations.md` |
+| Slack/Telegram/Discord messaging bridge | `07-channels.md` |
+| Controlling the user's local machine | `08-agent-tunnel.md` |
+| Scheduled/automated agent execution | `09-agent-triggers.md` |
+| Finding & installing marketplace skills | `10-registry.md` |
+| Creating or refactoring skills | `11-skill-authoring.md` |
+| Boot order, health checks, Docker, debugging | `12-operations.md` |
 
 ## Non-Negotiable Rules
 
-- If it must survive restarts, it belongs under `/workspace`.
-- Use the secret API for secrets instead of writing them into files.
-- Use `portless` for manually started dev servers.
-- When answering detailed system questions, read the relevant reference file instead of relying on memory.
-- When creating large skills, keep `SKILL.md` short and move depth into `references/`.
+1. If it must survive restarts → `/workspace`
+2. Use the secret API for secrets — never write them to files
+3. Use `portless` for manually started dev servers
+4. Read the reference file before answering — don't rely on memory
+5. Keep SKILL.md short — depth lives in references

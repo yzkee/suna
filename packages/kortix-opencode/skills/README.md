@@ -4,42 +4,46 @@ This directory is the built-in skill pack for `computer/packages/kortix-opencode
 
 ## What lives here
 
-- built-in operational skills that ship with the Kortix OpenCode config
-- each skill keeps `SKILL.md` small and pushes long-form docs into subfolders when needed
-- `KORTIX-system/` is the central system-reference skill for sandbox, persistence, secrets, triggers, search, and session operations
+- Built-in operational skills that ship with the Kortix OpenCode config
+- Each skill keeps `SKILL.md` small and pushes long-form docs into `references/` subfolders
+- `KORTIX-system/` is the unified platform reference — sandbox, framework, memory, integrations, channels, tunnel, triggers, registry, and operations
 
 ## Layout
 
-- `*/SKILL.md` - discovery surface and loading instructions
-- `*/references/` - deep documentation loaded on demand with `read`
-- `*/templates/` - reusable templates when a skill needs them
-- `*/assets/` - static supporting files when a skill needs them
+- `*/SKILL.md` — discovery surface and loading instructions
+- `*/references/` — deep documentation loaded on demand with `read`
+- `*/scripts/` — executable helpers when a skill needs them
+- `*/assets/` — static supporting files
 
-## Current built-in skills
+## Built-in skills
 
-- `agent-browser/`
-- `agent-harness/`
-- `agent-tunnel/`
-- `channels/`
-- `integrations/`
-- `KORTIX-system/`
-- `memory-context-management/`
-- `opencode/`
-- `presentations/`
-- `registry-search/`
-- `session-search/`
-- `woa/`
+| Skill | Purpose |
+|---|---|
+| `KORTIX-system/` | Complete platform reference (12 reference files covering all subsystems) |
+| `agent-browser/` | Browser automation CLI |
+| `agent-harness/` | Agent engineering — build, configure, wire up agents |
+| `presentations/` | HTML slide deck creation, export, preview |
 
 ## KORTIX-system structure
 
-`KORTIX-system/` now follows the same staged-document pattern used in `PerplexitySkills/`:
+Unified reference with 12 topical files:
 
-- `SKILL.md` - trigger surface and routing guide
-- `references/overview.md` - architecture, paths, services, ports, runtimes
-- `references/persistence.md` - what survives restarts and how to install packages safely
-- `references/environment-and-secrets.md` - env model, secret APIs, encryption, cloud vars
-- `references/integrations.md` - OAuth and Pipedream integration flow
-- `references/agent-triggers.md` - cron, webhook, and event triggers
-- `references/search-memory-sessions.md` - `lss`, memory, and session retrieval
-- `references/skill-authoring.md` - skill creation rules and structure
-- `references/operations-and-debugging.md` - commands, init scripts, health checks, Docker notes
+| File | Covers |
+|---|---|
+| `references/01-architecture.md` | Container, paths, services, ports, auth, runtimes |
+| `references/02-persistence.md` | What survives restarts, safe install patterns |
+| `references/03-environment-and-secrets.md` | Env vars, secret API, encryption |
+| `references/04-opencode-framework.md` | Agents, skills, tools, commands, sessions, providers, config, API |
+| `references/05-memory-and-sessions.md` | Memory plugin, LTM, session search (plugin, SQL, grep, lss) |
+| `references/06-integrations.md` | OAuth, Pipedream actions, proxyFetch |
+| `references/07-channels.md` | Slack/Telegram/Discord bridge, session tracking |
+| `references/08-agent-tunnel.md` | Local machine control via tunnel |
+| `references/09-agent-triggers.md` | Cron, webhook, Pipedream event triggers |
+| `references/10-registry.md` | OCX registry, skill discovery & install |
+| `references/11-skill-authoring.md` | Skill layout, SKILL.md format |
+| `references/12-operations.md` | Init scripts, health checks, Docker dev |
+
+## Registry skills (installable via `ocx add`)
+
+Additional skills live in the OCX registry and are installed on demand:
+`deep-research`, `docx`, `domain-research`, `elevenlabs`, `email`, `fullstack-vite-convex`, `legal-writer`, `logo-creator`, `openalex-paper-search`, `paper-creator`, `pdf`, `remotion`, `replicate`, `woa`, `xlsx`
