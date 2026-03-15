@@ -406,9 +406,19 @@ export function evaluateLoop(
 function buildLoopContinuationPrompt(state: LoopState, todos?: Todo[]): string {
 	const config = AUTOWORK_LOOP_CONFIG
 	const parts: string[] = []
+	const pct = Math.round((state.iteration / config.maxIterations) * 100)
 
 	parts.push(`[SYSTEM REMINDER - AUTOWORK]`)
 	parts.push(`You are in an active autowork loop. Iteration: ${state.iteration + 1} of ${config.maxIterations}.`)
+
+	// Urgency escalation
+	if (pct >= 80) {
+		parts.push(``)
+		parts.push(`**CRITICAL: You have used ${pct}% of your iteration budget.** Finish NOW or you will be force-stopped. Focus only on completing remaining work and verifying.`)
+	} else if (pct >= 50) {
+		parts.push(``)
+		parts.push(`**WARNING: You have used ${pct}% of your iteration budget.** Prioritize completion. Do not start new exploratory work.`)
+	}
 	parts.push("")
 
 	if (state.taskPrompt) {
@@ -445,9 +455,13 @@ function buildPrematureDonePrompt(state: LoopState, todoResult: ReturnType<typeo
 	const config = AUTOWORK_LOOP_CONFIG
 	const parts: string[] = []
 
-	parts.push(`[SYSTEM REMINDER - AUTOWORK: PREMATURE DONE DETECTED]`)
-	parts.push(`You emitted <promise>DONE</promise> but your todo list shows unfinished work.`)
-	parts.push(`Do NOT emit DONE until every todo item is completed or cancelled AND you have E2E-verified the result.`)
+	parts.push(`[SYSTEM REMINDER - AUTOWORK: PREMATURE DONE REJECTED]`)
+	parts.push(``)
+	parts.push(`You emitted <promise>DONE</promise> but your todo list CONTRADICTS this claim.`)
+	parts.push(`Your DONE was REJECTED. The loop continues.`)
+	parts.push(``)
+	parts.push(`This is a hard enforcement — you CANNOT claim completion while tracked work remains unfinished.`)
+	parts.push(`Do NOT emit DONE again until EVERY item below is completed or explicitly cancelled with a documented reason.`)
 	parts.push("")
 
 	if (state.taskPrompt) {
@@ -457,7 +471,12 @@ function buildPrematureDonePrompt(state: LoopState, todoResult: ReturnType<typeo
 
 	parts.push(formatRemainingWork(todoResult))
 	parts.push("")
-	parts.push(`Complete the remaining items above, verify end-to-end, then emit ${config.completionPromise}.`)
+	parts.push(`REQUIRED ACTIONS:`)
+	parts.push(`1. Complete every remaining item listed above`)
+	parts.push(`2. Run tests/verification for each completed item`)
+	parts.push(`3. Only THEN emit ${config.completionPromise}`)
+	parts.push(``)
+	parts.push(`If an item is genuinely impossible, mark it cancelled in your todos with a clear reason — do not leave it pending.`)
 	parts.push(INTERNAL_MARKER)
 
 	return parts.join("\n")
@@ -467,8 +486,10 @@ function buildVerificationPrompt(state: LoopState, todos?: Todo[]): string {
 	const config = AUTOWORK_LOOP_CONFIG
 	const parts: string[] = []
 
-	parts.push(`[SYSTEM REMINDER - AUTOWORK VERIFICATION]`)
-	parts.push(`You claimed completion. Before the loop ends you MUST verify — not assume — that your work is correct.`)
+	parts.push(`[SYSTEM REMINDER - AUTOWORK: MANDATORY E2E VERIFICATION]`)
+	parts.push(``)
+	parts.push(`You claimed completion. The loop will NOT end until you PROVE your work is correct.`)
+	parts.push(`Self-verification is adversarial — assume your implementation has bugs until proven otherwise.`)
 	parts.push("")
 
 	if (state.taskPrompt) {
@@ -484,37 +505,42 @@ function buildVerificationPrompt(state: LoopState, todos?: Todo[]): string {
 		}
 	}
 
-	parts.push(`Verification is step-by-step, not a final sweep. For every step you complete:`)
-	parts.push(`  → Run it / call it / open it / observe it`)
-	parts.push(`  → Confirm the output is what you expected`)
-	parts.push(`  → Only then move to the next step`)
+	parts.push(`## Phase 1: Adversarial Self-Critique (MANDATORY)`)
+	parts.push(`Before running any verification, STOP and think critically:`)
+	parts.push(`- List 3-5 things that COULD be wrong with your implementation`)
+	parts.push(`- List edge cases you might have missed`)
+	parts.push(`- List requirements from the original task you might have only partially addressed`)
+	parts.push(`- Consider: "If a senior engineer reviewed this, what would they flag?"`)
+	parts.push(`Write these concerns down, then verify EACH ONE.`)
 	parts.push("")
-	parts.push(`Then verify the whole end-to-end:`)
+	parts.push(`## Phase 2: Requirement Tracing (MANDATORY)`)
+	parts.push(`Go back to the original task. For EACH stated requirement:`)
+	parts.push(`- State the requirement`)
+	parts.push(`- Point to the exact code/artifact that satisfies it`)
+	parts.push(`- Run a test or command that PROVES it works`)
+	parts.push(`- If any requirement is not demonstrably met, FIX IT before proceeding`)
 	parts.push("")
-	parts.push(`1. Every artifact must be confirmed working, not just written.`)
-	parts.push(`   Code runs. Things respond. Output is correct. Prove it — don't assume it.`)
+	parts.push(`## Phase 3: E2E Verification (MANDATORY)`)
+	parts.push(`1. Run ALL tests — unit, integration, e2e. Every failure must be fixed.`)
+	parts.push(`2. Run builds and linters. Zero errors.`)
+	parts.push(`3. Exercise the actual output — don't just re-read files.`)
+	parts.push(`   Run it, observe real output, confirm it's correct.`)
+	parts.push(`4. Trace the full flow a real user would take.`)
+	parts.push(`5. Check for regressions — test what you might have broken.`)
 	parts.push("")
-	parts.push(`2. Exercise the actual output, not the source.`)
-	parts.push(`   Re-reading files is not verification. Run it, observe real output — logs,`)
-	parts.push(`   responses, return values, rendered state — and confirm they are correct.`)
+	parts.push(`## Phase 4: Gate Decision`)
+	parts.push(`ALL of these must be YES:`)
+	parts.push(`- Every requirement from the original task is demonstrably satisfied?`)
+	parts.push(`- Every concern from Phase 1 has been verified/addressed?`)
+	parts.push(`- All tests pass? All builds clean?`)
+	parts.push(`- No regressions detected?`)
 	parts.push("")
-	parts.push(`3. Trace the full flow from start to finish.`)
-	parts.push(`   Each piece working in isolation is not enough. Walk the complete path`)
-	parts.push(`   a real caller or user would take and confirm every step holds together.`)
-	parts.push("")
-	parts.push(`4. Check for regressions.`)
-	parts.push(`   Anything that worked before your changes must still work.`)
-	parts.push(`   Don't only test what you added — test what you might have broken.`)
-	parts.push("")
-	parts.push(`5. Confirm every requirement is met.`)
-	parts.push(`   Go back to the original task. Each stated requirement must be demonstrably`)
-	parts.push(`   satisfied — not inferred, not partially done, actually done.`)
-	parts.push("")
-	parts.push(`If ALL checks pass: emit exactly:`)
+	parts.push(`If ALL checks pass, emit exactly:`)
 	parts.push(config.verificationPromise)
 	parts.push("")
 	parts.push(`If ANY check fails: fix the issues, then emit:`)
 	parts.push(config.completionPromise)
+	parts.push(`to re-enter verification.`)
 	parts.push(INTERNAL_MARKER)
 
 	return parts.join("\n")
@@ -524,8 +550,10 @@ function buildVerificationContinuationPrompt(state: LoopState): string {
 	const config = AUTOWORK_LOOP_CONFIG
 	const parts: string[] = []
 
-	parts.push(`[SYSTEM REMINDER - AUTOWORK VERIFICATION CONTINUATION]`)
-	parts.push(`You are in the verification phase. Keep going until everything is confirmed working.`)
+	parts.push(`[SYSTEM REMINDER - AUTOWORK: VERIFICATION INCOMPLETE]`)
+	parts.push(``)
+	parts.push(`You are in the verification phase but have NOT yet emitted ${config.verificationPromise}.`)
+	parts.push(`This means verification is not finished. Keep going.`)
 	parts.push("")
 
 	if (state.taskPrompt) {
@@ -533,14 +561,18 @@ function buildVerificationContinuationPrompt(state: LoopState): string {
 		parts.push("")
 	}
 
-	parts.push(`Verify step by step — run each piece, observe real output, confirm it's correct.`)
-	parts.push(`Don't move on until the current step is confirmed. Seeing it work is the bar.`)
+	parts.push(`What you must still do:`)
+	parts.push(`1. If you haven't done the adversarial self-critique yet — do it NOW`)
+	parts.push(`2. If you haven't traced every requirement back to the original task — do it NOW`)
+	parts.push(`3. If you haven't run all tests/builds/linters — run them NOW`)
+	parts.push(`4. If any test fails — fix it, don't skip it`)
+	parts.push(`5. If any requirement is unmet — implement it, don't ignore it`)
 	parts.push("")
-	parts.push(`Fix every failure you find. When all steps pass and the full flow works end-to-end:`)
-	parts.push(`  → emit ${config.verificationPromise}`)
+	parts.push(`When EVERYTHING passes and every requirement is proven met:`)
+	parts.push(`  emit ${config.verificationPromise}`)
 	parts.push("")
-	parts.push(`If you found and fixed issues, re-enter the verification cycle:`)
-	parts.push(`  → emit ${config.completionPromise}`)
+	parts.push(`If you found and fixed issues, re-enter the full verification cycle:`)
+	parts.push(`  emit ${config.completionPromise}`)
 	parts.push(INTERNAL_MARKER)
 
 	return parts.join("\n")

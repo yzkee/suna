@@ -96,74 +96,15 @@ function formatContext(tokens: number): string {
   return `${Math.round(tokens / 1000)}K`;
 }
 
-const RECOMMENDED_MODEL_MATCHERS = [
-  {
-    label: 'Sonnet 4.6',
-    matches: (model: FlatModel) =>
-      model.providerID === 'anthropic' &&
-      (model.modelID === 'claude-sonnet-4-6' || model.modelName.toLowerCase().includes('sonnet 4.6')),
-  },
-  {
-    label: 'Opus 4.6',
-    matches: (model: FlatModel) =>
-      model.providerID === 'anthropic' &&
-      (model.modelID === 'claude-opus-4-6' || model.modelName.toLowerCase().includes('opus 4.6')),
-  },
-  {
-    label: 'GLM-5',
-    matches: (model: FlatModel) =>
-      (model.providerID === 'zhipuai' || model.providerID === 'zhipuai-cn') &&
-      (model.modelID.toLowerCase().includes('glm-5') || model.modelName.toLowerCase().includes('glm-5')),
-  },
-  {
-    label: 'Kimi K2.5',
-    matches: (model: FlatModel) => {
-      const haystack = `${model.modelID} ${model.modelName}`.toLowerCase();
-      return haystack.includes('kimi') && (haystack.includes('k2.5') || haystack.includes('k2'));
-    },
-  },
-  {
-    label: 'MiniMax M2.5',
-    matches: (model: FlatModel) => {
-      const haystack = `${model.modelID} ${model.modelName}`.toLowerCase();
-      return haystack.includes('minimax') && haystack.includes('m2.5');
-    },
-  },
-  {
-    label: 'GPT-5.4',
-    matches: (model: FlatModel) =>
-      model.providerID === 'openai' &&
-      (model.modelID === 'gpt-5.4' || model.modelName.toLowerCase().includes('gpt-5.4')),
-  },
-] as const;
-
-function getRecommendedModels(models: FlatModel[]) {
-  const used = new Set<string>();
-  const recommended: FlatModel[] = [];
-
-  for (const matcher of RECOMMENDED_MODEL_MATCHERS) {
-    const match = models.find((model) => {
-      const key = `${model.providerID}:${model.modelID}`;
-      return !used.has(key) && matcher.matches(model);
-    });
-    if (!match) continue;
-    used.add(`${match.providerID}:${match.modelID}`);
-    recommended.push(match);
-  }
-
-  return recommended;
-}
-
 // ─── Tag ─────────────────────────────────────────────────────────────────────
 
-export function Tag({ children, variant = 'default' }: { children: React.ReactNode; variant?: 'default' | 'free' | 'latest' | 'recommended' | 'custom' }) {
+export function Tag({ children, variant = 'default' }: { children: React.ReactNode; variant?: 'default' | 'free' | 'latest' | 'custom' }) {
   return (
     <span
       className={cn(
         'px-1.5 py-0.5 rounded text-[10px] font-medium leading-none flex-shrink-0',
         variant === 'free' && 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
         variant === 'latest' && 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-        variant === 'recommended' && 'bg-primary/10 text-primary',
         variant === 'custom' && 'bg-muted text-muted-foreground',
         variant === 'default' && 'bg-muted text-muted-foreground',
       )}
@@ -305,19 +246,9 @@ export function ModelSelector({ models, selectedModel, onSelect }: ModelSelector
     return entries;
   }, [visibleModels]);
 
-  const recommendedModels = useMemo(() => (search ? [] : getRecommendedModels(visibleModels)), [search, visibleModels]);
-  const recommendedKeys = useMemo(() => new Set(recommendedModels.map((m) => `${m.providerID}:${m.modelID}`)), [recommendedModels]);
-
-  const groupedWithoutRecommended = useMemo(
-    () => grouped
-      .map((g) => ({ ...g, models: g.models.filter((m) => !recommendedKeys.has(`${m.providerID}:${m.modelID}`)) }))
-      .filter((g) => g.models.length > 0),
-    [grouped, recommendedKeys],
-  );
-
   const flatList = useMemo(
-    () => [...recommendedModels, ...groupedWithoutRecommended.flatMap((g) => g.models)],
-    [recommendedModels, groupedWithoutRecommended],
+    () => grouped.flatMap((g) => g.models),
+    [grouped],
   );
 
   // ── Interaction ──
@@ -432,36 +363,8 @@ export function ModelSelector({ models, selectedModel, onSelect }: ModelSelector
             <div className="flex-1 min-h-0 overflow-y-auto p-1.5">
               {flatList.length > 0 ? (
                 <>
-                  {/* Recommended section */}
-                  {recommendedModels.length > 0 && (
-                    <div className="mb-2 last:mb-0">
-                      <div className="px-2 pb-1.5 pt-1">
-                        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-                          Recommended
-                        </span>
-                      </div>
-                      {recommendedModels.map((model) => {
-                        flatIndex++;
-                        const idx = flatIndex;
-                        return (
-                          <ModelRow
-                            key={`${model.providerID}:${model.modelID}`}
-                            model={model}
-                            isSelected={selectedModel?.providerID === model.providerID && selectedModel?.modelID === model.modelID}
-                            isHighlighted={idx === highlightedIndex}
-                            isLatest={modelStore.isLatest({ providerID: model.providerID, modelID: model.modelID })}
-                            isFree={model.providerID === 'opencode' && (!model.cost || model.cost.input === 0)}
-                            subtitle={PROVIDER_LABELS[model.providerID] || model.providerName}
-                            onSelect={() => handleSelect(model)}
-                            onHover={() => setHighlightedIndex(idx)}
-                          />
-                        );
-                      })}
-                    </div>
-                  )}
-
                   {/* Provider groups */}
-                  {groupedWithoutRecommended.map((group) => (
+                  {grouped.map((group) => (
                     <div key={group.providerID} className="mb-2 last:mb-0">
                       <div className="flex items-center gap-2 px-2 pb-1.5 pt-1">
                         <ProviderLogo providerID={group.providerID} name={group.providerName} size="small" />

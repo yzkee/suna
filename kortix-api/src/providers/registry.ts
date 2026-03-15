@@ -25,8 +25,7 @@ export interface ProviderDef {
   helpUrl?: string;
   /** Short description for the UI */
   description?: string;
-  /** Show "Recommended" badge in UI */
-  recommended?: boolean;
+
 }
 
 export const PROVIDER_REGISTRY: ProviderDef[] = [
@@ -40,7 +39,6 @@ export const PROVIDER_REGISTRY: ProviderDef[] = [
     defaultUrl: 'https://api.anthropic.com/v1',
     helpUrl: 'https://console.anthropic.com/settings/keys',
     description: 'Claude models (Opus, Sonnet, Haiku)',
-    recommended: true,
   },
   {
     id: 'openai',
@@ -186,7 +184,7 @@ export function toLegacySchema() {
     title: string;
     description: string;
     required: boolean;
-    keys: Array<{ key: string; label: string; recommended?: boolean; helpUrl?: string }>;
+    keys: Array<{ key: string; label: string; helpUrl?: string }>;
   }> = {
     llm: {
       title: 'LLM Providers',
@@ -208,7 +206,6 @@ export function toLegacySchema() {
       groups[groupKey].keys.push({
         key: envKey,
         label: p.name,
-        recommended: p.recommended,
         helpUrl: p.helpUrl,
       });
     }

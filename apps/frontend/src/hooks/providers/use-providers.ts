@@ -17,7 +17,6 @@ export interface ProviderDef {
   defaultUrl?: string;
   helpUrl?: string;
   description?: string;
-  recommended?: boolean;
 }
 
 export interface ProviderStatus {
@@ -26,7 +25,6 @@ export interface ProviderStatus {
   category: ProviderCategory;
   description?: string;
   helpUrl?: string;
-  recommended?: boolean;
   connected: boolean;
   source: 'secretstore' | 'env' | 'none';
   maskedKeys: Record<string, string>;

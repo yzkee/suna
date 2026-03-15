@@ -241,7 +241,6 @@ export interface ModelInfo {
   context_window: number;
   capabilities: string[];
   priority: number;
-  recommended: boolean;
 }
 
 // ─── API Request/Response Types (Billing) ───────────────────────────────────

@@ -148,12 +148,12 @@ describe('GET /v1/providers', () => {
     expect(categories.has('tool')).toBe(true);
   });
 
-  it('marks Anthropic as recommended', async () => {
+  it('includes Anthropic provider', async () => {
     const app = createTestApp();
     const res = await app.request('/v1/providers');
     const data = await res.json();
     const anthropic = data.providers.find((p: any) => p.id === 'anthropic');
-    expect(anthropic.recommended).toBe(true);
+    expect(anthropic).toBeDefined();
   });
 });
 

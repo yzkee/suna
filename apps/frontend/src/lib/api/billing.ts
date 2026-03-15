@@ -66,7 +66,6 @@ export interface AccountState {
     context_window: number;
     capabilities: string[];
     priority: number;
-    recommended: boolean;
   }>;
   limits?: {
     concurrent_runs: {

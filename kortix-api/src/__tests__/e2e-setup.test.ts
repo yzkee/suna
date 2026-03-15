@@ -118,13 +118,12 @@ describe('/v1/setup', () => {
       expect(data.llm.keys.length).toBeGreaterThanOrEqual(4);
     });
 
-    it('Anthropic is marked recommended', async () => {
+    it('Anthropic key is present', async () => {
       const app = createSetupTestApp();
       const res = await app.request('/v1/setup/schema');
       const data = await res.json();
       const anthropic = data.llm.keys.find((k: any) => k.key === 'ANTHROPIC_API_KEY');
       expect(anthropic).toBeDefined();
-      expect(anthropic.recommended).toBe(true);
     });
   });
 

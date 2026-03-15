@@ -255,7 +255,6 @@ const TOOL_SECRETS = [
     description: 'Web search — lets the agent search the internet',
     icon: Search,
     signupUrl: 'https://tavily.com',
-    recommended: true,
   },
   {
     key: 'FIRECRAWL_API_KEY',
@@ -263,7 +262,6 @@ const TOOL_SECRETS = [
     description: 'Web scraping — read and extract web page content',
     icon: Flame,
     signupUrl: 'https://firecrawl.dev',
-    recommended: true,
   },
   {
     key: 'SERPER_API_KEY',
@@ -349,11 +347,7 @@ function ToolSecretsStep({ onContinue, onSkip, completing }: { onContinue: () =>
               <div className="flex-1 min-w-0 space-y-1.5">
                 <div className="flex items-center gap-2">
                   <span className="text-[13px] font-medium text-foreground/80">{secret.label}</span>
-                  {'recommended' in secret && secret.recommended && (
-                    <span className="text-[9px] px-1.5 py-px rounded-full bg-foreground/[0.06] text-foreground/40 font-medium uppercase tracking-wider">
-                      Recommended
-                    </span>
-                  )}
+
                   <a
                     href={secret.signupUrl}
                     target="_blank"
