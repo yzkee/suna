@@ -31,8 +31,8 @@
  *   "Re-reading files" and "running unit tests" alone are NOT sufficient.
  */
 
-import type { LoopState } from "./config"
-import { AUTOWORK_LOOP_CONFIG, INTERNAL_MARKER, createInitialLoopState } from "./config"
+import type { LoopState, AutoworkAlgorithm, KubetValidatorLevel } from "./config"
+import { AUTOWORK_LOOP_CONFIG, INTERNAL_MARKER, createInitialLoopState, KUBET_CONFIG, INO_CONFIG } from "./config"
 import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import { evaluateTodos, formatRemainingWork } from "./todo-enforcer"
@@ -140,6 +140,7 @@ export function startLoop(
 	taskPrompt: string,
 	sessionId: string,
 	messageCountAtStart: number = 0,
+	algorithm: AutoworkAlgorithm = "kraemer",
 ): LoopState {
 	const state: LoopState = {
 		...createInitialLoopState(),
@@ -148,6 +149,7 @@ export function startLoop(
 		sessionId,
 		startedAt: Date.now(),
 		messageCountAtStart,
+		algorithm,
 	}
 	persistLoopState(state)
 	return state
@@ -311,7 +313,7 @@ export function evaluateLoop(
 
 	const config = AUTOWORK_LOOP_CONFIG
 
-	// Hard limit: max iterations
+	// Hard limit: max iterations (applies to all algorithms)
 	if (state.iteration >= config.maxIterations) {
 		return {
 			action: "stop",
@@ -320,8 +322,28 @@ export function evaluateLoop(
 		}
 	}
 
+	// Dispatch to algorithm-specific evaluator
+	switch (state.algorithm) {
+		case "kubet":
+			return evaluateKubetLoop(state, allAssistantTexts, todos)
+		case "ino":
+			return evaluateInoLoop(state, allAssistantTexts, todos)
+		case "kraemer":
+		default:
+			return evaluateKraemerLoop(state, allAssistantTexts, todos)
+	}
+}
+
+// ─── Kraemer Algorithm (original autowork) ────────────────────────────────────
+
+function evaluateKraemerLoop(
+	state: LoopState,
+	allAssistantTexts: string[],
+	todos?: Todo[],
+): LoopDecision {
+	const config = AUTOWORK_LOOP_CONFIG
+
 	// Scan ALL messages since loop start for promises
-	// This is critical — a promise could be buried in an earlier message
 	const combinedText = allAssistantTexts.join("\n")
 	const hasCompletionPromise = combinedText.includes(config.completionPromise)
 	const hasVerificationPromise = combinedText.includes(config.verificationPromise)
@@ -337,11 +359,9 @@ export function evaluateLoop(
 
 	// DONE found — but first check: do todos say otherwise?
 	if (hasCompletionPromise && !state.inVerification) {
-		// If we have a todo list and it has unfinished items, override DONE — agent claimed done too early
 		if (todos && todos.length > 0) {
 			const todoResult = evaluateTodos(todos)
 			if (todoResult.verdict === "unfinished") {
-				// Agent said DONE but todos disagree — nudge to finish remaining work
 				return {
 					action: "continue",
 					prompt: buildPrematureDonePrompt(state, todoResult),
@@ -349,7 +369,6 @@ export function evaluateLoop(
 				}
 			}
 		}
-		// Todos are done (or no todos) — enter verification
 		return {
 			action: "verify",
 			prompt: buildVerificationPrompt(state, todos),
@@ -366,9 +385,7 @@ export function evaluateLoop(
 				reason: "VERIFIED promise detected — loop complete",
 			}
 		}
-		// DONE was emitted again during verification (issues found + fixed)
 		if (hasCompletionPromise) {
-			// Re-check todos before re-entering verification
 			if (todos && todos.length > 0) {
 				const todoResult = evaluateTodos(todos)
 				if (todoResult.verdict === "unfinished") {
@@ -385,7 +402,6 @@ export function evaluateLoop(
 				reason: "DONE re-emitted during verification — re-verifying E2E",
 			}
 		}
-		// Still in verification, no promises — continue fixing
 		return {
 			action: "continue",
 			prompt: buildVerificationContinuationPrompt(state),
@@ -397,7 +413,305 @@ export function evaluateLoop(
 	return {
 		action: "continue",
 		prompt: buildLoopContinuationPrompt(state, todos),
-		reason: `iteration ${state.iteration + 1}/${config.maxIterations}`,
+		reason: `iteration ${state.iteration + 1}/${AUTOWORK_LOOP_CONFIG.maxIterations}`,
+	}
+}
+
+// ─── Kubet Algorithm — Validator Pipeline + Async Critic ──────────────────────
+
+/**
+ * Check if the async process critic should run this iteration.
+ * Returns true every N iterations (KUBET_CONFIG.criticIntervalIterations).
+ */
+export function kubetShouldRunCritic(state: LoopState): boolean {
+	if (state.algorithm !== "kubet") return false
+	if (state.kubetCriticCount >= KUBET_CONFIG.maxCriticInterventions) return false
+	if (state.iteration === 0) return false // never on first iteration
+	const iterationsSinceLastCritic = state.iteration - state.kubetLastCriticAt
+	return iterationsSinceLastCritic >= KUBET_CONFIG.criticIntervalIterations
+}
+
+/** Record that the critic ran */
+export function kubetRecordCritic(state: LoopState): LoopState {
+	const updated: LoopState = {
+		...state,
+		kubetCriticCount: state.kubetCriticCount + 1,
+		kubetLastCriticAt: state.iteration,
+	}
+	persistLoopState(updated)
+	return updated
+}
+
+/** Advance to the next validator level */
+export function kubetAdvanceValidatorLevel(state: LoopState): LoopState {
+	const nextLevel = Math.min(state.kubetValidatorLevel, 3) as KubetValidatorLevel
+	const updated: LoopState = { ...state, kubetValidatorLevel: nextLevel }
+	persistLoopState(updated)
+	return updated
+}
+
+function evaluateKubetLoop(
+	state: LoopState,
+	allAssistantTexts: string[],
+	todos?: Todo[],
+): LoopDecision {
+	const config = AUTOWORK_LOOP_CONFIG
+	const combinedText = allAssistantTexts.join("\n")
+	const hasCompletionPromise = combinedText.includes(config.completionPromise)
+	const hasVerificationPromise = combinedText.includes(config.verificationPromise)
+
+	// Both promises → done
+	if (hasCompletionPromise && hasVerificationPromise) {
+		return {
+			action: "stop",
+			prompt: null,
+			reason: "[kubet] both DONE and VERIFIED detected — loop complete",
+		}
+	}
+
+	// DONE found — enter staged validation pipeline
+	if (hasCompletionPromise && !state.inVerification) {
+		// Check todos first
+		if (todos && todos.length > 0) {
+			const todoResult = evaluateTodos(todos)
+			if (todoResult.verdict === "unfinished") {
+				return {
+					action: "continue",
+					prompt: buildPrematureDonePrompt(state, todoResult),
+					reason: `[kubet] DONE rejected — ${todoResult.reason}`,
+				}
+			}
+		}
+		// Enter verification — start at level 1
+		return {
+			action: "verify",
+			prompt: buildKubetValidatorPrompt(state, 1, todos),
+			reason: "[kubet] DONE accepted — entering validator level 1 (format)",
+		}
+	}
+
+	// In verification — walk through validator levels
+	if (state.inVerification) {
+		if (hasVerificationPromise) {
+			return {
+				action: "stop",
+				prompt: null,
+				reason: "[kubet] VERIFIED detected — loop complete",
+			}
+		}
+
+		// Check what the last assistant message says about validation results
+		const lastText = allAssistantTexts.length > 0 ? allAssistantTexts[allAssistantTexts.length - 1] : ""
+		const passedLevel = detectKubetValidatorPass(lastText)
+
+		if (passedLevel !== null) {
+			const nextLevel = (passedLevel + 1) as KubetValidatorLevel
+			if (nextLevel > KUBET_CONFIG.defaultValidatorLevel) {
+				// All levels passed — tell agent to emit VERIFIED
+				return {
+					action: "continue",
+					prompt: buildKubetAllValidatorsPassedPrompt(state),
+					reason: `[kubet] all ${KUBET_CONFIG.defaultValidatorLevel} validator levels passed — prompting for VERIFIED`,
+				}
+			}
+			// Advance to next level
+			return {
+				action: "verify",
+				prompt: buildKubetValidatorPrompt(state, nextLevel, todos),
+				reason: `[kubet] validator level ${passedLevel} passed — advancing to level ${nextLevel}`,
+			}
+		}
+
+		// DONE re-emitted during verification (found issues, fixed them)
+		if (hasCompletionPromise) {
+			if (todos && todos.length > 0) {
+				const todoResult = evaluateTodos(todos)
+				if (todoResult.verdict === "unfinished") {
+					return {
+						action: "continue",
+						prompt: buildPrematureDonePrompt(state, todoResult),
+						reason: `[kubet] DONE re-emitted but todos unfinished`,
+					}
+				}
+			}
+			// Restart validation from level 1
+			return {
+				action: "verify",
+				prompt: buildKubetValidatorPrompt(state, 1, todos),
+				reason: "[kubet] DONE re-emitted — restarting validation from level 1",
+			}
+		}
+
+		// Still validating — continue
+		return {
+			action: "continue",
+			prompt: buildKubetValidationContinuationPrompt(state),
+			reason: "[kubet] validation in progress — continue",
+		}
+	}
+
+	// Default: keep working
+	return {
+		action: "continue",
+		prompt: buildLoopContinuationPrompt(state, todos),
+		reason: `[kubet] iteration ${state.iteration + 1}/${config.maxIterations}`,
+	}
+}
+
+/** Detect if the agent reported passing a validator level */
+function detectKubetValidatorPass(text: string): KubetValidatorLevel | null {
+	// Agent should emit these markers when a level passes
+	if (text.includes("<validator-pass>3</validator-pass>")) return 3
+	if (text.includes("<validator-pass>2</validator-pass>")) return 2
+	if (text.includes("<validator-pass>1</validator-pass>")) return 1
+	return null
+}
+
+// ─── Ino Algorithm — Kanban Board Flow ────────────────────────────────────────
+
+/** Parse kanban stage from a todo item's content */
+function parseKanbanStage(content: string): { stage: string; title: string } | null {
+	const match = content.match(/^\[(BACKLOG|IN PROGRESS|REVIEW|TESTING|DONE)\]\s*(.+)/i)
+	if (!match) return null
+	const rawStage = match[1].toUpperCase()
+	const stageMap: Record<string, string> = {
+		"BACKLOG": "backlog",
+		"IN PROGRESS": "in_progress",
+		"REVIEW": "review",
+		"TESTING": "testing",
+		"DONE": "done",
+	}
+	return { stage: stageMap[rawStage] || "backlog", title: match[2].trim() }
+}
+
+/** Analyze kanban board state from todos */
+function analyzeKanbanBoard(todos: Todo[]): {
+	cards: Array<{ content: string; stage: string; title: string; status: string }>
+	byStage: Record<string, number>
+	allDone: boolean
+	hasNonKanban: boolean
+} {
+	const cards: Array<{ content: string; stage: string; title: string; status: string }> = []
+	let hasNonKanban = false
+
+	for (const todo of todos) {
+		const content = (todo as any).content || ""
+		const status = (todo as any).status || "pending"
+		const parsed = parseKanbanStage(content)
+		if (parsed) {
+			cards.push({ content, stage: parsed.stage, title: parsed.title, status })
+		} else if (status !== "completed" && status !== "cancelled") {
+			hasNonKanban = true
+		}
+	}
+
+	const byStage: Record<string, number> = {
+		backlog: 0, in_progress: 0, review: 0, testing: 0, done: 0,
+	}
+	for (const card of cards) {
+		byStage[card.stage] = (byStage[card.stage] || 0) + 1
+	}
+
+	const allDone = cards.length > 0 && cards.every((c) => c.stage === "done")
+
+	return { cards, byStage, allDone, hasNonKanban }
+}
+
+function evaluateInoLoop(
+	state: LoopState,
+	allAssistantTexts: string[],
+	todos?: Todo[],
+): LoopDecision {
+	const config = AUTOWORK_LOOP_CONFIG
+	const combinedText = allAssistantTexts.join("\n")
+	const hasCompletionPromise = combinedText.includes(config.completionPromise)
+	const hasVerificationPromise = combinedText.includes(config.verificationPromise)
+
+	// Both promises → done
+	if (hasCompletionPromise && hasVerificationPromise) {
+		return {
+			action: "stop",
+			prompt: null,
+			reason: "[ino] both DONE and VERIFIED detected — loop complete",
+		}
+	}
+
+	// VERIFIED without completing kanban flow — still accept it
+	if (hasVerificationPromise) {
+		return { action: "stop", prompt: null, reason: "[ino] VERIFIED detected" }
+	}
+
+	// Analyze kanban board state
+	const board = todos ? analyzeKanbanBoard(todos) : null
+
+	// If no kanban cards yet, instruct to decompose
+	if (!board || board.cards.length === 0) {
+		if (state.iteration === 0) {
+			// First iteration — normal, agent hasn't decomposed yet
+			return {
+				action: "continue",
+				prompt: buildInoDecomposePrompt(state),
+				reason: "[ino] no kanban cards — prompting decomposition",
+			}
+		}
+		// After a few iterations with no cards — still nudge
+		if (state.iteration < 3) {
+			return {
+				action: "continue",
+				prompt: buildInoDecomposePrompt(state),
+				reason: "[ino] still no kanban cards — re-prompting decomposition",
+			}
+		}
+		// Fall through to normal continuation if agent isn't using kanban prefixes
+	}
+
+	// DONE emitted — check board state
+	if (hasCompletionPromise) {
+		if (board && !board.allDone) {
+			return {
+				action: "continue",
+				prompt: buildInoBoardIncompletePrompt(state, board),
+				reason: `[ino] DONE rejected — not all cards in DONE stage`,
+			}
+		}
+		// All cards done — run final integration check
+		return {
+			action: "verify",
+			prompt: buildInoFinalIntegrationPrompt(state, board),
+			reason: "[ino] all cards DONE — entering final integration check",
+		}
+	}
+
+	// In verification (final integration)
+	if (state.inVerification) {
+		if (hasCompletionPromise) {
+			return {
+				action: "verify",
+				prompt: buildInoFinalIntegrationPrompt(state, board),
+				reason: "[ino] DONE re-emitted during integration — re-running",
+			}
+		}
+		return {
+			action: "continue",
+			prompt: buildInoIntegrationContinuationPrompt(state),
+			reason: "[ino] final integration in progress — continue",
+		}
+	}
+
+	// Normal work — build stage-aware continuation prompt
+	if (board && board.cards.length > 0) {
+		return {
+			action: "continue",
+			prompt: buildInoKanbanPrompt(state, board, todos),
+			reason: `[ino] kanban: ${board.byStage.done}/${board.cards.length} done — iteration ${state.iteration + 1}`,
+		}
+	}
+
+	// Fallback to generic continuation
+	return {
+		action: "continue",
+		prompt: buildLoopContinuationPrompt(state, todos),
+		reason: `[ino] iteration ${state.iteration + 1}/${config.maxIterations}`,
 	}
 }
 
@@ -573,6 +887,319 @@ function buildVerificationContinuationPrompt(state: LoopState): string {
 	parts.push("")
 	parts.push(`If you found and fixed issues, re-enter the full verification cycle:`)
 	parts.push(`  emit ${config.completionPromise}`)
+	parts.push(INTERNAL_MARKER)
+
+	return parts.join("\n")
+}
+
+// ─── Kubet Prompt Builders ────────────────────────────────────────────────────
+
+/** Build the async process critic prompt — injected periodically during work */
+export function buildKubetCriticPrompt(state: LoopState, allAssistantTexts: string[]): string {
+	const parts: string[] = []
+	const recentTexts = allAssistantTexts.slice(-5).join("\n").slice(0, 2000) // last 5 messages, truncated
+
+	parts.push(`[PROCESS CRITIC — Intervention #${state.kubetCriticCount + 1}]`)
+	parts.push(``)
+	parts.push(`This is NOT about your task. This is about your PROCESS.`)
+	parts.push(`Analyze your recent work pattern and answer these questions honestly:`)
+	parts.push(``)
+	parts.push(`1. **Repetition check:** Are you repeating the same action or fix? If yes, try a completely different approach.`)
+	parts.push(`2. **Test discipline:** Are you running tests after every change? If not, run them now.`)
+	parts.push(`3. **Efficiency:** Could you achieve the same result with fewer steps? Are you gold-plating or yak-shaving?`)
+	parts.push(`4. **Scope:** Are you doing work that wasn't asked for in the original task? If yes, stop.`)
+	parts.push(`5. **Progress:** Compare iteration ${state.iteration + 1} to your remaining work. Are you on track to finish?`)
+	parts.push(``)
+	parts.push(`Based on your answers, STATE what you will change about your approach going forward.`)
+	parts.push(`Then immediately continue working — do not spend more than one response on this reflection.`)
+	parts.push(``)
+	parts.push(`Recent work context (last few iterations):`)
+	parts.push(`---`)
+	parts.push(recentTexts || "(no recent text)")
+	parts.push(`---`)
+	parts.push(INTERNAL_MARKER)
+
+	return parts.join("\n")
+}
+
+/** Build a validator prompt for a specific level (1, 2, or 3) */
+function buildKubetValidatorPrompt(state: LoopState, level: KubetValidatorLevel, todos?: Todo[]): string {
+	const parts: string[] = []
+
+	parts.push(`[SYSTEM REMINDER - KUBET VALIDATOR: LEVEL ${level}]`)
+	parts.push(``)
+
+	if (state.taskPrompt) {
+		parts.push(`Original task: ${state.taskPrompt}`)
+		parts.push("")
+	}
+
+	if (level >= 1) {
+		parts.push(`## Level 1 — Format Validation`)
+		parts.push(`Check ALL of the following. Report each as PASS or FAIL:`)
+		parts.push(`- [ ] All created/modified files exist and are syntactically valid`)
+		parts.push(`- [ ] Code parses without errors (no syntax errors)`)
+		parts.push(`- [ ] Build completes cleanly (run it — no compile/transpile errors)`)
+		parts.push(`- [ ] No linter errors on modified files (run linter)`)
+		parts.push(`- [ ] Config files are well-formed (JSON/YAML/TOML parse OK)`)
+		parts.push("")
+	}
+
+	if (level >= 2) {
+		parts.push(`## Level 2 — Quality Validation`)
+		parts.push(`Check ALL of the following (in addition to Level 1):`)
+		parts.push(`- [ ] All tests pass (existing + new) — run them`)
+		parts.push(`- [ ] Every requirement from the task maps to at least one test or verification`)
+		parts.push(`- [ ] No obvious anti-patterns (dead code, unused imports, hardcoded secrets, untracked TODOs)`)
+		parts.push(`- [ ] Reasonable structure — no god files, no 500-line functions`)
+		parts.push("")
+	}
+
+	if (level >= 3) {
+		parts.push(`## Level 3 — Top Notch Validation`)
+		parts.push(`Check ALL of the following (in addition to Levels 1-2):`)
+		parts.push(`- [ ] Adversarial: List 5 ways this could break. Verify each is handled.`)
+		parts.push(`- [ ] Performance: No O(n²) where O(n) is obvious. No unbounded memory growth.`)
+		parts.push(`- [ ] Clean code: Meaningful names, consistent style, proper error handling.`)
+		parts.push(`- [ ] Documentation: Public APIs have docstrings. Complex logic has "why" comments.`)
+		parts.push(`- [ ] Regressions: Run FULL test suite. Verify nothing else broke.`)
+		parts.push("")
+	}
+
+	parts.push(`## Instructions`)
+	parts.push(`Run every check above. For each FAIL, fix the issue immediately.`)
+	parts.push(`When ALL checks at level ${level} pass, emit exactly:`)
+	parts.push(`<validator-pass>${level}</validator-pass>`)
+	parts.push(``)
+	parts.push(`If you find issues and need to fix them, fix them first, then re-run the checks.`)
+	parts.push(`Do NOT emit the validator-pass marker until every check genuinely passes.`)
+	parts.push(INTERNAL_MARKER)
+
+	return parts.join("\n")
+}
+
+/** All validator levels passed — prompt for VERIFIED */
+function buildKubetAllValidatorsPassedPrompt(state: LoopState): string {
+	const config = AUTOWORK_LOOP_CONFIG
+	const parts: string[] = []
+
+	parts.push(`[SYSTEM REMINDER - KUBET: ALL VALIDATORS PASSED]`)
+	parts.push(``)
+	parts.push(`All ${KUBET_CONFIG.defaultValidatorLevel} validation levels have passed.`)
+	parts.push(`Your work has been verified at the format, quality, and top-notch levels.`)
+	parts.push(``)
+	parts.push(`Emit exactly:`)
+	parts.push(config.verificationPromise)
+	parts.push(INTERNAL_MARKER)
+
+	return parts.join("\n")
+}
+
+/** Continue validation when no pass marker detected yet */
+function buildKubetValidationContinuationPrompt(state: LoopState): string {
+	const parts: string[] = []
+
+	parts.push(`[SYSTEM REMINDER - KUBET: VALIDATION IN PROGRESS]`)
+	parts.push(``)
+	parts.push(`You are in the validation phase but have not yet emitted a validator-pass marker.`)
+	parts.push(`Continue running the validation checks and fixing any issues found.`)
+	parts.push(``)
+	parts.push(`When ALL checks at the current level pass, emit: <validator-pass>LEVEL</validator-pass>`)
+	parts.push(`(where LEVEL is 1, 2, or 3)`)
+	parts.push(INTERNAL_MARKER)
+
+	return parts.join("\n")
+}
+
+// ─── Ino Prompt Builders ──────────────────────────────────────────────────────
+
+/** Prompt agent to decompose task into kanban cards */
+function buildInoDecomposePrompt(state: LoopState): string {
+	const parts: string[] = []
+
+	parts.push(`[SYSTEM REMINDER - INO: DECOMPOSE INTO KANBAN CARDS]`)
+	parts.push(``)
+
+	if (state.taskPrompt) {
+		parts.push(`Original task: ${state.taskPrompt}`)
+		parts.push("")
+	}
+
+	parts.push(`You are using the **Ino algorithm** — kanban board workflow.`)
+	parts.push(``)
+	parts.push(`FIRST STEP: Decompose your task into discrete work cards.`)
+	parts.push(`Each card must be a todo item with a stage prefix:`)
+	parts.push(``)
+	parts.push(`  [BACKLOG] Implement user authentication`)
+	parts.push(`  [BACKLOG] Create database schema`)
+	parts.push(`  [BACKLOG] Write API endpoint tests`)
+	parts.push(``)
+	parts.push(`Rules:`)
+	parts.push(`- Each card should be small enough to implement AND verify independently`)
+	parts.push(`- Order them by priority/dependency (first card = highest priority)`)
+	parts.push(`- Include a final card: [BACKLOG] Final integration verification`)
+	parts.push(``)
+	parts.push(`After creating the cards, pick the first one and move it to [IN PROGRESS].`)
+	parts.push(INTERNAL_MARKER)
+
+	return parts.join("\n")
+}
+
+/** Stage-aware continuation prompt based on kanban board state */
+function buildInoKanbanPrompt(
+	state: LoopState,
+	board: ReturnType<typeof analyzeKanbanBoard>,
+	todos?: Todo[],
+): string {
+	const config = AUTOWORK_LOOP_CONFIG
+	const parts: string[] = []
+	const pct = Math.round((state.iteration / config.maxIterations) * 100)
+
+	parts.push(`[SYSTEM REMINDER - INO: KANBAN BOARD STATUS]`)
+	parts.push(`Iteration ${state.iteration + 1} of ${config.maxIterations}.`)
+
+	if (pct >= 80) {
+		parts.push(`**CRITICAL: ${pct}% budget used. Finish remaining cards NOW.**`)
+	} else if (pct >= 50) {
+		parts.push(`**WARNING: ${pct}% budget used. Stay focused.**`)
+	}
+	parts.push(``)
+
+	if (state.taskPrompt) {
+		parts.push(`Original task: ${state.taskPrompt}`)
+		parts.push("")
+	}
+
+	// Board summary
+	parts.push(`## Board State`)
+	parts.push(`| Stage | Count |`)
+	parts.push(`|-------|-------|`)
+	parts.push(`| Backlog | ${board.byStage.backlog} |`)
+	parts.push(`| In Progress | ${board.byStage.in_progress} |`)
+	parts.push(`| Review | ${board.byStage.review} |`)
+	parts.push(`| Testing | ${board.byStage.testing} |`)
+	parts.push(`| Done | ${board.byStage.done} |`)
+	parts.push(``)
+
+	// Card details
+	const activeCards = board.cards.filter((c) => c.stage !== "done")
+	if (activeCards.length > 0) {
+		parts.push(`## Active Cards`)
+		for (const card of activeCards) {
+			const stageIcon: Record<string, string> = {
+				backlog: "📋", in_progress: "🔨", review: "🔍", testing: "🧪",
+			}
+			parts.push(`${stageIcon[card.stage] || "·"} [${card.stage.toUpperCase().replace("_", " ")}] ${card.title}`)
+		}
+		parts.push("")
+	}
+
+	// Stage-specific instructions
+	if (board.byStage.in_progress > 0) {
+		const wip = board.cards.filter((c) => c.stage === "in_progress")
+		parts.push(`## Current Focus`)
+		parts.push(`Continue working on: **${wip[0]?.title}**`)
+		parts.push(`When implementation is complete, update its prefix to [REVIEW] and self-review it.`)
+	} else if (board.byStage.review > 0) {
+		const reviewing = board.cards.filter((c) => c.stage === "review")
+		parts.push(`## Current Focus`)
+		parts.push(`Self-review: **${reviewing[0]?.title}**`)
+		parts.push(`Re-read your changes with fresh eyes. If issues found, move back to [IN PROGRESS].`)
+		parts.push(`If review passes, move to [TESTING].`)
+	} else if (board.byStage.testing > 0) {
+		const testing = board.cards.filter((c) => c.stage === "testing")
+		parts.push(`## Current Focus`)
+		parts.push(`Test: **${testing[0]?.title}**`)
+		parts.push(`Run the tests for this card. If pass, move to [DONE] and mark completed.`)
+		parts.push(`If fail, move back to [IN PROGRESS] and fix.`)
+	} else if (board.byStage.backlog > 0) {
+		parts.push(`## Next Action`)
+		parts.push(`Pick the next card from BACKLOG and move it to [IN PROGRESS].`)
+	} else if (board.allDone) {
+		parts.push(`## All Cards Done`)
+		parts.push(`All cards are in DONE. Run the final integration check.`)
+		parts.push(`If everything passes, emit: ${config.completionPromise}`)
+	}
+	parts.push("")
+
+	if (board.byStage.in_progress > INO_CONFIG.maxWip) {
+		parts.push(`**WARNING:** You have ${board.byStage.in_progress} cards in progress. Max WIP is ${INO_CONFIG.maxWip}. Finish one before starting another.`)
+		parts.push("")
+	}
+
+	parts.push(INTERNAL_MARKER)
+	return parts.join("\n")
+}
+
+/** DONE rejected because not all cards are in DONE stage */
+function buildInoBoardIncompletePrompt(
+	state: LoopState,
+	board: ReturnType<typeof analyzeKanbanBoard>,
+): string {
+	const config = AUTOWORK_LOOP_CONFIG
+	const parts: string[] = []
+
+	parts.push(`[SYSTEM REMINDER - INO: DONE REJECTED — BOARD INCOMPLETE]`)
+	parts.push(``)
+	parts.push(`You emitted ${config.completionPromise} but your kanban board has cards that are NOT in DONE stage.`)
+	parts.push(``)
+
+	const notDone = board.cards.filter((c) => c.stage !== "done")
+	for (const card of notDone) {
+		parts.push(`  [${card.stage.toUpperCase().replace("_", " ")}] ${card.title}`)
+	}
+	parts.push(``)
+	parts.push(`Each card must go through: BACKLOG → IN PROGRESS → REVIEW → TESTING → DONE`)
+	parts.push(`Complete the remaining cards before emitting DONE again.`)
+	parts.push(INTERNAL_MARKER)
+
+	return parts.join("\n")
+}
+
+/** Final integration check prompt — all cards are done */
+function buildInoFinalIntegrationPrompt(
+	state: LoopState,
+	board: ReturnType<typeof analyzeKanbanBoard> | null,
+): string {
+	const config = AUTOWORK_LOOP_CONFIG
+	const parts: string[] = []
+
+	parts.push(`[SYSTEM REMINDER - INO: FINAL INTEGRATION CHECK]`)
+	parts.push(``)
+	parts.push(`All kanban cards are in DONE stage. Now verify everything works together.`)
+	parts.push(``)
+
+	if (state.taskPrompt) {
+		parts.push(`Original task: ${state.taskPrompt}`)
+		parts.push("")
+	}
+
+	parts.push(`## Integration Checklist`)
+	parts.push(`1. Run the FULL test suite (not just individual card tests)`)
+	parts.push(`2. Run the build — zero errors`)
+	parts.push(`3. Verify cross-card interactions work correctly`)
+	parts.push(`4. Trace the original requirements — is everything covered?`)
+	parts.push(`5. Check for regressions across the entire codebase`)
+	parts.push(``)
+	parts.push(`If ALL pass, emit: ${config.verificationPromise}`)
+	parts.push(`If ANY fail, create fix cards in BACKLOG and continue working.`)
+	parts.push(INTERNAL_MARKER)
+
+	return parts.join("\n")
+}
+
+/** Integration check still in progress */
+function buildInoIntegrationContinuationPrompt(state: LoopState): string {
+	const config = AUTOWORK_LOOP_CONFIG
+	const parts: string[] = []
+
+	parts.push(`[SYSTEM REMINDER - INO: INTEGRATION CHECK INCOMPLETE]`)
+	parts.push(``)
+	parts.push(`You are in the final integration check but have not yet emitted ${config.verificationPromise}.`)
+	parts.push(`Continue running integration checks and fixing any issues found.`)
+	parts.push(``)
+	parts.push(`When everything passes: emit ${config.verificationPromise}`)
+	parts.push(`If you found issues and created fix cards: work through them, then retry.`)
 	parts.push(INTERNAL_MARKER)
 
 	return parts.join("\n")

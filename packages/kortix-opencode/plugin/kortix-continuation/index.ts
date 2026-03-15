@@ -42,6 +42,7 @@ import {
 	type ContinuationConfig,
 	type ContinuationState,
 	type LoopState,
+	type AutoworkAlgorithm,
 	DEFAULT_CONFIG,
 	createInitialState,
 	createInitialLoopState,
@@ -50,6 +51,7 @@ import {
 	INTERNAL_MARKER,
 	CODE_BLOCK_PATTERN,
 	INLINE_CODE_PATTERN,
+	COMMAND_TO_ALGORITHM,
 } from "./src/config"
 import { evaluate } from "./src/continuation-engine"
 import {
@@ -66,6 +68,9 @@ import {
 	loadAllPersistedLoopStates,
 	persistLoopState,
 	removePersistedLoopState,
+	kubetShouldRunCritic,
+	kubetRecordCritic,
+	buildKubetCriticPrompt,
 } from "./src/loop"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -304,10 +309,20 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 					return
 				}
 
-				// ── /autowork — start or append to loop ──────────────────────
-				if (messageText.includes("KORTIX_AUTOWORK") || /\/autowork\b/.test(messageText)) {
+				// ── /autowork, /autowork1, /autowork2 — start or append to loop ──
+				// Detect any autowork variant command. Regex captures the optional
+				// suffix (1, 2) to determine the algorithm.
+				const autoworkMatch = messageText.includes("KORTIX_AUTOWORK")
+					|| /\/autowork[12]?\b/.test(messageText)
+				if (autoworkMatch) {
+					// Determine algorithm from the command name
+					const cmdMatch = messageText.match(/\/autowork([12])?\b/)
+					const cmdSuffix = cmdMatch?.[1] || "" // "", "1", or "2"
+					const cmdName = `autowork${cmdSuffix}` // "autowork", "autowork1", "autowork2"
+					const algorithm: AutoworkAlgorithm = COMMAND_TO_ALGORITHM[cmdName] || "kraemer"
+
 					const task = messageText
-						.replace(/^.*?\/autowork\s*/i, "")
+						.replace(/^.*?\/autowork[12]?\s*/i, "")
 						.replace(/<!--[\s\S]*?-->/g, "")
 						.trim() || "Unspecified task"
 
@@ -319,7 +334,7 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 						loopState = { ...loopState, taskPrompt: updatedPrompt }
 						persistLoopState(loopState)
 						loopStates.set(sessionId, loopState)
-						log("info", `[autowork][${sid(sessionId)}] Context appended mid-loop`)
+						log("info", `[autowork:${algorithm}][${sid(sessionId)}] Context appended mid-loop`)
 					} else {
 						// Fresh start — clear any previous stop
 						sessionConfigOverrides.delete(sessionId)
@@ -328,9 +343,9 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 							const r = await client.session.messages({ path: { id: sessionId } }).catch(() => ({ data: [] as any[] }))
 							msgCount = (r.data ?? []).length
 						} catch { /* non-fatal */ }
-						loopState = startLoop(task, sessionId, msgCount)
+						loopState = startLoop(task, sessionId, msgCount, algorithm)
 						loopStates.set(sessionId, loopState)
-						log("info", `[autowork][${sid(sessionId)}] Activated: "${task.slice(0, 80)}"`)
+						log("info", `[autowork:${algorithm}][${sid(sessionId)}] Activated: "${task.slice(0, 80)}"`)
 					}
 
 					if (output?.message && typeof output.message === "object") {
@@ -467,10 +482,32 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 							return
 						}
 
-						// Evaluate loop decision
 						const allTexts = extractAssistantTexts(messages, loopState.messageCountAtStart)
+
+						// ── Kubet async critic — runs periodically during work phase ──
+						// The critic injects a process-optimization prompt INSTEAD of
+						// the normal continuation for this iteration. Only during work
+						// phase (not during verification).
+						if (kubetShouldRunCritic(loopState) && !loopState.inVerification) {
+							const criticPrompt = buildKubetCriticPrompt(loopState, allTexts)
+							loopState = kubetRecordCritic(advanceIteration(loopState))
+							loopStates.set(sessionId, loopState)
+							log("info", `[autowork:kubet][${sid(sessionId)}] Critic intervention #${loopState.kubetCriticCount}`)
+							await client.session.promptAsync({
+								path: { id: sessionId },
+								body: { parts: [{ type: "text" as const, text: criticPrompt }] },
+							}).catch((err: unknown) => {
+								log("warn", `[autowork:kubet][${sid(sessionId)}] Critic promptAsync failed: ${err}`)
+								loopState = recordFailure(loopState)
+								loopStates.set(sessionId, loopState)
+							})
+							return // critic was injected — skip normal evaluation this cycle
+						}
+
+						// Evaluate loop decision
 						const decision = evaluateLoop(loopState, allTexts, loopTodos)
-						log("info", `[autowork][${sid(sessionId)}] ${decision.action} — ${decision.reason}`)
+						const algTag = loopState.algorithm !== "kraemer" ? `:${loopState.algorithm}` : ""
+						log("info", `[autowork${algTag}][${sid(sessionId)}] ${decision.action} — ${decision.reason}`)
 
 						if (decision.action === "verify" && decision.prompt) {
 							loopState = advanceIteration(enterVerification(loopState))
@@ -479,7 +516,7 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 								path: { id: sessionId },
 								body: { parts: [{ type: "text" as const, text: decision.prompt }] },
 							}).catch((err: unknown) => {
-								log("warn", `[autowork][${sid(sessionId)}] promptAsync failed: ${err}`)
+								log("warn", `[autowork${algTag}][${sid(sessionId)}] promptAsync failed: ${err}`)
 								loopState = recordFailure(loopState)
 								loopStates.set(sessionId, loopState)
 							})
@@ -490,14 +527,14 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 								path: { id: sessionId },
 								body: { parts: [{ type: "text" as const, text: decision.prompt }] },
 							}).catch((err: unknown) => {
-								log("warn", `[autowork][${sid(sessionId)}] promptAsync failed: ${err}`)
+								log("warn", `[autowork${algTag}][${sid(sessionId)}] promptAsync failed: ${err}`)
 								loopState = recordFailure(loopState)
 								loopStates.set(sessionId, loopState)
 							})
 						} else if (decision.action === "stop") {
 							loopState = stopLoop(loopState)
 							loopStates.set(sessionId, loopState)
-							log("info", `[autowork][${sid(sessionId)}] Complete: ${decision.reason}`)
+							log("info", `[autowork${algTag}][${sid(sessionId)}] Complete: ${decision.reason}`)
 						}
 					} catch (err) {
 						log("warn", `[autowork][${sid(sessionId)}] Evaluation error: ${err}`)

@@ -7,6 +7,7 @@ import {
   ChevronDown,
   Check,
   GitFork,
+  Infinity,
   Loader2,
   Paperclip,
   X,
@@ -374,6 +375,213 @@ function VariantSelector({
         <p className="text-xs">Cycle thinking effort</p>
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+// ============================================================================
+// AutoContinue Mode Selector
+// ============================================================================
+
+/** Known autocontinue algorithm IDs — maps to slash command names */
+export type AutoContinueMode = 'autowork' | 'autowork1' | 'autowork2' | 'orchestrate';
+
+interface AutoContinueAlgorithm {
+  id: AutoContinueMode;
+  label: string;
+  /** Developer name shown in the UI */
+  devName: string;
+  description: string;
+  commandName: string; // slash command to fire
+}
+
+const AUTOCONTINUE_ALGORITHMS: AutoContinueAlgorithm[] = [
+  {
+    id: 'autowork',
+    label: 'Kraemer',
+    devName: 'Kraemer',
+    description: 'Original autowork — binary DONE/VERIFIED loop',
+    commandName: 'autowork',
+  },
+  {
+    id: 'autowork1',
+    label: 'Kubet',
+    devName: 'Kubet',
+    description: 'Validator pipeline (format/quality/top-notch) + async process critic',
+    commandName: 'autowork1',
+  },
+  {
+    id: 'autowork2',
+    label: 'Ino',
+    devName: 'Ino',
+    description: 'Kanban board flow — per-card lifecycle with stage gates',
+    commandName: 'autowork2',
+  },
+  {
+    id: 'orchestrate',
+    label: 'Orchestrate',
+    devName: 'Orchestrate',
+    description: 'Multi-session orchestrator — spawns workers',
+    commandName: 'orchestrate',
+  },
+];
+
+/** Infinity icon with a diagonal slash — visual "off" state */
+function InfinityOff({ className, strokeWidth = 2 }: { className?: string; strokeWidth?: number }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      {/* Infinity path (same as lucide Infinity) */}
+      <path d="M12 12c-2-2.67-4-4-6-4a4 4 0 1 0 0 8c2 0 4-1.33 6-4Zm0 0c2 2.67 4 4 6 4a4 4 0 0 0 0-8c-2 0-4 1.33-6 4Z" />
+      {/* Diagonal slash */}
+      <line x1="4" y1="4" x2="20" y2="20" />
+    </svg>
+  );
+}
+
+function AutoContinueSelector({
+  selected,
+  onSelect,
+  commands,
+}: {
+  selected: AutoContinueMode | null;
+  onSelect: (mode: AutoContinueMode | null) => void;
+  commands: Command[];
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Only show algorithms whose commands are actually available
+  const available = useMemo(
+    () =>
+      AUTOCONTINUE_ALGORITHMS.filter((alg) =>
+        commands.some((c) => c.name === alg.commandName),
+      ),
+    [commands],
+  );
+
+  // Close on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [open]);
+
+  // Don't render if no autocontinue commands are available
+  if (available.length === 0) return null;
+
+  const isActive = selected !== null;
+  const currentAlg = available.find((a) => a.id === selected);
+
+  return (
+    <div className="relative" ref={ref}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => setOpen(!open)}
+            className={cn(
+              'inline-flex items-center gap-1 h-8 px-2 rounded-xl text-xs font-medium transition-all duration-200 cursor-pointer',
+              isActive
+                ? 'text-primary bg-primary/10 hover:bg-primary/15'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+            )}
+          >
+            {isActive ? (
+              <Infinity
+                className="size-4"
+                strokeWidth={2.5}
+              />
+            ) : (
+              <InfinityOff className="size-4" />
+            )}
+            {isActive && currentAlg && (
+              <span className="text-[11px] capitalize">{currentAlg.label}</span>
+            )}
+            <ChevronDown className={cn('size-3 opacity-50 transition-transform duration-200', open && 'rotate-180')} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="text-xs">
+          {isActive
+            ? `AutoContinue: ${currentAlg?.label}`
+            : 'AutoContinue off'}
+        </TooltipContent>
+      </Tooltip>
+
+      {open && (
+        <div className="absolute bottom-full left-0 mb-1.5 z-50 bg-popover border border-border rounded-xl overflow-hidden min-w-[220px] animate-in fade-in-0 slide-in-from-bottom-2 duration-150">
+          <div className="p-1">
+            <div className="px-2.5 pt-1.5 pb-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+              AutoContinue
+            </div>
+
+            {/* Off option */}
+            <button
+              onClick={() => {
+                onSelect(null);
+                setOpen(false);
+              }}
+              className={cn(
+                'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] transition-colors cursor-pointer',
+                !isActive ? 'bg-muted' : 'hover:bg-muted',
+              )}
+            >
+              <InfinityOff className="size-4 shrink-0 text-muted-foreground" />
+              <div className="flex-1 min-w-0 text-left">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium">Off</span>
+                  {!isActive && <Check className="size-3 text-foreground shrink-0" />}
+                </div>
+              </div>
+            </button>
+
+            <div className="mx-2 my-1 border-t border-border" />
+
+            {/* Algorithm options */}
+            {available.map((alg) => {
+              const isSelected = selected === alg.id;
+              return (
+                <button
+                  key={alg.id}
+                  onClick={() => {
+                    onSelect(alg.id);
+                    setOpen(false);
+                  }}
+                  className={cn(
+                    'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] transition-colors cursor-pointer',
+                    isSelected ? 'bg-muted' : 'hover:bg-muted',
+                  )}
+                >
+                  <Infinity className="size-4 shrink-0" />
+                  <div className="flex-1 min-w-0 text-left">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-medium capitalize">{alg.label}</span>
+                      {isSelected && <Check className="size-3 text-foreground shrink-0" />}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">
+                      {alg.description}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1014,6 +1222,7 @@ export function SessionChatInput({
   const [slashIndex, setSlashIndex] = useState(0);
   const [stagedCommand, setStagedCommand] = useState<Command | null>(null);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [autocontinueMode, setAutocontinueMode] = useState<AutoContinueMode | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragDepthRef = useRef(0);
 
@@ -1400,6 +1609,25 @@ export function SessionChatInput({
     // Push to prompt history (persisted to localStorage)
     if (trimmed) pushHistory(trimmed);
 
+    // AutoContinue intercept: when a mode is armed, route through the
+    // corresponding slash command instead of a plain send. The user's
+    // text becomes the command's args (= the task description).
+    if (autocontinueMode && onCommand) {
+      const alg = AUTOCONTINUE_ALGORITHMS.find((a) => a.id === autocontinueMode);
+      const cmd = alg && commands.find((c) => c.name === alg.commandName);
+      if (cmd) {
+        onCommand(cmd, trimmed || undefined);
+        setText('');
+        setSlashFilter(null);
+        setMentionQuery(null);
+        setMentions([]);
+        for (const af of attachedFiles) URL.revokeObjectURL(af.localUrl);
+        setAttachedFiles([]);
+        if (textareaRef.current) textareaRef.current.style.height = 'auto';
+        return;
+      }
+    }
+
     // Snapshot files and mentions before clearing
     const filesToSend = attachedFiles.length > 0 ? [...attachedFiles] : undefined;
     const mentionsToSend = mentions.length > 0 ? [...mentions] : undefined;
@@ -1430,7 +1658,7 @@ export function SessionChatInput({
       // Restore the text so the user can retry
       setText(trimmed);
     }
-  }, [text, isBusy, disabled, onSend, onCommand, stagedCommand, attachedFiles, mentions, sessionId, enqueue, pushHistory, lockForQuestion, onCustomAnswer, onQuestionAction]);
+  }, [text, isBusy, disabled, onSend, onCommand, stagedCommand, attachedFiles, mentions, sessionId, enqueue, pushHistory, lockForQuestion, onCustomAnswer, onQuestionAction, autocontinueMode, commands]);
 
   const handleSelectCommand = (cmd: Command) => {
     // Stage the command — show an args input instead of executing immediately
@@ -1932,6 +2160,17 @@ export function SessionChatInput({
                   selectedVariant={selectedVariant}
                   onSelect={onVariantChange}
                 />
+              )}
+
+              {commands.length > 0 && onCommand && (
+                <>
+                  <div className="w-px h-4 bg-border mx-1" />
+                  <AutoContinueSelector
+                    selected={autocontinueMode}
+                    onSelect={setAutocontinueMode}
+                    commands={commands}
+                  />
+                </>
               )}
             </div>
 
