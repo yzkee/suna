@@ -349,6 +349,8 @@ get_host_docker_socket() {
 
 docker_manifest_exists() {
   local image="$1"
+  # Check locally first, then Docker Hub registry
+  docker image inspect "$image" >/dev/null 2>&1 && return 0
   docker manifest inspect "$image" >/dev/null 2>&1
 }
 
@@ -1030,6 +1032,8 @@ write_compose() {
       - "8008"'
     supabase_ports='    expose:
       - "8000"'
+    db_ports='    expose:
+      - "5432"'
   else
     frontend_ports='    ports:
       - "13737:3000"'
@@ -1438,6 +1442,10 @@ bootstrap_owner_account() {
   local bootstrap_url="${API_PUBLIC_URL}/v1/setup/bootstrap-owner"
   info "Creating initial owner account..."
 
+  # In IP-only mode Caddy uses a self-signed cert; -k is needed to accept it
+  local curl_tls_flag=""
+  [ "$USE_IP_ONLY" = "yes" ] && curl_tls_flag="-k"
+
   local payload response success_val message attempts=0
   payload=$(OWNER_EMAIL_VALUE="$OWNER_EMAIL" OWNER_PASSWORD_VALUE="$OWNER_PASSWORD" python3 - <<'PY'
 import json, os
@@ -1449,7 +1457,7 @@ PY
 )
 
   while [ $attempts -lt 30 ]; do
-    response=$(curl -sf -X POST "$bootstrap_url" -H 'Content-Type: application/json' -d "$payload" 2>/dev/null || true)
+    response=$(curl $curl_tls_flag -sf -X POST "$bootstrap_url" -H 'Content-Type: application/json' -d "$payload" 2>/dev/null || true)
     if [ -n "$response" ]; then
       break
     fi
@@ -1491,11 +1499,24 @@ write_cli() {
   cat > "$INSTALL_DIR/kortix" << 'CLIPATH'
 #!/usr/bin/env bash
 set -euo pipefail
-DIR="$(cd "$(dirname "$0")" && pwd)"
+# Resolve symlinks so DIR points to the actual install directory
+SELF="$0"
+[ -L "$SELF" ] && SELF="$(readlink -f "$SELF" 2>/dev/null || readlink "$SELF")"
+DIR="$(cd "$(dirname "$SELF")" && pwd)"
 cd "$DIR"
 
 G=$'\033[0;32m'; R=$'\033[0;31m'; C=$'\033[0;36m'; Y=$'\033[1;33m'
 B=$'\033[1m'; D=$'\033[2m'; N=$'\033[0m'
+
+prompt_read() {
+  local __var_name="$1"
+  if [ -t 0 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+    IFS= read -r "$__var_name" </dev/tty
+  else
+    IFS= read -r "$__var_name"
+  fi
+}
+
 # Installed release metadata is persisted in .env so updates stay pinned.
 VERSION=$(grep -m1 '^KORTIX_VERSION=' "$DIR/.env" 2>/dev/null | cut -d= -f2- || echo "unknown")
 SANDBOX_IMAGE=$(grep -m1 '^SANDBOX_IMAGE=' "$DIR/.env" 2>/dev/null | cut -d= -f2- || echo "kortix/computer:${VERSION}")
