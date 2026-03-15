@@ -411,18 +411,23 @@ export async function getFileStatus(): Promise<GitFileStatus[]> {
 
 /**
  * Find files and directories by name (fuzzy match).
+ * Uses the server-side /find/file endpoint.
  */
 export async function findFiles(
   query: string,
   options?: { type?: 'file' | 'directory'; limit?: number },
 ): Promise<string[]> {
-  const client = getClient();
-  const result = await client.find.files({
-    query,
-    type: options?.type,
-    limit: options?.limit,
-  });
-  return unwrap(result);
+  try {
+    const client = getClient();
+    const result = await client.find.files({
+      query,
+      type: options?.type,
+      limit: options?.limit,
+    });
+    return unwrap(result);
+  } catch {
+    return [];
+  }
 }
 
 /**
