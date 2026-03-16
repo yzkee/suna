@@ -1,10 +1,13 @@
 'use client';
 
-import { useMemo, useState, Suspense, lazy } from 'react';
+import { useMemo, useState, useEffect, useRef, Suspense, lazy } from 'react';
+import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFileContent } from '../hooks';
 import { getFileCategory, getLanguageFromExt } from './file-content-renderer';
 import { getFileIcon } from './file-icon';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
+import { SANDBOX_PORTS } from '@/lib/platform-client';
 
 // ---------------------------------------------------------------------------
 // Image Thumbnail — loads base64 from API
@@ -159,6 +162,93 @@ function JsonThumbnail({ filePath }: { filePath: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// HTML Thumbnail — scaled iframe preview via static file server (port 3211)
+// ---------------------------------------------------------------------------
+
+function HtmlThumbnail({ filePath }: { filePath: string }) {
+  const { rewritePortPath } = useSandboxProxy();
+  const staticPort = parseInt(SANDBOX_PORTS.STATIC_FILE_SERVER ?? '3211', 10);
+
+  // Proxy URL for the file itself
+  const previewUrl = useMemo(() => {
+    const encodedPath = filePath.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+    return rewritePortPath(staticPort, `/open?path=/${encodedPath}`);
+  }, [filePath, rewritePortPath, staticPort]);
+
+  // Health URL — poll until server is ready
+  const healthUrl = useMemo(
+    () => rewritePortPath(staticPort, '/health'),
+    [rewritePortPath, staticPort],
+  );
+
+  const [ready, setReady] = useState(false);
+  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!healthUrl) return;
+    let cancelled = false;
+    setReady(false);
+
+    async function check() {
+      try {
+        const res = await fetch(healthUrl, { method: 'GET', credentials: 'include' });
+        if (cancelled) return;
+        if (res.ok) { setReady(true); return; }
+      } catch { /* not ready yet */ }
+      if (!cancelled) retryRef.current = setTimeout(check, 1500);
+    }
+
+    check();
+    return () => {
+      cancelled = true;
+      if (retryRef.current) clearTimeout(retryRef.current);
+    };
+  }, [healthUrl]);
+
+  // Container ref for scaling the iframe to fit
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(0);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const update = () => {
+      const w = el.clientWidth;
+      if (w > 0) setScale(w / 1280);
+    };
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    update();
+    return () => ro.disconnect();
+  }, []);
+
+  return (
+    <div ref={containerRef} className="absolute inset-0 overflow-hidden select-none pointer-events-none">
+      {!ready || scale === 0 ? (
+        <div className="flex items-center justify-center h-full">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground/30" />
+        </div>
+      ) : (
+        <iframe
+          src={previewUrl}
+          title=""
+          className="border-0 origin-top-left"
+          style={{
+            width: `${1280}px`,
+            height: `${Math.round(1280 / (containerRef.current!.clientWidth / containerRef.current!.clientHeight || 1))}px`,
+            transform: `scale(${scale})`,
+          }}
+          sandbox="allow-scripts allow-same-origin"
+          tabIndex={-1}
+        />
+      )}
+      {/* Fade overlay so the badge stays readable */}
+      <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-muted/30 to-transparent" />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main FileThumbnail — picks the right thumbnail based on file type
 // ---------------------------------------------------------------------------
 
@@ -186,6 +276,7 @@ export function FileThumbnail({ filePath, fileName, className }: FileThumbnailPr
   const isJson = language === 'json';
   const isCsv = category === 'csv';
   const isImage = category === 'image';
+  const isHtml = category === 'html';
   const isCode = category === 'code' && !isJson;
   // Treat plaintext files (.txt, .rst, .rtf, .log, etc.) as text even when
   // getFileCategory returns 'binary' (it needs mimeType we don't have here)
@@ -200,6 +291,7 @@ export function FileThumbnail({ filePath, fileName, className }: FileThumbnailPr
     <div className={cn('flex items-center justify-center relative overflow-hidden bg-muted/20', className)}>
       {/* Thumbnails by type */}
       {isImage && <ImageThumbnail filePath={filePath} />}
+      {isHtml && <HtmlThumbnail filePath={filePath} />}
       {isCode && <CodeThumbnail filePath={filePath} />}
       {isMarkdown && <MarkdownThumbnail filePath={filePath} />}
       {isJson && <JsonThumbnail filePath={filePath} />}
@@ -207,7 +299,7 @@ export function FileThumbnail({ filePath, fileName, className }: FileThumbnailPr
       {isText && !isMarkdown && <CodeThumbnail filePath={filePath} />}
 
       {/* Fallback icon for binary / unsupported types */}
-      {!isImage && !isCode && !isMarkdown && !isJson && !isCsv && !isText && (
+      {!isImage && !isHtml && !isCode && !isMarkdown && !isJson && !isCsv && !isText && (
         getFileIcon(fileName, { className: 'h-12 w-12', variant: 'monochrome' })
       )}
 

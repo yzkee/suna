@@ -3569,7 +3569,7 @@ function ImageSearchTool({ part, defaultOpen, forceOpen, locked }: ToolProps) {
 									target="_blank"
 									rel="noopener noreferrer"
 								 className="relative group overflow-hidden rounded border border-border/30 bg-muted/20 aspect-square"
-									title={title}
+								 title={title}
 								>
 									{/* eslint-disable-next-line @next/next/no-img-element */}
 									<img
@@ -3989,6 +3989,8 @@ ToolRegistry.register("presentation-gen", PresentationGenTool);
 
 import { ShowContentRenderer, ShowCarousel, showDomain } from "@/components/file-renderers/show-content-renderer";
 import type { ShowCarouselItem } from "@/components/file-renderers/show-content-renderer";
+import { SHOW_HTML_EXT_RE } from "@/components/file-renderers/show-content-renderer";
+import { SANDBOX_PORTS } from "@/lib/platform-client";
 
 const SHOW_BORDER_STYLES: Record<string, string> = {
 	default: "border-border/50",
@@ -4021,7 +4023,31 @@ function useShowOpenInTab(props: { type: string; url: string; path: string; titl
 	const proxy = useProxyUrl(url);
 	const hasLocalhostUrl = !!parseLocalhostUrl(url) && !isAppRouteUrl(url);
 
+	// For HTML file paths, build a static-file-server URL and proxy it
+	const isHtmlFilePath = !!path && SHOW_HTML_EXT_RE.test(path) && (type === 'file' || type === 'html');
+	const staticFilePort = parseInt(SANDBOX_PORTS.STATIC_FILE_SERVER ?? '3211', 10);
+	const htmlStaticUrl = isHtmlFilePath
+		? `http://localhost:${staticFilePort}/open?path=${encodeURIComponent(path)}`
+		: '';
+	const htmlStaticProxy = useProxyUrl(htmlStaticUrl);
+
 	return useCallback(() => {
+		// HTML file path → open as preview tab via static file server
+		if (isHtmlFilePath && htmlStaticProxy) {
+			const fileName = path.split('/').pop() || path;
+			openTabAndNavigate({
+				id: `preview:${htmlStaticProxy.port}`,
+				title: title || fileName,
+				type: "preview",
+				href: `/p/${htmlStaticProxy.port}`,
+				metadata: enrichPreviewMetadata({
+					url: htmlStaticProxy.proxyUrl,
+					port: htmlStaticProxy.port,
+					originalUrl: htmlStaticUrl,
+				}),
+			});
+			return;
+		}
 		if (hasLocalhostUrl && proxy) {
 			openTabAndNavigate({
 				id: `preview:${proxy.port}`,
@@ -4049,7 +4075,7 @@ function useShowOpenInTab(props: { type: string; url: string; path: string; titl
 				href: `/files/${encodeURIComponent(path)}`,
 			});
 		}
-	}, [hasLocalhostUrl, proxy, url, path, title]);
+	}, [isHtmlFilePath, htmlStaticProxy, htmlStaticUrl, hasLocalhostUrl, proxy, url, path, title]);
 }
 
 function ShowTool({ part }: ToolProps) {
@@ -4084,7 +4110,8 @@ function ShowTool({ part }: ToolProps) {
 
 	const openInTab = useShowOpenInTab({ type, url, path, title });
 	const canOpenInTab = !isCarousel && !!(url || path);
-	const openInTabLabel = hasLocalhostUrl ? "Open in Tab" : url ? "Open Link" : "Open File";
+	const isHtmlFilePath = !!path && SHOW_HTML_EXT_RE.test(path) && (type === 'file' || type === 'html');
+	const openInTabLabel = isHtmlFilePath ? "Open Preview" : hasLocalhostUrl ? "Open in Tab" : url ? "Open Link" : "Open File";
 
 	// Loading state
 	if (running && !type && !items) {
@@ -4134,7 +4161,7 @@ function ShowTool({ part }: ToolProps) {
 						onClick={openInTab}
 					 className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors flex-shrink-0 bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
 					>
-						{hasLocalhostUrl ? <MonitorPlay className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+						{(isHtmlFilePath || hasLocalhostUrl) ? <MonitorPlay className="size-3.5" /> : <Maximize2 className="size-3.5" />}
 						{openInTabLabel}
 					</button>
 				)}
@@ -5093,6 +5120,138 @@ function TaskTool({ part, forceOpen }: ToolProps) {
 ToolRegistry.register("task", TaskTool);
 
 // ============================================================================
+// SessionSpawnTool — Kortix Orchestrator session spawning
+// Shows full streaming input (prompt) as it's generated, expandable body with
+// prompt + child session activity, click header to open SubSessionModal
+// ============================================================================
+
+function SessionSpawnTool({ part, forceOpen }: ToolProps) {
+	const input = partInput(part);
+	const status = partStatus(part);
+
+	const agentName = (input.agent as string) || "KortixWorker";
+	const fullPrompt = (input.prompt as string) || "";
+	const projectName = (input.project as string) || "";
+	const modelName = (input.model as string) || "";
+	const commandName = (input.command as string) || "/autowork";
+
+	// Extract child session ID from output text
+	const childSessionId: string | undefined = useMemo(
+		() => getChildSessionId(part),
+		[part],
+	);
+
+	const { data: childMessages } = useOpenCodeMessages(childSessionId ?? "");
+
+	const childToolParts = useMemo(() => {
+		if (!childMessages) return [];
+		return getChildSessionToolParts(childMessages as any);
+	}, [childMessages]);
+
+	const [modalOpen, setModalOpen] = useState(false);
+
+	const isRunning = status === "running" || status === "pending";
+	const isCompleted = status === "completed";
+	const isError = status === "error";
+
+	// Show last activity from child session
+	const lastActivity = useMemo(() => {
+		if (childToolParts.length === 0) return null;
+		const last = childToolParts[childToolParts.length - 1];
+		const info = getToolInfo(last.tool, (last.state.input ?? {}) as Record<string, any>);
+		return info.title + (info.subtitle ? ` · ${info.subtitle}` : "");
+	}, [childToolParts]);
+
+	const running = useContext(ToolRunningContext);
+
+	// Subtitle: last activity while running, prompt preview when done
+	const subtitle = isRunning && lastActivity
+		? lastActivity
+		: fullPrompt.split("\n")[0]?.slice(0, 80) || "";
+
+	return (
+		<>
+			<BasicTool
+				icon={<SquareKanban className="size-3.5 text-muted-foreground" />}
+				trigger={{
+					title: `${agentName}${projectName ? ` · ${projectName}` : ""}`,
+					subtitle,
+					args: [
+						...(modelName ? [modelName] : []),
+						...(isCompleted && childToolParts.length > 0 ? [`${childToolParts.length} steps`] : []),
+						...(isError ? ["failed"] : []),
+					],
+				}}
+				defaultOpen={isRunning || !!forceOpen}
+				forceOpen={forceOpen}
+				onSubtitleClick={childSessionId ? () => setModalOpen(true) : undefined}
+			>
+				<div className="px-3 py-2 space-y-2">
+					{/* Full prompt — visible as it streams in */}
+					{fullPrompt && (
+						<div className="text-xs text-muted-foreground font-mono whitespace-pre-wrap max-h-48 overflow-y-auto bg-muted/30 rounded-md p-2 border border-border/20">
+							{fullPrompt}
+						</div>
+					)}
+
+					{/* Child session activity list */}
+					{childToolParts.length > 0 && (
+						<div className="space-y-0.5">
+							<div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider font-medium mb-1">
+								Activity
+							</div>
+							{childToolParts.slice(-8).map((tp, i) => {
+								const info = getToolInfo(tp.tool, (tp.state.input ?? {}) as Record<string, any>);
+								const tpRunning = tp.state.status === "running" || tp.state.status === "pending";
+								return (
+									<div key={i} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+										{tpRunning ? (
+											<Loader2 className="size-2.5 animate-spin flex-shrink-0" />
+										) : (
+											<span className="size-2.5 flex-shrink-0 text-center opacity-40">·</span>
+										)}
+										<span className={cn("truncate", tpRunning && "text-foreground")}>
+											{info.title}{info.subtitle ? ` · ${info.subtitle}` : ""}
+										</span>
+									</div>
+								);
+							})}
+							{childToolParts.length > 8 && (
+								<div className="text-[10px] text-muted-foreground/40 pl-4">
+									+{childToolParts.length - 8} more
+								</div>
+							)}
+						</div>
+					)}
+
+					{/* Click to open full session */}
+					{childSessionId && (
+						<button
+							type="button"
+							onClick={(e) => { e.stopPropagation(); setModalOpen(true); }}
+						 className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-foreground transition-colors"
+						>
+							<ExternalLink className="size-2.5" />
+							Open session
+						</button>
+					)}
+				</div>
+			</BasicTool>
+
+			{childSessionId && (
+				<SubSessionModal
+					open={modalOpen}
+					onOpenChange={setModalOpen}
+					sessionId={childSessionId}
+					title={`${agentName}${projectName ? ` · ${projectName}` : ""}`}
+				/>
+			)}
+		</>
+	);
+}
+ToolRegistry.register("session_spawn", SessionSpawnTool);
+
+// ============================================================================
 // SkillTool — Skill loading
 // ============================================================================
 
@@ -5250,7 +5409,7 @@ function SkillTool({ part, forceOpen }: ToolProps) {
 							<button
 								type="button"
 								onClick={() => setModalOpen(false)}
-								className={cn(
+							 className={cn(
 									"flex items-center justify-center size-6 rounded-md",
 									"text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors",
 								)}

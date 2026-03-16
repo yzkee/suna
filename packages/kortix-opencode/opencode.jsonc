@@ -4,6 +4,10 @@
   "autoupdate": false,
   "model": "anthropic/claude-sonnet-4-20250514",
   "default_agent": "kortix",
+  "agent": {
+    "build": { "disable": true },
+    "plan": { "disable": true }
+  },
   "provider": {
     "kortix": {
       "npm": "@ai-sdk/openai-compatible",
@@ -73,8 +77,10 @@
   },
   "plugin": [
     "./plugin/opencode-pty/src/plugin.ts",
+    "./plugin/opencode-morph-plugin/index.ts",
     "./plugin/orphan-tool-fixer.ts",
     "./plugin/agent-triggers.ts",
+    "./plugin/static-file-server.ts",
     "./plugin/kortix-orchestrator/index.ts",
     "./plugin/worktree/index.ts",
     "./plugin/kortix-memory/src/index.ts",

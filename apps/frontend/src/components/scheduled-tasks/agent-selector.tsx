@@ -1,8 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  Check,
+  ChevronDown,
+  ArrowUp,
+  ArrowDown,
+  CornerDownLeft,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  CommandPopover,
+  CommandPopoverTrigger,
+  CommandPopoverContent,
+  CommandInput,
+  CommandList,
+  CommandGroup,
+  CommandItem,
+  CommandFooter,
+  CommandKbd,
+} from '@/components/ui/command';
 import type { SandboxAgent } from '@/hooks/scheduled-tasks';
 
 interface ScheduledTaskAgentSelectorProps {
@@ -21,187 +38,163 @@ export function ScheduledTaskAgentSelector({
   defaultLabel = 'Default agent',
 }: ScheduledTaskAgentSelectorProps) {
   const [open, setOpen] = useState(false);
-  const [focusedIndex, setFocusedIndex] = useState(-1);
-  const ref = useRef<HTMLDivElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
+  const [search, setSearch] = useState('');
 
   const primaryAgents = useMemo(() => agents.filter((a) => a.mode !== 'subagent'), [agents]);
   const subAgents = useMemo(() => agents.filter((a) => a.mode === 'subagent'), [agents]);
-  const allOrdered = useMemo(() => [...primaryAgents, ...subAgents], [primaryAgents, subAgents]);
 
+  // Reset search when closing
   useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-
-    if (!open) return;
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    if (!open) setSearch('');
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const idx = allOrdered.findIndex((a) => a.name === selectedAgent);
-    setFocusedIndex(idx >= 0 ? idx : 0);
-  }, [open, allOrdered, selectedAgent]);
+  // Fuzzy filter
+  const filteredPrimary = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return primaryAgents;
+    return primaryAgents.filter((a) =>
+      a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q),
+    );
+  }, [primaryAgents, search]);
 
-  useEffect(() => {
-    if (!open || focusedIndex < 0) return;
-    const el = listRef.current?.querySelector(`[data-agent-index="${focusedIndex}"]`) as HTMLElement | null;
-    el?.scrollIntoView({ block: 'nearest' });
-  }, [focusedIndex, open]);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (!open) return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setFocusedIndex((prev) => Math.min(prev + 1, allOrdered.length - 1));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setFocusedIndex((prev) => Math.max(prev - 1, 0));
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (focusedIndex === -1) {
-        onSelect('');
-      } else if (focusedIndex >= 0 && focusedIndex < allOrdered.length) {
-        onSelect(allOrdered[focusedIndex]?.name ?? '');
-      }
-      setOpen(false);
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      setOpen(false);
-    }
-  }, [allOrdered, focusedIndex, onSelect, open]);
+  const filteredSub = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return subAgents;
+    return subAgents.filter((a) =>
+      a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q),
+    );
+  }, [subAgents, search]);
 
   const currentAgent = agents.find((a) => a.name === selectedAgent);
   const displayName = currentAgent?.name || placeholder;
 
   return (
-    <div className="relative" ref={ref} onKeyDown={handleKeyDown}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          'inline-flex w-full items-center justify-between gap-1.5 h-9 px-3 rounded-md border border-input bg-background text-sm text-left',
-          'hover:bg-muted/40 transition-colors',
-          open && 'bg-muted/50'
-        )}
-      >
-        <span className={cn('truncate', currentAgent ? 'text-foreground' : 'text-muted-foreground')}>
-          {displayName}
-        </span>
-        <ChevronDown className={cn('size-4 opacity-50 transition-transform', open && 'rotate-180')} />
-      </button>
+    <CommandPopover open={open} onOpenChange={setOpen}>
+      <CommandPopoverTrigger>
+        <button
+          type="button"
+          className={cn(
+            'inline-flex w-full items-center justify-between gap-1.5 h-9 px-3 rounded-md border border-input bg-background text-sm text-left',
+            'hover:bg-muted/40 transition-colors',
+            open && 'bg-muted/50',
+          )}
+        >
+          <span className={cn('truncate', currentAgent ? 'text-foreground' : 'text-muted-foreground')}>
+            {displayName}
+          </span>
+          <ChevronDown className={cn('size-4 opacity-50 transition-transform', open && 'rotate-180')} />
+        </button>
+      </CommandPopoverTrigger>
 
-      {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 w-full rounded-xl border border-border bg-popover shadow-md overflow-hidden">
-          <div ref={listRef} className="max-h-[320px] overflow-y-auto p-1">
-            <button
-              type="button"
-              data-agent-index={-1}
-              onMouseEnter={() => setFocusedIndex(-1)}
-              onClick={() => {
-                onSelect('');
-                setOpen(false);
-              }}
-              className={cn(
-                'w-full flex items-center justify-between gap-2.5 px-2.5 py-2 rounded-lg text-[13px] transition-colors cursor-pointer',
-                focusedIndex === -1 ? 'bg-muted' : 'hover:bg-muted',
-                !selectedAgent && focusedIndex !== -1 && 'bg-muted/50'
-              )}
-            >
-              <span className="truncate">{defaultLabel}</span>
-              {!selectedAgent && <Check className="size-3 text-foreground shrink-0" />}
-            </button>
+      <CommandPopoverContent side="bottom" align="start" sideOffset={4} className="w-[300px]">
+        <CommandInput
+        compact
+        placeholder="Search agents..."
+        value={search}
+        onValueChange={setSearch}
+      />
 
-            {primaryAgents.length > 0 && (
-              <div className="px-2.5 pt-1.5 pb-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Agents
-              </div>
-            )}
+      <CommandList className="max-h-[320px]">
+        {/* Default agent option */}
+        <CommandGroup forceMount>
+          <CommandItem
+            value="default-agent"
+            onSelect={() => {
+              onSelect('');
+              setOpen(false);
+            }}
+          >
+            <span className="flex-1 truncate">{defaultLabel}</span>
+            {!selectedAgent && <Check className="size-3.5 text-foreground shrink-0" />}
+          </CommandItem>
+        </CommandGroup>
 
-            {primaryAgents.map((agent) => {
-              const globalIdx = allOrdered.indexOf(agent);
+        {/* Primary agents */}
+        {filteredPrimary.length > 0 && (
+          <CommandGroup heading="Agents" forceMount>
+            {filteredPrimary.map((agent) => {
               const isSelected = selectedAgent === agent.name;
-              const isFocused = focusedIndex === globalIdx;
-
               return (
-                <button
+                <CommandItem
                   key={agent.name}
-                  type="button"
-                  data-agent-index={globalIdx}
-                  onMouseEnter={() => setFocusedIndex(globalIdx)}
-                  onClick={() => {
+                  value={`agent-${agent.name}`}
+                  onSelect={() => {
                     onSelect(agent.name);
                     setOpen(false);
                   }}
-                  className={cn(
-                    'w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-[13px] transition-colors cursor-pointer group',
-                    isFocused ? 'bg-muted' : 'hover:bg-muted',
-                    isSelected && !isFocused && 'bg-muted/50'
-                  )}
                 >
-                  <div className="flex-1 min-w-0 text-left">
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
                       <span className="font-medium truncate capitalize">{agent.name}</span>
-                      {isSelected && <Check className="size-3 text-foreground shrink-0" />}
                     </div>
                     {agent.description && (
-                      <p className="text-[11px] text-muted-foreground leading-snug mt-0.5 line-clamp-1">
+                      <p className="text-[11px] text-muted-foreground/50 leading-snug mt-0.5 line-clamp-1">
                         {agent.description}
                       </p>
                     )}
                   </div>
-                </button>
+                  {isSelected && <Check className="size-3.5 text-foreground shrink-0" />}
+                </CommandItem>
               );
             })}
+          </CommandGroup>
+        )}
 
-            {subAgents.length > 0 && (
-              <div className="px-2.5 pt-2 pb-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Subagents
-              </div>
-            )}
-
-            {subAgents.map((agent) => {
-              const globalIdx = allOrdered.indexOf(agent);
+        {/* Sub-agents */}
+        {filteredSub.length > 0 && (
+          <CommandGroup heading="Subagents" forceMount>
+            {filteredSub.map((agent) => {
               const isSelected = selectedAgent === agent.name;
-              const isFocused = focusedIndex === globalIdx;
-
               return (
-                <button
+                <CommandItem
                   key={agent.name}
-                  type="button"
-                  data-agent-index={globalIdx}
-                  onMouseEnter={() => setFocusedIndex(globalIdx)}
-                  onClick={() => {
+                  value={`subagent-${agent.name}`}
+                  onSelect={() => {
                     onSelect(agent.name);
                     setOpen(false);
                   }}
-                  className={cn(
-                    'w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-[13px] transition-colors cursor-pointer group',
-                    isFocused ? 'bg-muted' : 'hover:bg-muted',
-                    isSelected && !isFocused && 'bg-muted/50'
-                  )}
                 >
-                  <div className="flex-1 min-w-0 text-left">
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <span className="font-medium truncate">{agent.name}</span>
-                      {isSelected && <Check className="size-3 text-foreground shrink-0" />}
+                      <span className="font-medium truncate capitalize">{agent.name}</span>
                     </div>
                     {agent.description && (
-                      <p className="text-[11px] text-muted-foreground leading-snug mt-0.5 line-clamp-1">
+                      <p className="text-[11px] text-muted-foreground/50 leading-snug mt-0.5 line-clamp-1">
                         {agent.description}
                       </p>
                     )}
                   </div>
-                </button>
+                  {isSelected && <Check className="size-3.5 text-foreground shrink-0" />}
+                </CommandItem>
               );
             })}
+          </CommandGroup>
+        )}
+
+        {/* No results */}
+        {filteredPrimary.length === 0 && filteredSub.length === 0 && search.trim() && (
+          <div className="py-8 text-center text-xs text-muted-foreground/50">
+            No agents match &ldquo;{search.trim()}&rdquo;
           </div>
+        )}
+      </CommandList>
+
+      <CommandFooter>
+        <div className="flex items-center gap-1">
+          <ArrowUp className="h-3 w-3" />
+          <ArrowDown className="h-3 w-3" />
+          <span>navigate</span>
         </div>
-      )}
-    </div>
+        <div className="flex items-center gap-1">
+          <CornerDownLeft className="h-3 w-3" />
+          <span>select</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <CommandKbd>esc</CommandKbd>
+          <span>close</span>
+        </div>
+      </CommandFooter>
+      </CommandPopoverContent>
+    </CommandPopover>
   );
 }

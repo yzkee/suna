@@ -1,7 +1,16 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Loader2, Plus, Search, Unplug } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  ChevronRight,
+  CornerDownLeft,
+  Loader2,
+  Plus,
+  Unplug,
+} from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -9,7 +18,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
@@ -23,6 +31,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Command,
+  CommandInput,
+  CommandList,
+  CommandGroup,
+  CommandItem,
+  CommandFooter,
+  CommandKbd,
+} from '@/components/ui/command';
 import { ConnectProviderContent } from '@/components/providers/connect-provider-content';
 import {
   MODEL_SELECTOR_PROVIDER_IDS,
@@ -50,29 +67,12 @@ const TAB_CONFIG: { id: ProviderModalTab; label: string }[] = [
   { id: 'models', label: 'Models' },
 ];
 
-// ─── Shared search input ────────────────────────────────────────────────────
+// ─── Shared cmdk overrides for modal context ─────────────────────────────────
 
-function TabSearch({
-  value,
-  onChange,
-  placeholder,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-}) {
-  return (
-    <div className="relative flex-1">
-      <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
-      <Input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="h-8 rounded-lg border-border/40 bg-muted/30 pl-9 text-xs shadow-none focus-visible:ring-1 focus-visible:ring-ring/30 placeholder:text-muted-foreground/40"
-      />
-    </div>
-  );
-}
+const MODAL_CMDK_CLASSES = [
+  '[&_[cmdk-group]]:px-1.5',
+  '[&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0',
+].join(' ');
 
 // ─── Empty state ─────────────────────────────────────────────────────────────
 
@@ -151,83 +151,116 @@ function ConnectedTabContent({
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col px-5 py-3">
-      <div className="mb-3 flex items-center gap-2">
-        <TabSearch value={search} onChange={setSearch} placeholder="Search connected..." />
-        <Button variant="outline" size="sm" className="h-8 rounded-lg px-3 text-[11px]" onClick={onAddProvider}>
-          <Plus className="h-3 w-3" />
-          Add
-        </Button>
-      </div>
+    <div className="flex h-full min-h-0 flex-col">
+      <Command shouldFilter={false} className={MODAL_CMDK_CLASSES}>
+        <CommandInput
+          compact
+          placeholder="Search connected providers..."
+          value={search}
+          onValueChange={setSearch}
+          rightElement={
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 rounded-lg px-2.5 text-[11px] shrink-0 -mr-1"
+              onClick={onAddProvider}
+            >
+              <Plus className="h-3 w-3" />
+              Add
+            </Button>
+          }
+        />
 
-      <div className="min-h-0 flex-1 overflow-y-auto space-y-2 pr-0.5">
-        {filteredProviders.length === 0 ? (
-          <EmptyState
-            message={connectedProviders.length === 0 ? 'No providers connected yet' : 'No match'}
-            action={{ label: 'Connect provider', onClick: onAddProvider }}
-          />
-        ) : (
-          filteredProviders.map((provider) => {
-            const modelCount = Object.keys(provider.models ?? {}).length;
-            const isExpanded = expanded === provider.id;
-            const isDisconnecting = disconnecting === provider.id;
-            const source = (provider as { source?: string }).source;
+        <CommandList className="flex-1 max-h-none px-1.5 py-1.5">
+          {filteredProviders.length === 0 ? (
+            <EmptyState
+              message={connectedProviders.length === 0 ? 'No providers connected yet' : 'No match'}
+              action={{ label: 'Connect provider', onClick: onAddProvider }}
+            />
+          ) : (
+            <CommandGroup forceMount>
+              {filteredProviders.map((provider) => {
+                const modelCount = Object.keys(provider.models ?? {}).length;
+                const isExpanded = expanded === provider.id;
+                const isDisconnecting = disconnecting === provider.id;
+                const source = (provider as { source?: string }).source;
 
-            return (
-              <div key={provider.id} className="overflow-hidden rounded-xl border border-border/40 bg-muted/15">
-                <div className="flex items-center gap-3 px-3.5 py-3">
-                  <ProviderLogo providerID={provider.id} name={provider.name} size="default" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-foreground">
-                        {PROVIDER_LABELS[provider.id] || provider.name || provider.id}
-                      </span>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-px text-[9px] font-medium text-emerald-600 dark:text-emerald-400">
-                        <span className="h-1 w-1 rounded-full bg-emerald-500" />
-                        connected
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-muted-foreground/50 mt-0.5">
-                      {modelCount} model{modelCount === 1 ? '' : 's'}
-                      {source ? ` · ${source}` : ''}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmDisconnect(provider.id)}
-                    disabled={isDisconnecting}
-                    className="rounded-md p-1.5 text-muted-foreground/40 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
-                    title="Disconnect"
-                  >
-                    {isDisconnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unplug className="h-3.5 w-3.5" />}
-                  </button>
-                </div>
-
-                {modelCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setExpanded(isExpanded ? null : provider.id)}
-                    className="flex w-full items-center gap-1 px-3.5 pb-2.5 text-left text-[11px] text-muted-foreground/50 transition-colors hover:text-foreground"
-                  >
-                    {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                    {isExpanded ? 'Hide models' : 'Show models'}
-                  </button>
-                )}
-
-                {isExpanded && (
-                  <div className="border-t border-border/20 bg-background/40">
-                    {Object.values(provider.models ?? {}).map((model: any) => (
-                      <div key={model.id} className="px-3.5 py-1.5 text-xs text-muted-foreground/60 hover:bg-muted/20">
-                        {model.name || model.id}
+                return (
+                  <div key={provider.id}>
+                    <CommandItem
+                      value={`provider-${provider.id}`}
+                      onSelect={() => setExpanded(isExpanded ? null : provider.id)}
+                      className="py-3"
+                    >
+                      <ProviderLogo providerID={provider.id} name={provider.name} size="default" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-foreground">
+                            {PROVIDER_LABELS[provider.id] || provider.name || provider.id}
+                          </span>
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-px text-[9px] font-medium text-emerald-600 dark:text-emerald-400">
+                            <span className="h-1 w-1 rounded-full bg-emerald-500" />
+                            connected
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-muted-foreground/50 mt-0.5">
+                          {modelCount} model{modelCount === 1 ? '' : 's'}
+                          {source ? ` · ${source}` : ''}
+                        </div>
                       </div>
-                    ))}
+                      <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        {modelCount > 0 && (
+                          isExpanded
+                            ? <ChevronDown className="h-3 w-3 text-muted-foreground/40" />
+                            : <ChevronRight className="h-3 w-3 text-muted-foreground/40" />
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConfirmDisconnect(provider.id);
+                          }}
+                          disabled={isDisconnecting}
+                          className="rounded-md p-1.5 text-muted-foreground/40 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                          title="Disconnect"
+                        >
+                          {isDisconnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unplug className="h-3.5 w-3.5" />}
+                        </button>
+                      </div>
+                    </CommandItem>
+
+                    {isExpanded && modelCount > 0 && (
+                      <div className="ml-8 mr-3 mb-2 rounded-lg border border-border/20 bg-background/40 overflow-hidden">
+                        {Object.values(provider.models ?? {}).map((model: any) => (
+                          <div key={model.id} className="px-3 py-1.5 text-xs text-muted-foreground/60 hover:bg-muted/20">
+                            {model.name || model.id}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            );
-          })
-        )}
-      </div>
+                );
+              })}
+            </CommandGroup>
+          )}
+        </CommandList>
+
+        <CommandFooter>
+          <div className="flex items-center gap-1">
+            <ArrowUp className="h-3 w-3" />
+            <ArrowDown className="h-3 w-3" />
+            <span>navigate</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <CornerDownLeft className="h-3 w-3" />
+            <span>expand</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <CommandKbd>esc</CommandKbd>
+            <span>close</span>
+          </div>
+        </CommandFooter>
+      </Command>
 
       <AlertDialog open={!!confirmDisconnect} onOpenChange={(open) => !open && setConfirmDisconnect(null)}>
         <AlertDialogContent>
@@ -300,37 +333,52 @@ function ModelsTabContent({
   }, [filtered]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col px-5 py-3">
-      <div className="mb-3 flex items-center gap-2">
-        <TabSearch value={search} onChange={setSearch} placeholder="Search models..." />
-        <Button variant="outline" size="sm" className="h-8 rounded-lg px-3 text-[11px]" onClick={onAddProvider}>
-          <Plus className="h-3 w-3" />
-          Add
-        </Button>
-      </div>
+    <div className="flex h-full min-h-0 flex-col">
+      <Command shouldFilter={false} className={MODAL_CMDK_CLASSES}>
+        <CommandInput
+          compact
+          placeholder="Search models..."
+          value={search}
+          onValueChange={setSearch}
+          rightElement={
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 rounded-lg px-2.5 text-[11px] shrink-0 -mr-1"
+              onClick={onAddProvider}
+            >
+              <Plus className="h-3 w-3" />
+              Add
+            </Button>
+          }
+        />
 
-      <div className="min-h-0 flex-1 overflow-y-auto space-y-3 pr-0.5">
-        {grouped.length === 0 ? (
-          <EmptyState message="No models found" />
-        ) : (
-          grouped.map(([providerID, providerModels]) => (
-            <div key={providerID}>
-              <div className="mb-1.5 flex items-center gap-2 px-0.5">
-                <ProviderLogo providerID={providerID} name={providerModels[0]?.providerName || providerID} size="small" />
-                <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
-                  {PROVIDER_LABELS[providerID] || providerModels[0]?.providerName || providerID}
-                </span>
-                <span className="ml-auto text-[10px] text-muted-foreground/40">{providerModels.length}</span>
-              </div>
-              <div className="overflow-hidden rounded-xl border border-border/40 bg-muted/15 divide-y divide-border/20">
+        <CommandList className="flex-1 max-h-none px-1.5 py-1.5">
+          {grouped.length === 0 ? (
+            <EmptyState message="No models found" />
+          ) : (
+            grouped.map(([providerID, providerModels]) => (
+              <CommandGroup
+                key={providerID}
+                heading={
+                  <div className="flex items-center gap-2">
+                    <ProviderLogo providerID={providerID} name={providerModels[0]?.providerName || providerID} size="small" />
+                    <span>{PROVIDER_LABELS[providerID] || providerModels[0]?.providerName || providerID}</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground/30 normal-case tracking-normal">
+                      {providerModels.length}
+                    </span>
+                  </div>
+                }
+                forceMount
+              >
                 {providerModels.map((model) => {
                   const key = { providerID: model.providerID, modelID: model.modelID };
                   const visible = modelStore.isVisible(key);
                   return (
-                    <div
+                    <CommandItem
                       key={`${model.providerID}:${model.modelID}`}
-                      className="flex items-center justify-between gap-3 px-3.5 py-2.5 transition-colors hover:bg-muted/25 cursor-pointer"
-                      onClick={() => modelStore.setVisibility(key, !visible)}
+                      value={`model-${model.providerID}-${model.modelID}`}
+                      onSelect={() => modelStore.setVisibility(key, !visible)}
                     >
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm text-foreground">{model.modelName}</div>
@@ -339,14 +387,30 @@ function ModelsTabContent({
                       <div onClick={(e) => e.stopPropagation()}>
                         <Switch checked={visible} onCheckedChange={(checked) => modelStore.setVisibility(key, checked)} />
                       </div>
-                    </div>
+                    </CommandItem>
                   );
                 })}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+              </CommandGroup>
+            ))
+          )}
+        </CommandList>
+
+        <CommandFooter>
+          <div className="flex items-center gap-1">
+            <ArrowUp className="h-3 w-3" />
+            <ArrowDown className="h-3 w-3" />
+            <span>navigate</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <CornerDownLeft className="h-3 w-3" />
+            <span>toggle</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <CommandKbd>esc</CommandKbd>
+            <span>close</span>
+          </div>
+        </CommandFooter>
+      </Command>
     </div>
   );
 }
@@ -461,7 +525,7 @@ export function GlobalProviderModal() {
   const { isOpen, defaultTab, closeProviderModal } = useProviderModalStore();
   const { data: providers } = useOpenCodeProviders();
 
-   const models = useMemo(() => {
+  const models = useMemo(() => {
     if (!providers) return [];
     const connectedIds = new Set(providers.connected ?? []);
     // If kortix provider is connected, it serves all models — hide redundant

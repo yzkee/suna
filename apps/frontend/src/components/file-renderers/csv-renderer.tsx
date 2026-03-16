@@ -1,312 +1,208 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { CsvTable } from '@/components/ui/csv-table';
 import Papa from 'papaparse';
 import { cn } from '@/lib/utils';
 import {
-    Search,
-    FileSpreadsheet,
-    Filter,
+  Search,
+  FileSpreadsheet,
+  Filter,
+  Download,
+  X,
 } from 'lucide-react';
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuTrigger,
-    DropdownMenuSeparator,
-    DropdownMenuCheckboxItem,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuCheckboxItem,
 } from '@/components/ui/dropdown-menu';
+import type { GridReadyEvent } from 'ag-grid-community';
 
-interface CsvRendererProps {
-    content: string;
-    className?: string;
-    /** Compact mode for inline previews - hides search, pagination, column controls */
-    compact?: boolean;
-    /** Fixed container height for compact mode */
-    containerHeight?: number;
+// Lazy-load DataGrid — it pulls in AG Grid (~200KB gzipped)
+const DataGrid = lazy(() =>
+  import('@/components/ui/data-grid').then((m) => ({ default: m.DataGrid })),
+);
+
+function GridFallback() {
+  return (
+    <div className="flex items-center justify-center h-full w-full">
+      <div className="text-sm text-muted-foreground animate-pulse">Loading grid…</div>
+    </div>
+  );
 }
 
-type SortDirection = 'asc' | 'desc' | null;
-
-interface SortConfig {
-    column: string;
-    direction: SortDirection;
+// ── CSV Parsing ──────────────────────────────────────────────────────────
+interface CsvRendererProps {
+  content: string;
+  className?: string;
+  /** Compact mode for inline previews — hides search & column controls */
+  compact?: boolean;
+  /** Fixed container height for compact mode */
+  containerHeight?: number;
 }
 
 function parseCSV(content: string) {
-    if (!content) return { data: [], headers: [], meta: null };
-
-    try {
-        const results = Papa.parse(content, {
-            header: true,
-            skipEmptyLines: true,
-            dynamicTyping: true,
-        });
-
-        let headers: string[] = [];
-        if (results.meta && results.meta.fields) {
-            headers = results.meta.fields || [];
-        }
-
-        return {
-            headers,
-            data: results.data,
-            meta: results.meta
-        };
-    } catch (error) {
-        console.error("Error parsing CSV:", error);
-        return { headers: [], data: [], meta: null };
-    }
+  if (!content) return { data: [], headers: [], meta: null };
+  try {
+    const results = Papa.parse(content, {
+      header: true,
+      skipEmptyLines: true,
+      dynamicTyping: true,
+    });
+    const headers = results.meta?.fields || [];
+    return { headers, data: results.data as Record<string, unknown>[], meta: results.meta };
+  } catch (error) {
+    console.error('Error parsing CSV:', error);
+    return { headers: [] as string[], data: [] as Record<string, unknown>[], meta: null };
+  }
 }
 
+// ── Component ────────────────────────────────────────────────────────────
 export function CsvRenderer({
-    content,
-    className,
-    compact = false,
-    containerHeight = 300,
+  content,
+  className,
+  compact = false,
 }: CsvRendererProps) {
-    const [searchTerm, setSearchTerm] = useState('');
-    const [sortConfig, setSortConfig] = useState<SortConfig>({ column: '', direction: null });
-    const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
-    const [currentPage, setCurrentPage] = useState(1);
-    const [rowsPerPage] = useState(50);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+  const gridApiRef = useRef<GridReadyEvent['api'] | null>(null);
 
-    const parsedData = parseCSV(content);
-    const isEmpty = parsedData.data.length === 0;
+  const { headers, data } = useMemo(() => parseCSV(content), [content]);
+  const isEmpty = data.length === 0;
 
-    const processedData = useMemo(() => {
-        let filtered = parsedData.data;
+  const toggleColumnVisibility = useCallback((column: string) => {
+    setHiddenColumns((prev) => {
+      const s = new Set(prev);
+      if (s.has(column)) s.delete(column);
+      else s.add(column);
+      return s;
+    });
+  }, []);
 
-        if (searchTerm) {
-            filtered = filtered.filter((row: any) =>
-                Object.values(row).some(value =>
-                    value != null && String(value).toLowerCase().includes(searchTerm.toLowerCase())
-                )
-            );
-        }
+  const handleGridReady = useCallback((event: GridReadyEvent) => {
+    gridApiRef.current = event.api;
+  }, []);
 
-        if (sortConfig.column && sortConfig.direction) {
-            filtered = [...filtered].sort((a: any, b: any) => {
-                const aVal = a[sortConfig.column];
-                const bVal = b[sortConfig.column];
+  const handleExportCsv = useCallback(() => {
+    gridApiRef.current?.exportDataAsCsv({ fileName: 'export.csv' });
+  }, []);
 
-                if (aVal == null && bVal == null) return 0;
-                if (aVal == null) return sortConfig.direction === 'asc' ? -1 : 1;
-                if (bVal == null) return sortConfig.direction === 'asc' ? 1 : -1;
-
-                if (typeof aVal === 'number' && typeof bVal === 'number') {
-                    return sortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
-                }
-
-                const aStr = String(aVal).toLowerCase();
-                const bStr = String(bVal).toLowerCase();
-
-                if (aStr < bStr) return sortConfig.direction === 'asc' ? -1 : 1;
-                if (aStr > bStr) return sortConfig.direction === 'asc' ? 1 : -1;
-                return 0;
-            });
-        }
-
-        return filtered;
-    }, [parsedData.data, searchTerm, sortConfig]);
-
-
-    const totalPages = Math.ceil(processedData.length / rowsPerPage);
-    const startIndex = (currentPage - 1) * rowsPerPage;
-    const paginatedData = processedData.slice(startIndex, startIndex + rowsPerPage);
-
-    const visibleHeaders = parsedData.headers.filter(header => !hiddenColumns.has(header));
-
-    const handleSort = (column: string) => {
-        setSortConfig(prev => {
-            if (prev.column === column) {
-                const newDirection = prev.direction === 'asc' ? 'desc' : prev.direction === 'desc' ? null : 'asc';
-                return { column: newDirection ? column : '', direction: newDirection };
-            } else {
-                return { column, direction: 'asc' };
-            }
-        });
-    };
-
-    const toggleColumnVisibility = (column: string) => {
-        setHiddenColumns(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(column)) {
-                newSet.delete(column);
-            } else {
-                newSet.add(column);
-            }
-            return newSet;
-        });
-    };
-
-    if (isEmpty) {
-        return (
-            <div className={cn('w-full h-full flex items-center justify-center', className)}>
-                {compact ? (
-                    <div className="text-muted-foreground text-sm">No data</div>
-                ) : (
-                    <div className="text-center space-y-4">
-                        <div className="w-16 h-16 mx-auto rounded-full bg-muted flex items-center justify-center">
-                            <FileSpreadsheet className="h-8 w-8 text-muted-foreground" />
-                        </div>
-                        <div>
-                            <h3 className="text-lg font-medium text-foreground">No Data</h3>
-                            <p className="text-sm text-muted-foreground">This CSV file appears to be empty or invalid.</p>
-                        </div>
-                    </div>
-                )}
-            </div>
-        );
-    }
-
-    // Compact mode: minimal UI for inline previews
-    if (compact) {
-        return (
-            <div className={cn('w-full h-full', className)}>
-                <CsvTable
-                    headers={visibleHeaders}
-                    data={processedData}
-                    sortConfig={sortConfig}
-                    onSort={handleSort}
-                    containerHeight={containerHeight}
-                />
-            </div>
-        );
-    }
-
-    // Full mode: with search, pagination, column controls
+  // ── Empty state ────────────────────────────────────────────────────────
+  if (isEmpty) {
     return (
-        <div className={cn('w-full h-full flex flex-col bg-background', className)}>
-            <div className="flex-shrink-0 border-b bg-muted/30 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <FileSpreadsheet className="h-5 w-5 text-primary" />
-                        <div className='flex items-center gap-2'>
-                            <h3 className="font-medium text-foreground">CSV Data</h3>
-                            <p className="text-xs text-muted-foreground">
-                                - {processedData.length.toLocaleString()} rows, {visibleHeaders.length} columns
-                                {searchTerm && ` (filtered from ${parsedData.data.length.toLocaleString()})`}
-                            </p>
-                        </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs">
-                            Page {currentPage} of {totalPages}
-                        </Badge>
-
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant="outline" size="sm">
-                                    <Filter className="h-4 w-4 mr-1" />
-                                    Columns
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-48">
-                                <div className="px-2 py-1.5 text-sm font-medium">Show/Hide Columns</div>
-                                <DropdownMenuSeparator />
-                                {parsedData.headers.map(header => (
-                                    <DropdownMenuCheckboxItem
-                                        key={header}
-                                        checked={!hiddenColumns.has(header)}
-                                        onCheckedChange={() => toggleColumnVisibility(header)}
-                                    >
-                                        {header}
-                                    </DropdownMenuCheckboxItem>
-                                ))}
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                    </div>
-                </div>
-
-                <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        placeholder="Search data..."
-                        value={searchTerm}
-                        onChange={(e) => {
-                            setSearchTerm(e.target.value);
-                            setCurrentPage(1);
-                        }}
-                        className="pl-9"
-                    />
-                </div>
+      <div className={cn('w-full h-full flex items-center justify-center', className)}>
+        {compact ? (
+          <div className="text-muted-foreground text-sm">No data</div>
+        ) : (
+          <div className="text-center space-y-4">
+            <div className="w-16 h-16 mx-auto rounded-full bg-muted flex items-center justify-center">
+              <FileSpreadsheet className="h-8 w-8 text-muted-foreground" />
             </div>
-
-            <div className="flex-1 overflow-hidden">
-                <div className="w-full h-full overflow-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700 scrollbar-track-transparent">
-                    <CsvTable
-                        headers={visibleHeaders}
-                        data={paginatedData}
-                        sortConfig={sortConfig}
-                        onSort={handleSort}
-                        searchTerm={searchTerm}
-                        onClearSearch={() => setSearchTerm('')}
-                    />
-                </div>
+            <div>
+              <h3 className="text-lg font-medium text-foreground">No Data</h3>
+              <p className="text-sm text-muted-foreground">This CSV file appears to be empty or invalid.</p>
             </div>
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-                <div className="flex-shrink-0 border-t bg-muted/30 p-4">
-                    <div className="flex items-center justify-between">
-                        <div className="text-sm text-muted-foreground">
-                            Showing {startIndex + 1} to {Math.min(startIndex + rowsPerPage, processedData.length)} of {processedData.length.toLocaleString()} rows
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                                disabled={currentPage === 1}
-                            >
-                                Previous
-                            </Button>
-
-                            <div className="flex items-center gap-1">
-                                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                                    let pageNum;
-                                    if (totalPages <= 5) {
-                                        pageNum = i + 1;
-                                    } else if (currentPage <= 3) {
-                                        pageNum = i + 1;
-                                    } else if (currentPage >= totalPages - 2) {
-                                        pageNum = totalPages - 4 + i;
-                                    } else {
-                                        pageNum = currentPage - 2 + i;
-                                    }
-
-                                    return (
-                                        <Button
-                                            key={pageNum}
-                                            variant={currentPage === pageNum ? "default" : "outline"}
-                                            size="sm"
-                                            onClick={() => setCurrentPage(pageNum)}
-                                            className="w-8 h-8 p-0"
-                                        >
-                                            {pageNum}
-                                        </Button>
-                                    );
-                                })}
-                            </div>
-
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                                disabled={currentPage === totalPages}
-                            >
-                                Next
-                            </Button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
+          </div>
+        )}
+      </div>
     );
+  }
+
+  // ── Compact mode ───────────────────────────────────────────────────────
+  if (compact) {
+    return (
+      <div className={cn('w-full h-full', className)}>
+        <Suspense fallback={<GridFallback />}>
+          <DataGrid
+            rowData={data}
+            hiddenColumns={hiddenColumns}
+            className="h-full"
+          />
+        </Suspense>
+      </div>
+    );
+  }
+
+  // ── Full mode ──────────────────────────────────────────────────────────
+  return (
+    <div className={cn('w-full h-full flex flex-col bg-background', className)}>
+      {/* ── Toolbar ──────────────────────────────────────────────────── */}
+      <div className="flex-shrink-0 border-b bg-muted/30 px-4 py-2.5 space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <FileSpreadsheet className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium text-foreground">CSV</span>
+            <span className="text-xs text-muted-foreground">
+              {data.length.toLocaleString()} rows · {headers.filter((h) => !hiddenColumns.has(h)).length} columns
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={handleExportCsv}>
+              <Download className="h-3.5 w-3.5 mr-1" />
+              Export
+            </Button>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">
+                  <Filter className="h-3.5 w-3.5 mr-1" />
+                  Columns
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48 max-h-80 overflow-auto">
+                <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Show/Hide Columns</div>
+                <DropdownMenuSeparator />
+                {headers.map((header) => (
+                  <DropdownMenuCheckboxItem
+                    key={header}
+                    checked={!hiddenColumns.has(header)}
+                    onCheckedChange={() => toggleColumnVisibility(header)}
+                    className="text-xs"
+                  >
+                    {header}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            placeholder="Search all columns…"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="h-7 pl-8 pr-8 text-xs"
+          />
+          {searchTerm && (
+            <button
+              onClick={() => setSearchTerm('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Grid ─────────────────────────────────────────────────────── */}
+      <div className="flex-1 overflow-hidden">
+        <Suspense fallback={<GridFallback />}>
+          <DataGrid
+            rowData={data}
+            quickFilterText={searchTerm}
+            hiddenColumns={hiddenColumns}
+            onGridReady={handleGridReady}
+            className="h-full"
+          />
+        </Suspense>
+      </div>
+    </div>
+  );
 }

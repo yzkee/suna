@@ -2999,7 +2999,7 @@ export function SessionChat({
 	const unrevertSession = useUnrevertSession();
 
 	// ---- Unified model/agent/variant state (1:1 port of SolidJS local.tsx) ----
-	const local = useOpenCodeLocal({ agents, providers, config });
+	const local = useOpenCodeLocal({ agents, providers, config, sessionId });
 
 	const pendingPromptHandled = useRef(false);
 
