@@ -25,7 +25,8 @@ import { useSyncStore } from '@/lib/opencode/sync-store';
 import { useSessionSync } from '@/lib/opencode/session-sync';
 import { groupMessagesIntoTurns } from '@/lib/opencode/turns';
 import type { Turn, QuestionRequest } from '@/lib/opencode/types';
-import { useSession, replyToQuestion, rejectQuestion } from '@/lib/platform/hooks';
+import { useSession, replyToQuestion, rejectQuestion, forkSession } from '@/lib/platform/hooks';
+import { useTabStore } from '@/stores/tab-store';
 import { useSandboxContext } from '@/contexts/SandboxContext';
 import {
   useOpenCodeAgents,
@@ -261,6 +262,34 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
     [sandboxUrl, sessionId, handleStop],
   );
 
+  // Fork handler — forks session at the given assistant message
+  const handleFork = useCallback(
+    async (assistantMessageId: string) => {
+      if (!sandboxUrl) return;
+
+      // The server copies all messages BEFORE the given messageID (exclusive).
+      // To include the assistant message the user clicked on, we pass the ID
+      // of the NEXT message after it as the cut-off.
+      let forkAtMessageId: string | undefined;
+      if (safeMessages.length > 0) {
+        const idx = safeMessages.findIndex((m) => m.info.id === assistantMessageId);
+        if (idx >= 0 && idx < safeMessages.length - 1) {
+          forkAtMessageId = safeMessages[idx + 1].info.id;
+        }
+        // else: last message — omit messageID to copy all
+      }
+
+      try {
+        const forkedSession = await forkSession(sandboxUrl, sessionId, forkAtMessageId);
+        // Navigate to the forked session
+        useTabStore.getState().navigateToSession(forkedSession.id);
+      } catch (err: any) {
+        log.error('Failed to fork session:', err?.message || err);
+      }
+    },
+    [sandboxUrl, sessionId, safeMessages],
+  );
+
   // Track last turn height for footer sizing
   const turnHeights = useRef<Record<string, number>>({});
   const [lastTurnHeight, setLastTurnHeight] = useState(80);
@@ -283,10 +312,11 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
           sessionStatus={sessionStatus}
           isBusy={isBusy}
           pendingQuestions={pendingQuestions}
+          onFork={handleFork}
         />
       </View>
     ),
-    [safeMessages, sessionStatus, isBusy, turns.length, pendingQuestions],
+    [safeMessages, sessionStatus, isBusy, turns.length, pendingQuestions, handleFork],
   );
 
   const title = session?.title || 'New Session';

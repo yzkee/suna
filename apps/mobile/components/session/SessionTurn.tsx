@@ -41,6 +41,7 @@ interface SessionTurnProps {
   sessionStatus?: SessionStatus;
   isBusy: boolean;
   pendingQuestions?: QuestionRequest[];
+  onFork?: (assistantMessageId: string) => void;
 }
 
 export function SessionTurn({
@@ -49,6 +50,7 @@ export function SessionTurn({
   sessionStatus,
   isBusy,
   pendingQuestions = [],
+  onFork,
 }: SessionTurnProps) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -130,6 +132,12 @@ export function SessionTurn({
     const end = (lastMsg.info.time as any).completed || Date.now();
     if (!start) return undefined;
     return end - start;
+  }, [turn.assistantMessages]);
+
+  // Last assistant message ID (for fork)
+  const lastAssistantMessageId = useMemo(() => {
+    if (turn.assistantMessages.length === 0) return undefined;
+    return turn.assistantMessages[turn.assistantMessages.length - 1].info.id;
   }, [turn.assistantMessages]);
 
   return (
@@ -235,6 +243,7 @@ export function SessionTurn({
               response={response}
               duration={duration}
               isDark={isDark}
+              onFork={lastAssistantMessageId ? () => onFork?.(lastAssistantMessageId) : undefined}
             />
           )}
         </View>
@@ -251,10 +260,12 @@ function TurnActions({
   response,
   duration,
   isDark,
+  onFork,
 }: {
   response: string;
   duration?: number;
   isDark: boolean;
+  onFork?: () => void;
 }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [copied, setCopied] = useState(false);
@@ -318,16 +329,19 @@ function TurnActions({
       </TouchableOpacity>
 
       {/* Fork */}
-      <TouchableOpacity
-        activeOpacity={0.6}
-        hitSlop={6}
-        style={{
-          padding: 5,
-          borderRadius: 6,
-        }}
-      >
-        <Ionicons name="git-branch-outline" size={14} color={mutedColor} />
-      </TouchableOpacity>
+      {onFork && (
+        <TouchableOpacity
+          onPress={onFork}
+          activeOpacity={0.6}
+          hitSlop={6}
+          style={{
+            padding: 5,
+            borderRadius: 6,
+          }}
+        >
+          <Ionicons name="git-branch-outline" size={14} color={mutedColor} />
+        </TouchableOpacity>
+      )}
 
       {/* Revert */}
       <TouchableOpacity

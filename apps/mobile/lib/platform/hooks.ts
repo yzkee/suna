@@ -359,3 +359,25 @@ export async function rejectQuestion(
     method: 'POST',
   });
 }
+
+// ─── Session Fork ───────────────────────────────────────────────────────────
+
+/**
+ * Fork a session at a given message.
+ * POST {sandboxUrl}/session/{sessionId}/fork
+ *
+ * The server copies all messages BEFORE the given messageID (exclusive).
+ * Omit messageID to copy all messages.
+ * Returns the newly created forked session.
+ */
+export async function forkSession(
+  sandboxUrl: string,
+  sessionId: string,
+  messageId?: string,
+): Promise<Session> {
+  log.log('🔀 [forkSession] Forking session:', sessionId, 'at message:', messageId);
+  return opencodeFetch<Session>(sandboxUrl, `/session/${sessionId}/fork`, {
+    method: 'POST',
+    body: JSON.stringify(messageId ? { messageID: messageId } : {}),
+  });
+}
