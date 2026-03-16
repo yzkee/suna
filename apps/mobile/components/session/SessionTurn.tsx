@@ -4,10 +4,12 @@
  * Mirrors the Computer frontend's SessionTurn component logic.
  */
 
-import React, { useMemo } from 'react';
-import { View } from 'react-native';
+import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
+import { View, TouchableOpacity, Animated } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
+import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { SelectableMarkdownText } from '@/components/ui/selectable-markdown';
 import type {
   Turn,
@@ -227,14 +229,117 @@ export function SessionTurn({
             </View>
           )}
 
-          {/* Duration (when done) */}
-          {!working && duration && duration > 0 && (
-            <Text className="text-xs mt-1 text-muted-foreground/70">
-              {formatDuration(duration)}
-            </Text>
+          {/* Duration + Actions (when done) */}
+          {!working && !!response && (
+            <TurnActions
+              response={response}
+              duration={duration}
+              isDark={isDark}
+            />
           )}
         </View>
       )}
     </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TurnActions — fade-in action bar below assistant response
+// ---------------------------------------------------------------------------
+
+function TurnActions({
+  response,
+  duration,
+  isDark,
+}: {
+  response: string;
+  duration?: number;
+  isDark: boolean;
+}) {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 300,
+      delay: 150,
+      useNativeDriver: true,
+    }).start();
+  }, [fadeAnim]);
+
+  const handleCopy = useCallback(async () => {
+    await Clipboard.setStringAsync(response);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [response]);
+
+  const mutedColor = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
+  const hoverColor = isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.5)';
+
+  return (
+    <Animated.View
+      style={{
+        opacity: fadeAnim,
+        transform: [{
+          translateY: fadeAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [6, 0],
+          }),
+        }],
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 6,
+        gap: 2,
+      }}
+    >
+      {/* Duration */}
+      {duration != null && duration > 0 && (
+        <Text className="text-xs text-muted-foreground/50 mr-2">
+          {formatDuration(duration)}
+        </Text>
+      )}
+
+      {/* Copy */}
+      <TouchableOpacity
+        onPress={handleCopy}
+        activeOpacity={0.6}
+        hitSlop={6}
+        style={{
+          padding: 5,
+          borderRadius: 6,
+        }}
+      >
+        <Ionicons
+          name={copied ? 'checkmark' : 'copy-outline'}
+          size={14}
+          color={copied ? (isDark ? '#4ade80' : '#16a34a') : mutedColor}
+        />
+      </TouchableOpacity>
+
+      {/* Fork */}
+      <TouchableOpacity
+        activeOpacity={0.6}
+        hitSlop={6}
+        style={{
+          padding: 5,
+          borderRadius: 6,
+        }}
+      >
+        <Ionicons name="git-branch-outline" size={14} color={mutedColor} />
+      </TouchableOpacity>
+
+      {/* Revert */}
+      <TouchableOpacity
+        activeOpacity={0.6}
+        hitSlop={6}
+        style={{
+          padding: 5,
+          borderRadius: 6,
+        }}
+      >
+        <Ionicons name="arrow-undo-outline" size={14} color={mutedColor} />
+      </TouchableOpacity>
+    </Animated.View>
   );
 }
