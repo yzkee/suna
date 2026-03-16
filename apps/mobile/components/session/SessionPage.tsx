@@ -44,9 +44,10 @@ interface SessionPageProps {
   sessionId: string;
   onBack: () => void;
   onOpenDrawer?: () => void;
+  onOpenRightDrawer?: () => void;
 }
 
-export function SessionPage({ sessionId, onBack, onOpenDrawer }: SessionPageProps) {
+export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer }: SessionPageProps) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
@@ -319,6 +320,13 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer }: SessionPageProp
               </View>
             )}
           </View>
+          <TouchableOpacity
+            onPress={onOpenRightDrawer}
+            className="ml-3 p-1"
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="apps-outline" size={20} color={isDark ? '#F8F8F8' : '#121215'} />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -335,8 +343,8 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer }: SessionPageProp
             style={{
               // Fill remaining viewport so the last turn's user bubble
               // sits at the top. Subtract: header (~60+insets), input (~120+insets),
-              // and the actual measured last turn height.
-              height: Math.max(0, windowHeight - insets.top - insets.bottom - 160 - lastTurnHeight),
+              // footer bar (~50), and the actual measured last turn height.
+              height: Math.max(0, windowHeight - insets.top - insets.bottom - 210 - lastTurnHeight),
             }}
           />
         }
