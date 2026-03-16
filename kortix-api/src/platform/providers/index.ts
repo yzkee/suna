@@ -9,10 +9,11 @@ import { config } from '../../config';
 import { DaytonaProvider } from './daytona';
 import { LocalDockerProvider } from './local-docker';
 import { HetznerProvider } from './hetzner';
+import { JustAVPSProvider } from './justavps';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type ProviderName = 'daytona' | 'local_docker' | 'hetzner';
+export type ProviderName = 'daytona' | 'local_docker' | 'hetzner' | 'justavps';
 // Re-export from config for convenience — same type
 export type { SandboxProviderName } from '../../config';
 
@@ -99,6 +100,13 @@ export function getProvider(name: ProviderName): SandboxProvider {
       provider = new HetznerProvider();
       break;
 
+    case 'justavps':
+      if (!config.JUSTAVPS_API_KEY) {
+        throw new Error('JustAVPS provider is allowed but not configured. Set JUSTAVPS_API_KEY.');
+      }
+      provider = new JustAVPSProvider();
+      break;
+
     default:
       throw new Error(`Unknown sandbox provider: ${name}`);
   }
@@ -124,5 +132,6 @@ export function getAvailableProviders(): ProviderName[] {
   if (config.isDaytonaEnabled()) available.push('daytona');
   if (config.isLocalDockerEnabled()) available.push('local_docker');
   if (config.isHetznerEnabled()) available.push('hetzner');
+  if (config.isJustAVPSEnabled()) available.push('justavps');
   return available;
 }

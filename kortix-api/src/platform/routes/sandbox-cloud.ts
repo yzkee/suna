@@ -26,6 +26,7 @@ import {
 } from '../providers';
 import { config } from '../../config';
 import { listServerTypes } from '../providers/hetzner';
+import { listServerTypes as listJustAVPSServerTypes } from '../providers/justavps';
 import type { AuthVariables } from '../../types';
 import { resolveAccountId as defaultResolveAccountId } from '../../shared/resolve-account';
 
@@ -811,6 +812,22 @@ export function createCloudSandboxRouter(
       return c.json({ serverTypes: types, location });
     } catch (err: any) {
       console.error('[SANDBOX-CLOUD] hetzner server-types error:', err);
+      return c.json({ error: 'Failed to fetch server types' }, 500);
+    }
+  });
+
+  // ── JustAVPS server types ──
+
+  router.get('/justavps/server-types', async (c) => {
+    if (!config.isJustAVPSEnabled()) {
+      return c.json({ error: 'JustAVPS provider is not enabled' }, 404);
+    }
+    try {
+      const location = c.req.query('location') || config.JUSTAVPS_DEFAULT_LOCATION;
+      const types = await listJustAVPSServerTypes(location);
+      return c.json({ serverTypes: types, location });
+    } catch (err: any) {
+      console.error('[SANDBOX-CLOUD] justavps server-types error:', err);
       return c.json({ error: 'Failed to fetch server types' }, 500);
     }
   });
