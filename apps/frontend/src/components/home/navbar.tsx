@@ -211,22 +211,20 @@ export function Navbar({ isAbsolute = false }: NavbarProps) {
       isAbsolute ? "" : "sticky top-0 z-50",
       hasScrolled && !isAbsolute && "bg-background/80 backdrop-blur-xl border-b border-border/40 pb-2"
     )}>
-      <div className="grid grid-cols-3 items-center h-[52px]">
+      <div className="flex items-center justify-between h-[52px]">
         {/* Left — Logo */}
-        <div className="flex items-center">
-          <Link href="/" className="flex items-center">
-            <KortixLogo size={18} variant='logomark' />
-          </Link>
-        </div>
+        <Link href="/" className="flex items-center shrink-0">
+          <KortixLogo size={18} variant='logomark' />
+        </Link>
 
-        {/* Center — Nav Links */}
-        <nav className="hidden md:flex items-center justify-center gap-1">
+        {/* Center — Nav Links (desktop only) */}
+        <nav className="hidden md:flex items-center justify-center gap-1 absolute left-1/2 -translate-x-1/2">
           {filteredNavLinks.map((item) => (
             <Link
               key={item.id}
               href={item.href}
               className={cn(
-                "px-3 py-1.5 text-sm font-medium rounded-lg transition-colors",
+                "px-3 py-1.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap",
                 pathname === item.href
                   ? "text-foreground"
                   : "text-muted-foreground hover:text-foreground"
@@ -235,40 +233,11 @@ export function Navbar({ isAbsolute = false }: NavbarProps) {
               {item.name}
             </Link>
           ))}
-
-          {/* Mobile App Download with QR Popover — commented out for now
-          <div className="relative group">
-            <Link
-              href="/app"
-              className={cn(
-                "px-3 py-1.5 text-sm font-medium rounded-lg transition-colors",
-                pathname === '/app'
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Mobile
-            </Link>
-            
-            <div className="absolute top-full left-1/2 -translate-x-1/2 pt-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
-              <div className="relative bg-[#E8E8E8] dark:bg-[#1a1a1a] rounded-2xl border border-border/60 dark:border-[#2a2a2a] p-4 min-w-[200px]">
-                <AppDownloadQR size={160} logoSize={24} className="rounded-xl p-3 shadow-md" />
-                <p className="text-xs text-muted-foreground text-center mt-3">
-                  Scan to download
-                </p>
-                <div className="flex items-center justify-center gap-1.5 mt-1.5">
-                  <AppleLogo className="h-3 w-3 text-muted-foreground/60" />
-                  <PlayIcon className="h-2.5 w-2.5 text-muted-foreground/60" />
-                </div>
-              </div>
-            </div>
-          </div>
-          */}
         </nav>
 
         {/* Right — Actions */}
-        <div className="flex items-center justify-end gap-3">
-          {/* GitHub stars */}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          {/* GitHub stars (hidden on mobile) */}
           <a
             href="https://github.com/kortix-ai/suna"
             target="_blank"
@@ -298,8 +267,9 @@ export function Navbar({ isAbsolute = false }: NavbarProps) {
               }}
               variant='outline'
               className='rounded-full'
+              size='icon'
             >
-              <PowerCircle/>
+              <PowerCircle className="size-4" />
             </Button>
           )}
 

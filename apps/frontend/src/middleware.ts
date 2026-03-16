@@ -43,6 +43,7 @@ const PUBLIC_ROUTES = [
   '/exploration', // Exploration page should be public
   '/countryerror', // Country restriction error page should be public
   '/landing', // Three.js landing page should be public
+  '/variant-2', // Landing page variant should be public
   ...locales.flatMap(locale => MARKETING_ROUTES.map(route => `/${locale}${route === '/' ? '' : route}`)),
 ];
 
