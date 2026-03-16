@@ -1,4 +1,4 @@
-export type TriggerKind = "cron" | "webhook"
+export type TriggerKind = "cron" | "webhook" | "pipedream"
 
 export interface TriggerExecutionConfig {
   prompt: string
@@ -36,11 +36,25 @@ export interface WebhookSourceConfig {
   secret?: string
 }
 
+export interface PipedreamSourceConfig {
+  type: "pipedream"
+  /** Pipedream trigger component key, e.g. "github-new-pull-request" */
+  componentKey: string
+  /** App slug, e.g. "github", "gmail", "slack" */
+  app: string
+  /** Component-specific configuration props */
+  configuredProps?: Record<string, unknown>
+}
+
 export interface WebhookTriggerConfig extends TriggerBase {
   source: WebhookSourceConfig
 }
 
-export type AgentTriggerConfig = CronTriggerConfig | WebhookTriggerConfig
+export interface PipedreamTriggerConfig extends TriggerBase {
+  source: PipedreamSourceConfig
+}
+
+export type AgentTriggerConfig = CronTriggerConfig | WebhookTriggerConfig | PipedreamTriggerConfig
 
 export interface DiscoveredAgent {
   name: string
@@ -87,12 +101,16 @@ export interface TriggerSyncResult {
   cronUpdated: number
   cronRemoved: number
   webhookRegistered: number
+  pipedreamDeployed: number
+  pipedreamUpdated: number
+  pipedreamRemoved: number
   details: string[]
 }
 
 export interface AgentTriggersPluginOptions {
   agentPaths?: string[]
   cronStatePath?: string
+  listenerStatePath?: string
   webhookPort?: number
   webhookHost?: string
   publicBaseUrl?: string
@@ -125,4 +143,48 @@ export interface PluginContextShape {
 
 export interface WebhookDispatchResult {
   sessionId: string
+}
+
+/** Persisted record for an active Pipedream event listener */
+export interface EventListenerRecord {
+  /** Internal listener ID (UUID) */
+  id: string
+  /** Human-readable name */
+  name: string
+  /** Agent that receives events */
+  agentName: string
+  /** Pipedream app slug */
+  app: string
+  /** Pipedream trigger component key */
+  componentKey: string
+  /** Pipedream deployed trigger ID (dc_xxx, hi_xxx, etc.) */
+  deployedTriggerId: string
+  /** Configured props passed to Pipedream */
+  configuredProps?: Record<string, unknown>
+  /** Prompt template with {{ var }} placeholders */
+  prompt: string
+  /** Context extraction config */
+  context?: TriggerContextConfig
+  /** Session mode */
+  sessionMode?: "new" | "reuse"
+  /** Override agent name for execution */
+  executionAgentName?: string
+  /** Override model ID for execution */
+  modelId?: string
+  /** Whether listener is active */
+  isActive: boolean
+  /** Source: "manual" (tool call) or "agent:<name>" (markdown) */
+  source: string
+  /** External user ID used with Pipedream */
+  externalUserId: string
+  /** Webhook URL registered with Pipedream */
+  webhookUrl: string
+  /** ISO timestamp */
+  createdAt: string
+  /** ISO timestamp */
+  updatedAt: string
+  /** Last event received ISO timestamp */
+  lastEventAt?: string | null
+  /** Total events received */
+  eventCount: number
 }

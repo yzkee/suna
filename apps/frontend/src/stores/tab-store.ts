@@ -8,7 +8,7 @@ import { useServerStore } from '@/stores/server-store';
 // Types
 // ============================================================================
 
-export type TabType = 'session' | 'file' | 'dashboard' | 'settings' | 'project' | 'page' | 'preview' | 'terminal' | 'services';
+export type TabType = 'session' | 'file' | 'dashboard' | 'settings' | 'project' | 'page' | 'preview' | 'terminal' | 'services' | 'browser' | 'desktop';
 
 /** The permanent dashboard/home tab. Always pinned, always first. */
 export const DASHBOARD_TAB_ID = 'page:/dashboard';
@@ -466,7 +466,7 @@ export const useTabStore = create<TabState>()(
 // ============================================================================
 
 /** Tab types rendered via pre-mounted CSS show/hide (use pushState, not router). */
-const PRE_MOUNTED_TAB_TYPES: ReadonlySet<TabType> = new Set(['session', 'file', 'preview', 'terminal', 'settings', 'page', 'project', 'dashboard', 'services']);
+const PRE_MOUNTED_TAB_TYPES: ReadonlySet<TabType> = new Set(['session', 'file', 'preview', 'terminal', 'settings', 'page', 'project', 'dashboard', 'services', 'browser', 'desktop']);
 
 /**
  * Open (or activate) a tab AND navigate the browser to it.

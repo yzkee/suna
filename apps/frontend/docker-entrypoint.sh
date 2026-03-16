@@ -32,10 +32,11 @@ BAKED_BACKEND_HOST="http://localhost:8008"
 DEV_SUPABASE_URLS="127.0.0.1:54321 localhost:54321"
 
 # ── Runtime target values from docker-compose env ─────────────────────────────
-RUNTIME_SUPABASE_URL="${NEXT_PUBLIC_SUPABASE_URL:-}"
-RUNTIME_ANON_KEY="${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}"
-RUNTIME_BACKEND_URL="${NEXT_PUBLIC_BACKEND_URL:-}"
-RUNTIME_BILLING="${NEXT_PUBLIC_BILLING_ENABLED:-false}"
+# Support both NEXT_PUBLIC_* (legacy) and KORTIX_PUBLIC_* (current) naming.
+RUNTIME_SUPABASE_URL="${NEXT_PUBLIC_SUPABASE_URL:-${KORTIX_PUBLIC_SUPABASE_URL:-}}"
+RUNTIME_ANON_KEY="${NEXT_PUBLIC_SUPABASE_ANON_KEY:-${KORTIX_PUBLIC_SUPABASE_ANON_KEY:-}}"
+RUNTIME_BACKEND_URL="${NEXT_PUBLIC_BACKEND_URL:-${KORTIX_PUBLIC_BACKEND_URL:-}}"
+RUNTIME_BILLING="${NEXT_PUBLIC_BILLING_ENABLED:-${KORTIX_PUBLIC_BILLING_ENABLED:-false}}"
 
 # Derive backend host (strip /v1 suffix)
 RUNTIME_BACKEND_HOST=""
@@ -57,23 +58,43 @@ if [ -n "$RUNTIME_SUPABASE_URL" ] && [ "$RUNTIME_SUPABASE_URL" != "$BAKED_SUPABA
 fi
 
 # Supabase URL (dev builds with local Supabase CLI URLs)
+# Replace FULL URLs first (http://host:port) to avoid leaving stale scheme prefixes.
+# e.g. http://127.0.0.1:54321 -> https://e2e-test.kortix.cloud (not http://https://...)
 if [ -n "$RUNTIME_SUPABASE_URL" ]; then
   for dev_url in $DEV_SUPABASE_URLS; do
+    for scheme in "https://" "http://"; do
+      full_dev_url="${scheme}${dev_url}"
+      if grep -rq "$full_dev_url" "$BUNDLE_DIR" 2>/dev/null; then
+        printf 's|%s|%s|g\n' "$full_dev_url" "$RUNTIME_SUPABASE_URL" >> "$SED_SCRIPT"
+        needs_rewrite=true
+        echo "[entrypoint] Supabase URL (dev): ${full_dev_url} -> ${RUNTIME_SUPABASE_URL}"
+      fi
+    done
+    # Fallback: bare host:port (no scheme) — only if full URL wasn't already matched
     if grep -rq "$dev_url" "$BUNDLE_DIR" 2>/dev/null; then
       printf 's|%s|%s|g\n' "$dev_url" "$RUNTIME_SUPABASE_URL" >> "$SED_SCRIPT"
       needs_rewrite=true
-      echo "[entrypoint] Supabase URL (dev): ${dev_url} -> ${RUNTIME_SUPABASE_URL}"
+      echo "[entrypoint] Supabase URL (dev bare): ${dev_url} -> ${RUNTIME_SUPABASE_URL}"
     fi
   done
 fi
 
-# Supabase anon key
-if [ -n "$RUNTIME_ANON_KEY" ] && [ "$RUNTIME_ANON_KEY" != "$BAKED_ANON_KEY" ]; then
-  if grep -rq "$BAKED_ANON_KEY" "$BUNDLE_DIR" 2>/dev/null; then
-    printf 's|%s|%s|g\n' "$BAKED_ANON_KEY" "$RUNTIME_ANON_KEY" >> "$SED_SCRIPT"
-    needs_rewrite=true
-    echo "[entrypoint] Supabase anon key: replacing"
-  fi
+# Supabase anon key — check both the official placeholder and common local dev keys
+# that may be baked in from .env during local builds.
+DEV_ANON_KEYS="$BAKED_ANON_KEY"
+# Supabase CLI default publishable key pattern (sb_publishable_*)
+for dev_key in $(grep -roh 'sb_publishable_[A-Za-z0-9_-]\{1,50\}' "$BUNDLE_DIR" 2>/dev/null | sort -u); do
+  DEV_ANON_KEYS="$DEV_ANON_KEYS $dev_key"
+done
+
+if [ -n "$RUNTIME_ANON_KEY" ]; then
+  for baked_key in $DEV_ANON_KEYS; do
+    if [ "$RUNTIME_ANON_KEY" != "$baked_key" ] && grep -rq "$baked_key" "$BUNDLE_DIR" 2>/dev/null; then
+      printf 's|%s|%s|g\n' "$baked_key" "$RUNTIME_ANON_KEY" >> "$SED_SCRIPT"
+      needs_rewrite=true
+      echo "[entrypoint] Supabase anon key: replacing ($baked_key)"
+    fi
+  done
 fi
 
 # Backend URL (/v1 path)

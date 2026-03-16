@@ -5,19 +5,13 @@ import { useRouter, usePathname } from 'next/navigation';
 import {
   Loader2,
   MessageCircle,
-  FileCode,
-  Folder,
-  Sparkles,
   Search,
-  TextSearch,
   ArrowRightLeft,
-  FileText,
   PanelLeftClose,
   PanelLeftIcon,
   ArrowUp,
   ArrowDown,
   CornerDownLeft,
-  Command as CommandIcon,
 } from 'lucide-react';
 
 import {
@@ -30,20 +24,24 @@ import {
   CommandDialog,
   CommandInput,
   CommandList,
-  CommandEmpty,
   CommandGroup,
   CommandItem,
   CommandShortcut,
-  CommandSeparator,
   CommandFooter,
+  CommandKbd,
 } from '@/components/ui/command';
-import { Skeleton } from '@/components/ui/skeleton';
 import { useSidebar } from '@/components/ui/sidebar';
 import {
   useOpenCodeSessions,
 } from '@/hooks/opencode/use-opencode-sessions';
-import { useFileSearch, useTextSearch, useLssSearch } from '@/features/files';
-import type { FindMatch } from '@/features/files';
+// TODO: Re-enable file/text/semantic search once OpenCode server endpoints are fixed.
+// Currently broken:
+//   - File search (GET /find/file) — returns empty or errors
+//   - Text search (GET /find) — endpoint may work but needs verification
+//   - Semantic search (GET /lss/search) — requires OPENAI_API_KEY in sandbox
+// Imports kept for reference:
+// import { useTextSearch, useLssSearch } from '@/features/files';
+// import type { FindMatch } from '@/features/files';
 import { toast } from '@/lib/toast';
 import { useCreateOpenCodeSession } from '@/hooks/opencode/use-opencode-sessions';
 import { openTabAndNavigate } from '@/stores/tab-store';
@@ -56,7 +54,7 @@ import { createClient } from '@/lib/supabase/client';
 import { isBillingEnabled } from '@/lib/config';
 import { useTheme } from 'next-themes';
 import { clearUserLocalStorage } from '@/lib/utils/clear-local-storage';
-import { useAuth } from '@/components/AuthProvider';
+import { useAdminRole } from '@/hooks/admin';
 
 // ============================================================================
 // Helpers
@@ -74,91 +72,7 @@ function formatRelativeTime(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString();
 }
 
-function getFileIcon(filePath: string) {
-  const ext = filePath.split('.').pop()?.toLowerCase();
-  if (filePath.endsWith('/')) return Folder;
-
-  switch (ext) {
-    case 'ts':
-    case 'tsx':
-    case 'js':
-    case 'jsx':
-    case 'py':
-    case 'go':
-    case 'rs':
-    case 'java':
-    case 'c':
-    case 'cpp':
-    case 'rb':
-    case 'swift':
-    case 'kt':
-      return FileCode;
-    default:
-      return FileText;
-  }
-}
-
-function stripWorkspacePrefix(filePath: string): string {
-  return filePath.replace(/^\/workspace\/?/, '');
-}
-
-function formatRelevance(score: number): string {
-  const pct = Math.min(Math.round(score * 100), 100);
-  if (pct > 0) return `${pct}%`;
-  return score.toFixed(3);
-}
-
-function cleanSnippet(snippet: string): string {
-  return snippet
-    .replace(/\n+/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim()
-    .slice(0, 200);
-}
-
-// ============================================================================
-// Skeleton components for loading states
-// ============================================================================
-
-function ContentResultSkeleton() {
-  return (
-    <div className="flex items-start gap-2.5 px-3 py-2">
-      <Skeleton className="h-4 w-4 rounded flex-shrink-0 mt-0.5" />
-      <div className="flex flex-col gap-1.5 flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-3.5 w-28 rounded" />
-          <Skeleton className="h-3 w-8 rounded" />
-        </div>
-        <Skeleton className="h-3 w-3/4 rounded" />
-      </div>
-    </div>
-  );
-}
-
-function SearchSkeletons({
-  count = 3,
-  variant = 'content',
-}: {
-  count?: number;
-  variant?: 'content' | 'conversation';
-}) {
-  return (
-    <div className="space-y-0.5">
-      {Array.from({ length: count }).map((_, i) => (
-        <ContentResultSkeleton key={i} />
-      ))}
-    </div>
-  );
-}
-
-/** Inline keyboard hint */
-function Kbd({ children }: { children: React.ReactNode }) {
-  return (
-    <kbd className="inline-flex items-center justify-center h-[18px] min-w-[18px] px-1 rounded bg-foreground/[0.06] border border-border/50 text-[10px] font-medium text-muted-foreground/70 leading-none">
-      {children}
-    </kbd>
-  );
-}
+// Kbd is now shared as CommandKbd from '@/components/ui/command'
 
 // ============================================================================
 // Command Palette
@@ -167,9 +81,6 @@ function Kbd({ children }: { children: React.ReactNode }) {
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [lssDebouncedQuery, setLssDebouncedQuery] = useState('');
-  const [textSearchDebouncedQuery, setTextSearchDebouncedQuery] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [compactOpen, setCompactOpen] = useState(false);
   const [diffOpen, setDiffOpen] = useState(false);
@@ -187,80 +98,11 @@ export function CommandPalette() {
   const createPty = useCreatePty();
   const { theme, setTheme } = useTheme();
   const billingEnabled = isBillingEnabled();
-  const { user: authUser } = useAuth();
-
-  const firstName = useMemo(() => {
-    if (!authUser) return '';
-    const fullName = authUser.user_metadata?.name || authUser.email?.split('@')[0] || '';
-    return fullName.split(' ')[0] || '';
-  }, [authUser]);
-
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours();
-    const name = firstName ? `, ${firstName}` : '';
-    if (hour >= 5 && hour < 12) return `Good morning${name}`;
-    if (hour >= 12 && hour < 17) return `Good afternoon${name}`;
-    return `Good evening${name}`;
-  }, [firstName]);
+  const { data: adminRoleData } = useAdminRole();
+  const isAdmin = adminRoleData?.isAdmin ?? false;
 
   // Fetch all sessions (for client-side title filter)
   const { data: sessions } = useOpenCodeSessions();
-
-  // Debounce the query for file search API calls (300ms)
-  useEffect(() => {
-    if (query.length < 2) {
-      setDebouncedQuery('');
-      return;
-    }
-    const timer = setTimeout(() => setDebouncedQuery(query), 300);
-    return () => clearTimeout(timer);
-  }, [query]);
-
-  // Separate debounce for LSS search (500ms)
-  useEffect(() => {
-    if (query.length < 2) {
-      setLssDebouncedQuery('');
-      return;
-    }
-    const timer = setTimeout(() => setLssDebouncedQuery(query), 500);
-    return () => clearTimeout(timer);
-  }, [query]);
-
-  // Debounce for text search (600ms)
-  useEffect(() => {
-    if (query.length < 3) {
-      setTextSearchDebouncedQuery('');
-      return;
-    }
-    const timer = setTimeout(() => setTextSearchDebouncedQuery(query), 600);
-    return () => clearTimeout(timer);
-  }, [query]);
-
-  // File search (API-driven, fuzzy match)
-  const {
-    data: fileResults = [],
-    isFetching: isFileSearching,
-  } = useFileSearch(debouncedQuery, {
-    limit: 10,
-    enabled: debouncedQuery.length >= 2,
-  });
-
-  // Semantic search (LSS)
-  const {
-    data: lssResults = [],
-    isFetching: isLssSearching,
-  } = useLssSearch(lssDebouncedQuery, {
-    limit: 8,
-    enabled: lssDebouncedQuery.length >= 2,
-  });
-
-  // Text content search (ripgrep)
-  const {
-    data: textSearchResults = [],
-    isFetching: isTextSearching,
-  } = useTextSearch(textSearchDebouncedQuery, {
-    enabled: textSearchDebouncedQuery.length >= 3,
-  });
 
   const close = useCallback(() => setOpen(false), []);
 
@@ -301,9 +143,6 @@ export function CommandPalette() {
   useEffect(() => {
     if (!open) {
       setQuery('');
-      setDebouncedQuery('');
-      setLssDebouncedQuery('');
-      setTextSearchDebouncedQuery('');
     }
   }, [open]);
 
@@ -333,70 +172,22 @@ export function CommandPalette() {
     return sessions.filter((s) => !s.parentID && !s.time.archived).slice(0, 5);
   }, [sessions]);
 
-  // Deduplicate LSS results against file results
-  const filteredLssResults = useMemo(() => {
-    if (lssResults.length === 0) return [];
-    const filePathSet = new Set(fileResults);
-    return lssResults.filter(
-      (hit) => !filePathSet.has(stripWorkspacePrefix(hit.file_path)),
-    );
-  }, [lssResults, fileResults]);
-
-  // Filter and limit text search results
-  const filteredTextResults = useMemo(() => {
-    if (textSearchResults.length === 0) return [];
-    const ignoredPaths = ['.git/', 'node_modules/', '.next/', '.cache/', '__pycache__/'];
-    const ignoredFiles = ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'];
-    const filtered = textSearchResults.filter((match) => {
-      const p = match.path;
-      if (ignoredPaths.some((prefix) => p.includes(prefix))) return false;
-      const fileName = p.split('/').pop() || '';
-      if (ignoredFiles.includes(fileName)) return false;
-      return true;
-    });
-    const byFile = new Map<string, FindMatch[]>();
-    for (const match of filtered) {
-      const existing = byFile.get(match.path) || [];
-      if (existing.length < 2) {
-        existing.push(match);
-        byFile.set(match.path, existing);
-      }
-    }
-    const results: FindMatch[] = [];
-    for (const matches of byFile.values()) {
-      results.push(...matches);
-      if (results.length >= 10) break;
-    }
-    return results.slice(0, 10);
-  }, [textSearchResults]);
-
   const hasQuery = query.trim().length > 0;
   const queryLongEnough = query.trim().length >= 2;
-  const textQueryLongEnough = query.trim().length >= 3;
-
-  // Pending states
-  const isLssDebouncing = queryLongEnough && query !== lssDebouncedQuery;
-  const isLssPending = isLssDebouncing || isLssSearching;
-  const isFileDebouncing = queryLongEnough && query !== debouncedQuery;
-  const isFilePending = isFileDebouncing || isFileSearching;
-  const isTextDebouncing = textQueryLongEnough && query !== textSearchDebouncedQuery;
-  const isTextPending = isTextDebouncing || isTextSearching;
 
   const hasSessionResults = filteredSessions.length > 0;
-  const hasFileResults = fileResults.length > 0;
-  const hasLssResults = filteredLssResults.length > 0;
-  const hasTextResults = filteredTextResults.length > 0;
 
-  // ── Palette items (must be before hasAnyResults) ──
+  // ── Palette items ──
   const allPaletteItems = useMemo(() => {
     return getItemsForSurface('commandPalette').filter((item) => {
       if (item.requiresBilling && !billingEnabled) return false;
       if (item.requiresSession && !currentSessionId) return false;
+      if (item.requiresAdmin && !isAdmin) return false;
       return true;
     });
-  }, [billingEnabled, currentSessionId]);
+  }, [billingEnabled, currentSessionId, isAdmin]);
 
-  // Filter navigation items client-side so we control the match logic
+  // Filter navigation items client-side
   const filteredNavItems = useMemo(() => {
     if (!hasQuery) return allPaletteItems;
     const q = query.trim().toLowerCase();
@@ -414,26 +205,15 @@ export function CommandPalette() {
 
   const hasNavResults = filteredNavItems.length > 0;
 
-  const hasAnyResults =
-    hasNavResults || hasSessionResults || hasFileResults || hasLssResults || hasTextResults;
+  const hasAnyResults = hasNavResults || hasSessionResults;
 
-  const showLssSection = hasQuery && queryLongEnough;
-  const showLssSkeletons = showLssSection && isLssPending && !hasLssResults;
-  const showTextSection = hasQuery && textQueryLongEnough;
-  const showTextSkeletons = showTextSection && isTextPending && !hasTextResults;
+  // TODO: Re-enable when search endpoints are fixed.
+  // const showLssSection = hasQuery && queryLongEnough;
+  // const showTextSection = hasQuery && textQueryLongEnough;
 
-  const isAnyFetching = isFileSearching || isLssSearching || isTextSearching;
-  const showGlobalLoading =
-    hasQuery &&
-    queryLongEnough &&
-    isAnyFetching &&
-    !hasAnyResults &&
-    !showLssSkeletons &&
-    !showTextSkeletons;
   const showNoResults =
     hasQuery &&
     queryLongEnough &&
-    !isAnyFetching &&
     !hasAnyResults;
 
   // ── Handlers ──
@@ -487,37 +267,6 @@ export function CommandPalette() {
       close();
     },
     [close],
-  );
-
-  const handleSelectFile = useCallback(
-    (filePath: string) => {
-      const fileName = filePath.split('/').pop() || filePath;
-      const tabId = `file:${filePath}`;
-      const href = `/files/${encodeURIComponent(filePath)}`;
-      openTabAndNavigate({
-        id: tabId,
-        title: fileName,
-        type: 'file',
-        href,
-      });
-      close();
-    },
-    [close],
-  );
-
-  const handleSelectLssResult = useCallback(
-    (absolutePath: string) => {
-      const relativePath = stripWorkspacePrefix(absolutePath);
-      handleSelectFile(relativePath);
-    },
-    [handleSelectFile],
-  );
-
-  const handleSelectTextResult = useCallback(
-    (match: FindMatch) => {
-      handleSelectFile(match.path);
-    },
-    [handleSelectFile],
   );
 
   const handleToggleSidebar = useCallback(() => {
@@ -603,139 +352,97 @@ export function CommandPalette() {
   // Count how many search results are active (for footer context)
   const totalSearchResults = useMemo(() => {
     if (!hasQuery) return 0;
-    return filteredNavItems.length + filteredSessions.length + fileResults.length + filteredTextResults.length + filteredLssResults.length;
-  }, [hasQuery, filteredNavItems.length, filteredSessions.length, fileResults.length, filteredTextResults.length, filteredLssResults.length]);
+    return filteredNavItems.length + filteredSessions.length;
+  }, [hasQuery, filteredNavItems, filteredSessions]);
 
   return (
     <>
-      <CommandDialog open={open} onOpenChange={setOpen} className="sm:max-w-[640px]">
+      <CommandDialog open={open} onOpenChange={setOpen} className="sm:max-w-[680px]">
         <CommandInput
-          placeholder={hasQuery ? 'Search files, sessions, commands...' : 'Type a command or search...'}
+          placeholder="Search commands, files, sessions..."
           value={query}
           onValueChange={setQuery}
         />
 
-        {/* ── IDLE STATE ── */}
-        {!hasQuery && (
-          <div className="px-4 pb-4 pt-3">
-            {/* Greeting */}
-            <div className="mb-4">
-              <h2 className="text-base font-semibold tracking-tight text-foreground">
-                {greeting}
-              </h2>
-              <p className="text-[12px] text-muted-foreground/60 mt-0.5">
-                Search anything or pick a quick action
-              </p>
-            </div>
-
-            {/* Quick actions grid */}
-            <div className="grid grid-cols-4 gap-1.5 mb-4">
-              {allPaletteItems
-                .filter((item) =>
-                  item.group === 'actions' ||
-                  item.group === 'navigation'
-                )
-                .slice(0, 8)
-                .map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => handleRegistryItem(item)}
-                      disabled={item.id === 'new-session' && isCreating}
-                      className="flex flex-col items-center gap-1.5 px-2 py-2.5 rounded-xl text-[11px] text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground transition-colors duration-100 cursor-pointer group disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-foreground/[0.04] group-hover:bg-foreground/[0.07] transition-colors duration-100">
-                        {item.id === 'new-session' && isCreating ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                        ) : (
-                          <Icon className="h-3.5 w-3.5 text-muted-foreground/70 group-hover:text-foreground transition-colors duration-100" />
-                        )}
-                      </div>
-                      <span className="truncate max-w-full leading-tight">{item.label}</span>
-                    </button>
-                  );
-                })}
-            </div>
-
-            {/* Recent sessions */}
-            {recentSessions.length > 0 && (
-              <div>
-                <div className="flex items-center gap-2 px-1 mb-1.5">
-                  <span className="text-[10px] font-semibold text-muted-foreground/40 uppercase tracking-widest">
-                    Recent
-                  </span>
-                </div>
-                <div className="space-y-px">
-                  {recentSessions.map((session) => (
-                    <button
-                      key={session.id}
-                      onClick={() => {
-                        handleSelectSession(
-                          session.id,
-                          session.title || session.slug || 'Untitled',
-                        );
-                      }}
-                      className="flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg text-[13px] text-foreground/70 hover:bg-foreground/[0.05] hover:text-foreground transition-colors duration-100 cursor-pointer group"
-                    >
-                      <MessageCircle className="h-3.5 w-3.5 text-muted-foreground/40 flex-shrink-0" />
-                      <span className="truncate flex-1 text-left">
-                        {session.title || session.slug || 'Untitled'}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground/30 flex-shrink-0 tabular-nums">
-                        {formatRelativeTime(session.time.updated)}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Quick settings row */}
-            <div className="mt-3 pt-3 border-t border-border/30">
-              <div className="flex flex-wrap gap-1">
+        {/* ── Unified CommandList — one list for both idle & search so arrow keys always work ── */}
+        <CommandList>
+          {/* ── IDLE STATE — Spotlight / Raycast style ── */}
+          {!hasQuery && (
+            <>
+              <CommandGroup heading="Suggestions" forceMount>
                 {allPaletteItems
-                  .filter((item) =>
-                    item.group === 'preferences' ||
-                    item.group === 'settingsPages' ||
-                    item.group === 'theme' ||
-                    item.group === 'view'
+                  .filter(
+                    (item) =>
+                      item.group === 'actions' ||
+                      item.group === 'navigation',
                   )
+                  .slice(0, 8)
                   .map((item) => {
                     const Icon = item.icon;
                     const isToggleSidebar = item.id === 'toggle-sidebar';
-                    const displayLabel = isToggleSidebar
-                      ? (sidebarOpen ? 'Collapse Sidebar' : 'Expand Sidebar')
-                      : item.label;
                     const DisplayIcon = isToggleSidebar
-                      ? (sidebarOpen ? PanelLeftClose : PanelLeftIcon)
+                      ? sidebarOpen
+                        ? PanelLeftClose
+                        : PanelLeftIcon
                       : Icon;
-                    const isActiveTheme = item.kind === 'theme' && theme === item.themeValue;
+                    const displayLabel = isToggleSidebar
+                      ? sidebarOpen
+                        ? 'Collapse Sidebar'
+                        : 'Expand Sidebar'
+                      : item.label;
 
                     return (
-                      <button
+                      <CommandItem
                         key={item.id}
-                        onClick={() => handleRegistryItem(item)}
-                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] transition-colors duration-100 cursor-pointer ${
-                          isActiveTheme
-                            ? 'bg-foreground/[0.08] text-foreground font-medium'
-                            : 'text-muted-foreground/60 hover:bg-foreground/[0.04] hover:text-foreground/80'
-                        }`}
+                        value={`suggestion ${item.label} ${item.keywords || ''}`}
+                        onSelect={() => handleRegistryItem(item)}
+                        disabled={item.id === 'new-session' && isCreating}
                       >
-                        <DisplayIcon className="h-3 w-3" />
-                        <span>{displayLabel}</span>
-                      </button>
+                        {item.id === 'new-session' && isCreating ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        ) : (
+                          <DisplayIcon className="h-4 w-4" />
+                        )}
+                        <span className="flex-1">{displayLabel}</span>
+                        {item.shortcut && (
+                          <CommandShortcut>{item.shortcut}</CommandShortcut>
+                        )}
+                      </CommandItem>
                     );
                   })}
-              </div>
-            </div>
-          </div>
-        )}
+              </CommandGroup>
 
-        {/* ── SEARCH STATE ── */}
-        {hasQuery && (
-          <>
-            <CommandList>
+              {/* Recent Sessions */}
+              {recentSessions.length > 0 && (
+                <CommandGroup heading="Recent" forceMount>
+                  {recentSessions.map((session) => (
+                    <CommandItem
+                      key={session.id}
+                      value={`recent ${session.title || ''} ${session.slug || ''} ${session.id}`}
+                      onSelect={() =>
+                        handleSelectSession(
+                          session.id,
+                          session.title || session.slug || 'Untitled',
+                        )
+                      }
+                    >
+                      <MessageCircle className="h-4 w-4 flex-shrink-0" />
+                      <span className="truncate flex-1">
+                        {session.title || session.slug || 'Untitled'}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/30 tabular-nums flex-shrink-0">
+                        {formatRelativeTime(session.time.updated)}
+                      </span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              )}
+            </>
+          )}
+
+          {/* ── SEARCH STATE ── */}
+          {hasQuery && (
+            <>
               {/* ── Navigation (always first — we filter ourselves) ── */}
               {hasNavResults && (
                 <CommandGroup heading="Navigation" forceMount>
@@ -777,27 +484,17 @@ export function CommandPalette() {
                 </CommandGroup>
               )}
 
-              {/* Global loading — only when nothing at all is visible */}
-              {showGlobalLoading && (
-                <CommandEmpty>
-                  <div className="flex flex-col items-center justify-center gap-2 py-8">
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground/50" />
-                    <span className="text-[13px] text-muted-foreground/60">Searching...</span>
-                  </div>
-                </CommandEmpty>
-              )}
-
               {/* No results — only when truly nothing matches (including nav) */}
               {showNoResults && (
-                <div className="flex flex-col items-center gap-2 py-10" cmdk-empty="">
-                  <div className="flex items-center justify-center h-10 w-10 rounded-full bg-muted/50">
-                    <Search className="h-4 w-4 text-muted-foreground/40" />
+                <div className="flex flex-col items-center gap-2 py-12" cmdk-empty="">
+                  <div className="flex items-center justify-center h-10 w-10 rounded-full bg-muted/30">
+                    <Search className="h-4 w-4 text-muted-foreground/30" />
                   </div>
                   <div className="text-center">
-                    <span className="text-sm text-muted-foreground/70">
+                    <span className="text-sm text-muted-foreground/60">
                       No results for &ldquo;{query.trim()}&rdquo;
                     </span>
-                    <p className="text-[11px] text-muted-foreground/40 mt-0.5">
+                    <p className="text-[11px] text-muted-foreground/30 mt-1">
                       Try a different search term
                     </p>
                   </div>
@@ -855,176 +552,51 @@ export function CommandPalette() {
                 </CommandGroup>
               )}
 
-              {/* ── Files ── */}
-              {hasFileResults && (
-                <CommandGroup heading="Files" forceMount>
-                  {fileResults.map((filePath) => {
-                    const FileIcon = getFileIcon(filePath);
-                    const fileName = filePath.split('/').pop() || filePath;
-                    const dirPath = filePath.split('/').slice(0, -1).join('/');
-                    return (
-                      <CommandItem
-                        key={filePath}
-                        value={`file-${filePath}`}
-                        onSelect={() => handleSelectFile(filePath)}
-                      >
-                        <FileIcon className="h-4 w-4 flex-shrink-0" />
-                        <div className="flex flex-col overflow-hidden flex-1 min-w-0">
-                          <span className="truncate text-sm">{fileName}</span>
-                          {dirPath && (
-                            <span className="text-[11px] text-muted-foreground/40 truncate">
-                              {dirPath}
-                            </span>
-                          )}
-                        </div>
-                      </CommandItem>
-                    );
-                  })}
-                </CommandGroup>
-              )}
+              {/*
+               * TODO: Re-enable File Search, Text Search, and Semantic Search
+               * once the OpenCode server endpoints are verified working.
+               *
+               * Known issues:
+               *   - GET /find/file — file name search returns empty/errors
+               *   - GET /find — text content search (ripgrep) needs verification
+               *   - GET /lss/search — semantic search requires OPENAI_API_KEY
+               *
+               * When re-enabling:
+               *   1. Import useFileSearch, useTextSearch, useLssSearch from '@/features/files'
+               *   2. Import FindMatch type
+               *   3. Add back debounce state + effects for each search type
+               *   4. Add back the search hook calls
+               *   5. Add back filteredTextResults, filteredLssResults memos
+               *   6. Add back showFileSection, showTextSection, showLssSection logic
+               *   7. Add back the <CommandGroup> blocks for each search type
+               *   8. Add shouldFilter={false} on Command (already done in command.tsx)
+               *   9. Test that results actually render (cmdk filter was hiding them before)
+               */}
+            </>
+          )}
+        </CommandList>
 
-              {/* ── Text Search ── */}
-              {showTextSection && (hasTextResults || showTextSkeletons) && (
-                <CommandGroup
-                  heading={
-                    <span className="inline-flex items-center gap-1.5">
-                      Text Search
-                      {isTextPending && hasTextResults && (
-                        <Loader2 className="h-2.5 w-2.5 animate-spin text-muted-foreground/40" />
-                      )}
-                    </span>
-                  }
-                  forceMount
-                >
-                  {hasTextResults &&
-                    filteredTextResults.map((match, index) => {
-                      const FileIcon = getFileIcon(match.path);
-                      const fileName = match.path.split('/').pop() || match.path;
-                      const dirPath = match.path.split('/').slice(0, -1).join('/');
-                      const linePreview = match.lines.trim().slice(0, 120);
-
-                      return (
-                        <CommandItem
-                          key={`text-${match.path}-${match.line_number}-${index}`}
-                          value={`text-${match.path}-${match.line_number}-${index}`}
-                          onSelect={() => handleSelectTextResult(match)}
-                        >
-                          <FileIcon className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                          <div className="flex flex-col overflow-hidden flex-1 min-w-0 gap-0.5">
-                            <div className="flex items-center gap-2">
-                              <span className="truncate text-sm font-medium">
-                                {fileName}
-                              </span>
-                              <span className="text-[10px] text-muted-foreground/40 flex-shrink-0 tabular-nums font-mono">
-                                :{match.line_number}
-                              </span>
-                            </div>
-                            <span className="text-[11px] text-muted-foreground/60 line-clamp-1 leading-relaxed font-mono">
-                              {linePreview}
-                            </span>
-                            {dirPath && (
-                              <span className="text-[10px] text-muted-foreground/30 truncate">
-                                {dirPath}
-                              </span>
-                            )}
-                          </div>
-                        </CommandItem>
-                      );
-                    })}
-
-                  {showTextSkeletons && (
-                    <SearchSkeletons count={3} variant="content" />
-                  )}
-                </CommandGroup>
-              )}
-
-              {/* ── Semantic Search ── */}
-              {showLssSection && (hasLssResults || showLssSkeletons) && (
-                <CommandGroup
-                  heading={
-                    <span className="inline-flex items-center gap-1.5">
-                      <Sparkles className="h-2.5 w-2.5" />
-                      Semantic
-                      {isLssPending && hasLssResults && (
-                        <Loader2 className="h-2.5 w-2.5 animate-spin text-muted-foreground/40" />
-                      )}
-                    </span>
-                  }
-                  forceMount
-                >
-                  {hasLssResults &&
-                    filteredLssResults.map((hit) => {
-                      const relativePath = stripWorkspacePrefix(hit.file_path);
-                      const FileIcon = getFileIcon(relativePath);
-                      const fileName =
-                        relativePath.split('/').pop() || relativePath;
-                      const dirPath = relativePath
-                        .split('/')
-                        .slice(0, -1)
-                        .join('/');
-                      const snippet = cleanSnippet(hit.snippet);
-
-                      return (
-                        <CommandItem
-                          key={`lss-${hit.file_path}-${hit.score}`}
-                          value={`lss-${relativePath}-${snippet.slice(0, 30)}`}
-                          onSelect={() => handleSelectLssResult(hit.file_path)}
-                        >
-                          <FileIcon className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                          <div className="flex flex-col overflow-hidden flex-1 min-w-0 gap-0.5">
-                            <div className="flex items-center gap-2">
-                              <span className="truncate text-sm font-medium">
-                                {fileName}
-                              </span>
-                              <span className="text-[10px] text-muted-foreground/40 flex-shrink-0 tabular-nums">
-                                {formatRelevance(hit.score)}
-                              </span>
-                            </div>
-                            {snippet && (
-                              <span className="text-[11px] text-muted-foreground/60 line-clamp-1 leading-relaxed">
-                                {snippet}
-                              </span>
-                            )}
-                            {dirPath && (
-                              <span className="text-[10px] text-muted-foreground/30 truncate">
-                                {dirPath}
-                              </span>
-                            )}
-                          </div>
-                        </CommandItem>
-                      );
-                    })}
-
-                  {showLssSkeletons && (
-                    <SearchSkeletons count={3} variant="content" />
-                  )}
-                </CommandGroup>
-              )}
-            </CommandList>
-
-            {/* ── Footer with keyboard hints ── */}
-            <CommandFooter>
-              <div className="flex items-center gap-1">
-                <ArrowUp className="h-3 w-3" />
-                <ArrowDown className="h-3 w-3" />
-                <span>navigate</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <CornerDownLeft className="h-3 w-3" />
-                <span>select</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <Kbd>esc</Kbd>
-                <span>close</span>
-              </div>
-              {hasQuery && totalSearchResults > 0 && (
-                <span className="ml-auto tabular-nums">
-                  {totalSearchResults} result{totalSearchResults !== 1 ? 's' : ''}
-                </span>
-              )}
-            </CommandFooter>
-          </>
-        )}
+        {/* ── Footer — always visible ── */}
+        <CommandFooter>
+          <div className="flex items-center gap-1">
+            <ArrowUp className="h-3 w-3" />
+            <ArrowDown className="h-3 w-3" />
+            <span>navigate</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <CornerDownLeft className="h-3 w-3" />
+            <span>select</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <CommandKbd>esc</CommandKbd>
+            <span>close</span>
+          </div>
+          {hasQuery && totalSearchResults > 0 && (
+            <span className="ml-auto tabular-nums">
+              {totalSearchResults} result{totalSearchResults !== 1 ? 's' : ''}
+            </span>
+          )}
+        </CommandFooter>
       </CommandDialog>
 
       {currentSessionId && (

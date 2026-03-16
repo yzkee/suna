@@ -34,12 +34,16 @@ const PUBLIC_ROUTES = [
   '/milano', // Milano page should be public
   '/berlin', // Berlin page should be public
   '/app', // App download page should be public,
+  '/install',
+  '/install.sh',
   '/careers',
   '/pricing', // Pricing page should be public
   '/tutorials', // Tutorials page should be public
   '/enterprise', // Enterprise page should be public
   '/exploration', // Exploration page should be public
   '/countryerror', // Country restriction error page should be public
+  '/landing', // Three.js landing page should be public
+  '/variant-2', // Landing page variant should be public
   ...locales.flatMap(locale => MARKETING_ROUTES.map(route => `/${locale}${route === '/' ? '' : route}`)),
 ];
 
@@ -59,6 +63,25 @@ const PROTECTED_ROUTES = [
   '/projects',
   '/workspace',
   '/settings',
+  // Tab-only routes (no dedicated page.tsx in earlier versions — now have one)
+  '/browser',
+  '/desktop',
+  '/memory',
+  '/services',
+  '/sessions',
+  '/terminal',
+  '/files',
+  '/channels',
+  '/integrations',
+  '/tunnel',
+  '/scheduled-tasks',
+  '/commands',
+  '/tools',
+  '/configuration',
+  '/deployments',
+  '/changelog',
+  '/admin',
+  '/legacy',
 ];
 
 // App store links for mobile redirect
@@ -184,8 +207,8 @@ export async function middleware(request: NextRequest) {
   // used for server-side auth calls. SUPABASE_URL / NEXT_PUBLIC_SUPABASE_URL is the
   // public-facing URL that the browser uses. The middleware runs server-side inside
   // the Docker container, so it needs the internal URL to reach Supabase.
-  const supabaseUrl = process.env.SUPABASE_SERVER_URL || process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const supabaseUrl = process.env.SUPABASE_SERVER_URL || process.env.SUPABASE_URL || process.env.KORTIX_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.KORTIX_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
   const supabase = createServerClient(
     supabaseUrl,
     supabaseAnonKey,
@@ -212,17 +235,28 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // Fetch user ONCE and reuse for both locale detection and auth checks
+  // Fetch user ONCE and reuse for both locale detection and auth checks.
+  // IMPORTANT: Skip getUser() for auth routes — the auth page handles its
+  // own session client-side. Calling getUser() here can trigger a server-side
+  // token refresh that consumes the refresh token (GoTrue refresh tokens are
+  // single-use). The updated cookie is set on the response, but if the browser
+  // does a client-side navigation (router.push) instead of a full page load,
+  // the Set-Cookie header may not be processed, leaving the browser with a
+  // stale (revoked) refresh token → "Refresh Token Not Found" on the next request.
   let user: { id: string; user_metadata?: { locale?: string } } | null = null;
   let authError: Error | null = null;
   
-  try {
-    const { data: { user: fetchedUser }, error: fetchedError } = await supabase.auth.getUser();
-    user = fetchedUser;
-    authError = fetchedError as Error | null;
-  } catch (error) {
-    // User might not be authenticated, continue
-    authError = error as Error;
+  const isAuthRoute = pathname === '/auth' || pathname.startsWith('/auth/');
+  
+  if (!isAuthRoute) {
+    try {
+      const { data: { user: fetchedUser }, error: fetchedError } = await supabase.auth.getUser();
+      user = fetchedUser;
+      authError = fetchedError as Error | null;
+    } catch (error) {
+      // User might not be authenticated, continue
+      authError = error as Error;
+    }
   }
 
   // FAST PATH: Authenticated users hitting the homepage get an instant 302
@@ -297,7 +331,7 @@ export async function middleware(request: NextRequest) {
 
     // Skip billing checks when billing is not enabled (self-hosted deployments).
     // Onboarding enforcement is handled client-side in layout-content.tsx.
-    const billingEnabled = process.env.NEXT_PUBLIC_BILLING_ENABLED === 'true';
+    const billingEnabled = (process.env.KORTIX_PUBLIC_BILLING_ENABLED || process.env.NEXT_PUBLIC_BILLING_ENABLED) === 'true';
     if (!billingEnabled) {
       return supabaseResponse;
     }
@@ -322,7 +356,7 @@ export async function middleware(request: NextRequest) {
       const { data: { session } } = await supabase.auth.getSession();
       const accessToken = session?.access_token;
 
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.BACKEND_URL || '';
+      const backendUrl = process.env.BACKEND_URL || process.env.KORTIX_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || '';
       if (!backendUrl || !accessToken) {
         // Can't reach backend — let the request through, client-side will handle it
         return supabaseResponse;

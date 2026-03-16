@@ -155,6 +155,16 @@ const RunningServicesPanel = lazy(() =>
 		default: mod.RunningServicesPanel,
 	})),
 );
+const BrowserTabContent = lazy(() =>
+	import("@/components/tabs/browser-tab-content").then((mod) => ({
+		default: mod.BrowserTabContent,
+	})),
+);
+const DesktopTabContent = lazy(() =>
+	import("@/components/tabs/desktop-tab-content").then((mod) => ({
+		default: mod.DesktopTabContent,
+	})),
+);
 
 // Skeleton shell that renders immediately for FCP
 function DashboardSkeleton() {
@@ -199,6 +209,8 @@ function SessionTabsContainer({ children }: { children: React.ReactNode }) {
 	const previewTabIds = tabOrder.filter((id) => tabs[id]?.type === "preview");
 	const terminalTabIds = tabOrder.filter((id) => tabs[id]?.type === "terminal");
 	const servicesTabIds = tabOrder.filter((id) => tabs[id]?.type === "services");
+	const browserTabIds = tabOrder.filter((id) => tabs[id]?.type === "browser");
+	const desktopTabIds = tabOrder.filter((id) => tabs[id]?.type === "desktop");
 	const pageTabIds = tabOrder.filter((id) => {
 		const t = tabs[id]?.type;
 		return t === "settings" || t === "page" || t === "project" || t === "dashboard";
@@ -303,8 +315,38 @@ function SessionTabsContainer({ children }: { children: React.ReactNode }) {
 				</div>
 			))}
 
-			{/* Page/settings/dashboard tabs — pre-mounted, shown/hidden via CSS */}
-			{pageTabIds.map((id) => {
+	{/* Browser tabs — agent-browser CDP viewport (port 9224, Chrome-only) */}
+	{browserTabIds.map((id) => (
+		<div
+			key={id}
+			className={cn(
+				"absolute inset-0 flex flex-col",
+				id !== activeTabId && "hidden",
+			)}
+		>
+			<Suspense fallback={null}>
+				<BrowserTabContent />
+			</Suspense>
+		</div>
+	))}
+
+	{/* Desktop tabs — full Selkies desktop stream (port 6080) */}
+	{desktopTabIds.map((id) => (
+		<div
+			key={id}
+			className={cn(
+				"absolute inset-0 flex flex-col",
+				id !== activeTabId && "hidden",
+			)}
+		>
+			<Suspense fallback={null}>
+				<DesktopTabContent />
+			</Suspense>
+		</div>
+	))}
+
+	{/* Page/settings/dashboard tabs — pre-mounted, shown/hidden via CSS */}
+		{pageTabIds.map((id) => {
 				const tab = tabs[id];
 				if (!tab) return null;
 				return (

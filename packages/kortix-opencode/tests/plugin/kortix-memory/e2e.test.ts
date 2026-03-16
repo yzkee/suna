@@ -80,8 +80,9 @@ describe("Scenario 1: Developer explores new codebase", () => {
 		for (const call of toolCalls) {
 			promptCount++
 			incrementPromptCount(db, SESSION_ID)
-			const obs = extractObservation(call, SESSION_ID, promptCount)
-			if (obs) {
+			const result = extractObservation(call, SESSION_ID, promptCount)
+			if (result) {
+				const obs = result.observation
 				const id = insertObservation(db, obs)
 				writeObservationFile(TEST_LSS_DIR, id, {
 					title: obs.title,
@@ -164,10 +165,7 @@ describe("Scenario 1: Developer explores new codebase", () => {
 		const originalFetch = globalThis.fetch
 		globalThis.fetch = mockLLMResponse(llmResponse) as any
 
-		const result = await consolidateMemories(db, SESSION_ID, noopLog, {
-			kortixUrl: "http://mock-llm",
-			kortixToken: "test",
-		})
+		const result = await consolidateMemories(db, SESSION_ID, noopLog)
 
 		globalThis.fetch = originalFetch
 
@@ -178,14 +176,14 @@ describe("Scenario 1: Developer explores new codebase", () => {
 
 		const episodic = getLTMByType(db, "episodic", 10)
 		expect(episodic.length).toBe(1)
-		expect(episodic[0].content).toContain("Express app")
+		expect(episodic[0]!.content).toContain("Express app")
 
 		const semantic = getLTMByType(db, "semantic", 10)
 		expect(semantic.length).toBe(4)
 
 		const procedural = getLTMByType(db, "procedural", 10)
 		expect(procedural.length).toBe(1)
-		expect(procedural[0].content).toContain("npm run build")
+		expect(procedural[0]!.content).toContain("npm run build")
 
 		// Phase 3: Generate LTM block for next session's context
 		const ltmBlock = generateContextBlock(db)
@@ -255,7 +253,7 @@ describe("Scenario 2: Cross-session memory recall", () => {
 		// Unified search should find cross-session knowledge
 		const authResults = unifiedSearch(db, "auth JWT", { source: "ltm" })
 		expect(authResults.length).toBeGreaterThanOrEqual(1)
-		expect(authResults[0].content).toContain("JWT")
+		expect(authResults[0]!.content).toContain("JWT")
 
 		const corsResults = unifiedSearch(db, "CORS proxy bug")
 		expect(corsResults.length).toBeGreaterThanOrEqual(1)
@@ -288,8 +286,8 @@ describe("Scenario 3: Manual mem_save during session", () => {
 		// Searchable immediately
 		const results = unifiedSearch(db, "flaky CI")
 		expect(results.length).toBeGreaterThanOrEqual(1)
-		expect(results[0].source).toBe("ltm")
-		expect(results[0].content).toContain("node_modules/.cache")
+		expect(results[0]!.source).toBe("ltm")
+		expect(results[0]!.content).toContain("node_modules/.cache")
 
 		// LSS file exists
 		expect(existsSync(`${TEST_LSS_DIR}/ltm_procedural_${id}.md`)).toBe(true)
@@ -398,8 +396,8 @@ describe("Scenario 6: Unified search ranking", () => {
 		expect(results.length).toBeGreaterThanOrEqual(2)
 
 		// LTM should be first
-		expect(results[0].source).toBe("ltm")
-		expect(results[0].content).toContain("Auth middleware")
+		expect(results[0]!.source).toBe("ltm")
+		expect(results[0]!.content).toContain("Auth middleware")
 
 		// Observations should follow
 		const obsResults = results.filter(r => r.source === "observation")
@@ -445,8 +443,8 @@ describe("Scenario 7: Graceful degradation without LLM", () => {
 
 		for (let i = 0; i < calls.length; i++) {
 			incrementPromptCount(db, SESSION_ID)
-			const obs = extractObservation(calls[i], SESSION_ID, i + 1)
-			if (obs) insertObservation(db, obs)
+			const result = extractObservation(calls[i]!, SESSION_ID, i + 1)
+			if (result) insertObservation(db, result.observation)
 		}
 
 		// Observations saved
@@ -458,9 +456,7 @@ describe("Scenario 7: Graceful degradation without LLM", () => {
 		expect(results.length).toBeGreaterThanOrEqual(1)
 
 		// Compaction without LLM — should not crash, return empty
-		const result = await consolidateMemories(db, SESSION_ID, noopLog, {
-			// No kortixUrl, no anthropicKey
-		})
+		const result = await consolidateMemories(db, SESSION_ID, noopLog)
 		expect(result.newMemories).toHaveLength(0)
 
 		// No LTM created
@@ -494,8 +490,8 @@ describe("Scenario 8: Full round-trip save → search → recall", () => {
 		// Step 2: Search finds it
 		const searchResults = unifiedSearch(db, "regenerate types codegen")
 		expect(searchResults.length).toBeGreaterThanOrEqual(1)
-		expect(searchResults[0].content).toContain("codegen")
-		expect(searchResults[0].source).toBe("ltm")
+		expect(searchResults[0]!.content).toContain("codegen")
+		expect(searchResults[0]!.source).toBe("ltm")
 
 		// Step 3: LTM recall block includes it
 		const block = generateContextBlock(db)

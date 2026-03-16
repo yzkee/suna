@@ -14,7 +14,7 @@ function parseMarkdownFrontmatter(filePath: string): Record<string, unknown> | n
   const raw = readFileSync(filePath, "utf8")
   const match = raw.match(/^---\n([\s\S]*?)\n---\n?[\s\S]*$/)
   if (!match) return null
-  const parsed = yaml.load(match[1])
+  const parsed = yaml.load(match[1]!)
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
   return parsed as Record<string, unknown>
 }

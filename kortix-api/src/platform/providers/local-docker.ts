@@ -860,6 +860,9 @@ export class LocalDockerProvider implements SandboxProvider {
       'DISPLAY=:1',
       'LSS_DIR=/workspace/.lss',
       'KORTIX_WORKSPACE=/workspace',
+      'PYTHONUSERBASE=/workspace/.local',
+      'PIP_USER=1',
+      'NPM_CONFIG_PREFIX=/workspace/.npm-global',
       'SECRET_FILE_PATH=/workspace/.secrets/.secrets.json',
       'SALT_FILE_PATH=/workspace/.secrets/.salt',
       // ── 3 core vars managed by kortix-api (source of truth) ──
@@ -888,8 +891,7 @@ export class LocalDockerProvider implements SandboxProvider {
       ExposedPorts: EXPOSED_PORTS,
       HostConfig: {
         PortBindings: PORT_BINDINGS,
-        CapAdd: ['SYS_ADMIN'],
-        SecurityOpt: ['seccomp=unconfined'],
+        Privileged: true,
         ShmSize: 2 * 1024 * 1024 * 1024,
         RestartPolicy: { Name: 'unless-stopped' },
         Binds: [

@@ -17,6 +17,8 @@ integrationsApp.use('/actions', apiKeyAuth);
 integrationsApp.use('/run-action', apiKeyAuth);
 integrationsApp.use('/connect', apiKeyAuth);
 integrationsApp.use('/search-apps', apiKeyAuth);
+integrationsApp.use('/triggers/*', apiKeyAuth);
+integrationsApp.use('/triggers', apiKeyAuth);
 
 integrationsApp.route('/', createIntegrationsRouter());
 integrationsApp.route('/', createIntegrationsTokenRouter());

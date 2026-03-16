@@ -10,6 +10,7 @@ import { roobert } from './fonts/roobert';
 import { roobertMono } from './fonts/roobert-mono';
 import { Suspense, lazy } from 'react';
 import { I18nProvider } from '@/components/i18n-provider';
+import { getServerPublicEnv } from '@/lib/public-env-server';
 import { featureFlags } from '@/lib/feature-flags';
 
 // Lazy load non-critical analytics and global components
@@ -23,6 +24,8 @@ const RouteChangeTracker = lazy(() => import('@/components/analytics/route-chang
 const AuthEventTracker = lazy(() => import('@/components/analytics/auth-event-tracker').then(mod => ({ default: mod.AuthEventTracker })));
 const CookieVisibility = lazy(() => import('@/components/cookie-visibility').then(mod => ({ default: mod.CookieVisibility })));
 const LocalhostLinkInterceptor = lazy(() => import('@/components/localhost-link-interceptor').then(mod => ({ default: mod.LocalhostLinkInterceptor })));
+// Not lazy — wraps {children} so it must be available for SSR to avoid hydration mismatch
+import { IntegrationConnectProvider } from '@/components/integrations/integration-connect-provider';
 
 
 export const viewport: Viewport = {
@@ -101,9 +104,21 @@ export const metadata: Metadata = {
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  // Read at server request time via our runtime helper (bypasses webpack inlining).
+  const runtimeEnv = getServerPublicEnv();
+
   return (
     <html lang="en" suppressHydrationWarning className={`${roobert.variable} ${roobertMono.variable}`}>
       <head>
+        {/* Inline runtime config — server-renders real env vars into HTML before
+            any JS executes. getServerPublicEnv() reads process.env at request
+            time so pre-built Docker images get correct runtime values. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.__KORTIX_RUNTIME_CONFIG=${JSON.stringify(runtimeEnv)};window.__RUNTIME_ENV=window.__KORTIX_RUNTIME_CONFIG;`,
+          }}
+        />
+
         {/* Font preloading is handled automatically by next/font/local in fonts/roobert.ts */}
 
         {/* DNS prefetch for analytics (loaded later but resolve DNS early) */}
@@ -244,7 +259,9 @@ export default function RootLayout({
           <AuthProvider>
             <I18nProvider>
               <ReactQueryProvider>
-                {children}
+                <IntegrationConnectProvider>
+                  {children}
+                </IntegrationConnectProvider>
                 <Toaster />
                 <Suspense fallback={null}>
                   <PlanSelectionModal />

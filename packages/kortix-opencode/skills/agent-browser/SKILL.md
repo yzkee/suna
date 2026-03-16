@@ -387,33 +387,33 @@ If a previous session was not closed properly, the daemon may still be running. 
 
 ## Live Viewer URL (Required in Kortix)
 
-When you start or switch to a new agent-browser session, always run the browser in headed mode and share the live viewer URL with the human immediately, with the session preselected via query param.
+Kortix keeps a persistent primary browser session named `kortix` alive for the live viewer. Reuse that session instead of creating ad hoc sessions or overriding stream ports.
 
 Mandatory launch policy in Kortix:
 
-1. Always include `--headed`
-2. Always set `AGENT_BROWSER_STREAM_PORT=9223`
-3. Always use a named session (`--session <name>`)
+1. Reuse the existing `kortix` session unless the task explicitly requires isolation
+2. Do not set `AGENT_BROWSER_STREAM_PORT` manually
+3. Only use a different session name when parallel browser state is truly needed
 
 Canonical launch command:
 
 ```bash
-AGENT_BROWSER_STREAM_PORT=9223 agent-browser --session <session_name> --headed open <url>
+agent-browser open <url>
+```
+
+Optional explicit form when you need to be precise about the primary session:
+
+```bash
+agent-browser --session kortix open <url>
 ```
 
 Required behavior:
 
-1. Determine active session name (prefer explicit `--session`, otherwise run `agent-browser session`)
-2. Construct viewer URL with `?session=<name>`
-3. Return that URL to the human right away after session init/open
+1. Determine the active session name (default to `kortix` in the Kortix sandbox)
+2. Construct the viewer URL with `?session=<name>`
+3. Return that URL to the human right away after session init or navigation when browser visibility matters
 
-Viewer URL format (Kortix sandbox):
-
-```text
-http://p9224-kortix-sandbox.localhost:8008/?session=<session_name>
-```
-
-Fallback (direct local viewer):
+Viewer URL format:
 
 ```text
 http://localhost:9224/?session=<session_name>
@@ -422,12 +422,12 @@ http://localhost:9224/?session=<session_name>
 Example:
 
 ```bash
-AGENT_BROWSER_STREAM_PORT=9223 agent-browser --session hetzner --headed open https://console.hetzner.com
+agent-browser open https://console.hetzner.com
 # Then share:
-# http://p9224-kortix-sandbox.localhost:8008/?session=hetzner
+# http://localhost:9224/?session=kortix
 ```
 
-Do not wait for the human to ask for the viewer link. Provide it automatically whenever a new browser session is initialized.
+Do not wait for the human to ask for the viewer link. Provide it automatically whenever the live browser view is relevant.
 
 ## Ref Lifecycle (Important)
 

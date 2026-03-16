@@ -15,7 +15,7 @@
  */
 
 import { useEffect } from 'react';
-import { useServerStore, getActiveOpenCodeUrl, getSubdomainOpts } from '@/stores/server-store';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
 import {
   isProxiableLocalhostUrl,
   parseLocalhostUrl,
@@ -24,13 +24,35 @@ import {
   isWebProxyUrl,
   parseWebProxyUrl,
   buildWebProxyUrl,
-  rewriteLocalhostUrl,
   toInternalUrl,
 } from '@/lib/utils/sandbox-url';
 import { openTabAndNavigate } from '@/stores/tab-store';
 import { enrichPreviewMetadata } from '@/lib/utils/session-context';
+import { useIntegrationConnectStore } from '@/stores/integration-connect-store';
+
+/**
+ * Check if a URL is an integration connect URL (e.g. /integrations?connect=github&sandbox_id=xxx).
+ * Returns { appSlug, sandboxId } if matched, null otherwise.
+ */
+function parseIntegrationConnectUrl(href: string): { appSlug: string; sandboxId?: string } | null {
+  try {
+    const url = new URL(href);
+    // Must be pointing to /integrations with a ?connect= param
+    if (url.pathname !== '/integrations') return null;
+    const connectApp = url.searchParams.get('connect');
+    if (!connectApp) return null;
+    return {
+      appSlug: connectApp,
+      sandboxId: url.searchParams.get('sandbox_id') || undefined,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export function LocalhostLinkInterceptor() {
+  const { activeServer, serverUrl, rewritePortPath } = useSandboxProxy();
+
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       // Only intercept plain left-clicks (no modifier keys)
@@ -44,25 +66,31 @@ export function LocalhostLinkInterceptor() {
       const href = anchor.href; // resolved absolute URL
       if (!href) return;
 
+      // ── Case 0: Integration connect URL ──
+      // Intercept /integrations?connect=<app>&sandbox_id=<id> links and trigger
+      // the Pipedream OAuth popup inline instead of navigating to a new tab.
+      const integrationConnect = parseIntegrationConnectUrl(href);
+      if (integrationConnect) {
+        e.preventDefault();
+        e.stopPropagation();
+        const store = useIntegrationConnectStore.getState();
+        store.triggerConnect(integrationConnect.appSlug, integrationConnect.sandboxId);
+        return;
+      }
+
       // Never intercept links pointing at the app itself (same origin)
       try {
         if (new URL(href).origin === window.location.origin) return;
       } catch { /* not a valid URL, skip */ }
 
       // Resolve the proxy URL using the active server
-      const state = useServerStore.getState();
-      const activeServer =
-        state.servers.find((s) => s.id === state.activeServerId) ?? null;
-      const serverUrl = activeServer?.url || getActiveOpenCodeUrl();
-      const subdomainOpts = getSubdomainOpts();
-
       // ── Case 1: Fresh localhost:PORT URL (not yet proxied) ──
       if (isProxiableLocalhostUrl(href)) {
         const parsed = parseLocalhostUrl(href);
         if (!parsed) return;
 
         const { port, path } = parsed;
-        const proxyUrl = rewriteLocalhostUrl(port, path, serverUrl, subdomainOpts);
+        const proxyUrl = rewritePortPath(port, path);
         const internalUrl = toInternalUrl(port, path);
 
         e.preventDefault();
@@ -88,7 +116,7 @@ export function LocalhostLinkInterceptor() {
           const parsed = parseLocalhostUrl(internal);
           if (parsed) {
             const { port, path } = parsed;
-            const proxyUrl = rewriteLocalhostUrl(port, path, serverUrl, subdomainOpts);
+            const proxyUrl = rewritePortPath(port, path);
             const internalUrl = toInternalUrl(port, path);
 
             e.preventDefault();
@@ -132,7 +160,7 @@ export function LocalhostLinkInterceptor() {
 
     document.addEventListener('click', handleClick, { capture: true });
     return () => document.removeEventListener('click', handleClick, { capture: true });
-  }, []);
+  }, [activeServer, rewritePortPath, serverUrl]);
 
   return null;
 }

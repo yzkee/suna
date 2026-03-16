@@ -79,9 +79,9 @@ describe("observations", () => {
 
 		const all = getRecentObservations(db, 10)
 		expect(all).toHaveLength(1)
-		expect(all[0].title).toBe("Read auth middleware")
-		expect(all[0].facts).toEqual(["Uses refresh tokens", "Expiry set to 24h"])
-		expect(all[0].filesRead).toEqual(["/src/auth/middleware.ts"])
+		expect(all[0]!.title).toBe("Read auth middleware")
+		expect(all[0]!.facts).toEqual(["Uses refresh tokens", "Expiry set to 24h"])
+		expect(all[0]!.filesRead).toEqual(["/src/auth/middleware.ts"])
 	})
 
 	it("returns observations in reverse chronological order", () => {
@@ -90,8 +90,8 @@ describe("observations", () => {
 		insertObservation(db, makeObs({ title: "Third" }))
 
 		const all = getRecentObservations(db, 10)
-		expect(all[0].title).toBe("Third")
-		expect(all[2].title).toBe("First")
+		expect(all[0]!.title).toBe("Third")
+		expect(all[2]!.title).toBe("First")
 	})
 
 	it("filters by session", () => {
@@ -100,7 +100,7 @@ describe("observations", () => {
 
 		const sesA = getObservationsBySession(db, "ses_a")
 		expect(sesA).toHaveLength(1)
-		expect(sesA[0].title).toBe("A")
+		expect(sesA[0]!.title).toBe("A")
 	})
 
 	it("fetches by IDs", () => {
@@ -110,8 +110,8 @@ describe("observations", () => {
 
 		const result = getObservationsByIds(db, [id1, id3])
 		expect(result).toHaveLength(2)
-		expect(result[0].title).toBe("One")
-		expect(result[1].title).toBe("Three")
+		expect(result[0]!.title).toBe("One")
+		expect(result[1]!.title).toBe("Three")
 	})
 
 	it("returns empty for non-existent IDs", () => {
@@ -150,7 +150,7 @@ describe("observation FTS5 search", () => {
 
 		const results = searchObservationsFts(db, "auth")
 		expect(results.length).toBeGreaterThanOrEqual(1)
-		expect(results[0].title).toContain("auth")
+		expect(results[0]!.title).toContain("auth")
 	})
 
 	it("finds by narrative keyword", () => {
@@ -205,9 +205,9 @@ describe("long_term_memories", () => {
 
 		const all = getRecentLTM(db, 10)
 		expect(all).toHaveLength(1)
-		expect(all[0].type).toBe("semantic")
-		expect(all[0].content).toContain("JWT refresh tokens")
-		expect(all[0].tags).toEqual(["auth", "jwt", "api"])
+		expect(all[0]!.type).toBe("semantic")
+		expect(all[0]!.content).toContain("JWT refresh tokens")
+		expect(all[0]!.tags).toEqual(["auth", "jwt", "api"])
 	})
 
 	it("filters by type", () => {
@@ -217,11 +217,11 @@ describe("long_term_memories", () => {
 
 		const semantic = getLTMByType(db, "semantic", 10)
 		expect(semantic).toHaveLength(1)
-		expect(semantic[0].content).toContain("JWT")
+		expect(semantic[0]!.content).toContain("JWT")
 
 		const procedural = getLTMByType(db, "procedural", 10)
 		expect(procedural).toHaveLength(1)
-		expect(procedural[0].content).toContain("Deploy")
+		expect(procedural[0]!.content).toContain("Deploy")
 	})
 
 	it("returns all LTM entries", () => {
@@ -236,7 +236,7 @@ describe("long_term_memories", () => {
 		insertLTM(db, makeLTM({ sourceObservationIds: [5, 10, 15] }))
 
 		const all = getRecentLTM(db, 10)
-		expect(all[0].sourceObservationIds).toEqual([5, 10, 15])
+		expect(all[0]!.sourceObservationIds).toEqual([5, 10, 15])
 	})
 
 	it("handles defaults for optional fields", () => {
@@ -246,10 +246,10 @@ describe("long_term_memories", () => {
 		})
 
 		const all = getRecentLTM(db, 10)
-		expect(all[0].tags).toEqual([])
-		expect(all[0].files).toEqual([])
-		expect(all[0].sourceObservationIds).toEqual([])
-		expect(all[0].context).toBeNull()
+		expect(all[0]!.tags).toEqual([])
+		expect(all[0]!.files).toEqual([])
+		expect(all[0]!.sourceObservationIds).toEqual([])
+		expect(all[0]!.context).toBeNull()
 	})
 })
 
@@ -262,7 +262,7 @@ describe("LTM FTS5 search", () => {
 
 		const results = searchLTMFts(db, "SolidJS")
 		expect(results.length).toBeGreaterThanOrEqual(1)
-		expect(results[0].content).toContain("SolidJS")
+		expect(results[0]!.content).toContain("SolidJS")
 	})
 
 	it("finds by tag", () => {

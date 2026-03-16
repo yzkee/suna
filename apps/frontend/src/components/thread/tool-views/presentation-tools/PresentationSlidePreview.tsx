@@ -6,6 +6,7 @@ import { RefreshCw, Presentation } from 'lucide-react';
 import { KortixLoader } from '@/components/ui/kortix-loader';
 import { usePresentationViewerStore } from '@/stores/presentation-viewer-store';
 import { Button } from '@/components/ui/button';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
 
 interface PresentationSlidePreviewProps {
   presentationName: string;
@@ -44,6 +45,7 @@ export function PresentationSlidePreview({
   initialSlide,
 }: PresentationSlidePreviewProps) {
   const { openPresentation } = usePresentationViewerStore();
+  const { subdomainOpts } = useSandboxProxy();
   const [metadata, setMetadata] = useState<PresentationMetadata | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +67,8 @@ export function PresentationSlidePreview({
       const sanitizedName = sanitizeFilename(presentationName);
       const metadataUrl = constructHtmlPreviewUrl(
         project.sandbox.sandbox_url,
-        `presentations/${sanitizedName}/metadata.json`
+        `presentations/${sanitizedName}/metadata.json`,
+        subdomainOpts
       );
 
       const urlWithCacheBust = `${metadataUrl}?t=${Date.now()}`;
@@ -101,7 +104,7 @@ export function PresentationSlidePreview({
         setIsLoading(false);
       }
     }
-  }, [presentationName, project?.sandbox?.sandbox_url]);
+  }, [presentationName, project?.sandbox?.sandbox_url, subdomainOpts]);
 
   useEffect(() => {
     loadMetadata(0);
@@ -182,4 +185,3 @@ export function PresentationSlidePreview({
     />
   );
 }
-

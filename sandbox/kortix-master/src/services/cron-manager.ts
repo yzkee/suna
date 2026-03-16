@@ -156,7 +156,6 @@ export class CronManager {
       agent_name: input.agent_name ?? null,
       model_id: input.model_id,
       session_mode: input.session_mode,
-      session_id: input.session_id,
       is_active: true,
       metadata: input.metadata ?? {},
     }))

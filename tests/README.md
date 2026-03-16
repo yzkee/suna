@@ -1,84 +1,117 @@
-# Kortix E2E Tests
+# Kortix Test Suite
 
-## Test Suite Overview
+All tests for the Kortix platform, centralised in one place.
 
-### 1. Full Install Test (`e2e/test-self-hosted-install.sh`)
-Complete end-to-end test from clean state to working dashboard:
-- Cleans existing installation
-- Runs get-kortix.sh installer
-- Verifies all containers start
-- Tests auth flow
-- Tests protected routes
-- Verifies dashboard loads
+## Quick Start
 
-**Usage:**
 ```bash
-bash tests/e2e/test-self-hosted-install.sh
+cd computer/tests
+
+# Full A-Z E2E (build images -> install -> browser tests)
+bash e2e/self-hosted-e2e.sh
+
+# Browser tests only (stack already running)
+bash e2e/self-hosted-e2e.sh --browser-only
+
+# Shell tests only (installer structure, CLI, security)
+npm run test:shell
+
+# Everything
+npm test
 ```
 
-**Duration:** ~3-5 minutes
+## Structure
 
-### 2. Quick Auth Test (`e2e/test-auth-flow.sh`)
-Fast test assuming containers are already running:
-- Tests sign-in API
-- Tests dashboard access with cookie
+```
+tests/
+  package.json            # scripts + playwright dep
+  playwright.config.ts    # unified Playwright config
+  tsconfig.json
+  README.md
 
-**Usage:**
-```bash
-bash tests/e2e/test-auth-flow.sh
+  e2e/                    # End-to-end (Playwright + orchestrator)
+    self-hosted-e2e.sh    #   Master: clean -> build -> install -> browser tests
+    test-self-hosted-install.sh  # Shell-based install + verify
+    test-auth-flow.sh     #   Quick auth smoke test
+    specs/                #   Playwright specs (run in order)
+      01-containers.spec.ts
+      02-services.spec.ts
+      03-frontend-config.spec.ts
+      04-auth-flow.spec.ts
+      05-onboarding-to-dashboard.spec.ts
+    helpers/              #   Shared TS utilities
+      auth.ts
+      wait.ts
+    scripts/              #   Helper scripts
+      reset-self-hosted-state.sh
+      run-full-self-hosted-e2e.sh
+
+  shell/                  # Shell-based tests (no browser)
+    run-all.sh            #   Runs installer + CLI + security
+    installer/            #   get-kortix.sh structure validation
+      test-install.sh
+      test-e2e-install.sh
+    cli/                  #   Embedded CLI verification
+      test-cli.sh
+    security/             #   Auth, CORS, key sync validation
+      test-security.sh
+      test-auth-e2e.sh
+    vps/                  #   VPS deployment tests (run on VPS)
+      test-vps-e2e.sh
+
+  docs/                   # Test documentation
+    AUTH_TESTING.md        #   Auth E2E test guide
+    E2E_MANUAL_CHECKLIST.md  # Manual verification checklist
 ```
 
-**Duration:** ~5 seconds
+## Test Categories
 
-## Running Tests
+### Playwright E2E Specs (`tests/e2e/specs/`)
 
-### Option 1: Full Test (Clean Install)
+| Spec | Tests | What it verifies |
+|------|-------|------------------|
+| `01-containers` | 6 | All Docker containers running |
+| `02-services` | 4 | HTTP health checks on all ports |
+| `03-frontend-config` | 4 | Runtime config URLs correct (no placeholders) |
+| `04-auth-flow` | 4 | API auth + browser login |
+| `05-onboarding-to-dashboard` | 1 | Full wizard -> provider -> skip -> dashboard |
+
+### Shell Tests (`tests/shell/`)
+
+| Suite | What it verifies |
+|-------|------------------|
+| `installer/test-install.sh` | get-kortix.sh has correct structure, functions, compose |
+| `cli/test-cli.sh` | Embedded CLI has all commands, correct syntax |
+| `security/test-security.sh` | INTERNAL_SERVICE_KEY, CORS, port bindings, secrets |
+| `security/test-auth-e2e.sh` | Full auth chain: sandbox <-> API <-> frontend |
+| `vps/test-vps-e2e.sh` | Caddy HTTPS, basic auth, firewall (run on VPS) |
+
+## npm Scripts
+
 ```bash
-# From repo root
-bash tests/e2e/test-self-hosted-install.sh
+npm test                    # Shell + Playwright
+npm run test:e2e            # Full A-Z orchestrator
+npm run test:e2e:browser    # Playwright only
+npm run test:shell          # All shell suites
+npm run test:shell:installer  # Installer structure
+npm run test:shell:cli      # CLI commands
+npm run test:shell:security # Security features
+npm run test:shell:auth     # Auth E2E (needs running stack)
 ```
 
-### Option 2: Quick Test (Existing Install)
-```bash
-# Make sure containers are running first
-kortix start
+## Environment Variables
 
-# Then run quick test
-bash tests/e2e/test-auth-flow.sh
-```
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `E2E_OWNER_EMAIL` | `test-e2e@kortix.ai` | Test owner email |
+| `E2E_OWNER_PASSWORD` | `e2e-testpass-123` | Test owner password |
+| `E2E_BASE_URL` | `http://localhost:13737` | Frontend URL |
+| `E2E_API_URL` | `http://localhost:13738/v1` | API URL |
+| `E2E_SUPABASE_URL` | `http://localhost:13740` | Supabase URL |
 
-### Option 3: Manual Verification
-```bash
-# Check containers
-docker ps | grep kortix
+## Note on Unit Tests
 
-# Check auth curl -sf http://localhost:13740/auth/v1/health
-
-# Check dashboard
-curl -sf http://localhost:13737/auth -o /dev/null && echo "Frontend OK"
-```
-
-## What Tests Verify
-
-✅ **Containers**: All 6 containers start and stay running
-✅ **Networking**: Ports 13737, 13738, 13740, 13741 accessible  
-✅ **Auth API**: Supabase GoTrue responds to sign-in
-✅ **Session Cookies**: Auth tokens properly set and validated
-✅ **Protected Routes**: /dashboard requires auth, returns 200 with valid session
-✅ **Frontend Config**: Bundle has correct Supabase URL (not dev URLs)
-
-## Troubleshooting
-
-### "Invalid authentication credentials"
-- Frontend bundle has wrong Supabase URL
-- Check: `docker logs kortix-frontend-1 | grep "entrypoint"`
-- Should show: `Supabase URL: https://placeholder.supabase.co -> http://localhost:13740`
-
-### "HTTP 307" (redirect loop)
-- Middleware can't validate session
-- Check: `docker logs kortix-frontend-1 | grep -i error`
-
-### Containers not starting
-- Check port conflicts: `lsof -i :13737`
-- Check Docker: `docker system info`
-- Free ports: `bash scripts/free-kortix-ports.sh`
+Unit tests that live with their packages (e.g. `kortix-api/src/__tests__/`,
+`sandbox/kortix-master/tests/`, `packages/*/test/`) stay in-place. They are
+run via each package's own `npm test` command. This directory only centralises
+integration, E2E, and cross-cutting tests.

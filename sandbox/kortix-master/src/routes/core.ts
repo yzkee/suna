@@ -54,4 +54,33 @@ coreRouter.post('/restart/:service',
   },
 )
 
+// Debug: run a shell command and return stdout+stderr (internal/localhost only)
+coreRouter.post('/exec',
+  describeRoute({
+    tags: ['System'],
+    summary: 'Run a shell command (debug)',
+    description: 'Runs a bash command and returns the output. Intended for diagnostics only.',
+    responses: { 200: { description: 'Command output' } },
+  }),
+  async (c) => {
+    const body = await c.req.json<{ cmd: string }>()
+    if (!body?.cmd) return c.json({ error: 'cmd required' }, 400)
+    try {
+      const proc = Bun.spawn(['bash', '-c', body.cmd], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+        env: { ...process.env, HOME: '/workspace' },
+      })
+      const [stdout, stderr] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ])
+      const code = await proc.exited
+      return c.json({ code, stdout, stderr })
+    } catch (e) {
+      return c.json({ error: String(e) }, 500)
+    }
+  },
+)
+
 export default coreRouter

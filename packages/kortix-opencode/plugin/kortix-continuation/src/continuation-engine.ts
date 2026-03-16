@@ -52,6 +52,32 @@ function checkSafetyLimits(
 		return `min work duration not met (${config.thresholds.minWorkDurationMs}ms)`
 	}
 
+	// Circuit breaker: too many consecutive aborts/empty responses
+	if (state.consecutiveAborts >= config.thresholds.maxConsecutiveAborts) {
+		return `circuit breaker: ${state.consecutiveAborts} consecutive aborts/empty responses — stopping passive continuation`
+	}
+
+	// Passive cooldown: minimum time between passive continuation attempts
+	if (state.lastContinuationAt > 0) {
+		const elapsed = now - state.lastContinuationAt
+		if (elapsed < config.thresholds.passiveCooldownMs) {
+			return `passive cooldown: ${Math.round((config.thresholds.passiveCooldownMs - elapsed) / 1000)}s remaining`
+		}
+	}
+
+	// Abort grace period: skip continuation shortly after an abort
+	if (state.lastAbortAt > 0) {
+		const timeSinceAbort = now - state.lastAbortAt
+		if (timeSinceAbort < config.thresholds.abortGracePeriodMs) {
+			return `abort grace period: ${Math.round((config.thresholds.abortGracePeriodMs - timeSinceAbort) / 1000)}s remaining`
+		}
+	}
+
+	// In-flight guard: prevent double-fire race condition
+	if (state.inflight) {
+		return `continuation already in-flight — skipping to prevent double-fire`
+	}
+
 	return null
 }
 
@@ -87,10 +113,11 @@ function buildContinuationPrompt(
  *
  * Decision flow:
  *   1. Feature check — continuation must be enabled
- *   2. Safety limits — session cap and min work duration
- *   3. IntentGate — classify last assistant message (stop on completed/blocked/answer)
- *   4. TodoEnforcer — check for unfinished tracked work → continue if unfinished
- *   5. Default → stop (conservative)
+ *   2. Empty response check — if last response was empty/aborted, don't continue
+ *   3. Safety limits — session cap, min work duration, abort circuit breaker, cooldown
+ *   4. IntentGate — classify last assistant message (stop on completed/blocked/answer)
+ *   5. TodoEnforcer — check for unfinished tracked work → continue if unfinished
+ *   6. Default → stop (conservative)
  */
 export function evaluate(
 	config: ContinuationConfig,
@@ -101,6 +128,17 @@ export function evaluate(
 ): ContinuationDecision {
 	if (!config.features.continuation) {
 		return { action: "stop", prompt: null, reason: "continuation disabled", signals: {} }
+	}
+
+	// Empty/aborted response check — if the assistant produced nothing, this was
+	// likely an abort (context window exhaustion, timeout, etc.). Don't loop on it.
+	if (!lastAssistantText.trim() && !hadToolCalls) {
+		return {
+			action: "stop",
+			prompt: null,
+			reason: "empty/aborted assistant response — skipping continuation",
+			signals: { safetyCheck: "empty_response" },
+		}
 	}
 
 	const safetyViolation = checkSafetyLimits(config, state)

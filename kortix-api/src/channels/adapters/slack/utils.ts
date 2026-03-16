@@ -1,10 +1,12 @@
-import { eq, and } from 'drizzle-orm';
-import { db } from '../../../shared/db';
-import { channelConfigs } from '@kortix/db';
-import type { ChannelConfig } from '@kortix/db';
-import { config as appConfig } from '../../../config';
-import { decryptCredentials } from '../../lib/credentials';
-import { getSlackPlatformCredentials } from '../../lib/platform-credentials';
+/**
+ * Slack signature verification utilities.
+ *
+ * Note: In the sandbox-first architecture, signature verification is done by
+ * opencode-channels inside the sandbox (via @chat-adapter/slack). kortix-api
+ * no longer verifies signatures — it's a pure proxy.
+ *
+ * These utils are kept for potential future use or direct verification scenarios.
+ */
 
 export async function verifySlackSignature(
   signingSecret: string,
@@ -35,49 +37,4 @@ export async function verifySlackSignature(
     mismatch |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
   }
   return mismatch === 0;
-}
-
-export async function findConfigByTeamId(teamId: string): Promise<ChannelConfig | null> {
-  const configs = await db
-    .select()
-    .from(channelConfigs)
-    .where(
-      and(
-        eq(channelConfigs.channelType, 'slack'),
-        eq(channelConfigs.enabled, true),
-      ),
-    );
-
-  for (const cfg of configs) {
-    const creds = await decryptCredentials(cfg.credentials as Record<string, unknown>);
-    if (creds?.teamId === teamId) {
-      // Attach decrypted credentials so callers don't need to decrypt again
-      cfg.credentials = creds;
-      return cfg;
-    }
-  }
-
-  return null;
-}
-
-export async function verifySlackRequest(
-  rawBody: string,
-  headers: { timestamp: string; signature: string },
-  accountId?: string,
-): Promise<boolean> {
-  let signingSecret = appConfig.SLACK_SIGNING_SECRET;
-
-  if (!signingSecret && accountId) {
-    const platformCreds = await getSlackPlatformCredentials(accountId);
-    signingSecret = platformCreds?.signingSecret || '';
-  }
-
-  if (!signingSecret) return true;
-
-  const now = Math.floor(Date.now() / 1000);
-  if (Math.abs(now - Number(headers.timestamp)) > 300) {
-    return false;
-  }
-
-  return verifySlackSignature(signingSecret, headers.timestamp, rawBody, headers.signature);
 }

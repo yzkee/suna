@@ -14,9 +14,8 @@ import 'katex/dist/katex.min.css';
 import { MermaidRenderer } from '@/components/ui/mermaid-renderer';
 import { isMermaidCode } from '@/lib/mermaid-utils';
 import { autoLinkUrls } from '@kortix/shared';
-import { useServerStore, getActiveOpenCodeUrl, deriveSubdomainOpts } from '@/stores/server-store';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
 import { useFilePreviewStore } from '@/stores/file-preview-store';
-import { proxyLocalhostUrl } from '@/lib/utils/sandbox-url';
 import { wrapChildrenWithPaths } from '@/components/common/clickable-path';
 import { looksLikeFilePath as sharedLooksLikeFilePath } from '@/lib/utils/path-detection';
 
@@ -592,16 +591,12 @@ export const UnifiedMarkdown = React.memo<UnifiedMarkdownProps>(({
   isStreaming = false,
 }) => {
   // Resolve the active sandbox server so we can proxy localhost URLs
-  const activeServer = useServerStore((s) =>
-    s.servers.find((srv) => srv.id === s.activeServerId) ?? null,
-  );
-  const serverUrl = activeServer?.url || getActiveOpenCodeUrl();
-  const subdomainOpts = useMemo(() => deriveSubdomainOpts(activeServer), [activeServer]);
+  const { proxyUrl } = useSandboxProxy();
 
   /** Rewrite a localhost:PORT URL through the sandbox proxy, or pass through. */
   const proxy = useCallback(
-    (url: string | undefined) => proxyLocalhostUrl(url, serverUrl, undefined, subdomainOpts),
-    [serverUrl, subdomainOpts],
+    (url: string | undefined) => proxyUrl(url),
+    [proxyUrl],
   );
 
   // Memoize the Streamdown components object so that Block's React.memo

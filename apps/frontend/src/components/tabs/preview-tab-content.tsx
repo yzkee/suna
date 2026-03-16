@@ -14,10 +14,9 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useTabStore } from '@/stores/tab-store';
 import { useAuthenticatedPreviewUrl } from '@/hooks/use-authenticated-preview-url';
-import { useServerStore, getActiveOpenCodeUrl, getSubdomainOpts } from '@/stores/server-store';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
 import {
   parseLocalhostUrl,
-  rewriteLocalhostUrl,
   toInternalUrl,
   proxyUrlToInternal,
   buildWebProxyUrl,
@@ -62,34 +61,26 @@ export function PreviewTabContent({ tabId }: PreviewTabContentProps) {
     return !port && !!originalUrl && !originalUrl.startsWith('http://localhost') && !originalUrl.startsWith('http://127.0.0.1');
   }, [port, originalUrl]);
 
+  const { activeServer, serverUrl, proxyUrl, rewritePortPath } = useSandboxProxy();
+
+  const proxiedPreviewUrl = useMemo(
+    () => proxyUrl(rawPreviewUrl) ?? rawPreviewUrl,
+    [proxyUrl, rawPreviewUrl],
+  );
+
   // Navigation history
-  const [history, setHistory] = useState<string[]>([rawPreviewUrl].filter(Boolean));
+  const [history, setHistory] = useState<string[]>([proxiedPreviewUrl].filter(Boolean));
   const [historyIndex, setHistoryIndex] = useState(0);
-
-  // Server URL for proxy rewriting
-  const activeServer = useServerStore((s) => {
-    return s.servers.find((srv) => srv.id === s.activeServerId) ?? null;
-  });
-  const serverUrl = activeServer?.url || getActiveOpenCodeUrl();
-
-  // Subdomain URL options for proxy URL generation
-  const subdomainOpts = useMemo(() => {
-    if (activeServer?.provider === 'daytona' || activeServer?.provider === 'hetzner') return undefined;
-    const sandboxId = activeServer?.sandboxId;
-    if (!sandboxId) return undefined; // No sandbox ID yet — wait for useSandbox to register
-    try {
-      const url = new URL(serverUrl);
-      const backendPort = parseInt(url.port, 10) || 8008;
-      return { sandboxId, backendPort };
-    } catch {
-      return { sandboxId, backendPort: 8008 };
-    }
-  }, [activeServer?.provider, activeServer?.sandboxId, serverUrl]);
 
   // Inject auth token for cloud preview proxy URLs.
   // Returns null while auth is in progress — the existing `if (!previewUrl)` guard
   // below will show a landing state until the token is ready.
-  const previewUrl = useAuthenticatedPreviewUrl(rawPreviewUrl);
+  const previewUrl = useAuthenticatedPreviewUrl(proxiedPreviewUrl);
+
+  useEffect(() => {
+    if (!proxiedPreviewUrl) return;
+    setHistory((prev) => (prev.length === 0 ? [proxiedPreviewUrl] : prev));
+  }, [proxiedPreviewUrl]);
 
   // Sync address bar when tab metadata changes externally
   useEffect(() => {
@@ -180,7 +171,7 @@ export function PreviewTabContent({ tabId }: PreviewTabContentProps) {
     if (!parsed) return;
 
     const { port: newPort, path: newPath } = parsed;
-    const newProxyUrl = rewriteLocalhostUrl(newPort, newPath, serverUrl, subdomainOpts);
+    const newProxyUrl = rewritePortPath(newPort, newPath);
     const newInternalUrl = toInternalUrl(newPort, newPath);
 
     updateTabMetadata({
@@ -202,7 +193,7 @@ export function PreviewTabContent({ tabId }: PreviewTabContentProps) {
     setIsLoading(true);
     setHasError(false);
     setRefreshKey((k) => k + 1);
-  }, [serverUrl, subdomainOpts, tabId, updateTabMetadata, historyIndex]);
+  }, [serverUrl, rewritePortPath, tabId, updateTabMetadata, historyIndex]);
 
   /** Handle address bar submission. */
   const handleAddressSubmit = useCallback((e: React.FormEvent) => {

@@ -36,10 +36,7 @@ services:
         SANDBOX_VERSION: ${SANDBOX_VERSION:-0.8.1}
     image: kortix/computer:${SANDBOX_VERSION:-0.8.1}
     container_name: kortix-sandbox
-    cap_add:
-      - SYS_ADMIN
-    security_opt:
-      - seccomp=unconfined
+    privileged: true
     extra_hosts:
       # Ensures host.docker.internal works on Linux too (macOS/Windows have it built-in)
       - "host.docker.internal:host-gateway"
@@ -54,6 +51,9 @@ services:
       - DISPLAY=:1
       - LSS_DIR=/workspace/.lss
       - KORTIX_WORKSPACE=/workspace
+      - PYTHONUSERBASE=/workspace/.local
+      - PIP_USER=1
+      - NPM_CONFIG_PREFIX=/workspace/.npm-global
       - SECRET_FILE_PATH=/workspace/.secrets/.secrets.json
       - SALT_FILE_PATH=/workspace/.secrets/.salt
       # Default: API on host (pnpm run dev). Override for Docker-to-Docker.
@@ -64,6 +64,7 @@ services:
       - PROJECT_ID=${PROJECT_ID:-local}
       - ENV_MODE=${ENV_MODE:-local}
       - KORTIX_LOCAL_SOURCE=${KORTIX_LOCAL_SOURCE:-1}
+      - START_DOCKER=true
     env_file:
       - .env
     volumes:

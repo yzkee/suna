@@ -1,23 +1,29 @@
 /**
  * Shared LLM Infrastructure
  *
- * Provides a unified interface for calling LLMs via:
- *   1. Kortix router (OpenAI-compatible) — KORTIX_API_URL + KORTIX_TOKEN
- *   2. Anthropic Messages API — ANTHROPIC_API_KEY (fallback)
+ * Provides a unified interface for calling LLMs.
  *
- * Used by both the consolidation engine and per-observation enrichment.
+ * Provider resolution priority:
+ *   1. Cached provider config from the running OpenCode session
+ *      (captured via chat.params hook — uses whatever model the user selected)
+ *   2. SDK client.config.providers() lookup (startup fallback)
+ *   3. Environment variables: ANTHROPIC_API_KEY, KORTIX_API_URL+KORTIX_TOKEN (legacy fallback)
+ *
+ * This ensures the memory plugin always works with whatever LLM provider is
+ * actively running the agent — no separate env var config required.
  */
 
 import type { LogFn } from "./types"
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-export const KORTIX_MODEL = "anthropic/claude-sonnet-4.6"
-export const ANTHROPIC_MODEL = "claude-sonnet-4-5-20250929"
 export const DEFAULT_MAX_TOKENS = 2000
 const ANTHROPIC_VERSION = "2023-06-01"
-const FALLBACK_KORTIX_URL = "http://localhost:8008"
-const FALLBACK_ANTHROPIC_URL = "https://api.anthropic.com"
+
+// Models to use for memory operations (lightweight — consolidation/enrichment)
+// These are overridden if the running provider uses a different model.
+const FALLBACK_ANTHROPIC_MODEL = "claude-sonnet-4-5-20250929"
+const FALLBACK_OPENAI_COMPAT_MODEL = "anthropic/claude-sonnet-4-6"
 
 /**
  * Validate that a URL string is a real http(s) URL, not an unresolved
@@ -35,51 +41,142 @@ function isValidUrl(url: string): boolean {
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface LLMConfig {
-	type: "kortix" | "anthropic"
+	type: "anthropic" | "openai-compat"
 	baseURL: string
 	apiKey: string
 	model: string
 }
 
 export interface LLMOptions {
-	kortixUrl?: string
-	kortixToken?: string
-	anthropicKey?: string
-	anthropicBaseUrl?: string
+	/** Model ID override (e.g. "anthropic/claude-sonnet-4-6") */
 	model?: string
 	maxTokens?: number
+}
+
+/**
+ * Captured provider configuration from the running OpenCode session.
+ * Set via setActiveProvider() when chat.params fires.
+ */
+export interface ActiveProviderInfo {
+	providerID: string
+	modelID: string
+	apiKey: string
+	baseURL?: string
+	/** Additional options from provider config */
+	options?: Record<string, unknown>
+}
+
+// ─── Cached Provider State ───────────────────────────────────────────────────
+
+let cachedProvider: ActiveProviderInfo | null = null
+
+/**
+ * Set the active provider info. Called from the plugin's chat.params hook
+ * whenever the user sends a message — this captures the exact provider
+ * credentials being used to run the agent.
+ */
+export function setActiveProvider(info: ActiveProviderInfo): void {
+	cachedProvider = info
+}
+
+/**
+ * Get the currently cached provider info (for debugging/logging).
+ */
+export function getActiveProvider(): ActiveProviderInfo | null {
+	return cachedProvider
 }
 
 // ─── Provider Resolution ─────────────────────────────────────────────────────
 
 /**
- * Resolve the best available LLM provider from options + environment.
- * Returns null if no provider is configured.
+ * Determine the provider type from the provider ID.
+ */
+function classifyProvider(providerID: string): "anthropic" | "openai-compat" {
+	const lower = providerID.toLowerCase()
+	if (lower === "anthropic" || lower.includes("anthropic")) return "anthropic"
+	// Everything else (openrouter, openai, local, kortix, etc.) uses OpenAI-compatible API
+	return "openai-compat"
+}
+
+/**
+ * Get the default base URL for known providers.
+ */
+function defaultBaseURL(providerID: string): string {
+	const lower = providerID.toLowerCase()
+	if (lower === "anthropic" || lower.includes("anthropic")) return "https://api.anthropic.com"
+	if (lower === "openrouter" || lower.includes("openrouter")) return "https://openrouter.ai/api"
+	if (lower === "openai" || lower.includes("openai")) return "https://api.openai.com"
+	// Fallback for unknown providers
+	return "https://api.anthropic.com"
+}
+
+/**
+ * Pick a suitable model for memory operations.
+ * We prefer a smaller/cheaper model than what the user may be running
+ * (e.g. if they're on opus, we still use sonnet for enrichment/consolidation).
+ */
+function pickMemoryModel(providerID: string, userModel: string): string {
+	const lower = providerID.toLowerCase()
+
+	if (lower === "anthropic" || lower.includes("anthropic")) {
+		// Use sonnet for memory ops regardless of what the user is running
+		return FALLBACK_ANTHROPIC_MODEL
+	}
+
+	// For OpenAI-compatible providers, use the user's model as-is
+	// (we don't know what models they have available)
+	return userModel
+}
+
+/**
+ * Resolve the best available LLM provider.
+ *
+ * Priority:
+ *   1. Cached provider from chat.params hook (the running session's provider)
+ *   2. Environment variables (legacy fallback)
  */
 export function resolveLLMConfig(opts?: LLMOptions): LLMConfig | null {
-	// Priority 1: Kortix router
-	const rawKortixUrl = opts?.kortixUrl ?? process.env.KORTIX_API_URL
-	const kortixToken = opts?.kortixToken ?? process.env.KORTIX_TOKEN
-	if (rawKortixUrl && kortixToken) {
-		const kortixUrl = isValidUrl(rawKortixUrl) ? rawKortixUrl : FALLBACK_KORTIX_URL
+	// ── Priority 1: Cached provider from the running session ──
+	if (cachedProvider?.apiKey) {
+		const providerType = classifyProvider(cachedProvider.providerID)
+		const baseURL = cachedProvider.baseURL
+			? (isValidUrl(cachedProvider.baseURL) ? cachedProvider.baseURL : defaultBaseURL(cachedProvider.providerID))
+			: defaultBaseURL(cachedProvider.providerID)
+
+		const model = opts?.model ?? pickMemoryModel(cachedProvider.providerID, cachedProvider.modelID)
+
 		return {
-			type: "kortix",
-			baseURL: kortixUrl.replace(/\/+$/, ""),
-			apiKey: kortixToken,
-			model: opts?.model ?? KORTIX_MODEL,
+			type: providerType,
+			baseURL: baseURL.replace(/\/+$/, ""),
+			apiKey: cachedProvider.apiKey,
+			model,
 		}
 	}
 
-	// Priority 2: Anthropic API
-	const anthropicKey = opts?.anthropicKey ?? process.env.ANTHROPIC_API_KEY
+	// ── Priority 2: Environment variables (legacy) ──
+
+	// Kortix router
+	const kortixUrl = process.env.KORTIX_API_URL
+	const kortixToken = process.env.KORTIX_TOKEN
+	if (kortixUrl && kortixToken && isValidUrl(kortixUrl)) {
+		return {
+			type: "openai-compat",
+			baseURL: kortixUrl.replace(/\/+$/, ""),
+			apiKey: kortixToken,
+			model: opts?.model ?? FALLBACK_OPENAI_COMPAT_MODEL,
+		}
+	}
+
+	// Anthropic API key
+	const anthropicKey = process.env.ANTHROPIC_API_KEY
 	if (anthropicKey) {
-		const rawBaseUrl = opts?.anthropicBaseUrl ?? process.env.ANTHROPIC_BASE_URL ?? FALLBACK_ANTHROPIC_URL
-		const baseURL = (isValidUrl(rawBaseUrl) ? rawBaseUrl : FALLBACK_ANTHROPIC_URL).replace(/\/+$/, "")
+		const rawBaseUrl = process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com"
+		const baseURL = isValidUrl(rawBaseUrl) ? rawBaseUrl : "https://api.anthropic.com"
 		return {
 			type: "anthropic",
-			baseURL,
+			baseURL: baseURL.replace(/\/+$/, ""),
 			apiKey: anthropicKey,
-			model: opts?.model ?? ANTHROPIC_MODEL,
+			model: opts?.model ?? FALLBACK_ANTHROPIC_MODEL,
 		}
 	}
 
@@ -90,7 +187,7 @@ export function resolveLLMConfig(opts?: LLMOptions): LLMConfig | null {
 
 /**
  * Call an LLM with the given system prompt and user message.
- * Routes to the correct provider based on config.type.
+ * Routes to the correct API format based on config.type.
  * Returns the raw text response or null on error.
  */
 export async function callLLM(
@@ -101,13 +198,13 @@ export async function callLLM(
 	maxTokens?: number,
 ): Promise<string | null> {
 	try {
-		if (config.type === "kortix") {
-			return await callOpenAICompatible(config, system, userMessage, log, maxTokens)
-		} else {
+		if (config.type === "anthropic") {
 			return await callAnthropicAPI(config, system, userMessage, log, maxTokens)
+		} else {
+			return await callOpenAICompatible(config, system, userMessage, log, maxTokens)
 		}
 	} catch (err) {
-		log("warn", `[memory:llm] LLM call failed: ${err}`)
+		log("warn", `[memory:llm] LLM call failed (${config.type}/${config.model}): ${err}`)
 		return null
 	}
 }
@@ -121,9 +218,18 @@ async function callOpenAICompatible(
 	log: LogFn,
 	maxTokens?: number,
 ): Promise<string | null> {
-	// Append /v1/router if the base URL points to a Kortix API root (no path suffix)
-	const base = config.baseURL.endsWith("/v1/router") ? config.baseURL : `${config.baseURL}/v1/router`
-	const url = `${base}/chat/completions`
+	// Build the URL — handle various base URL formats
+	let url = config.baseURL
+	if (url.endsWith("/v1/router")) {
+		url = `${url}/chat/completions`
+	} else if (url.endsWith("/v1")) {
+		url = `${url}/chat/completions`
+	} else if (url.endsWith("/api")) {
+		url = `${url}/v1/chat/completions`
+	} else if (!url.includes("/chat/completions")) {
+		url = `${url}/v1/chat/completions`
+	}
+
 	const response = await fetch(url, {
 		method: "POST",
 		headers: {
@@ -142,7 +248,7 @@ async function callOpenAICompatible(
 
 	if (!response.ok) {
 		const text = await response.text().catch(() => "")
-		log("warn", `[memory:llm] Kortix API error ${response.status}: ${text.slice(0, 200)}`)
+		log("warn", `[memory:llm] OpenAI-compat API error ${response.status} (${url}): ${text.slice(0, 200)}`)
 		return null
 	}
 

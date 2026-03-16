@@ -239,9 +239,13 @@ export default function SettingUpPage() {
 
           if (!reconcileAttempted && checkoutSessionId && tierKey !== 'pro') {
             reconcileAttempted = true;
-            await backendApi.post('/billing/confirm-checkout-session', {
+            const confirmRes = await backendApi.post('/billing/confirm-checkout-session', {
               session_id: checkoutSessionId,
             }, { showErrors: false, timeout: 15000 });
+            // If confirm hard-fails (not just pending), bail to subscription page immediately
+            if (!confirmRes.success && (confirmRes.error as any)?.status === 400) {
+              return false;
+            }
           }
         }
       } catch {
@@ -393,8 +397,7 @@ export default function SettingUpPage() {
       if (subscriptionSuccess) {
         const activated = await waitForPaidActivation(isCurrentRun, 90000);
         if (!activated && isCurrentRun()) {
-          // Payment webhook still hasn't fired — send user to /subscription to retry
-          router.replace('/subscription?payment_pending=1');
+          router.replace('/subscription');
           return;
         }
       }

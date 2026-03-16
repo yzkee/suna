@@ -40,6 +40,7 @@ import { PresentationSlideSkeleton } from './PresentationSlideSkeleton';
 import { usePresentationViewerStore } from '@/stores/presentation-viewer-store';
 import { backendApi } from '@/lib/api-client';
 import { useDownloadRestriction } from '@/hooks/billing';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
 
 interface SlideMetadata {
   title: string;
@@ -73,6 +74,7 @@ export function PresentationViewer({
   project,
   showHeader = true,
 }: PresentationViewerProps) {
+  const { subdomainOpts } = useSandboxProxy();
   const [metadata, setMetadata] = useState<PresentationMetadata | null>(null);
 
   const [isLoadingMetadata, setIsLoadingMetadata] = useState(false);
@@ -312,7 +314,8 @@ export function PresentationViewer({
     try {
       const metadataUrl = constructHtmlPreviewUrl(
         project.sandbox.sandbox_url, 
-        `presentations/${sanitizedPresentationName}/metadata.json`
+        `presentations/${sanitizedPresentationName}/metadata.json`,
+        subdomainOpts
       );
       
       // Add cache-busting parameter to ensure fresh data
@@ -380,7 +383,7 @@ export function PresentationViewer({
       
       return;
     }
-  }, [extractedPresentationName, project?.sandbox?.sandbox_url, ensureSandboxActive]);
+  }, [extractedPresentationName, project?.sandbox?.sandbox_url, ensureSandboxActive, subdomainOpts]);
 
   // Poll for sandbox URL availability and listen for sandbox-active events
   useEffect(() => {
@@ -502,7 +505,8 @@ export function PresentationViewer({
         const sanitizedName = sanitizeFilename(presentationToLoad);
         const metadataUrl = constructHtmlPreviewUrl(
           project.sandbox!.sandbox_url!, 
-          `presentations/${sanitizedName}/metadata.json`
+          `presentations/${sanitizedName}/metadata.json`,
+          subdomainOpts
         );
         
         try {

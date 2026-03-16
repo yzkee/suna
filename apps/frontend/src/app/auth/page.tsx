@@ -732,6 +732,7 @@ function LoginContent() {
 import { isSelfHosted, isBillingEnabled } from '@/lib/config';
 import { SelfHostedForm, useInstallStatus } from '@/components/auth/self-hosted-auth';
 import { createClient as createBrowserSupabaseClient } from '@/lib/supabase/client';
+import { getEnv } from '@/lib/env-config';
 
 function SelfHostedLoginContent() {
   const router = useRouter();
@@ -758,7 +759,7 @@ function SelfHostedLoginContent() {
     let cancelled = false;
     const fetchStep = async () => {
       try {
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
+        const backendUrl = getEnv().BACKEND_URL || 'http://localhost:8008/v1';
         const supabaseClient = createBrowserSupabaseClient();
         const { data } = await supabaseClient.auth.getSession();
         const jwt = data.session?.access_token;
@@ -786,7 +787,7 @@ function SelfHostedLoginContent() {
     wizardStepRef.current = step;
     setWizardStep(step);
     // Persist step to backend (fire-and-forget)
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
+    const backendUrl = getEnv().BACKEND_URL || 'http://localhost:8008/v1';
     const supabaseClient = createBrowserSupabaseClient();
     supabaseClient.auth.getSession().then(({ data }) => {
       const jwt = data.session?.access_token;
@@ -806,7 +807,7 @@ function SelfHostedLoginContent() {
 
     const checkSandboxReady = async () => {
       try {
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
+        const backendUrl = getEnv().BACKEND_URL || 'http://localhost:8008/v1';
         const supabaseClient = createBrowserSupabaseClient();
         const { data } = await supabaseClient.auth.getSession();
         const jwt = data.session?.access_token;
@@ -820,8 +821,32 @@ function SelfHostedLoginContent() {
 
         if (statusData.status === 'ready') {
           // Sandbox is provisioned — check if the user already completed
-          // onboarding (existing users). If so, setup was implicitly done.
-          // Onboarding state is checked client-side in layout-content via sandbox /env directly.
+          // onboarding (existing users). If so, skip ALL wizard steps and
+          // go straight to the dashboard. Without this, returning users see
+          // the provider/tool-keys wizard flash on every login.
+          try {
+            const sandboxUrl = `${backendUrl}/p/kortix-sandbox/8000`;
+            const onboardingRes = await fetch(
+              `${sandboxUrl}/env/ONBOARDING_COMPLETE`,
+              {
+                headers: { 'Authorization': `Bearer ${jwt}` },
+                signal: AbortSignal.timeout(5000),
+              },
+            );
+            if (onboardingRes.ok) {
+              const onboardingData = await onboardingRes.json();
+              if (onboardingData?.ONBOARDING_COMPLETE === 'true') {
+                // Onboarding done — mark setup complete & redirect immediately.
+                // Don't set sandboxChecked (we're navigating away) so other
+                // effects don't race and redirect to /onboarding.
+                sessionStorage.setItem('setup_complete', 'true');
+                window.location.replace(returnUrl || '/dashboard');
+                return;
+              }
+            }
+          } catch {
+            // Sandbox env unreachable — fall through to setup-status check
+          }
 
           // Not onboarded yet — check DB setup status.
           // If check fails for any reason, default to showing the wizard
@@ -858,7 +883,7 @@ function SelfHostedLoginContent() {
       }
     };
     checkSandboxReady();
-  }, [isLoading, wizardStepLoading, user, installed, sandboxChecked, handleWizardStepChange]);
+  }, [isLoading, wizardStepLoading, user, installed, sandboxChecked, handleWizardStepChange, returnUrl]);
 
   useEffect(() => {
     if (isLoading || wizardStepLoading || !user || !sandboxChecked) return;
@@ -870,13 +895,16 @@ function SelfHostedLoginContent() {
     // onboarding or dashboard — don't re-show wizard steps the user finished.
     const setupDone = sessionStorage.getItem('setup_complete') === 'true';
     if (setupDone) {
-      // Always go to /onboarding — layout-content will redirect to /dashboard if ONBOARDING_COMPLETE=true
-      router.push(returnUrl || '/onboarding');
+      // Go to /dashboard — the dashboard layout checks ONBOARDING_COMPLETE
+      // and redirects to /onboarding only if needed. Going to /onboarding
+      // directly caused a BIOS boot screen flash on every login for users
+      // who already completed onboarding.
+      window.location.href = returnUrl || '/dashboard';
       return;
     }
     // Setup is not complete yet — stay on the auth wizard and let step 2/3 drive
     // the transition into onboarding instead of force-redirecting too early.
-  }, [user, isLoading, wizardStepLoading, installed, returnUrl, router, wizardStep, sandboxChecked]);
+  }, [user, isLoading, wizardStepLoading, installed, sandboxChecked, returnUrl, router]);
 
   // Keyboard controls: Enter/Space opens form, Escape closes it
   useEffect(() => {

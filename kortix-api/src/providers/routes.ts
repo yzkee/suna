@@ -204,7 +204,6 @@ export interface ProviderStatus {
   category: ProviderCategory;
   description?: string;
   helpUrl?: string;
-  recommended?: boolean;
   connected: boolean;
   source: 'secretstore' | 'env' | 'none';
   maskedKeys: Record<string, string>;
@@ -251,7 +250,6 @@ providersApp.get('/', async (c) => {
       category: def.category,
       description: def.description,
       helpUrl: def.helpUrl,
-      recommended: def.recommended,
       connected,
       source: connected ? sourceType : 'none',
       maskedKeys,

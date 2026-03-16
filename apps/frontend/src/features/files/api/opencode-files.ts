@@ -12,6 +12,7 @@
 import { getClient } from '@/lib/opencode-sdk';
 import { getActiveOpenCodeUrl } from '@/stores/server-store';
 import { getAuthToken, authenticatedFetch } from '@/lib/auth-token';
+import JSZip from 'jszip';
 import type {
   FileContent,
   FileNode,
@@ -150,6 +151,74 @@ export async function downloadFile(
   const a = document.createElement('a');
   a.href = url;
   a.download = fileName || filePath.split('/').pop() || 'download';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+/**
+ * Recursively list all files under a directory path.
+ * Returns flat array of absolute file paths.
+ */
+async function listAllFilesRecursive(dirPath: string): Promise<string[]> {
+  const entries = await listFiles(dirPath);
+  const results: string[] = [];
+  for (const entry of entries) {
+    if (entry.type === 'file') {
+      results.push(entry.path);
+    } else if (entry.type === 'directory') {
+      const nested = await listAllFilesRecursive(entry.path);
+      results.push(...nested);
+    }
+  }
+  return results;
+}
+
+/**
+ * Download a directory as a zip file.
+ * Recursively collects all files, bundles them with JSZip, and triggers download.
+ *
+ * @param dirPath - Absolute or relative path to the directory
+ * @param dirName - Name to use for the downloaded .zip file (defaults to directory name)
+ * @param onProgress - Optional callback with progress (0-1)
+ */
+export async function downloadDirectory(
+  dirPath: string,
+  dirName?: string,
+  onProgress?: (progress: number) => void,
+): Promise<void> {
+  const zip = new JSZip();
+  const name = dirName || dirPath.split('/').filter(Boolean).pop() || 'directory';
+
+  // Collect all file paths recursively
+  const allFiles = await listAllFilesRecursive(dirPath);
+
+  if (allFiles.length === 0) {
+    // Empty directory — create an empty zip with a placeholder
+    zip.file('.gitkeep', '');
+  } else {
+    // Fetch each file and add to zip, preserving relative structure
+    let done = 0;
+    for (const filePath of allFiles) {
+      // Make the path relative to the parent of dirPath
+      const relativePath = filePath.startsWith(dirPath + '/')
+        ? filePath.slice(dirPath.length + 1)
+        : filePath.split('/').pop() || filePath;
+
+      const blob = await readFileAsBlob(filePath);
+      zip.file(relativePath, blob);
+
+      done++;
+      if (onProgress) onProgress(done / allFiles.length);
+    }
+  }
+
+  const zipBlob = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(zipBlob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${name}.zip`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -342,18 +411,23 @@ export async function getFileStatus(): Promise<GitFileStatus[]> {
 
 /**
  * Find files and directories by name (fuzzy match).
+ * Uses the server-side /find/file endpoint.
  */
 export async function findFiles(
   query: string,
   options?: { type?: 'file' | 'directory'; limit?: number },
 ): Promise<string[]> {
-  const client = getClient();
-  const result = await client.find.files({
-    query,
-    type: options?.type,
-    limit: options?.limit,
-  });
-  return unwrap(result);
+  try {
+    const client = getClient();
+    const result = await client.find.files({
+      query,
+      type: options?.type,
+      limit: options?.limit,
+    });
+    return unwrap(result);
+  } catch {
+    return [];
+  }
 }
 
 /**

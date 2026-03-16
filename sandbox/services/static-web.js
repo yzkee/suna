@@ -10,6 +10,7 @@ const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
   ".mjs": "application/javascript; charset=utf-8",
+  ".cjs": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".map": "application/json; charset=utf-8",
   ".txt": "text/plain; charset=utf-8",
@@ -43,6 +44,11 @@ function getMime(filePath) {
   return MIME_TYPES[ext] || "application/octet-stream";
 }
 
+function isHtml(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  return ext === ".html" || ext === ".htm";
+}
+
 function toAbsPath(rawPath) {
   if (!rawPath || typeof rawPath !== "string") return null;
   const decoded = decodeURIComponent(rawPath).trim();
@@ -52,6 +58,93 @@ function toAbsPath(rawPath) {
 
 function isAllowed(absPath) {
   return ALLOWED_ROOTS.some((root) => absPath === root || absPath.startsWith(root + "/"));
+}
+
+/**
+ * Inject a <base> tag into an HTML document so that all relative URLs
+ * (./style.css, ../images/logo.png, script.js, etc.) resolve through the
+ * /abs/ route of THIS server rather than against the proxy origin.
+ *
+ * The base href points at the file's parent directory via the /abs/ route:
+ *   <base href="http://host/abs/workspace/project/">
+ *
+ * With this in place, the browser automatically resolves:
+ *   style.css  → http://host/abs/workspace/project/style.css  ✓
+ *   ../img/x.png → http://host/abs/workspace/img/x.png       ✓
+ */
+function injectBase(html, absFilePath, baseUrl) {
+  const dir = path.dirname(absFilePath);
+  // Build the base href — strip leading "/" then prepend /abs/
+  const baseHref = `${baseUrl}/abs${dir}/`;
+
+  const baseTag = `<base href="${baseHref}">`;
+
+  // Insert right after <head> if present, else right after <html>, else prepend
+  if (/<head(\s[^>]*)?>/i.test(html)) {
+    return html.replace(/(<head(\s[^>]*)?>)/i, `$1\n  ${baseTag}`);
+  }
+  if (/<html(\s[^>]*)?>/i.test(html)) {
+    return html.replace(/(<html(\s[^>]*)?>)/i, `$1\n${baseTag}`);
+  }
+  // No head/html tag at all (fragment) — prepend the base tag
+  return `${baseTag}\n${html}`;
+}
+
+function serveFile(absPath, baseUrl, injectBaseTag = false) {
+  try {
+    if (!isAllowed(absPath)) {
+      return new Response(`Forbidden path. Allowed roots: ${ALLOWED_ROOTS.join(", ")}`, {
+        status: 403,
+        headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders },
+      });
+    }
+    if (!fs.existsSync(absPath)) {
+      return new Response(`Not found: ${absPath}`, {
+        status: 404,
+        headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders },
+      });
+    }
+    const stat = fs.statSync(absPath);
+    if (stat.isDirectory()) {
+      // Auto-index: try index.html / index.htm
+      const indexHtml = path.join(absPath, "index.html");
+      const indexHtm = path.join(absPath, "index.htm");
+      if (fs.existsSync(indexHtml)) return serveFile(indexHtml, baseUrl, injectBaseTag);
+      if (fs.existsSync(indexHtm)) return serveFile(indexHtm, baseUrl, injectBaseTag);
+      return new Response(`Directory listing not supported. No index.html found in ${absPath}`, {
+        status: 404,
+        headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders },
+      });
+    }
+    if (!stat.isFile()) {
+      return new Response(`Not a file: ${absPath}`, {
+        status: 400,
+        headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders },
+      });
+    }
+
+    const mime = getMime(absPath);
+
+    // For HTML files loaded via /open?path=, inject a <base> tag so relative
+    // asset references (CSS, JS, images) resolve through the /abs/ route.
+    if (injectBaseTag && isHtml(absPath)) {
+      const raw = fs.readFileSync(absPath, "utf-8");
+      const patched = injectBase(raw, absPath, baseUrl);
+      return new Response(patched, {
+        headers: { "Content-Type": mime, ...corsHeaders },
+      });
+    }
+
+    const data = fs.readFileSync(absPath);
+    return new Response(data, {
+      headers: { "Content-Type": mime, ...corsHeaders },
+    });
+  } catch (e) {
+    return new Response(`Read error: ${e?.message || String(e)}`, {
+      status: 500,
+      headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders },
+    });
+  }
 }
 
 function buildHelpHtml(baseUrl) {
@@ -73,57 +166,29 @@ function buildHelpHtml(baseUrl) {
   </head>
   <body>
     <h1>Static Web Server (always on)</h1>
-    <p class="muted">Serve standalone HTML and assets by absolute path.</p>
+    <p class="muted">Serve any HTML file with full relative-asset support (CSS, JS, images, fonts…).</p>
     <div class="box">
       <h2>Usage</h2>
       <ul>
-        <li>Path style: <code>${baseUrl}/abs/workspace/path/to/file.html</code></li>
-        <li>Query style: <code>${baseUrl}/open?path=/workspace/path/to/file.html</code></li>
+        <li>Entry point (injects &lt;base&gt; for relative assets):
+          <code>${baseUrl}/open?path=/workspace/project/index.html</code></li>
+        <li>Direct asset path: <code>${baseUrl}/abs/workspace/project/style.css</code></li>
+        <li>Health check: <code>${baseUrl}/health</code></li>
       </ul>
+    </div>
+    <div class="box">
+      <h2>How relative assets work</h2>
+      <p>When you open a file via <code>/open?path=…</code>, the server injects a
+      <code>&lt;base href="${baseUrl}/abs/path/to/dir/"&gt;</code> tag so the browser
+      resolves <code>./style.css</code>, <code>../images/logo.png</code>, etc. through
+      this server automatically — no changes to your HTML required.</p>
     </div>
     <div class="box">
       <h2>Allowed roots</h2>
       <ul>${roots}</ul>
     </div>
-    <div class="box">
-      <h2>SHOW tool tip</h2>
-      <p>For file-based HTML previews, use <code>show(type="url", url="${baseUrl}/open?path=/workspace/your.html")</code>.</p>
-    </div>
   </body>
 </html>`;
-}
-
-function serveFile(absPath) {
-  try {
-    if (!isAllowed(absPath)) {
-      return new Response(`Forbidden path. Allowed roots: ${ALLOWED_ROOTS.join(", ")}`, {
-        status: 403,
-        headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders },
-      });
-    }
-    if (!fs.existsSync(absPath)) {
-      return new Response(`Not found: ${absPath}`, {
-        status: 404,
-        headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders },
-      });
-    }
-    const stat = fs.statSync(absPath);
-    if (!stat.isFile()) {
-      return new Response(`Not a file: ${absPath}`, {
-        status: 400,
-        headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders },
-      });
-    }
-    const data = fs.readFileSync(absPath);
-    return new Response(data, {
-      headers: { "Content-Type": getMime(absPath), ...corsHeaders },
-    });
-  } catch (e) {
-    return new Response(`Read error: ${e?.message || String(e)}`, {
-      status: 500,
-      headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders },
-    });
-  }
 }
 
 Bun.serve({
@@ -134,12 +199,27 @@ Bun.serve({
     const baseUrl = `${url.protocol}//${url.host}`;
     const pathname = decodeURIComponent(url.pathname);
 
+    // CORS preflight
+    if (req.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders });
+    }
+
+    // Health check
+    if (pathname === "/health") {
+      return new Response(JSON.stringify({ status: "ok", port: PORT }), {
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+
+    // Root — help page
     if (pathname === "/" || pathname === "/index.html") {
       return new Response(buildHelpHtml(baseUrl), {
         headers: { "Content-Type": "text/html; charset=utf-8", ...corsHeaders },
       });
     }
 
+    // /open?path=/abs/path/to/file  — entry-point loader
+    // Injects <base> tag so all relative assets resolve through /abs/
     if (pathname === "/open") {
       const p = url.searchParams.get("path");
       const absPath = toAbsPath(p || "");
@@ -149,9 +229,11 @@ Bun.serve({
           headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders },
         });
       }
-      return serveFile(absPath);
+      return serveFile(absPath, baseUrl, /* injectBase= */ true);
     }
 
+    // /abs/workspace/project/style.css  — direct asset serving (no base injection)
+    // This is what the browser uses for all relative URLs after <base> is injected.
     if (pathname.startsWith("/abs/")) {
       const rawPath = "/" + pathname.slice("/abs/".length);
       const absPath = toAbsPath(rawPath);
@@ -161,7 +243,7 @@ Bun.serve({
           headers: { "Content-Type": "text/plain; charset=utf-8", ...corsHeaders },
         });
       }
-      return serveFile(absPath);
+      return serveFile(absPath, baseUrl, /* injectBase= */ false);
     }
 
     return new Response("Not found", {
@@ -172,3 +254,6 @@ Bun.serve({
 });
 
 console.log(`[static-web] Ready at http://0.0.0.0:${PORT}`);
+console.log(`[static-web]   /open?path=/workspace/project/index.html  (entry point, injects <base>)`);
+console.log(`[static-web]   /abs/workspace/project/style.css           (asset serving)`);
+console.log(`[static-web]   /health                                    (health check)`);

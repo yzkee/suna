@@ -3,10 +3,14 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import {
   ArrowUp,
+  ArrowDown,
   ArrowUpLeft,
   ChevronDown,
   Check,
+  CornerDownLeft,
   GitFork,
+  Info,
+  Infinity,
   Loader2,
   Paperclip,
   X,
@@ -28,6 +32,13 @@ import {
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -46,6 +57,17 @@ import { useSummarizeOpenCodeSession, findOpenCodeFiles, useOpenCodeSessions, us
 import type { Session } from '@/hooks/opencode/use-opencode-sessions';
 import { toast } from '@/lib/toast';
 import { useMessageQueueStore } from '@/stores/message-queue-store';
+import {
+  CommandPopover,
+  CommandPopoverTrigger,
+  CommandPopoverContent,
+  CommandInput,
+  CommandList,
+  CommandGroup,
+  CommandItem,
+  CommandFooter,
+  CommandKbd,
+} from '@/components/ui/command';
 
 export type { ProviderListResponse };
 
@@ -143,15 +165,12 @@ function AgentSelector({
   onSelect: (agentName: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const [flash, setFlash] = useState(false);
-  const [focusedIndex, setFocusedIndex] = useState(-1);
-  const ref = useRef<HTMLDivElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
   const prevAgentRef = useRef(selectedAgent);
 
   const primaryAgents = useMemo(() => agents.filter((a) => a.mode !== 'subagent'), [agents]);
   const subAgents = useMemo(() => agents.filter((a) => a.mode === 'subagent'), [agents]);
-  const allOrdered = useMemo(() => [...primaryAgents, ...subAgents], [primaryAgents, subAgents]);
 
   // Flash highlight when agent changes (e.g. via Tab cycling)
   useEffect(() => {
@@ -167,167 +186,146 @@ function AgentSelector({
     prevAgentRef.current = selectedAgent;
   }, [selectedAgent]);
 
-  // Close on outside click
+  // Reset search when closing
   useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    if (open) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
+    if (!open) setSearch('');
   }, [open]);
 
-  // Reset focus index when opening
-  useEffect(() => {
-    if (open) {
-      const idx = allOrdered.findIndex((a) => a.name === selectedAgent);
-      setFocusedIndex(idx >= 0 ? idx : 0);
-    }
-  }, [open, allOrdered, selectedAgent]);
+  // Fuzzy filter
+  const filteredPrimary = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return primaryAgents;
+    return primaryAgents.filter((a) =>
+      a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q),
+    );
+  }, [primaryAgents, search]);
 
-  // Scroll focused item into view
-  useEffect(() => {
-    if (!open || focusedIndex < 0) return;
-    const el = listRef.current?.querySelector(`[data-agent-index="${focusedIndex}"]`) as HTMLElement | null;
-    el?.scrollIntoView({ block: 'nearest' });
-  }, [focusedIndex, open]);
-
-  // Keyboard navigation
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (!open) return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setFocusedIndex((prev) => Math.min(prev + 1, allOrdered.length - 1));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setFocusedIndex((prev) => Math.max(prev - 1, 0));
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (focusedIndex >= 0 && focusedIndex < allOrdered.length) {
-        onSelect(allOrdered[focusedIndex].name);
-        setOpen(false);
-      }
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      setOpen(false);
-    }
-  }, [open, focusedIndex, allOrdered, onSelect]);
+  const filteredSub = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return subAgents;
+    return subAgents.filter((a) =>
+      a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q),
+    );
+  }, [subAgents, search]);
 
   const currentAgent = agents.find((a) => a.name === selectedAgent) || agents[0];
   const displayName = currentAgent?.name || 'Agent';
 
   return (
-    <div className="relative" ref={ref} onKeyDown={handleKeyDown}>
+    <CommandPopover open={open} onOpenChange={setOpen}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={() => setOpen(!open)}
-            className={cn(
-              "inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200 capitalize cursor-pointer",
-              flash && "bg-primary/10 text-foreground",
-              open && "bg-muted text-foreground",
-            )}
-          >
-            <span className="truncate max-w-[100px]">{displayName}</span>
-            <ChevronDown className={cn('size-3 opacity-50 transition-transform duration-200', open && 'rotate-180')} />
-          </button>
+          <CommandPopoverTrigger>
+            <button
+              type="button"
+              className={cn(
+                'inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-all duration-200 capitalize cursor-pointer',
+                flash && 'bg-primary/10 text-foreground',
+                open && 'bg-muted text-foreground',
+              )}
+            >
+              <span className="truncate max-w-[100px]">{displayName}</span>
+              <ChevronDown className={cn('size-3 opacity-50 transition-transform duration-200', open && 'rotate-180')} />
+            </button>
+          </CommandPopoverTrigger>
         </TooltipTrigger>
         <TooltipContent side="top" className="text-xs">
           <p>Switch agent <kbd className="ml-1 px-1.5 py-0.5 rounded bg-foreground/10 text-[10px] font-mono">Tab</kbd></p>
         </TooltipContent>
       </Tooltip>
 
-      {open && (
-        <div className="absolute bottom-full left-0 mb-1.5 z-50 bg-popover border border-border rounded-xl overflow-hidden min-w-[240px] max-w-[320px] animate-in fade-in-0 slide-in-from-bottom-2 duration-150">
-          <div ref={listRef} className="max-h-[320px] overflow-y-auto p-1">
-            {/* Primary agents */}
-            {primaryAgents.length > 0 && (
-              <div className="px-2.5 pt-1.5 pb-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Agents</div>
-            )}
-            {primaryAgents.map((agent) => {
-              const globalIdx = allOrdered.indexOf(agent);
-              const isSelected = selectedAgent === agent.name || (!selectedAgent && agent === agents[0]);
-              const isFocused = focusedIndex === globalIdx;
-              return (
-                <button
-                  key={agent.name}
-                  data-agent-index={globalIdx}
-                  onClick={() => {
-                    onSelect(agent.name);
-                    setOpen(false);
-                  }}
-                  onMouseEnter={() => setFocusedIndex(globalIdx)}
-                  className={cn(
-                    'w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-[13px] transition-colors cursor-pointer group',
-                    isFocused ? 'bg-muted' : 'hover:bg-muted',
-                    isSelected && !isFocused && 'bg-muted/50',
-                  )}
-                >
-                  <div className="flex-1 min-w-0 text-left">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-medium truncate capitalize">{agent.name}</span>
-                      {isSelected && <Check className="size-3 text-foreground shrink-0" />}
-                    </div>
-                    {agent.description && (
-                      <p className="text-[11px] text-muted-foreground leading-snug mt-0.5 line-clamp-1">{agent.description}</p>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
+      <CommandPopoverContent side="top" align="start" sideOffset={8} className="w-[300px]">
+        <CommandInput
+          compact
+          placeholder="Search agents..."
+          value={search}
+          onValueChange={setSearch}
+        />
 
-            {/* Sub-agents */}
-            {subAgents.length > 0 && (
-              <>
-                {primaryAgents.length > 0 && <div className="mx-2 my-1 border-t border-border" />}
-                <div className="px-2.5 pt-1.5 pb-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Sub-agents</div>
-                {subAgents.map((agent) => {
-                  const globalIdx = allOrdered.indexOf(agent);
-                  const isSelected = selectedAgent === agent.name;
-                  const isFocused = focusedIndex === globalIdx;
-                  return (
-                    <button
-                      key={agent.name}
-                      data-agent-index={globalIdx}
-                      onClick={() => {
-                        onSelect(agent.name);
-                        setOpen(false);
-                      }}
-                      onMouseEnter={() => setFocusedIndex(globalIdx)}
-                      className={cn(
-                        'w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-[13px] transition-colors cursor-pointer group',
-                        isFocused ? 'bg-muted' : 'hover:bg-muted',
-                        isSelected && !isFocused && 'bg-muted/50',
-                      )}
-                    >
-                      <div className="flex-1 min-w-0 text-left">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-medium truncate capitalize">{agent.name}</span>
-                          {isSelected && <Check className="size-3 text-foreground shrink-0" />}
-                        </div>
-                        {agent.description && (
-                          <p className="text-[11px] text-muted-foreground leading-snug mt-0.5 line-clamp-1">{agent.description}</p>
-                        )}
+        <CommandList className="max-h-[320px]">
+          {/* Primary agents */}
+          {filteredPrimary.length > 0 && (
+            <CommandGroup heading="Agents" forceMount>
+              {filteredPrimary.map((agent) => {
+                const isSelected = selectedAgent === agent.name || (!selectedAgent && agent === agents[0]);
+                return (
+                  <CommandItem
+                    key={agent.name}
+                    value={`agent-${agent.name}`}
+                    onSelect={() => {
+                      onSelect(agent.name);
+                      setOpen(false);
+                    }}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-medium truncate capitalize">{agent.name}</span>
                       </div>
-                    </button>
-                  );
-                })}
-              </>
-            )}
-          </div>
+                      {agent.description && (
+                        <p className="text-[11px] text-muted-foreground/50 leading-snug mt-0.5 line-clamp-1">{agent.description}</p>
+                      )}
+                    </div>
+                    {isSelected && <Check className="size-3.5 text-foreground shrink-0" />}
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          )}
 
-          {/* Footer hint */}
-          <div className="border-t border-border px-2.5 py-1.5 flex items-center justify-between text-[10px] text-muted-foreground">
-            <span><kbd className="px-1.5 py-0.5 rounded bg-foreground/10 font-mono">↑↓</kbd> navigate</span>
-            <span><kbd className="px-1.5 py-0.5 rounded bg-foreground/10 font-mono">Tab</kbd> cycle</span>
+          {/* Sub-agents */}
+          {filteredSub.length > 0 && (
+            <CommandGroup heading="Sub-agents" forceMount>
+              {filteredSub.map((agent) => {
+                const isSelected = selectedAgent === agent.name;
+                return (
+                  <CommandItem
+                    key={agent.name}
+                    value={`subagent-${agent.name}`}
+                    onSelect={() => {
+                      onSelect(agent.name);
+                      setOpen(false);
+                    }}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-medium truncate capitalize">{agent.name}</span>
+                      </div>
+                      {agent.description && (
+                        <p className="text-[11px] text-muted-foreground/50 leading-snug mt-0.5 line-clamp-1">{agent.description}</p>
+                      )}
+                    </div>
+                    {isSelected && <Check className="size-3.5 text-foreground shrink-0" />}
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          )}
+
+          {/* No results */}
+          {filteredPrimary.length === 0 && filteredSub.length === 0 && search.trim() && (
+            <div className="py-8 text-center text-xs text-muted-foreground/50">
+              No agents match &ldquo;{search.trim()}&rdquo;
+            </div>
+          )}
+        </CommandList>
+
+        <CommandFooter>
+          <div className="flex items-center gap-1">
+            <ArrowUp className="h-3 w-3" />
+            <ArrowDown className="h-3 w-3" />
+            <span>navigate</span>
           </div>
-        </div>
-      )}
-    </div>
+          <div className="flex items-center gap-1">
+            <CornerDownLeft className="h-3 w-3" />
+            <span>select</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <CommandKbd>Tab</CommandKbd>
+            <span>cycle</span>
+          </div>
+        </CommandFooter>
+      </CommandPopoverContent>
+    </CommandPopover>
   );
 }
 
@@ -374,6 +372,335 @@ function VariantSelector({
         <p className="text-xs">Cycle thinking effort</p>
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+// ============================================================================
+// AutoContinue Mode Selector
+// ============================================================================
+
+/** Known autocontinue algorithm IDs — maps to slash command names */
+export type AutoContinueMode = 'autowork' | 'autowork1' | 'autowork2' | 'autowork3' | 'orchestrate';
+
+interface AutoContinueAlgorithm {
+  id: AutoContinueMode;
+  label: string;
+  role: string;
+  description: string;
+  commandName: string;
+  bestFor: string;
+  strengths: string[];
+  weaknesses: string[];
+  howItWorks: string;
+}
+
+const AUTOCONTINUE_ALGORITHMS: AutoContinueAlgorithm[] = [
+  {
+    id: 'autowork',
+    label: 'Kraemer',
+    role: 'Executor',
+    description: 'Fast TDD loop — reliable for clear specs',
+    commandName: 'autowork',
+    bestFor: 'Clear specs, coding tasks, "just build it" work',
+    strengths: [
+      'Reliable and balanced speed/cost',
+      'Solid TDD discipline — writes tests first, implements, verifies',
+      'No overhead from extra validation passes',
+    ],
+    weaknesses: [
+      'Can miss subtle edge cases that need deeper second-pass reasoning',
+      'No adversarial self-review — trusts its own DONE claim',
+    ],
+    howItWorks: 'The original autowork algorithm. Runs an autonomous loop where the agent works until it emits DONE, then enters a verification phase where it self-reviews and emits VERIFIED. Simple binary loop — no staged validators, no critic, no phase system. The agent drives its own process.',
+  },
+  {
+    id: 'autowork1',
+    label: 'Kubet',
+    role: 'Validator',
+    description: 'Adversarial review — catches hidden issues',
+    commandName: 'autowork1',
+    bestFor: 'Correctness-critical tasks — ops planning, complex logic, risk analysis',
+    strengths: [
+      'Catches hidden issues through forced adversarial self-review',
+      'Most reliable outcomes across all task types',
+      '3-level validator pipeline ensures nothing slips through',
+      'Async process critic monitors efficiency during work',
+    ],
+    weaknesses: [
+      'Slower and more expensive due to validation passes',
+      'May over-engineer simple tasks that don\'t need 3 levels of review',
+    ],
+    howItWorks: 'After the agent claims DONE, the system drives it through a 3-level validator pipeline:\n\nLevel 1 (Format) — Are all files valid? Does the build pass? Any syntax errors?\nLevel 2 (Quality) — Do tests pass? Are requirements traced? Any anti-patterns?\nLevel 3 (Top-Notch) — Adversarial edge cases, performance review, regression sweep.\n\nThe agent must pass each level before advancing. If a level fails, the agent fixes issues and retries that level.\n\nDuring the work phase, an async process critic fires periodically to check: is the agent going in circles? Skipping tests? Gold-plating? The critic injects course-correction prompts without interrupting the task itself.\n\nThe agent cannot skip validators by emitting DONE and VERIFIED together — the system forces the full pipeline.',
+  },
+  {
+    id: 'autowork2',
+    label: 'Ino',
+    role: 'Decomposer',
+    description: 'Kanban cards — structured per-module work',
+    commandName: 'autowork2',
+    bestFor: 'Multi-domain tasks — investigations, audits, research, modular systems',
+    strengths: [
+      'Strong structured breakdown into discrete work units',
+      'Each card goes through its own review/test cycle',
+      'Thorough coverage of individual domains',
+    ],
+    weaknesses: [
+      'Can underscope — if it doesn\'t create cards for all requirements, the system won\'t catch it',
+      'Integration mistakes between independently-built parts',
+      'Most expensive due to per-card overhead',
+    ],
+    howItWorks: 'Work is organized as a kanban board. The agent decomposes the task into cards, each prefixed with a stage:\n\n[BACKLOG] — Waiting to start\n[IN PROGRESS] — Currently being worked on (max 1 at a time)\n[REVIEW] — Self-review checkpoint\n[TESTING] — Run tests for this specific card\n[DONE] — Fully verified\n\nCards progress through stages in order. The system monitors todo items for these prefixes and provides stage-aware continuation prompts. If the agent claims DONE but cards aren\'t all in [DONE], the system rejects it.\n\nAfter all cards complete, a final integration check runs across the entire project.',
+  },
+  {
+    id: 'autowork3',
+    label: 'Saumya',
+    role: 'Architect',
+    description: 'Entropy search — diverge then compress',
+    commandName: 'autowork3',
+    bestFor: 'Design, strategy, architecture — problems with ambiguity',
+    strengths: [
+      'Fastest and cheapest across all tasks',
+      'Produces clean, well-architected solutions',
+      'Genuine strategic exploration — not fake variations',
+    ],
+    weaknesses: [
+      'Implementation detail correctness can slip',
+      'Upfront exploration adds no value on spec-driven tasks',
+      'Tests may validate internal components without catching integration bugs',
+    ],
+    howItWorks: 'Uses controlled entropy scheduling — high entropy in search, low entropy in execution.\n\nThe system drives the agent through 5 phases:\n\n1. EXPAND (high entropy) — Reframe the task 5+ ways, list hidden assumptions, generate diverse solution families across multiple lenses.\n\n2. BRANCH (high entropy) — Crystallize 3-5 materially different candidate approaches. Each must differ in strategy, not wording.\n\n3. ATTACK (medium entropy) — Candidates cross-attack each other. Find failure modes, blind spots, merge strongest parts.\n\n4. RANK (low entropy) — Score by robustness/novelty/feasibility. Pick ONE path. No hedging.\n\n5. COMPRESS (minimal entropy) — Execute the ranked winner with TDD. No re-exploring.\n\nThe agent emits phase markers (<phase>X-done</phase>) and the system advances it. DONE before the compress phase is rejected as premature convergence.',
+  },
+  {
+    id: 'orchestrate',
+    label: 'Orchestrate',
+    role: 'Spawner',
+    description: 'Multi-session — parallel workers',
+    commandName: 'orchestrate',
+    bestFor: 'Large tasks that can be parallelized across independent sub-tasks',
+    strengths: [
+      'Parallel execution across multiple sessions',
+      'Good for large codebases with independent modules',
+    ],
+    weaknesses: [
+      'Coordination overhead between sessions',
+      'Not suitable for tightly-coupled work',
+    ],
+    howItWorks: 'Spawns multiple worker sessions that execute sub-tasks in parallel. The orchestrator decomposes the task, assigns work to workers, and aggregates results. Best for work that naturally splits into independent units.',
+  },
+];
+
+/** Infinity icon with a diagonal slash — visual "off" state */
+function InfinityOff({ className, strokeWidth = 2 }: { className?: string; strokeWidth?: number }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      {/* Infinity path (same as lucide Infinity) */}
+      <path d="M12 12c-2-2.67-4-4-6-4a4 4 0 1 0 0 8c2 0 4-1.33 6-4Zm0 0c2 2.67 4 4 6 4a4 4 0 0 0 0-8c-2 0-4 1.33-6 4Z" />
+      {/* Diagonal slash */}
+      <line x1="4" y1="4" x2="20" y2="20" />
+    </svg>
+  );
+}
+
+function AutoContinueSelector({
+  selected,
+  onSelect,
+  commands,
+}: {
+  selected: AutoContinueMode | null;
+  onSelect: (mode: AutoContinueMode | null) => void;
+  commands: Command[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [detailAlg, setDetailAlg] = useState<AutoContinueAlgorithm | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const available = useMemo(
+    () =>
+      AUTOCONTINUE_ALGORITHMS.filter((alg) =>
+        commands.some((c) => c.name === alg.commandName),
+      ),
+    [commands],
+  );
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [open]);
+
+  if (available.length === 0) return null;
+
+  const isActive = selected !== null;
+  const currentAlg = available.find((a) => a.id === selected);
+
+  return (
+    <>
+      <div className="relative" ref={ref}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => setOpen(!open)}
+              className={cn(
+                'inline-flex items-center gap-1 h-8 px-2 rounded-xl text-xs font-medium transition-all duration-200 cursor-pointer',
+                isActive
+                  ? 'text-primary bg-primary/10 hover:bg-primary/15'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+              )}
+            >
+              {isActive ? (
+                <Infinity className="size-4" strokeWidth={2.5} />
+              ) : (
+                <InfinityOff className="size-4" />
+              )}
+              {isActive && currentAlg && (
+                <span className="text-[11px]">{currentAlg.label}</span>
+              )}
+              <ChevronDown className={cn('size-3 opacity-50 transition-transform duration-200', open && 'rotate-180')} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-xs">
+            {isActive
+              ? `AutoContinue: ${currentAlg?.label}`
+              : 'AutoContinue off'}
+          </TooltipContent>
+        </Tooltip>
+
+        {open && (
+          <div className="absolute bottom-full left-0 mb-1.5 z-50 bg-popover border border-border rounded-xl overflow-hidden min-w-[300px] animate-in fade-in-0 slide-in-from-bottom-2 duration-150">
+            <div className="p-1">
+              <div className="px-2.5 pt-1.5 pb-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                AutoContinue
+              </div>
+
+              {/* Off option */}
+              <button
+                onClick={() => { onSelect(null); setOpen(false); }}
+                className={cn(
+                  'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] transition-colors cursor-pointer',
+                  !isActive ? 'bg-muted' : 'hover:bg-muted',
+                )}
+              >
+                <InfinityOff className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="font-medium flex-1 text-left">Off</span>
+                {!isActive && <Check className="size-3 text-foreground shrink-0" />}
+              </button>
+
+              <div className="mx-2 my-1 border-t border-border" />
+
+              {/* Algorithm options — compact rows */}
+              {available.map((alg) => {
+                const isSelected = selected === alg.id;
+                return (
+                  <div
+                    key={alg.id}
+                    className={cn(
+                      'flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] transition-colors',
+                      isSelected ? 'bg-muted' : 'hover:bg-muted',
+                    )}
+                  >
+                    <button
+                      onClick={() => { onSelect(alg.id); setOpen(false); }}
+                      className="flex items-center gap-2 flex-1 min-w-0 text-left cursor-pointer"
+                    >
+                      <span className="font-medium shrink-0">{alg.label}</span>
+                      <span className="text-[10px] text-muted-foreground/70 shrink-0">{alg.role}</span>
+                      <span className="text-[11px] text-muted-foreground truncate">{alg.description}</span>
+                      {isSelected && <Check className="size-3 text-foreground shrink-0 ml-auto" />}
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDetailAlg(alg); setOpen(false); }}
+                      className="shrink-0 p-0.5 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted-foreground/10 transition-colors cursor-pointer"
+                    >
+                      <Info className="size-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Algorithm detail dialog */}
+      <Dialog open={detailAlg !== null} onOpenChange={(v) => { if (!v) setDetailAlg(null); }}>
+        <DialogContent className="max-w-lg" aria-describedby="alg-detail-desc">
+          {detailAlg && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center gap-3">
+                  <Infinity className="size-5 text-primary" strokeWidth={2.5} />
+                  <DialogTitle className="text-lg">{detailAlg.label}</DialogTitle>
+                  <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full font-medium">
+                    {detailAlg.role}
+                  </span>
+                </div>
+                <DialogDescription id="alg-detail-desc">
+                  {detailAlg.description}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4 mt-2">
+                {/* Best for */}
+                <div>
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Best for</h4>
+                  <p className="text-sm">{detailAlg.bestFor}</p>
+                </div>
+
+                {/* Strengths & weaknesses side by side */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Strengths</h4>
+                    <ul className="space-y-1">
+                      {detailAlg.strengths.map((s, i) => (
+                        <li key={i} className="text-sm text-muted-foreground flex gap-1.5">
+                          <span className="text-green-500 shrink-0 mt-0.5">+</span>
+                          <span>{s}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Weaknesses</h4>
+                    <ul className="space-y-1">
+                      {detailAlg.weaknesses.map((w, i) => (
+                        <li key={i} className="text-sm text-muted-foreground flex gap-1.5">
+                          <span className="text-orange-500 shrink-0 mt-0.5">-</span>
+                          <span>{w}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+
+                {/* How it works */}
+                <div>
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">How it works</h4>
+                  <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line bg-muted/50 rounded-lg p-3">
+                    {detailAlg.howItWorks}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -941,8 +1268,16 @@ export interface SessionChatInputProps {
   replyTo?: { text: string } | null;
   /** Callback to clear the reply context */
   onClearReply?: () => void;
-  /** When true, hide freeform composer while a structured question is active */
+  /** When true, a structured question is active — send submits a custom answer instead of a chat message */
   lockForQuestion?: boolean;
+  /** Called instead of onSend when lockForQuestion is true and the user submits text */
+  onCustomAnswer?: (text: string) => void;
+  /** Label for the send button when a question is active (e.g. "Next", "Submit"). Null = default arrow icon. */
+  questionButtonLabel?: string | null;
+  /** Whether the question action can be performed (controls send button disabled state during questions). */
+  questionCanAct?: boolean;
+  /** Called when the send button is clicked during a question and there's no text (i.e. the action is next/submit, not a custom answer). */
+  onQuestionAction?: () => void;
 }
 
 export function SessionChatInput({
@@ -974,6 +1309,10 @@ export function SessionChatInput({
   replyTo,
   onClearReply,
   lockForQuestion = false,
+  onCustomAnswer,
+  questionButtonLabel = null,
+  questionCanAct = true,
+  onQuestionAction,
 }: SessionChatInputProps) {
   const placeholderVariants = useMemo(
     () => [
@@ -1002,6 +1341,7 @@ export function SessionChatInput({
   const [slashIndex, setSlashIndex] = useState(0);
   const [stagedCommand, setStagedCommand] = useState<Command | null>(null);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [autocontinueMode, setAutocontinueMode] = useState<AutoContinueMode | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragDepthRef = useRef(0);
 
@@ -1043,7 +1383,7 @@ export function SessionChatInput({
     };
 
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if (disabled || lockForQuestion) return;
+      if (disabled) return;
       if (e.defaultPrevented) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (typeof e.key !== 'string') return;
@@ -1065,7 +1405,7 @@ export function SessionChatInput({
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [disabled, lockForQuestion]);
+  }, [disabled]);
 
   // Sessions for @ mention search
   const { data: allSessions } = useOpenCodeSessions();
@@ -1364,11 +1704,48 @@ export function SessionChatInput({
       return;
     }
 
+    // If a question is active, route through question logic
+    if (lockForQuestion) {
+      const trimmed = text.trim();
+      if (trimmed && onCustomAnswer) {
+        // User typed a custom answer — submit it
+        onCustomAnswer(trimmed);
+        setText('');
+        if (textareaRef.current) textareaRef.current.style.height = 'auto';
+        return;
+      }
+      // No text — perform the question action (next/submit)
+      if (onQuestionAction) {
+        onQuestionAction();
+        return;
+      }
+      return;
+    }
+
     const trimmed = text.trim();
     if ((!trimmed && attachedFiles.length === 0) || disabled) return;
 
     // Push to prompt history (persisted to localStorage)
     if (trimmed) pushHistory(trimmed);
+
+    // AutoContinue intercept: when a mode is armed, route through the
+    // corresponding slash command instead of a plain send. The user's
+    // text becomes the command's args (= the task description).
+    if (autocontinueMode && onCommand) {
+      const alg = AUTOCONTINUE_ALGORITHMS.find((a) => a.id === autocontinueMode);
+      const cmd = alg && commands.find((c) => c.name === alg.commandName);
+      if (cmd) {
+        onCommand(cmd, trimmed || undefined);
+        setText('');
+        setSlashFilter(null);
+        setMentionQuery(null);
+        setMentions([]);
+        for (const af of attachedFiles) URL.revokeObjectURL(af.localUrl);
+        setAttachedFiles([]);
+        if (textareaRef.current) textareaRef.current.style.height = 'auto';
+        return;
+      }
+    }
 
     // Snapshot files and mentions before clearing
     const filesToSend = attachedFiles.length > 0 ? [...attachedFiles] : undefined;
@@ -1400,7 +1777,7 @@ export function SessionChatInput({
       // Restore the text so the user can retry
       setText(trimmed);
     }
-  }, [text, isBusy, disabled, onSend, onCommand, stagedCommand, attachedFiles, mentions, sessionId, enqueue, pushHistory]);
+  }, [text, isBusy, disabled, onSend, onCommand, stagedCommand, attachedFiles, mentions, sessionId, enqueue, pushHistory, lockForQuestion, onCustomAnswer, onQuestionAction, autocontinueMode, commands]);
 
   const handleSelectCommand = (cmd: Command) => {
     // Stage the command — show an args input instead of executing immediately
@@ -1748,14 +2125,7 @@ export function SessionChatInput({
           )}
 
           <div
-            aria-hidden={lockForQuestion}
-            className={cn(
-              "flex flex-col gap-1 px-3.5 overflow-hidden transition-[max-height,opacity,transform] ease-in-out",
-              lockForQuestion ? "duration-500" : "duration-800 delay-75",
-              lockForQuestion
-                ? "max-h-0 opacity-0 -translate-y-1 pointer-events-none"
-                : "max-h-[320px] opacity-100 translate-y-0",
-            )}
+            className="flex flex-col gap-1 px-3.5 max-h-[320px] opacity-100 translate-y-0"
           >
             <div className="relative w-full">
               {/* Add to queue button — floats top-right of textarea when busy and text is typed */}
@@ -1780,6 +2150,11 @@ export function SessionChatInput({
                   aria-hidden
                   className="absolute left-0.5 top-4 h-6 w-[calc(100%-0.5rem)] text-[16px] sm:text-[15px] text-muted-foreground pointer-events-none overflow-hidden"
                 >
+                  {lockForQuestion ? (
+                    <div className="absolute inset-0">
+                      {questionButtonLabel ? 'Or type your own answer...' : 'Type your answer...'}
+                    </div>
+                  ) : (
                   <AnimatePresence mode="wait" initial={false}>
                     <motion.div
                       key={`${placeholderIndex}:${placeholderVariants[placeholderIndex]}`}
@@ -1799,6 +2174,7 @@ export function SessionChatInput({
                       {placeholderVariants[placeholderIndex]}
                     </motion.div>
                   </AnimatePresence>
+                  )}
                 </div>
               )}
               {text.trim().length === 0 && stagedCommand && (
@@ -1843,7 +2219,7 @@ export function SessionChatInput({
                 }}
                 placeholder=""
                 rows={1}
-                disabled={disabled || lockForQuestion}
+                disabled={disabled}
                 className={cn(
                   'relative w-full bg-transparent border-none shadow-none focus-visible:ring-0 px-0.5 pb-6 pt-4 min-h-[72px] max-h-[200px] overflow-y-auto resize-none rounded-[24px] text-[16px] sm:text-[15px] outline-none placeholder:text-muted-foreground disabled:opacity-50',
                   highlightSegments && 'caret-foreground text-transparent',
@@ -1869,24 +2245,13 @@ export function SessionChatInput({
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    disabled={lockForQuestion}
-                    onClick={() => {
-                      if (lockForQuestion) return;
-                      fileInputRef.current?.click();
-                    }}
-                    className={cn(
-                      "inline-flex items-center justify-center h-8 w-8 rounded-xl transition-colors",
-                      lockForQuestion
-                        ? "text-muted-foreground/40 cursor-not-allowed"
-                        : "text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer",
-                    )}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex items-center justify-center h-8 w-8 rounded-xl transition-colors text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer"
                   >
                     <Paperclip className="h-4 w-4" strokeWidth={2} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="top">
-                  <p>{lockForQuestion ? 'File upload disabled while answering question' : 'Attach files'}</p>
-                </TooltipContent>
+                <TooltipContent side="top"><p>Attach files</p></TooltipContent>
               </Tooltip>
 
               <div className="w-px h-4 bg-border mx-1" />
@@ -1913,6 +2278,17 @@ export function SessionChatInput({
                   onSelect={onVariantChange}
                 />
               )}
+
+              {commands.length > 0 && onCommand && (
+                <>
+                  <div className="w-px h-4 bg-border mx-1" />
+                  <AutoContinueSelector
+                    selected={autocontinueMode}
+                    onSelect={setAutocontinueMode}
+                    commands={commands}
+                  />
+                </>
+              )}
             </div>
 
             {/* RIGHT: TokenProgress + Voice + Submit/Stop */}
@@ -1921,10 +2297,10 @@ export function SessionChatInput({
 
               <VoiceRecorder
                 onTranscription={handleTranscription}
-                disabled={disabled || isBusy || lockForQuestion}
+                disabled={disabled || isBusy}
               />
 
-              {isBusy && onStop && (
+              {isBusy && onStop && !lockForQuestion && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -1938,27 +2314,31 @@ export function SessionChatInput({
                   <TooltipContent side="top"><p>Stop</p></TooltipContent>
                 </Tooltip>
               )}
-              {!isBusy && (
-                <div
-                  aria-hidden={lockForQuestion}
-                  className={cn(
-                    "transition-[width,opacity] ease-in-out overflow-hidden",
-                    lockForQuestion ? "duration-500" : "duration-800 delay-75",
-                    lockForQuestion ? "w-0 opacity-0 pointer-events-none" : "w-8 opacity-100",
+              {(!isBusy || lockForQuestion) && (
+                <div className="opacity-100">
+                  {lockForQuestion && questionButtonLabel && !text.trim() ? (
+                    <Button
+                      size="sm"
+                      disabled={!questionCanAct || disabled}
+                      onClick={handleSubmit}
+                      className="flex-shrink-0 h-8 rounded-full px-3.5 text-xs font-medium"
+                    >
+                      {questionButtonLabel}
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      disabled={lockForQuestion ? (!canSubmit && !questionCanAct) || disabled : !canSubmit || disabled}
+                      onClick={handleSubmit}
+                      className="flex-shrink-0 h-8 w-8 rounded-full p-0"
+                    >
+                      {disabled ? (
+                        <div className="size-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <ArrowUp className="size-4" />
+                      )}
+                    </Button>
                   )}
-                >
-                  <Button
-                    size="sm"
-                    disabled={!canSubmit || disabled || lockForQuestion}
-                    onClick={handleSubmit}
-                    className="flex-shrink-0 h-8 w-8 rounded-full p-0"
-                  >
-                    {disabled ? (
-                      <div className="size-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <ArrowUp className="size-4" />
-                    )}
-                  </Button>
                 </div>
               )}
             </div>

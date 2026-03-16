@@ -20,15 +20,15 @@ import type {
 } from '../../types';
 
 const ALL_MODELS: Omit<ModelInfo, 'allowed'>[] = [
-  { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', provider: 'anthropic', context_window: 200000, capabilities: ['vision', 'function_calling'], priority: 10, recommended: true },
-  { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', provider: 'anthropic', context_window: 200000, capabilities: ['vision', 'function_calling'], priority: 8, recommended: false },
-  { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', context_window: 128000, capabilities: ['vision', 'function_calling'], priority: 9, recommended: false },
-  { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai', context_window: 128000, capabilities: ['vision', 'function_calling'], priority: 6, recommended: false },
-  { id: 'o3-mini', name: 'o3-mini', provider: 'openai', context_window: 200000, capabilities: ['function_calling'], priority: 7, recommended: false },
-  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', provider: 'google', context_window: 1048576, capabilities: ['vision', 'function_calling'], priority: 5, recommended: false },
-  { id: 'grok-2', name: 'Grok 2', provider: 'xai', context_window: 131072, capabilities: ['vision', 'function_calling'], priority: 4, recommended: false },
-  { id: 'deepseek-r1', name: 'DeepSeek R1', provider: 'deepseek', context_window: 65536, capabilities: ['function_calling'], priority: 3, recommended: false },
-  { id: 'deepseek-v3', name: 'DeepSeek V3', provider: 'deepseek', context_window: 65536, capabilities: ['function_calling'], priority: 2, recommended: false },
+  { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', provider: 'anthropic', context_window: 200000, capabilities: ['vision', 'function_calling'], priority: 10 },
+  { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', provider: 'anthropic', context_window: 200000, capabilities: ['vision', 'function_calling'], priority: 8 },
+  { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', context_window: 128000, capabilities: ['vision', 'function_calling'], priority: 9 },
+  { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai', context_window: 128000, capabilities: ['vision', 'function_calling'], priority: 6 },
+  { id: 'o3-mini', name: 'o3-mini', provider: 'openai', context_window: 200000, capabilities: ['function_calling'], priority: 7 },
+  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', provider: 'google', context_window: 1048576, capabilities: ['vision', 'function_calling'], priority: 5 },
+  { id: 'grok-2', name: 'Grok 2', provider: 'xai', context_window: 131072, capabilities: ['vision', 'function_calling'], priority: 4 },
+  { id: 'deepseek-r1', name: 'DeepSeek R1', provider: 'deepseek', context_window: 65536, capabilities: ['function_calling'], priority: 3 },
+  { id: 'deepseek-v3', name: 'DeepSeek V3', provider: 'deepseek', context_window: 65536, capabilities: ['function_calling'], priority: 2 },
 ];
 
 function getModelsForTier(tierName: string): ModelInfo[] {

@@ -3,8 +3,9 @@
  * ship.cjs — Kortix release script
  *
  * Usage:
- *   pnpm ship <version>              Build + push 3 Docker images, create GitHub Release
- *   pnpm ship --no-docker <version>  Version bump only, no Docker build
+ *   pnpm ship <version>                  Build + push 3 Docker images, build Hetzner snapshot, create GitHub Release
+ *   pnpm ship --no-docker <version>      Version bump only, no Docker build or snapshot
+ *   pnpm ship --no-hetzner <version>     Skip Hetzner snapshot build
  *   pnpm ship --check                Show current state
  *   pnpm ship --dry-run <version>    Validate only, no changes
  *   pnpm ship --help                 Show this help
@@ -14,7 +15,8 @@
  *   2. Bumps versions in release.json, package.json, startup.sh, get-kortix.sh
  *   3. Creates GitHub Release with changelog
  *   4. Builds + pushes 3 Docker images (sandbox, api, frontend)
- *   5. Commits version bump (you still need to git push)
+ *   5. Builds the matching Hetzner snapshot from the pushed sandbox image
+ *   6. Commits version bump (you still need to git push)
  *
  * That's it. No npm packages, no OTA tarballs, no staging, no symlinks.
  * Updating a running sandbox = pull new image + recreate container.
@@ -31,12 +33,14 @@ const PACKAGE_JSON = path.join(SANDBOX_DIR, 'package.json')
 const CHANGELOG_JSON = path.join(SANDBOX_DIR, 'CHANGELOG.json')
 const STARTUP_SH = path.join(SANDBOX_DIR, 'startup.sh')
 const GET_KORTIX = path.join(ROOT, 'scripts', 'get-kortix.sh')
+const BUILD_HETZNER_SNAPSHOT = path.join(ROOT, 'scripts', 'build-hetzner-snapshot.sh')
 
 const args = process.argv.slice(2)
 const flags = new Set(args.filter(a => a.startsWith('--')))
 const version = args.find(a => !a.startsWith('--') && /^\d+\.\d+\.\d+$/.test(a))
 
 const DOCKER = !flags.has('--no-docker')
+const HETZNER = DOCKER && !flags.has('--no-hetzner')
 const CHECK = flags.has('--check')
 const HELP = flags.has('--help') || flags.has('-h')
 const DRY = flags.has('--dry-run')
@@ -75,15 +79,17 @@ function runPnpm(args, opts = {}) {
 if (HELP) {
   console.log(`
 Usage:
-  pnpm ship <version>              Build + push 3 Docker images
-  pnpm ship --no-docker <version>  Version bump only
-  pnpm ship --check                Show current state
-  pnpm ship --dry-run <version>    Validate only
-  pnpm ship --help                 Show this help
+  pnpm ship <version>                  Build + push Docker images + Hetzner snapshot
+  pnpm ship --no-docker <version>      Version bump only
+  pnpm ship --no-hetzner <version>     Skip Hetzner snapshot build
+  pnpm ship --check                    Show current state
+  pnpm ship --dry-run <version>        Validate only
+  pnpm ship --help                     Show this help
 
 Examples:
   pnpm ship 0.8.0
   pnpm ship --no-docker 0.8.0
+  pnpm ship --no-hetzner 0.8.0
 `)
   process.exit(0)
 }
@@ -114,7 +120,7 @@ if (!version) {
 }
 
 console.log(`\n  ${B}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${X}`)
-console.log(`  ${B}  Ship v${version}${DOCKER ? ' + Docker' : ''}${DRY ? ' [dry-run]' : ''}${X}`)
+console.log(`  ${B}  Ship v${version}${DOCKER ? ' + Docker' : ''}${HETZNER ? ' + Hetzner' : ''}${DRY ? ' [dry-run]' : ''}${X}`)
 console.log(`  ${B}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${X}\n`)
 
 // ── Step 1: Validate ──────────────────────────────────────────────────────
@@ -216,13 +222,15 @@ if (!releaseExists) {
 
 fs.rmSync(notesFile, { force: true })
 
-// ── Step 4: Docker ────────────────────────────────────────────────────────
+// ── Step 4: Docker + Hetzner ─────────────────────────────────────────────
 if (DOCKER) {
   info('Building Docker images...')
 
   // Sandbox
   run(`docker buildx build \
     --platform linux/amd64,linux/arm64 \
+    --provenance=false \
+    --sbom=false \
     -f sandbox/docker/Dockerfile \
     --build-arg SANDBOX_VERSION=${version} \
     -t kortix/computer:${version} \
@@ -233,6 +241,8 @@ if (DOCKER) {
   // API
   run(`docker buildx build \
     --platform linux/amd64,linux/arm64 \
+    --provenance=false \
+    --sbom=false \
     --build-arg SERVICE=kortix-api \
     -f kortix-api/Dockerfile \
     -t kortix/kortix-api:${version} \
@@ -240,19 +250,30 @@ if (DOCKER) {
     --push "${ROOT}"`, { stdio: 'inherit' })
   ok(`kortix/kortix-api:${version} pushed`)
 
-  // Frontend
+  // Frontend (multi-stage Docker build — no host build needed)
   info('Building frontend...')
-  runPnpm(['--dir', 'apps/frontend', 'build'], {
-    stdio: 'inherit',
-    env: { NEXT_OUTPUT: 'standalone' },
-  })
   run(`docker buildx build \
     --platform linux/amd64,linux/arm64 \
+    --provenance=false \
+    --sbom=false \
     -f apps/frontend/Dockerfile \
     -t kortix/kortix-frontend:${version} \
     -t kortix/kortix-frontend:latest \
     --push "${ROOT}"`, { stdio: 'inherit' })
   ok(`kortix/kortix-frontend:${version} pushed`)
+
+  if (HETZNER) {
+    info('Building Hetzner snapshot...')
+    if (!fs.existsSync(BUILD_HETZNER_SNAPSHOT)) {
+      fail(`Missing snapshot script: ${BUILD_HETZNER_SNAPSHOT}`)
+    }
+    run(`bash ${JSON.stringify(BUILD_HETZNER_SNAPSHOT)} --yes ${version}`, {
+      stdio: 'inherit',
+    })
+    ok(`Hetzner snapshot kortix-computer-v${version} ready`)
+  } else {
+    warn('Skipping Hetzner snapshot build')
+  }
 }
 
 // ── Step 5: Commit ────────────────────────────────────────────────────────

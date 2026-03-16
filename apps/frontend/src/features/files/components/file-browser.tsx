@@ -10,6 +10,7 @@ import {
   FolderPlus,
   FilePlus,
   Clipboard,
+  Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -41,6 +42,7 @@ import {
   useFileCopy,
 } from '../hooks/use-file-mutations';
 import { downloadFile } from '../api/opencode-files';
+import { useDirectoryDownload } from '../hooks/use-directory-download';
 import { useServerStore } from '@/stores/server-store';
 import type { FileNode } from '../types';
 import { FileBreadcrumbs } from './file-breadcrumbs';
@@ -307,6 +309,12 @@ export function FileBrowser() {
       toast.error(`Failed to download ${node.name}`);
     }
   }, []);
+
+  // Directory download with progress toast
+  const { downloadDir, isDownloading: isDirDownloading, downloadingPaths } = useDirectoryDownload();
+  const handleDownloadDirectory = useCallback((node: FileNode) => {
+    downloadDir(node.path, node.name);
+  }, [downloadDir]);
 
   // Rename a file/folder (called from inline input in FileTreeItem)
   const handleRename = useCallback(
@@ -636,6 +644,24 @@ export function FileBrowser() {
           >
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => {
+              const dirName = isRootPath ? 'workspace' : (currentPath.split('/').filter(Boolean).pop() || 'directory');
+              const dirPath = isRootPath ? '/workspace' : currentPath;
+              downloadDir(dirPath, dirName);
+            }}
+            disabled={isDirDownloading(isRootPath ? '/workspace' : currentPath)}
+            title="Download current directory as zip"
+          >
+            {isDirDownloading(isRootPath ? '/workspace' : currentPath) ? (
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
+          </Button>
         </div>
       </div>
 
@@ -776,6 +802,8 @@ export function FileBrowser() {
                     key={node.path}
                     node={node}
                     onClick={() => handleFileClick(node)}
+                    onDownload={handleDownloadDirectory}
+                    isDownloadingItem={isDirDownloading(node.path)}
                     onRename={handleRename}
                     onDelete={handleDelete}
                     onCopy={handleCopy}

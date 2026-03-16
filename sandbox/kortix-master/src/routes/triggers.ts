@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { discoverAgentsWithTriggers } from '@kortix/opencode-agent-triggers'
+import { discoverAgentsWithTriggers, type WebhookTriggerConfig } from '@kortix/opencode-agent-triggers'
 import { getCronManager } from '../services/cron-manager'
 
 const triggersRouter = new Hono()
@@ -20,6 +20,7 @@ triggersRouter.get('/', (c) => {
       description: trigger.description,
       prompt: trigger.prompt,
       enabled: trigger.isActive,
+      isActive: trigger.isActive,
       editable: !trigger.name.includes(':'),
       cronExpr: trigger.cronExpr,
       timezone: trigger.timezone,
@@ -30,12 +31,13 @@ triggersRouter.get('/', (c) => {
       modelId: trigger.modelId,
       modelProviderId: trigger.modelProviderId,
       webhook: null,
+      agentFilePath: null,
       createdAt: trigger.createdAt,
       updatedAt: trigger.updatedAt,
     })),
     ...discovered.flatMap((agent) =>
       agent.triggers
-        .filter((trigger) => trigger.source.type === 'webhook')
+        .filter((trigger): trigger is WebhookTriggerConfig => trigger.source.type === 'webhook')
         .map((trigger) => ({
           id: `${agent.name}:${trigger.name}`,
           triggerId: null,
@@ -45,6 +47,7 @@ triggersRouter.get('/', (c) => {
           description: null,
           prompt: trigger.execution.prompt,
           enabled: trigger.enabled !== false,
+          isActive: trigger.enabled !== false,
           editable: false,
           cronExpr: null,
           timezone: null,
@@ -59,6 +62,7 @@ triggersRouter.get('/', (c) => {
             method: trigger.source.method ?? 'POST',
             secretProtected: Boolean(trigger.source.secret),
           },
+          agentFilePath: agent.filePath,
           createdAt: cronByName.get(`${agent.name}:${trigger.name}`)?.createdAt ?? new Date().toISOString(),
           updatedAt: cronByName.get(`${agent.name}:${trigger.name}`)?.updatedAt ?? new Date().toISOString(),
         })),

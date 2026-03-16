@@ -2,12 +2,11 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '../../shared/db';
-import { channelConfigs, channelMessages, sandboxes } from '@kortix/db';
+import { channelConfigs, channelMessages, channelSessions, sandboxes } from '@kortix/db';
 import { NotFoundError, ValidationError } from '../../errors';
 import type { AppEnv } from '../../types';
 import type { ChannelAdapter } from '../adapters/adapter';
 import type { ChannelType } from '../types';
-import { encryptCredentials, decryptCredentials } from '../lib/credentials';
 import { resolveAccountId } from '../../shared/resolve-account';
 
 const CHANNEL_TYPES = [
@@ -28,7 +27,6 @@ const createChannelSchema = z.object({
   channel_type: z.enum(CHANNEL_TYPES),
   name: z.string().min(1).max(255),
   enabled: z.boolean().default(true),
-  credentials: z.record(z.unknown()).default({}),
   platform_config: z.record(z.unknown()).default({}),
   session_strategy: z.enum(SESSION_STRATEGIES).default('per-user'),
   system_prompt: z.string().nullable().optional(),
@@ -40,7 +38,6 @@ const updateChannelSchema = z.object({
   sandbox_id: z.string().uuid().nullable().optional(),
   name: z.string().min(1).max(255).optional(),
   enabled: z.boolean().optional(),
-  credentials: z.record(z.unknown()).optional(),
   platform_config: z.record(z.unknown()).optional(),
   session_strategy: z.enum(SESSION_STRATEGIES).optional(),
   system_prompt: z.string().nullable().optional(),
@@ -95,16 +92,6 @@ export function createChannelsRouter(adapters: Map<ChannelType, ChannelAdapter>)
       }
     }
 
-    const adapter = adapters.get(parsed.data.channel_type);
-    if (adapter?.validateCredentials) {
-      const validation = await adapter.validateCredentials(parsed.data.credentials);
-      if (!validation.valid) {
-        throw new ValidationError(`Invalid credentials: ${validation.error}`);
-      }
-    }
-
-    const encryptedCreds = await encryptCredentials(parsed.data.credentials);
-
     const [config] = await db
       .insert(channelConfigs)
       .values({
@@ -113,7 +100,6 @@ export function createChannelsRouter(adapters: Map<ChannelType, ChannelAdapter>)
         channelType: parsed.data.channel_type,
         name: parsed.data.name,
         enabled: parsed.data.enabled,
-        credentials: encryptedCreds,
         platformConfig: parsed.data.platform_config,
         sessionStrategy: parsed.data.session_strategy,
         systemPrompt: parsed.data.system_prompt ?? null,
@@ -122,6 +108,7 @@ export function createChannelsRouter(adapters: Map<ChannelType, ChannelAdapter>)
       })
       .returning();
 
+    const adapter = adapters.get(parsed.data.channel_type);
     if (adapter?.onChannelCreated) {
       try {
         await adapter.onChannelCreated(config);
@@ -131,6 +118,61 @@ export function createChannelsRouter(adapters: Map<ChannelType, ChannelAdapter>)
     }
 
     return c.json({ success: true, data: config }, 201);
+  });
+
+  /**
+   * GET /sessions/:sessionId
+   * Reverse lookup: given an OpenCode session ID, return its channel context.
+   * MUST be registered before GET /:id so Hono doesn't treat "sessions" as a channel config ID.
+   */
+  app.get('/sessions/:sessionId', async (c) => {
+    const userId = c.get('userId') as string;
+    const accountId = await resolveAccountId(userId);
+    const sessionId = c.req.param('sessionId');
+
+    // Find the channelSession record
+    const [record] = await db
+      .select()
+      .from(channelSessions)
+      .where(eq(channelSessions.sessionId, sessionId));
+
+    if (!record) {
+      return c.json({ success: true, data: null });
+    }
+
+    // Verify the channel config belongs to this account
+    const [config] = await db
+      .select()
+      .from(channelConfigs)
+      .where(
+        and(
+          eq(channelConfigs.channelConfigId, record.channelConfigId),
+          eq(channelConfigs.accountId, accountId),
+        ),
+      );
+
+    if (!config) {
+      // Session exists but belongs to another account — return null (not 403)
+      return c.json({ success: true, data: null });
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        channelSessionId: record.channelSessionId,
+        channelConfigId: record.channelConfigId,
+        sessionId: record.sessionId,
+        strategyKey: record.strategyKey,
+        lastUsedAt: record.lastUsedAt,
+        metadata: record.metadata,
+        createdAt: record.createdAt,
+        // Channel context
+        channelType: config.channelType,
+        channelName: config.name,
+        platform: config.channelType,
+        sandboxId: config.sandboxId,
+      },
+    });
   });
 
   app.get('/', async (c) => {
@@ -239,9 +281,6 @@ export function createChannelsRouter(adapters: Map<ChannelType, ChannelAdapter>)
     }
     if (parsed.data.name !== undefined) updateData.name = parsed.data.name;
     if (parsed.data.enabled !== undefined) updateData.enabled = parsed.data.enabled;
-    if (parsed.data.credentials !== undefined) {
-      updateData.credentials = await encryptCredentials(parsed.data.credentials);
-    }
     if (parsed.data.platform_config !== undefined) updateData.platformConfig = parsed.data.platform_config;
     if (parsed.data.session_strategy !== undefined) updateData.sessionStrategy = parsed.data.session_strategy;
     if (parsed.data.system_prompt !== undefined) updateData.systemPrompt = parsed.data.system_prompt;
@@ -474,6 +513,55 @@ export function createChannelsRouter(adapters: Map<ChannelType, ChannelAdapter>)
       .offset(offset);
 
     return c.json({ success: true, data: messages, total: messages.length });
+  });
+
+  // ── Channel Sessions ────────────────────────────────────────────────────────
+  // NOTE: POST /:id/sessions is in channels-internal.ts (sandbox auth via KORTIX_TOKEN)
+
+  /**
+   * GET /:id/sessions
+   * List all OpenCode sessions triggered via this channel, most recent first.
+   * User-authenticated.
+   */
+  app.get('/:id/sessions', async (c) => {
+    const userId = c.get('userId') as string;
+    const accountId = await resolveAccountId(userId);
+    const configId = c.req.param('id');
+    const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 100);
+    const offset = parseInt(c.req.query('offset') || '0', 10);
+
+    const [config] = await db
+      .select()
+      .from(channelConfigs)
+      .where(
+        and(
+          eq(channelConfigs.channelConfigId, configId),
+          eq(channelConfigs.accountId, accountId),
+        ),
+      );
+
+    if (!config) {
+      throw new NotFoundError('Channel config', configId);
+    }
+
+    const sessions = await db
+      .select()
+      .from(channelSessions)
+      .where(eq(channelSessions.channelConfigId, configId))
+      .orderBy(desc(channelSessions.lastUsedAt))
+      .limit(limit)
+      .offset(offset);
+
+    return c.json({
+      success: true,
+      data: sessions.map(s => ({
+        ...s,
+        channelType: config.channelType,
+        channelName: config.name,
+        platform: config.channelType,
+      })),
+      total: sessions.length,
+    });
   });
 
   return app;

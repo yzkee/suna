@@ -309,7 +309,10 @@
     #viewport-wrap {
       position: relative; background: var(--bg-surface); border-radius: var(--radius);
       border: 1px solid var(--border); overflow: hidden;
-      max-width: 95vw; max-height: calc(100vh - 70px);
+      width: min(95vw, 1400px);
+      min-height: 420px;
+      max-height: calc(100vh - 70px);
+      aspect-ratio: 16 / 9;
     }
 
     body.focused {
@@ -327,6 +330,7 @@
     body.focused #viewport-wrap {
       width: calc(100vw - 8px);
       max-width: calc(100vw - 8px);
+      min-height: calc(100vh - 48px);
       max-height: calc(100vh - 48px);
       border-radius: 8px;
     }
@@ -336,7 +340,12 @@
     }
 
     canvas {
-      display: block; width: 100%; height: 100%;
+      display: block;
+      width: 100%;
+      height: auto;
+      max-height: 100%;
+      object-fit: contain;
+      background: #000;
       cursor: default;
       outline: none;
     }
@@ -395,7 +404,7 @@
       </div>
 
       <div class="cmd-block">
-        <code>AGENT_BROWSER_SOCKET_DIR=/tmp/agent-browser AGENT_BROWSER_STREAM_PORT=9223 agent-browser --session default --headed open https://example.com</code>
+        <code>agent-browser open https://example.com</code>
       </div>
     </div>
     <canvas id="viewport" width="1280" height="720" style="display:none" tabindex="0"></canvas>
@@ -416,7 +425,7 @@
     const navBackBtn = document.getElementById('nav-back');
     const navForwardBtn = document.getElementById('nav-forward');
 
-    const PRIMARY_SESSION = 'default';
+    const PRIMARY_SESSION = 'kortix';
     let frameCount = 0;
     let lastFrameTime = 0;
     let activePort = 9223;
@@ -522,7 +531,6 @@
         sessions = newSessions;
 
         if (sessions.length === 0) {
-          if (ws) { ws.onclose = null; ws.close(); ws = null; }
           if (eventSource) { eventSource.close(); eventSource = null; }
           connected = false;
           statusEl.textContent = 'idle';
@@ -537,7 +545,9 @@
           return;
         }
 
-        setEmptyState('Connecting…', `Switching to session ${activeSession || sessions[0].name}`, false);
+        if (!connected) {
+          setEmptyState('Connecting…', `Switching to session ${activeSession || sessions[0].name}`, false);
+        }
 
         // Respect explicit selection first (URL/click).
         const wanted = requestedSession || getUrlSession();
@@ -558,6 +568,8 @@
             activeSession = target.name;
             activePort = target.port;
             reconnect();
+          } else if (!eventSource) {
+            connect();
           }
         } else {
           // No explicit selection: keep current if valid, otherwise pick first.
@@ -572,6 +584,8 @@
           if (active && active.port !== activePort) {
             activePort = active.port;
             reconnect();
+          } else if (!eventSource) {
+            connect();
           }
         }
       } catch(e) {

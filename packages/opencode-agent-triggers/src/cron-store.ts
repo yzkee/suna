@@ -33,7 +33,7 @@ export function describeCron(expr: string): string {
   try {
     const parts = expr.trim().split(/\s+/)
     if (parts.length !== 6) return expr
-    const [sec, min, hour, day, month, weekday] = parts
+    const [sec, min, hour, day, month, weekday] = parts as [string, string, string, string, string, string]
     if (sec.startsWith("*/") && min === "*" && hour === "*") return `Every ${sec.slice(2)} seconds`
     if (sec === "0" && min.startsWith("*/") && hour === "*") return `Every ${min.slice(2)} minutes`
     if (sec === "0" && min === "0" && hour.startsWith("*/")) return `Every ${hour.slice(2)} hours`
@@ -116,7 +116,7 @@ export class CronStore {
     this.refresh()
     const index = this.state.triggers.findIndex((trigger) => trigger.id === triggerId || trigger.name === triggerId)
     if (index < 0) return null
-    const current = this.state.triggers[index]
+    const current = this.state.triggers[index]!
     const next: CronTriggerRecord = {
       ...current,
       ...patch,
@@ -166,9 +166,9 @@ export class CronStore {
     this.refresh()
     const index = this.state.executions.findIndex((execution) => execution.execution_id === executionId)
     if (index < 0) return null
-    this.state.executions[index] = { ...this.state.executions[index], ...patch, execution_id: this.state.executions[index].execution_id }
+    this.state.executions[index] = { ...this.state.executions[index]!, ...patch, execution_id: this.state.executions[index]!.execution_id }
     this.write()
-    return this.state.executions[index]
+    return this.state.executions[index] ?? null
   }
 
   getExecution(executionId: string): CronExecutionRecord | null {

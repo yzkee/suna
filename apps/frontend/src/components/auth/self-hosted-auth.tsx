@@ -15,6 +15,7 @@ import { resetClient } from '@/lib/opencode-sdk';
 import { invalidateTokenCache, authenticatedFetch } from '@/lib/auth-token';
 import { setBootstrapAuthToken } from '@/lib/auth-token';
 import { createClient as createBrowserSupabaseClient } from '@/lib/supabase/client';
+import { getEnv } from '@/lib/env-config';
 
 /* ─── Installer Form Component ─────────────────────────────────────────────── */
 
@@ -127,7 +128,7 @@ export function useInstallStatus() {
   const [defaultProvider, setDefaultProvider] = useState<SandboxProviderName>('local_docker');
 
   useEffect(() => {
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
+    const backendUrl = getEnv().BACKEND_URL || 'http://localhost:8008/v1';
     let retries = 0;
     const MAX_RETRIES = 3;
 
@@ -254,7 +255,6 @@ const TOOL_SECRETS = [
     description: 'Web search — lets the agent search the internet',
     icon: Search,
     signupUrl: 'https://tavily.com',
-    recommended: true,
   },
   {
     key: 'FIRECRAWL_API_KEY',
@@ -262,7 +262,6 @@ const TOOL_SECRETS = [
     description: 'Web scraping — read and extract web page content',
     icon: Flame,
     signupUrl: 'https://firecrawl.dev',
-    recommended: true,
   },
   {
     key: 'SERPER_API_KEY',
@@ -348,11 +347,7 @@ function ToolSecretsStep({ onContinue, onSkip, completing }: { onContinue: () =>
               <div className="flex-1 min-w-0 space-y-1.5">
                 <div className="flex items-center gap-2">
                   <span className="text-[13px] font-medium text-foreground/80">{secret.label}</span>
-                  {'recommended' in secret && secret.recommended && (
-                    <span className="text-[9px] px-1.5 py-px rounded-full bg-foreground/[0.06] text-foreground/40 font-medium uppercase tracking-wider">
-                      Recommended
-                    </span>
-                  )}
+
                   <a
                     href={secret.signupUrl}
                     target="_blank"
@@ -465,7 +460,7 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
 
     const checkExisting = async () => {
       try {
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
+        const backendUrl = getEnv().BACKEND_URL || 'http://localhost:8008/v1';
 
         // Get current JWT — prefer jwtRef (just signed up), fall back to Supabase session (refresh)
         let jwt = jwtRef.current;
@@ -714,7 +709,7 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
   // ── Retry sandbox provisioning after an error ──
   const handleRetryProvision = useCallback(async () => {
     const provider = chosenProvider || defaultProvider || 'local_docker';
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
+    const backendUrl = getEnv().BACKEND_URL || 'http://localhost:8008/v1';
 
     // Get current JWT — prefer jwtRef (just signed up), fall back to Supabase session
     let jwt = jwtRef.current;
@@ -733,7 +728,7 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
   // ── User picks a sandbox provider (multi-provider flow) ──
   const handleSandboxProviderSelect = useCallback(async (provider: SandboxProviderName) => {
     setChosenProvider(provider);
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
+    const backendUrl = getEnv().BACKEND_URL || 'http://localhost:8008/v1';
     const jwt = jwtRef.current;
     if (jwt) {
       await provisionSandbox(jwt, backendUrl, provider);
@@ -760,7 +755,7 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
     sessionStorage.setItem('setup_complete', 'true');
 
     // Mark setup complete in the backend (fire-and-forget)
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008/v1';
+    const backendUrl = getEnv().BACKEND_URL || 'http://localhost:8008/v1';
     try {
       const { authenticatedFetch: authFetch } = await import('@/lib/auth-token');
       await authFetch(`${backendUrl}/setup/setup-complete`, { method: 'POST' });
@@ -770,13 +765,15 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
 
     const target = returnUrl || '/onboarding';
 
-    if (target.startsWith('/onboarding')) {
-      router.push(target);
-      return;
-    }
-
-    router.push(target);
-  }, [router, returnUrl]);
+    // IMPORTANT: Use window.location.href instead of router.push() to force a
+    // full page navigation. During the wizard, the middleware may have refreshed
+    // the Supabase session (consuming the single-use refresh token) and set an
+    // updated cookie on the response. Client-side navigation via router.push()
+    // may not process Set-Cookie headers from middleware responses, leaving the
+    // browser with a stale (revoked) refresh token. A full navigation ensures
+    // the browser properly receives and stores any updated auth cookies.
+    window.location.href = target;
+  }, [returnUrl]);
 
   // ── Early return: loading state ──
   if (installed === null) {

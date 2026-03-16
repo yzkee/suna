@@ -17,9 +17,9 @@ import {
   updateIntegrationLabel,
   getLinkedSandboxes,
   getAppSandboxLinks,
-  getSandboxAppConflict,
   verifySandboxOwnership,
   listSandboxIntegrations,
+  listActiveSandboxesByAccount,
 } from './repositories';
 import type { AppEnv } from '../types';
 import { resolveAccountId } from '../shared/resolve-account';
@@ -37,6 +37,7 @@ const connectTokenSchema = z.object({
 
 const tokenRequestSchema = z.object({
   app: z.string().min(1),
+  integration_id: z.string().uuid().optional(),
 });
 
 const proxyRequestSchema = z.object({
@@ -56,6 +57,17 @@ const runActionSchema = z.object({
   app: z.string().min(1),
   action_key: z.string().min(1),
   props: z.record(z.unknown()).default({}),
+});
+
+const deployTriggerSchema = z.object({
+  app: z.string().min(1),
+  component_key: z.string().min(1),
+  configured_props: z.record(z.unknown()).default({}),
+  webhook_url: z.string().url(),
+});
+
+const updateTriggerSchema = z.object({
+  active: z.boolean(),
 });
 
 const webhookSchema = z.object({
@@ -135,28 +147,39 @@ export function createIntegrationsRouter(): Hono<AppEnv> {
         attempted: false,
         linked: false,
         reason: null as string | null,
+        linkedSandboxIds: [] as string[],
       };
 
-      if (parsed.data.sandbox_id && row) {
-        link.attempted = true;
-        const sandboxOwned = await verifySandboxOwnership(parsed.data.sandbox_id, accountId);
-        if (sandboxOwned) {
-          const conflict = await getSandboxAppConflict(parsed.data.sandbox_id, row.integrationId, row.app);
-          if (!conflict) {
+      if (row) {
+        if (parsed.data.sandbox_id) {
+          // Explicit sandbox_id provided → link to that specific sandbox
+          link.attempted = true;
+          const sandboxOwned = await verifySandboxOwnership(parsed.data.sandbox_id, accountId);
+          if (sandboxOwned) {
             await linkSandboxIntegration(parsed.data.sandbox_id, row.integrationId);
             console.log(`[INTEGRATIONS] Auto-linked: ${parsed.data.app} → sandbox ${parsed.data.sandbox_id}`);
             link.linked = true;
+            link.linkedSandboxIds.push(parsed.data.sandbox_id);
           } else {
             console.warn(
-              `[INTEGRATIONS] Auto-link skipped due active conflict: app=${parsed.data.app} sandbox=${parsed.data.sandbox_id} existingIntegration=${conflict.integrationId}`,
+              `[INTEGRATIONS] Auto-link skipped: sandbox not owned by account. app=${parsed.data.app} sandbox=${parsed.data.sandbox_id} account=${accountId}`,
             );
-            link.reason = 'sandbox_conflict';
+            link.reason = 'sandbox_not_owned';
           }
         } else {
-          console.warn(
-            `[INTEGRATIONS] Auto-link skipped: sandbox not owned by account. app=${parsed.data.app} sandbox=${parsed.data.sandbox_id} account=${accountId}`,
-          );
-          link.reason = 'sandbox_not_owned';
+          // No sandbox_id → auto-link to ALL active sandboxes owned by this account
+          link.attempted = true;
+          const accountSandboxes = await listActiveSandboxesByAccount(accountId);
+          for (const sb of accountSandboxes) {
+            await linkSandboxIntegration(sb.sandboxId, row.integrationId);
+            link.linkedSandboxIds.push(sb.sandboxId);
+          }
+          link.linked = link.linkedSandboxIds.length > 0;
+          if (link.linkedSandboxIds.length > 0) {
+            console.log(
+              `[INTEGRATIONS] Auto-linked ${parsed.data.app} to ${link.linkedSandboxIds.length} sandbox(es) for account ${accountId}`,
+            );
+          }
         }
       }
 
@@ -280,13 +303,6 @@ export function createIntegrationsRouter(): Hono<AppEnv> {
       throw new HTTPException(403, { message: 'Sandbox not found or not owned by account' });
     }
 
-    const conflict = await getSandboxAppConflict(parsed.data.sandbox_id, integrationId, integration.app);
-    if (conflict) {
-      throw new HTTPException(409, {
-        message: `This sandbox already has a different ${integration.appName || integration.app} profile linked ("${conflict.label || 'Unnamed'}"). Unlink it first.`,
-      });
-    }
-
     await linkSandboxIntegration(parsed.data.sandbox_id, integrationId);
     return c.json({ success: true }, 201);
   });
@@ -357,7 +373,7 @@ export function createIntegrationsRouter(): Hono<AppEnv> {
 
     try {
       const provider = createAuthProvider();
-      await insertIntegration({
+      const row = await insertIntegration({
         accountId: account_id,
         app,
         appName: app_name,
@@ -365,6 +381,21 @@ export function createIntegrationsRouter(): Hono<AppEnv> {
         providerAccountId: provider_account_id,
         scopes,
       });
+
+      // Auto-link to all active sandboxes owned by this account
+      if (row) {
+        const accountSandboxes = await listActiveSandboxesByAccount(account_id);
+        let linkedCount = 0;
+        for (const sb of accountSandboxes) {
+          await linkSandboxIntegration(sb.sandboxId, row.integrationId);
+          linkedCount++;
+        }
+        if (linkedCount > 0) {
+          console.log(
+            `[INTEGRATIONS] Webhook auto-linked ${app} to ${linkedCount} sandbox(es) for account ${account_id}`,
+          );
+        }
+      }
 
       console.log(`[INTEGRATIONS] Webhook: ${app} connected for account ${account_id}`);
       return c.json({ success: true });
@@ -384,6 +415,7 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
     const linked = await getIntegrationForSandbox(sandboxId, appSlug, accountId);
     if (linked) return linked;
 
+    // Auto-heal: link ALL active integrations for this app to the sandbox
     const accountIntegrations = await listIntegrationsByAccount(accountId);
     const candidates = accountIntegrations
       .filter((row) => row.app === appSlug && row.status === 'active')
@@ -393,22 +425,17 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
         return bTime - aTime;
       });
 
-    const selected = candidates[0];
-    if (!selected) return null;
+    if (candidates.length === 0) return null;
 
-    const conflict = await getSandboxAppConflict(sandboxId, selected.integrationId, appSlug);
-    if (conflict) {
-      console.warn(
-        `[INTEGRATIONS] Auto-heal skipped for ${appSlug}: sandbox=${sandboxId} has active conflicting integration=${conflict.integrationId}`,
-      );
-      return null;
+    // Link all candidates (multiple accounts for same app are allowed)
+    for (const candidate of candidates) {
+      await linkSandboxIntegration(sandboxId, candidate.integrationId);
     }
-
-    await linkSandboxIntegration(sandboxId, selected.integrationId);
     console.log(
-      `[INTEGRATIONS] Auto-healed sandbox link: app=${appSlug} sandbox=${sandboxId} integration=${selected.integrationId}`,
+      `[INTEGRATIONS] Auto-healed sandbox links: app=${appSlug} sandbox=${sandboxId} count=${candidates.length}`,
     );
 
+    // Return the most recently updated one for the current request
     return await getIntegrationForSandbox(sandboxId, appSlug, accountId);
   }
 
@@ -426,9 +453,23 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
       throw new HTTPException(400, { message: 'app is required' });
     }
 
-    const { app: appSlug } = parsed.data;
+    const { app: appSlug, integration_id } = parsed.data;
 
-    const linked = await ensureSandboxIntegrationForApp(sandboxId, accountId, appSlug);
+    let linked;
+    if (integration_id) {
+      // Specific integration requested — look it up directly
+      linked = await getIntegrationById(integration_id);
+      if (!linked || linked.accountId !== accountId || linked.app !== appSlug) {
+        throw new HTTPException(403, {
+          message: `Integration "${integration_id}" not found or does not match app "${appSlug}"`,
+        });
+      }
+      // Ensure it's linked to this sandbox
+      await linkSandboxIntegration(sandboxId, integration_id);
+    } else {
+      linked = await ensureSandboxIntegrationForApp(sandboxId, accountId, appSlug);
+    }
+
     if (!linked) {
       throw new HTTPException(403, {
         message: `No connected integration for "${appSlug}" linked to this sandbox`,
@@ -511,26 +552,11 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
     let linked = await listSandboxIntegrations(sandboxId, accountId);
 
     if (linked.length === 0) {
+      // Auto-heal: link ALL active integrations (multiple accounts per app allowed)
       const accountIntegrations = await listIntegrationsByAccount(accountId);
-      const activeByApp = new Map<string, (typeof accountIntegrations)[number]>();
+      const activeIntegrations = accountIntegrations.filter((row) => row.status === 'active');
 
-      for (const row of accountIntegrations) {
-        if (row.status !== 'active') continue;
-        const existing = activeByApp.get(row.app);
-        if (!existing) {
-          activeByApp.set(row.app, row);
-          continue;
-        }
-        const existingTime = new Date(existing.updatedAt ?? existing.createdAt).getTime();
-        const rowTime = new Date(row.updatedAt ?? row.createdAt).getTime();
-        if (rowTime > existingTime) {
-          activeByApp.set(row.app, row);
-        }
-      }
-
-      for (const row of activeByApp.values()) {
-        const conflict = await getSandboxAppConflict(sandboxId, row.integrationId, row.app);
-        if (conflict) continue;
+      for (const row of activeIntegrations) {
         await linkSandboxIntegration(sandboxId, row.integrationId);
       }
 
@@ -544,6 +570,7 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
 
     return c.json({
       integrations: linked.map((l) => ({
+        integrationId: l.integration.integrationId,
         app: l.integration.app,
         appName: l.integration.appName,
         label: l.integration.label,
@@ -666,6 +693,138 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
     } catch (err) {
       console.error(`[INTEGRATIONS] Action run failed for ${action_key}:`, err);
       throw new HTTPException(502, { message: `Action execution failed: ${err}` });
+    }
+  });
+
+  // ─── Trigger management routes ──────────────────────────────────────────────
+
+  app.get('/triggers/available', async (c) => {
+    const accountId = c.get('accountId') as string;
+    const appSlug = c.req.query('app');
+    const query = c.req.query('q');
+    const limit = c.req.query('limit');
+
+    if (!appSlug) {
+      throw new HTTPException(400, { message: 'app query parameter is required' });
+    }
+
+    try {
+      const provider = createAuthProvider();
+      if (!provider.listAvailableTriggers) {
+        throw new HTTPException(501, { message: 'Provider does not support triggers' });
+      }
+      const triggers = await provider.listAvailableTriggers(appSlug, query ?? undefined, limit ? parseInt(limit) : undefined);
+      console.log(`[INTEGRATIONS] Listed available triggers: app=${appSlug} count=${triggers.length} account=${accountId}`);
+      return c.json({ triggers });
+    } catch (err) {
+      if (err instanceof HTTPException) throw err;
+      console.error(`[INTEGRATIONS] List available triggers failed for ${appSlug}:`, err);
+      throw new HTTPException(502, { message: `Failed to list triggers: ${err}` });
+    }
+  });
+
+  app.post('/triggers/deploy', async (c) => {
+    const sandboxId = c.get('sandboxId') as string;
+    const accountId = c.get('accountId') as string;
+
+    if (!sandboxId) {
+      throw new HTTPException(403, { message: 'This endpoint requires a sandbox token (kortix_sb_)' });
+    }
+
+    const body = await c.req.json();
+    const parsed = deployTriggerSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new HTTPException(400, { message: 'app, component_key, and webhook_url are required' });
+    }
+
+    const { app: appSlug, component_key, configured_props, webhook_url } = parsed.data;
+
+    // Verify user has connected this app
+    const linked = await ensureSandboxIntegrationForApp(sandboxId, accountId, appSlug);
+    if (!linked) {
+      throw new HTTPException(403, {
+        message: `No connected integration for "${appSlug}" linked to this sandbox. Connect it first.`,
+      });
+    }
+
+    try {
+      const provider = createAuthProvider();
+      if (!provider.deployTrigger) {
+        throw new HTTPException(501, { message: 'Provider does not support triggers' });
+      }
+      const result = await provider.deployTrigger(accountId, appSlug, component_key, configured_props, webhook_url);
+      console.log(`[INTEGRATIONS] Trigger deployed: ${component_key} app=${appSlug} sandbox=${sandboxId} deployedId=${result.deployedTriggerId}`);
+      await updateIntegrationLastUsed(linked.integrationId as string);
+
+      c.header('Cache-Control', 'no-store');
+      return c.json(result);
+    } catch (err) {
+      if (err instanceof HTTPException) throw err;
+      console.error(`[INTEGRATIONS] Trigger deploy failed for ${component_key}:`, err);
+      throw new HTTPException(502, { message: `Trigger deployment failed: ${err}` });
+    }
+  });
+
+  app.get('/triggers/deployed', async (c) => {
+    const accountId = c.get('accountId') as string;
+
+    try {
+      const provider = createAuthProvider();
+      if (!provider.listDeployedTriggers) {
+        throw new HTTPException(501, { message: 'Provider does not support triggers' });
+      }
+      const result = await provider.listDeployedTriggers(accountId);
+      console.log(`[INTEGRATIONS] Listed deployed triggers: count=${result.triggers.length} account=${accountId}`);
+      return c.json(result);
+    } catch (err) {
+      if (err instanceof HTTPException) throw err;
+      console.error(`[INTEGRATIONS] List deployed triggers failed:`, err);
+      throw new HTTPException(502, { message: `Failed to list deployed triggers: ${err}` });
+    }
+  });
+
+  app.delete('/triggers/deployed/:id', async (c) => {
+    const accountId = c.get('accountId') as string;
+    const deployedTriggerId = c.req.param('id');
+
+    try {
+      const provider = createAuthProvider();
+      if (!provider.deleteDeployedTrigger) {
+        throw new HTTPException(501, { message: 'Provider does not support triggers' });
+      }
+      await provider.deleteDeployedTrigger(accountId, deployedTriggerId);
+      console.log(`[INTEGRATIONS] Trigger deleted: ${deployedTriggerId} account=${accountId}`);
+      return c.json({ success: true });
+    } catch (err) {
+      if (err instanceof HTTPException) throw err;
+      console.error(`[INTEGRATIONS] Trigger delete failed for ${deployedTriggerId}:`, err);
+      throw new HTTPException(502, { message: `Trigger deletion failed: ${err}` });
+    }
+  });
+
+  app.put('/triggers/deployed/:id', async (c) => {
+    const accountId = c.get('accountId') as string;
+    const deployedTriggerId = c.req.param('id');
+
+    const body = await c.req.json();
+    const parsed = updateTriggerSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new HTTPException(400, { message: 'active (boolean) is required' });
+    }
+
+    try {
+      const provider = createAuthProvider();
+      const method = parsed.data.active ? 'resumeDeployedTrigger' : 'pauseDeployedTrigger';
+      if (!provider[method]) {
+        throw new HTTPException(501, { message: 'Provider does not support triggers' });
+      }
+      const result = await provider[method]!(accountId, deployedTriggerId);
+      console.log(`[INTEGRATIONS] Trigger ${parsed.data.active ? 'resumed' : 'paused'}: ${deployedTriggerId} account=${accountId}`);
+      return c.json(result);
+    } catch (err) {
+      if (err instanceof HTTPException) throw err;
+      console.error(`[INTEGRATIONS] Trigger update failed for ${deployedTriggerId}:`, err);
+      throw new HTTPException(502, { message: `Trigger update failed: ${err}` });
     }
   });
 

@@ -44,14 +44,7 @@ import { opencodeKeys } from '@/hooks/opencode/use-opencode-sessions';
 import type { ProviderListResponse } from '@/hooks/opencode/use-opencode-sessions';
 import { toast } from '@/lib/toast';
 
-const FALLBACK_PROVIDER_CARDS = [
-  {
-    id: 'opencode',
-    name: 'OpenCode Zen',
-    env: [],
-    models: {},
-  },
-] as const;
+const FALLBACK_PROVIDER_CARDS = [] as const;
 
 // =============================================================================
 // ConnectProviderContent
@@ -620,18 +613,9 @@ export function ConnectProviderContent({
 
           {showApiKeyForm && (
             <form onSubmit={handleApiKeySubmit} className="space-y-4 rounded-2xl border border-border/50 bg-muted/20 p-4">
-              {view.providerID === 'opencode' ? (
-                <div className="space-y-2 text-sm text-muted-foreground">
-                  <p>OpenCode Zen gives you one API key for many hosted models.</p>
-                  <p>Get an API key at{' '}
-                    <a href="https://opencode.ai/zen" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">opencode.ai/zen</a>.
-                  </p>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Enter your {selectedProviderData?.name || view.providerID} API key.
-                </p>
-              )}
+              <p className="text-sm text-muted-foreground">
+                Enter your {selectedProviderData?.name || view.providerID} API key.
+              </p>
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1.5 block">API Key</label>
                 <Input placeholder="Enter API key..." type="text" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="h-9 rounded-xl border-border/50 bg-background text-sm" autoFocus />

@@ -2,7 +2,7 @@
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║  Kortix — One-Click Install                                               ║
 # ║                                                                            ║
-# ║  curl -fsSL https://get.kortix.ai/install | bash                           ║
+# ║  curl -fsSL https://kortix.com/install | bash                              ║
 # ║                                                                            ║
 # ║  Supports two modes (identical stack, different networking):                ║
 # ║    1. Local (laptop/desktop) — HTTP, ports on localhost                     ║
@@ -28,14 +28,23 @@ fatal()   { error "$*"; exit 1; }
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 INSTALL_DIR="${KORTIX_HOME:-$HOME/.kortix}"
-DEFAULT_KORTIX_VERSION="0.8.1"
+DEFAULT_KORTIX_VERSION="0.8.7"
 KORTIX_VERSION="${KORTIX_VERSION:-$DEFAULT_KORTIX_VERSION}"
 KORTIX_LOCAL_IMAGES="${KORTIX_LOCAL_IMAGES:-0}"
 KORTIX_LOCAL_TAG="${KORTIX_LOCAL_TAG:-latest}"
 KORTIX_BUILD_LOCAL_IMAGES="${KORTIX_BUILD_LOCAL_IMAGES:-0}"
 KORTIX_PULL_PARALLELISM="${KORTIX_PULL_PARALLELISM:-4}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TTY_AVAILABLE="0"
+if [ -t 0 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+  TTY_AVAILABLE="1"
+fi
+SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
+SCRIPT_DIR=""
+REPO_ROOT=""
+if [ -n "$SCRIPT_SOURCE" ] && [ "$SCRIPT_SOURCE" != "bash" ] && [ -f "$SCRIPT_SOURCE" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
+  REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+fi
 KORTIX_LOCAL_REPO_ROOT="${KORTIX_LOCAL_REPO_ROOT:-$REPO_ROOT}"
 
 resolve_node_bin() {
@@ -227,6 +236,28 @@ open_browser() {
   fi
 }
 
+prompt_read() {
+  local __var_name="$1"
+  if [ "$TTY_AVAILABLE" = "1" ]; then
+    IFS= read -r "$__var_name" </dev/tty
+  else
+    IFS= read -r "$__var_name"
+  fi
+}
+
+prompt_read_secret() {
+  local __var_name="$1"
+  if [ "$TTY_AVAILABLE" = "1" ]; then
+    stty -echo </dev/tty
+    IFS= read -r "$__var_name" </dev/tty
+    stty echo </dev/tty
+  else
+    if [ -t 0 ]; then stty -echo; fi
+    IFS= read -r "$__var_name"
+    if [ -t 0 ]; then stty echo; fi
+  fi
+}
+
 warm_local_sandbox() {
   [ "$DEPLOY_MODE" = "local" ] || return 0
 
@@ -318,6 +349,8 @@ get_host_docker_socket() {
 
 docker_manifest_exists() {
   local image="$1"
+  # Check locally first, then Docker Hub registry
+  docker image inspect "$image" >/dev/null 2>&1 && return 0
   docker manifest inspect "$image" >/dev/null 2>&1
 }
 
@@ -476,7 +509,7 @@ prompt_mode() {
   echo "    ${CYAN}2${NC}) VPS / Server  ${DIM}(Hetzner, EC2, DO — HTTPS via Caddy)${NC}"
   echo ""
   printf "  Choice [1]: "
-  read -r mode_choice
+  prompt_read mode_choice
 
   case "${mode_choice:-1}" in
     2) DEPLOY_MODE="vps" ;;
@@ -494,7 +527,7 @@ prompt_database() {
   echo "    ${CYAN}2${NC}) External ${DIM}(provide Supabase project URL or database URL)${NC}"
   echo ""
   printf "  Choice [1]: "
-  read -r db_choice
+  prompt_read db_choice
 
   case "${db_choice:-1}" in
     2)
@@ -504,17 +537,17 @@ prompt_database() {
       echo "  ${DIM}From your Supabase project: Settings → API${NC}"
       echo ""
       printf "    Supabase URL ${DIM}(e.g. https://xxx.supabase.co)${NC}: "
-      read -r SUPABASE_URL
+      prompt_read SUPABASE_URL
       printf "    Anon Key: "
-      read -r SUPABASE_ANON_KEY
+      prompt_read SUPABASE_ANON_KEY
       printf "    Service Role Key: "
-      read -r SUPABASE_SERVICE_ROLE_KEY
+      prompt_read SUPABASE_SERVICE_ROLE_KEY
       printf "    JWT Secret: "
-      read -r SUPABASE_JWT_SECRET
+      prompt_read SUPABASE_JWT_SECRET
       echo ""
       echo "  ${DIM}From: Settings → Database → Connection string (URI)${NC}"
       printf "    Database URL ${DIM}(postgresql://...)${NC}: "
-      read -r DATABASE_URL
+      prompt_read DATABASE_URL
       echo ""
 
       if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ] || [ -z "$DATABASE_URL" ]; then
@@ -540,7 +573,7 @@ prompt_domain() {
   echo "    ${CYAN}2${NC}) Just use IP address  ${DIM}(self-signed cert, browser warning)${NC}"
   echo ""
   printf "  Choice [1]: "
-  read -r domain_choice
+  prompt_read domain_choice
 
   case "${domain_choice:-1}" in
     2)
@@ -552,12 +585,12 @@ prompt_domain() {
         DOMAIN="$server_ip"
       else
         printf "  Enter server IP: "
-        read -r DOMAIN
+        prompt_read DOMAIN
       fi
       ;;
     *)
       printf "  Enter domain: "
-      read -r DOMAIN
+      prompt_read DOMAIN
       [ -z "$DOMAIN" ] && fatal "Domain name is required."
 
       info "Verifying DNS for ${BOLD}${DOMAIN}${NC}..."
@@ -571,7 +604,7 @@ prompt_domain() {
         else
           warn "DNS resolves to ${resolved_ip} but this server is ${server_ip}"
           printf "  Continue anyway? [y/N]: "
-          read -r dns_continue
+          prompt_read dns_continue
           echo "${dns_continue:-n}" | grep -qi '^y' || fatal "Fix DNS first."
         fi
       fi
@@ -591,7 +624,7 @@ prompt_security() {
 
   if command -v ufw &>/dev/null; then
     printf "  Firewall (UFW: allow SSH, HTTP, HTTPS only) ${DIM}[${NC}${GREEN}Y${NC}${DIM}/n]${NC}: "
-    read -r fw_choice
+    prompt_read fw_choice
     case "${fw_choice:-y}" in
       [nN]*) ENABLE_FIREWALL="no" ;;
       *) ENABLE_FIREWALL="yes" ;;
@@ -609,19 +642,19 @@ prompt_integrations() {
   echo "  ${DIM}Connect to 3,000+ apps via Pipedream Connect${NC}"
   echo ""
   printf "  Configure integrations? ${DIM}[y/${NC}${GREEN}N${NC}${DIM}]${NC}: "
-  read -r integ_choice
+  prompt_read integ_choice
 
   case "${integ_choice:-n}" in
     [yY]*)
       echo ""
       printf "    Pipedream Client ID: "
-      read -r PIPEDREAM_CLIENT_ID
+      prompt_read PIPEDREAM_CLIENT_ID
       printf "    Pipedream Client Secret: "
-      read -r PIPEDREAM_CLIENT_SECRET
+      prompt_read PIPEDREAM_CLIENT_SECRET
       printf "    Pipedream Project ID ${DIM}(e.g. proj_xxx)${NC}: "
-      read -r PIPEDREAM_PROJECT_ID
+      prompt_read PIPEDREAM_PROJECT_ID
       printf "    Pipedream Environment ${DIM}[production]${NC}: "
-      read -r pd_env
+      prompt_read pd_env
       PIPEDREAM_ENVIRONMENT="${pd_env:-production}"
 
       if [ -n "$PIPEDREAM_CLIENT_ID" ] && [ -n "$PIPEDREAM_CLIENT_SECRET" ] && [ -n "$PIPEDREAM_PROJECT_ID" ]; then
@@ -647,34 +680,59 @@ prompt_owner_account() {
   echo "  ${DIM}The initial owner is created by the installer so the frontend can stay focused on sign-in and product onboarding.${NC}"
   echo ""
 
-  if [ -z "$OWNER_EMAIL" ]; then
+  while [ -z "${OWNER_EMAIL// }" ]; do
     printf "    Owner email: "
-    read -r OWNER_EMAIL
-  fi
+    prompt_read OWNER_EMAIL
+    OWNER_EMAIL="${OWNER_EMAIL#${OWNER_EMAIL%%[![:space:]]*}}"
+    OWNER_EMAIL="${OWNER_EMAIL%${OWNER_EMAIL##*[![:space:]]}}"
+    if [ -z "$OWNER_EMAIL" ]; then
+      warn "Owner email cannot be empty."
+      continue
+    fi
+    case "$OWNER_EMAIL" in
+      *@*.*) ;;
+      *)
+        warn "Owner email must look like a real email address."
+        OWNER_EMAIL=""
+        ;;
+    esac
+  done
 
-  if [ -z "$OWNER_PASSWORD" ]; then
-    while true; do
+  while true; do
+    if [ -z "$OWNER_PASSWORD" ]; then
       printf "    Owner password: "
-      if [ -t 0 ]; then stty -echo; fi
-      read -r OWNER_PASSWORD
-      if [ -t 0 ]; then stty echo; fi
+      prompt_read_secret OWNER_PASSWORD
       echo ""
-      printf "    Confirm password: "
-      if [ -t 0 ]; then stty -echo; fi
-      read -r owner_password_confirm
-      if [ -t 0 ]; then stty echo; fi
-      echo ""
-      if [ "$OWNER_PASSWORD" = "$owner_password_confirm" ]; then
-        break
-      fi
-      warn "Passwords do not match. Please try again."
-      OWNER_PASSWORD=""
-    done
-  fi
+    fi
 
-  [ -n "$OWNER_EMAIL" ] || fatal "Owner email is required."
-  [ -n "$OWNER_PASSWORD" ] || fatal "Owner password is required."
-  [ ${#OWNER_PASSWORD} -ge 6 ] || fatal "Owner password must be at least 6 characters."
+    if [ -z "$OWNER_PASSWORD" ]; then
+      warn "Owner password cannot be empty."
+      continue
+    fi
+
+    if [ ${#OWNER_PASSWORD} -lt 6 ]; then
+      warn "Owner password must be at least 6 characters."
+      OWNER_PASSWORD=""
+      continue
+    fi
+
+    printf "    Confirm password: "
+    prompt_read_secret owner_password_confirm
+    echo ""
+
+    if [ -z "$owner_password_confirm" ]; then
+      warn "Password confirmation cannot be empty."
+      OWNER_PASSWORD=""
+      continue
+    fi
+
+    if [ "$OWNER_PASSWORD" = "$owner_password_confirm" ]; then
+      break
+    fi
+
+    warn "Passwords do not match. Please try again."
+    OWNER_PASSWORD=""
+  done
 
   echo ""
 }
@@ -974,6 +1032,8 @@ write_compose() {
       - "8008"'
     supabase_ports='    expose:
       - "8000"'
+    db_ports='    expose:
+      - "5432"'
   else
     frontend_ports='    ports:
       - "13737:3000"'
@@ -1144,19 +1204,27 @@ ${supabase_ports}
     # In local mode, both use http://localhost:13740 (Kong exposed on host).
     # The frontend container uses extra_hosts to resolve localhost to the host.
     if [ "$DEPLOY_MODE" = "local" ]; then
-      frontend_supabase_env="      - NEXT_PUBLIC_SUPABASE_URL=http://localhost:13740
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
+      frontend_supabase_env="      - KORTIX_PUBLIC_SUPABASE_URL=http://localhost:13740
+      - KORTIX_PUBLIC_SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
+      - KORTIX_PUBLIC_BACKEND_URL=\${API_PUBLIC_URL}/v1
+      - KORTIX_PUBLIC_BILLING_ENABLED=false
+      - KORTIX_PUBLIC_ENV_MODE=local
+      - KORTIX_PUBLIC_APP_URL=\${PUBLIC_URL}
       - SUPABASE_URL=http://localhost:13740
       - SUPABASE_SERVER_URL=http://supabase-kong:8000
       - SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
-      - BACKEND_URL=http://kortix-api:8008/v1"
+      - BACKEND_URL=\${API_PUBLIC_URL}/v1"
     else
-      frontend_supabase_env="      - NEXT_PUBLIC_SUPABASE_URL=\${SUPABASE_PUBLIC_URL}
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
+      frontend_supabase_env="      - KORTIX_PUBLIC_SUPABASE_URL=\${SUPABASE_PUBLIC_URL}
+      - KORTIX_PUBLIC_SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
+      - KORTIX_PUBLIC_BACKEND_URL=\${API_PUBLIC_URL}/v1
+      - KORTIX_PUBLIC_BILLING_ENABLED=false
+      - KORTIX_PUBLIC_ENV_MODE=local
+      - KORTIX_PUBLIC_APP_URL=\${PUBLIC_URL}
       - SUPABASE_URL=\${SUPABASE_PUBLIC_URL}
       - SUPABASE_SERVER_URL=http://supabase-kong:8000
       - SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
-      - BACKEND_URL=http://kortix-api:8008/v1
+      - BACKEND_URL=\${API_PUBLIC_URL}/v1
       - NODE_TLS_REJECT_UNAUTHORIZED=0"
     fi
 
@@ -1166,11 +1234,15 @@ ${supabase_ports}
   else
     # External mode — no Supabase containers
     api_depends="    # External Supabase — no local dependencies"
-    frontend_supabase_env="      - NEXT_PUBLIC_SUPABASE_URL=\${SUPABASE_URL}
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
+    frontend_supabase_env="      - KORTIX_PUBLIC_SUPABASE_URL=\${SUPABASE_URL}
+      - KORTIX_PUBLIC_SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
+      - KORTIX_PUBLIC_BACKEND_URL=\${API_PUBLIC_URL}/v1
+      - KORTIX_PUBLIC_BILLING_ENABLED=false
+      - KORTIX_PUBLIC_ENV_MODE=local
+      - KORTIX_PUBLIC_APP_URL=\${PUBLIC_URL}
       - SUPABASE_URL=\${SUPABASE_URL}
       - SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
-      - BACKEND_URL=http://kortix-api:8008/v1"
+      - BACKEND_URL=\${API_PUBLIC_URL}/v1"
     supabase_url_env="      - SUPABASE_URL=\${SUPABASE_URL}"
     supabase_db_env="      - DATABASE_URL=\${DATABASE_URL}"
   fi
@@ -1188,8 +1260,6 @@ ${frontend_ports}
       - "localhost:host-gateway"
     environment:
 ${frontend_supabase_env}
-      - NEXT_PUBLIC_BACKEND_URL=\${API_PUBLIC_URL}/v1
-      - NEXT_PUBLIC_BILLING_ENABLED=false
     depends_on:
       kortix-api:
         condition: service_started
@@ -1372,6 +1442,10 @@ bootstrap_owner_account() {
   local bootstrap_url="${API_PUBLIC_URL}/v1/setup/bootstrap-owner"
   info "Creating initial owner account..."
 
+  # In IP-only mode Caddy uses a self-signed cert; -k is needed to accept it
+  local curl_tls_flag=""
+  [ "$USE_IP_ONLY" = "yes" ] && curl_tls_flag="-k"
+
   local payload response success_val message attempts=0
   payload=$(OWNER_EMAIL_VALUE="$OWNER_EMAIL" OWNER_PASSWORD_VALUE="$OWNER_PASSWORD" python3 - <<'PY'
 import json, os
@@ -1383,7 +1457,7 @@ PY
 )
 
   while [ $attempts -lt 30 ]; do
-    response=$(curl -sf -X POST "$bootstrap_url" -H 'Content-Type: application/json' -d "$payload" 2>/dev/null || true)
+    response=$(curl $curl_tls_flag -sf -X POST "$bootstrap_url" -H 'Content-Type: application/json' -d "$payload" 2>/dev/null || true)
     if [ -n "$response" ]; then
       break
     fi
@@ -1425,11 +1499,24 @@ write_cli() {
   cat > "$INSTALL_DIR/kortix" << 'CLIPATH'
 #!/usr/bin/env bash
 set -euo pipefail
-DIR="$(cd "$(dirname "$0")" && pwd)"
+# Resolve symlinks so DIR points to the actual install directory
+SELF="$0"
+[ -L "$SELF" ] && SELF="$(readlink -f "$SELF" 2>/dev/null || readlink "$SELF")"
+DIR="$(cd "$(dirname "$SELF")" && pwd)"
 cd "$DIR"
 
 G=$'\033[0;32m'; R=$'\033[0;31m'; C=$'\033[0;36m'; Y=$'\033[1;33m'
 B=$'\033[1m'; D=$'\033[2m'; N=$'\033[0m'
+
+prompt_read() {
+  local __var_name="$1"
+  if [ -t 0 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+    IFS= read -r "$__var_name" </dev/tty
+  else
+    IFS= read -r "$__var_name"
+  fi
+}
+
 # Installed release metadata is persisted in .env so updates stay pinned.
 VERSION=$(grep -m1 '^KORTIX_VERSION=' "$DIR/.env" 2>/dev/null | cut -d= -f2- || echo "unknown")
 SANDBOX_IMAGE=$(grep -m1 '^SANDBOX_IMAGE=' "$DIR/.env" 2>/dev/null | cut -d= -f2- || echo "kortix/computer:${VERSION}")
@@ -1528,6 +1615,32 @@ _rebuild_local_images() {
   bash "$build_script" --tag "$LOCAL_TAG"
 }
 
+_reset_stack() {
+  local yes_flag="${1:-}"
+  if [ "$yes_flag" != "--yes" ]; then
+    printf "  Reset local data and recreate the stack? [y/N]: "
+    prompt_read reset_confirm
+    echo "$reset_confirm" | grep -qi '^y' || {
+      echo "  ${Y}Reset cancelled.${N}"
+      exit 0
+    }
+  fi
+
+  echo "  ${C}Stopping and removing stack...${N}"
+  docker compose --profile vps down -v --remove-orphans 2>/dev/null || docker compose down -v --remove-orphans 2>/dev/null || true
+  docker rm -f kortix-sandbox 2>/dev/null || true
+  docker volume rm kortix-sandbox-data 2>/dev/null || true
+  [ "$(_mode)" = "local" ] && _free_kortix_ports
+
+  echo "  ${C}Starting fresh stack...${N}"
+  if [ "$(_mode)" = "vps" ]; then
+    docker compose --profile vps up -d || true
+  else
+    docker compose up -d || true
+  fi
+  echo "  ${G}Reset complete.${N}"
+}
+
 case "${1:-help}" in
   start)
     # Free ports and clean up lingering containers before starting
@@ -1596,11 +1709,15 @@ case "${1:-help}" in
   credentials)
     [ -f "$DIR/.credentials" ] && cat "$DIR/.credentials" || echo "  ${D}No credentials (local mode or auth disabled)${N}"
     ;;
+  reset)
+    shift
+    _reset_stack "${1:-}"
+    ;;
   uninstall)
     echo "  ${C}Stopping services...${N}"
     docker compose --profile vps down 2>/dev/null || docker compose down 2>/dev/null || true
     printf "  Delete all data (Docker volumes)? [y/N]: "
-    read -r del_volumes
+    prompt_read del_volumes
     echo "$del_volumes" | grep -qi '^y' && {
       docker compose --profile vps down -v 2>/dev/null || docker compose down -v 2>/dev/null || true
       docker rm -f kortix-sandbox 2>/dev/null || true
@@ -1627,6 +1744,7 @@ case "${1:-help}" in
     echo "  ${C}status${N}        Show service status"
     echo "  ${C}setup${N}         Open sign-in page"
     echo "  ${C}update${N}        Update to the configured release"
+    echo "  ${C}reset${N}         Wipe local stack state and recreate it"
     echo "  ${C}credentials${N}   Show admin credentials (VPS mode)"
     echo "  ${C}uninstall${N}     Remove Kortix completely"
     echo "  ${C}version${N}       Show version"
@@ -1797,7 +1915,7 @@ main() {
   if [ -f "$INSTALL_DIR/docker-compose.yml" ]; then
     warn "Existing installation found at $INSTALL_DIR"
     printf "  Reinstall? [y/N]: "
-    read -r answer
+    prompt_read answer
     if [ -z "$answer" ] || ! echo "$answer" | grep -qi '^y'; then
       info "Starting existing installation..."
       cd "$INSTALL_DIR"

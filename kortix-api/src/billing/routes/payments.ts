@@ -73,7 +73,10 @@ paymentsRouter.get('/transactions', async (c) => {
   const accountId = await resolveAccountId(c.get('userId'));
   const limit = Number(c.req.query('limit') ?? 50);
   const offset = Number(c.req.query('offset') ?? 0);
-  const typeFilter = c.req.query('type_filter') || undefined;
+  const typeFilterParam = c.req.query('type_filter') || undefined;
+  const typeFilter = typeFilterParam?.includes(',')
+    ? typeFilterParam.split(',').map((value) => value.trim()).filter(Boolean)
+    : typeFilterParam;
 
   const { rows, total } = await getTransactions(accountId, limit, offset, typeFilter);
 

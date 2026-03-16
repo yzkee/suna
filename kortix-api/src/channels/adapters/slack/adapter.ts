@@ -6,9 +6,8 @@ import type { ChannelConfig } from '@kortix/db';
 import { proxySlackWebhook } from './proxy';
 import { config } from '../../../config';
 import { db } from '../../../shared/db';
-import { channelConfigs, sandboxes } from '@kortix/db';
+import { sandboxes, channelConfigs } from '@kortix/db';
 import { eq, and } from 'drizzle-orm';
-import { encryptCredentials } from '../../lib/credentials';
 import { getSlackPlatformCredentials } from '../../lib/platform-credentials';
 import { resolveDirectEndpoint, resolveSandboxTarget } from '../../core/opencode-connector';
 
@@ -33,43 +32,13 @@ export class SlackAdapter extends BaseAdapter {
   }
 
   override async onChannelRemoved(channelConfig: ChannelConfig): Promise<void> {
-    console.log(
-      `[SLACK] Channel ${channelConfig.channelConfigId} removed.`,
-    );
+    console.log(`[SLACK] Channel ${channelConfig.channelConfigId} removed.`);
   }
 
-  override async validateCredentials(
-    credentials: Record<string, unknown>,
-  ): Promise<{ valid: boolean; error?: string }> {
-    const botToken = credentials.botToken as string;
-    if (!botToken) {
-      return { valid: false, error: 'botToken is required' };
-    }
-
-    try {
-      const res = await fetch('https://slack.com/api/auth.test', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${botToken}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      const result = await res.json() as { ok: boolean; error?: string; user_id?: string; team_id?: string };
-      if (!result.ok) {
-        return { valid: false, error: `Invalid bot token: ${result.error}` };
-      }
-      if (result.user_id) {
-        credentials.botUserId = result.user_id;
-      }
-      if (result.team_id) {
-        credentials.teamId = result.team_id;
-      }
-      return { valid: true };
-    } catch {
-      return { valid: false, error: 'Failed to validate Slack credentials' };
-    }
-  }
-
+  /**
+   * Start Slack OAuth flow.
+   * Reads SLACK_CLIENT_ID from the SANDBOX (not DB, not kortix-api env).
+   */
   private async handleInstall(c: Context): Promise<Response> {
     const sandboxId = c.req.query('sandboxId');
     const accountId = c.req.query('accountId');
@@ -92,12 +61,14 @@ export class SlackAdapter extends BaseAdapter {
       return c.json({ error: 'Missing sandboxId or accountId' }, 400);
     }
 
+    // Read Slack app creds from sandbox (or kortix-api env as fallback)
     const platformCreds = await getSlackPlatformCredentials(resolvedAccountId, sandboxId);
     if (!platformCreds?.clientId) {
-      return c.json({ error: 'Slack OAuth not configured (missing client ID)' }, 500);
+      return c.json({
+        error: 'Slack app credentials not found. Push SLACK_CLIENT_ID, SLACK_CLIENT_SECRET, and SLACK_SIGNING_SECRET to the sandbox first.',
+      }, 400);
     }
 
-    // Resolve public URL: query param from wizard > env config
     const publicUrl = c.req.query('publicUrl') || config.CHANNELS_PUBLIC_URL;
 
     const state = JSON.stringify({
@@ -119,6 +90,11 @@ export class SlackAdapter extends BaseAdapter {
     return c.redirect(slackUrl.toString());
   }
 
+  /**
+   * Slack OAuth callback.
+   * Reads SLACK_CLIENT_ID + SLACK_CLIENT_SECRET from the SANDBOX,
+   * exchanges code → bot_token, pushes bot_token to sandbox, creates channelConfig.
+   */
   private async handleOAuthCallback(c: Context): Promise<Response> {
     const frontendUrl = config.FRONTEND_URL;
     const code = c.req.query('code');
@@ -141,12 +117,12 @@ export class SlackAdapter extends BaseAdapter {
       return c.redirect(`${frontendUrl}/channels?slack=error&message=${encodeURIComponent('Invalid state parameter')}`);
     }
 
+    // Read Slack app creds from sandbox
     const platformCreds = await getSlackPlatformCredentials(accountId, sandboxId);
     if (!platformCreds?.clientId || !platformCreds?.clientSecret) {
-      return c.redirect(`${frontendUrl}/channels?slack=error&message=${encodeURIComponent('Slack OAuth not configured')}`);
+      return c.redirect(`${frontendUrl}/channels?slack=error&message=${encodeURIComponent('Slack credentials not found in sandbox')}`);
     }
 
-    // Use same public URL from the install step (stored in state) for consistency
     const publicUrl = statePublicUrl || config.CHANNELS_PUBLIC_URL;
     const redirectUri = publicUrl ? `${publicUrl}/webhooks/slack/oauth_callback` : undefined;
 
@@ -177,139 +153,97 @@ export class SlackAdapter extends BaseAdapter {
     }
 
     console.log(`[SLACK] OAuth success for team ${data.team?.name} (${data.team?.id})`);
+
+    // Verify the token
     const authRes = await fetch('https://slack.com/api/auth.test', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${data.access_token}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { Authorization: `Bearer ${data.access_token}`, 'Content-Type': 'application/json' },
     });
-    const authResult = await authRes.json() as { ok: boolean; user_id?: string; team_id?: string; error?: string };
+    const authResult = await authRes.json() as { ok: boolean; error?: string };
     if (!authResult.ok) {
       return c.redirect(`${frontendUrl}/channels?slack=error&message=${encodeURIComponent('Token verification failed')}`);
     }
 
-    try {
-      const teamName = data.team?.name || 'Slack';
-      const rawCreds = {
-        botToken: data.access_token,
-        botUserId: data.bot_user_id || authResult.user_id,
-        teamId: data.team?.id || authResult.team_id,
-        teamName,
-      };
-      const encryptedCreds = await encryptCredentials(rawCreds);
+    // Push bot token to sandbox
+    if (sandboxId) {
+      try {
+        const target = await resolveSandboxTarget(sandboxId);
+        if (target) {
+          const { url, headers } = await resolveDirectEndpoint(target);
+          console.log(`[SLACK] Pushing bot token to sandbox at ${url}`);
 
-      if (sandboxId) {
-        const [existing] = await db
-          .select({ channelConfigId: channelConfigs.channelConfigId })
-          .from(channelConfigs)
-          .where(
-            and(
-              eq(channelConfigs.sandboxId, sandboxId),
-              eq(channelConfigs.channelType, 'slack'),
-            ),
-          );
-
-        if (existing) {
-          await db
-            .update(channelConfigs)
-            .set({
-              credentials: encryptedCreds,
-              name: `${teamName} Slack`,
-              enabled: true,
-              updatedAt: new Date(),
-            })
-            .where(eq(channelConfigs.channelConfigId, existing.channelConfigId));
-        } else {
-          await db
-            .insert(channelConfigs)
-            .values({
-              sandboxId,
-              accountId,
-              channelType: 'slack',
-              name: `${teamName} Slack`,
-              enabled: true,
-              credentials: encryptedCreds,
-              sessionStrategy: 'per-user',
-              metadata: {},
-            });
-        }
-      } else {
-        await db
-          .insert(channelConfigs)
-          .values({
-            sandboxId,
-            accountId,
-            channelType: 'slack',
-            name: `${teamName} Slack`,
-            enabled: true,
-            credentials: encryptedCreds,
-            sessionStrategy: 'per-user',
-            metadata: {},
+          // Push SLACK_BOT_TOKEN (the OAuth-issued token) and SLACK_SIGNING_SECRET to sandbox
+          await fetch(`${url}/env`, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              keys: {
+                SLACK_BOT_TOKEN: data.access_token,
+                SLACK_SIGNING_SECRET: platformCreds.signingSecret,
+              },
+            }),
           });
-      }
 
-      if (sandboxId) {
-        try {
-          const target = await resolveSandboxTarget(sandboxId);
-          if (target) {
-            const { url, headers } = await resolveDirectEndpoint(target);
-            console.log(`[SLACK] Pushing credentials to sandbox at ${url}`);
-            const envRes = await fetch(`${url}/env`, {
+          // Hot-reload opencode-channels
+          try {
+            await fetch(`${url}/channels/reload`, {
               method: 'POST',
               headers: { ...headers, 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                keys: {
-                  SLACK_BOT_TOKEN: data.access_token,
-                  SLACK_SIGNING_SECRET: platformCreds.signingSecret,
+                credentials: {
+                  slack: {
+                    botToken: data.access_token,
+                    signingSecret: platformCreds.signingSecret,
+                  },
                 },
               }),
             });
-            const envResult = await envRes.json() as Record<string, unknown>;
-            console.log(`[SLACK] Env push result:`, envResult);
-
-            try {
-              const reloadRes = await fetch(`${url}/channels/reload`, {
-                method: 'POST',
-                headers: { ...headers, 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  credentials: {
-                    slack: {
-                      botToken: data.access_token,
-                      signingSecret: platformCreds.signingSecret,
-                    },
-                  },
-                }),
-              });
-              const reloadText = await reloadRes.text();
-              if (reloadRes.ok) {
-                try {
-                  const reloadResult = JSON.parse(reloadText);
-                  console.log(`[SLACK] Hot-reload result:`, reloadResult);
-                } catch {
-                  console.log(`[SLACK] Hot-reload responded (${reloadRes.status}):`, reloadText.slice(0, 200));
-                }
-              } else {
-                console.warn(`[SLACK] Hot-reload returned ${reloadRes.status}:`, reloadText.slice(0, 200));
-              }
-            } catch (reloadErr) {
-              console.warn('[SLACK] Hot-reload failed (service may not be running yet):', reloadErr);
-            }
-          } else {
-            console.warn('[SLACK] No sandbox target found for', sandboxId);
+            console.log(`[SLACK] Hot-reload complete`);
+          } catch (err) {
+            console.warn('[SLACK] Hot-reload failed (non-fatal):', err);
           }
-        } catch (err) {
-          console.warn('[SLACK] Failed to push credentials to sandbox:', err);
         }
+      } catch (err) {
+        console.warn('[SLACK] Failed to push credentials to sandbox:', err);
       }
-    } catch (err) {
-      console.error('[SLACK] Failed to create channel config:', err);
-      return c.redirect(`${frontendUrl}/channels?slack=error&message=${encodeURIComponent('Failed to save channel config')}`);
     }
 
-    const redirectParams = sandboxId
-      ? 'slack=connected'
-      : 'slack=connected&needsLink=true';
+    // Create channelConfig DB record so it shows in the channels list
+    try {
+      const conditions = [
+        eq(channelConfigs.accountId, accountId),
+        eq(channelConfigs.channelType, 'slack'),
+      ];
+      if (sandboxId) conditions.push(eq(channelConfigs.sandboxId, sandboxId));
+
+      const [existing] = await db
+        .select({ channelConfigId: channelConfigs.channelConfigId })
+        .from(channelConfigs)
+        .where(and(...conditions));
+
+      if (!existing) {
+        const channelName = data.team?.name ? `Slack — ${data.team.name}` : 'Slack Bot';
+        await db.insert(channelConfigs).values({
+          accountId,
+          sandboxId: sandboxId ?? null,
+          channelType: 'slack',
+          name: channelName,
+          enabled: true,
+          platformConfig: {
+            team_id: data.team?.id ?? null,
+            team_name: data.team?.name ?? null,
+            bot_user_id: data.bot_user_id ?? null,
+          },
+          sessionStrategy: 'per-thread',
+          metadata: {},
+        });
+        console.log(`[SLACK] Created channel config for team ${data.team?.name}`);
+      }
+    } catch (dbErr) {
+      console.error('[SLACK] Failed to create channel config (non-fatal):', dbErr);
+    }
+
+    const redirectParams = sandboxId ? 'slack=connected' : 'slack=connected&needsLink=true';
     return c.redirect(`${frontendUrl}/channels?${redirectParams}`);
   }
 }

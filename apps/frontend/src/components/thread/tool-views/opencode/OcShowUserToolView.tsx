@@ -25,13 +25,12 @@ import { Button } from '@/components/ui/button';
 import { ToolViewIconTitle } from '../shared/ToolViewIconTitle';
 import { ToolViewFooter } from '../shared/ToolViewFooter';
 import { useAuthenticatedPreviewUrl } from '@/hooks/use-authenticated-preview-url';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
 import {
   isAppRouteUrl,
   isProxiableLocalhostUrl,
   parseLocalhostUrl,
-  proxyLocalhostUrl,
 } from '@/lib/utils/sandbox-url';
-import { useServerStore, getActiveOpenCodeUrl, deriveSubdomainOpts } from '@/stores/server-store';
 import { openTabAndNavigate } from '@/stores/tab-store';
 import { enrichPreviewMetadata } from '@/lib/utils/session-context';
 import { cn } from '@/lib/utils';
@@ -68,22 +67,17 @@ function typeIcon(type: string) {
 // ---------------------------------------------------------------------------
 
 function SidePanelIframePreview({ url, title }: { url: string; title?: string }) {
-  const activeServer = useServerStore((s) => {
-    return s.servers.find((srv) => srv.id === s.activeServerId) ?? null;
-  });
-  const serverUrl = activeServer?.url || getActiveOpenCodeUrl();
-  const mappedPorts = activeServer?.mappedPorts;
-  const subdomainOpts = useMemo(() => deriveSubdomainOpts(activeServer), [activeServer]);
+  const { proxyUrl } = useSandboxProxy();
 
   const proxy = useMemo(() => {
     if (!url) return null;
     if (!isProxiableLocalhostUrl(url)) return null;
     const parsed = parseLocalhostUrl(url);
     if (!parsed) return null;
-    const proxyUrl = proxyLocalhostUrl(url, serverUrl, mappedPorts, subdomainOpts);
-    if (!proxyUrl) return null;
-    return { proxyUrl, port: parsed.port };
-  }, [url, serverUrl, mappedPorts, subdomainOpts]);
+    const resolvedProxyUrl = proxyUrl(url);
+    if (!resolvedProxyUrl) return null;
+    return { proxyUrl: resolvedProxyUrl, port: parsed.port };
+  }, [url, proxyUrl]);
 
   const authenticatedUrl = useAuthenticatedPreviewUrl(proxy?.proxyUrl || url);
   const isAuthReady = authenticatedUrl !== null;
@@ -308,16 +302,11 @@ export function OcShowUserToolView({
   const isError = type === 'error' || toolResult?.success === false || !!toolResult?.error;
   const hasLocalhostUrl = !!parseLocalhostUrl(url) && !isAppRouteUrl(url);
 
-  // ── Server/proxy state (for header subtitle) ──
-  const activeServer = useServerStore((s) => {
-    return s.servers.find((srv) => srv.id === s.activeServerId) ?? null;
-  });
-  const serverUrl = activeServer?.url || getActiveOpenCodeUrl();
-  const mappedPorts = activeServer?.mappedPorts;
-  const subdomainOpts2 = useMemo(() => deriveSubdomainOpts(activeServer), [activeServer]);
+  // ── Shared proxy state (for header subtitle + previews) ──
+  const { proxyUrl } = useSandboxProxy();
   const resolvedUrl = useMemo(
-    () => proxyLocalhostUrl(url, serverUrl, mappedPorts, subdomainOpts2) ?? url,
-    [url, serverUrl, mappedPorts, subdomainOpts2],
+    () => proxyUrl(url) ?? url,
+    [url, proxyUrl],
   );
 
   const displayTitle = isCarousel

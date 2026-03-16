@@ -6,7 +6,6 @@ import { cn } from '@/lib/utils';
 export const POPULAR_PROVIDER_IDS = [
   'anthropic',
   'openai',
-  'opencode',
   'github-copilot',
   'google',
   'openrouter',
@@ -17,7 +16,6 @@ export const MODEL_SELECTOR_PROVIDER_IDS = [
   'kortix',
   'anthropic',
   'openai',
-  'opencode',
   'github-copilot',
   'google',
   'openrouter',
@@ -102,7 +100,6 @@ export const PROVIDER_LABELS: Record<string, string> = {
 };
 
 export const PROVIDER_HINTS: Record<string, string> = {
-  opencode: 'Recommended',
   anthropic: 'Bring your own key',
   openai: 'Bring your own key',
   'github-copilot': 'Use existing subscription',

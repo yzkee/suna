@@ -1,4 +1,152 @@
-[
+[ 
+  {
+    "version": "0.8.7",
+    "date": "2026-03-16",
+    "title": "AutoContinue algorithms, sandbox runtime fixes, and UI upgrades",
+    "description": "Adds multi-algorithm AutoContinue with Kubet, Ino, and Saumya strategies, hardens the continuation engine against validator bypass and cooldown stalls, and ships frontend/runtime improvements already merged to main.",
+    "changes": [
+      {
+        "type": "feature",
+        "text": "AutoContinue now supports multiple autonomous algorithms: Kraemer (executor), Kubet (validator), Ino (decomposer), and Saumya (architect), selectable directly from chat"
+      },
+      {
+        "type": "fix",
+        "text": "Kubet no longer lets agents skip validation by emitting DONE and VERIFIED together; the full validator pipeline is enforced before completion"
+      },
+      {
+        "type": "fix",
+        "text": "Continuation loops no longer get stuck when an agent responds faster than the gate cooldown; stop decisions are detected during cooldown blocks"
+      },
+      {
+        "type": "fix",
+        "text": "Saumya phase progression is more reliable with structured phase transitions and correct handling of multiple completed phases in one response"
+      },
+      {
+        "type": "feature",
+        "text": "Chat input AutoContinue selector is more informative with compact algorithm rows and a full algorithm info dialog covering strengths, weaknesses, and how each mode works"
+      }
+    ]
+  },
+  {
+    "version": "0.8.6",
+    "date": "2026-03-15",
+    "title": "Fix sandbox boot — workspace ownership",
+    "description": "Fixes critical sandbox boot failure where OpenCode couldn't create its SQLite database because /workspace was owned by the wrong uid.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "OpenCode no longer fails with 'unable to open database file' on fresh boot — workspace is now correctly owned by the abc user (uid 911) instead of uid 1000"
+      }
+    ]
+  },
+  {
+    "version": "0.8.5",
+    "date": "2026-03-15",
+    "title": "Sandbox reliability, billing flow, and UI polish",
+    "description": "Fixes OpenCode crash-loop on first boot caused by stale SQLite WAL locks, tightens the checkout flow to redirect cleanly on failure, polishes badge tokens, and repairs the promote workflow submodule issue.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "OpenCode no longer crash-loops on fresh sandbox boot — stale SQLite WAL/SHM locks from a previous crashed instance are waited out before restarting"
+      },
+      {
+        "type": "fix",
+        "text": "Checkout failure now redirects straight to /subscription instead of the dead-end payment_pending page"
+      },
+      {
+        "type": "fix",
+        "text": "Badge component now uses design token colors (primary, muted) instead of hardcoded blue/purple/green"
+      },
+      {
+        "type": "fix",
+        "text": "Promote workflow submodule pointer for kortix-ocx-registry updated to a valid ref, unblocking CI"
+      }
+    ]
+  },
+  {
+    "version": "0.8.4",
+    "date": "2026-03-15",
+    "title": "Polish self-hosted builds, PTY tooling, and release flow",
+    "description": "Stabilizes the self-hosted shipping path after 0.8.3 with installer and standalone build fixes, new PTY tooling for long-running commands, cleaner frontend/runtime configuration, and stronger release verification.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Self-hosted installs and standalone frontend builds are more reliable again, including restored /install handling, URL rewriting, and Docker packaging fixes"
+      },
+      {
+        "type": "feature",
+        "text": "New opencode-pty support adds managed PTY sessions for long-running commands with live session tooling in the OpenCode runtime"
+      },
+      {
+        "type": "refactor",
+        "text": "Frontend and runtime cleanup removes stale onboarding/dashboard code, aligns runtime config and bundled tooling, and softens Graphite dark mode"
+      },
+      {
+        "type": "test",
+        "text": "Release verification is stronger with Hetzner snapshot support in ship, a consolidated tests/ layout, and expanded self-hosted Playwright and shell coverage"
+      }
+    ]
+  },
+  {
+    "version": "0.8.3",
+    "date": "2026-03-14",
+    "title": "Refresh browser, desktop, and workspace flows",
+    "description": "Focuses this release on the browser and desktop experience, a drive-style workspace refresh, and stronger automation plumbing, alongside sandbox and runtime reliability fixes.",
+    "changes": [
+      {
+        "type": "feature",
+        "text": "Dedicated Browser and Desktop dashboard experiences with improved sandbox proxying, tab routing, and hard-reload handling"
+      },
+      {
+        "type": "feature",
+        "text": "Drive-style workspace refresh with richer grid/list browsing, previews, thumbnails, history, and directory download flows"
+      },
+      {
+        "type": "feature",
+        "text": "Bidirectional channels, multi-account integrations, and event-driven triggers work more reliably across sandboxes"
+      },
+      {
+        "type": "fix",
+        "text": "Sandbox/runtime stability improves with package persistence, local semantic search, and cleaner update/version handling"
+      }
+    ]
+  },
+  {
+    "version": "0.8.2",
+    "date": "2026-03-14",
+    "title": "Kortix provider + sandbox stability fixes",
+    "description": "Registers Kortix as a native OpenCode provider routing all LLM calls through the Kortix billing proxy. Fixes sandbox startup race conditions, port conflicts, and token injection.",
+    "changes": [
+      {
+        "type": "feature",
+        "text": "Kortix provider in opencode.jsonc — all models route through KORTIX_API_URL/v1/router using KORTIX_TOKEN, no user API keys needed"
+      },
+      {
+        "type": "feature",
+        "text": "Auto-provision sandbox on API startup — creates DB record, generates token, injects KORTIX_TOKEN + KORTIX_API_URL via docker exec"
+      },
+      {
+        "type": "fix",
+        "text": "Core supervisor no longer kills lss-sync and opencode-channels — s6 owns them"
+      },
+      {
+        "type": "fix",
+        "text": "run-opencode-serve.sh reads KORTIX_TOKEN and KORTIX_API_URL from s6 env dir at startup so opencode always has current values"
+      },
+      {
+        "type": "fix",
+        "text": "Core supervisor EADDRINUSE detection stops crash-loop when port 4096 is already bound"
+      },
+      {
+        "type": "fix",
+        "text": "kortix-master re-reads INTERNAL_SERVICE_KEY from s6 env dir on every auth check"
+      },
+      {
+        "type": "fix",
+        "text": "Tool deps (@mendable/firecrawl-js, @tavily/core, replicate) pre-seeded into workspace cache so opencode bundler resolves them offline"
+      }
+    ]
+  },
   {
     "version": "0.8.1",
     "date": "2026-03-12",

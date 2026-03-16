@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Maximize2, Presentation } from 'lucide-react';
 import { constructHtmlPreviewUrl } from '@/lib/utils/url';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
 import { Project } from '@/types/project';
 
 interface SlideMetadata {
@@ -30,14 +31,15 @@ export function PresentationSlideCard({
   showFullScreenButton = true,
   refreshTimestamp,
 }: PresentationSlideCardProps) {
+  const { subdomainOpts } = useSandboxProxy();
   const [containerRef, setContainerRef] = useState<HTMLDivElement | null>(null);
   const [scale, setScale] = useState(1);
 
   const slidePreviewUrl = useMemo(() => {
     if (!project?.sandbox?.sandbox_url) return null;
-    const url = constructHtmlPreviewUrl(project.sandbox.sandbox_url, slide.file_path);
+    const url = constructHtmlPreviewUrl(project.sandbox.sandbox_url, slide.file_path, subdomainOpts);
     return refreshTimestamp ? `${url}?t=${refreshTimestamp}` : url;
-  }, [project?.sandbox?.sandbox_url, slide.file_path, refreshTimestamp]);
+  }, [project?.sandbox?.sandbox_url, slide.file_path, refreshTimestamp, subdomainOpts]);
 
   useEffect(() => {
     if (!containerRef) return;
@@ -179,4 +181,3 @@ export function PresentationSlideCard({
     </div>
   );
 }
-

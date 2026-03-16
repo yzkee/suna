@@ -1,4 +1,5 @@
 export { SkillList } from './skill-list';
-export { SkillCard, Marketplace } from './marketplace';
+export { Marketplace } from './marketplace';
+export { SkillCard } from './skill-card';
 export { SkillEditor } from './skill-editor';
 export { DeleteSkillDialog } from './delete-skill-dialog';

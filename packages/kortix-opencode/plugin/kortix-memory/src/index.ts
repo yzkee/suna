@@ -36,20 +36,29 @@ import { initDb, insertObservation, ensureSession, incrementPromptCount, complet
 import { extractObservation } from "./extract"
 import { generateContextBlock } from "./context"
 import { consolidateMemories } from "./consolidate"
-import { initEnrichment, enqueueEnrichment, updateEnrichmentOpts } from "./enrich"
+import { initEnrichment, enqueueEnrichment } from "./enrich"
 import { initSearch, hybridSearchLTM, hybridSearchObservations } from "./search"
 import { ensureMemDir, writeObservationFile, writeLTMFile } from "./lss"
 import { existsSync, writeFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { getEnv, shortTs, changeSummary, formatMessages, ttcCompress, STORAGE_BASE, DB_PATH } from "./session"
 import { MEMORY_CONTEXT_MARKER, upsertMemoryContextAtPromptEnd } from "./message-transform"
+import { setActiveProvider, getActiveProvider } from "./llm"
 import type { LogFn, CreateLTMInput, LTMType } from "./types"
 
 // ─── Plugin Entry ────────────────────────────────────────────────────────────
 
 /** Session pruning only applies to Anthropic models (prompt cache cost optimization) */
-function isAnthropicModel(modelId: string | null): boolean {
-	if (!modelId) return false
+function isAnthropicModel(modelId: string | null | undefined): boolean {
+	if (!modelId) {
+		// Fall back to checking the provider ID
+		const provider = getActiveProvider()
+		if (provider) {
+			const pid = provider.providerID.toLowerCase()
+			return pid === "anthropic" || pid.includes("anthropic")
+		}
+		return false
+	}
 	const lower = modelId.toLowerCase()
 	// Direct Anthropic model IDs + Kortix aliases that resolve to Anthropic
 	return lower.includes("anthropic") || lower.includes("claude") || lower.startsWith("kortix/")
@@ -80,7 +89,6 @@ export const KortixMemoryPlugin: Plugin = async ({ client, project, directory })
 	const projectDir: string | null = directory ?? null
 
 	let currentSessionId: string | null = null
-	let currentModel: string | null = null
 	let promptCount = 0
 	const pendingArgs = new Map<string, Record<string, unknown>>()
 
@@ -141,6 +149,42 @@ export const KortixMemoryPlugin: Plugin = async ({ client, project, directory })
 	// Initialize hybrid search engine
 	initSearch(log)
 
+	// ── Startup: fetch provider credentials from OpenCode SDK ─────────
+	// This ensures consolidation/enrichment can make LLM calls immediately,
+	// even before the first chat.params hook fires.
+	;(async () => {
+		try {
+			const res = await client.config.providers()
+			const data = res.data as any
+			if (data?.providers && Array.isArray(data.providers)) {
+				// Find the first connected provider with an API key
+				for (const provider of data.providers) {
+					if (provider.key) {
+						const baseURL = provider.options?.baseURL as string | undefined
+						// Use the first available model from this provider
+						const modelIds = Object.keys(provider.models ?? {})
+						const modelID = modelIds[0] ?? "claude-sonnet-4-5-20250929"
+
+						setActiveProvider({
+							providerID: provider.id,
+							modelID,
+							apiKey: provider.key,
+							baseURL,
+							options: provider.options,
+						})
+						log("info", `[memory] Startup: captured provider "${provider.id}" credentials from SDK`)
+						break
+					}
+				}
+			}
+			if (!getActiveProvider()) {
+				log("warn", `[memory] Startup: no provider with API key found via SDK — LLM features will be unavailable until first chat.params`)
+			}
+		} catch (err) {
+			log("warn", `[memory] Startup: provider fetch failed (non-fatal): ${err}`)
+		}
+	})()
+
 	// ── Background Consolidation ──────────────────────────────────────
 	// Consolidate sessions that were never processed (or have new observations).
 	// Runs in the background without blocking the main hook flow.
@@ -191,15 +235,13 @@ export const KortixMemoryPlugin: Plugin = async ({ client, project, directory })
 
 			for (const session of sessionsToConsolidate) {
 				try {
-					const result = await consolidateMemories(db, session.id, log,
-						currentModel ? { model: currentModel } : undefined,
-					)
+					const result = await consolidateMemories(db, session.id, log)
 
 					// Write LSS files for new LTM entries
 					if (memDir && result.newMemories.length > 0) {
 						for (const mem of result.newMemories) {
 							try {
-																writeLTMFile(memDir, mem.id, mem.type, mem.content, mem.tags ?? [])
+								writeLTMFile(memDir, mem.id, mem.type, mem.content, mem.tags ?? [])
 							} catch { /* non-fatal */ }
 						}
 					}
@@ -301,14 +343,33 @@ export const KortixMemoryPlugin: Plugin = async ({ client, project, directory })
 				if (currentSessionId) {
 					promptCount = incrementPromptCount(db, currentSessionId)
 				}
-				// Capture the user's selected model for LLM consolidation + enrichment
-				if (input.model?.modelID) {
-					currentModel = input.model.modelID
-					updateEnrichmentOpts({ model: currentModel })
-					log("info", `[memory] Model updated: ${currentModel}`)
-				}
 			} catch (err) {
 				log("warn", `[memory] chat.message hook failed: ${err}`)
+			}
+		},
+
+		// ── HOOK: Capture provider credentials from the running session ──
+		// chat.params fires on every LLM call and includes the full provider
+		// context with the API key. This ensures memory LLM calls always use
+		// whatever provider the user has configured — no separate env vars needed.
+		"chat.params": async (input, _output) => {
+			try {
+				const provider = input.provider
+				if (provider?.info?.key) {
+					const baseURL = (provider.options?.baseURL as string)
+						?? (provider.info?.options?.baseURL as string)
+						?? undefined
+
+					setActiveProvider({
+						providerID: provider.info.id,
+						modelID: input.model?.id ?? "unknown",
+						apiKey: provider.info.key,
+						baseURL,
+						options: provider.options,
+					})
+				}
+			} catch (err) {
+				log("warn", `[memory] chat.params hook failed: ${err}`)
 			}
 		},
 
@@ -382,7 +443,7 @@ export const KortixMemoryPlugin: Plugin = async ({ client, project, directory })
 				}
 
 				// Inject pruning awareness only for Anthropic models (pruning is Anthropic-specific)
-				if (isAnthropicModel(currentModel)) {
+				if (isAnthropicModel(getActiveProvider()?.modelID)) {
 					parts.push([
 						`<context_pruning_awareness>`,
 						`Long conversations get server-side context pruning. You'll see these markers in older tool results:`,
@@ -411,9 +472,7 @@ export const KortixMemoryPlugin: Plugin = async ({ client, project, directory })
 				if (!sessionId) return
 
 				// 1. Run LLM consolidation (observations → LTM)
-				const result = await consolidateMemories(db, sessionId, log,
-					currentModel ? { model: currentModel } : undefined,
-				)
+				const result = await consolidateMemories(db, sessionId, log)
 
 				// 2. Write LSS files for new LTM entries
 				if (memDir) {

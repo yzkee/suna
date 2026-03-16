@@ -16,10 +16,9 @@ import { Button } from '@/components/ui/button';
 import { UnifiedMarkdown } from '@/components/markdown';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { openTabAndNavigate } from '@/stores/tab-store';
-import { useServerStore, getActiveOpenCodeUrl, deriveSubdomainOpts } from '@/stores/server-store';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
 import {
   detectLocalhostUrls,
-  proxyLocalhostUrl,
   toInternalUrl,
   type DetectedLocalhostUrl,
 } from '@/lib/utils/sandbox-url';
@@ -544,17 +543,13 @@ export const SandboxUrlDetector: React.FC<SandboxUrlDetectorProps> = ({
 }) => {
   const safeContent = typeof content === 'string' ? content : content ? String(content) : '';
 
-  const activeServer = useServerStore((s) => {
-    return s.servers.find((srv) => srv.id === s.activeServerId) ?? null;
-  });
-  const serverUrl = activeServer?.url || getActiveOpenCodeUrl();
-  const subdomainOpts = useMemo(() => deriveSubdomainOpts(activeServer), [activeServer]);
+  const { proxyUrl } = useSandboxProxy();
 
   const detected = useMemo(() => detectLocalhostUrls(safeContent), [safeContent]);
 
   const proxyUrls = useMemo(
-    () => detected.map((d) => proxyLocalhostUrl(d.originalUrl, serverUrl, undefined, subdomainOpts) ?? d.originalUrl),
-    [detected, serverUrl, subdomainOpts],
+    () => detected.map((d) => proxyUrl(d.originalUrl) ?? d.originalUrl),
+    [detected, proxyUrl],
   );
 
   // Split into two tiers: live service URLs (plain text) vs example URLs (code blocks)

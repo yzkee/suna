@@ -10,6 +10,7 @@ import {
   Eye,
   FileWarning,
   GitBranch,
+  Globe,
   Loader2,
   Save,
 } from 'lucide-react';
@@ -23,6 +24,9 @@ import { UnifiedMarkdown } from '@/components/markdown';
 import { CodeEditor } from '@/components/file-editors/code-editor';
 import { getFileIcon } from './file-icon';
 import { useDiagnosticsStore, findDiagnosticsForFile } from '@/stores/diagnostics-store';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
+import { SANDBOX_PORTS } from '@/lib/platform-client';
+import { useAuthenticatedPreviewUrl } from '@/hooks/use-authenticated-preview-url';
 
 // ---------------------------------------------------------------------------
 // Lazy-load heavy renderers to keep initial bundle small
@@ -67,6 +71,7 @@ export type FileCategory =
   | 'csv'
   | 'video'
   | 'audio'
+  | 'html'
   | 'code'
   | 'text'
   | 'binary';
@@ -82,6 +87,7 @@ export function getFileCategory(filename: string, mimeType?: string): FileCatego
   if (['csv', 'tsv'].includes(ext)) return 'csv';
   if (['mp4', 'webm', 'mov', 'avi', 'mkv', 'm4v'].includes(ext)) return 'video';
   if (['mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'wma'].includes(ext)) return 'audio';
+  if (['html', 'htm'].includes(ext)) return 'html';
 
   // Code/text files
   if (getLanguageFromExt(filename) !== 'plaintext') return 'code';
@@ -183,8 +189,68 @@ export function FileContentRenderer({
   const fileCategory = getFileCategory(fileName, fileContent?.mimeType);
   const isMarkdownFile = language === 'markdown';
   const isJsonFile = language === 'json';
-  const [isMarkdownPreview, setIsMarkdownPreview] = useState(isMarkdownFile);
+  const isHtmlFile = fileCategory === 'html';
+  const [isMarkdownPreview, setIsMarkdownPreview] = useState(false);
   const [isJsonTreeView, setIsJsonTreeView] = useState(false);
+  // HTML files default to rendered preview mode
+  const [isHtmlPreview, setIsHtmlPreview] = useState(true);
+
+  // Build proxied static-file-server URLs for HTML preview
+  const { rewritePortPath } = useSandboxProxy();
+  const staticPort = parseInt(SANDBOX_PORTS.STATIC_FILE_SERVER ?? '3211', 10);
+
+  const htmlPreviewUrl = useMemo(() => {
+    if (!isHtmlFile) return '';
+    const encodedPath = filePath.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+    return rewritePortPath(staticPort, `/open?path=/${encodedPath}`);
+  }, [isHtmlFile, filePath, rewritePortPath, staticPort]);
+
+  // Health URL: hit /health on the static file server through the proxy
+  const htmlHealthUrl = useMemo(() => {
+    if (!isHtmlFile) return '';
+    return rewritePortPath(staticPort, '/health');
+  }, [isHtmlFile, rewritePortPath, staticPort]);
+
+  // Authenticate the preview session before rendering the iframe
+  const authenticatedPreviewUrl = useAuthenticatedPreviewUrl(isHtmlFile && isHtmlPreview ? htmlPreviewUrl : '');
+
+  // Poll the health endpoint until the static server responds
+  const [serverHealth, setServerHealth] = useState<'checking' | 'ready' | 'unavailable'>('checking');
+  const healthRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!isHtmlFile || !isHtmlPreview || !htmlHealthUrl) return;
+
+    let cancelled = false;
+    setServerHealth('checking');
+
+    async function check() {
+      try {
+        const res = await fetch(htmlHealthUrl, { method: 'GET', credentials: 'include' });
+        if (cancelled) return;
+        if (res.ok) {
+          setServerHealth('ready');
+        } else {
+          retry();
+        }
+      } catch {
+        if (!cancelled) retry();
+      }
+    }
+
+    function retry() {
+      if (cancelled) return;
+      setServerHealth('checking');
+      healthRetryRef.current = setTimeout(check, 1500);
+    }
+
+    check();
+
+    return () => {
+      cancelled = true;
+      if (healthRetryRef.current) clearTimeout(healthRetryRef.current);
+    };
+  }, [isHtmlFile, isHtmlPreview, htmlHealthUrl]);
 
   // LSP diagnostics for this file from the global diagnostics store
   // Uses suffix-matching because LSP stores absolute paths but we use relative paths
@@ -215,13 +281,15 @@ export function FileContentRenderer({
     }
   }, [fileContent?.content]);
 
-  // Reset state when file changes
+  // Reset state when file changes — default to edit mode for markdown
   useEffect(() => {
-    setIsMarkdownPreview(isMarkdownFile);
+    setIsMarkdownPreview(false);
     setIsJsonTreeView(false);
     setHasUnsavedChanges(false);
+    // HTML files always default to preview mode
+    setIsHtmlPreview(true);
     latestContentRef.current = '';
-  }, [filePath, isMarkdownFile]);
+  }, [filePath]);
 
   // Notify parent of unsaved state changes
   useEffect(() => {
@@ -341,6 +409,23 @@ export function FileContentRenderer({
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Save className="h-4 w-4" />
+                )}
+              </Button>
+            )}
+
+            {/* HTML preview toggle */}
+            {isHtmlFile && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn('h-7 w-7', isHtmlPreview && 'text-primary')}
+                onClick={() => setIsHtmlPreview((v) => !v)}
+                title={isHtmlPreview ? 'View source' : 'Preview'}
+              >
+                {isHtmlPreview ? (
+                  <Code className="h-4 w-4" />
+                ) : (
+                  <Globe className="h-4 w-4" />
                 )}
               </Button>
             )}
@@ -486,6 +571,48 @@ export function FileContentRenderer({
           </Suspense>
         )}
 
+        {/* HTML preview via static file server */}
+        {isHtmlFile && isHtmlPreview && (
+          <>
+            {/* Server still starting — spinner + polling message */}
+            {(serverHealth === 'checking' || !authenticatedPreviewUrl) && (
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin opacity-40" />
+                <p className="text-xs opacity-50">Starting preview server…</p>
+              </div>
+            )}
+
+            {/* Server ready — render iframe */}
+            {serverHealth === 'ready' && authenticatedPreviewUrl && (
+              <iframe
+                key={`html-preview-${filePath}`}
+                src={authenticatedPreviewUrl}
+                title={fileName}
+                className="w-full h-full border-0"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
+              />
+            )}
+          </>
+        )}
+
+        {/* HTML source — shown when preview toggle is off */}
+        {isHtmlFile && !isHtmlPreview && !isLoading && !error && fileContent?.type === 'text' && (
+          <CodeEditor
+            key={`html-source-${filePath}`}
+            content={hasUnsavedChanges ? latestContentRef.current : fileContent.content}
+            originalContent={fileContent.content}
+            fileName={fileName}
+            onSave={handleSave}
+            onChange={handleEditorChange}
+            onUnsavedChange={setHasUnsavedChanges}
+            showHeader={false}
+            fontSize="text-sm"
+            className="h-full"
+            diagnostics={fileDiagnostics}
+            targetLine={targetLine}
+          />
+        )}
+
         {/* Binary fallback */}
         {!isLoading &&
           !error &&
@@ -513,7 +640,8 @@ export function FileContentRenderer({
           fileContent &&
           fileContent.type === 'text' &&
           !imageDataUrl &&
-          fileCategory !== 'csv' && (
+          fileCategory !== 'csv' &&
+          fileCategory !== 'html' && (
             <div className="relative h-full flex flex-col">
               {/* Diff indicator */}
               {fileContent.patch && fileContent.patch.hunks.length > 0 && (
