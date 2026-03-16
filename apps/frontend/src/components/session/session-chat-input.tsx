@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { usePathname } from 'next/navigation';
 import {
   ArrowUp,
   ArrowDown,
@@ -1343,6 +1344,8 @@ export function SessionChatInput({
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [autocontinueMode, setAutocontinueMode] = useState<AutoContinueMode | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const pathname = usePathname();
+  const isOnboarding = pathname?.startsWith('/onboarding');
   const dragDepthRef = useRef(0);
 
   // File search: use provided callback or fall back to the SDK directly
@@ -2279,7 +2282,7 @@ export function SessionChatInput({
                 />
               )}
 
-              {commands.length > 0 && onCommand && (
+              {commands.length > 0 && onCommand && !isOnboarding && (
                 <>
                   <div className="w-px h-4 bg-border mx-1" />
                   <AutoContinueSelector
