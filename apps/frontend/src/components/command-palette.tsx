@@ -28,6 +28,7 @@ import {
   CommandItem,
   CommandShortcut,
   CommandFooter,
+  CommandKbd,
 } from '@/components/ui/command';
 import { useSidebar } from '@/components/ui/sidebar';
 import {
@@ -71,14 +72,7 @@ function formatRelativeTime(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString();
 }
 
-/** Inline keyboard hint */
-function Kbd({ children }: { children: React.ReactNode }) {
-  return (
-    <kbd className="inline-flex items-center justify-center h-[18px] min-w-[18px] px-1 rounded bg-foreground/[0.05] border border-border/30 text-[10px] font-medium text-muted-foreground/50 leading-none">
-      {children}
-    </kbd>
-  );
-}
+// Kbd is now shared as CommandKbd from '@/components/ui/command'
 
 // ============================================================================
 // Command Palette
@@ -594,7 +588,7 @@ export function CommandPalette() {
             <span>select</span>
           </div>
           <div className="flex items-center gap-1">
-            <Kbd>esc</Kbd>
+            <CommandKbd>esc</CommandKbd>
             <span>close</span>
           </div>
           {hasQuery && totalSearchResults > 0 && (
