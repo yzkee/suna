@@ -5,7 +5,7 @@
  * swipe/tap X to close, or create a new tab.
  */
 
-import React, { useCallback, useState, useRef } from 'react';
+import React, { useCallback, useState, useRef, useEffect } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -131,6 +131,9 @@ export function TabsOverview({
 
   // Card width: 2 columns with gaps
   const cardWidth = (width - 48) / 2;
+  const scrollRef = useRef<ScrollView>(null);
+  const hasScrolled = useRef(false);
+  const activeId = activePageId || activeSessionId;
 
   return (
     <View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
@@ -145,6 +148,7 @@ export function TabsOverview({
 
       {/* Tab cards grid */}
       <ScrollView
+        ref={scrollRef}
         className="flex-1"
         contentContainerStyle={{
           flexDirection: 'row',
@@ -184,6 +188,15 @@ export function TabsOverview({
             return (
               <TouchableOpacity
                 key={tabId}
+                onLayout={(e) => {
+                  if (tabId === activeId && !hasScrolled.current) {
+                    hasScrolled.current = true;
+                    const y = e.nativeEvent.layout.y;
+                    requestAnimationFrame(() => {
+                      scrollRef.current?.scrollTo({ y: Math.max(0, y - 80), animated: false });
+                    });
+                  }
+                }}
                 onPress={() => {
                   if (selecting) {
                     toggleSelect(tabId);
