@@ -1,42 +1,80 @@
 /**
  * Tab store — persists open tabs and navigation history across app restarts.
  *
- * Uses Zustand + AsyncStorage to keep track of:
- * - Open tab IDs (session IDs the user has visited)
- * - Active session ID
- * - Session navigation history (for back/forward)
+ * Supports two tab types:
+ * - Session tabs (chat sessions identified by session ID)
+ * - Page tabs (utility pages like Files, Terminal, Memory, etc.)
  */
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+// ---------------------------------------------------------------------------
+// Page tab definitions
+// ---------------------------------------------------------------------------
+
+export interface PageTab {
+  id: string;       // e.g. "page:files"
+  label: string;    // e.g. "Files"
+  icon: string;     // Ionicons name
+}
+
+/** All known page tabs */
+export const PAGE_TABS: Record<string, PageTab> = {
+  'page:files':             { id: 'page:files',             label: 'Files',             icon: 'folder-open-outline' },
+  'page:terminal':          { id: 'page:terminal',          label: 'Terminal',          icon: 'terminal-outline' },
+  'page:memory':            { id: 'page:memory',            label: 'Memory',            icon: 'hardware-chip-outline' },
+  'page:workspace':         { id: 'page:workspace',         label: 'Workspace',         icon: 'grid-outline' },
+  'page:secrets':           { id: 'page:secrets',           label: 'Secrets Manager',   icon: 'key-outline' },
+  'page:llm-providers':     { id: 'page:llm-providers',     label: 'LLM Providers',     icon: 'cube-outline' },
+  'page:ssh':               { id: 'page:ssh',               label: 'SSH',               icon: 'link-outline' },
+  'page:api':               { id: 'page:api',               label: 'API',               icon: 'code-slash-outline' },
+  'page:triggers':          { id: 'page:triggers',          label: 'Triggers',          icon: 'calendar-outline' },
+  'page:channels':          { id: 'page:channels',          label: 'Channels',          icon: 'chatbox-outline' },
+  'page:tunnel':            { id: 'page:tunnel',            label: 'Tunnel',            icon: 'swap-horizontal-outline' },
+  'page:integrations':      { id: 'page:integrations',      label: 'Integrations',      icon: 'git-branch-outline' },
+  'page:running-services':  { id: 'page:running-services',  label: 'Running Services',  icon: 'pulse-outline' },
+  'page:browser':           { id: 'page:browser',           label: 'Browser',           icon: 'compass-outline' },
+  'page:agent-browser':     { id: 'page:agent-browser',     label: 'Agent Browser',     icon: 'globe-outline' },
+};
+
+// ---------------------------------------------------------------------------
+// Store
+// ---------------------------------------------------------------------------
+
 interface TabState {
-  /** Currently active session/tab ID */
+  /** Currently active session/tab ID (null = dashboard or page tab) */
   activeSessionId: string | null;
+  /** Currently active page tab ID (null = session or dashboard) */
+  activePageId: string | null;
   /** List of open tab IDs (session IDs) */
   openTabIds: string[];
+  /** List of open page tab IDs */
+  openPageIds: string[];
   /** Session navigation history (for back/forward) */
   sessionHistory: string[];
   /** Current position in history */
   historyIndex: number;
+  /** Whether the tabs overview grid is shown (not persisted) */
+  showTabsOverview: boolean;
 
   navigateToSession: (sessionId: string | null) => void;
-  closeTab: (sessionId: string) => void;
+  navigateToPage: (pageId: string) => void;
+  closeTab: (tabId: string) => void;
   closeAllTabs: () => void;
   goBack: () => void;
   goForward: () => void;
   setShowTabsOverview: (show: boolean) => void;
-
-  /** Whether the tabs overview grid is shown (not persisted) */
-  showTabsOverview: boolean;
 }
 
 export const useTabStore = create<TabState>()(
   persist(
     (set, get) => ({
       activeSessionId: null,
+      activePageId: null,
       openTabIds: [],
+      openPageIds: [],
       sessionHistory: [],
       historyIndex: -1,
       showTabsOverview: false,
@@ -46,6 +84,7 @@ export const useTabStore = create<TabState>()(
           if (!sessionId) {
             return {
               activeSessionId: null,
+              activePageId: null,
               showTabsOverview: false,
             };
           }
@@ -59,6 +98,7 @@ export const useTabStore = create<TabState>()(
 
           return {
             activeSessionId: sessionId,
+            activePageId: null,
             showTabsOverview: false,
             openTabIds: newOpenTabIds,
             sessionHistory: newHistory,
@@ -67,18 +107,45 @@ export const useTabStore = create<TabState>()(
         });
       },
 
-      closeTab: (sessionId) => {
-        set((state) => ({
-          openTabIds: state.openTabIds.filter((id) => id !== sessionId),
-          activeSessionId:
-            state.activeSessionId === sessionId ? null : state.activeSessionId,
-        }));
+      navigateToPage: (pageId) => {
+        set((state) => {
+          const newOpenPageIds = state.openPageIds.includes(pageId)
+            ? state.openPageIds
+            : [...state.openPageIds, pageId];
+
+          return {
+            activeSessionId: null,
+            activePageId: pageId,
+            showTabsOverview: false,
+            openPageIds: newOpenPageIds,
+          };
+        });
+      },
+
+      closeTab: (tabId) => {
+        set((state) => {
+          // Page tab
+          if (tabId.startsWith('page:')) {
+            return {
+              openPageIds: state.openPageIds.filter((id) => id !== tabId),
+              activePageId: state.activePageId === tabId ? null : state.activePageId,
+            };
+          }
+          // Session tab
+          return {
+            openTabIds: state.openTabIds.filter((id) => id !== tabId),
+            activeSessionId:
+              state.activeSessionId === tabId ? null : state.activeSessionId,
+          };
+        });
       },
 
       closeAllTabs: () => {
         set({
           openTabIds: [],
+          openPageIds: [],
           activeSessionId: null,
+          activePageId: null,
         });
       },
 
@@ -89,6 +156,7 @@ export const useTabStore = create<TabState>()(
         set({
           historyIndex: newIndex,
           activeSessionId: sessionHistory[newIndex],
+          activePageId: null,
         });
       },
 
@@ -99,6 +167,7 @@ export const useTabStore = create<TabState>()(
         set({
           historyIndex: newIndex,
           activeSessionId: sessionHistory[newIndex],
+          activePageId: null,
         });
       },
 
@@ -111,10 +180,11 @@ export const useTabStore = create<TabState>()(
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
         activeSessionId: state.activeSessionId,
+        activePageId: state.activePageId,
         openTabIds: state.openTabIds,
+        openPageIds: state.openPageIds,
         sessionHistory: state.sessionHistory,
         historyIndex: state.historyIndex,
-        // Note: showTabsOverview is intentionally NOT persisted
       }),
     },
   ),

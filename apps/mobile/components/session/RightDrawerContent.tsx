@@ -1,21 +1,20 @@
 /**
  * RightDrawerContent — settings & services menu for the right-side drawer.
  *
- * Sections: Workspace, Security, Services
- * Items are placeholders — navigation will be wired up later.
+ * Tapping an item opens it as a page tab in the main area and closes the drawer.
  */
 
 import React from 'react';
-import { View, TouchableOpacity, ScrollView } from 'react-native';
-import { Text as RNText } from 'react-native';
+import { View, TouchableOpacity, ScrollView, Text as RNText } from 'react-native';
 import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useTabStore } from '@/stores/tab-store';
 
 interface MenuItem {
   icon: string;
   label: string;
-  onPress?: () => void;
+  pageId: string;
 }
 
 interface MenuSection {
@@ -27,6 +26,39 @@ interface RightDrawerContentProps {
   onClose: () => void;
 }
 
+const sections: MenuSection[] = [
+  {
+    title: 'WORKSPACE',
+    items: [
+      { icon: 'folder-open-outline', label: 'Files', pageId: 'page:files' },
+      { icon: 'terminal-outline', label: 'Terminal', pageId: 'page:terminal' },
+      { icon: 'hardware-chip-outline', label: 'Memory', pageId: 'page:memory' },
+      { icon: 'grid-outline', label: 'Workspace', pageId: 'page:workspace' },
+    ],
+  },
+  {
+    title: 'SECURITY',
+    items: [
+      { icon: 'key-outline', label: 'Secrets Manager', pageId: 'page:secrets' },
+      { icon: 'cube-outline', label: 'LLM Providers', pageId: 'page:llm-providers' },
+      { icon: 'link-outline', label: 'SSH', pageId: 'page:ssh' },
+      { icon: 'code-slash-outline', label: 'API', pageId: 'page:api' },
+    ],
+  },
+  {
+    title: 'SERVICES',
+    items: [
+      { icon: 'calendar-outline', label: 'Triggers', pageId: 'page:triggers' },
+      { icon: 'chatbox-outline', label: 'Channels', pageId: 'page:channels' },
+      { icon: 'swap-horizontal-outline', label: 'Tunnel', pageId: 'page:tunnel' },
+      { icon: 'git-branch-outline', label: 'Integrations', pageId: 'page:integrations' },
+      { icon: 'pulse-outline', label: 'Running Services', pageId: 'page:running-services' },
+      { icon: 'compass-outline', label: 'Browser', pageId: 'page:browser' },
+      { icon: 'globe-outline', label: 'Agent Browser', pageId: 'page:agent-browser' },
+    ],
+  },
+];
+
 export function RightDrawerContent({ onClose }: RightDrawerContentProps) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -35,57 +67,27 @@ export function RightDrawerContent({ onClose }: RightDrawerContentProps) {
   const fgColor = isDark ? '#F8F8F8' : '#121215';
   const mutedColor = isDark ? '#888' : '#777';
   const sectionColor = isDark ? '#666' : '#999';
-  const hoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)';
+  const bgColor = isDark ? '#121215' : '#FFFFFF';
 
-  const sections: MenuSection[] = [
-    {
-      title: 'WORKSPACE',
-      items: [
-        { icon: 'folder-open-outline', label: 'Files' },
-        { icon: 'terminal-outline', label: 'Terminal' },
-        { icon: 'hardware-chip-outline', label: 'Memory' },
-        { icon: 'grid-outline', label: 'Workspace' },
-      ],
-    },
-    {
-      title: 'SECURITY',
-      items: [
-        { icon: 'key-outline', label: 'Secrets Manager' },
-        { icon: 'cube-outline', label: 'LLM Providers' },
-        { icon: 'link-outline', label: 'SSH' },
-        { icon: 'code-slash-outline', label: 'API' },
-      ],
-    },
-    {
-      title: 'SERVICES',
-      items: [
-        { icon: 'calendar-outline', label: 'Triggers' },
-        { icon: 'chatbox-outline', label: 'Channels' },
-        { icon: 'swap-horizontal-outline', label: 'Tunnel' },
-        { icon: 'git-branch-outline', label: 'Integrations' },
-        { icon: 'pulse-outline', label: 'Running Services' },
-        { icon: 'compass-outline', label: 'Browser' },
-        { icon: 'globe-outline', label: 'Agent Browser' },
-      ],
-    },
-  ];
+  const handleItemPress = (pageId: string) => {
+    useTabStore.getState().navigateToPage(pageId);
+    onClose();
+  };
 
   return (
     <View
       style={{
         flex: 1,
-        backgroundColor: isDark ? '#121215' : '#FFFFFF',
+        backgroundColor: bgColor,
         paddingTop: insets.top,
       }}
     >
-      {/* Sections */}
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
       >
         {sections.map((section) => (
           <View key={section.title} style={{ marginBottom: 8 }}>
-            {/* Section title */}
             <RNText
               style={{
                 fontSize: 11,
@@ -100,11 +102,10 @@ export function RightDrawerContent({ onClose }: RightDrawerContentProps) {
               {section.title}
             </RNText>
 
-            {/* Items */}
             {section.items.map((item) => (
               <TouchableOpacity
                 key={item.label}
-                onPress={item.onPress}
+                onPress={() => handleItemPress(item.pageId)}
                 activeOpacity={0.6}
                 style={{
                   flexDirection: 'row',
