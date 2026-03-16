@@ -6,8 +6,9 @@ export { ImageRenderer } from './image-renderer';
 export { VideoRenderer, InlineVideoPlayer } from './video-renderer';
 export { BinaryRenderer } from './binary-renderer';
 export { CsvRenderer } from './csv-renderer';
-export { XlsxRenderer } from './xlsx-renderer';
-// SpreadsheetViewer removed from barrel - imports Syncfusion (~1-2 MB)
+// XlsxRenderer kept out of barrel — lazy-loads Univer + ExcelJS (~500KB)
+// Import via lazy: const XlsxRenderer = lazy(() => import('./xlsx-renderer').then(m => ({ default: m.XlsxRenderer })))
+// SpreadsheetViewer (Syncfusion editor) also kept out of barrel (~1-2 MB)
 // Import directly: import { SpreadsheetViewer } from '@/components/thread/tool-views/spreadsheet/SpreadsheetViewer'
 export { PptxRenderer } from './pptx-renderer';
 export { HtmlRenderer } from './html-renderer';
