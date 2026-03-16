@@ -130,6 +130,12 @@ if [ ! -L /config ] && [ ! -d /config ]; then
   ln -s /workspace /config
 fi
 
+# ── Ensure opencode data dir is writable by abc ─────────────────────────────
+# On fresh Hetzner snapshots, the opencode migration may run as root during
+# s6 init, creating the DB as root. Then opencode serve (running as abc)
+# can't write to it. Force correct ownership right before s6 starts.
+chown -R "$WORKSPACE_UID:$WORKSPACE_GID" /workspace/.local/share/opencode 2>/dev/null || true
+
 # ── Verify runtime exists ───────────────────────────────────────────────────
 if [ ! -e /opt/kortix-master ]; then
   echo "[startup] WARNING: /opt/kortix-master not found! Rebuild the Docker image."

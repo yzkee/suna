@@ -1,5 +1,17 @@
 [ 
   {
+    "version": "0.8.8",
+    "date": "2026-03-16",
+    "title": "Fix sandbox startup — opencode DB ownership",
+    "description": "Fixes sandbox failing to start on fresh Hetzner snapshots due to opencode SQLite database directory ownership mismatch.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Sandbox startup now explicitly sets correct ownership on the opencode data directory before launching s6, preventing 'unable to open database file' errors on fresh Hetzner instances"
+      }
+    ]
+  },
+  {
     "version": "0.8.7",
     "date": "2026-03-16",
     "title": "AutoContinue algorithms, sandbox runtime fixes, and UI upgrades",
