@@ -48,6 +48,7 @@ import { TextWithPaths } from '@/components/common/clickable-path';
 import { ImageRenderer } from './image-renderer';
 import { VideoRenderer } from './video-renderer';
 import { FileContentRenderer } from '@/features/files/components/file-content-renderer';
+import { SANDBOX_PORTS } from '@/lib/platform-client';
 
 // ── Lazy-load heavy renderers ──────────────────────────────────────────────
 
@@ -77,6 +78,7 @@ export const SHOW_CSV_EXT_RE = /\.(csv|tsv)$/i;
 export const SHOW_XLSX_EXT_RE = /\.xlsx?$/i;
 export const SHOW_DOCX_EXT_RE = /\.docx$/i;
 export const SHOW_PPTX_EXT_RE = /\.(pptx|ppt)$/i;
+export const SHOW_HTML_EXT_RE = /\.(html?|htm)$/i;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -113,6 +115,7 @@ function getShowFileCategory(filePath: string): string {
   if (SHOW_XLSX_EXT_RE.test(filePath)) return 'xlsx';
   if (SHOW_DOCX_EXT_RE.test(filePath)) return 'docx';
   if (SHOW_PPTX_EXT_RE.test(filePath)) return 'pptx';
+  if (SHOW_HTML_EXT_RE.test(filePath)) return 'html-file';
   return 'file';
 }
 
@@ -199,6 +202,7 @@ export function ShowContentRenderer({
   const isMarkdown = effectiveType === 'markdown';
   const isText = effectiveType === 'text';
   const isHtml = effectiveType === 'html';
+  const isHtmlFile = effectiveType === 'html-file';
   const hasLocalhostUrl = !!parseLocalhostUrl(url) && !isAppRouteUrl(url);
 
   // ── Sandbox file path normalization ──
@@ -260,6 +264,17 @@ export function ShowContentRenderer({
   // ═════════════════════════════════════════════════════════════════════════
   if (hasLocalhostUrl && LocalhostPreview) {
     return <LocalhostPreview url={url} label={title || description || undefined} />;
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // HTML file path → render via static file server (port 3211) as proxied iframe
+  // Handles: type='file' with .html/.htm extension, OR type='html' with path only
+  // ═════════════════════════════════════════════════════════════════════════
+  if ((isHtmlFile || (isHtml && !content)) && sandboxPath && LocalhostPreview) {
+    const staticPort = parseInt(SANDBOX_PORTS.STATIC_FILE_SERVER ?? '3211', 10);
+    const encodedPath = sandboxPath.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+    const staticUrl = `http://localhost:${staticPort}/open?path=/${encodedPath}`;
+    return <LocalhostPreview url={staticUrl} label={title || fileName || undefined} />;
   }
 
   // ═════════════════════════════════════════════════════════════════════════

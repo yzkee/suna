@@ -76,10 +76,11 @@
     "./plugin/worktree/index.ts",
     "./plugin/kortix-memory/src/index.ts",
     "./plugin/kortix-continuation/index.ts",
-    // "./plugin/opencode-morph-plugin/index.ts",
+    "./plugin/opencode-morph-plugin/index.ts",
     "./plugin/orphan-tool-fixer.ts",
     "./plugin/agent-triggers.ts",
-    "./plugin/kortix-orchestrator/index.ts"
+    "./plugin/kortix-orchestrator/index.ts",
+    "./plugin/static-file-server.ts"
   ],
   "mcp": {
     "context7": {
