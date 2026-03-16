@@ -31,8 +31,8 @@
  *   "Re-reading files" and "running unit tests" alone are NOT sufficient.
  */
 
-import type { LoopState, AutoworkAlgorithm, KubetValidatorLevel } from "./config"
-import { AUTOWORK_LOOP_CONFIG, INTERNAL_MARKER, createInitialLoopState, KUBET_CONFIG, INO_CONFIG } from "./config"
+import type { LoopState, AutoworkAlgorithm, KubetValidatorLevel, SaumyaPhase } from "./config"
+import { AUTOWORK_LOOP_CONFIG, INTERNAL_MARKER, createInitialLoopState, KUBET_CONFIG, INO_CONFIG, SAUMYA_CONFIG, SAUMYA_PHASES } from "./config"
 import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import { evaluateTodos, formatRemainingWork } from "./todo-enforcer"
@@ -292,6 +292,8 @@ export interface LoopDecision {
 	action: LoopAction
 	prompt: string | null
 	reason: string
+	/** Saumya: the phase to advance to (avoids string-parsing the reason) */
+	saumyaNextPhase?: SaumyaPhase
 }
 
 /**
@@ -328,6 +330,8 @@ export function evaluateLoop(
 			return evaluateKubetLoop(state, allAssistantTexts, todos)
 		case "ino":
 			return evaluateInoLoop(state, allAssistantTexts, todos)
+		case "saumya":
+			return evaluateSaumyaLoop(state, allAssistantTexts, todos)
 		case "kraemer":
 		default:
 			return evaluateKraemerLoop(state, allAssistantTexts, todos)
@@ -426,7 +430,8 @@ function evaluateKraemerLoop(
 export function kubetShouldRunCritic(state: LoopState): boolean {
 	if (state.algorithm !== "kubet") return false
 	if (state.kubetCriticCount >= KUBET_CONFIG.maxCriticInterventions) return false
-	if (state.iteration === 0) return false // never on first iteration
+	// Fire on the very first idle (critic count 0), then every N iterations after
+	if (state.kubetCriticCount === 0) return true
 	const iterationsSinceLastCritic = state.iteration - state.kubetLastCriticAt
 	return iterationsSinceLastCritic >= KUBET_CONFIG.criticIntervalIterations
 }
@@ -457,57 +462,34 @@ function evaluateKubetLoop(
 ): LoopDecision {
 	const config = AUTOWORK_LOOP_CONFIG
 	const combinedText = allAssistantTexts.join("\n")
+	const lastText = allAssistantTexts.length > 0 ? allAssistantTexts[allAssistantTexts.length - 1] : ""
 	const hasCompletionPromise = combinedText.includes(config.completionPromise)
 	const hasVerificationPromise = combinedText.includes(config.verificationPromise)
 
-	// Both promises → done
-	if (hasCompletionPromise && hasVerificationPromise) {
-		return {
-			action: "stop",
-			prompt: null,
-			reason: "[kubet] both DONE and VERIFIED detected — loop complete",
-		}
-	}
-
-	// DONE found — enter staged validation pipeline
-	if (hasCompletionPromise && !state.inVerification) {
-		// Check todos first
-		if (todos && todos.length > 0) {
-			const todoResult = evaluateTodos(todos)
-			if (todoResult.verdict === "unfinished") {
-				return {
-					action: "continue",
-					prompt: buildPrematureDonePrompt(state, todoResult),
-					reason: `[kubet] DONE rejected — ${todoResult.reason}`,
-				}
-			}
-		}
-		// Enter verification — start at level 1
-		return {
-			action: "verify",
-			prompt: buildKubetValidatorPrompt(state, 1, todos),
-			reason: "[kubet] DONE accepted — entering validator level 1 (format)",
-		}
-	}
+	// Kubet NEVER allows skipping validators. Even if both DONE and VERIFIED
+	// are present, the agent must go through L1→L2→L3 first. VERIFIED is only
+	// accepted AFTER the "all validators passed" prompt has been sent AND the
+	// agent is in verification phase.
+	//
+	// This prevents the agent from short-circuiting by emitting both promises
+	// in the same turn.
 
 	// In verification — walk through validator levels
 	if (state.inVerification) {
-		if (hasVerificationPromise) {
-			return {
-				action: "stop",
-				prompt: null,
-				reason: "[kubet] VERIFIED detected — loop complete",
-			}
-		}
-
-		// Check what the last assistant message says about validation results
-		const lastText = allAssistantTexts.length > 0 ? allAssistantTexts[allAssistantTexts.length - 1] : ""
+		// Check validator pass markers in the LAST assistant message
 		const passedLevel = detectKubetValidatorPass(lastText)
 
 		if (passedLevel !== null) {
 			const nextLevel = (passedLevel + 1) as KubetValidatorLevel
 			if (nextLevel > KUBET_CONFIG.defaultValidatorLevel) {
-				// All levels passed — tell agent to emit VERIFIED
+				// All levels passed — NOW accept VERIFIED if present, or prompt for it
+				if (hasVerificationPromise) {
+					return {
+						action: "stop",
+						prompt: null,
+						reason: "[kubet] all validators passed + VERIFIED — loop complete",
+					}
+				}
 				return {
 					action: "continue",
 					prompt: buildKubetAllValidatorsPassedPrompt(state),
@@ -519,6 +501,16 @@ function evaluateKubetLoop(
 				action: "verify",
 				prompt: buildKubetValidatorPrompt(state, nextLevel, todos),
 				reason: `[kubet] validator level ${passedLevel} passed — advancing to level ${nextLevel}`,
+			}
+		}
+
+		// VERIFIED without all validators passing — only accept if all levels
+		// were already verified (the "all passed" prompt was already sent)
+		if (hasVerificationPromise) {
+			return {
+				action: "stop",
+				prompt: null,
+				reason: "[kubet] VERIFIED detected in verification phase — loop complete",
 			}
 		}
 
@@ -547,6 +539,27 @@ function evaluateKubetLoop(
 			action: "continue",
 			prompt: buildKubetValidationContinuationPrompt(state),
 			reason: "[kubet] validation in progress — continue",
+		}
+	}
+
+	// DONE found (not yet in verification) — enter staged validation pipeline
+	if (hasCompletionPromise) {
+		// Check todos first
+		if (todos && todos.length > 0) {
+			const todoResult = evaluateTodos(todos)
+			if (todoResult.verdict === "unfinished") {
+				return {
+					action: "continue",
+					prompt: buildPrematureDonePrompt(state, todoResult),
+					reason: `[kubet] DONE rejected — ${todoResult.reason}`,
+				}
+			}
+		}
+		// Enter verification — start at level 1 (ignore any VERIFIED at this point)
+		return {
+			action: "verify",
+			prompt: buildKubetValidatorPrompt(state, 1, todos),
+			reason: "[kubet] DONE accepted — entering validator level 1 (format)",
 		}
 	}
 
@@ -1200,6 +1213,337 @@ function buildInoIntegrationContinuationPrompt(state: LoopState): string {
 	parts.push(``)
 	parts.push(`When everything passes: emit ${config.verificationPromise}`)
 	parts.push(`If you found issues and created fix cards: work through them, then retry.`)
+	parts.push(INTERNAL_MARKER)
+
+	return parts.join("\n")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Saumya Algorithm — Entropy-Scheduled: diverge → branch → attack → rank → compress
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Advance to the next Saumya phase */
+export function saumyaAdvancePhase(state: LoopState): LoopState {
+	const idx = SAUMYA_PHASES.indexOf(state.saumyaPhase)
+	if (idx < 0 || idx >= SAUMYA_PHASES.length - 1) return state // already at last phase
+	const nextPhase = SAUMYA_PHASES[idx + 1]
+	const updated: LoopState = {
+		...state,
+		saumyaPhase: nextPhase,
+		saumyaPhaseStartedAt: state.iteration,
+	}
+	persistLoopState(updated)
+	return updated
+}
+
+/** Detect ALL phase-done markers in text. Returns phases in order. */
+function detectSaumyaPhasesComplete(text: string): SaumyaPhase[] {
+	const found: SaumyaPhase[] = []
+	// Check in canonical order so we advance correctly
+	if (text.includes("<phase>expand-done</phase>")) found.push("expand")
+	if (text.includes("<phase>branch-done</phase>")) found.push("branch")
+	if (text.includes("<phase>attack-done</phase>")) found.push("attack")
+	if (text.includes("<phase>rank-done</phase>")) found.push("rank")
+	return found
+}
+
+function evaluateSaumyaLoop(
+	state: LoopState,
+	allAssistantTexts: string[],
+	todos?: Todo[],
+): LoopDecision {
+	const config = AUTOWORK_LOOP_CONFIG
+	const combinedText = allAssistantTexts.join("\n")
+	const lastText = allAssistantTexts.length > 0 ? allAssistantTexts[allAssistantTexts.length - 1] : ""
+	const hasCompletionPromise = combinedText.includes(config.completionPromise)
+	const hasVerificationPromise = combinedText.includes(config.verificationPromise)
+
+	// Both promises → done
+	if (hasCompletionPromise && hasVerificationPromise) {
+		return { action: "stop", prompt: null, reason: "[saumya] DONE + VERIFIED — loop complete" }
+	}
+
+	// In compress phase — behaves like kraemer
+	if (state.saumyaPhase === "compress") {
+		if (hasCompletionPromise && !state.inVerification) {
+			if (todos && todos.length > 0) {
+				const todoResult = evaluateTodos(todos)
+				if (todoResult.verdict === "unfinished") {
+					return {
+						action: "continue",
+						prompt: buildPrematureDonePrompt(state, todoResult),
+						reason: `[saumya:compress] DONE rejected — ${todoResult.reason}`,
+					}
+				}
+			}
+			return {
+				action: "verify",
+				prompt: buildVerificationPrompt(state, todos),
+				reason: "[saumya:compress] DONE accepted — entering verification",
+			}
+		}
+		if (state.inVerification) {
+			if (hasVerificationPromise) {
+				return { action: "stop", prompt: null, reason: "[saumya] VERIFIED — loop complete" }
+			}
+			return {
+				action: "continue",
+				prompt: buildVerificationContinuationPrompt(state),
+				reason: "[saumya:compress] verification in progress",
+			}
+		}
+		// Normal compress continuation
+		return {
+			action: "continue",
+			prompt: buildSaumyaCompressPrompt(state, todos),
+			reason: `[saumya:compress] iteration ${state.iteration + 1}`,
+		}
+	}
+
+	// DONE emitted before compress phase — reject
+	if (hasCompletionPromise) {
+		return {
+			action: "continue",
+			prompt: buildSaumyaPrematureConvergencePrompt(state),
+			reason: `[saumya:${state.saumyaPhase}] DONE rejected — still in ${state.saumyaPhase} phase`,
+		}
+	}
+
+	// Check if phases have been completed. Scan ALL assistant text (not just
+	// last message) so we catch phases completed across multiple turns.
+	// Find the furthest completed phase that is >= current phase.
+	const completedPhases = detectSaumyaPhasesComplete(combinedText)
+	const currentIdx = SAUMYA_PHASES.indexOf(state.saumyaPhase)
+
+	// Find the furthest phase in the completed set that is at or beyond current
+	let advanceToIdx = currentIdx
+	for (const phase of completedPhases) {
+		const phaseIdx = SAUMYA_PHASES.indexOf(phase)
+		if (phaseIdx >= currentIdx && phaseIdx > advanceToIdx) {
+			advanceToIdx = phaseIdx
+		} else if (phaseIdx === currentIdx) {
+			// Current phase is completed — advance at least one step
+			advanceToIdx = Math.max(advanceToIdx, currentIdx + 1)
+		}
+	}
+
+	// If we should advance (current phase completed or phases beyond it completed)
+	if (advanceToIdx > currentIdx && advanceToIdx < SAUMYA_PHASES.length) {
+		// Advance to advanceToIdx (which is the phase AFTER the last completed one,
+		// or the next phase if only current was completed)
+		const nextPhase = SAUMYA_PHASES[advanceToIdx]
+		// If the agent completed multiple phases at once (e.g. expand+branch in one
+		// turn), advance to the phase AFTER the last completed one
+		const lastCompletedPhaseIdx = completedPhases.reduce((max, p) => {
+			const idx = SAUMYA_PHASES.indexOf(p)
+			return idx >= currentIdx && idx > max ? idx : max
+		}, currentIdx)
+		const targetIdx = Math.min(lastCompletedPhaseIdx + 1, SAUMYA_PHASES.length - 1)
+		const targetPhase = SAUMYA_PHASES[targetIdx]
+		return {
+			action: "continue",
+			prompt: buildSaumyaPhasePrompt(state, targetPhase),
+			reason: `[saumya] ${state.saumyaPhase} complete — advancing to ${targetPhase}`,
+			saumyaNextPhase: targetPhase,
+		}
+	}
+
+	// Check if stuck in phase too long
+	const iterationsInPhase = state.iteration - state.saumyaPhaseStartedAt
+	if (iterationsInPhase >= SAUMYA_CONFIG.maxIterationsPerPhase) {
+		const nextIdx = SAUMYA_PHASES.indexOf(state.saumyaPhase) + 1
+		if (nextIdx < SAUMYA_PHASES.length) {
+			const nextPhase = SAUMYA_PHASES[nextIdx]
+			return {
+				action: "continue",
+				prompt: buildSaumyaForceAdvancePrompt(state, nextPhase),
+				reason: `[saumya:${state.saumyaPhase}] force-advancing to ${nextPhase} after ${iterationsInPhase} iterations`,
+				saumyaNextPhase: nextPhase,
+			}
+		}
+	}
+
+	// Continue current phase
+	return {
+		action: "continue",
+		prompt: buildSaumyaPhasePrompt(state, state.saumyaPhase),
+		reason: `[saumya:${state.saumyaPhase}] iteration ${state.iteration + 1}`,
+	}
+}
+
+// ─── Saumya Prompt Builders ───────────────────────────────────────────────────
+
+function buildSaumyaPhasePrompt(state: LoopState, phase: SaumyaPhase): string {
+	const config = AUTOWORK_LOOP_CONFIG
+	const parts: string[] = []
+	const pct = Math.round((state.iteration / config.maxIterations) * 100)
+
+	const phaseLabels: Record<SaumyaPhase, string> = {
+		expand: "EXPAND (high entropy)",
+		branch: "BRANCH (high entropy)",
+		attack: "ATTACK (medium entropy)",
+		rank: "RANK (low entropy)",
+		compress: "COMPRESS (minimal entropy)",
+	}
+
+	parts.push(`[SYSTEM REMINDER - SAUMYA: ${phaseLabels[phase]}]`)
+	parts.push(`Iteration ${state.iteration + 1} of ${config.maxIterations} (${pct}% budget).`)
+	parts.push(``)
+
+	if (state.taskPrompt) {
+		parts.push(`Original task: ${state.taskPrompt}`)
+		parts.push("")
+	}
+
+	switch (phase) {
+		case "expand":
+			parts.push(`## Phase 1 — EXPAND`)
+			parts.push(`You are in **high-entropy** mode. Generate a wide possibility surface.`)
+			parts.push(``)
+			parts.push(`Required:`)
+			parts.push(`- Reframe the task at least **5 materially different ways**`)
+			parts.push(`- List hidden assumptions that might be wrong`)
+			parts.push(`- List constraints that may be false`)
+			parts.push(`- Generate several **solution families** (different strategies, not wording variations)`)
+			parts.push(`- Include non-obvious, adversarial, and minimalist routes`)
+			parts.push(`- View through multiple lenses: systems design, game theory, first principles, failure analysis`)
+			parts.push(``)
+			parts.push(`**Do NOT converge.** The first plausible answer is the local optimum you must escape.`)
+			parts.push(`Treat early certainty as suspicious.`)
+			parts.push(``)
+			parts.push(`When you have a genuinely wide possibility surface, emit:`)
+			parts.push(`<phase>expand-done</phase>`)
+			break
+
+		case "branch":
+			parts.push(`## Phase 2 — BRANCH`)
+			parts.push(`You are still in **high-entropy** mode. Now crystallize into **3-5 serious candidate paths**.`)
+			parts.push(``)
+			parts.push(`Candidates MUST differ in **strategy**, not wording:`)
+			parts.push(`- One conventional approach`)
+			parts.push(`- One adversarial / contrarian approach`)
+			parts.push(`- One minimalist approach`)
+			parts.push(`- One hybrid that combines insights from your expansion`)
+			parts.push(``)
+			parts.push(`For EACH candidate, state:`)
+			parts.push(`1. The approach (what you'd actually build/do)`)
+			parts.push(`2. Why it might **win** (best case)`)
+			parts.push(`3. Why it might **fail** (worst case)`)
+			parts.push(`4. Required assumptions`)
+			parts.push(``)
+			parts.push(`When all candidates are defined, emit:`)
+			parts.push(`<phase>branch-done</phase>`)
+			break
+
+		case "attack":
+			parts.push(`## Phase 3 — ATTACK`)
+			parts.push(`**Medium entropy.** Make candidates attack each other.`)
+			parts.push(``)
+			parts.push(`Required:`)
+			parts.push(`- Critique each candidate **from the perspective of the others**`)
+			parts.push(`- Find failure modes and blind spots`)
+			parts.push(`- Challenge the problem framing: does a reframe make a candidate irrelevant?`)
+			parts.push(`- Identify the **strongest parts** across candidates`)
+			parts.push(`- Merge strongest parts into hybrids where useful`)
+			parts.push(``)
+			parts.push(`Be adversarial, not polite. Kill weak lines.`)
+			parts.push(``)
+			parts.push(`When cross-attack is complete, emit:`)
+			parts.push(`<phase>attack-done</phase>`)
+			break
+
+		case "rank":
+			parts.push(`## Phase 4 — RANK`)
+			parts.push(`**Low entropy.** Score and select. No hedging.`)
+			parts.push(``)
+			parts.push(`Required:`)
+			parts.push(`- Rank candidates by **robustness**, **novelty**, and **feasibility**`)
+			parts.push(`- Select ONE best path. Own the decision.`)
+			parts.push(`- Provide a **fallback** if the top path fails`)
+			parts.push(`- State what was discarded and **why**`)
+			parts.push(`- If two tie, state the tiebreaker criterion`)
+			parts.push(``)
+			parts.push(`Do NOT present multiple options. Pick one.`)
+			parts.push(``)
+			parts.push(`When ranking is complete, emit:`)
+			parts.push(`<phase>rank-done</phase>`)
+			break
+
+		case "compress":
+			return buildSaumyaCompressPrompt(state, undefined)
+	}
+
+	parts.push(INTERNAL_MARKER)
+	return parts.join("\n")
+}
+
+/** Compress phase — pure implementation, minimal entropy */
+function buildSaumyaCompressPrompt(state: LoopState, todos?: Todo[]): string {
+	const config = AUTOWORK_LOOP_CONFIG
+	const parts: string[] = []
+
+	parts.push(`[SYSTEM REMINDER - SAUMYA: COMPRESS (minimal entropy)]`)
+	parts.push(`Iteration ${state.iteration + 1} of ${config.maxIterations}.`)
+	parts.push(``)
+
+	if (state.taskPrompt) {
+		parts.push(`Original task: ${state.taskPrompt}`)
+		parts.push("")
+	}
+
+	parts.push(`## Phase 5 — COMPRESS`)
+	parts.push(`**Minimal entropy.** Execute the winning approach.`)
+	parts.push(``)
+	parts.push(`- Write tests FIRST. Confirm they fail. Implement. Confirm they pass.`)
+	parts.push(`- Run tests after every change.`)
+	parts.push(`- No exploration. No second-guessing the ranked decision. Just build.`)
+	parts.push(``)
+
+	if (todos && todos.length > 0) {
+		const todoResult = evaluateTodos(todos)
+		if (todoResult.verdict === "unfinished" && todoResult.remainingItems.length > 0) {
+			parts.push(formatRemainingWork(todoResult))
+			parts.push("")
+		}
+	}
+
+	parts.push(`When ALL work is complete and verified, emit:`)
+	parts.push(config.completionPromise)
+	parts.push(INTERNAL_MARKER)
+
+	return parts.join("\n")
+}
+
+/** Reject premature convergence — DONE emitted before compress phase */
+function buildSaumyaPrematureConvergencePrompt(state: LoopState): string {
+	const parts: string[] = []
+
+	parts.push(`[SYSTEM REMINDER - SAUMYA: PREMATURE CONVERGENCE REJECTED]`)
+	parts.push(``)
+	parts.push(`You emitted <promise>DONE</promise> but you are still in the **${state.saumyaPhase.toUpperCase()}** phase.`)
+	parts.push(`The Saumya algorithm requires all 5 phases to complete in order:`)
+	parts.push(`  expand → branch → attack → rank → **compress**`)
+	parts.push(``)
+	parts.push(`You can only emit DONE during the COMPRESS phase, after implementation is complete.`)
+	parts.push(``)
+	parts.push(`Continue the current phase (${state.saumyaPhase}). Do not skip ahead.`)
+	parts.push(`Early convergence produces locally optimal, globally weak output.`)
+	parts.push(INTERNAL_MARKER)
+
+	return parts.join("\n")
+}
+
+/** Force-advance when stuck in a phase too long */
+function buildSaumyaForceAdvancePrompt(state: LoopState, nextPhase: SaumyaPhase): string {
+	const parts: string[] = []
+
+	parts.push(`[SYSTEM REMINDER - SAUMYA: FORCE ADVANCE]`)
+	parts.push(``)
+	parts.push(`You have spent ${SAUMYA_CONFIG.maxIterationsPerPhase} iterations in the **${state.saumyaPhase.toUpperCase()}** phase.`)
+	parts.push(`The system is advancing you to **${nextPhase.toUpperCase()}**.`)
+	parts.push(``)
+	parts.push(`Use what you have from the ${state.saumyaPhase} phase and proceed immediately.`)
+	parts.push(`Emit <phase>${nextPhase}-done</phase> when you complete this phase.`)
 	parts.push(INTERNAL_MARKER)
 
 	return parts.join("\n")

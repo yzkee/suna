@@ -71,6 +71,7 @@ import {
 	kubetShouldRunCritic,
 	kubetRecordCritic,
 	buildKubetCriticPrompt,
+	saumyaAdvancePhase,
 } from "./src/loop"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -97,11 +98,15 @@ function cleanTextForKeywordDetection(text: string): string {
 		.trim()
 }
 
-/** Check if a message text was injected by the system (contains internal marker) */
+/** Check if a message text was injected by the system (contains internal marker).
+ *  IMPORTANT: KORTIX_AUTOWORK and KORTIX_AUTOWORK_STOP markers must NOT be treated
+ *  as internal — they are user-facing command templates that need to pass through
+ *  to the autowork detection logic below. Only KORTIX_INTERNAL (the continuation
+ *  engine's own injected prompts) and system reminders are truly internal. */
 function isInternalMessage(text: string): boolean {
-	return text.includes(INTERNAL_MARKER) ||
-		text.includes("[SYSTEM REMINDER") ||
-		text.includes("<!-- KORTIX")
+	if (text.includes(INTERNAL_MARKER)) return true
+	if (text.includes("[SYSTEM REMINDER")) return true
+	return false
 }
 
 /** Extract all assistant message texts from a messages array since a given index. */
@@ -275,7 +280,27 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 	/** Short session ID for log readability */
 	const sid = (sessionId: string) => sessionId.length > 16 ? sessionId.slice(-12) : sessionId
 
+	/** Pending command activations — set by command.execute.before, consumed by chat.message */
+	const pendingCommand = new Map<string, { command: string; args: string }>()
+
 	return {
+		// ── HOOK: command.execute.before ──────────────────────────────────────
+		// Fires BEFORE the command template is expanded into a message.
+		// We capture the raw command name here so chat.message can determine
+		// which algorithm to activate.
+		"command.execute.before": async (input: any, _output: any) => {
+			const command = input?.command as string | undefined
+			const sessionId = input?.sessionID as string | undefined
+			const args = (input?.arguments as string | undefined) || ""
+			if (!command || !sessionId) return
+
+			// Only capture autowork commands
+			if (/^autowork[123]?$/.test(command) || command === "autowork-stop") {
+				pendingCommand.set(sessionId, { command, args })
+				log("info", `[autowork][${sid(sessionId)}] command.execute.before: ${command} "${args.slice(0, 60)}"`)
+			}
+		},
+
 		// ── HOOK: chat.message ────────────────────────────────────────────────
 		"chat.message": async (input: any, output: any) => {
 			try {
@@ -309,22 +334,36 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 					return
 				}
 
-				// ── /autowork, /autowork1, /autowork2 — start or append to loop ──
-				// Detect any autowork variant command. Regex captures the optional
-				// suffix (1, 2) to determine the algorithm.
-				const autoworkMatch = messageText.includes("KORTIX_AUTOWORK")
-					|| /\/autowork[12]?\b/.test(messageText)
+				// ── /autowork, /autowork1, /autowork2, /autowork3 — start or append to loop ──
+				const pending = pendingCommand.get(sessionId)
+				const autoworkMatch = pending?.command?.startsWith("autowork")
+					|| messageText.includes("KORTIX_AUTOWORK")
+					|| /\/autowork[123]?\b/.test(messageText)
 				if (autoworkMatch) {
-					// Determine algorithm from the command name
-					const cmdMatch = messageText.match(/\/autowork([12])?\b/)
-					const cmdSuffix = cmdMatch?.[1] || "" // "", "1", or "2"
-					const cmdName = `autowork${cmdSuffix}` // "autowork", "autowork1", "autowork2"
-					const algorithm: AutoworkAlgorithm = COMMAND_TO_ALGORITHM[cmdName] || "kraemer"
+					// Determine algorithm from the pending command (set by command.execute.before),
+					// falling back to regex on message text, then template content detection.
+					let algorithm: AutoworkAlgorithm = "kraemer"
+					if (pending?.command) {
+						algorithm = COMMAND_TO_ALGORITHM[pending.command] || "kraemer"
+					} else {
+						const cmdMatch = messageText.match(/\/autowork([123])?\b/)
+						if (cmdMatch) {
+							const cmdName = `autowork${cmdMatch[1] || ""}`
+							algorithm = COMMAND_TO_ALGORITHM[cmdName] || "kraemer"
+						} else if (messageText.includes("Saumya Algorithm")) algorithm = "saumya"
+						else if (messageText.includes("Ino Algorithm")) algorithm = "ino"
+						else if (messageText.includes("Kubet Algorithm")) algorithm = "kubet"
+					}
 
-					const task = messageText
-						.replace(/^.*?\/autowork[12]?\s*/i, "")
-						.replace(/<!--[\s\S]*?-->/g, "")
-						.trim() || "Unspecified task"
+					const task = pending?.args
+						|| messageText
+							.replace(/^.*?\/autowork[123]?\s*/i, "")
+							.replace(/<!--[\s\S]*?-->/g, "")
+							.trim()
+						|| "Unspecified task"
+
+					// Clear the pending command
+					pendingCommand.delete(sessionId)
 
 					if (loopState.active) {
 						// Append context to running loop
@@ -348,9 +387,6 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 						log("info", `[autowork:${algorithm}][${sid(sessionId)}] Activated: "${task.slice(0, 80)}"`)
 					}
 
-					if (output?.message && typeof output.message === "object") {
-						output.message.variant = "max"
-					}
 					return
 				}
 
@@ -368,10 +404,7 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 						loopStates.set(sessionId, loopState)
 						log("info", `[autowork][${sid(sessionId)}] Keyword-activated: "${task.slice(0, 80)}"`)
 					}
-					if (output?.message && typeof output.message === "object") {
-						output.message.variant = "max"
-					}
-					return
+				return
 				}
 
 				// ── Active loop absorbs user message ─────────────────────────
@@ -508,6 +541,13 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 						const decision = evaluateLoop(loopState, allTexts, loopTodos)
 						const algTag = loopState.algorithm !== "kraemer" ? `:${loopState.algorithm}` : ""
 						log("info", `[autowork${algTag}][${sid(sessionId)}] ${decision.action} — ${decision.reason}`)
+
+						// Saumya: advance phase if the evaluator says so
+						if (decision.saumyaNextPhase) {
+							loopState = saumyaAdvancePhase(loopState)
+							loopStates.set(sessionId, loopState)
+							log("info", `[autowork:saumya][${sid(sessionId)}] Phase → ${decision.saumyaNextPhase}`)
+						}
 
 						if (decision.action === "verify" && decision.prompt) {
 							loopState = advanceIteration(enterVerification(loopState))

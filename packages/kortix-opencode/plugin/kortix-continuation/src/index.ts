@@ -7,6 +7,7 @@ export {
 	type AutoworkAlgorithm,
 	type KubetValidatorLevel,
 	type KanbanStage,
+	type SaumyaPhase,
 	DEFAULT_CONFIG,
 	DEFAULT_FEATURES,
 	DEFAULT_THRESHOLDS,
@@ -19,6 +20,8 @@ export {
 	KUBET_CONFIG,
 	INO_CONFIG,
 	KANBAN_STAGES,
+	SAUMYA_CONFIG,
+	SAUMYA_PHASES,
 	createInitialState,
 	createInitialLoopState,
 	mergeConfig,
@@ -73,4 +76,5 @@ export {
 	kubetShouldRunCritic,
 	kubetRecordCritic,
 	buildKubetCriticPrompt,
+	saumyaAdvancePhase,
 } from "./loop"

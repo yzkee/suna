@@ -146,14 +146,16 @@ export function mergeConfig(partial: Partial<ContinuationConfig>): ContinuationC
  * - `kraemer` (autowork)   — Original algorithm. Binary DONE/VERIFIED promise loop.
  * - `kubet`   (autowork1)  — Validator pipeline (levels 0-3) + async process critic.
  * - `ino`     (autowork2)  — Kanban board flow. Per-card lifecycle with stage gates.
+ * - `saumya`  (autowork3)  — Entropy-scheduled: diverge → branch → attack → rank → compress.
  */
-export type AutoworkAlgorithm = "kraemer" | "kubet" | "ino"
+export type AutoworkAlgorithm = "kraemer" | "kubet" | "ino" | "saumya"
 
 /** Maps slash command names to algorithm IDs */
 export const COMMAND_TO_ALGORITHM: Record<string, AutoworkAlgorithm> = {
 	autowork: "kraemer",
 	autowork1: "kubet",
 	autowork2: "ino",
+	autowork3: "saumya",
 }
 
 // ─── Kubet Algorithm — Validator Levels ───────────────────────────────────────
@@ -173,7 +175,7 @@ export const KUBET_CONFIG = {
 	/** Default validator level — top notch by default */
 	defaultValidatorLevel: 3 as KubetValidatorLevel,
 	/** How often (in iterations) the async critic evaluates process efficiency */
-	criticIntervalIterations: 5,
+	criticIntervalIterations: 3,
 	/** Max critic interventions before it backs off */
 	maxCriticInterventions: 20,
 } as const
@@ -199,6 +201,33 @@ export const INO_CONFIG = {
 	maxWip: 1,
 	/** Whether to run a final integration check after all cards are done */
 	finalIntegrationCheck: true,
+} as const
+
+// ─── Saumya Algorithm — Entropy-Scheduled Phases ──────────────────────────────
+
+/**
+ * Entropy phases for the Saumya algorithm.
+ * The agent is driven through these in strict order:
+ *
+ * expand  (high entropy)   — Reframe, diverge, generate wide possibility surface
+ * branch  (high entropy)   — Split into 3-5 materially different candidate paths
+ * attack  (medium entropy) — Cross-attack candidates, find failure modes, merge best
+ * rank    (low entropy)    — Score, select, state what was discarded and why
+ * compress (minimal entropy)— Execute the winning approach with TDD
+ */
+export type SaumyaPhase = "expand" | "branch" | "attack" | "rank" | "compress"
+
+export const SAUMYA_PHASES: readonly SaumyaPhase[] = [
+	"expand",
+	"branch",
+	"attack",
+	"rank",
+	"compress",
+] as const
+
+export const SAUMYA_CONFIG = {
+	/** Max iterations the agent can spend in a single phase before force-advancing */
+	maxIterationsPerPhase: 30,
 } as const
 
 // ─── Autowork Loop Configuration ──────────────────────────────────────────────
@@ -247,6 +276,10 @@ export interface LoopState {
 	kubetLastCriticAt: number
 	/** Ino: current kanban stage being tracked (derived from card states) */
 	inoCurrentStage: KanbanStage | null
+	/** Saumya: current entropy phase */
+	saumyaPhase: SaumyaPhase
+	/** Saumya: iteration at which the current phase started */
+	saumyaPhaseStartedAt: number
 }
 
 /** Create a fresh loop state (no active loop) */
@@ -269,5 +302,7 @@ export function createInitialLoopState(): LoopState {
 		kubetCriticCount: 0,
 		kubetLastCriticAt: 0,
 		inoCurrentStage: null,
+		saumyaPhase: "expand",
+		saumyaPhaseStartedAt: 0,
 	}
 }

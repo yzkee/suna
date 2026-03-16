@@ -383,7 +383,7 @@ function VariantSelector({
 // ============================================================================
 
 /** Known autocontinue algorithm IDs — maps to slash command names */
-export type AutoContinueMode = 'autowork' | 'autowork1' | 'autowork2' | 'orchestrate';
+export type AutoContinueMode = 'autowork' | 'autowork1' | 'autowork2' | 'autowork3' | 'orchestrate';
 
 interface AutoContinueAlgorithm {
   id: AutoContinueMode;
@@ -415,6 +415,13 @@ const AUTOCONTINUE_ALGORITHMS: AutoContinueAlgorithm[] = [
     devName: 'Ino',
     description: 'Kanban board flow — per-card lifecycle with stage gates',
     commandName: 'autowork2',
+  },
+  {
+    id: 'autowork3',
+    label: 'Saumya',
+    devName: 'Saumya',
+    description: 'Entropy-scheduled — diverge, branch, attack, rank, compress',
+    commandName: 'autowork3',
   },
   {
     id: 'orchestrate',
