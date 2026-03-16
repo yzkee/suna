@@ -5,7 +5,7 @@
  * swipe/tap X to close, or create a new tab.
  */
 
-import React, { useCallback, useState, useRef } from 'react';
+import React, { useCallback, useState, useRef, useEffect } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { BottomSheetModal, BottomSheetBackdrop, BottomSheetView } from '@gorhom/bottom-sheet';
 import type { Session } from '@/lib/opencode/types';
+import { useTabStore, PAGE_TABS } from '@/stores/tab-store';
 
 interface TabsOverviewProps {
   /** All sessions (to look up titles) */
@@ -91,10 +92,11 @@ export function TabsOverview({
   }, [selectedIds, onCloseTab]);
 
   const handleCloseAll = useCallback(() => {
-    if (openTabIds.length === 0) return;
+    const total = openTabIds.length + useTabStore.getState().openPageIds.length;
+    if (total === 0) return;
     Alert.alert(
       'Close All Tabs',
-      `Close all ${openTabIds.length} tabs?`,
+      `Close all ${total} tabs?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -108,7 +110,7 @@ export function TabsOverview({
         },
       ],
     );
-  }, [openTabIds.length, onCloseAll]);
+  }, [openTabIds, onCloseAll]);
 
   const exitSelecting = useCallback(() => {
     setSelecting(false);
@@ -121,8 +123,17 @@ export function TabsOverview({
     [sessions],
   );
 
+  // Combined tab list: sessions + pages
+  const openPageIds = useTabStore((s) => s.openPageIds);
+  const activePageId = useTabStore((s) => s.activePageId);
+  const allTabIds = [...openTabIds, ...openPageIds];
+  const totalCount = allTabIds.length;
+
   // Card width: 2 columns with gaps
   const cardWidth = (width - 48) / 2;
+  const scrollRef = useRef<ScrollView>(null);
+  const hasScrolled = useRef(false);
+  const activeId = activePageId || activeSessionId;
 
   return (
     <View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
@@ -131,12 +142,13 @@ export function TabsOverview({
         <Text className="text-sm font-semibold text-foreground">
           {selecting
             ? `${selectedIds.size} Selected`
-            : `${openTabIds.length} ${openTabIds.length === 1 ? 'Tab' : 'Tabs'}`}
+            : `${totalCount} ${totalCount === 1 ? 'Tab' : 'Tabs'}`}
         </Text>
       </View>
 
       {/* Tab cards grid */}
       <ScrollView
+        ref={scrollRef}
         className="flex-1"
         contentContainerStyle={{
           flexDirection: 'row',
@@ -145,7 +157,7 @@ export function TabsOverview({
           paddingBottom: 20,
         }}
       >
-        {openTabIds.length === 0 ? (
+        {totalCount === 0 ? (
           <View className="flex-1 items-center justify-center py-20" style={{ width: '100%' }}>
             <Text className="text-sm text-muted-foreground mb-4">No open tabs</Text>
             <TouchableOpacity
@@ -158,18 +170,39 @@ export function TabsOverview({
             </TouchableOpacity>
           </View>
         ) : (
-          openTabIds.map((tabId) => {
-            const session = getSession(tabId);
-            const isActive = !selecting && tabId === activeSessionId;
+          allTabIds.map((tabId) => {
+            const isPage = tabId.startsWith('page:');
+            const pageTab = isPage ? PAGE_TABS[tabId] : undefined;
+            const session = isPage ? undefined : getSession(tabId);
+            const isActive = !selecting && (
+              isPage ? tabId === activePageId : tabId === activeSessionId
+            );
             const isSelected = selecting && selectedIds.has(tabId);
-            const title = session?.title || 'New Session';
+            const title = isPage
+              ? (pageTab?.label || tabId)
+              : (session?.title || 'New Session');
+            const cardIcon = isPage
+              ? (pageTab?.icon || 'help-outline')
+              : 'chatbubble-outline';
 
             return (
               <TouchableOpacity
                 key={tabId}
+                onLayout={(e) => {
+                  if (tabId === activeId && !hasScrolled.current) {
+                    hasScrolled.current = true;
+                    const y = e.nativeEvent.layout.y;
+                    requestAnimationFrame(() => {
+                      scrollRef.current?.scrollTo({ y: Math.max(0, y - 80), animated: false });
+                    });
+                  }
+                }}
                 onPress={() => {
                   if (selecting) {
                     toggleSelect(tabId);
+                  } else if (isPage) {
+                    useTabStore.getState().navigateToPage(tabId);
+                    onDismiss();
                   } else {
                     onSelectTab(tabId);
                   }
@@ -231,7 +264,7 @@ export function TabsOverview({
                     style={{ height: cardWidth * 1.1 }}
                   >
                     <View className="flex-1 rounded-lg bg-muted/30 items-center justify-center">
-                      <Ionicons name="chatbubble-outline" size={24} color={mutedColor} />
+                      <Ionicons name={cardIcon as any} size={24} color={mutedColor} />
                     </View>
                   </View>
                 </View>
@@ -265,16 +298,16 @@ export function TabsOverview({
         ) : (
           <TouchableOpacity
             onPress={() => {
-              if (openTabIds.length > 0) {
+              if (totalCount > 0) {
                 editSheetRef.current?.present();
               }
             }}
-            disabled={openTabIds.length === 0}
+            disabled={totalCount === 0}
             activeOpacity={0.6}
             hitSlop={8}
           >
             <Text className={`text-sm ${
-              openTabIds.length > 0 ? 'text-foreground' : 'text-muted-foreground/40'
+              totalCount > 0 ? 'text-foreground' : 'text-muted-foreground/40'
             }`}>
               Edit
             </Text>

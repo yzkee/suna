@@ -20,12 +20,15 @@ import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Text as RNText } from 'react-native';
 
 import { useSyncStore } from '@/lib/opencode/sync-store';
 import { useSessionSync } from '@/lib/opencode/session-sync';
 import { groupMessagesIntoTurns } from '@/lib/opencode/turns';
 import type { Turn, QuestionRequest } from '@/lib/opencode/types';
-import { useSession, replyToQuestion, rejectQuestion } from '@/lib/platform/hooks';
+import { useSession, replyToQuestion, rejectQuestion, forkSession } from '@/lib/platform/hooks';
+import { useTabStore } from '@/stores/tab-store';
 import { useSandboxContext } from '@/contexts/SandboxContext';
 import {
   useOpenCodeAgents,
@@ -55,8 +58,24 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
   const { sandboxUrl } = useSandboxContext();
   const flatListRef = useRef<FlatList>(null);
 
+
+
   // Session metadata
   const { data: session } = useSession(sandboxUrl, sessionId);
+
+  // Fork origin — check server parentID and AsyncStorage fallback
+  const [forkParentId, setForkParentId] = useState<string | null>(null);
+  useEffect(() => {
+    const parentFromServer = (session as any)?.parentID;
+    if (parentFromServer) {
+      setForkParentId(parentFromServer);
+      return;
+    }
+    AsyncStorage.getItem(`fork_origin_${sessionId}`).then((val) => {
+      if (val) setForkParentId(val);
+    });
+  }, [sessionId, session]);
+  const { data: parentSession } = useSession(sandboxUrl, forkParentId ?? undefined);
 
   // Hydrate messages from REST on mount; SSE keeps store updated after
   useSessionSync(sandboxUrl, sessionId);
@@ -261,6 +280,35 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
     [sandboxUrl, sessionId, handleStop],
   );
 
+  // Fork handler — forks session at the given assistant message
+  const handleFork = useCallback(
+    async (assistantMessageId: string) => {
+      if (!sandboxUrl) return;
+
+      // The server copies all messages BEFORE the given messageID (exclusive).
+      // To include the assistant message the user clicked on, we pass the ID
+      // of the NEXT message after it as the cut-off.
+      let forkAtMessageId: string | undefined;
+      if (safeMessages.length > 0) {
+        const idx = safeMessages.findIndex((m) => m.info.id === assistantMessageId);
+        if (idx >= 0 && idx < safeMessages.length - 1) {
+          forkAtMessageId = safeMessages[idx + 1].info.id;
+        }
+        // else: last message — omit messageID to copy all
+      }
+
+      try {
+        const forkedSession = await forkSession(sandboxUrl, sessionId, forkAtMessageId);
+        // Store fork origin so the forked session can show "Forked from" banner
+        AsyncStorage.setItem(`fork_origin_${forkedSession.id}`, sessionId);
+        useTabStore.getState().navigateToSession(forkedSession.id);
+      } catch (err: any) {
+        log.error('Failed to fork session:', err?.message || err);
+      }
+    },
+    [sandboxUrl, sessionId, safeMessages],
+  );
+
   // Track last turn height for footer sizing
   const turnHeights = useRef<Record<string, number>>({});
   const [lastTurnHeight, setLastTurnHeight] = useState(80);
@@ -283,10 +331,11 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
           sessionStatus={sessionStatus}
           isBusy={isBusy}
           pendingQuestions={pendingQuestions}
+          onFork={handleFork}
         />
       </View>
     ),
-    [safeMessages, sessionStatus, isBusy, turns.length, pendingQuestions],
+    [safeMessages, sessionStatus, isBusy, turns.length, pendingQuestions, handleFork],
   );
 
   const title = session?.title || 'New Session';
@@ -338,6 +387,15 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
         keyExtractor={(item) => item.userMessage.info.id}
         contentContainerStyle={{ paddingTop: 16 }}
         showsVerticalScrollIndicator={false}
+        ListHeaderComponent={
+          forkParentId ? (
+            <ForkBanner
+              parentTitle={parentSession?.title}
+              onPress={() => useTabStore.getState().navigateToSession(forkParentId)}
+              isDark={isDark}
+            />
+          ) : null
+        }
         ListFooterComponent={
           <View
             style={{
@@ -433,6 +491,59 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
           </View>
         )}
       </View>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ForkBanner — "Forked from {parentTitle}" divider
+// ---------------------------------------------------------------------------
+
+function ForkBanner({
+  parentTitle,
+  onPress,
+  isDark,
+}: {
+  parentTitle?: string;
+  onPress: () => void;
+  isDark: boolean;
+}) {
+  const mutedColor = isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.15)';
+  const textMuted = isDark ? '#888' : '#999';
+  const textColor = isDark ? '#aaa' : '#666';
+  const borderColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const pillBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)';
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, marginBottom: 12, gap: 8 }}>
+      <View style={{ flex: 1, height: 1, backgroundColor: borderColor }} />
+      <TouchableOpacity
+        onPress={onPress}
+        activeOpacity={0.7}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingHorizontal: 10,
+          paddingVertical: 5,
+          borderRadius: 20,
+          backgroundColor: pillBg,
+          borderWidth: 1,
+          borderColor,
+          gap: 5,
+        }}
+      >
+        <Ionicons name="git-branch-outline" size={11} color={textMuted} />
+        <RNText style={{ fontSize: 10, fontFamily: 'Roobert-Medium', color: textMuted, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+          Forked from
+        </RNText>
+        <RNText
+          style={{ fontSize: 10, fontFamily: 'Roobert-Medium', color: textColor, maxWidth: 120 }}
+          numberOfLines={1}
+        >
+          {parentTitle || 'Parent session'}
+        </RNText>
+      </TouchableOpacity>
+      <View style={{ flex: 1, height: 1, backgroundColor: borderColor }} />
     </View>
   );
 }

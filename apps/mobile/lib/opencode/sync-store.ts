@@ -125,10 +125,17 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         if (msgIdx >= 0) {
           const msg = msgs[msgIdx];
           const partIdx = msg.parts.findIndex((p) => p.id === part.id);
-          const updatedParts =
-            partIdx >= 0
-              ? msg.parts.map((p, i) => (i === partIdx ? part : p))
-              : [...msg.parts, part];
+          let updatedParts: Part[];
+          if (partIdx >= 0) {
+            updatedParts = msg.parts.map((p, i) => (i === partIdx ? part : p));
+          } else {
+            // When a real part arrives, remove any optimistic fallback parts
+            // of the same type to prevent duplicates (e.g. double user text)
+            const baseParts = msg.parts.filter(
+              (p) => !(p.type === part.type && p.id.startsWith('prt_')),
+            );
+            updatedParts = [...baseParts, part];
+          }
           const updatedMsg = { ...msg, parts: updatedParts };
           newMessages[sessionId] = msgs.map((m, i) =>
             i === msgIdx ? updatedMsg : m,

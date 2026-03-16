@@ -41,8 +41,9 @@ import {
   useOpenCodeConfig,
 } from '@/lib/opencode/hooks/use-opencode-data';
 import { useResolvedConfig } from '@/lib/opencode/hooks/use-local-config';
-import { useTabStore } from '@/stores/tab-store';
+import { useTabStore, PAGE_TABS } from '@/stores/tab-store';
 import { RightDrawerContent } from '@/components/session/RightDrawerContent';
+import { PlaceholderPage } from '@/components/session/PlaceholderPage';
 import { log } from '@/lib/logger';
 
 // ─── Animated collapsible wrapper ────────────────────────────────────────────
@@ -210,8 +211,10 @@ export default function HomeScreen() {
 
   // Persisted tab state (survives app restarts)
   const activeSessionId = useTabStore((s) => s.activeSessionId);
+  const activePageId = useTabStore((s) => s.activePageId);
   const showTabsOverview = useTabStore((s) => s.showTabsOverview);
   const openTabIds = useTabStore((s) => s.openTabIds);
+  const openPageIds = useTabStore((s) => s.openPageIds);
   const sessionHistory = useTabStore((s) => s.sessionHistory);
   const historyIndex = useTabStore((s) => s.historyIndex);
   const navigateToSession = useTabStore((s) => s.navigateToSession);
@@ -608,6 +611,15 @@ export default function HomeScreen() {
               </Text>
             </View>
 
+          /* Active page tab */
+          ) : activePageId && PAGE_TABS[activePageId] && !showTabsOverview ? (
+            <PlaceholderPage
+              page={PAGE_TABS[activePageId]}
+              onBack={handleBack}
+              onOpenDrawer={handleDrawerOpen}
+              onOpenRightDrawer={handleRightDrawerOpen}
+            />
+
           /* Active session */
           ) : activeSessionId && !showTabsOverview ? (
             <SessionPage sessionId={activeSessionId} onBack={handleBack} onOpenDrawer={handleDrawerOpen} onOpenRightDrawer={handleRightDrawerOpen} />
@@ -689,7 +701,7 @@ export default function HomeScreen() {
             <View>
               <BottomBar
                 activeSessionId={activeSessionId}
-                tabCount={openTabIds.length}
+                tabCount={openTabIds.length + openPageIds.length}
                 canGoBack={canGoBack}
                 canGoForward={canGoForward}
                 onBack={handleHistoryBack}
