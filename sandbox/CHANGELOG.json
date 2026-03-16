@@ -1,5 +1,17 @@
 [ 
   {
+    "version": "0.8.10",
+    "date": "2026-03-16",
+    "title": "Fix opencode DB ownership via s6 init script",
+    "description": "Moves the opencode data directory chown from startup.sh (which runs before linuxserver init and gets overwritten) to an s6 custom-cont-init.d script that runs after all linuxserver migrations. Locally tested and confirmed working.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Opencode data directory ownership is now fixed in an s6 init script (zz-fix-opencode-ownership) that runs after linuxserver base image migrations, preventing the chown from being overwritten"
+      }
+    ]
+  },
+  {
     "version": "0.8.9",
     "date": "2026-03-16",
     "title": "Fix sandbox DB ownership — use abc user not UID 1000",

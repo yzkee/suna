@@ -134,6 +134,7 @@ COPY sandbox/init-scripts/96-fix-bun-pty.sh /custom-cont-init.d/96-fix-bun-pty
 COPY sandbox/init-scripts/97-secrets-to-s6-env.sh /custom-cont-init.d/97-secrets-to-s6-env
 COPY sandbox/init-scripts/kortix-env-setup.sh /custom-cont-init.d/98-kortix-env
 COPY sandbox/init-scripts/99-restore-packages.sh /custom-cont-init.d/99-restore-packages
+COPY sandbox/init-scripts/99-fix-opencode-ownership.sh /custom-cont-init.d/zz-fix-opencode-ownership
 RUN chmod +x /custom-cont-init.d/*
 
 # ── Persistent package wrapper (apk-persist) ────────────────────────────────
