@@ -132,9 +132,11 @@ fi
 
 # ── Ensure opencode data dir is writable by abc ─────────────────────────────
 # On fresh Hetzner snapshots, the opencode migration may run as root during
-# s6 init, creating the DB as root. Then opencode serve (running as abc)
-# can't write to it. Force correct ownership right before s6 starts.
-chown -R "$WORKSPACE_UID:$WORKSPACE_GID" /workspace/.local/share/opencode 2>/dev/null || true
+# s6 init, creating the DB as root. Then opencode serve (running as abc via
+# s6-setuidgid) can't write to it. Use abc:abc explicitly — the abc user's
+# UID varies across image versions (e.g. 911 in linuxserver/webtop), while
+# WORKSPACE_UID defaults to 1000 which may not match.
+chown -R abc:abc /workspace/.local/share/opencode 2>/dev/null || true
 
 # ── Verify runtime exists ───────────────────────────────────────────────────
 if [ ! -e /opt/kortix-master ]; then

@@ -1,5 +1,17 @@
 [ 
   {
+    "version": "0.8.9",
+    "date": "2026-03-16",
+    "title": "Fix sandbox DB ownership — use abc user not UID 1000",
+    "description": "The opencode data directory chown in startup.sh used WORKSPACE_UID (1000) but the abc user is UID 911 in the current base image. opencode serve runs as abc via s6-setuidgid and couldn't write to dirs owned by UID 1000.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Startup script now uses chown abc:abc instead of UID 1000 for opencode data directory, matching the actual user that opencode serve runs as"
+      }
+    ]
+  },
+  {
     "version": "0.8.8",
     "date": "2026-03-16",
     "title": "Fix sandbox startup — opencode DB ownership",
