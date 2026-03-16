@@ -11,7 +11,7 @@
  * - Variant persistence via useModelStore
  */
 
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useMemo, useCallback, useRef, useEffect } from 'react';
 import { useModelStore, type ModelKey } from './use-model-store';
 import type { FlatModel } from '@/components/session/session-chat-input';
 import type { Agent, ProviderListResponse, Config } from '@opencode-ai/sdk/v2/client';
@@ -26,6 +26,8 @@ export interface UseOpenCodeLocalOptions {
   agents?: Agent[];
   providers?: ProviderListResponse;
   config?: Config;
+  /** Session ID — used to persist agent selection per-session in localStorage */
+  sessionId?: string;
 }
 
 export interface OpenCodeLocalAgent {
@@ -95,6 +97,7 @@ export function useOpenCodeLocal({
   agents: rawAgents,
   providers,
   config,
+  sessionId,
 }: UseOpenCodeLocalOptions): OpenCodeLocal {
   // ---- Flatten models from providers (only connected) ----
   const flatModels = useMemo<FlatModel[]>(() => {
@@ -174,13 +177,21 @@ export function useOpenCodeLocal({
     [flatModels],
   );
 
-  // ---- Agent state ----
+  // ---- Agent state — persisted per-session in localStorage so switching tabs preserves selection ----
   const visibleAgents = useMemo<Agent[]>(
     () => (Array.isArray(rawAgents) ? rawAgents : []).filter((a) => !a.hidden),
     [rawAgents],
   );
 
-  const [currentAgentName, setCurrentAgentName] = useState<string | undefined>(undefined);
+  // Read/write agent name from per-session localStorage slot
+  const currentAgentName = sessionId ? modelStore.getSessionAgentName(sessionId) : undefined;
+  const setCurrentAgentName = useCallback(
+    (name: string | undefined) => {
+      if (sessionId) modelStore.setSessionAgentName(sessionId, name);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sessionId, modelStore.setSessionAgentName],
+  );
 
   // Resolve current agent (matching SolidJS: find by name or fall back to first)
   const currentAgent = useMemo<Agent | undefined>(() => {
@@ -288,7 +299,7 @@ export function useOpenCodeLocal({
       }
       setCurrentAgentName(visibleAgents[0]?.name);
     },
-    [visibleAgents],
+    [visibleAgents, setCurrentAgentName],
   );
 
   // ---- Agent move (matching SolidJS local.tsx:64-81) ----
@@ -316,7 +327,7 @@ export function useOpenCodeLocal({
         });
       }
     },
-    [visibleAgents, currentAgentName],
+    [visibleAgents, currentAgentName, setCurrentAgentName],
   );
 
   // ---- When agent changes externally (via setAgent), auto-set model if agent has one ----

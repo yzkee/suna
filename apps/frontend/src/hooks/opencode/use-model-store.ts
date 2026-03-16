@@ -35,6 +35,8 @@ interface ModelStore {
   variant: Record<string, string | undefined>;
   /** Persisted per-agent model selection so it survives refresh/new tabs */
   selectedModel?: Record<string, ModelKey | undefined>;
+  /** Per-session agent name — keyed by sessionId so each session remembers its own agent */
+  sessionAgentName?: Record<string, string | undefined>;
 }
 
 // ============================================================================
@@ -253,6 +255,23 @@ export function useModelStore(allModels: FlatModel[]) {
     setStore({ ...s, selectedModel: next });
   }, []);
 
+  // Per-session agent name selection
+  const getSessionAgentName = useCallback(
+    (sessionId: string): string | undefined => store.sessionAgentName?.[sessionId],
+    [store.sessionAgentName],
+  );
+
+  const setSessionAgentName = useCallback((sessionId: string, name: string | undefined) => {
+    const s = getStore();
+    const next = { ...s.sessionAgentName };
+    if (name) {
+      next[sessionId] = name;
+    } else {
+      delete next[sessionId];
+    }
+    setStore({ ...s, sessionAgentName: next });
+  }, []);
+
   return {
     isVisible,
     isLatest,
@@ -263,6 +282,8 @@ export function useModelStore(allModels: FlatModel[]) {
     setVariant,
     getSelectedModel,
     setSelectedModel,
+    getSessionAgentName,
+    setSessionAgentName,
     /** All user visibility preferences (for manage models dialog) */
     userPrefs: store.user,
   };
