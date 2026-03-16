@@ -141,6 +141,13 @@ export default function OnboardingPage() {
   const bootTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const [biosReady, setBiosReady] = useState(false);
 
+  // Track whether we're in the process of skipping — blocks boot sequence
+  const [isSkipping, setIsSkipping] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.has('skip_onboarding') || params.has('skip');
+  });
+
   const createSessionRef = useRef(createSession);
   createSessionRef.current = createSession;
 
@@ -205,15 +212,26 @@ export default function OnboardingPage() {
     const params = new URLSearchParams(window.location.search);
 
     if (params.has('skip_onboarding') || params.has('skip')) {
-      const instanceUrl = getInstanceUrl();
-      if (instanceUrl) {
-        authenticatedFetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ value: 'true' }),
-        }).catch(() => {});
-      }
-      router.replace('/dashboard');
+      setIsSkipping(true);
+      // Use an async IIFE: await the PUT, then hard-redirect to stop all
+      // component execution. router.replace() is async and lets the boot
+      // sequence keep running — window.location.replace() is a full navigation
+      // that unloads the page immediately.
+      (async () => {
+        const instanceUrl = getInstanceUrl();
+        if (instanceUrl) {
+          try {
+            await authenticatedFetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ value: 'true' }),
+            });
+          } catch {
+            // Best effort — ONBOARDING_COMPLETE may already be true
+          }
+        }
+        window.location.replace('/dashboard');
+      })();
       return;
     }
 
@@ -232,13 +250,17 @@ export default function OnboardingPage() {
       window.history.replaceState({}, '', clean.pathname + clean.search);
       return;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Redirect if already onboarded ─────────────────────────────
+  // Re-runs when auth state or sandbox registration changes so it doesn't
+  // silently fail if auth wasn't ready on first mount.
+  const activeServerId = useServerStore((s) => s.activeServerId);
   useEffect(() => {
+    if (isSkipping) return;
     const params = new URLSearchParams(window.location.search);
-    if (params.has('skip_onboarding') || params.has('skip') || params.has('redo')) return;
+    if (params.has('redo')) return;
+    let cancelled = false;
     const check = async () => {
       const instanceUrl = getInstanceUrl();
       if (!instanceUrl) return;
@@ -246,7 +268,7 @@ export default function OnboardingPage() {
         const res = await authenticatedFetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`);
         if (!res.ok) return;
         const data = await res.json();
-        if (data?.ONBOARDING_COMPLETE === 'true') {
+        if (!cancelled && data?.ONBOARDING_COMPLETE === 'true') {
           router.replace('/dashboard');
         }
       } catch {
@@ -254,8 +276,10 @@ export default function OnboardingPage() {
       }
     };
     check();
+    return () => { cancelled = true; };
+  // Re-run when auth resolves (user changes from null→object) or sandbox registers
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isSkipping, user, activeServerId]);
 
   // ── Onboarding wait timer (for Hetzner-specific provisioning copy) ──
   useEffect(() => {
@@ -547,15 +571,26 @@ export default function OnboardingPage() {
     return () => window.removeEventListener('keydown', handler);
   }, [continueBoot]);
 
-  // Auto-start boot on mount — no click needed
+  // Auto-start boot on mount — no click needed (skip if we're redirecting away)
   useEffect(() => {
+    if (isSkipping) return;
     startBoot();
-  }, [startBoot]);
+  }, [startBoot, isSkipping]);
 
   const activeUser = user || session?.user || null;
 
   if (isLoading) return null;
   if (!activeUser) return null;
+
+  // Show a minimal loading state when skip is in progress — don't render the
+  // full boot sequence which could confuse the user or start sessions.
+  if (isSkipping) {
+    return (
+      <div className="fixed inset-0 z-50 bg-background flex items-center justify-center">
+        <LoadingDots />
+      </div>
+    );
+  }
 
   // ── Render ────────────────────────────────────────────────────
 
