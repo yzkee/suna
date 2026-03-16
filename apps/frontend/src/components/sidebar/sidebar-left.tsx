@@ -255,21 +255,26 @@ function ProjectsFlyout() {
 
   const sortedProjects = React.useMemo(() => {
     if (!projects || !Array.isArray(projects)) return [];
-    return [...projects].sort((a: any, b: any) => {
-      const aIsGlobal = a.id === 'global' || a.worktree === '/';
-      const bIsGlobal = b.id === 'global' || b.worktree === '/';
-      if (aIsGlobal && !bIsGlobal) return -1;
-      if (!aIsGlobal && bIsGlobal) return 1;
-      return (b.time?.updated ?? 0) - (a.time?.updated ?? 0);
-    });
+    const hasRealWorkspace = projects.some((p: any) => p.id !== 'global' && (p.worktree === '/workspace' || p.worktree === '/workspace/'));
+    return [...projects]
+      .filter((p: any) => !(p.id === 'global' && p.worktree === '/' && hasRealWorkspace))
+      .sort((a: any, b: any) => {
+        const aIsGlobal = a.id === 'global' || a.worktree === '/' || a.worktree === '/workspace';
+        const bIsGlobal = b.id === 'global' || b.worktree === '/' || b.worktree === '/workspace';
+        if (aIsGlobal && !bIsGlobal) return -1;
+        if (!aIsGlobal && bIsGlobal) return 1;
+        return (b.time?.updated ?? 0) - (a.time?.updated ?? 0);
+      });
   }, [projects]);
 
   const handleClick = (project: any) => {
+    const isGlobal = project.id === 'global' || project.worktree === '/' || project.worktree === '/workspace';
+    const title = isGlobal ? 'Global' : (project.name || project.worktree?.split('/').pop() || 'Project');
     openTabAndNavigate({
-      id: 'page:/workspace',
-      title: 'Workspace',
-      type: 'page',
-      href: '/workspace',
+      id: `project:${project.id}`,
+      title,
+      type: 'project',
+      href: `/projects/${encodeURIComponent(project.id)}`,
     });
   };
 
@@ -281,7 +286,8 @@ function ProjectsFlyout() {
         </div>
       ) : (
         sortedProjects.map((project: any) => {
-          const name = project.name || (project.worktree === '/' || project.id === 'global' ? 'Global' : project.worktree.split('/').pop() || project.worktree);
+          const isGlobal = project.id === 'global' || project.worktree === '/' || project.worktree === '/workspace';
+          const name = isGlobal ? 'Global' : (project.name || project.worktree?.split('/').pop() || project.worktree);
           return (
             <button
               key={project.id}
@@ -464,25 +470,29 @@ function SidebarSections() {
   const pathname = usePathname();
   const { isMobile, setOpenMobile } = useSidebar();
 
-  // Projects data
+  // Projects data — filter out the bare "global" (worktree "/") if a real workspace project exists
   const { data: projectsData } = useOpenCodeProjects();
   const sortedProjects = React.useMemo(() => {
     if (!projectsData || !Array.isArray(projectsData)) return [];
-    return [...projectsData].sort((a: any, b: any) => {
-      const aIsGlobal = a.id === 'global' || a.worktree === '/';
-      const bIsGlobal = b.id === 'global' || b.worktree === '/';
-      if (aIsGlobal && !bIsGlobal) return -1;
-      if (!aIsGlobal && bIsGlobal) return 1;
-      return (b.time?.updated ?? 0) - (a.time?.updated ?? 0);
-    });
+    const hasRealWorkspace = projectsData.some((p: any) => p.id !== 'global' && (p.worktree === '/workspace' || p.worktree === '/workspace/'));
+    return [...projectsData]
+      .filter((p: any) => !(p.id === 'global' && p.worktree === '/' && hasRealWorkspace))
+      .sort((a: any, b: any) => {
+        const aIsGlobal = a.id === 'global' || a.worktree === '/' || a.worktree === '/workspace';
+        const bIsGlobal = b.id === 'global' || b.worktree === '/' || b.worktree === '/workspace';
+        if (aIsGlobal && !bIsGlobal) return -1;
+        if (!aIsGlobal && bIsGlobal) return 1;
+        return (b.time?.updated ?? 0) - (a.time?.updated ?? 0);
+      });
   }, [projectsData]);
 
   const handleProjectClick = React.useCallback((project: any) => {
+    const name = project.name || project.worktree?.split('/').pop() || 'Project';
     openTabAndNavigate({
-      id: 'page:/workspace',
-      title: 'Workspace',
-      type: 'page',
-      href: '/workspace',
+      id: `project:${project.id}`,
+      title: name,
+      type: 'project',
+      href: `/projects/${encodeURIComponent(project.id)}`,
     });
     if (isMobile) setOpenMobile(false);
   }, [isMobile, setOpenMobile]);
@@ -519,7 +529,7 @@ function SidebarSections() {
   };
 
   return (
-    <div className="flex flex-col min-h-0 flex-1">
+    <div className="flex flex-col min-h-0 flex-1 pt-0.5 space-y-0.5">
       {/* Projects — collapsible list above Sessions, same UX as Sessions */}
       {sortedProjects.length > 0 && (
         <Collapsible defaultOpen={false} className="flex flex-col min-h-0">
@@ -537,7 +547,8 @@ function SidebarSections() {
               <div className="px-2 pb-2">
                 <div className="space-y-0.5">
                   {sortedProjects.map((project: any) => {
-                    const name = project.name || (project.worktree === '/' || project.id === 'global' ? 'Global' : project.worktree.split('/').pop() || project.worktree);
+                    const isGlobal = project.id === 'global' || project.worktree === '/' || project.worktree === '/workspace';
+                    const name = isGlobal ? 'Global' : (project.name || project.worktree?.split('/').pop() || project.worktree);
                     return (
                       <div
                         key={project.id}
@@ -578,7 +589,7 @@ function SidebarSections() {
       </Collapsible>
 
       {hasLegacy && (
-        <div className="flex-shrink-0 py-2">
+        <div className="flex-shrink-0">
           <div className="px-3 flex items-center">
             <button
               onClick={() => setLegacyOpen((o) => !o)}
@@ -960,7 +971,7 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
           state === 'collapsed' ? 'opacity-0 pointer-events-none' : 'opacity-100 pointer-events-auto'
         )}>
           {/* Navigation */}
-          <nav className="flex-shrink-0 px-3 pt-2 pb-1 space-y-0.5">
+          <nav className="flex-shrink-0 px-3 pt-2 space-y-0.5">
             {/* New session */}
             <button
               onClick={handleNewSession}

@@ -121,6 +121,10 @@ const LegacyThreadPage = lazy(() =>
 	import('@/app/(dashboard)/legacy/[threadId]/page'),
 );
 
+const ProjectDetailPage = lazy(() =>
+	import('@/app/(dashboard)/projects/[id]/page'),
+);
+
 // ---------------------------------------------------------------------------
 // Route → Component mapping
 // ---------------------------------------------------------------------------
@@ -168,6 +172,11 @@ function resolveComponent(routeKey: string): { Component: ComponentType<any>; pa
 	const legacyMatch = routeKey.match(/^\/legacy\/(.+)$/);
 	if (legacyMatch) {
 		return { Component: LegacyThreadPage, params: { threadId: legacyMatch[1] } };
+	}
+
+	const projectMatch = routeKey.match(/^\/projects\/([^/]+)$/);
+	if (projectMatch) {
+		return { Component: ProjectDetailPage, params: { id: decodeURIComponent(projectMatch[1]) } };
 	}
 
 	return null;

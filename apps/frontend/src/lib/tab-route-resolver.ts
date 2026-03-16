@@ -312,6 +312,19 @@ const DYNAMIC_RESOLVERS: DynamicResolver[] = [
       href: `/legacy/${threadId}`,
     };
   },
+
+  // /projects/<id> — project detail page
+  (pathname) => {
+    const m = pathname.match(/^\/projects\/([^/]+)$/);
+    if (!m) return null;
+    const projectId = decodeURIComponent(m[1]);
+    return {
+      id: `project:${projectId}`,
+      title: 'Project',
+      type: 'project',
+      href: `/projects/${m[1]}`,
+    };
+  },
 ];
 
 // ---------------------------------------------------------------------------

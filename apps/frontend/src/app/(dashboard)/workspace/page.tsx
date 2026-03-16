@@ -773,7 +773,20 @@ export default function WorkspacePage() {
                       <WorkspaceItemCard
                         key={item.id}
                         item={item}
-                        onClick={() => setSelectedItem(item)}
+                        onClick={() => {
+                          // Projects navigate to project detail page
+                          if (item.kind === 'project' && item.raw) {
+                            const proj = item.raw as Project;
+                            openTabAndNavigate({
+                              id: `project:${proj.id}`,
+                              title: item.name,
+                              type: 'project',
+                              href: `/projects/${encodeURIComponent(proj.id)}`,
+                            });
+                          } else {
+                            setSelectedItem(item);
+                          }
+                        }}
                         index={index}
                       />
                     ))}

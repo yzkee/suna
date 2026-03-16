@@ -130,7 +130,18 @@ class Manager {
 		const existing = this.db.prepare("SELECT * FROM projects WHERE path=$p").get({ $p: pp }) as ProjectRow | null
 		if (existing) {
 			if (desc) { this.db.prepare("UPDATE projects SET description=$d WHERE id=$id").run({ $d: desc, $id: existing.id }); existing.description = desc }
-			// Sync name to OpenCode if we have an opencode_id
+			// Ensure OpenCode link exists — discover if missing
+			if (!existing.opencode_id) {
+				try {
+					const ocResult = await this.client.project.current({ directory: pp })
+					const ocProject = ocResult.data as any
+					if (ocProject?.id && ocProject.id !== "global") {
+						existing.opencode_id = ocProject.id
+						this.db.prepare("UPDATE projects SET opencode_id=$oid WHERE id=$id").run({ $oid: ocProject.id, $id: existing.id })
+					}
+				} catch {}
+			}
+			// Push name to OpenCode
 			if (existing.opencode_id) {
 				try { await this.client.project.update({ projectID: existing.opencode_id, name: existing.name }) } catch {}
 			}
@@ -147,23 +158,38 @@ class Manager {
 		if (!existsSync(path.join(pp, ".git"))) {
 			try {
 				await Bun.spawn(["git", "init"], { cwd: pp, stdout: "pipe", stderr: "pipe" }).exited
+				// Ensure git user is configured (required for commit in sandbox environments)
+				await Bun.spawn(["git", "config", "user.email", "kortix@project.local"], { cwd: pp, stdout: "pipe", stderr: "pipe" }).exited
+				await Bun.spawn(["git", "config", "user.name", "Kortix"], { cwd: pp, stdout: "pipe", stderr: "pipe" }).exited
 				await Bun.spawn(["git", "add", "-A"], { cwd: pp, stdout: "pipe", stderr: "pipe" }).exited
 				await Bun.spawn(["git", "commit", "-m", "Init", "--allow-empty"], { cwd: pp, stdout: "pipe", stderr: "pipe" }).exited
 			} catch {}
 		}
 		const id = projectId(name), now = new Date().toISOString()
 
-		// Resolve OpenCode project ID by matching worktree path
+		// Register with OpenCode — trigger discovery via project.current({ directory })
+		// This calls Project.fromDirectory(pp) server-side which auto-registers the project
 		let opencodeId: string | null = null
 		try {
-			const ocProjects = await this.client.project.list()
-			const match = (ocProjects.data ?? []).find((p: any) => p.worktree === pp)
-			if (match) {
-				opencodeId = match.id
+			const ocResult = await this.client.project.current({ directory: pp })
+			const ocProject = ocResult.data as any
+			// Only link if OC returned a real project (not "global" fallback for this directory)
+			if (ocProject?.id && ocProject.id !== "global") {
+				opencodeId = ocProject.id
 				// Push name to OpenCode
-				await this.client.project.update({ projectID: match.id, name })
+				await this.client.project.update({ projectID: opencodeId, name })
 			}
-		} catch {}
+		} catch {
+			// Fallback: check existing OC projects by worktree match
+			try {
+				const ocProjects = await this.client.project.list()
+				const match = (ocProjects.data ?? []).find((p: any) => p.worktree === pp && p.id !== "global")
+				if (match) {
+					opencodeId = match.id
+					await this.client.project.update({ projectID: match.id, name })
+				}
+			} catch {}
+		}
 
 		this.db.prepare("INSERT INTO projects (id,name,path,description,created_at,opencode_id) VALUES ($id,$n,$p,$d,$c,$oid)")
 			.run({ $id: id, $n: name, $p: pp, $d: desc || "", $c: now, $oid: opencodeId })
@@ -189,9 +215,14 @@ class Manager {
 					if (!existing.opencode_id) {
 						this.db.prepare("UPDATE projects SET opencode_id=$oid WHERE id=$id").run({ $oid: ocp.id, $id: existing.id })
 					}
-					// Sync name from OpenCode if Kortix has no name or they diverged (OpenCode wins for name)
+					// Bidirectional name sync:
+					// - If OpenCode has a name and Kortix doesn't (or they diverged), OpenCode wins → update Kortix
+					// - If Kortix has a name and OpenCode doesn't, push Kortix name → OpenCode
 					if (ocp.name && ocp.name !== existing.name) {
 						this.db.prepare("UPDATE projects SET name=$n WHERE id=$id").run({ $n: ocp.name, $id: existing.id })
+					} else if (!ocp.name && existing.name) {
+						// Kortix has a name but OpenCode doesn't — push it
+						try { await this.client.project.update({ projectID: ocp.id, name: existing.name }) } catch {}
 					}
 				} else {
 					// Auto-register OpenCode project in Kortix SQLite
@@ -199,7 +230,30 @@ class Manager {
 					const now = ocp.time?.created ? new Date(ocp.time.created).toISOString() : new Date().toISOString()
 					this.db.prepare("INSERT OR IGNORE INTO projects (id,name,path,description,created_at,opencode_id) VALUES ($id,$n,$p,'',$c,$oid)")
 						.run({ $id: projectId(name), $n: name, $p: worktree, $c: now, $oid: ocp.id })
+					// Push derived name to OpenCode if it doesn't have one
+					if (!ocp.name && name) {
+						try { await this.client.project.update({ projectID: ocp.id, name }) } catch {}
+					}
 				}
+			}
+		} catch {}
+
+		// 3. Discover unlinked Kortix projects in OpenCode — trigger OC registration for projects with .git but no opencode_id
+		try {
+			const unlinked = this.db.prepare("SELECT * FROM projects WHERE opencode_id IS NULL").all() as ProjectRow[]
+			for (const proj of unlinked) {
+				if (!existsSync(path.join(proj.path, ".git"))) continue
+				try {
+					const ocResult = await this.client.project.current({ directory: proj.path })
+					const ocProject = ocResult.data as any
+					if (ocProject?.id && ocProject.id !== "global") {
+						this.db.prepare("UPDATE projects SET opencode_id=$oid WHERE id=$id").run({ $oid: ocProject.id, $id: proj.id })
+						// Push name to OpenCode if it doesn't have one
+						if (!ocProject.name && proj.name) {
+							try { await this.client.project.update({ projectID: ocProject.id, name: proj.name }) } catch {}
+						}
+					}
+				} catch {}
 			}
 		} catch {}
 
@@ -415,73 +469,103 @@ Other workers may be running in parallel on this project. **Do NOT touch files o
 	}
 
 	/**
-	 * Read session output efficiently — returns a compact summary, not the full dump.
-	 * Like pty_read with smart defaults: status + recent activity + last output.
-	 * Supports tail (last N messages) and pattern filtering.
+	 * Read a session's state — works for running and completed sessions.
+	 *
+	 * Modes:
+	 *   "summary" (default) — status + stats + last few text outputs. Cheap.
+	 *   "tools"   — summary + list of all tool calls with truncated I/O
+	 *   "full"    — complete formatted transcript (like session_get but without TTC compression)
+	 *   "search"  — filter messages by regex pattern, return matches
 	 */
-	async readSession(sessionId: string, tail: number = 3, pattern?: string): Promise<string> {
+	async readSession(sessionId: string, mode: string = "summary", pattern?: string): Promise<string> {
+		// Check delegations first for stored result
 		const del = this.db.prepare("SELECT * FROM delegations WHERE session_id=$sid").get({ $sid: sessionId }) as DelegationRow | null
-		if (!del) return `Session "${sessionId}" not found.`
 
-		// Completed sessions — return stored result (already extracted)
-		if (del.status !== "running" && del.result) {
-			return `**Status:** ${del.status}\n**Agent:** ${del.agent}\n\n${del.result}`
-		}
-
-		// Running or no stored result — read live messages (compact summary)
+		// Fetch live messages from the session
+		let data: any[] = []
 		try {
 			const msgs = await this.client.session.messages({ path: { id: sessionId } })
-			const data = (msgs.data ?? []) as any[]
-
-			if (data.length === 0) return `**Status:** ${del.status} | No messages yet.`
-
-			// Count totals for summary header
-			let totalTools = 0
-			let totalMsgs = 0
-			const toolNames: string[] = []
-
-			for (const m of data) {
-				if (m?.info?.role !== "assistant") continue
-				totalMsgs++
-				for (const p of m.parts ?? []) {
-					if (p.type === "tool") {
-						totalTools++
-						const name = p.tool || "unknown"
-						if (!toolNames.includes(name)) toolNames.push(name)
-					}
-				}
-			}
-
-			const lines: string[] = []
-			lines.push(`**Status:** ${del.status} | **Messages:** ${totalMsgs} | **Tool calls:** ${totalTools}`)
-			if (toolNames.length) lines.push(`**Tools used:** ${toolNames.join(", ")}`)
-			lines.push("")
-
-			// Extract only the LAST N assistant text outputs (tail)
-			const assistantTexts: string[] = []
-			for (const m of data) {
-				if (m?.info?.role !== "assistant") continue
-				for (const p of m.parts ?? []) {
-					if (p.type === "text" && typeof p.text === "string" && !p.synthetic && !p.ignored && p.text.trim()) {
-						if (pattern) {
-							try { if (!new RegExp(pattern, "i").test(p.text)) continue } catch {}
-						}
-						assistantTexts.push(p.text.slice(0, 500))
-					}
-				}
-			}
-
-			// Only show last N text chunks
-			const recent = assistantTexts.slice(-tail)
-			if (assistantTexts.length > tail) {
-				lines.push(`_(showing last ${tail} of ${assistantTexts.length} text outputs)_\n`)
-			}
-			for (const t of recent) lines.push(t)
-
-			return lines.join("\n")
+			data = (msgs.data ?? []) as any[]
 		} catch {
-			return del.result || `Session ${del.status}, messages could not be read.`
+			// Can't read messages — fall back to stored result
+			if (del?.result) return `**Status:** ${del.status}\n**Agent:** ${del.agent}\n\n${del.result}`
+			return `Session "${sessionId}" — messages could not be read.`
 		}
+
+		const status = del?.status || "unknown"
+		const agent = del?.agent || ""
+
+		if (data.length === 0) {
+			return `**Status:** ${status} | **Agent:** ${agent} | No messages yet.`
+		}
+
+		// ── Stats ──
+		let totalMsgs = 0
+		let totalTools = 0
+		const toolCounts: Record<string, number> = {}
+		const toolEntries: Array<{ name: string; input: string; output: string; status: string }> = []
+		const textChunks: Array<{ role: string; text: string }> = []
+
+		for (const m of data) {
+			const role = m?.info?.role === "user" ? "USER" : "ASSISTANT"
+			if (role === "ASSISTANT") totalMsgs++
+
+			for (const p of m.parts ?? []) {
+				if (p.type === "text" && typeof p.text === "string" && !p.synthetic && !p.ignored && p.text.trim()) {
+					textChunks.push({ role, text: p.text })
+				}
+				if (p.type === "tool") {
+					totalTools++
+					const name = p.tool || "unknown"
+					toolCounts[name] = (toolCounts[name] || 0) + 1
+					const st = p.state || {}
+					const inp = JSON.stringify(st.input ?? {})
+					const out = st.output ?? st.error ?? ""
+					toolEntries.push({
+						name,
+						input: inp.length > 200 ? inp.slice(0, 200) + "..." : inp,
+						output: typeof out === "string" && out.length > 300 ? out.slice(0, 300) + "..." : String(out).slice(0, 300),
+						status: st.status || "?",
+					})
+				}
+			}
+		}
+
+		const toolList = Object.entries(toolCounts).map(([k, v]) => `${k}(${v})`).join(", ")
+		const header = `**Status:** ${status} | **Agent:** ${agent} | **Messages:** ${totalMsgs} | **Tool calls:** ${totalTools}\n**Tools:** ${toolList || "none"}`
+
+		// ── Mode: search ──
+		if (mode === "search" && pattern) {
+			const re = new RegExp(pattern, "i")
+			const matches = textChunks.filter(c => re.test(c.text))
+			if (matches.length === 0) return `${header}\n\nNo matches for "${pattern}".`
+			const lines = matches.slice(-10).map(c => `**${c.role}:** ${c.text.slice(0, 400)}`)
+			return `${header}\n\n**Matches for "${pattern}"** (${matches.length} found, showing last 10):\n\n${lines.join("\n\n")}`
+		}
+
+		// ── Mode: full ──
+		if (mode === "full") {
+			const lines: string[] = [header, ""]
+			for (const c of textChunks) lines.push(`**${c.role}:** ${c.text}`)
+			for (const t of toolEntries) lines.push(`**TOOL [${t.name}]** (${t.status}): ${t.input} → ${t.output}`)
+			return lines.join("\n\n")
+		}
+
+		// ── Mode: tools ──
+		if (mode === "tools") {
+			const lines: string[] = [header, ""]
+			for (const t of toolEntries) {
+				lines.push(`[${t.status}] **${t.name}**: ${t.input} → ${t.output}`)
+			}
+			return lines.join("\n")
+		}
+
+		// ── Mode: summary (default) ──
+		const recent = textChunks.filter(c => c.role === "ASSISTANT").slice(-3)
+		const lines: string[] = [header, ""]
+		if (textChunks.length > 3) lines.push(`_(showing last 3 of ${textChunks.filter(c => c.role === "ASSISTANT").length} outputs)_`)
+		for (const c of recent) lines.push(c.text.slice(0, 500))
+		return lines.join("\n\n")
 	}
 
 	// ── Internal ──
@@ -645,15 +729,20 @@ const KortixOrchestratorPlugin: Plugin = async (ctx) => {
 			}),
 
 			session_read: tool({
-				description: "Read a session's output efficiently. Returns compact summary: status + recent text output. Does NOT dump entire session.",
+				description: `Read a session's state. Works on running AND completed sessions.
+Modes:
+  "summary" (default) — status + stats + last 3 text outputs. Cheap, use this first.
+  "tools"   — summary + every tool call with truncated I/O. See what the session DID.
+  "full"    — complete transcript. Expensive — only use when you need everything.
+  "search"  — filter by regex pattern. Find errors, specific output, etc.
+Also works on ANY session ID (not just spawned ones) — use session_list (built-in) to find IDs.`,
 				args: {
 					session_id: tool.schema.string().describe("Session ID"),
-					tail: tool.schema.string().describe('Number of recent text outputs to show. Default "3". Use "10" for more context.'),
-					pattern: tool.schema.string().describe('Regex to filter output. "" for no filter. E.g. "error|fail" to find problems.'),
+					mode: tool.schema.string().describe('"summary" (default), "tools", "full", or "search"'),
+					pattern: tool.schema.string().describe('Regex for search mode. E.g. "error|fail|TypeError". "" to skip.'),
 				},
-				async execute(args: { session_id: string; tail: string; pattern: string }): Promise<string> {
-					const t = args.tail ? parseInt(args.tail, 10) : 3
-					return mgr.readSession(args.session_id, isNaN(t) ? 3 : t, args.pattern || undefined)
+				async execute(args: { session_id: string; mode: string; pattern: string }): Promise<string> {
+					return mgr.readSession(args.session_id, args.mode || "summary", args.pattern || undefined)
 				},
 			}),
 
