@@ -4,6 +4,10 @@
   "autoupdate": false,
   // "model": "kortix/claude-sonnet",
   "default_agent": "kortix",
+  "agent": {
+    "build": { "disable": true },
+    "plan": { "disable": true }
+  },
   "provider": {
     "kortix": {
       "npm": "@ai-sdk/openai-compatible",

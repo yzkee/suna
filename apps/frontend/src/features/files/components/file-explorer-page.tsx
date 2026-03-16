@@ -53,6 +53,7 @@ import { DriveListView } from './drive-list-view';
 import { FileSearch } from './file-search';
 import { FilePreviewModal } from './file-preview-modal';
 import { FileHistoryPopoverContent } from './file-history-popover';
+import { DRAG_MIME } from './file-tree-item';
 
 /**
  * Google Drive-style file explorer page.
@@ -114,6 +115,11 @@ export function FileExplorerPage() {
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Drag & drop upload state
+  const [isDragOverPage, setIsDragOverPage] = useState(false);
+  const [uploadingCount, setUploadingCount] = useState(0);
+  const dragPageCounter = useRef(0);
 
   // Inline create states
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
@@ -334,21 +340,47 @@ export function FileExplorerPage() {
     fileInputRef.current?.click();
   }, []);
 
+  /** Upload a batch of files, showing per-file toasts */
+  const handleUploadFiles = useCallback(
+    async (fileList: FileList | File[]) => {
+      const files = Array.from(fileList);
+      if (files.length === 0) return;
+
+      setUploadingCount(files.length);
+      let successCount = 0;
+
+      for (const file of files) {
+        try {
+          await uploadMutation.mutateAsync({
+            file,
+            targetPath: isRootPath ? undefined : currentPath,
+          });
+          successCount++;
+        } catch (err) {
+          toast.error(
+            `Failed to upload ${file.name}: ${err instanceof Error ? err.message : 'Unknown error'}`,
+          );
+        }
+      }
+
+      setUploadingCount(0);
+
+      if (successCount > 0) {
+        toast.success(
+          successCount === 1
+            ? `Uploaded ${files[0].name}`
+            : `Uploaded ${successCount} file${successCount > 1 ? 's' : ''}`,
+        );
+      }
+    },
+    [uploadMutation, isRootPath, currentPath],
+  );
+
   const handleFileInputChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
-    const file = e.target.files[0];
-    try {
-      await uploadMutation.mutateAsync({
-        file,
-        targetPath: isRootPath ? undefined : currentPath,
-      });
-      toast.success(`Uploaded ${file.name}`);
-    } catch (err) {
-      toast.error(`Upload failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    } finally {
-      e.target.value = '';
-    }
-  }, [uploadMutation, isRootPath, currentPath]);
+    await handleUploadFiles(e.target.files);
+    e.target.value = '';
+  }, [handleUploadFiles]);
 
   // Create folder
   const handleCreateFolder = useCallback(async () => {
@@ -453,6 +485,50 @@ export function FileExplorerPage() {
   // Local history popover state
   const [historyPopoverPath, setHistoryPopoverPath] = useState<string | null>(null);
 
+  // ── Page-level drag & drop (external files only) ─────────────
+  const isExternalFileDrag = useCallback((e: React.DragEvent) => {
+    // Only activate for external file drops, not internal file-tree drags
+    return e.dataTransfer.types.includes('Files') && !e.dataTransfer.types.includes(DRAG_MIME);
+  }, []);
+
+  const handlePageDragEnter = useCallback((e: React.DragEvent) => {
+    if (!isExternalFileDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragPageCounter.current++;
+    if (dragPageCounter.current === 1) {
+      setIsDragOverPage(true);
+    }
+  }, [isExternalFileDrag]);
+
+  const handlePageDragLeave = useCallback((e: React.DragEvent) => {
+    if (!isExternalFileDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragPageCounter.current--;
+    if (dragPageCounter.current <= 0) {
+      dragPageCounter.current = 0;
+      setIsDragOverPage(false);
+    }
+  }, [isExternalFileDrag]);
+
+  const handlePageDragOver = useCallback((e: React.DragEvent) => {
+    if (!isExternalFileDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+  }, [isExternalFileDrag]);
+
+  const handlePageDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragPageCounter.current = 0;
+    setIsDragOverPage(false);
+
+    if (!e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
+    await handleUploadFiles(e.dataTransfer.files);
+  }, [handleUploadFiles]);
+
   // ── Render ────────────────────────────────────────────────────
 
   // Server not reachable
@@ -476,7 +552,13 @@ export function FileExplorerPage() {
   }
 
   return (
-    <div className="h-full flex flex-col bg-background relative">
+    <div
+      className="h-full flex flex-col bg-background relative"
+      onDragEnter={handlePageDragEnter}
+      onDragLeave={handlePageDragLeave}
+      onDragOver={handlePageDragOver}
+      onDrop={handlePageDrop}
+    >
       {/* Toolbar */}
       <DriveToolbar
         onUpload={handleUpload}
@@ -494,7 +576,7 @@ export function FileExplorerPage() {
       {isSearchOpen && <FileSearch />}
 
       {/* Hidden file input for uploads */}
-      <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileInputChange} />
+      <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileInputChange} multiple />
 
       {/* Inline create inputs (shown at top of file area) */}
       {(isCreatingFolder || isCreatingFile) && (
@@ -634,6 +716,32 @@ export function FileExplorerPage() {
           </>
         )}
       </div>
+
+      {/* Upload progress indicator */}
+      {uploadingCount > 0 && (
+        <div className="absolute top-12 left-0 right-0 z-40">
+          <div className="h-0.5 bg-primary/20 w-full overflow-hidden">
+            <div className="h-full bg-primary animate-pulse w-full" />
+          </div>
+        </div>
+      )}
+
+      {/* Drag & drop overlay */}
+      {isDragOverPage && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm border-2 border-dashed border-primary/50 rounded-xl pointer-events-none">
+          <div className="flex flex-col items-center gap-3 text-center">
+            <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+              <Upload className="h-8 w-8 text-primary" />
+            </div>
+            <div>
+              <p className="text-base font-medium text-foreground">Drop files to upload</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Files will be uploaded to the current directory
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Clipboard indicator bar */}
       {clipboard && (

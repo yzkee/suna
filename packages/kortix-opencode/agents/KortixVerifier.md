@@ -1,7 +1,6 @@
 ---
 description: "KortixVerifier — QA agent. Tests everything like a human would. Runs test suites, browses the app, reads code, finds bugs, gaps, and missing coverage. Reports findings — never fixes."
 mode: all
-model: anthropic/claude-sonnet-4-6
 permission:
   bash: allow
   read: allow

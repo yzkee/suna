@@ -1,7 +1,6 @@
 ---
 description: "KortixWorker — Autonomous executor agent. Works within project directories in autowork mode. Writes shared context, reports back when complete."
 mode: all
-model: anthropic/claude-sonnet-4-6
 permission:
   apply_patch: allow
   bash: allow
