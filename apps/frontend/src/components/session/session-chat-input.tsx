@@ -9,6 +9,7 @@ import {
   Check,
   CornerDownLeft,
   GitFork,
+  Info,
   Infinity,
   Loader2,
   Paperclip,
@@ -30,6 +31,13 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 import {
   Tooltip,
   TooltipContent,
@@ -377,47 +385,107 @@ export type AutoContinueMode = 'autowork' | 'autowork1' | 'autowork2' | 'autowor
 interface AutoContinueAlgorithm {
   id: AutoContinueMode;
   label: string;
-  /** Developer name shown in the UI */
-  devName: string;
+  role: string;
   description: string;
-  commandName: string; // slash command to fire
+  commandName: string;
+  bestFor: string;
+  strengths: string[];
+  weaknesses: string[];
+  howItWorks: string;
 }
 
 const AUTOCONTINUE_ALGORITHMS: AutoContinueAlgorithm[] = [
   {
     id: 'autowork',
     label: 'Kraemer',
-    devName: 'Kraemer',
-    description: 'Original autowork — binary DONE/VERIFIED loop',
+    role: 'Executor',
+    description: 'Fast TDD loop — reliable for clear specs',
     commandName: 'autowork',
+    bestFor: 'Clear specs, coding tasks, "just build it" work',
+    strengths: [
+      'Reliable and balanced speed/cost',
+      'Solid TDD discipline — writes tests first, implements, verifies',
+      'No overhead from extra validation passes',
+    ],
+    weaknesses: [
+      'Can miss subtle edge cases that need deeper second-pass reasoning',
+      'No adversarial self-review — trusts its own DONE claim',
+    ],
+    howItWorks: 'The original autowork algorithm. Runs an autonomous loop where the agent works until it emits DONE, then enters a verification phase where it self-reviews and emits VERIFIED. Simple binary loop — no staged validators, no critic, no phase system. The agent drives its own process.',
   },
   {
     id: 'autowork1',
     label: 'Kubet',
-    devName: 'Kubet',
-    description: 'Validator pipeline (format/quality/top-notch) + async process critic',
+    role: 'Validator',
+    description: 'Adversarial review — catches hidden issues',
     commandName: 'autowork1',
+    bestFor: 'Correctness-critical tasks — ops planning, complex logic, risk analysis',
+    strengths: [
+      'Catches hidden issues through forced adversarial self-review',
+      'Most reliable outcomes across all task types',
+      '3-level validator pipeline ensures nothing slips through',
+      'Async process critic monitors efficiency during work',
+    ],
+    weaknesses: [
+      'Slower and more expensive due to validation passes',
+      'May over-engineer simple tasks that don\'t need 3 levels of review',
+    ],
+    howItWorks: 'After the agent claims DONE, the system drives it through a 3-level validator pipeline:\n\nLevel 1 (Format) — Are all files valid? Does the build pass? Any syntax errors?\nLevel 2 (Quality) — Do tests pass? Are requirements traced? Any anti-patterns?\nLevel 3 (Top-Notch) — Adversarial edge cases, performance review, regression sweep.\n\nThe agent must pass each level before advancing. If a level fails, the agent fixes issues and retries that level.\n\nDuring the work phase, an async process critic fires periodically to check: is the agent going in circles? Skipping tests? Gold-plating? The critic injects course-correction prompts without interrupting the task itself.\n\nThe agent cannot skip validators by emitting DONE and VERIFIED together — the system forces the full pipeline.',
   },
   {
     id: 'autowork2',
     label: 'Ino',
-    devName: 'Ino',
-    description: 'Kanban board flow — per-card lifecycle with stage gates',
+    role: 'Decomposer',
+    description: 'Kanban cards — structured per-module work',
     commandName: 'autowork2',
+    bestFor: 'Multi-domain tasks — investigations, audits, research, modular systems',
+    strengths: [
+      'Strong structured breakdown into discrete work units',
+      'Each card goes through its own review/test cycle',
+      'Thorough coverage of individual domains',
+    ],
+    weaknesses: [
+      'Can underscope — if it doesn\'t create cards for all requirements, the system won\'t catch it',
+      'Integration mistakes between independently-built parts',
+      'Most expensive due to per-card overhead',
+    ],
+    howItWorks: 'Work is organized as a kanban board. The agent decomposes the task into cards, each prefixed with a stage:\n\n[BACKLOG] — Waiting to start\n[IN PROGRESS] — Currently being worked on (max 1 at a time)\n[REVIEW] — Self-review checkpoint\n[TESTING] — Run tests for this specific card\n[DONE] — Fully verified\n\nCards progress through stages in order. The system monitors todo items for these prefixes and provides stage-aware continuation prompts. If the agent claims DONE but cards aren\'t all in [DONE], the system rejects it.\n\nAfter all cards complete, a final integration check runs across the entire project.',
   },
   {
     id: 'autowork3',
     label: 'Saumya',
-    devName: 'Saumya',
-    description: 'Entropy-scheduled — diverge, branch, attack, rank, compress',
+    role: 'Architect',
+    description: 'Entropy search — diverge then compress',
     commandName: 'autowork3',
+    bestFor: 'Design, strategy, architecture — problems with ambiguity',
+    strengths: [
+      'Fastest and cheapest across all tasks',
+      'Produces clean, well-architected solutions',
+      'Genuine strategic exploration — not fake variations',
+    ],
+    weaknesses: [
+      'Implementation detail correctness can slip',
+      'Upfront exploration adds no value on spec-driven tasks',
+      'Tests may validate internal components without catching integration bugs',
+    ],
+    howItWorks: 'Uses controlled entropy scheduling — high entropy in search, low entropy in execution.\n\nThe system drives the agent through 5 phases:\n\n1. EXPAND (high entropy) — Reframe the task 5+ ways, list hidden assumptions, generate diverse solution families across multiple lenses.\n\n2. BRANCH (high entropy) — Crystallize 3-5 materially different candidate approaches. Each must differ in strategy, not wording.\n\n3. ATTACK (medium entropy) — Candidates cross-attack each other. Find failure modes, blind spots, merge strongest parts.\n\n4. RANK (low entropy) — Score by robustness/novelty/feasibility. Pick ONE path. No hedging.\n\n5. COMPRESS (minimal entropy) — Execute the ranked winner with TDD. No re-exploring.\n\nThe agent emits phase markers (<phase>X-done</phase>) and the system advances it. DONE before the compress phase is rejected as premature convergence.',
   },
   {
     id: 'orchestrate',
     label: 'Orchestrate',
-    devName: 'Orchestrate',
-    description: 'Multi-session orchestrator — spawns workers',
+    role: 'Spawner',
+    description: 'Multi-session — parallel workers',
     commandName: 'orchestrate',
+    bestFor: 'Large tasks that can be parallelized across independent sub-tasks',
+    strengths: [
+      'Parallel execution across multiple sessions',
+      'Good for large codebases with independent modules',
+    ],
+    weaknesses: [
+      'Coordination overhead between sessions',
+      'Not suitable for tightly-coupled work',
+    ],
+    howItWorks: 'Spawns multiple worker sessions that execute sub-tasks in parallel. The orchestrator decomposes the task, assigns work to workers, and aggregates results. Best for work that naturally splits into independent units.',
   },
 ];
 
@@ -452,9 +520,9 @@ function AutoContinueSelector({
   commands: Command[];
 }) {
   const [open, setOpen] = useState(false);
+  const [detailAlg, setDetailAlg] = useState<AutoContinueAlgorithm | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
-  // Only show algorithms whose commands are actually available
   const available = useMemo(
     () =>
       AUTOCONTINUE_ALGORITHMS.filter((alg) =>
@@ -463,7 +531,6 @@ function AutoContinueSelector({
     [commands],
   );
 
-  // Close on outside click
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) {
@@ -476,108 +543,164 @@ function AutoContinueSelector({
     }
   }, [open]);
 
-  // Don't render if no autocontinue commands are available
   if (available.length === 0) return null;
 
   const isActive = selected !== null;
   const currentAlg = available.find((a) => a.id === selected);
 
   return (
-    <div className="relative" ref={ref}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={() => setOpen(!open)}
-            className={cn(
-              'inline-flex items-center gap-1 h-8 px-2 rounded-xl text-xs font-medium transition-all duration-200 cursor-pointer',
-              isActive
-                ? 'text-primary bg-primary/10 hover:bg-primary/15'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted',
-            )}
-          >
-            {isActive ? (
-              <Infinity
-                className="size-4"
-                strokeWidth={2.5}
-              />
-            ) : (
-              <InfinityOff className="size-4" />
-            )}
-            {isActive && currentAlg && (
-              <span className="text-[11px] capitalize">{currentAlg.label}</span>
-            )}
-            <ChevronDown className={cn('size-3 opacity-50 transition-transform duration-200', open && 'rotate-180')} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="text-xs">
-          {isActive
-            ? `AutoContinue: ${currentAlg?.label}`
-            : 'AutoContinue off'}
-        </TooltipContent>
-      </Tooltip>
-
-      {open && (
-        <div className="absolute bottom-full left-0 mb-1.5 z-50 bg-popover border border-border rounded-xl overflow-hidden min-w-[220px] animate-in fade-in-0 slide-in-from-bottom-2 duration-150">
-          <div className="p-1">
-            <div className="px-2.5 pt-1.5 pb-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              AutoContinue
-            </div>
-
-            {/* Off option */}
+    <>
+      <div className="relative" ref={ref}>
+        <Tooltip>
+          <TooltipTrigger asChild>
             <button
-              onClick={() => {
-                onSelect(null);
-                setOpen(false);
-              }}
+              type="button"
+              onClick={() => setOpen(!open)}
               className={cn(
-                'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] transition-colors cursor-pointer',
-                !isActive ? 'bg-muted' : 'hover:bg-muted',
+                'inline-flex items-center gap-1 h-8 px-2 rounded-xl text-xs font-medium transition-all duration-200 cursor-pointer',
+                isActive
+                  ? 'text-primary bg-primary/10 hover:bg-primary/15'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted',
               )}
             >
-              <InfinityOff className="size-4 shrink-0 text-muted-foreground" />
-              <div className="flex-1 min-w-0 text-left">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-medium">Off</span>
-                  {!isActive && <Check className="size-3 text-foreground shrink-0" />}
+              {isActive ? (
+                <Infinity className="size-4" strokeWidth={2.5} />
+              ) : (
+                <InfinityOff className="size-4" />
+              )}
+              {isActive && currentAlg && (
+                <span className="text-[11px]">{currentAlg.label}</span>
+              )}
+              <ChevronDown className={cn('size-3 opacity-50 transition-transform duration-200', open && 'rotate-180')} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-xs">
+            {isActive
+              ? `AutoContinue: ${currentAlg?.label}`
+              : 'AutoContinue off'}
+          </TooltipContent>
+        </Tooltip>
+
+        {open && (
+          <div className="absolute bottom-full left-0 mb-1.5 z-50 bg-popover border border-border rounded-xl overflow-hidden min-w-[300px] animate-in fade-in-0 slide-in-from-bottom-2 duration-150">
+            <div className="p-1">
+              <div className="px-2.5 pt-1.5 pb-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                AutoContinue
+              </div>
+
+              {/* Off option */}
+              <button
+                onClick={() => { onSelect(null); setOpen(false); }}
+                className={cn(
+                  'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] transition-colors cursor-pointer',
+                  !isActive ? 'bg-muted' : 'hover:bg-muted',
+                )}
+              >
+                <InfinityOff className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="font-medium flex-1 text-left">Off</span>
+                {!isActive && <Check className="size-3 text-foreground shrink-0" />}
+              </button>
+
+              <div className="mx-2 my-1 border-t border-border" />
+
+              {/* Algorithm options — compact rows */}
+              {available.map((alg) => {
+                const isSelected = selected === alg.id;
+                return (
+                  <div
+                    key={alg.id}
+                    className={cn(
+                      'flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] transition-colors',
+                      isSelected ? 'bg-muted' : 'hover:bg-muted',
+                    )}
+                  >
+                    <button
+                      onClick={() => { onSelect(alg.id); setOpen(false); }}
+                      className="flex items-center gap-2 flex-1 min-w-0 text-left cursor-pointer"
+                    >
+                      <span className="font-medium shrink-0">{alg.label}</span>
+                      <span className="text-[10px] text-muted-foreground/70 shrink-0">{alg.role}</span>
+                      <span className="text-[11px] text-muted-foreground truncate">{alg.description}</span>
+                      {isSelected && <Check className="size-3 text-foreground shrink-0 ml-auto" />}
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDetailAlg(alg); setOpen(false); }}
+                      className="shrink-0 p-0.5 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted-foreground/10 transition-colors cursor-pointer"
+                    >
+                      <Info className="size-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Algorithm detail dialog */}
+      <Dialog open={detailAlg !== null} onOpenChange={(v) => { if (!v) setDetailAlg(null); }}>
+        <DialogContent className="max-w-lg" aria-describedby="alg-detail-desc">
+          {detailAlg && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center gap-3">
+                  <Infinity className="size-5 text-primary" strokeWidth={2.5} />
+                  <DialogTitle className="text-lg">{detailAlg.label}</DialogTitle>
+                  <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full font-medium">
+                    {detailAlg.role}
+                  </span>
+                </div>
+                <DialogDescription id="alg-detail-desc">
+                  {detailAlg.description}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4 mt-2">
+                {/* Best for */}
+                <div>
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Best for</h4>
+                  <p className="text-sm">{detailAlg.bestFor}</p>
+                </div>
+
+                {/* Strengths & weaknesses side by side */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Strengths</h4>
+                    <ul className="space-y-1">
+                      {detailAlg.strengths.map((s, i) => (
+                        <li key={i} className="text-sm text-muted-foreground flex gap-1.5">
+                          <span className="text-green-500 shrink-0 mt-0.5">+</span>
+                          <span>{s}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Weaknesses</h4>
+                    <ul className="space-y-1">
+                      {detailAlg.weaknesses.map((w, i) => (
+                        <li key={i} className="text-sm text-muted-foreground flex gap-1.5">
+                          <span className="text-orange-500 shrink-0 mt-0.5">-</span>
+                          <span>{w}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+
+                {/* How it works */}
+                <div>
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">How it works</h4>
+                  <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line bg-muted/50 rounded-lg p-3">
+                    {detailAlg.howItWorks}
+                  </div>
                 </div>
               </div>
-            </button>
-
-            <div className="mx-2 my-1 border-t border-border" />
-
-            {/* Algorithm options */}
-            {available.map((alg) => {
-              const isSelected = selected === alg.id;
-              return (
-                <button
-                  key={alg.id}
-                  onClick={() => {
-                    onSelect(alg.id);
-                    setOpen(false);
-                  }}
-                  className={cn(
-                    'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] transition-colors cursor-pointer',
-                    isSelected ? 'bg-muted' : 'hover:bg-muted',
-                  )}
-                >
-                  <Infinity className="size-4 shrink-0" />
-                  <div className="flex-1 min-w-0 text-left">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-medium capitalize">{alg.label}</span>
-                      {isSelected && <Check className="size-3 text-foreground shrink-0" />}
-                    </div>
-                    <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">
-                      {alg.description}
-                    </p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
