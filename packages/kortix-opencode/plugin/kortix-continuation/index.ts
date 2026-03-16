@@ -283,6 +283,8 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 	/** Pending command activations — set by command.execute.before, consumed by chat.message */
 	const pendingCommand = new Map<string, { command: string; args: string }>()
 
+
+
 	return {
 		// ── HOOK: command.execute.before ──────────────────────────────────────
 		// Fires BEFORE the command template is expanded into a message.
@@ -497,6 +499,26 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 							loopStates.set(sessionId, loopState)
 							log("info", `[autowork][${sid(sessionId)}] Failure count reset after recovery window`)
 						} else if (gateResult) {
+							// Before blocking, do a quick check: if the loop should STOP
+							// (both promises present, or algorithm-specific completion),
+							// stop it immediately. Don't let cooldown prevent loop
+							// termination — that causes the loop to get stuck forever
+							// when the agent responds faster than the cooldown window.
+							try {
+								const [quickMsgs] = await Promise.all([
+									client.session.messages({ path: { id: sessionId } }).catch(() => ({ data: [] as any[] })),
+								])
+								const quickTexts = extractAssistantTexts((quickMsgs.data ?? []) as any[], loopState.messageCountAtStart)
+								const quickDecision = evaluateLoop(loopState, quickTexts)
+								if (quickDecision.action === "stop") {
+									const algTag = loopState.algorithm !== "kraemer" ? `:${loopState.algorithm}` : ""
+									log("info", `[autowork${algTag}][${sid(sessionId)}] Stop detected during gate cooldown — ${quickDecision.reason}`)
+									loopState = stopLoop(loopState)
+									loopStates.set(sessionId, loopState)
+									return
+								}
+							} catch { /* non-fatal — fall through to normal gate block */ }
+
 							log("info", `[autowork][${sid(sessionId)}] Gate: ${gateResult}`)
 							return
 						}
