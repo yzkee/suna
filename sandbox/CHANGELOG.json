@@ -1,4 +1,32 @@
-[
+[ 
+  {
+    "version": "0.8.7",
+    "date": "2026-03-16",
+    "title": "AutoContinue algorithms, sandbox runtime fixes, and UI upgrades",
+    "description": "Adds multi-algorithm AutoContinue with Kubet, Ino, and Saumya strategies, hardens the continuation engine against validator bypass and cooldown stalls, and ships frontend/runtime improvements already merged to main.",
+    "changes": [
+      {
+        "type": "feature",
+        "text": "AutoContinue now supports multiple autonomous algorithms: Kraemer (executor), Kubet (validator), Ino (decomposer), and Saumya (architect), selectable directly from chat"
+      },
+      {
+        "type": "fix",
+        "text": "Kubet no longer lets agents skip validation by emitting DONE and VERIFIED together; the full validator pipeline is enforced before completion"
+      },
+      {
+        "type": "fix",
+        "text": "Continuation loops no longer get stuck when an agent responds faster than the gate cooldown; stop decisions are detected during cooldown blocks"
+      },
+      {
+        "type": "fix",
+        "text": "Saumya phase progression is more reliable with structured phase transitions and correct handling of multiple completed phases in one response"
+      },
+      {
+        "type": "feature",
+        "text": "Chat input AutoContinue selector is more informative with compact algorithm rows and a full algorithm info dialog covering strengths, weaknesses, and how each mode works"
+      }
+    ]
+  },
   {
     "version": "0.8.6",
     "date": "2026-03-15",
