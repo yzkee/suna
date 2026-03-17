@@ -5,12 +5,22 @@
  */
 
 import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
-import { View, TouchableOpacity, Animated } from 'react-native';
+import { View, TouchableOpacity, Animated, StyleSheet } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { SelectableMarkdownText } from '@/components/ui/selectable-markdown';
+import ReAnimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withTiming,
+  Easing,
+  interpolate,
+} from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
+import MaskedView from '@react-native-masked-view/masked-view';
 import type {
   Turn,
   MessageWithParts,
@@ -34,6 +44,63 @@ import {
   shouldShowToolPart,
   formatDuration,
 } from '@/lib/opencode/turns';
+
+// ─── Shimmer text for status indicators ──────────────────────────────────────
+
+function ShimmerStatusText({ text, size = 'sm' }: { text: string; size?: 'sm' | 'xs' }) {
+  const shimmerPosition = useSharedValue(0);
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === 'dark';
+
+  useEffect(() => {
+    shimmerPosition.value = withRepeat(
+      withTiming(1, { duration: 2000, easing: Easing.linear }),
+      -1,
+      false,
+    );
+  }, []);
+
+  const animatedGradientStyle = useAnimatedStyle(() => {
+    const translateX = interpolate(shimmerPosition.value, [0, 1], [-200, 200]);
+    return { transform: [{ translateX }] };
+  });
+
+  const textColor = isDark ? '#a1a1aa' : '#71717a';
+  const shimmerColor = isDark ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.35)';
+  const fontSize = size === 'xs' ? 12 : 14;
+  const lineHeight = size === 'xs' ? 16 : 20;
+
+  return (
+    <View style={{ justifyContent: 'center' }}>
+      <MaskedView
+        maskElement={
+          <Text
+            style={{
+              fontSize,
+              lineHeight,
+              fontFamily: 'Roobert',
+              color: '#000',
+            }}
+          >
+            {text}
+          </Text>
+        }
+      >
+        <View style={{ width: Math.max(text.length * (fontSize * 0.6), 80), height: lineHeight }}>
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: textColor }]} />
+          <ReAnimated.View style={[StyleSheet.absoluteFill, { width: 200 }, animatedGradientStyle]}>
+            <LinearGradient
+              colors={[textColor, shimmerColor, textColor]}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={{ flex: 1, width: 200 }}
+            />
+          </ReAnimated.View>
+        </View>
+      </MaskedView>
+    </View>
+  );
+}
 
 // ─── Mention highlighting ────────────────────────────────────────────────────
 
@@ -371,9 +438,7 @@ export function SessionTurn({
           {working && !response && (
             <View className="flex-row items-center py-2">
               <View className="h-2 w-2 rounded-full bg-foreground mr-2 animate-pulse" />
-              <Text className="text-sm text-muted-foreground">
-                {statusText || 'Thinking...'}
-              </Text>
+              <ShimmerStatusText text={statusText || 'Thinking...'} size="sm" />
             </View>
           )}
 
@@ -381,9 +446,7 @@ export function SessionTurn({
           {working && !!response && (
             <View className="flex-row items-center mt-1">
               <View className="h-1.5 w-1.5 rounded-full bg-foreground mr-1.5" />
-              <Text className="text-xs text-muted-foreground">
-                {statusText || 'Working...'}
-              </Text>
+              <ShimmerStatusText text={statusText || 'Working...'} size="xs" />
             </View>
           )}
 

@@ -51,7 +51,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 
 import { useSandboxContext } from '@/contexts/SandboxContext';
-import { FileItem } from '@/components/files/FileItem';
+import { FileItem, getFileIconAndColor } from '@/components/files/FileItem';
 import { FileBreadcrumb } from '@/components/files/FileBreadcrumb';
 import { FileViewer } from '@/components/files/FileViewer';
 import {
@@ -155,6 +155,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
   const [newFolderName, setNewFolderName] = useState('');
   const renameSheetRef = useRef<BottomSheetModal>(null);
   const [renameName, setRenameName] = useState('');
+  const [renameFile, setRenameFile] = useState<SandboxFile | null>(null);
 
   // Notify parent when selection changes, auto-open menu on select
   useEffect(() => {
@@ -230,11 +231,11 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
 
   // Check if rename target already exists (case-insensitive, excluding current name)
   const renameNameExists = useMemo(() => {
-    if (!renameName.trim() || !selectedFile) return false;
+    if (!renameName.trim() || !renameFile) return false;
     const trimmed = renameName.trim().toLowerCase();
-    if (trimmed === selectedFile.name.toLowerCase()) return false;
+    if (trimmed === renameFile.name.toLowerCase()) return false;
     return siblingNames.includes(trimmed);
-  }, [renameName, selectedFile, siblingNames]);
+  }, [renameName, renameFile, siblingNames]);
 
   // Handlers
   const handleFilePress = useCallback((file: SandboxFile) => {
@@ -276,30 +277,31 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
 
   const handleRenameFile = useCallback(() => {
     if (!selectedFile) return;
+    setRenameFile(selectedFile);
     setRenameName(selectedFile.name);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     renameSheetRef.current?.present();
   }, [selectedFile]);
 
   const handleConfirmRename = useCallback(async () => {
-    if (!renameName.trim() || !selectedFile || !sandboxUrl || renameNameExists) return;
+    if (!renameName.trim() || !renameFile || !sandboxUrl || renameNameExists) return;
     Keyboard.dismiss();
     try {
-      const parentDir = selectedFile.path.substring(0, selectedFile.path.lastIndexOf('/'));
+      const parentDir = renameFile.path.substring(0, renameFile.path.lastIndexOf('/'));
       const newPath = `${parentDir}/${renameName.trim()}`;
       await renameMutation.mutateAsync({
         sandboxUrl,
-        from: selectedFile.path,
+        from: renameFile.path,
         to: newPath,
       });
       renameSheetRef.current?.dismiss();
-      setSelectedFile(null);
+      setRenameFile(null);
       setRenameName('');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
       Alert.alert('Error', 'Failed to rename');
     }
-  }, [selectedFile, renameName, sandboxUrl, renameMutation, renameNameExists]);
+  }, [renameFile, renameName, sandboxUrl, renameMutation, renameNameExists]);
 
   const handleDeleteFile = useCallback(() => {
     if (!selectedFile || !sandboxUrl) return;
@@ -1092,7 +1094,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
         keyboardBehavior="interactive"
         keyboardBlurBehavior="restore"
         android_keyboardInputMode="adjustResize"
-        onDismiss={() => setRenameName('')}
+        onDismiss={() => { setRenameName(''); setRenameFile(null); }}
         backgroundStyle={{
           backgroundColor: isDark ? '#161618' : '#FFFFFF',
           borderTopLeftRadius: 24,
@@ -1114,21 +1116,28 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
         >
           {/* Header */}
           <View className="flex-row items-center mb-5">
-            <View
-              className="w-10 h-10 rounded-xl items-center justify-center mr-3"
-              style={{
-                backgroundColor: isDark
-                  ? 'rgba(248, 248, 248, 0.08)'
-                  : 'rgba(18, 18, 21, 0.05)',
-              }}
-            >
-              <Icon
-                as={selectedFile?.type === 'directory' ? Folder : Folder}
-                size={20}
-                color={fgColor}
-                strokeWidth={1.8}
-              />
-            </View>
+            {(() => {
+              const { icon: RenameIcon, color: renameIconColor } = renameFile
+                ? getFileIconAndColor(renameFile, isDark)
+                : { icon: Folder, color: fgColor };
+              return (
+                <View
+                  className="w-10 h-10 rounded-xl items-center justify-center mr-3"
+                  style={{
+                    backgroundColor: isDark
+                      ? 'rgba(248, 248, 248, 0.08)'
+                      : 'rgba(18, 18, 21, 0.05)',
+                  }}
+                >
+                  <Icon
+                    as={RenameIcon}
+                    size={20}
+                    color={renameIconColor}
+                    strokeWidth={1.8}
+                  />
+                </View>
+              );
+            })()}
             <View className="flex-1">
               <Text
                 className="text-lg font-roobert-semibold"
@@ -1145,7 +1154,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
                 }}
                 numberOfLines={1}
               >
-                {selectedFile?.name}
+                {renameFile?.name}
               </Text>
             </View>
           </View>
@@ -1195,7 +1204,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
           {(() => {
             const canRename =
               !!renameName.trim() &&
-              renameName.trim() !== selectedFile?.name &&
+              renameName.trim() !== renameFile?.name &&
               !renameNameExists;
             return (
               <BottomSheetTouchable
@@ -1252,67 +1261,6 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
 
 // ── Grid card for files ────────────────────────────────────────────────────
 
-import {
-  File,
-  FileText,
-  FileImage,
-  FileCode,
-  FileSpreadsheet,
-} from 'lucide-react-native';
-import { FilePreviewType, getFilePreviewType } from '@/components/files/FilePreviewRenderers';
-
-function getFileIconComponent(file: SandboxFile): typeof File {
-  if (file.type === 'directory') return Folder;
-  const previewType = getFilePreviewType(file.name);
-  switch (previewType) {
-    case FilePreviewType.IMAGE:
-      return FileImage;
-    case FilePreviewType.PDF:
-    case FilePreviewType.MARKDOWN:
-    case FilePreviewType.TEXT:
-      return FileText;
-    case FilePreviewType.CSV:
-    case FilePreviewType.XLSX:
-      return FileSpreadsheet;
-    case FilePreviewType.JSON:
-    case FilePreviewType.CODE:
-    case FilePreviewType.HTML:
-      return FileCode;
-    default:
-      return File;
-  }
-}
-
-function getFileIconColor(file: SandboxFile, isDark: boolean): string {
-  const previewType = getFilePreviewType(file.name);
-  switch (previewType) {
-    case FilePreviewType.IMAGE:
-      return '#10b981';
-    case FilePreviewType.PDF:
-      return '#ef4444';
-    case FilePreviewType.MARKDOWN:
-    case FilePreviewType.TEXT:
-      return '#8b5cf6';
-    case FilePreviewType.CSV:
-    case FilePreviewType.XLSX:
-      return '#22c55e';
-    case FilePreviewType.JSON:
-    case FilePreviewType.CODE:
-    case FilePreviewType.HTML:
-      return '#f59e0b';
-    default:
-      return isDark ? '#a1a1aa' : '#71717a';
-  }
-}
-
-function formatFileSize(bytes?: number): string {
-  if (!bytes || bytes === 0) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
-
 function FileGridCard({
   file,
   isDark,
@@ -1326,9 +1274,7 @@ function FileGridCard({
   onPress: () => void;
   onLongPress: () => void;
 }) {
-  const IconComponent = getFileIconComponent(file);
-  const iconColor = getFileIconColor(file, isDark);
-  const fileSize = formatFileSize(file.size);
+  const { icon: IconComponent, color: iconColor } = getFileIconAndColor(file, isDark);
 
   return (
     <Pressable
@@ -1371,18 +1317,6 @@ function FileGridCard({
         >
           {file.name}
         </Text>
-        {fileSize ? (
-          <Text
-            className="text-xs font-roobert mt-0.5"
-            style={{
-              color: isDark
-                ? 'rgba(248, 248, 248, 0.4)'
-                : 'rgba(18, 18, 21, 0.4)',
-            }}
-          >
-            {fileSize}
-          </Text>
-        ) : null}
       </View>
     </Pressable>
   );

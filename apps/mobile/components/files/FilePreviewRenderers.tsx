@@ -11,6 +11,7 @@ import { Icon } from '@/components/ui/icon';
 import { KortixLoader } from '@/components/ui';
 import { AlertCircle, FileText } from 'lucide-react-native';
 import { useColorScheme } from 'nativewind';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SelectableMarkdownText } from '@/components/ui/selectable-markdown';
 import { autoLinkUrls } from '@agentpress/shared';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -73,14 +74,23 @@ export function getFilePreviewType(filename: string): FilePreviewType {
   const htmlExtensions = ['html', 'htm'];
   const jsonExtensions = ['json', 'jsonc', 'json5'];
   const codeExtensions = [
-    'js', 'jsx', 'ts', 'tsx', 'py', 'java', 'c', 'cpp', 'h', 'hpp',
-    'cs', 'rb', 'go', 'rs', 'php', 'swift', 'kt', 'scala', 'r',
+    'js', 'jsx', 'ts', 'tsx', 'py', 'pyi', 'pyx', 'pyw',
+    'java', 'c', 'cpp', 'cc', 'cxx', 'h', 'hpp', 'hxx', 'm', 'mm',
+    'cs', 'rb', 'erb', 'go', 'rs', 'php', 'swift', 'kt', 'kts', 'scala',
+    'r', 'rmd', 'hs', 'lhs', 'lua', 'perl', 'pl', 'pm',
     'sql', 'sh', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'cmd',
     'css', 'scss', 'sass', 'less', 'styl',
-    'yaml', 'yml', 'toml', 'ini', 'conf', 'config',
-    'dart', 'lua', 'perl', 'vim', 'dockerfile', 'makefile',
+    'yaml', 'yml', 'toml', 'ini', 'conf', 'config', 'cfg', 'properties',
+    'xml', 'xsl', 'xslt', 'wsdl',
+    'dart', 'vim', 'dockerfile', 'makefile',
+    'vue', 'svelte',
+    'proto', 'graphql', 'gql',
+    'gradle', 'groovy', 'clj', 'cljs', 'ex', 'exs',
+    'f90', 'f95', 'f03', 'for',
+    'zig', 'nim', 'v', 'cr', 'jl',
+    'env', 'gitignore', 'editorconfig',
   ];
-  const textExtensions = ['txt', 'log', 'md', 'rtf', 'tex'];
+  const textExtensions = ['txt', 'log', 'rtf', 'tex', 'rst', 'org', 'nfo', 'info'];
   const binaryExtensions = ['zip', 'tar', 'gz', 'rar', '7z', 'exe', 'dmg', 'pkg', 'deb', 'rpm'];
 
   if (imageExtensions.includes(ext)) return FilePreviewType.IMAGE;
@@ -103,49 +113,47 @@ export function getLanguageFromFilename(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
 
   const languageMap: Record<string, string> = {
-    'js': 'javascript',
-    'jsx': 'javascript',
-    'ts': 'typescript',
-    'tsx': 'typescript',
-    'py': 'python',
-    'rb': 'ruby',
+    'js': 'javascript', 'jsx': 'javascript', 'mjs': 'javascript', 'cjs': 'javascript',
+    'ts': 'typescript', 'tsx': 'typescript',
+    'py': 'python', 'pyi': 'python', 'pyx': 'python', 'pyw': 'python',
+    'rb': 'ruby', 'erb': 'ruby', 'gemspec': 'ruby',
     'java': 'java',
-    'c': 'c',
-    'cpp': 'cpp',
-    'h': 'c',
-    'hpp': 'cpp',
+    'c': 'c', 'h': 'c', 'm': 'objectivec',
+    'cpp': 'cpp', 'cc': 'cpp', 'cxx': 'cpp', 'hpp': 'cpp', 'hxx': 'cpp', 'mm': 'objectivec',
     'cs': 'csharp',
     'go': 'go',
     'rs': 'rust',
     'php': 'php',
     'swift': 'swift',
-    'kt': 'kotlin',
+    'kt': 'kotlin', 'kts': 'kotlin',
     'scala': 'scala',
-    'r': 'r',
-    'sql': 'sql',
-    'sh': 'bash',
-    'bash': 'bash',
-    'zsh': 'bash',
-    'fish': 'bash',
-    'ps1': 'powershell',
-    'bat': 'batch',
-    'cmd': 'batch',
-    'css': 'css',
-    'scss': 'scss',
-    'sass': 'sass',
-    'less': 'less',
-    'html': 'html',
-    'xml': 'xml',
-    'yaml': 'yaml',
-    'yml': 'yaml',
-    'json': 'json',
-    'md': 'markdown',
-    'dart': 'dart',
+    'r': 'r', 'rmd': 'r',
+    'hs': 'haskell', 'lhs': 'haskell',
     'lua': 'lua',
-    'perl': 'perl',
+    'perl': 'perl', 'pl': 'perl', 'pm': 'perl',
+    'sql': 'sql',
+    'sh': 'bash', 'bash': 'bash', 'zsh': 'bash', 'fish': 'bash',
+    'ps1': 'powershell', 'bat': 'dos', 'cmd': 'dos',
+    'css': 'css', 'scss': 'scss', 'sass': 'scss', 'less': 'less',
+    'html': 'html', 'htm': 'html',
+    'xml': 'xml', 'xsl': 'xml', 'xslt': 'xml', 'wsdl': 'xml',
+    'yaml': 'yaml', 'yml': 'yaml',
+    'toml': 'ini', 'ini': 'ini', 'conf': 'ini', 'cfg': 'ini', 'properties': 'properties',
+    'json': 'json', 'jsonc': 'json', 'json5': 'json',
+    'md': 'markdown', 'mdx': 'markdown',
+    'dart': 'dart',
+    'vim': 'vim',
+    'vue': 'xml', 'svelte': 'xml',
+    'proto': 'protobuf', 'graphql': 'graphql', 'gql': 'graphql',
+    'gradle': 'gradle', 'groovy': 'groovy',
+    'clj': 'clojure', 'cljs': 'clojure',
+    'ex': 'elixir', 'exs': 'elixir',
+    'jl': 'julia',
+    'zig': 'zig', 'nim': 'nim',
+    'dockerfile': 'dockerfile', 'makefile': 'makefile',
   };
 
-  return languageMap[ext] || 'text';
+  return languageMap[ext] || 'plaintext';
 }
 
 interface FilePreviewProps {
@@ -260,6 +268,7 @@ function MarkdownPreview({ content }: { content: string }) {
 function JsonPreview({ content }: { content: string }) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
+  const insets = useSafeAreaInsets();
 
   // Format JSON for better readability
   const formattedJson = useMemo(() => {
@@ -271,107 +280,233 @@ function JsonPreview({ content }: { content: string }) {
     }
   }, [content]);
 
-  const lines = useMemo(() => formattedJson.split('\n'), [formattedJson]);
-  const textColor = isDark ? '#eeffff' : '#24292e';
-  const bgColor = isDark ? '#1e1e1e' : '#ffffff';
+  const html = useMemo(
+    () => generateHighlightedCodeHtml(formattedJson, 'json', isDark),
+    [formattedJson, isDark],
+  );
 
   return (
-    <ScrollView
-      className="flex-1"
-      showsVerticalScrollIndicator={true}
-      style={{ backgroundColor: isDark ? '#121215' : '#ffffff' }}
-    >
-      <View className="px-4 py-3 border-b" style={{
-        borderBottomColor: isDark ? 'rgba(248, 248, 248, 0.1)' : 'rgba(18, 18, 21, 0.1)',
-      }}>
+    <View className="flex-1" style={{ backgroundColor: isDark ? '#1e1e1e' : '#ffffff' }}>
+      <WebView
+        source={{ html }}
+        style={{ flex: 1, backgroundColor: 'transparent' }}
+        originWhitelist={['*']}
+        javaScriptEnabled
+        scrollEnabled
+        showsVerticalScrollIndicator
+        scalesPageToFit={false}
+        bounces={false}
+        startInLoadingState
+        renderLoading={() => (
+          <View
+            className="absolute inset-0 items-center justify-center"
+            style={{ backgroundColor: isDark ? '#1e1e1e' : '#ffffff' }}
+          >
+            <KortixLoader size="large" />
+          </View>
+        )}
+      />
+      {/* Language badge at bottom */}
+      <View
+        className="px-4 pt-3 border-t"
+        style={{
+          borderTopColor: isDark
+            ? 'rgba(248, 248, 248, 0.08)'
+            : 'rgba(18, 18, 21, 0.06)',
+          backgroundColor: isDark ? '#121215' : '#ffffff',
+          paddingBottom: Math.max(insets.bottom, 12),
+        }}
+      >
         <Text
           className="text-xs font-roobert-medium"
           style={{
-            color: isDark ? 'rgba(248, 248, 248, 0.6)' : 'rgba(18, 18, 21, 0.6)',
+            color: isDark
+              ? 'rgba(248, 248, 248, 0.4)'
+              : 'rgba(18, 18, 21, 0.4)',
           }}
         >
           JSON
         </Text>
       </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={{ backgroundColor: bgColor }}
-      >
-        <View style={{ padding: 12 }}>
-          {lines.map((line, idx) => (
-            <Text
-              key={idx}
-              style={{
-                fontSize: 13,
-                fontFamily: 'monospace',
-                color: textColor,
-                lineHeight: 20,
-              }}
-              selectable
-            >
-              {line || ' '}
-            </Text>
-          ))}
-        </View>
-      </ScrollView>
-    </ScrollView>
+    </View>
   );
 }
 
 /**
- * Code Preview Component with syntax highlighting
+ * Generates HTML with highlight.js for syntax-highlighted code rendering.
+ */
+function generateHighlightedCodeHtml(
+  code: string,
+  language: string,
+  isDark: boolean,
+): string {
+  const bgColor = isDark ? '#1e1e1e' : '#ffffff';
+  const theme = isDark ? 'github-dark' : 'github';
+  const lineNumColor = isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)';
+  const lineNumBorder = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  // Escape HTML entities in code
+  const escaped = code
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/${theme}.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    background: ${bgColor};
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 20px;
+    -webkit-text-size-adjust: none;
+  }
+  .code-wrapper {
+    position: relative;
+    display: flex;
+    flex-direction: row;
+    min-height: 100%;
+  }
+  .gutter {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: ${bgColor};
+    flex-shrink: 0;
+    padding: 12px 0;
+    border-right: 1px solid ${lineNumBorder};
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .gutter-line {
+    display: block;
+    padding: 0 14px 0 16px;
+    text-align: right;
+    color: ${lineNumColor};
+    font-size: 12px;
+    line-height: 20px;
+    min-width: 54px;
+  }
+  .code-area {
+    flex: 1;
+    padding: 12px 16px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .code-line {
+    display: block;
+    line-height: 20px;
+    min-height: 20px;
+    white-space: pre;
+  }
+</style>
+</head>
+<body>
+<div class="code-wrapper">
+  <div class="gutter" id="gutter"></div>
+  <div class="code-area" id="code-area"></div>
+</div>
+<script>
+  var codeStr = ${JSON.stringify(code)};
+  var lang = ${JSON.stringify(language)};
+  var highlighted;
+  try {
+    var result = hljs.highlight(codeStr, { language: lang, ignoreIllegals: true });
+    highlighted = result.value;
+  } catch(e) {
+    highlighted = codeStr
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  var lines = highlighted.split('\\n');
+  if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
+
+  var gutter = document.getElementById('gutter');
+  var codeArea = document.getElementById('code-area');
+
+  for (var i = 0; i < lines.length; i++) {
+    var num = document.createElement('span');
+    num.className = 'gutter-line';
+    num.textContent = String(i + 1);
+    gutter.appendChild(num);
+
+    var line = document.createElement('span');
+    line.className = 'code-line';
+    line.innerHTML = lines[i] || ' ';
+    codeArea.appendChild(line);
+  }
+</script>
+</body>
+</html>`;
+}
+
+/**
+ * Code Preview Component with syntax highlighting via highlight.js WebView.
  */
 function CodePreview({ content, fileName }: { content: string; fileName: string }) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
+  const insets = useSafeAreaInsets();
   const language = getLanguageFromFilename(fileName);
 
-  const lines = useMemo(() => content.split('\n'), [content]);
-  const textColor = isDark ? '#eeffff' : '#24292e';
-  const bgColor = isDark ? '#1e1e1e' : '#ffffff';
+  const html = useMemo(
+    () => generateHighlightedCodeHtml(content, language, isDark),
+    [content, language, isDark],
+  );
 
   return (
-    <ScrollView
-      className="flex-1"
-      showsVerticalScrollIndicator={true}
-      style={{ backgroundColor: isDark ? '#121215' : '#ffffff' }}
-    >
-      <View className="px-4 py-3 border-b" style={{
-        borderBottomColor: isDark ? 'rgba(248, 248, 248, 0.1)' : 'rgba(18, 18, 21, 0.1)',
-      }}>
+    <View className="flex-1" style={{ backgroundColor: isDark ? '#1e1e1e' : '#ffffff' }}>
+      {/* Highlighted code */}
+      <WebView
+        source={{ html }}
+        style={{ flex: 1, backgroundColor: 'transparent' }}
+        originWhitelist={['*']}
+        javaScriptEnabled
+        scrollEnabled
+        showsVerticalScrollIndicator
+        scalesPageToFit={false}
+        bounces={false}
+        startInLoadingState
+        renderLoading={() => (
+          <View
+            className="absolute inset-0 items-center justify-center"
+            style={{ backgroundColor: isDark ? '#1e1e1e' : '#ffffff' }}
+          >
+            <KortixLoader size="large" />
+          </View>
+        )}
+      />
+      {/* Language badge at bottom */}
+      <View
+        className="px-4 pt-3 border-t"
+        style={{
+          borderTopColor: isDark
+            ? 'rgba(248, 248, 248, 0.08)'
+            : 'rgba(18, 18, 21, 0.06)',
+          backgroundColor: isDark ? '#121215' : '#ffffff',
+          paddingBottom: Math.max(insets.bottom, 12),
+        }}
+      >
         <Text
           className="text-xs font-roobert-medium"
           style={{
-            color: isDark ? 'rgba(248, 248, 248, 0.6)' : 'rgba(18, 18, 21, 0.6)',
+            color: isDark
+              ? 'rgba(248, 248, 248, 0.4)'
+              : 'rgba(18, 18, 21, 0.4)',
           }}
         >
           {language.toUpperCase()}
         </Text>
       </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={{ backgroundColor: bgColor }}
-      >
-        <View style={{ padding: 12 }}>
-          {lines.map((line, idx) => (
-            <Text
-              key={idx}
-              style={{
-                fontSize: 13,
-                fontFamily: 'monospace',
-                color: textColor,
-                lineHeight: 20,
-              }}
-              selectable
-            >
-              {line || ' '}
-            </Text>
-          ))}
-        </View>
-      </ScrollView>
-    </ScrollView>
+    </View>
   );
 }
 /**
@@ -1221,8 +1356,12 @@ export function FilePreview({
 
     case FilePreviewType.XLSX:
     case FilePreviewType.BINARY:
-    default:
       return <FallbackPreview fileName={fileName} previewType={previewType} />;
+
+    case FilePreviewType.OTHER:
+    default:
+      // Any unrecognized file with text content — render as plain text
+      return <TextPreview content={content} />;
   }
 }
 
