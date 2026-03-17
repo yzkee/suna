@@ -95,8 +95,13 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export interface FilesPageRef {
   showHidden: boolean;
+  viewMode: 'list' | 'grid';
   toggleHidden: () => void;
+  toggleViewMode: () => void;
   refetch: () => void;
+  uploadDocument: () => void;
+  uploadImage: () => void;
+  createFolder: () => void;
 }
 
 interface FilesPageProps {
@@ -143,13 +148,6 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
     refetch,
     isRefetching,
   } = useOpenCodeFiles(sandboxUrl, currentPath);
-
-  // Expose actions to parent via ref (for BottomBar menu)
-  useImperativeHandle(ref, () => ({
-    showHidden,
-    toggleHidden: () => setShowHidden((v) => !v),
-    refetch: () => refetch(),
-  }), [showHidden, refetch]);
 
   // Mutations via OpenCode API
   const uploadMutation = useOpenCodeUploadFile();
@@ -297,6 +295,18 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
       Alert.alert('Error', 'Failed to create folder');
     }
   }, [sandboxUrl, createFolderMutation, currentPath, newFolderName]);
+
+  // Expose actions to parent via ref (for BottomBar menu)
+  useImperativeHandle(ref, () => ({
+    showHidden,
+    viewMode,
+    toggleHidden: () => setShowHidden((v) => !v),
+    toggleViewMode: () => setViewMode((v) => (v === 'list' ? 'grid' : 'list')),
+    refetch: () => refetch(),
+    uploadDocument: () => handleUploadDocument(),
+    uploadImage: () => handleUploadImage(),
+    createFolder: () => openCreateFolder(),
+  }), [showHidden, viewMode, refetch, handleUploadDocument, handleUploadImage, openCreateFolder]);
 
   const isAtRoot = currentPath === '/workspace';
 

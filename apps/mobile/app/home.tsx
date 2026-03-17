@@ -46,7 +46,7 @@ import { RightDrawerContent } from '@/components/session/RightDrawerContent';
 import { PlaceholderPage } from '@/components/session/PlaceholderPage';
 import { FilesPage } from '@/components/pages/FilesPage';
 import type { FilesPageRef } from '@/components/pages/FilesPage';
-import { Eye, EyeOff, RefreshCw } from 'lucide-react-native';
+import { Eye, EyeOff, RefreshCw, Upload, Image, FolderPlus, LayoutGrid, List } from 'lucide-react-native';
 import type { BottomBarMenuItem } from '@/components/session/BottomBar';
 import { log } from '@/lib/logger';
 
@@ -216,6 +216,7 @@ export default function HomeScreen() {
   // Files page ref (for BottomBar menu integration)
   const filesPageRef = useRef<FilesPageRef>(null);
   const [filesShowHidden, setFilesShowHidden] = useState(false);
+  const [filesViewMode, setFilesViewMode] = useState<'list' | 'grid'>('list');
 
   // Persisted tab state (survives app restarts)
   const activeSessionId = useTabStore((s) => s.activeSessionId);
@@ -740,23 +741,44 @@ export default function HomeScreen() {
                 onArchiveSession={() => { if (activeSessionId) handleArchive(activeSessionId); }}
                 customMenuItems={
                   activePageId === 'page:files'
-                    ? [
+                    ? ([
+                        {
+                          icon: filesViewMode === 'list' ? LayoutGrid : List,
+                          label: filesViewMode === 'list' ? 'Grid view' : 'List view',
+                          onPress: () => {
+                            filesPageRef.current?.toggleViewMode();
+                            setFilesViewMode((v) => (v === 'list' ? 'grid' : 'list'));
+                          },
+                        },
                         {
                           icon: filesShowHidden ? Eye : EyeOff,
-                          label: filesShowHidden
-                            ? 'Hide dotfiles'
-                            : 'Show dotfiles',
+                          label: filesShowHidden ? 'Hide dotfiles' : 'Show dotfiles',
                           onPress: () => {
                             filesPageRef.current?.toggleHidden();
                             setFilesShowHidden((v) => !v);
                           },
                         },
                         {
+                          icon: Upload,
+                          label: 'Upload file',
+                          onPress: () => filesPageRef.current?.uploadDocument(),
+                        },
+                        {
+                          icon: Image,
+                          label: 'Upload image',
+                          onPress: () => filesPageRef.current?.uploadImage(),
+                        },
+                        {
+                          icon: FolderPlus,
+                          label: 'New folder',
+                          onPress: () => filesPageRef.current?.createFolder(),
+                        },
+                        {
                           icon: RefreshCw,
                           label: 'Refresh',
                           onPress: () => filesPageRef.current?.refetch(),
                         },
-                      ] as BottomBarMenuItem[]
+                      ] as BottomBarMenuItem[])
                     : undefined
                 }
               />
