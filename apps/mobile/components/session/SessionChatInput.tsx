@@ -1,10 +1,11 @@
 /**
- * SessionChatInput — chat input with agent/model/variant toolbar.
+ * SessionChatInput — chat input with agent/model/variant toolbar and @mentions.
  *
  * Matches the Computer frontend's chat input:
  * - Left toolbar: Agent selector, Model selector, Variant (thinking) toggle
  * - Right toolbar: Send / Stop buttons
  * - Multiline text input
+ * - @mention autocomplete for files, agents, and sessions
  */
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
@@ -16,14 +17,19 @@ import {
   Platform,
   Pressable,
   Animated,
+  type NativeSyntheticEvent,
+  type TextInputSelectionChangeEventData,
 } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
 import { Ionicons } from '@expo/vector-icons';
 
 import type { Agent, FlatModel } from '@/lib/opencode/hooks/use-opencode-data';
+import type { Session } from '@/lib/platform/types';
 import { AgentSelector } from './AgentSelector';
 import { ModelSelector } from './ModelSelector';
+import { MentionSuggestions } from './MentionSuggestions';
+import { useMentions, type TrackedMention, type MentionItem } from './useMentions';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -33,8 +39,10 @@ export interface PromptOptions {
   variant?: string;
 }
 
+export type { TrackedMention } from './useMentions';
+
 interface SessionChatInputProps {
-  onSend: (text: string, options: PromptOptions) => void;
+  onSend: (text: string, options: PromptOptions, mentions?: TrackedMention[]) => void;
   onStop?: () => void;
   isBusy?: boolean;
   disabled?: boolean;
@@ -50,6 +58,10 @@ interface SessionChatInputProps {
   onAgentChange?: (name: string) => void;
   onModelChange?: (providerID: string, modelID: string) => void;
   onVariantCycle?: () => void;
+  /** Data for @mentions */
+  sessions?: Session[];
+  currentSessionId?: string | null;
+  sandboxUrl?: string;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -70,15 +82,54 @@ export function SessionChatInput({
   onAgentChange,
   onModelChange,
   onVariantCycle,
+  sessions = [],
+  currentSessionId,
+  sandboxUrl,
 }: SessionChatInputProps) {
   const [text, setText] = useState('');
   const inputRef = useRef<TextInput>(null);
+  const cursorRef = useRef(0);
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
 
   // Selector modals
   const [showAgentSheet, setShowAgentSheet] = useState(false);
   const [showModelSheet, setShowModelSheet] = useState(false);
+
+  // ── Mentions ────────────────────────────────────────────────────────────
+
+  const mention = useMentions({
+    agents,
+    sessions,
+    currentSessionId,
+    sandboxUrl,
+  });
+
+  const handleTextChange = useCallback(
+    (newText: string) => {
+      setText(newText);
+      // Use latest cursor position (updated via onSelectionChange)
+      mention.handleTextChange(newText, cursorRef.current);
+    },
+    [mention.handleTextChange],
+  );
+
+  const handleSelectionChange = useCallback(
+    (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
+      cursorRef.current = e.nativeEvent.selection.end;
+    },
+    [],
+  );
+
+  const handleMentionSelect = useCallback(
+    (item: MentionItem) => {
+      const newText = mention.selectMention(item, text);
+      setText(newText);
+      // Move cursor to end of inserted mention
+      setTimeout(() => inputRef.current?.focus(), 50);
+    },
+    [mention.selectMention, text],
+  );
 
   // ── Animated placeholder ────────────────────────────────────────────────
   const placeholderVariants = useMemo(
@@ -151,6 +202,12 @@ export function SessionChatInput({
   const hasToolbar = agents.length > 0 || models.length > 0;
 
   const handleSubmit = useCallback(() => {
+    if (mention.isOpen) {
+      // If mention popover is open, don't submit — dismiss it
+      mention.dismiss();
+      return;
+    }
+
     const trimmed = text.trim();
     if (!trimmed || disabled) return;
 
@@ -159,9 +216,11 @@ export function SessionChatInput({
     if (modelKey) options.model = modelKey;
     if (variant) options.variant = variant;
 
-    onSend(trimmed, options);
+    const trackedMentions = mention.mentions.length > 0 ? [...mention.mentions] : undefined;
+    onSend(trimmed, options, trackedMentions);
     setText('');
-  }, [text, disabled, onSend, agent, modelKey, variant]);
+    mention.reset();
+  }, [text, disabled, onSend, agent, modelKey, variant, mention]);
 
   // Variant display
   const variantLabel = variant
@@ -171,6 +230,16 @@ export function SessionChatInput({
   return (
     <>
       <View>
+        {/* Mention suggestions — above the input */}
+        {mention.isOpen && (
+          <MentionSuggestions
+            items={mention.items}
+            selectedIndex={mention.selectedIndex}
+            isLoading={mention.fileSearchLoading}
+            onSelect={handleMentionSelect}
+          />
+        )}
+
         {/* Text input area */}
         <View className="px-4 pt-1 pb-3">
           <View className="rounded-2xl px-4 pt-2 pb-1 bg-card border border-border">
@@ -194,7 +263,8 @@ export function SessionChatInput({
             <TextInput
               ref={inputRef}
               value={text}
-              onChangeText={setText}
+              onChangeText={handleTextChange}
+              onSelectionChange={handleSelectionChange}
               placeholder=""
               placeholderTextColor="transparent"
               multiline

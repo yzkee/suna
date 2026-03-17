@@ -32,7 +32,7 @@ import { useSyncStore } from '@/lib/opencode/sync-store';
 import { getAuthToken } from '@/api/config';
 import type { Session } from '@/lib/opencode/types';
 import { SessionPage } from '@/components/session/SessionPage';
-import { SessionChatInput, type PromptOptions } from '@/components/session/SessionChatInput';
+import { SessionChatInput, type PromptOptions, type TrackedMention } from '@/components/session/SessionChatInput';
 import { BottomBar } from '@/components/session/BottomBar';
 import type { BottomBarRef } from '@/components/session/BottomBar';
 import { TabsOverview } from '@/components/session/TabsOverview';
@@ -342,8 +342,19 @@ export default function HomeScreen() {
   }, [deleteSession, navigateToSession]);
 
   const handleDashboardSend = useCallback(
-    async (text: string, options: PromptOptions) => {
+    async (text: string, options: PromptOptions, mentions?: TrackedMention[]) => {
       if (!sandboxUrl) return;
+
+      // Process session mentions — append XML refs (same as frontend)
+      let finalText = text;
+      const sessionMentions = mentions?.filter((m) => m.kind === 'session' && m.value);
+      if (sessionMentions && sessionMentions.length > 0) {
+        const refs = sessionMentions
+          .map((m) => `<session_ref id="${m.value}" title="${m.label}" />`)
+          .join('\n');
+        finalText = `${text}\n\nReferenced sessions (use the session_context tool to fetch details when needed):\n${refs}`;
+      }
+
       try {
         const session = await createSession.mutateAsync({});
         navigateToSession(session.id);
@@ -358,12 +369,12 @@ export default function HomeScreen() {
             sessionID: session.id,
             time: { created: Date.now() },
           },
-          parts: [{ type: 'text', id: partId, text }],
+          parts: [{ type: 'text', id: partId, text: finalText }],
         });
         useSyncStore.getState().setStatus(session.id, { type: 'busy' });
 
         const payload: Record<string, any> = {
-          parts: [{ type: 'text', text }],
+          parts: [{ type: 'text', text: finalText }],
         };
         if (options.model) payload.model = options.model;
         if (options.agent) payload.agent = options.agent;
@@ -718,6 +729,8 @@ export default function HomeScreen() {
                   onAgentChange={resolved.setAgent}
                   onModelChange={resolved.setModel}
                   onVariantCycle={resolved.cycleVariant}
+                  sessions={sessions}
+                  sandboxUrl={sandboxUrl}
                 />
               </View>
             </View>
