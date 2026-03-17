@@ -119,7 +119,7 @@ function InstallerForm({ onSuccess, onError }: InstallerFormProps) {
 
 /* ─── Install Status Hook ──────────────────────────────────────────────────── */
 
-export type SandboxProviderName = 'local_docker' | 'daytona' | 'hetzner';
+export type SandboxProviderName = 'local_docker' | 'daytona' | 'hetzner' | 'justavps';
 
 export function useInstallStatus() {
   const [installed, setInstalled] = useState<boolean | null>(null);
@@ -458,6 +458,8 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
   useEffect(() => {
     if (wizardStep !== 2 || sandboxReady || provisioningRef.current) return;
 
+    const effectiveProvider = chosenProvider || defaultProvider || 'local_docker';
+
     const checkExisting = async () => {
       try {
         const backendUrl = getEnv().BACKEND_URL || 'http://localhost:8008/v1';
@@ -471,40 +473,61 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
         }
         if (!jwt) return;
 
-        const res = await fetch(`${backendUrl}/platform/init/local/status`, {
-          headers: { 'Authorization': `Bearer ${jwt}` },
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-
-        if (data.status === 'ready' && data.data) {
-          registerSandbox(data.data);
-          setSandboxReady(true);
-          setPullProgress(null);
-          provisioningRef.current = false;
-          // Ensure chosenProvider is set so the correct sub-state renders
-          setChosenProvider((prev) => prev ?? (data.data.provider as SandboxProviderName ?? 'local_docker'));
-        } else if (data.status === 'pulling' || data.status === 'creating') {
-          // Mid-pull on page refresh — resume polling
-          setPullProgress({
-            progress: data.progress || 0,
-            message:
-              data.status === 'creating'
-                ? 'Creating sandbox container and waiting for Kortix to boot. First boot can take a few minutes...'
-                : data.message || 'Pulling sandbox image. First boot can take a few minutes...',
+        if (effectiveProvider === 'local_docker') {
+          // Local Docker: use the specialized status endpoint that tracks image pull progress
+          const res = await fetch(`${backendUrl}/platform/init/local/status`, {
+            headers: { 'Authorization': `Bearer ${jwt}` },
           });
-          provisioningRef.current = true;
-          pollLocalStatus(jwt, backendUrl);
-        } else if (data.status === 'error') {
-          // Previous provision failed — show error with retry
-          setChosenProvider((prev) => prev ?? 'local_docker');
-          setSandboxError(data.message || 'Previous sandbox setup failed');
-          provisioningRef.current = false;
+          if (!res.ok) return;
+          const data = await res.json();
+
+          if (data.status === 'ready' && data.data) {
+            registerSandbox(data.data);
+            setSandboxReady(true);
+            setPullProgress(null);
+            provisioningRef.current = false;
+            setChosenProvider((prev) => prev ?? (data.data.provider as SandboxProviderName ?? 'local_docker'));
+          } else if (data.status === 'pulling' || data.status === 'creating') {
+            // Mid-pull on page refresh — resume polling
+            setPullProgress({
+              progress: data.progress || 0,
+              message:
+                data.status === 'creating'
+                  ? 'Creating sandbox container and waiting for Kortix to boot. First boot can take a few minutes...'
+                  : data.message || 'Pulling sandbox image. First boot can take a few minutes...',
+            });
+            provisioningRef.current = true;
+            pollLocalStatus(jwt, backendUrl);
+          } else if (data.status === 'error') {
+            setChosenProvider((prev) => prev ?? 'local_docker');
+            setSandboxError(data.message || 'Previous sandbox setup failed');
+            provisioningRef.current = false;
+          } else {
+            // 'none' or unknown — re-provision
+            setChosenProvider((prev) => prev ?? 'local_docker');
+            provisioningRef.current = true;
+            provisionSandbox(jwt, backendUrl, 'local_docker');
+          }
         } else {
-          // 'none' or unknown — re-provision
-          setChosenProvider((prev) => prev ?? 'local_docker');
+          // Non-local provider (justavps, hetzner, daytona): check for existing sandbox
+          // via the generic endpoint, then provision if none exists.
+          const res = await fetch(`${backendUrl}/platform/sandbox`, {
+            headers: { 'Authorization': `Bearer ${jwt}` },
+          });
+          if (res.ok) {
+            const result = await res.json();
+            if (result.success && result.data) {
+              registerSandbox(result.data);
+              setSandboxReady(true);
+              provisioningRef.current = false;
+              setChosenProvider((prev) => prev ?? (result.data.provider as SandboxProviderName));
+              return;
+            }
+          }
+          // No existing sandbox — provision one via the generic init endpoint
+          setChosenProvider((prev) => prev ?? effectiveProvider);
           provisioningRef.current = true;
-          provisionSandbox(jwt, backendUrl, 'local_docker');
+          provisionSandbox(jwt, backendUrl, effectiveProvider);
         }
       } catch {
         // Ignore — if status check fails, the normal provision flow handles it
@@ -614,6 +637,109 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
     setTimeout(poll, 2000);
   }, [registerSandbox]);
 
+  // ── JustAVPS SSE progress tracking ─────────────────────────────────────────
+  const STAGE_PROGRESS: Record<string, { progress: number; message: string }> = {
+    server_creating: { progress: 10, message: 'Creating server...' },
+    server_created: { progress: 20, message: 'Server created, running cloud-init...' },
+    cloud_init_running: { progress: 35, message: 'Configuring machine...' },
+    cloud_init_done: { progress: 50, message: 'Configuration complete, starting services...' },
+    docker_pulling: { progress: 60, message: 'Starting sandbox container...' },
+    docker_running: { progress: 75, message: 'Sandbox container started, booting services...' },
+    services_starting: { progress: 85, message: 'Services booting...' },
+    services_ready: { progress: 100, message: 'Ready!' },
+  };
+
+  const pollJustAVPSStatus = useCallback((jwt: string, backendUrl: string, sandboxId: string, sandboxData: any) => {
+    const eventSource = new EventSource(
+      `${backendUrl}/platform/sandbox/${sandboxId}/provision-stream`,
+      // @ts-ignore — EventSource doesn't support headers natively
+    );
+
+    // EventSource doesn't support auth headers. Fall back to polling.
+    // Use fetch-based SSE polling instead.
+    let stopped = false;
+
+    const poll = async () => {
+      if (stopped) return;
+      try {
+        const res = await fetch(`${backendUrl}/platform/sandbox`, {
+          headers: { 'Authorization': `Bearer ${jwt}` },
+        });
+        if (!res.ok) { setTimeout(poll, 3000); return; }
+        const result = await res.json();
+        const sandbox = result.success ? result.data : null;
+        if (!sandbox) { setTimeout(poll, 3000); return; }
+
+        const meta = sandbox.metadata || {};
+        const stage = meta.provisioningStage;
+        const stageInfo = stage ? STAGE_PROGRESS[stage] : null;
+
+        if (stageInfo) {
+          setPullProgress(stageInfo);
+        }
+
+        // Check if sandbox is truly ready (services_ready stage or provider endpoint reachable)
+        const isServicesReady = stage === 'services_ready';
+        if (sandbox.status === 'active' && isServicesReady) {
+          stopped = true;
+          registerSandbox(sandbox);
+          setSandboxReady(true);
+          setPullProgress(null);
+          provisioningRef.current = false;
+          return;
+        }
+
+        // If status is active but no stage info yet, try hitting the provider endpoint
+        if (sandbox.status === 'active' && !stage) {
+          try {
+            const providerRes = await fetch(`${backendUrl}/p/${sandbox.external_id}/8000/provider`, {
+              headers: { 'Authorization': `Bearer ${jwt}` },
+              signal: AbortSignal.timeout(5000),
+            });
+            if (providerRes.ok) {
+              stopped = true;
+              registerSandbox(sandbox);
+              setSandboxReady(true);
+              setPullProgress(null);
+              provisioningRef.current = false;
+              return;
+            }
+          } catch {
+            // Not ready yet, keep polling
+          }
+        }
+
+        if (sandbox.status === 'error') {
+          stopped = true;
+          setSandboxError(meta.provisioningMessage || 'Sandbox provisioning failed');
+          setPullProgress(null);
+          provisioningRef.current = false;
+          return;
+        }
+
+        // Keep polling
+        setTimeout(poll, 3000);
+      } catch {
+        if (!stopped) setTimeout(poll, 5000);
+      }
+    };
+
+    // Start polling after a short delay (give cloud-init time to start)
+    setTimeout(poll, 3000);
+
+    // Cleanup: set a max timeout of 10 minutes
+    setTimeout(() => {
+      if (!stopped) {
+        stopped = true;
+        // Check one final time via sandbox endpoint
+        registerSandbox(sandboxData);
+        setSandboxReady(true);
+        setPullProgress(null);
+        provisioningRef.current = false;
+      }
+    }, 10 * 60 * 1000);
+  }, [registerSandbox]);
+
   // ── Provision sandbox via generic /platform/init (works for any provider) ──
   const provisionSandbox = useCallback(async (jwt: string, backendUrl: string, provider: SandboxProviderName) => {
     // Clear any previous error before retrying
@@ -680,8 +806,9 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
         }
       }
     } else {
-      // Daytona (or any non-local provider) — uses generic init, synchronous
+      // Cloud provider (justavps, hetzner, daytona) — uses generic init
       try {
+        setPullProgress({ progress: 5, message: 'Initializing sandbox...' });
         const initRes = await fetch(`${backendUrl}/platform/init`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${jwt}`, 'Content-Type': 'application/json' },
@@ -690,21 +817,35 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
         const initData = await initRes.json();
 
         if (initData.success && initData.data) {
-          registerSandbox(initData.data);
-          setSandboxReady(true);
-          provisioningRef.current = false;
+          const sandbox = initData.data;
+
+          // For event-driven providers (justavps), the sandbox is returned in 'provisioning' state.
+          // Poll for progress until services are ready.
+          if (provider === 'justavps') {
+            const meta = sandbox.metadata || {};
+            const stageInfo = STAGE_PROGRESS[meta.provisioningStage] || { progress: 10, message: 'Creating server...' };
+            setPullProgress(stageInfo);
+            pollJustAVPSStatus(jwt, backendUrl, sandbox.sandbox_id, sandbox);
+          } else {
+            registerSandbox(sandbox);
+            setSandboxReady(true);
+            setPullProgress(null);
+            provisioningRef.current = false;
+          }
         } else {
           const errMsg = initData.error || initData.message || `Failed to initialize ${provider} sandbox`;
           console.warn(`[Setup] ${provider} init failed:`, errMsg);
           setSandboxError(errMsg);
+          setPullProgress(null);
           provisioningRef.current = false;
         }
       } catch (err: any) {
         setSandboxError(err?.message || `Network error while initializing ${provider} sandbox`);
+        setPullProgress(null);
         provisioningRef.current = false;
       }
     }
-  }, [registerSandbox, pollLocalStatus]);
+  }, [registerSandbox, pollLocalStatus, pollJustAVPSStatus]);
 
   // ── Retry sandbox provisioning after an error ──
   const handleRetryProvision = useCallback(async () => {

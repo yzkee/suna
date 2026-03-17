@@ -20,6 +20,8 @@ import type {
   ProvisionResult,
   SandboxStatus,
   ResolvedEndpoint,
+  ProvisioningTraits,
+  ProvisioningStatus,
 } from './index';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -248,6 +250,17 @@ export async function listServerTypes(
 
 export class HetznerProvider implements SandboxProvider {
   readonly name: ProviderName = 'hetzner';
+
+  readonly provisioning: ProvisioningTraits = {
+    async: false,
+    stages: [
+      { id: 'creating', progress: 50, message: 'Creating VPS...' },
+    ],
+  };
+
+  async getProvisioningStatus(): Promise<ProvisioningStatus | null> {
+    return null;
+  }
 
   async create(opts: CreateSandboxOpts): Promise<ProvisionResult> {
     const snapshot = await resolveSnapshot();

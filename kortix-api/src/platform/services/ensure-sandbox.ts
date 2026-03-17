@@ -1,17 +1,3 @@
-/**
- * ensure-sandbox — shared service for idempotent sandbox provisioning.
- *
- * Used by:
- *   - POST /v1/platform/init  (direct sandbox creation)
- *   - POST /v1/billing/setup/initialize  (one-shot account + sandbox setup)
- *
- * Logic:
- *   1. Active sandbox exists → return it
- *   2. Provisioning sandbox exists → return it (another request is creating)
- *   3. Stopped/archived sandbox → restart it
- *   4. No sandbox → provision a new one via the configured provider
- */
-
 import { eq, and, desc, inArray, sql } from 'drizzle-orm';
 import { sandboxes } from '@kortix/db';
 import { db } from '../../shared/db';
@@ -25,20 +11,10 @@ import { config } from '../../config';
 import { checkCredits } from '../../router/services/billing';
 
 export interface EnsureSandboxResult {
-  /** The raw sandbox DB row (callers serialize as needed). */
   row: typeof sandboxes.$inferSelect;
-  /** True if a brand-new sandbox was provisioned in this call. */
   created: boolean;
 }
 
-/**
- * Ensure a sandbox exists for the given account. Idempotent:
- *   - Running  → return it
- *   - Stopped  → restart it
- *   - Missing  → create one
- *
- * Uses pg_advisory_xact_lock to prevent concurrent creation.
- */
 export async function ensureSandbox(opts: {
   accountId: string;
   userId: string;
@@ -50,33 +26,40 @@ export async function ensureSandbox(opts: {
   const { accountId, userId } = opts;
   const providerName = opts.provider || getDefaultProviderName();
 
-  // Acquire an advisory lock for this account to prevent concurrent sandbox creation.
   await db.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${accountId}))`);
 
-  // 1. Check for an existing active sandbox
+  const existing = await findExistingSandbox(accountId);
+  if (existing) return existing;
+
+  const reactivated = await tryReactivateStaleSandbox(accountId);
+  if (reactivated) return reactivated;
+
+  await checkProviderCredits(providerName, accountId, opts.isIncluded);
+
+  return provisionNewSandbox(accountId, userId, providerName, opts);
+}
+
+async function findExistingSandbox(accountId: string): Promise<EnsureSandboxResult | null> {
   const [active] = await db
     .select()
     .from(sandboxes)
     .where(and(eq(sandboxes.accountId, accountId), eq(sandboxes.status, 'active')))
     .limit(1);
 
-  if (active) {
-    return { row: active, created: false };
-  }
+  if (active) return { row: active, created: false };
 
-  // 2. Check for provisioning sandboxes (another request is already creating one)
   const [provisioning] = await db
     .select()
     .from(sandboxes)
     .where(and(eq(sandboxes.accountId, accountId), eq(sandboxes.status, 'provisioning')))
     .limit(1);
 
-  if (provisioning) {
-    console.log(`[ensureSandbox] Sandbox ${provisioning.sandboxId} already provisioning for account ${accountId}`);
-    return { row: provisioning, created: false };
-  }
+  if (provisioning) return { row: provisioning, created: false };
 
-  // 3. Check for a stopped/archived sandbox — restart it
+  return null;
+}
+
+async function tryReactivateStaleSandbox(accountId: string): Promise<EnsureSandboxResult | null> {
   const [stale] = await db
     .select()
     .from(sandboxes)
@@ -84,40 +67,62 @@ export async function ensureSandbox(opts: {
     .orderBy(desc(sandboxes.updatedAt))
     .limit(1);
 
-  if (stale && stale.externalId) {
-    try {
-      const staleProvider = getProvider(stale.provider);
-      await staleProvider.start(stale.externalId);
+  if (!stale?.externalId) return null;
 
-      const [reactivated] = await db
-        .update(sandboxes)
-        .set({ status: 'active', updatedAt: new Date() })
-        .where(eq(sandboxes.sandboxId, stale.sandboxId))
-        .returning();
+  try {
+    const provider = getProvider(stale.provider);
+    await provider.start(stale.externalId);
 
-      console.log(
-        `[ensureSandbox] Reactivated sandbox ${stale.sandboxId} via ${stale.provider} ` +
-        `(external: ${stale.externalId}) for account ${accountId}`,
-      );
+    const [reactivated] = await db
+      .update(sandboxes)
+      .set({ status: 'active', updatedAt: new Date() })
+      .where(eq(sandboxes.sandboxId, stale.sandboxId))
+      .returning();
 
-      return { row: reactivated, created: false };
-    } catch (err) {
-      console.warn(`[ensureSandbox] Failed to reactivate sandbox ${stale.sandboxId}, will create new:`, err);
-    }
+    return { row: reactivated, created: false };
+  } catch (err) {
+    console.warn(`[ensureSandbox] Failed to reactivate ${stale.sandboxId}:`, err);
+    return null;
   }
+}
 
-  // 4. No sandbox — provision a new one
-
-  // Credit check for paid providers (Hetzner VPS costs money immediately)
-  if (providerName === 'hetzner' && config.KORTIX_BILLING_INTERNAL_ENABLED && !opts.isIncluded) {
-    const creditCheck = await checkCredits(accountId, 0.10); // ~$0.10 min (covers ~1hr cheapest VPS)
+async function checkProviderCredits(providerName: ProviderName, accountId: string, isIncluded?: boolean): Promise<void> {
+  if (providerName === 'hetzner' && config.KORTIX_BILLING_INTERNAL_ENABLED && !isIncluded) {
+    const creditCheck = await checkCredits(accountId, 0.10);
     if (!creditCheck.hasCredits) {
       throw new Error(`Insufficient credits to provision Hetzner VPS: ${creditCheck.message}`);
     }
   }
+}
 
+async function provisionNewSandbox(
+  accountId: string,
+  userId: string,
+  providerName: ProviderName,
+  opts: { hetznerServerType?: string; hetznerLocation?: string; isIncluded?: boolean },
+): Promise<EnsureSandboxResult> {
   const provider = getProvider(providerName);
 
+  const sandbox = await insertProvisioningRow(accountId, providerName, opts.isIncluded);
+  const sandboxKey = await createSandboxApiKey(sandbox.sandboxId, accountId);
+
+  const createOpts = {
+    accountId,
+    userId,
+    name: `sandbox-${accountId.slice(0, 8)}`,
+    hetznerServerType: opts.hetznerServerType,
+    hetznerLocation: opts.hetznerLocation,
+    envVars: { KORTIX_TOKEN: sandboxKey.secretKey },
+  };
+
+  if (provider.provisioning.async) {
+    return provisionAsync(provider, sandbox, sandboxKey.secretKey, createOpts);
+  }
+
+  return provisionSync(provider, sandbox, sandboxKey.secretKey, createOpts);
+}
+
+async function insertProvisioningRow(accountId: string, providerName: ProviderName, isIncluded?: boolean) {
   const [sandbox] = await db
     .insert(sandboxes)
     .values({
@@ -129,61 +134,96 @@ export async function ensureSandbox(opts: {
       baseUrl: '',
       config: {},
       metadata: {},
-      isIncluded: opts.isIncluded ?? false,
+      isIncluded: isIncluded ?? false,
     })
     .returning();
+  return sandbox;
+}
 
-  const sandboxKey = await createApiKey({
-    sandboxId: sandbox.sandboxId,
+async function createSandboxApiKey(sandboxId: string, accountId: string) {
+  return createApiKey({
+    sandboxId,
     accountId,
     title: 'Sandbox Token',
     type: 'sandbox',
   });
+}
 
-  let result: { externalId: string; baseUrl: string; metadata?: Record<string, any> };
-  try {
-    result = await provider.create({
-      accountId,
-      userId,
-      name: `sandbox-${accountId.slice(0, 8)}`,
-      hetznerServerType: opts.hetznerServerType,
-      hetznerLocation: opts.hetznerLocation,
-      envVars: {
-        KORTIX_TOKEN: sandboxKey.secretKey,
-      },
-    });
-  } catch (err) {
-    await db
-      .update(sandboxes)
-      .set({
-        status: 'error',
-        metadata: {
-          ...(sandbox.metadata as Record<string, unknown> | null ?? {}),
-          provisioningError: err instanceof Error ? err.message : String(err),
-        },
-        updatedAt: new Date(),
-      })
-      .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
-    throw err;
-  }
+async function provisionAsync(
+  provider: ReturnType<typeof getProvider>,
+  sandbox: typeof sandboxes.$inferSelect,
+  serviceKey: string,
+  createOpts: Parameters<ReturnType<typeof getProvider>['create']>[0],
+): Promise<EnsureSandboxResult> {
+  const firstStage = provider.provisioning.stages[0];
 
-  const [updated] = await db
+  await db
     .update(sandboxes)
     .set({
-      externalId: result.externalId,
-      status: 'active',
-      baseUrl: result.baseUrl,
-      metadata: result.metadata,
-      config: { serviceKey: sandboxKey.secretKey },
+      config: { serviceKey },
+      metadata: { provisioningStage: firstStage?.id, provisioningMessage: firstStage?.message },
       updatedAt: new Date(),
     })
-    .where(eq(sandboxes.sandboxId, sandbox.sandboxId))
-    .returning();
+    .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
 
-  console.log(
-    `[ensureSandbox] Provisioned sandbox ${sandbox.sandboxId} via ${providerName} ` +
-    `(external: ${result.externalId}) for account ${accountId}`,
-  );
+  try {
+    const result = await provider.create(createOpts);
+    const [updated] = await db
+      .update(sandboxes)
+      .set({
+        externalId: result.externalId,
+        baseUrl: result.baseUrl || '',
+        metadata: { ...result.metadata, provisioningStage: firstStage?.id },
+        updatedAt: new Date(),
+      })
+      .where(eq(sandboxes.sandboxId, sandbox.sandboxId))
+      .returning();
 
-  return { row: updated, created: true };
+    return { row: updated, created: true };
+  } catch (err) {
+    await markSandboxError(sandbox.sandboxId, err);
+    throw err;
+  }
+}
+
+async function provisionSync(
+  provider: ReturnType<typeof getProvider>,
+  sandbox: typeof sandboxes.$inferSelect,
+  serviceKey: string,
+  createOpts: Parameters<ReturnType<typeof getProvider>['create']>[0],
+): Promise<EnsureSandboxResult> {
+  try {
+    const result = await provider.create(createOpts);
+    const [updated] = await db
+      .update(sandboxes)
+      .set({
+        externalId: result.externalId,
+        status: 'active',
+        baseUrl: result.baseUrl,
+        metadata: result.metadata,
+        config: { serviceKey },
+        updatedAt: new Date(),
+      })
+      .where(eq(sandboxes.sandboxId, sandbox.sandboxId))
+      .returning();
+
+    return { row: updated, created: true };
+  } catch (err) {
+    await markSandboxError(sandbox.sandboxId, err);
+    throw err;
+  }
+}
+
+async function markSandboxError(sandboxId: string, err: unknown): Promise<void> {
+  await db
+    .update(sandboxes)
+    .set({
+      status: 'error',
+      metadata: {
+        provisioningStage: 'error',
+        provisioningError: err instanceof Error ? err.message : String(err),
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(sandboxes.sandboxId, sandboxId));
 }

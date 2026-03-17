@@ -5,7 +5,7 @@ export { SANDBOX_VERSION } from './release';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-export type SandboxProviderName = 'daytona' | 'local_docker' | 'hetzner';
+export type SandboxProviderName = 'daytona' | 'local_docker' | 'hetzner' | 'justavps';
 export type InternalKortixEnv = 'dev' | 'staging' | 'prod';
 
 // ─── Zod Helpers ────────────────────────────────────────────────────────────
@@ -130,6 +130,15 @@ const envSchema = z.object({
   HETZNER_SSH_KEY_ID:                 optStr,
   HETZNER_DEFAULT_SERVER_TYPE:        optStrDefault('cpx22'),
 
+  // ── JustAVPS — Sandbox provisioning via JustAVPS API (conditional: required if justavps provider enabled) ──
+  JUSTAVPS_API_URL:                   optStrDefault('http://localhost:3001'),
+  JUSTAVPS_API_KEY:                   optStr,
+  JUSTAVPS_SNAPSHOT_ID:               optStr,   // JustAVPS snapshot UUID to boot from
+  JUSTAVPS_PROVIDER:                  optStrDefault('hetzner'),  // underlying provider in JustAVPS
+  JUSTAVPS_DEFAULT_LOCATION:          optStrDefault('nbg1'),
+  JUSTAVPS_DEFAULT_SERVER_TYPE:       optStrDefault('cpx22'),
+  JUSTAVPS_WEBHOOK_SECRET:            optStr,   // HMAC secret for verifying JustAVPS webhook signatures
+
   // ── Sandbox Platform (optional) ──────────────────────────────────────────
   KORTIX_URL:                  optStr,
   ALLOWED_SANDBOX_PROVIDERS:   optStrDefault('local_docker'),
@@ -196,7 +205,7 @@ function parseAllowedProviders(raw: string): SandboxProviderName[] {
   const names = raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
   const valid: SandboxProviderName[] = [];
   for (const n of names) {
-    if (n === 'daytona' || n === 'local_docker' || n === 'hetzner') {
+    if (n === 'daytona' || n === 'local_docker' || n === 'hetzner' || n === 'justavps') {
       if (!valid.includes(n)) valid.push(n);
     } else {
       console.warn(`[config] Unknown sandbox provider "${n}" in ALLOWED_SANDBOX_PROVIDERS - ignored`);
@@ -238,6 +247,12 @@ function validateEnv(): z.infer<typeof envSchema> {
   if (providers.includes('hetzner')) {
     if (!raw.HETZNER_API_KEY) issues.push({ var: 'HETZNER_API_KEY', message: 'Required when ALLOWED_SANDBOX_PROVIDERS includes "hetzner"', level: 'error' });
     // HETZNER_SNAPSHOT_DESCRIPTION falls back to kortix-computer-v{SANDBOX_VERSION} dynamically — no env var needed
+  }
+
+  // ── Conditional: justavps → need JustAVPS keys ────────────────────────
+  if (providers.includes('justavps')) {
+    if (!raw.JUSTAVPS_API_KEY) issues.push({ var: 'JUSTAVPS_API_KEY', message: 'Required when ALLOWED_SANDBOX_PROVIDERS includes "justavps"', level: 'error' });
+    if (!raw.JUSTAVPS_SNAPSHOT_ID) issues.push({ var: 'JUSTAVPS_SNAPSHOT_ID', message: 'Required when ALLOWED_SANDBOX_PROVIDERS includes "justavps"', level: 'error' });
   }
 
   // ── Conditional: Pipedream integration → need credentials ──────────────
@@ -386,6 +401,15 @@ export const config = {
   HETZNER_SSH_KEY_ID: env.HETZNER_SSH_KEY_ID,
   HETZNER_DEFAULT_SERVER_TYPE: env.HETZNER_DEFAULT_SERVER_TYPE,
 
+  // ─── JustAVPS (VPS Sandbox provisioning via JustAVPS) ────────────────────
+  JUSTAVPS_API_URL: env.JUSTAVPS_API_URL,
+  JUSTAVPS_API_KEY: env.JUSTAVPS_API_KEY,
+  JUSTAVPS_SNAPSHOT_ID: env.JUSTAVPS_SNAPSHOT_ID,
+  JUSTAVPS_PROVIDER: env.JUSTAVPS_PROVIDER,
+  JUSTAVPS_DEFAULT_LOCATION: env.JUSTAVPS_DEFAULT_LOCATION,
+  JUSTAVPS_DEFAULT_SERVER_TYPE: env.JUSTAVPS_DEFAULT_SERVER_TYPE,
+  JUSTAVPS_WEBHOOK_SECRET: env.JUSTAVPS_WEBHOOK_SECRET,
+
   // ─── Sandbox Provisioning (Platform) ──────────────────────────────────────
   KORTIX_URL: env.KORTIX_URL,
   ALLOWED_SANDBOX_PROVIDERS: allowedProviders,
@@ -504,6 +528,10 @@ export const config = {
 
   isHetznerEnabled(): boolean {
     return this.ALLOWED_SANDBOX_PROVIDERS.includes('hetzner') && !!this.HETZNER_API_KEY;
+  },
+
+  isJustAVPSEnabled(): boolean {
+    return this.ALLOWED_SANDBOX_PROVIDERS.includes('justavps') && !!this.JUSTAVPS_API_KEY;
   },
 
   /** The first provider in ALLOWED_SANDBOX_PROVIDERS is the default. */

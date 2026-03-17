@@ -1,19 +1,10 @@
-/**
- * Sandbox Provider abstraction.
- *
- * Both Daytona and Local Docker implement the same interface so the
- * platform service can provision sandboxes without caring about the backend.
- */
-
 import { config } from '../../config';
 import { DaytonaProvider } from './daytona';
 import { LocalDockerProvider } from './local-docker';
 import { HetznerProvider } from './hetzner';
+import { JustAVPSProvider } from './justavps';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-export type ProviderName = 'daytona' | 'local_docker' | 'hetzner';
-// Re-export from config for convenience — same type
+export type ProviderName = 'daytona' | 'local_docker' | 'hetzner' | 'justavps';
 export type { SandboxProviderName } from '../../config';
 
 export interface CreateSandboxOpts {
@@ -33,35 +24,44 @@ export interface ProvisionResult {
 
 export type SandboxStatus = 'running' | 'stopped' | 'removed' | 'unknown';
 
-/** Resolved endpoint for making direct HTTP calls to a sandbox. */
 export interface ResolvedEndpoint {
   url: string;
   headers: Record<string, string>;
 }
 
+export interface ProvisioningStage {
+  id: string;
+  progress: number;
+  message: string;
+}
+
+export interface ProvisioningTraits {
+  async: boolean;
+  stages: ProvisioningStage[];
+}
+
+export interface ProvisioningStatus {
+  stage: string;
+  progress: number;
+  message: string;
+  complete: boolean;
+  error: boolean;
+  errorMessage?: string;
+}
+
 export interface SandboxProvider {
   readonly name: ProviderName;
+  readonly provisioning: ProvisioningTraits;
+
   create(opts: CreateSandboxOpts): Promise<ProvisionResult>;
   start(externalId: string): Promise<void>;
   stop(externalId: string): Promise<void>;
   remove(externalId: string): Promise<void>;
   getStatus(externalId: string): Promise<SandboxStatus>;
-
-  /**
-   * Resolve the direct HTTP endpoint for a sandbox.
-   * Returns a URL + auth headers that can be used to call the sandbox's
-   * Kortix Master / OpenCode API without going through the preview proxy.
-   */
   resolveEndpoint(externalId: string): Promise<ResolvedEndpoint>;
-
-  /**
-   * Ensure the sandbox is running (wake it if sleeping).
-   * Idempotent — if already running, returns immediately.
-   */
   ensureRunning(externalId: string): Promise<void>;
+  getProvisioningStatus(sandboxId: string): Promise<ProvisioningStatus | null>;
 }
-
-// ─── Factory ─────────────────────────────────────────────────────────────────
 
 const providers = new Map<ProviderName, SandboxProvider>();
 
@@ -69,9 +69,6 @@ export function getProvider(name: ProviderName): SandboxProvider {
   const existing = providers.get(name);
   if (existing) return existing;
 
-  let provider: SandboxProvider;
-
-  // Verify the requested provider is in the allowed list
   if (!config.ALLOWED_SANDBOX_PROVIDERS.includes(name)) {
     throw new Error(
       `Sandbox provider '${name}' is not allowed. ` +
@@ -80,6 +77,8 @@ export function getProvider(name: ProviderName): SandboxProvider {
     );
   }
 
+  let provider: SandboxProvider;
+
   switch (name) {
     case 'daytona':
       if (!config.DAYTONA_API_KEY) {
@@ -87,18 +86,21 @@ export function getProvider(name: ProviderName): SandboxProvider {
       }
       provider = new DaytonaProvider();
       break;
-
     case 'local_docker':
       provider = new LocalDockerProvider();
       break;
-
     case 'hetzner':
       if (!config.HETZNER_API_KEY) {
         throw new Error('Hetzner provider is allowed but not configured. Set HETZNER_API_KEY.');
       }
       provider = new HetznerProvider();
       break;
-
+    case 'justavps':
+      if (!config.JUSTAVPS_API_KEY) {
+        throw new Error('JustAVPS provider is allowed but not configured. Set JUSTAVPS_API_KEY.');
+      }
+      provider = new JustAVPSProvider();
+      break;
     default:
       throw new Error(`Unknown sandbox provider: ${name}`);
   }
@@ -107,22 +109,15 @@ export function getProvider(name: ProviderName): SandboxProvider {
   return provider;
 }
 
-/**
- * Get the default provider — first entry in ALLOWED_SANDBOX_PROVIDERS.
- */
 export function getDefaultProviderName(): ProviderName {
   return config.getDefaultProvider();
 }
 
-/**
- * List which providers are allowed and actually configured.
- * A provider must be in ALLOWED_SANDBOX_PROVIDERS AND have its
- * required credentials set (e.g. Daytona needs DAYTONA_API_KEY).
- */
 export function getAvailableProviders(): ProviderName[] {
   const available: ProviderName[] = [];
   if (config.isDaytonaEnabled()) available.push('daytona');
   if (config.isLocalDockerEnabled()) available.push('local_docker');
   if (config.isHetznerEnabled()) available.push('hetzner');
+  if (config.isJustAVPSEnabled()) available.push('justavps');
   return available;
 }

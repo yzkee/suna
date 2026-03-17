@@ -73,7 +73,7 @@ function getPlatformUrl(): string {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type SandboxProviderName = 'daytona' | 'local_docker' | 'hetzner';
+export type SandboxProviderName = 'daytona' | 'local_docker' | 'hetzner' | 'justavps';
 export type HetznerServerTypeOption = string;
 
 export interface SandboxCreateProgress {

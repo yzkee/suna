@@ -309,10 +309,20 @@ setupApp.get('/sandbox-providers', async (c) => {
   if (config.isLocalDockerEnabled()) available.push('local_docker');
   if (config.isDaytonaEnabled()) available.push('daytona');
   if (config.isHetznerEnabled()) available.push('hetzner');
+  if (config.isJustAVPSEnabled()) available.push('justavps');
+
+  // Provider capabilities — tells the frontend how to handle provisioning UI
+  const capabilities: Record<string, { async: boolean; events: boolean; polling: boolean }> = {
+    local_docker: { async: false, events: false, polling: true },
+    daytona: { async: false, events: false, polling: false },
+    hetzner: { async: false, events: false, polling: false },
+    justavps: { async: true, events: true, polling: false },
+  };
 
   return c.json({
     providers: available,
     default: available[0] || 'local_docker',
+    capabilities: Object.fromEntries(available.map((p) => [p, capabilities[p] || { async: false, events: false, polling: false }])),
   });
 });
 

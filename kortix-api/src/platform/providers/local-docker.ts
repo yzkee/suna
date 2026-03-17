@@ -1,14 +1,3 @@
-/**
- * Local Docker sandbox provider.
- *
- * Manages a SINGLE sandbox container on the local Docker daemon.
- * Uses FIXED host ports (SANDBOX_PORT_BASE..SANDBOX_PORT_BASE+6)
- * so the frontend always connects to the same address regardless of
- * container lifecycle.
- *
- * Container name is always `kortix-sandbox` — there is exactly one.
- */
-
 import Docker from 'dockerode';
 import { randomBytes } from 'crypto';
 import { execSync } from 'child_process';
@@ -23,40 +12,31 @@ import type {
   ProvisionResult,
   SandboxStatus,
   ResolvedEndpoint,
+  ProvisioningTraits,
+  ProvisioningStatus,
 } from './index';
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-/** Fixed container name — one sandbox, ever. */
 const CONTAINER_NAME = 'kortix-sandbox';
 
 const PORT_BASE = config.SANDBOX_PORT_BASE;
 
-/**
- * Fixed port mappings: containerPort → hostPort.
- * Default base is 14000 but can be overridden via SANDBOX_PORT_BASE.
- */
 const PORT_MAP: Record<string, string> = {
-  '8000': String(PORT_BASE + 0), // Kortix Master (OpenCode proxy)
-  '3111': String(PORT_BASE + 1), // OpenCode Web UI
-  '6080': String(PORT_BASE + 2), // Desktop (noVNC)
-  '6081': String(PORT_BASE + 3), // Desktop (HTTPS)
-  '3210': String(PORT_BASE + 4), // Presentation Viewer
-  '9223': String(PORT_BASE + 5), // Agent Browser Stream
-  '9224': String(PORT_BASE + 6), // Agent Browser Viewer
-  '22':   String(PORT_BASE + 7), // SSH
+  '8000': String(PORT_BASE + 0),
+  '3111': String(PORT_BASE + 1),
+  '6080': String(PORT_BASE + 2),
+  '6081': String(PORT_BASE + 3),
+  '3210': String(PORT_BASE + 4),
+  '9223': String(PORT_BASE + 5),
+  '9224': String(PORT_BASE + 6),
+  '22':   String(PORT_BASE + 7),
 };
 
 const BASE_URL = `http://localhost:${PORT_MAP['8000']}`;
 
-
-
-/** ExposedPorts for Docker container config. */
 const EXPOSED_PORTS: Record<string, {}> = Object.fromEntries(
   Object.keys(PORT_MAP).map((p) => [`${p}/tcp`, {}]),
 );
 
-/** PortBindings for Docker HostConfig — bound to 127.0.0.1 (localhost only). */
 const PORT_BINDINGS: Record<string, { HostPort: string; HostIp: string }[]> = Object.fromEntries(
   Object.entries(PORT_MAP).map(([container, host]) => [
     `${container}/tcp`,
@@ -79,7 +59,6 @@ const PORT_BINDINGS: Record<string, { HostPort: string; HostIp: string }[]> = Ob
  * we use it as-is since the sandbox can reach it directly.
  */
 function getSandboxInternalApiUrl(): string {
-  // Shared Docker network: both containers resolve each other by name
   if (config.SANDBOX_NETWORK) {
     return `http://kortix-api:${config.PORT}`;
   }
@@ -130,32 +109,24 @@ function getDocker(): Docker {
       const url = new URL(config.DOCKER_HOST);
       return new Docker({ host: url.hostname, port: parseInt(url.port || '2375') });
     }
-    // Strip unix:// prefix — dockerode expects a bare path (e.g. /var/run/docker.sock)
     const socketPath = config.DOCKER_HOST.replace(/^unix:\/\//, '');
     return new Docker({ socketPath });
   }
   return new Docker();
 }
 
-// ─── Image Pull State ────────────────────────────────────────────────────────
-
 export interface ImagePullStatus {
   state: 'idle' | 'pulling' | 'done' | 'error';
-  /** 0-100 progress percentage */
   progress: number;
-  /** Human-readable status message */
   message: string;
   error?: string;
 }
 
-/** Singleton pull state — one sandbox, one pull at a time. */
 let _pullStatus: ImagePullStatus = { state: 'idle', progress: 0, message: '' };
 
 export function getImagePullStatus(): ImagePullStatus {
   return { ..._pullStatus };
 }
-
-// ─── Sandbox Update State ────────────────────────────────────────────────────
 
 export type SandboxUpdatePhase =
   | 'idle'
@@ -217,19 +188,78 @@ function getImageForVersion(version: string): string {
   const base = colonIdx > 0 ? current.slice(0, colonIdx) : current;
   return `${base}:${version}`;
 }
-
-// ─── Provider ────────────────────────────────────────────────────────────────
-
 export class LocalDockerProvider implements SandboxProvider {
   readonly name: ProviderName = 'local_docker';
   private docker: Docker;
   private _serviceKeySynced = false;
 
+  readonly provisioning: ProvisioningTraits = {
+    async: true,
+    stages: [
+      { id: 'pulling', progress: 20, message: 'Pulling sandbox image...' },
+      { id: 'creating', progress: 70, message: 'Creating container...' },
+      { id: 'starting', progress: 85, message: 'Starting services...' },
+      { id: 'ready', progress: 100, message: 'Ready' },
+    ],
+  };
+
+  async getProvisioningStatus(sandboxId: string): Promise<ProvisioningStatus | null> {
+    const pullStatus = getImagePullStatus();
+
+    if (pullStatus.state === 'pulling') {
+      return {
+        stage: 'pulling',
+        progress: Math.max(5, Math.round(pullStatus.progress * 0.6)),
+        message: pullStatus.message || 'Pulling sandbox image...',
+        complete: false,
+        error: false,
+      };
+    }
+
+    if (pullStatus.state === 'error') {
+      return {
+        stage: 'error',
+        progress: 0,
+        message: pullStatus.message,
+        complete: false,
+        error: true,
+        errorMessage: pullStatus.error,
+      };
+    }
+
+    const existing = await this.find();
+    if (existing && existing.status === 'running') {
+      return {
+        stage: 'ready',
+        progress: 100,
+        message: 'Ready',
+        complete: true,
+        error: false,
+      };
+    }
+
+    if (pullStatus.state === 'done') {
+      return {
+        stage: 'creating',
+        progress: 70,
+        message: 'Creating container...',
+        complete: false,
+        error: false,
+      };
+    }
+
+    return {
+      stage: 'idle',
+      progress: 0,
+      message: 'Waiting to start...',
+      complete: false,
+      error: false,
+    };
+  }
+
   constructor() {
     this.docker = getDocker();
   }
-
-  // ── Core: get-or-create the single sandbox ──────────────────────────────
 
   async ensure(): Promise<SandboxInfo> {
     const existing = await this.find();
@@ -237,10 +267,6 @@ export class LocalDockerProvider implements SandboxProvider {
     if (existing) {
       if (existing.status === 'running') {
         await this.syncCoreEnvVars();
-        // If the caller provided a KORTIX_TOKEN (e.g. POST /init/local registered
-        // a new key in the DB), push it into the running container so the container
-        // token always matches the DB. Without this, a warm-started container keeps
-        // its auto-generated token while the DB has a different one.
         const callerToken = this._lastCreateOpts?.envVars?.KORTIX_TOKEN;
         if (callerToken) {
           await this.syncTokenToContainer(callerToken);
@@ -258,7 +284,7 @@ export class LocalDockerProvider implements SandboxProvider {
         try {
           await container.remove({ force: true, v: false });
         } catch {
-          // ignore and continue to recreate
+          // Ignore and continue to recreate
         }
         await this.createContainer();
         return this.getSandboxInfo();
@@ -289,8 +315,6 @@ export class LocalDockerProvider implements SandboxProvider {
     return info;
   }
 
-  // ── Lifecycle ───────────────────────────────────────────────────────────
-
   async start(): Promise<void> {
     const container = this.docker.getContainer(CONTAINER_NAME);
     await container.start();
@@ -311,7 +335,6 @@ export class LocalDockerProvider implements SandboxProvider {
     try {
       await container.stop({ t: 5 });
     } catch {
-      // May already be stopped
     }
     await container.remove({ v: false });
   }
@@ -334,7 +357,6 @@ export class LocalDockerProvider implements SandboxProvider {
     let previousVersion: string | null = null;
 
     try {
-      // Get current version from running container
       const existing = await this.find();
       if (existing) {
         const currentTag = existing.image.split(':').pop() || null;
@@ -351,8 +373,6 @@ export class LocalDockerProvider implements SandboxProvider {
         error: null,
         startedAt: new Date().toISOString(),
       });
-
-      // 1. Pull the new image (skip if already exists locally)
       let imageExistsLocally = false;
       try {
         await this.docker.getImage(targetImage).inspect();
@@ -360,7 +380,6 @@ export class LocalDockerProvider implements SandboxProvider {
         console.log(`[LOCAL-DOCKER] Image ${targetImage} already exists locally, skipping pull`);
         setUpdateStatus({ progress: 50, message: `Image ${targetImage} found locally` });
       } catch {
-        // Image not found locally — pull it
       }
 
       if (!imageExistsLocally) {
@@ -369,20 +388,17 @@ export class LocalDockerProvider implements SandboxProvider {
         await this.pullImageByName(targetImage);
       }
 
-      // 2. Stop the running container
       setUpdateStatus({ phase: 'stopping', progress: 50, message: 'Stopping sandbox...' });
       console.log(`[LOCAL-DOCKER] Stopping sandbox for update...`);
       try {
         const container = this.docker.getContainer(CONTAINER_NAME);
         await container.stop({ t: 15 });
       } catch (err: any) {
-        // Container may not be running — that's fine
         if (!err?.message?.includes('not running') && !err?.message?.includes('No such container')) {
           console.warn(`[LOCAL-DOCKER] Stop warning: ${err.message}`);
         }
       }
 
-      // 3. Remove the container (preserve volumes with v: false)
       setUpdateStatus({ phase: 'removing', progress: 60, message: 'Removing old container...' });
       console.log(`[LOCAL-DOCKER] Removing old container (preserving volumes)...`);
       try {
@@ -393,20 +409,12 @@ export class LocalDockerProvider implements SandboxProvider {
           console.warn(`[LOCAL-DOCKER] Remove warning: ${err.message}`);
         }
       }
-
-      // 3.5. Prepare the data volume for the new container.
-      // After container recreate with a different image, two things can go wrong:
-      //   a) Stale WAL/SHM files from the old sqlite instance → "readonly database"
-      //   b) Wrong UID ownership (old container UID != new container UID) → write errors
-      // We fix both using a throwaway alpine container (lightweight, no custom entrypoint).
       console.log(`[LOCAL-DOCKER] Preparing volume for new container...`);
       try {
         const cleanupContainer = await this.docker.createContainer({
           Image: 'alpine:latest',
           Cmd: ['sh', '-c', [
-            // Fix ownership — use numeric UID 1000 (standard abc user in sandbox images)
             'chown -R 1000:1000 /workspace 2>/dev/null || true',
-            // Remove stale WAL/SHM files that cause "readonly database" errors
             'find /workspace -name "*.db-wal" -o -name "*.db-shm" 2>/dev/null | xargs rm -f',
             'echo "volume prepared"',
           ].join(' && ')],
@@ -416,27 +424,23 @@ export class LocalDockerProvider implements SandboxProvider {
         });
         await cleanupContainer.start();
         await cleanupContainer.wait();
-        await cleanupContainer.remove().catch(() => {}); // Clean up
+        await cleanupContainer.remove().catch(() => {});
         console.log(`[LOCAL-DOCKER] Volume prepared (ownership + WAL cleanup)`);
       } catch (cleanErr: any) {
-        // Non-fatal — the new image's startup.sh may handle it
         console.warn(`[LOCAL-DOCKER] Volume prep warning: ${cleanErr.message}`);
       }
 
-      // 4. Recreate the container with the new image
       setUpdateStatus({ phase: 'recreating', progress: 70, message: `Recreating with ${targetImage}...` });
       console.log(`[LOCAL-DOCKER] Recreating sandbox with image ${targetImage}...`);
-      this._serviceKeySynced = false; // Force re-sync of env vars
+      this._serviceKeySynced = false;
       await this.createContainer(targetImage);
 
-      // 5. Container is created and starting — s6-overlay boots services
       setUpdateStatus({ phase: 'starting', progress: 80, message: 'Container starting...' });
       console.log(`[LOCAL-DOCKER] Container created, starting up...`);
 
-      // 6. Health check — wait for the sandbox to come back up
       setUpdateStatus({ phase: 'health_check', progress: 90, message: 'Waiting for sandbox to become healthy...' });
       console.log(`[LOCAL-DOCKER] Waiting for sandbox health check...`);
-      await this.waitForHealth(120_000); // 120s timeout — s6 + OpenCode boot can take 60-90s
+      await this.waitForHealth(120_000);
 
       setUpdateStatus({
         phase: 'complete',
@@ -473,13 +477,11 @@ export class LocalDockerProvider implements SandboxProvider {
     }
   }
 
-  // ── Legacy SandboxProvider interface (for provider registry) ────────────
-
   async create(opts: CreateSandboxOpts): Promise<ProvisionResult> {
     this._lastCreateOpts = opts;
     const info = await this.ensure();
     return {
-      externalId: info.name,  // Container name (e.g. 'kortix-sandbox') — used for Docker DNS & URL routing
+      externalId: info.name,
       baseUrl: info.baseUrl,
       metadata: {
         containerName: info.name,
@@ -490,11 +492,7 @@ export class LocalDockerProvider implements SandboxProvider {
     };
   }
 
-  // ── Cron / Endpoint resolution ───────────────────────────────────────
-
   async resolveEndpoint(externalId: string): Promise<ResolvedEndpoint> {
-    // Inside Docker (SANDBOX_NETWORK set): resolve via Docker DNS using the container name.
-    // On host (pnpm dev): fall back to localhost with mapped ports.
     const url = config.SANDBOX_NETWORK
       ? `http://${externalId}:8000`
       : BASE_URL;
@@ -503,8 +501,6 @@ export class LocalDockerProvider implements SandboxProvider {
       'Content-Type': 'application/json',
     };
 
-    // Use INTERNAL_SERVICE_KEY for sandbox auth. The cron executor calls the sandbox
-    // directly (not through the proxy), so it needs the service key if auth is configured.
     if (config.INTERNAL_SERVICE_KEY) {
       headers['Authorization'] = `Bearer ${config.INTERNAL_SERVICE_KEY}`;
     }
@@ -561,23 +557,19 @@ export class LocalDockerProvider implements SandboxProvider {
 
     const containerEnv = await this.getContainerEnv();
 
-    // The 3 core vars kortix-api is the source of truth for
     const desired: Record<string, string> = {
       KORTIX_API_URL: getSandboxInternalApiUrl(),
-      KORTIX_TOKEN: containerEnv['KORTIX_TOKEN'] || '',  // keep existing token (generated at creation)
-      INTERNAL_SERVICE_KEY: config.INTERNAL_SERVICE_KEY,  // triggers auto-generation if empty
+      KORTIX_TOKEN: containerEnv['KORTIX_TOKEN'] || '',
+      INTERNAL_SERVICE_KEY: config.INTERNAL_SERVICE_KEY,
     };
 
-    // Read current values from the secrets manager to compare
     let currentEnv: Record<string, string> = {};
     try {
       currentEnv = await this.fetchMasterEnv();
     } catch {
-      // Sandbox may not be ready yet — fall back to Docker env comparison
       currentEnv = containerEnv;
     }
 
-    // Only sync vars that actually differ
     const stale: Record<string, string> = {};
     for (const [key, val] of Object.entries(desired)) {
       if (val && currentEnv[key] !== val) {
@@ -593,13 +585,11 @@ export class LocalDockerProvider implements SandboxProvider {
 
     console.log(`[LOCAL-DOCKER] Syncing ${Object.keys(stale).join(', ')} via secrets manager...`);
     try {
-      // POST to kortix-master /env API — no restart needed since getEnv() reads s6 directly
       await this.postMasterEnv(stale);
       this._serviceKeySynced = true;
       console.log(`[LOCAL-DOCKER] Core env vars synced: ${Object.keys(stale).join(', ')}`);
     } catch (err: any) {
       console.error('[LOCAL-DOCKER] Failed to sync core env vars via /env API, falling back to docker exec:', err.message || err);
-      // Fallback: write directly to s6 env dir if the /env API is unreachable
       try {
         this.syncCoreEnvVarsFallback(stale);
         this._serviceKeySynced = true;
@@ -689,8 +679,6 @@ export class LocalDockerProvider implements SandboxProvider {
     }
   }
 
-  // ── Private ─────────────────────────────────────────────────────────────
-
   private _lastCreateOpts?: CreateSandboxOpts;
 
   /**
@@ -732,7 +720,6 @@ export class LocalDockerProvider implements SandboxProvider {
             resolve();
           },
           (event: any) => {
-            // Track layer-level progress
             if (event.id && event.progressDetail?.total) {
               layerProgress[event.id] = {
                 current: event.progressDetail.current || 0,
@@ -744,7 +731,7 @@ export class LocalDockerProvider implements SandboxProvider {
               const pct = totalBytes > 0 ? Math.round((currentBytes / totalBytes) * 100) : 0;
               _pullStatus = {
                 state: 'pulling',
-                progress: Math.min(pct, 99), // never show 100 until fully done
+                progress: Math.min(pct, 99),
                 message: `Pulling image... ${pct}%`,
               };
             } else if (event.status) {
@@ -796,9 +783,8 @@ export class LocalDockerProvider implements SandboxProvider {
                 progress: Math.min(pct, 99),
                 message: `Pulling image... ${pct}%`,
               };
-              // Also update the sandbox update status with pull progress
               setUpdateStatus({
-                progress: 10 + Math.round(pct * 0.4), // 10-50% range for pulling
+                progress: 10 + Math.round(pct * 0.4),
                 message: `Pulling image... ${pct}%`,
               });
             } else if (event.status) {
@@ -812,7 +798,6 @@ export class LocalDockerProvider implements SandboxProvider {
 
   private async createContainer(imageOverride?: string): Promise<void> {
     const image = imageOverride || config.SANDBOX_IMAGE;
-    // Pull image if not present locally
     if (!(await this.hasImage(image))) {
       console.log(`[LOCAL-DOCKER] Image ${image} not found locally, pulling...`);
       await this.pullImage();
@@ -824,15 +809,12 @@ export class LocalDockerProvider implements SandboxProvider {
     }
     const sandboxEnvVars = readSandboxEnv();
 
-    // INTERNAL_SERVICE_KEY: used for proxy/cron → sandbox auth.
-    // Auto-generate if not set — every sandbox must have a service key.
     if (!config.INTERNAL_SERVICE_KEY) {
       process.env.INTERNAL_SERVICE_KEY = randomBytes(32).toString('hex');
       console.log('[LOCAL-DOCKER] Auto-generated INTERNAL_SERVICE_KEY for sandbox auth');
     }
     const serviceKey = config.INTERNAL_SERVICE_KEY;
 
-    // Vars we set explicitly — sandbox/docker/.env must NOT override these
     const MANAGED_VARS = new Set([
       'KORTIX_TOKEN',
       'KORTIX_API_URL',
@@ -843,7 +825,6 @@ export class LocalDockerProvider implements SandboxProvider {
       'CORS_ALLOWED_ORIGINS',
     ]);
 
-    // Filter sandbox/docker/.env: drop any var we manage ourselves
     const filteredSandboxEnv = sandboxEnvVars.filter((entry) => {
       const varName = entry.split('=')[0];
       return !MANAGED_VARS.has(varName);
@@ -865,22 +846,14 @@ export class LocalDockerProvider implements SandboxProvider {
       'NPM_CONFIG_PREFIX=/workspace/.npm-global',
       'SECRET_FILE_PATH=/workspace/.secrets/.secrets.json',
       'SALT_FILE_PATH=/workspace/.secrets/.salt',
-      // ── 3 core vars managed by kortix-api (source of truth) ──
-      // KORTIX_API_URL: how the sandbox reaches kortix-api (internal Docker URL).
       `KORTIX_API_URL=${getSandboxInternalApiUrl()}`,
-      // KORTIX_TOKEN (sandbox → kortix-api): sandbox identity + SecretStore encryption key.
       `KORTIX_TOKEN=${authToken}`,
-      // INTERNAL_SERVICE_KEY (kortix-api → sandbox): platform authenticates to sandbox.
       `INTERNAL_SERVICE_KEY=${serviceKey}`,
       `SANDBOX_ID=${CONTAINER_NAME}`,
       'PROJECT_ID=local',
       ...(config.KORTIX_LOCAL_IMAGES ? ['KORTIX_LOCAL_SOURCE=1'] : []),
-      // Cloud mode when billing is enabled — routes LLM traffic through the proxy for metering.
-      // Local mode otherwise — SDKs call providers directly (no billing).
       `ENV_MODE=${config.KORTIX_BILLING_INTERNAL_ENABLED ? 'cloud' : 'local'}`,
-      // CORS: tell the sandbox which origins to allow (includes frontend URL)
       `CORS_ALLOWED_ORIGINS=${[config.FRONTEND_URL, config.KORTIX_URL].filter(Boolean).join(',')}`,
-      // Extra env from sandbox/docker/.env (API keys, etc.) — managed vars already filtered out
       ...filteredSandboxEnv,
     ];
 
@@ -971,17 +944,12 @@ export class LocalDockerProvider implements SandboxProvider {
           }
         }
       } catch {
-        // Container still starting — keep polling
       }
       await new Promise((r) => setTimeout(r, 2_000));
     }
-
-    // Timeout — throw so callers (especially updateSandbox) can mark as failed
     throw new Error(`Health check timed out after ${Math.round(timeoutMs / 1000)}s — sandbox may still be starting`);
   }
 }
-
-// ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface SandboxInfo {
   containerId: string;
