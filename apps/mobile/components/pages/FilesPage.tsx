@@ -1252,66 +1252,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
 
 // ── Grid card for files ────────────────────────────────────────────────────
 
-import {
-  File,
-  FileText,
-  FileImage,
-  FileCode,
-  FileSpreadsheet,
-} from 'lucide-react-native';
-import { FilePreviewType, getFilePreviewType } from '@/components/files/FilePreviewRenderers';
-
-function getFileIconComponent(file: SandboxFile): typeof File {
-  if (file.type === 'directory') return Folder;
-  const previewType = getFilePreviewType(file.name);
-  switch (previewType) {
-    case FilePreviewType.IMAGE:
-      return FileImage;
-    case FilePreviewType.PDF:
-    case FilePreviewType.MARKDOWN:
-    case FilePreviewType.TEXT:
-      return FileText;
-    case FilePreviewType.CSV:
-    case FilePreviewType.XLSX:
-      return FileSpreadsheet;
-    case FilePreviewType.JSON:
-    case FilePreviewType.CODE:
-    case FilePreviewType.HTML:
-      return FileCode;
-    default:
-      return File;
-  }
-}
-
-function getFileIconColor(file: SandboxFile, isDark: boolean): string {
-  const previewType = getFilePreviewType(file.name);
-  switch (previewType) {
-    case FilePreviewType.IMAGE:
-      return '#10b981';
-    case FilePreviewType.PDF:
-      return '#ef4444';
-    case FilePreviewType.MARKDOWN:
-    case FilePreviewType.TEXT:
-      return '#8b5cf6';
-    case FilePreviewType.CSV:
-    case FilePreviewType.XLSX:
-      return '#22c55e';
-    case FilePreviewType.JSON:
-    case FilePreviewType.CODE:
-    case FilePreviewType.HTML:
-      return '#f59e0b';
-    default:
-      return isDark ? '#a1a1aa' : '#71717a';
-  }
-}
-
-function formatFileSize(bytes?: number): string {
-  if (!bytes || bytes === 0) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
+import { getFileIconAndColor } from '@/components/files/FileItem';
 
 function FileGridCard({
   file,
@@ -1326,9 +1267,7 @@ function FileGridCard({
   onPress: () => void;
   onLongPress: () => void;
 }) {
-  const IconComponent = getFileIconComponent(file);
-  const iconColor = getFileIconColor(file, isDark);
-  const fileSize = formatFileSize(file.size);
+  const { icon: IconComponent, color: iconColor } = getFileIconAndColor(file, isDark);
 
   return (
     <Pressable
@@ -1371,18 +1310,6 @@ function FileGridCard({
         >
           {file.name}
         </Text>
-        {fileSize ? (
-          <Text
-            className="text-xs font-roobert mt-0.5"
-            style={{
-              color: isDark
-                ? 'rgba(248, 248, 248, 0.4)'
-                : 'rgba(18, 18, 21, 0.4)',
-            }}
-          >
-            {fileSize}
-          </Text>
-        ) : null}
       </View>
     </Pressable>
   );
