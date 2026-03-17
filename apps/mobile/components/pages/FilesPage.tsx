@@ -5,7 +5,7 @@
  * approach as the web frontend — to list, upload, delete, and create files.
  */
 
-import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -30,8 +30,6 @@ import {
   ChevronRight,
   Folder,
   Home,
-  Eye,
-  EyeOff,
 } from 'lucide-react-native';
 import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -95,6 +93,12 @@ function getBreadcrumbSegments(path: string) {
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
+export interface FilesPageRef {
+  showHidden: boolean;
+  toggleHidden: () => void;
+  refetch: () => void;
+}
+
 interface FilesPageProps {
   page: PageTab;
   onBack: () => void;
@@ -102,7 +106,10 @@ interface FilesPageProps {
   onOpenRightDrawer?: () => void;
 }
 
-export function FilesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: FilesPageProps) {
+export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function FilesPage(
+  { page, onBack, onOpenDrawer, onOpenRightDrawer },
+  ref,
+) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
@@ -136,6 +143,13 @@ export function FilesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: Fil
     refetch,
     isRefetching,
   } = useOpenCodeFiles(sandboxUrl, currentPath);
+
+  // Expose actions to parent via ref (for BottomBar menu)
+  useImperativeHandle(ref, () => ({
+    showHidden,
+    toggleHidden: () => setShowHidden((v) => !v),
+    refetch: () => refetch(),
+  }), [showHidden, refetch]);
 
   // Mutations via OpenCode API
   const uploadMutation = useOpenCodeUploadFile();
@@ -373,27 +387,6 @@ export function FilesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: Fil
                 as={viewMode === 'list' ? LayoutGrid : List}
                 size={18}
                 color={fgColor}
-                strokeWidth={2}
-              />
-            </AnimatedPressable>
-            {/* Show/hide dotfiles */}
-            <AnimatedPressable
-              onPress={() => setShowHidden((v) => !v)}
-              className="p-2.5 rounded-xl active:opacity-70"
-              style={{
-                backgroundColor: showHidden
-                  ? isDark
-                    ? 'rgba(248, 248, 248, 0.18)'
-                    : 'rgba(18, 18, 21, 0.1)'
-                  : isDark
-                    ? 'rgba(248, 248, 248, 0.1)'
-                    : 'rgba(18, 18, 21, 0.05)',
-              }}
-            >
-              <Icon
-                as={showHidden ? Eye : EyeOff}
-                size={18}
-                color={showHidden ? fgColor : mutedColor}
                 strokeWidth={2}
               />
             </AnimatedPressable>
@@ -968,7 +961,7 @@ export function FilesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: Fil
       />
     </View>
   );
-}
+});
 
 // ── Grid card for files ────────────────────────────────────────────────────
 

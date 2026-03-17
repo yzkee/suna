@@ -45,6 +45,9 @@ import { useTabStore, PAGE_TABS } from '@/stores/tab-store';
 import { RightDrawerContent } from '@/components/session/RightDrawerContent';
 import { PlaceholderPage } from '@/components/session/PlaceholderPage';
 import { FilesPage } from '@/components/pages/FilesPage';
+import type { FilesPageRef } from '@/components/pages/FilesPage';
+import { Eye, EyeOff, RefreshCw } from 'lucide-react-native';
+import type { BottomBarMenuItem } from '@/components/session/BottomBar';
 import { log } from '@/lib/logger';
 
 // ─── Animated collapsible wrapper ────────────────────────────────────────────
@@ -209,6 +212,10 @@ export default function HomeScreen() {
   // State
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [rightDrawerOpen, setRightDrawerOpen] = useState(false);
+
+  // Files page ref (for BottomBar menu integration)
+  const filesPageRef = useRef<FilesPageRef>(null);
+  const [filesShowHidden, setFilesShowHidden] = useState(false);
 
   // Persisted tab state (survives app restarts)
   const activeSessionId = useTabStore((s) => s.activeSessionId);
@@ -615,6 +622,7 @@ export default function HomeScreen() {
           /* Active page tab — Files */
           ) : activePageId === 'page:files' && PAGE_TABS[activePageId] && !showTabsOverview ? (
             <FilesPage
+              ref={filesPageRef}
               page={PAGE_TABS[activePageId]}
               onBack={handleBack}
               onOpenDrawer={handleDrawerOpen}
@@ -730,6 +738,27 @@ export default function HomeScreen() {
                 onViewChanges={() => log.log('TODO: view changes')}
                 onDiagnostics={() => log.log('TODO: diagnostics')}
                 onArchiveSession={() => { if (activeSessionId) handleArchive(activeSessionId); }}
+                customMenuItems={
+                  activePageId === 'page:files'
+                    ? [
+                        {
+                          icon: filesShowHidden ? Eye : EyeOff,
+                          label: filesShowHidden
+                            ? 'Hide dotfiles'
+                            : 'Show dotfiles',
+                          onPress: () => {
+                            filesPageRef.current?.toggleHidden();
+                            setFilesShowHidden((v) => !v);
+                          },
+                        },
+                        {
+                          icon: RefreshCw,
+                          label: 'Refresh',
+                          onPress: () => filesPageRef.current?.refetch(),
+                        },
+                      ] as BottomBarMenuItem[]
+                    : undefined
+                }
               />
             </View>
           )}

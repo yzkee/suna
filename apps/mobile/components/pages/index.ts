@@ -10,5 +10,6 @@ export { ThreadPage } from './ThreadPage';
 export { TriggerDetailPage } from './TriggerDetailPage';
 export { WorkerConfigPage } from './WorkerConfigPage';
 export { FilesPage } from './FilesPage';
+export type { FilesPageRef } from './FilesPage';
 export type { HomePageRef } from './HomePage';
 
