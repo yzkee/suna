@@ -37,6 +37,8 @@ import {
   Home,
   MoreVertical,
   Download,
+  Eye,
+  EyeOff,
 } from 'lucide-react-native';
 import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -115,6 +117,9 @@ export function FilesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: Fil
   // View mode state
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
 
+  // Show/hide dotfiles (hidden by default, same as frontend)
+  const [showHidden, setShowHidden] = useState(false);
+
   // Navigation state
   const [currentPath, setCurrentPath] = useState('/workspace');
 
@@ -143,16 +148,17 @@ export function FilesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: Fil
   // Breadcrumbs
   const breadcrumbs = useMemo(() => getBreadcrumbSegments(currentPath), [currentPath]);
 
-  // Separate folders and files, sorted
+  // Separate folders and files, sorted, with dotfile filtering
   const { folders, regularFiles } = useMemo(() => {
     if (!files || !Array.isArray(files)) {
       return { folders: [], regularFiles: [] };
     }
+    const visible = showHidden ? files : files.filter((f) => !f.name.startsWith('.'));
     const sortFn = (a: SandboxFile, b: SandboxFile) => a.name.localeCompare(b.name);
-    const folders = files.filter((f) => f.type === 'directory').sort(sortFn);
-    const regularFiles = files.filter((f) => f.type === 'file').sort(sortFn);
+    const folders = visible.filter((f) => f.type === 'directory').sort(sortFn);
+    const regularFiles = visible.filter((f) => f.type === 'file').sort(sortFn);
     return { folders, regularFiles };
-  }, [files]);
+  }, [files, showHidden]);
 
   // Handlers
   const handleFilePress = useCallback((file: SandboxFile) => {
@@ -349,6 +355,27 @@ export function FilesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: Fil
                 as={viewMode === 'list' ? LayoutGrid : List}
                 size={18}
                 color={fgColor}
+                strokeWidth={2}
+              />
+            </AnimatedPressable>
+            {/* Show/hide dotfiles */}
+            <AnimatedPressable
+              onPress={() => setShowHidden((v) => !v)}
+              className="p-2.5 rounded-xl active:opacity-70"
+              style={{
+                backgroundColor: showHidden
+                  ? isDark
+                    ? 'rgba(248, 248, 248, 0.18)'
+                    : 'rgba(18, 18, 21, 0.1)'
+                  : isDark
+                    ? 'rgba(248, 248, 248, 0.1)'
+                    : 'rgba(18, 18, 21, 0.05)',
+              }}
+            >
+              <Icon
+                as={showHidden ? Eye : EyeOff}
+                size={18}
+                color={showHidden ? fgColor : mutedColor}
                 strokeWidth={2}
               />
             </AnimatedPressable>
