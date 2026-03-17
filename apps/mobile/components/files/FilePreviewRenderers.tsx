@@ -11,6 +11,7 @@ import { Icon } from '@/components/ui/icon';
 import { KortixLoader } from '@/components/ui';
 import { AlertCircle, FileText } from 'lucide-react-native';
 import { useColorScheme } from 'nativewind';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SelectableMarkdownText } from '@/components/ui/selectable-markdown';
 import { autoLinkUrls } from '@agentpress/shared';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -267,6 +268,7 @@ function MarkdownPreview({ content }: { content: string }) {
 function JsonPreview({ content }: { content: string }) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
+  const insets = useSafeAreaInsets();
 
   // Format JSON for better readability
   const formattedJson = useMemo(() => {
@@ -285,26 +287,6 @@ function JsonPreview({ content }: { content: string }) {
 
   return (
     <View className="flex-1" style={{ backgroundColor: isDark ? '#1e1e1e' : '#ffffff' }}>
-      <View
-        className="px-4 py-3 border-b"
-        style={{
-          borderBottomColor: isDark
-            ? 'rgba(248, 248, 248, 0.1)'
-            : 'rgba(18, 18, 21, 0.1)',
-          backgroundColor: isDark ? '#121215' : '#ffffff',
-        }}
-      >
-        <Text
-          className="text-xs font-roobert-medium"
-          style={{
-            color: isDark
-              ? 'rgba(248, 248, 248, 0.6)'
-              : 'rgba(18, 18, 21, 0.6)',
-          }}
-        >
-          JSON
-        </Text>
-      </View>
       <WebView
         source={{ html }}
         style={{ flex: 1, backgroundColor: 'transparent' }}
@@ -322,6 +304,28 @@ function JsonPreview({ content }: { content: string }) {
           </View>
         )}
       />
+      {/* Language badge at bottom */}
+      <View
+        className="px-4 pt-3 border-t"
+        style={{
+          borderTopColor: isDark
+            ? 'rgba(248, 248, 248, 0.08)'
+            : 'rgba(18, 18, 21, 0.06)',
+          backgroundColor: isDark ? '#121215' : '#ffffff',
+          paddingBottom: Math.max(insets.bottom, 12),
+        }}
+      >
+        <Text
+          className="text-xs font-roobert-medium"
+          style={{
+            color: isDark
+              ? 'rgba(248, 248, 248, 0.4)'
+              : 'rgba(18, 18, 21, 0.4)',
+          }}
+        >
+          JSON
+        </Text>
+      </View>
     </View>
   );
 }
@@ -395,6 +399,7 @@ function generateHighlightedCodeHtml(
 function CodePreview({ content, fileName }: { content: string; fileName: string }) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
+  const insets = useSafeAreaInsets();
   const language = getLanguageFromFilename(fileName);
 
   const html = useMemo(
@@ -404,27 +409,6 @@ function CodePreview({ content, fileName }: { content: string; fileName: string 
 
   return (
     <View className="flex-1" style={{ backgroundColor: isDark ? '#1e1e1e' : '#ffffff' }}>
-      {/* Language badge */}
-      <View
-        className="px-4 py-3 border-b"
-        style={{
-          borderBottomColor: isDark
-            ? 'rgba(248, 248, 248, 0.1)'
-            : 'rgba(18, 18, 21, 0.1)',
-          backgroundColor: isDark ? '#121215' : '#ffffff',
-        }}
-      >
-        <Text
-          className="text-xs font-roobert-medium"
-          style={{
-            color: isDark
-              ? 'rgba(248, 248, 248, 0.6)'
-              : 'rgba(18, 18, 21, 0.6)',
-          }}
-        >
-          {language.toUpperCase()}
-        </Text>
-      </View>
       {/* Highlighted code */}
       <WebView
         source={{ html }}
@@ -443,6 +427,28 @@ function CodePreview({ content, fileName }: { content: string; fileName: string 
           </View>
         )}
       />
+      {/* Language badge at bottom */}
+      <View
+        className="px-4 pt-3 border-t"
+        style={{
+          borderTopColor: isDark
+            ? 'rgba(248, 248, 248, 0.08)'
+            : 'rgba(18, 18, 21, 0.06)',
+          backgroundColor: isDark ? '#121215' : '#ffffff',
+          paddingBottom: Math.max(insets.bottom, 12),
+        }}
+      >
+        <Text
+          className="text-xs font-roobert-medium"
+          style={{
+            color: isDark
+              ? 'rgba(248, 248, 248, 0.4)'
+              : 'rgba(18, 18, 21, 0.4)',
+          }}
+        >
+          {language.toUpperCase()}
+        </Text>
+      </View>
     </View>
   );
 }

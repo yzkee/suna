@@ -201,13 +201,30 @@ export function FileViewer({
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle="fullScreen"
+      presentationStyle="pageSheet"
       onRequestClose={handleClose}>
       <View className="flex-1" style={{ backgroundColor: isDark ? '#121215' : '#ffffff' }}>
+        {/* Drag handle indicator (visible on iOS pageSheet) */}
+        <View
+          style={{
+            alignItems: 'center',
+            paddingTop: 8,
+            paddingBottom: 4,
+            backgroundColor: isDark ? '#121215' : '#ffffff',
+          }}
+        >
+          <View
+            style={{
+              width: 36,
+              height: 5,
+              borderRadius: 3,
+              backgroundColor: isDark ? '#3F3F46' : '#D4D4D8',
+            }}
+          />
+        </View>
         {/* Header */}
         <View
           style={{
-            paddingTop: insets.top,
             backgroundColor: isDark ? '#121215' : '#ffffff',
             borderBottomWidth: 1,
             borderBottomColor: isDark ? 'rgba(248, 248, 248, 0.1)' : 'rgba(18, 18, 21, 0.1)',
