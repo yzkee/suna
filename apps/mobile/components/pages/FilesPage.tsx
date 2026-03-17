@@ -25,7 +25,7 @@ import {
   FolderPlus,
   FilePlus,
   Trash2,
-  Coffee,
+
   X,
   Check,
   AlertCircle,
@@ -57,7 +57,6 @@ import { useSandboxContext } from '@/contexts/SandboxContext';
 import { FileItem } from '@/components/files/FileItem';
 import { FileBreadcrumb } from '@/components/files/FileBreadcrumb';
 import { FileViewer } from '@/components/files/FileViewer';
-import { EmptyState } from '@/components/shared/EmptyState';
 import {
   useOpenCodeFiles,
   useOpenCodeUploadFile,
@@ -561,17 +560,96 @@ export function FilesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: Fil
             contentContainerStyle={{
               flexGrow: 1,
               justifyContent: 'center',
-              padding: 32,
+              alignItems: 'center',
+              paddingHorizontal: 40,
+              paddingBottom: 60,
             }}
             refreshControl={
               <RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} />
             }
           >
-            <EmptyState
-              icon={Coffee}
-              title="This folder is empty"
-              description="Upload files or create a new folder to get started"
-            />
+            <View
+              className="w-20 h-20 rounded-3xl items-center justify-center mb-6"
+              style={{
+                backgroundColor: isDark
+                  ? 'rgba(248, 248, 248, 0.04)'
+                  : 'rgba(18, 18, 21, 0.03)',
+              }}
+            >
+              <Icon
+                as={Folder}
+                size={36}
+                strokeWidth={1.2}
+                color={
+                  isDark
+                    ? 'rgba(248, 248, 248, 0.15)'
+                    : 'rgba(18, 18, 21, 0.15)'
+                }
+              />
+            </View>
+            <Text
+              className="text-base font-roobert-semibold text-center mb-2"
+              style={{ color: fgColor }}
+            >
+              This folder is empty
+            </Text>
+            <Text
+              className="text-sm font-roobert text-center mb-8"
+              style={{
+                color: isDark
+                  ? 'rgba(248, 248, 248, 0.35)'
+                  : 'rgba(18, 18, 21, 0.35)',
+                lineHeight: 20,
+              }}
+            >
+              Upload files or create a folder{'\n'}to get started
+            </Text>
+            <View className="flex-row gap-3">
+              <Pressable
+                onPress={handleUploadDocument}
+                className="flex-row items-center px-5 py-3 rounded-2xl active:opacity-70"
+                style={{
+                  backgroundColor: isDark ? '#f8f8f8' : '#121215',
+                }}
+              >
+                <Icon
+                  as={Upload}
+                  size={16}
+                  color={isDark ? '#121215' : '#f8f8f8'}
+                  strokeWidth={2}
+                  style={{ marginRight: 8 }}
+                />
+                <Text
+                  className="text-sm font-roobert-medium"
+                  style={{ color: isDark ? '#121215' : '#f8f8f8' }}
+                >
+                  Upload
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setShowCreateFolder(true)}
+                className="flex-row items-center px-5 py-3 rounded-2xl active:opacity-70"
+                style={{
+                  backgroundColor: isDark
+                    ? 'rgba(248, 248, 248, 0.1)'
+                    : 'rgba(18, 18, 21, 0.06)',
+                }}
+              >
+                <Icon
+                  as={FolderPlus}
+                  size={16}
+                  color={fgColor}
+                  strokeWidth={2}
+                  style={{ marginRight: 8 }}
+                />
+                <Text
+                  className="text-sm font-roobert-medium"
+                  style={{ color: fgColor }}
+                >
+                  New folder
+                </Text>
+              </Pressable>
+            </View>
           </ScrollView>
         ) : viewMode === 'grid' ? (
           /* ── Grid View ── */
