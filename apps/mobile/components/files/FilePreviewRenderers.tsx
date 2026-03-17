@@ -340,6 +340,8 @@ function generateHighlightedCodeHtml(
 ): string {
   const bgColor = isDark ? '#1e1e1e' : '#ffffff';
   const theme = isDark ? 'github-dark' : 'github';
+  const lineNumColor = isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)';
+  const lineNumBorder = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
   // Escape HTML entities in code
   const escaped = code
     .replace(/&/g, '&amp;')
@@ -363,31 +365,82 @@ function generateHighlightedCodeHtml(
     line-height: 20px;
     -webkit-text-size-adjust: none;
   }
-  pre {
+  .code-wrapper {
+    position: relative;
+    display: flex;
+    flex-direction: row;
+    min-height: 100%;
+  }
+  .gutter {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: ${bgColor};
+    flex-shrink: 0;
+    padding: 12px 0;
+    border-right: 1px solid ${lineNumBorder};
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .gutter-line {
+    display: block;
+    padding: 0 14px 0 16px;
+    text-align: right;
+    color: ${lineNumColor};
+    font-size: 12px;
+    line-height: 20px;
+    min-width: 54px;
+  }
+  .code-area {
+    flex: 1;
     padding: 12px 16px;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
-  code.hljs {
-    background: transparent !important;
-    padding: 0 !important;
-  }
-  /* Line numbers */
-  .line-num {
-    display: inline-block;
-    width: 3.5em;
-    text-align: right;
-    padding-right: 1em;
-    color: ${isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'};
-    user-select: none;
-    -webkit-user-select: none;
+  .code-line {
+    display: block;
+    line-height: 20px;
+    min-height: 20px;
+    white-space: pre;
   }
 </style>
 </head>
 <body>
-<pre><code class="language-${language}">${escaped}</code></pre>
+<div class="code-wrapper">
+  <div class="gutter" id="gutter"></div>
+  <div class="code-area" id="code-area"></div>
+</div>
 <script>
-  hljs.highlightAll();
+  var codeStr = ${JSON.stringify(code)};
+  var lang = ${JSON.stringify(language)};
+  var highlighted;
+  try {
+    var result = hljs.highlight(codeStr, { language: lang, ignoreIllegals: true });
+    highlighted = result.value;
+  } catch(e) {
+    highlighted = codeStr
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  var lines = highlighted.split('\\n');
+  if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
+
+  var gutter = document.getElementById('gutter');
+  var codeArea = document.getElementById('code-area');
+
+  for (var i = 0; i < lines.length; i++) {
+    var num = document.createElement('span');
+    num.className = 'gutter-line';
+    num.textContent = String(i + 1);
+    gutter.appendChild(num);
+
+    var line = document.createElement('span');
+    line.className = 'code-line';
+    line.innerHTML = lines[i] || ' ';
+    codeArea.appendChild(line);
+  }
 </script>
 </body>
 </html>`;
