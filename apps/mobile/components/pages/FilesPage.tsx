@@ -5,16 +5,16 @@
  * approach as the web frontend — to list, upload, delete, and create files.
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   TouchableOpacity,
   Text as RNText,
   Pressable,
   ScrollView,
-  TextInput,
   Alert,
   RefreshControl,
+  Keyboard,
   ActivityIndicator,
 } from 'react-native';
 import { Text } from '@/components/ui/text';
@@ -23,20 +23,13 @@ import { KortixLoader } from '@/components/ui';
 import {
   Upload,
   FolderPlus,
-  FilePlus,
   Trash2,
-
-  X,
-  Check,
   AlertCircle,
-  RefreshCw,
   LayoutGrid,
   List,
   ChevronRight,
   Folder,
   Home,
-  MoreVertical,
-  Download,
   Eye,
   EyeOff,
 } from 'lucide-react-native';
@@ -44,11 +37,16 @@ import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
   FadeIn,
 } from 'react-native-reanimated';
+import {
+  BottomSheetModal,
+  BottomSheetBackdrop,
+  BottomSheetView,
+  BottomSheetTextInput,
+  TouchableOpacity as BottomSheetTouchable,
+} from '@gorhom/bottom-sheet';
+import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
 import * as Haptics from 'expo-haptics';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
@@ -126,8 +124,8 @@ export function FilesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: Fil
   const [viewerVisible, setViewerVisible] = useState(false);
   const [selectedFile, setSelectedFile] = useState<SandboxFile | null>(null);
 
-  // Create folder state
-  const [showCreateFolder, setShowCreateFolder] = useState(false);
+  // Create folder bottom sheet
+  const createFolderSheetRef = useRef<BottomSheetModal>(null);
   const [newFolderName, setNewFolderName] = useState('');
 
   // Fetch files via OpenCode API (same as frontend)
@@ -143,6 +141,26 @@ export function FilesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: Fil
   const uploadMutation = useOpenCodeUploadFile();
   const deleteMutation = useOpenCodeDeleteFile();
   const createFolderMutation = useOpenCodeMkdir();
+
+  // Bottom sheet backdrop
+  const renderBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop
+        {...props}
+        disappearsOnIndex={-1}
+        appearsOnIndex={0}
+        opacity={0.5}
+        pressBehavior="close"
+      />
+    ),
+    [],
+  );
+
+  const openCreateFolder = useCallback(() => {
+    setNewFolderName('');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    createFolderSheetRef.current?.present();
+  }, []);
 
   // Breadcrumbs
   const breadcrumbs = useMemo(() => getBreadcrumbSegments(currentPath), [currentPath]);
@@ -251,13 +269,14 @@ export function FilesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: Fil
 
   const handleCreateFolder = useCallback(async () => {
     if (!newFolderName.trim() || !sandboxUrl) return;
+    Keyboard.dismiss();
     try {
       const folderPath = `${currentPath}/${newFolderName.trim()}`;
       await createFolderMutation.mutateAsync({
         sandboxUrl,
         dirPath: folderPath,
       });
-      setShowCreateFolder(false);
+      createFolderSheetRef.current?.dismiss();
       setNewFolderName('');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
@@ -392,7 +411,7 @@ export function FilesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: Fil
             </AnimatedPressable>
             {/* New folder */}
             <AnimatedPressable
-              onPress={() => setShowCreateFolder(true)}
+              onPress={openCreateFolder}
               className="p-2.5 rounded-xl active:opacity-70"
               style={{
                 backgroundColor: isDark
@@ -627,7 +646,7 @@ export function FilesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: Fil
                 </Text>
               </Pressable>
               <Pressable
-                onPress={() => setShowCreateFolder(true)}
+                onPress={openCreateFolder}
                 className="flex-row items-center px-5 py-3 rounded-2xl active:opacity-70"
                 style={{
                   backgroundColor: isDark
@@ -807,106 +826,134 @@ export function FilesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: Fil
         )}
       </View>
 
-      {/* Create Folder Dialog */}
-      {showCreateFolder && (
-        <View
-          className="absolute inset-0 items-center justify-center"
-          style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}
+      {/* Create Folder Bottom Sheet */}
+      <BottomSheetModal
+        ref={createFolderSheetRef}
+        enableDynamicSizing
+        enablePanDownToClose
+        backdropComponent={renderBackdrop}
+        keyboardBehavior="interactive"
+        keyboardBlurBehavior="restore"
+        android_keyboardInputMode="adjustResize"
+        onDismiss={() => setNewFolderName('')}
+        backgroundStyle={{
+          backgroundColor: isDark ? '#161618' : '#FFFFFF',
+          borderTopLeftRadius: 24,
+          borderTopRightRadius: 24,
+        }}
+        handleIndicatorStyle={{
+          backgroundColor: isDark ? '#3F3F46' : '#D4D4D8',
+          width: 36,
+          height: 5,
+          borderRadius: 3,
+        }}
+      >
+        <BottomSheetView
+          style={{
+            paddingHorizontal: 24,
+            paddingTop: 8,
+            paddingBottom: Math.max(insets.bottom, 20) + 16,
+          }}
         >
-          <Animated.View
-            entering={FadeIn.duration(200)}
-            className="rounded-3xl p-6 mx-8 w-full max-w-sm"
+          {/* Header */}
+          <View className="flex-row items-center mb-5">
+            <View
+              className="w-10 h-10 rounded-xl items-center justify-center mr-3"
+              style={{
+                backgroundColor: isDark
+                  ? 'rgba(248, 248, 248, 0.08)'
+                  : 'rgba(18, 18, 21, 0.05)',
+              }}
+            >
+              <Icon as={FolderPlus} size={20} color={fgColor} strokeWidth={1.8} />
+            </View>
+            <View className="flex-1">
+              <Text
+                className="text-lg font-roobert-semibold"
+                style={{ color: fgColor }}
+              >
+                New Folder
+              </Text>
+              <Text
+                className="text-xs font-roobert mt-0.5"
+                style={{
+                  color: isDark
+                    ? 'rgba(248, 248, 248, 0.4)'
+                    : 'rgba(18, 18, 21, 0.4)',
+                }}
+                numberOfLines={1}
+              >
+                {currentPath === '/workspace' ? 'My Kortix' : currentPath.split('/').pop()}
+              </Text>
+            </View>
+          </View>
+
+          {/* Input */}
+          <BottomSheetTextInput
+            value={newFolderName}
+            onChangeText={setNewFolderName}
+            placeholder="Enter folder name"
+            placeholderTextColor={
+              isDark ? 'rgba(248, 248, 248, 0.25)' : 'rgba(18, 18, 21, 0.3)'
+            }
+            autoFocus
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="done"
+            onSubmitEditing={handleCreateFolder}
             style={{
-              backgroundColor: isDark ? '#1f1f21' : '#ffffff',
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 8 },
-              shadowOpacity: 0.25,
-              shadowRadius: 16,
-              elevation: 12,
+              backgroundColor: isDark
+                ? 'rgba(248, 248, 248, 0.06)'
+                : 'rgba(18, 18, 21, 0.04)',
+              borderWidth: 1,
+              borderColor: isDark
+                ? 'rgba(248, 248, 248, 0.1)'
+                : 'rgba(18, 18, 21, 0.08)',
+              borderRadius: 14,
+              paddingHorizontal: 16,
+              paddingVertical: 14,
+              fontSize: 16,
+              fontFamily: 'Roobert',
+              color: fgColor,
+              marginBottom: 20,
+            }}
+          />
+
+          {/* Create button */}
+          <BottomSheetTouchable
+            onPress={handleCreateFolder}
+            disabled={!newFolderName.trim() || createFolderMutation.isPending}
+            style={{
+              backgroundColor: newFolderName.trim()
+                ? isDark
+                  ? '#f8f8f8'
+                  : '#121215'
+                : isDark
+                  ? 'rgba(248, 248, 248, 0.08)'
+                  : 'rgba(18, 18, 21, 0.06)',
+              borderRadius: 14,
+              paddingVertical: 15,
+              alignItems: 'center',
+              opacity: newFolderName.trim() ? 1 : 0.5,
             }}
           >
             <Text
-              style={{ color: fgColor }}
-              className="text-xl font-roobert-semibold mb-4"
-            >
-              New Folder
-            </Text>
-
-            <TextInput
-              value={newFolderName}
-              onChangeText={setNewFolderName}
-              placeholder="Folder name"
-              placeholderTextColor={
-                isDark ? 'rgba(248, 248, 248, 0.3)' : 'rgba(18, 18, 21, 0.4)'
-              }
-              autoFocus
-              className="px-4 py-3.5 rounded-xl border mb-6 font-roobert"
+              className="text-[15px] font-roobert-semibold"
               style={{
-                backgroundColor: isDark
-                  ? 'rgba(248, 248, 248, 0.05)'
-                  : '#f4f4f5',
-                borderColor: isDark
-                  ? 'rgba(248, 248, 248, 0.15)'
-                  : 'rgba(18, 18, 21, 0.1)',
-                color: fgColor,
+                color: newFolderName.trim()
+                  ? isDark
+                    ? '#121215'
+                    : '#f8f8f8'
+                  : isDark
+                    ? 'rgba(248, 248, 248, 0.3)'
+                    : 'rgba(18, 18, 21, 0.3)',
               }}
-            />
-
-            <View className="flex-row gap-3">
-              <Pressable
-                onPress={() => {
-                  setShowCreateFolder(false);
-                  setNewFolderName('');
-                }}
-                className="flex-1 px-4 py-3.5 rounded-2xl active:opacity-70"
-                style={{
-                  backgroundColor: isDark
-                    ? 'rgba(248, 248, 248, 0.1)'
-                    : 'rgba(18, 18, 21, 0.05)',
-                }}
-              >
-                <Text
-                  style={{ color: fgColor }}
-                  className="text-center font-roobert-medium"
-                >
-                  Cancel
-                </Text>
-              </Pressable>
-
-              <Pressable
-                onPress={handleCreateFolder}
-                disabled={!newFolderName.trim()}
-                className="flex-1 px-4 py-3.5 rounded-2xl active:opacity-90"
-                style={{
-                  backgroundColor: newFolderName.trim()
-                    ? isDark
-                      ? '#f8f8f8'
-                      : '#121215'
-                    : isDark
-                      ? 'rgba(248, 248, 248, 0.2)'
-                      : 'rgba(18, 18, 21, 0.2)',
-                  opacity: newFolderName.trim() ? 1 : 0.5,
-                }}
-              >
-                <Text
-                  className="text-center font-roobert-medium"
-                  style={{
-                    color: newFolderName.trim()
-                      ? isDark
-                        ? '#121215'
-                        : '#f8f8f8'
-                      : isDark
-                        ? 'rgba(248, 248, 248, 0.5)'
-                        : 'rgba(18, 18, 21, 0.5)',
-                  }}
-                >
-                  Create
-                </Text>
-              </Pressable>
-            </View>
-          </Animated.View>
-        </View>
-      )}
+            >
+              {createFolderMutation.isPending ? 'Creating...' : 'Create Folder'}
+            </Text>
+          </BottomSheetTouchable>
+        </BottomSheetView>
+      </BottomSheetModal>
 
       {/* File Viewer */}
       <FileViewer
