@@ -729,6 +729,12 @@ export default function HomeScreen() {
               <BottomBar
                 ref={bottomBarRef}
                 activeSessionId={activeSessionId}
+                onMenuDismiss={() => {
+                  if (activePageId === 'page:files') {
+                    filesPageRef.current?.deselectFile();
+                    setFilesSelectedName(null);
+                  }
+                }}
                 tabCount={openTabIds.length + openPageIds.length}
                 canGoBack={canGoBack}
                 canGoForward={canGoForward}
