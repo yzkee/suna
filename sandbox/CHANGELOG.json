@@ -1,5 +1,37 @@
 [ 
   {
+    "version": "0.8.11",
+    "date": "2026-03-18",
+    "title": "Eliminate UID 1000 vs abc (911) permission mismatch across entire sandbox",
+    "description": "Root-causes and permanently fixes the recurring EACCES permission errors caused by files owned by UID 1000 while the runtime user abc is UID 911. The Dockerfile, startup.sh, and all init scripts now consistently use abc's actual UID instead of hardcoding 1000. Three layers of defense ensure correct ownership at build time, boot time, and late init.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Dockerfile build-time chown changed from 1000:1000 to abc:abc for all /opt runtime directories"
+      },
+      {
+        "type": "fix",
+        "text": "startup.sh resolves abc's real UID/GID dynamically via id(1) instead of defaulting to PUID 1000, and chowns /opt dirs in addition to /workspace"
+      },
+      {
+        "type": "fix",
+        "text": "zz-fix-opencode-ownership init script expanded to cover all workspace and /opt directories abc writes to at runtime, not just 3 subdirs"
+      },
+      {
+        "type": "fix",
+        "text": "99-restore-packages.sh uses abc's actual UID instead of PUID default 1000 for package dir ownership"
+      },
+      {
+        "type": "fix",
+        "text": "docker-compose.yml PUID/PGID changed from 1000 to 911 to match abc's build-time UID, eliminating the mismatch in local dev"
+      },
+      {
+        "type": "fix",
+        "text": "Bun global install dir changed from chmod 777 (world-writable) to chown abc:abc (least-privilege)"
+      }
+    ]
+  },
+  {
     "version": "0.8.10",
     "date": "2026-03-16",
     "title": "Fix opencode DB ownership via s6 init script",

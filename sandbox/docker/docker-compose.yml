@@ -41,8 +41,8 @@ services:
       # Ensures host.docker.internal works on Linux too (macOS/Windows have it built-in)
       - "host.docker.internal:host-gateway"
     environment:
-      - PUID=1000
-      - PGID=1000
+      - PUID=911
+      - PGID=911
       - TZ=Etc/UTC
       - SUBFOLDER=/
       - TITLE=Kortix Sandbox ${SANDBOX_NAME:-default}

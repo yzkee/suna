@@ -10,8 +10,10 @@
 
 set -e
 
-WORKSPACE_UID="${PUID:-1000}"
-WORKSPACE_GID="${PGID:-1000}"
+# Resolve abc's actual UID/GID — never assume 1000.
+# The linuxserver base image creates abc with UID 911, not 1000.
+WORKSPACE_UID="$(id -u abc 2>/dev/null || echo 911)"
+WORKSPACE_GID="$(id -g abc 2>/dev/null || echo 911)"
 
 echo "[startup] Preparing Kortix sandbox..."
 
@@ -94,6 +96,15 @@ rm -f /workspace/.browser-profile/SingletonLock \
 echo "[startup] Fixing workspace ownership..."
 chown -R "$WORKSPACE_UID:$WORKSPACE_GID" /workspace 2>/dev/null || true
 chmod 700 /workspace/.secrets 2>/dev/null || true
+
+# Also fix /opt dirs — the Dockerfile chowns these to abc:abc at build time,
+# but if the image was built with an older Dockerfile that used 1000:1000,
+# this ensures they are corrected at runtime too.
+chown -R "$WORKSPACE_UID:$WORKSPACE_GID" \
+  /opt/kortix-master /opt/opencode /opt/kortix \
+  /opt/opencode-agent-triggers /opt/agent-browser-viewer /opt/opencode-channels \
+  /opt/services \
+  2>/dev/null || true
 
 # ── Initialize ocx (marketplace CLI) ────────────────────────────────────────
 # Runs AFTER chown so all files ocx creates are owned by abc, not root.

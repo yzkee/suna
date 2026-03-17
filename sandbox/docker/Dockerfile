@@ -67,7 +67,7 @@ ENV BUN_INSTALL=/opt/bun
 RUN for i in 1 2 3; do curl -fsSL https://bun.sh/install | bash && break || sleep 5; done \
     && test -x /opt/bun/bin/bun \
     && ln -sf /opt/bun/bin/bun /usr/local/bin/bun
-RUN mkdir -p /opt/bun/install/cache && chmod -R 777 /opt/bun
+RUN mkdir -p /opt/bun/install/cache && chown -R abc:abc /opt/bun
 
 # ── uv (Python package runner) ───────────────────────────────────────────────
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
@@ -256,7 +256,10 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
     echo "[docker] agent-browser musl shim installed" && \
     \
     # ── 11. Fix ownership ── \
-    chown -R 1000:1000 /opt/kortix-master /opt/opencode /opt/kortix \
+    # CRITICAL: Use abc:abc (UID 911) — NOT 1000:1000. The linuxserver base image \
+    # creates user abc with UID 911. All runtime processes (opencode, kortix-master) \
+    # run as abc via s6-setuidgid. Using 1000 causes EACCES everywhere at runtime. \
+    chown -R abc:abc /opt/kortix-master /opt/opencode /opt/kortix \
       /opt/opencode-agent-triggers /opt/agent-browser-viewer /opt/opencode-channels \
       /opt/services \
       2>/dev/null || true && \

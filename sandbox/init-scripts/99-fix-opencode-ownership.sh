@@ -1,17 +1,45 @@
 #!/usr/bin/with-contenv bash
-# Fix opencode data directory ownership.
+# Fix ownership for ALL directories that abc (UID 911) needs to write to.
 #
-# The linuxserver base image re-chowns /workspace (mapped to /config) to
-# PUID:PGID (default 1000:1000) during its own init. But opencode serve
-# runs as user abc (UID 911) via s6-setuidgid, so it can't create the
-# SQLite database in a directory owned by UID 1000.
+# The linuxserver base image creates user abc with UID 911, NOT 1000.
+# Various init scripts and the base image itself may chown things to
+# PUID:PGID (default 1000:1000), which breaks runtime writes.
 #
-# This script runs AFTER all linuxserver migrations and re-sets correct
-# ownership on the opencode data directory.
+# This script runs LAST (zz- prefix in /custom-cont-init.d/) and
+# ensures abc owns everything it needs.
 
-echo "[fix-opencode-ownership] Setting /workspace/.local/share/opencode to abc:abc..."
-chown -R abc:abc /workspace/.local/share/opencode 2>/dev/null || true
+ABC_UID="$(id -u abc 2>/dev/null || echo 911)"
+ABC_GID="$(id -g abc 2>/dev/null || echo 911)"
 
-# Also fix the .opencode config dir and .kortix state dir
-chown -R abc:abc /workspace/.opencode 2>/dev/null || true
-chown -R abc:abc /workspace/.kortix 2>/dev/null || true
+echo "[fix-ownership] Fixing all abc-owned dirs (UID=$ABC_UID GID=$ABC_GID)..."
+
+# /workspace subdirs that abc writes to at runtime
+chown -R "$ABC_UID:$ABC_GID" \
+  /workspace/.local \
+  /workspace/.cache \
+  /workspace/.bun \
+  /workspace/.config \
+  /workspace/.opencode \
+  /workspace/.kortix \
+  /workspace/.kortix-state \
+  /workspace/.secrets \
+  /workspace/.npm-global \
+  /workspace/.XDG \
+  /workspace/.browser-profile \
+  /workspace/.lss \
+  /workspace/.ocx \
+  /workspace/.git \
+  2>/dev/null || true
+
+# /opt dirs — runtime code that abc may need to write into (plugin caches, etc.)
+chown -R "$ABC_UID:$ABC_GID" \
+  /opt/kortix-master \
+  /opt/opencode \
+  /opt/kortix \
+  /opt/opencode-agent-triggers \
+  /opt/agent-browser-viewer \
+  /opt/opencode-channels \
+  /opt/services \
+  2>/dev/null || true
+
+echo "[fix-ownership] Done."

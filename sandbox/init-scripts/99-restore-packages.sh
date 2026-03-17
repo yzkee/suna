@@ -66,8 +66,9 @@ if [ -n "$CURRENT_PATH" ]; then
 fi
 
 # ── 5. Fix ownership of persistent package dirs ─────────────────────────────
-WORKSPACE_UID="${PUID:-1000}"
-WORKSPACE_GID="${PGID:-1000}"
+# Use abc's actual UID — never hardcode 1000.
+WORKSPACE_UID="$(id -u abc 2>/dev/null || echo 911)"
+WORKSPACE_GID="$(id -g abc 2>/dev/null || echo 911)"
 chown -R "$WORKSPACE_UID:$WORKSPACE_GID" \
   /workspace/.local \
   /workspace/.npm-global \
