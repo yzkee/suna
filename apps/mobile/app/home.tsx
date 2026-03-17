@@ -756,78 +756,76 @@ export default function HomeScreen() {
                 onArchiveSession={() => { if (activeSessionId) handleArchive(activeSessionId); }}
                 customMenuItems={
                   activePageId === 'page:files'
-                    ? ([
-                        // Contextual file actions (when a file/folder is long-pressed)
-                        ...(filesSelectedName
-                          ? [
-                              {
-                                icon: FileText,
-                                label: `Open ${filesSelectedName}`,
-                                onPress: () => {
-                                  filesPageRef.current?.openFile();
-                                  setFilesSelectedName(null);
-                                },
+                    ? (filesSelectedName
+                        ? ([
+                            // Contextual file actions only (long-press)
+                            {
+                              icon: FileText,
+                              label: `Open ${filesSelectedName}`,
+                              onPress: () => {
+                                filesPageRef.current?.openFile();
+                                setFilesSelectedName(null);
                               },
-                              {
-                                icon: Copy,
-                                label: 'Copy path',
-                                onPress: () => {
-                                  filesPageRef.current?.copyPath();
-                                  setFilesSelectedName(null);
-                                },
+                            },
+                            {
+                              icon: Copy,
+                              label: 'Copy path',
+                              onPress: () => {
+                                filesPageRef.current?.copyPath();
+                                setFilesSelectedName(null);
                               },
-                              {
-                                icon: Pencil,
-                                label: 'Rename',
-                                onPress: () => filesPageRef.current?.renameFile(),
+                            },
+                            {
+                              icon: Pencil,
+                              label: 'Rename',
+                              onPress: () => filesPageRef.current?.renameFile(),
+                            },
+                            {
+                              icon: Trash2,
+                              label: 'Delete',
+                              destructive: true,
+                              onPress: () => filesPageRef.current?.deleteFile(),
+                            },
+                          ] as BottomBarMenuItem[])
+                        : ([
+                            // General file actions (three-dot tap)
+                            {
+                              icon: filesViewMode === 'list' ? LayoutGrid : List,
+                              label: filesViewMode === 'list' ? 'Grid view' : 'List view',
+                              onPress: () => {
+                                filesPageRef.current?.toggleViewMode();
+                                setFilesViewMode((v) => (v === 'list' ? 'grid' : 'list'));
                               },
-                              {
-                                icon: Trash2,
-                                label: 'Delete',
-                                destructive: true,
-                                onPress: () => filesPageRef.current?.deleteFile(),
+                            },
+                            {
+                              icon: filesShowHidden ? Eye : EyeOff,
+                              label: filesShowHidden ? 'Hide dotfiles' : 'Show dotfiles',
+                              onPress: () => {
+                                filesPageRef.current?.toggleHidden();
+                                setFilesShowHidden((v) => !v);
                               },
-                              { type: 'divider' as const },
-                            ]
-                          : []),
-                        // General file actions
-                        {
-                          icon: filesViewMode === 'list' ? LayoutGrid : List,
-                          label: filesViewMode === 'list' ? 'Grid view' : 'List view',
-                          onPress: () => {
-                            filesPageRef.current?.toggleViewMode();
-                            setFilesViewMode((v) => (v === 'list' ? 'grid' : 'list'));
-                          },
-                        },
-                        {
-                          icon: filesShowHidden ? Eye : EyeOff,
-                          label: filesShowHidden ? 'Hide dotfiles' : 'Show dotfiles',
-                          onPress: () => {
-                            filesPageRef.current?.toggleHidden();
-                            setFilesShowHidden((v) => !v);
-                          },
-                        },
-                        {
-                          icon: Upload,
-                          label: 'Upload file',
-                          onPress: () => filesPageRef.current?.uploadDocument(),
-                        },
-                        {
-                          icon: Image,
-                          label: 'Upload image',
-                          onPress: () => filesPageRef.current?.uploadImage(),
-                        },
-                        {
-                          icon: FolderPlus,
-                          label: 'New folder',
-                          onPress: () => filesPageRef.current?.createFolder(),
-                        },
-                        {
-                          icon: RefreshCw,
-                          label: 'Refresh',
-                          onPress: () => filesPageRef.current?.refetch(),
-                        },
-                      ] as BottomBarMenuItem[])
+                            },
+                            {
+                              icon: Upload,
+                              label: 'Upload file',
+                              onPress: () => filesPageRef.current?.uploadDocument(),
+                            },
+                            {
+                              icon: Image,
+                              label: 'Upload image',
+                              onPress: () => filesPageRef.current?.uploadImage(),
+                            },
+                            {
+                              icon: FolderPlus,
+                              label: 'New folder',
+                              onPress: () => filesPageRef.current?.createFolder(),
+                            },
+                            {
+                              icon: RefreshCw,
+                              label: 'Refresh',
+                              onPress: () => filesPageRef.current?.refetch(),
+                            },
+                          ] as BottomBarMenuItem[]))
                     : undefined
                 }
               />
