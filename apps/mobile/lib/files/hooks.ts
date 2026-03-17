@@ -95,6 +95,10 @@ export const fileKeys = {
   fileHistory: (sandboxId: string, path: string) => [...fileKeys.all, 'sandbox', sandboxId, 'history', path] as const,
   fileAtCommit: (sandboxId: string, path: string, commit: string) => [...fileKeys.all, 'sandbox', sandboxId, 'file', path, commit] as const,
   filesAtCommit: (sandboxId: string, path: string, commit: string) => [...fileKeys.all, 'sandbox', sandboxId, 'tree', path, commit] as const,
+  // OpenCode API keys (via sandboxUrl)
+  opencode: (sandboxUrl: string, path: string) => [...fileKeys.all, 'opencode', sandboxUrl, path] as const,
+  opencodeFile: (sandboxUrl: string, path: string) => [...fileKeys.all, 'opencode', sandboxUrl, 'file', path] as const,
+  opencodeBlob: (sandboxUrl: string, path: string) => [...fileKeys.all, 'opencode', sandboxUrl, 'blob', path] as const,
 };
 
 export const sandboxKeys = {
@@ -103,7 +107,253 @@ export const sandboxKeys = {
 };
 
 // ============================================================================
-// Query Hooks
+// OpenCode File API Types (GET /file?path=... response)
+// ============================================================================
+
+/** Response item from the OpenCode /file endpoint */
+export interface OpenCodeFileNode {
+  name: string;
+  path: string;       // relative to project root
+  absolute: string;   // absolute filesystem path
+  type: 'file' | 'directory';
+  ignored: boolean;
+}
+
+/** Transform OpenCode FileNode to SandboxFile for UI compatibility */
+function transformOpenCodeFile(node: OpenCodeFileNode): SandboxFile {
+  return {
+    name: node.name,
+    path: node.absolute || node.path,
+    type: node.type,
+  };
+}
+
+// ============================================================================
+// OpenCode File API Hooks (via sandboxUrl — same as frontend)
+// ============================================================================
+
+/**
+ * List files using the OpenCode API: GET {sandboxUrl}/file?path=...
+ * This is the same endpoint the frontend uses.
+ */
+export function useOpenCodeFiles(
+  sandboxUrl: string | undefined,
+  path: string = '/workspace',
+  options?: Omit<UseQueryOptions<SandboxFile[], Error>, 'queryKey' | 'queryFn'>
+) {
+  return useQuery({
+    queryKey: fileKeys.opencode(sandboxUrl || '', path),
+    queryFn: async () => {
+      if (!sandboxUrl) throw new Error('No sandbox URL');
+      const token = await getAuthToken();
+      const res = await fetch(
+        `${sandboxUrl}/file?path=${encodeURIComponent(path)}`,
+        {
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        },
+      );
+      if (!res.ok) throw new Error(`Failed to list files: ${res.status}`);
+      const data: OpenCodeFileNode[] = await res.json();
+      return data.map(transformOpenCodeFile);
+    },
+    enabled: !!sandboxUrl,
+    staleTime: 5_000,
+    gcTime: 2 * 60_000,
+    retry: (count, error) => {
+      // Don't retry 404/403
+      if (error?.message?.includes('404') || error?.message?.includes('403')) return false;
+      return count < 2;
+    },
+    ...options,
+  });
+}
+
+/**
+ * Read file content using OpenCode API: GET {sandboxUrl}/file/read?path=...
+ */
+export function useOpenCodeFileContent(
+  sandboxUrl: string | undefined,
+  filePath: string | undefined,
+  options?: Omit<UseQueryOptions<string, Error>, 'queryKey' | 'queryFn'>
+) {
+  return useQuery({
+    queryKey: fileKeys.opencodeFile(sandboxUrl || '', filePath || ''),
+    queryFn: async () => {
+      if (!sandboxUrl || !filePath) throw new Error('Missing params');
+      const token = await getAuthToken();
+      const res = await fetch(
+        `${sandboxUrl}/file/read?path=${encodeURIComponent(filePath)}`,
+        {
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        },
+      );
+      if (!res.ok) throw new Error(`Failed to read file: ${res.status}`);
+      const data = await res.json();
+      // OpenCode returns { type, content, encoding?, mimeType? }
+      return data.content as string;
+    },
+    enabled: !!sandboxUrl && !!filePath,
+    staleTime: 5 * 60_000,
+    ...options,
+  });
+}
+
+/**
+ * Read file as blob using OpenCode API: GET {sandboxUrl}/file/raw?path=...
+ */
+export function useOpenCodeFileBlob(
+  sandboxUrl: string | undefined,
+  filePath: string | undefined,
+  options?: Omit<UseQueryOptions<Blob, Error>, 'queryKey' | 'queryFn'>
+) {
+  return useQuery({
+    queryKey: fileKeys.opencodeBlob(sandboxUrl || '', filePath || ''),
+    queryFn: async () => {
+      if (!sandboxUrl || !filePath) throw new Error('Missing params');
+      const token = await getAuthToken();
+      const res = await fetch(
+        `${sandboxUrl}/file/raw?path=${encodeURIComponent(filePath)}`,
+        {
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        },
+      );
+      if (!res.ok) throw new Error(`Failed to load file: ${res.status}`);
+      return res.blob();
+    },
+    enabled: !!sandboxUrl && !!filePath,
+    staleTime: 10 * 60_000,
+    ...options,
+  });
+}
+
+/**
+ * Upload file using OpenCode API: POST {sandboxUrl}/file/upload
+ */
+export function useOpenCodeUploadFile(
+  options?: UseMutationOptions<
+    any,
+    Error,
+    { sandboxUrl: string; file: { uri: string; name: string; type: string }; targetPath: string }
+  >
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ sandboxUrl, file, targetPath }) => {
+      const token = await getAuthToken();
+      const normalizedName = normalizeFilenameToNFC(file.name);
+      const formData = new FormData();
+      formData.append('path', targetPath);
+      formData.append('file', {
+        uri: file.uri,
+        name: normalizedName,
+        type: file.type || 'application/octet-stream',
+      } as any);
+
+      const res = await fetch(`${sandboxUrl}/file/upload`, {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: formData,
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Upload failed: ${res.status} ${text}`);
+      }
+      return res.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ['files', 'opencode', variables.sandboxUrl],
+        exact: false,
+        refetchType: 'all',
+      });
+    },
+    ...options,
+  });
+}
+
+/**
+ * Delete file using OpenCode API: DELETE {sandboxUrl}/file
+ */
+export function useOpenCodeDeleteFile(
+  options?: UseMutationOptions<any, Error, { sandboxUrl: string; filePath: string }>
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ sandboxUrl, filePath }) => {
+      const token = await getAuthToken();
+      const res = await fetch(`${sandboxUrl}/file`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ path: filePath }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Delete failed: ${res.status} ${text}`);
+      }
+      return res.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ['files', 'opencode', variables.sandboxUrl],
+        exact: false,
+        refetchType: 'all',
+      });
+    },
+    ...options,
+  });
+}
+
+/**
+ * Create directory using OpenCode API: POST {sandboxUrl}/file/mkdir
+ */
+export function useOpenCodeMkdir(
+  options?: UseMutationOptions<any, Error, { sandboxUrl: string; dirPath: string }>
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ sandboxUrl, dirPath }) => {
+      const token = await getAuthToken();
+      const res = await fetch(`${sandboxUrl}/file/mkdir`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ path: dirPath }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Mkdir failed: ${res.status} ${text}`);
+      }
+      return res.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ['files', 'opencode', variables.sandboxUrl],
+        exact: false,
+        refetchType: 'all',
+      });
+    },
+    ...options,
+  });
+}
+
+// ============================================================================
+// Legacy Query Hooks (via API_URL/sandboxes/{id}/files)
 // ============================================================================
 
 export function useSandboxFiles(

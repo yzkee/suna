@@ -44,6 +44,7 @@ import { useResolvedConfig } from '@/lib/opencode/hooks/use-local-config';
 import { useTabStore, PAGE_TABS } from '@/stores/tab-store';
 import { RightDrawerContent } from '@/components/session/RightDrawerContent';
 import { PlaceholderPage } from '@/components/session/PlaceholderPage';
+import { FilesPage } from '@/components/pages/FilesPage';
 import { log } from '@/lib/logger';
 
 // ─── Animated collapsible wrapper ────────────────────────────────────────────
@@ -611,7 +612,16 @@ export default function HomeScreen() {
               </Text>
             </View>
 
-          /* Active page tab */
+          /* Active page tab — Files */
+          ) : activePageId === 'page:files' && PAGE_TABS[activePageId] && !showTabsOverview ? (
+            <FilesPage
+              page={PAGE_TABS[activePageId]}
+              onBack={handleBack}
+              onOpenDrawer={handleDrawerOpen}
+              onOpenRightDrawer={handleRightDrawerOpen}
+            />
+
+          /* Active page tab — other pages (placeholder) */
           ) : activePageId && PAGE_TABS[activePageId] && !showTabsOverview ? (
             <PlaceholderPage
               page={PAGE_TABS[activePageId]}
