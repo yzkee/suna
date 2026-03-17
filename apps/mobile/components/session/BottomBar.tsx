@@ -5,13 +5,25 @@
  * The "More" menu shows session-specific actions via a bottom sheet.
  */
 
-import React, { useCallback, useRef, useMemo } from 'react';
+import React, { useCallback, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { View, TouchableOpacity } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { BottomSheetModal, BottomSheetBackdrop, BottomSheetView } from '@gorhom/bottom-sheet';
+
+export type BottomBarMenuItem =
+  | {
+      type?: 'action';
+      icon: React.ComponentType<any>;
+      label: string;
+      onPress: () => void;
+      destructive?: boolean;
+    }
+  | {
+      type: 'divider';
+    };
 
 interface BottomBarProps {
   /** Currently active session ID (null = on dashboard) */
@@ -36,9 +48,18 @@ interface BottomBarProps {
   onViewChanges?: () => void;
   onDiagnostics?: () => void;
   onArchiveSession?: () => void;
+  /**
+   * Custom menu items for the three-dot menu.
+   * When provided, these replace the default session actions.
+   */
+  customMenuItems?: BottomBarMenuItem[];
 }
 
-export function BottomBar({
+export interface BottomBarRef {
+  presentMenu: () => void;
+}
+
+export const BottomBar = forwardRef<BottomBarRef, BottomBarProps>(function BottomBar({
   activeSessionId,
   tabCount,
   onBack,
@@ -52,20 +73,27 @@ export function BottomBar({
   onViewChanges,
   onDiagnostics,
   onArchiveSession,
-}: BottomBarProps) {
+  customMenuItems,
+}, ref) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
   const sheetRef = useRef<BottomSheetModal>(null);
 
+  useImperativeHandle(ref, () => ({
+    presentMenu: () => sheetRef.current?.present(),
+  }), []);
+
   const hasActiveSession = !!activeSessionId;
+  const hasCustomMenu = !!customMenuItems && customMenuItems.length > 0;
+  const moreEnabled = hasActiveSession || hasCustomMenu;
   const iconColor = isDark ? '#F8F8F8' : '#121215';
   const disabledColor = isDark ? '#3a3a3a' : '#c8c8c8';
 
   const handleMore = useCallback(() => {
-    if (!hasActiveSession) return;
+    if (!moreEnabled) return;
     sheetRef.current?.present();
-  }, [hasActiveSession]);
+  }, [moreEnabled]);
 
   const closeSheet = useCallback(() => {
     sheetRef.current?.dismiss();
@@ -176,7 +204,7 @@ export function BottomBar({
         {/* More (...) */}
         <TouchableOpacity
           onPress={handleMore}
-          disabled={!hasActiveSession}
+          disabled={!moreEnabled}
           className="items-center justify-center p-2"
           activeOpacity={0.6}
           hitSlop={6}
@@ -184,7 +212,7 @@ export function BottomBar({
           <Ionicons
             name="ellipsis-horizontal"
             size={22}
-            color={hasActiveSession ? iconColor : disabledColor}
+            color={moreEnabled ? iconColor : disabledColor}
           />
         </TouchableOpacity>
       </View>
@@ -206,19 +234,59 @@ export function BottomBar({
         }}
       >
         <BottomSheetView style={{ paddingBottom: insets.bottom + 12 }}>
-          {menuItems.map((item) => (
-            <TouchableOpacity
-              key={item.label}
-              onPress={item.onPress}
-              className="flex-row items-center px-6 py-3.5"
-              activeOpacity={0.6}
-            >
-              <Ionicons name={item.icon} size={20} color={iconColor} />
-              <Text className="text-[15px] ml-4 text-foreground">{item.label}</Text>
-            </TouchableOpacity>
-          ))}
+          {hasCustomMenu ? (
+            customMenuItems!.map((item, index) => {
+              if (item.type === 'divider') {
+                return (
+                  <View
+                    key={`divider-${index}`}
+                    className="mx-6 my-1.5"
+                    style={{
+                      height: 1,
+                      backgroundColor: isDark
+                        ? 'rgba(248, 248, 248, 0.08)'
+                        : 'rgba(18, 18, 21, 0.06)',
+                    }}
+                  />
+                );
+              }
+              const IconComp = item.icon;
+              return (
+                <TouchableOpacity
+                  key={item.label}
+                  onPress={() => { closeSheet(); item.onPress(); }}
+                  className="flex-row items-center px-6 py-3.5"
+                  activeOpacity={0.6}
+                >
+                  <IconComp
+                    size={20}
+                    color={item.destructive ? '#ef4444' : iconColor}
+                    strokeWidth={1.8}
+                  />
+                  <Text
+                    className="text-[15px] ml-4"
+                    style={{ color: item.destructive ? '#ef4444' : (isDark ? '#F8F8F8' : '#121215') }}
+                  >
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })
+          ) : (
+            menuItems.map((item) => (
+              <TouchableOpacity
+                key={item.label}
+                onPress={item.onPress}
+                className="flex-row items-center px-6 py-3.5"
+                activeOpacity={0.6}
+              >
+                <Ionicons name={item.icon} size={20} color={iconColor} />
+                <Text className="text-[15px] ml-4 text-foreground">{item.label}</Text>
+              </TouchableOpacity>
+            ))
+          )}
         </BottomSheetView>
       </BottomSheetModal>
     </>
   );
-}
+});
