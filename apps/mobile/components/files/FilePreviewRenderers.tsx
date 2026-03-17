@@ -271,107 +271,172 @@ function JsonPreview({ content }: { content: string }) {
     }
   }, [content]);
 
-  const lines = useMemo(() => formattedJson.split('\n'), [formattedJson]);
-  const textColor = isDark ? '#eeffff' : '#24292e';
-  const bgColor = isDark ? '#1e1e1e' : '#ffffff';
+  const html = useMemo(
+    () => generateHighlightedCodeHtml(formattedJson, 'json', isDark),
+    [formattedJson, isDark],
+  );
 
   return (
-    <ScrollView
-      className="flex-1"
-      showsVerticalScrollIndicator={true}
-      style={{ backgroundColor: isDark ? '#121215' : '#ffffff' }}
-    >
-      <View className="px-4 py-3 border-b" style={{
-        borderBottomColor: isDark ? 'rgba(248, 248, 248, 0.1)' : 'rgba(18, 18, 21, 0.1)',
-      }}>
+    <View className="flex-1" style={{ backgroundColor: isDark ? '#1e1e1e' : '#ffffff' }}>
+      <View
+        className="px-4 py-3 border-b"
+        style={{
+          borderBottomColor: isDark
+            ? 'rgba(248, 248, 248, 0.1)'
+            : 'rgba(18, 18, 21, 0.1)',
+          backgroundColor: isDark ? '#121215' : '#ffffff',
+        }}
+      >
         <Text
           className="text-xs font-roobert-medium"
           style={{
-            color: isDark ? 'rgba(248, 248, 248, 0.6)' : 'rgba(18, 18, 21, 0.6)',
+            color: isDark
+              ? 'rgba(248, 248, 248, 0.6)'
+              : 'rgba(18, 18, 21, 0.6)',
           }}
         >
           JSON
         </Text>
       </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={{ backgroundColor: bgColor }}
-      >
-        <View style={{ padding: 12 }}>
-          {lines.map((line, idx) => (
-            <Text
-              key={idx}
-              style={{
-                fontSize: 13,
-                fontFamily: 'monospace',
-                color: textColor,
-                lineHeight: 20,
-              }}
-              selectable
-            >
-              {line || ' '}
-            </Text>
-          ))}
-        </View>
-      </ScrollView>
-    </ScrollView>
+      <WebView
+        source={{ html }}
+        style={{ flex: 1, backgroundColor: 'transparent' }}
+        originWhitelist={['*']}
+        javaScriptEnabled
+        scrollEnabled
+        showsVerticalScrollIndicator
+        startInLoadingState
+        renderLoading={() => (
+          <View
+            className="absolute inset-0 items-center justify-center"
+            style={{ backgroundColor: isDark ? '#1e1e1e' : '#ffffff' }}
+          >
+            <KortixLoader size="large" />
+          </View>
+        )}
+      />
+    </View>
   );
 }
 
 /**
- * Code Preview Component with syntax highlighting
+ * Generates HTML with highlight.js for syntax-highlighted code rendering.
+ */
+function generateHighlightedCodeHtml(
+  code: string,
+  language: string,
+  isDark: boolean,
+): string {
+  const bgColor = isDark ? '#1e1e1e' : '#ffffff';
+  const theme = isDark ? 'github-dark' : 'github';
+  // Escape HTML entities in code
+  const escaped = code
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/${theme}.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    background: ${bgColor};
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 20px;
+    -webkit-text-size-adjust: none;
+  }
+  pre {
+    padding: 12px 16px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  code.hljs {
+    background: transparent !important;
+    padding: 0 !important;
+  }
+  /* Line numbers */
+  .line-num {
+    display: inline-block;
+    width: 3.5em;
+    text-align: right;
+    padding-right: 1em;
+    color: ${isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'};
+    user-select: none;
+    -webkit-user-select: none;
+  }
+</style>
+</head>
+<body>
+<pre><code class="language-${language}">${escaped}</code></pre>
+<script>
+  hljs.highlightAll();
+</script>
+</body>
+</html>`;
+}
+
+/**
+ * Code Preview Component with syntax highlighting via highlight.js WebView.
  */
 function CodePreview({ content, fileName }: { content: string; fileName: string }) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const language = getLanguageFromFilename(fileName);
 
-  const lines = useMemo(() => content.split('\n'), [content]);
-  const textColor = isDark ? '#eeffff' : '#24292e';
-  const bgColor = isDark ? '#1e1e1e' : '#ffffff';
+  const html = useMemo(
+    () => generateHighlightedCodeHtml(content, language, isDark),
+    [content, language, isDark],
+  );
 
   return (
-    <ScrollView
-      className="flex-1"
-      showsVerticalScrollIndicator={true}
-      style={{ backgroundColor: isDark ? '#121215' : '#ffffff' }}
-    >
-      <View className="px-4 py-3 border-b" style={{
-        borderBottomColor: isDark ? 'rgba(248, 248, 248, 0.1)' : 'rgba(18, 18, 21, 0.1)',
-      }}>
+    <View className="flex-1" style={{ backgroundColor: isDark ? '#1e1e1e' : '#ffffff' }}>
+      {/* Language badge */}
+      <View
+        className="px-4 py-3 border-b"
+        style={{
+          borderBottomColor: isDark
+            ? 'rgba(248, 248, 248, 0.1)'
+            : 'rgba(18, 18, 21, 0.1)',
+          backgroundColor: isDark ? '#121215' : '#ffffff',
+        }}
+      >
         <Text
           className="text-xs font-roobert-medium"
           style={{
-            color: isDark ? 'rgba(248, 248, 248, 0.6)' : 'rgba(18, 18, 21, 0.6)',
+            color: isDark
+              ? 'rgba(248, 248, 248, 0.6)'
+              : 'rgba(18, 18, 21, 0.6)',
           }}
         >
           {language.toUpperCase()}
         </Text>
       </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={{ backgroundColor: bgColor }}
-      >
-        <View style={{ padding: 12 }}>
-          {lines.map((line, idx) => (
-            <Text
-              key={idx}
-              style={{
-                fontSize: 13,
-                fontFamily: 'monospace',
-                color: textColor,
-                lineHeight: 20,
-              }}
-              selectable
-            >
-              {line || ' '}
-            </Text>
-          ))}
-        </View>
-      </ScrollView>
-    </ScrollView>
+      {/* Highlighted code */}
+      <WebView
+        source={{ html }}
+        style={{ flex: 1, backgroundColor: 'transparent' }}
+        originWhitelist={['*']}
+        javaScriptEnabled
+        scrollEnabled
+        showsVerticalScrollIndicator
+        startInLoadingState
+        renderLoading={() => (
+          <View
+            className="absolute inset-0 items-center justify-center"
+            style={{ backgroundColor: isDark ? '#1e1e1e' : '#ffffff' }}
+          >
+            <KortixLoader size="large" />
+          </View>
+        )}
+      />
+    </View>
   );
 }
 /**
