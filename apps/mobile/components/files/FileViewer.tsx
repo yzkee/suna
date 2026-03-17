@@ -4,11 +4,11 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Modal, Pressable, Share, Platform, Alert } from 'react-native';
+import { View, Modal, Pressable, Share, Platform } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { Icon } from '@/components/ui/icon';
 import { KortixLoader } from '@/components/ui';
-import { X, Download, Share2, ChevronLeft, ChevronRight, Lock } from 'lucide-react-native';
+import { X, Download, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -22,10 +22,9 @@ import * as Haptics from 'expo-haptics';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { FilePreview, FilePreviewType, getFilePreviewType } from './FilePreviewRenderers';
-import { useSandboxFileContent, useSandboxImageBlob, blobToDataURL } from '@/lib/files/hooks';
+import { useOpenCodeFileContent, useOpenCodeFileBlob, blobToDataURL } from '@/lib/files/hooks';
 import type { SandboxFile } from '@/api/types';
-import { useBillingContext } from '@/contexts/BillingContext';
-import { useRouter } from 'expo-router';
+
 import { log } from '@/lib/logger';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -56,31 +55,10 @@ export function FileViewer({
 }: FileViewerProps) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
-  const router = useRouter();
   const closeScale = useSharedValue(1);
   const [blobUrl, setBlobUrl] = useState<string | undefined>();
   const [viewMode, setViewMode] = useState<'preview' | 'raw'>('preview');
   const [isDownloading, setIsDownloading] = useState(false);
-  const { hasFreeTier } = useBillingContext();
-
-  // Handle upgrade prompt for free tier users
-  const handleUpgradePrompt = useCallback(() => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    Alert.alert(
-      'Upgrade Required',
-      'Downloads and sharing are available on paid plans. Upgrade to unlock this feature.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Upgrade',
-          onPress: () => {
-            onClose();
-            router.push('/plans');
-          },
-        },
-      ]
-    );
-  }, [onClose, router]);
 
   const previewType = file ? getFilePreviewType(file.name) : FilePreviewType.OTHER;
   const isImage = previewType === FilePreviewType.IMAGE;
@@ -97,23 +75,23 @@ export function FileViewer({
   const canShowRaw =
     file && previewType !== FilePreviewType.BINARY && previewType !== FilePreviewType.OTHER;
 
-  // Fetch file content for text-based files
+  // Fetch file content for text-based files (via OpenCode API)
   const {
     data: textContent,
     isLoading: isLoadingText,
     error: textError,
-  } = useSandboxFileContent(
-    shouldFetchText ? sandboxId : undefined,
+  } = useOpenCodeFileContent(
+    shouldFetchText ? sandboxUrl : undefined,
     shouldFetchText ? file?.path : undefined
   );
 
-  // Fetch blob for images
+  // Fetch blob for binary files (via OpenCode API)
   const {
     data: imageBlob,
     isLoading: isLoadingImage,
     error: imageError,
-  } = useSandboxImageBlob(
-    shouldFetchBlob ? sandboxId : undefined,
+  } = useOpenCodeFileBlob(
+    shouldFetchBlob ? sandboxUrl : undefined,
     shouldFetchBlob ? file?.path : undefined
   );
 
@@ -136,13 +114,6 @@ export function FileViewer({
 
   const handleDownload = async () => {
     if (!file) return;
-
-    // Block downloads for free tier users
-    if (hasFreeTier) {
-      handleUpgradePrompt();
-      return;
-    }
-
     setIsDownloading(true);
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -199,39 +170,6 @@ export function FileViewer({
       log.error('Download failed:', error);
     } finally {
       setIsDownloading(false);
-    }
-  };
-
-  const handleShare = async () => {
-    if (!file) return;
-
-    // Block sharing for free tier users
-    if (hasFreeTier) {
-      handleUpgradePrompt();
-      return;
-    }
-
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-      // For binary files (images, PDFs, etc.) use blob URL
-      if (blobUrl) {
-        await Share.share({
-          url: blobUrl,
-          title: file.name,
-        });
-        return;
-      }
-      
-      // For text files, share the content
-      if (textContent) {
-        await Share.share({
-          message: textContent,
-          title: file.name,
-        });
-      }
-    } catch (error) {
-      log.error('Share failed:', error);
     }
   };
 
@@ -327,30 +265,18 @@ export function FileViewer({
               <AnimatedPressable 
                 onPress={handleDownload} 
                 disabled={isDownloading}
-                className="relative p-2"
+                className="p-2"
                 style={{ opacity: isDownloading ? 0.6 : 1 }}>
                 {isDownloading ? (
-                  <KortixLoader size={22} />
+                  <KortixLoader size="small" />
                 ) : (
                   <Icon
-                    as={hasFreeTier ? Lock : Download}
+                    as={Download}
                     size={22}
-                    color={
-                      hasFreeTier ? (isDark ? '#a78bfa' : '#7c3aed') : isDark ? '#f8f8f8' : '#121215'
-                    }
+                    color={isDark ? '#f8f8f8' : '#121215'}
                     strokeWidth={2}
                   />
                 )}
-              </AnimatedPressable>
-              <AnimatedPressable onPress={handleShare} className="relative p-2">
-                <Icon
-                  as={hasFreeTier ? Lock : Share2}
-                  size={22}
-                  color={
-                    hasFreeTier ? (isDark ? '#a78bfa' : '#7c3aed') : isDark ? '#f8f8f8' : '#121215'
-                  }
-                  strokeWidth={2}
-                />
               </AnimatedPressable>
               <AnimatedPressable
                 onPressIn={() => {

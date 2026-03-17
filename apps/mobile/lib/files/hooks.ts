@@ -183,8 +183,10 @@ export function useOpenCodeFileContent(
     queryFn: async () => {
       if (!sandboxUrl || !filePath) throw new Error('Missing params');
       const token = await getAuthToken();
+
+      // GET /file/content?path=... returns JSON { content, encoding?, mimeType? }
       const res = await fetch(
-        `${sandboxUrl}/file/read?path=${encodeURIComponent(filePath)}`,
+        `${sandboxUrl}/file/content?path=${encodeURIComponent(filePath)}`,
         {
           headers: {
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -193,8 +195,11 @@ export function useOpenCodeFileContent(
       );
       if (!res.ok) throw new Error(`Failed to read file: ${res.status}`);
       const data = await res.json();
-      // OpenCode returns { type, content, encoding?, mimeType? }
-      return data.content as string;
+      // For base64-encoded binary files, decode
+      if (data.encoding === 'base64' && data.content) {
+        return data.content as string; // Return base64 as-is, preview renderer handles it
+      }
+      return (data.content ?? '') as string;
     },
     enabled: !!sandboxUrl && !!filePath,
     staleTime: 5 * 60_000,
@@ -203,7 +208,8 @@ export function useOpenCodeFileContent(
 }
 
 /**
- * Read file as blob using OpenCode API: GET {sandboxUrl}/file/raw?path=...
+ * Read file as blob using OpenCode API.
+ * Tries GET /file/raw first, falls back to /file/content (base64 decode).
  */
 export function useOpenCodeFileBlob(
   sandboxUrl: string | undefined,
@@ -215,16 +221,40 @@ export function useOpenCodeFileBlob(
     queryFn: async () => {
       if (!sandboxUrl || !filePath) throw new Error('Missing params');
       const token = await getAuthToken();
+      const headers = { ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+
+      // Try /file/raw first (binary stream)
+      try {
+        const rawRes = await fetch(
+          `${sandboxUrl}/file/raw?path=${encodeURIComponent(filePath)}`,
+          { headers },
+        );
+        if (rawRes.ok) {
+          const contentType = rawRes.headers.get('content-type') || '';
+          // Make sure we didn't get an HTML page back
+          if (!contentType.includes('text/html')) {
+            return rawRes.blob();
+          }
+        }
+      } catch {
+        // /file/raw not available, fall through
+      }
+
+      // Fallback: /file/content returns JSON with base64 content
       const res = await fetch(
-        `${sandboxUrl}/file/raw?path=${encodeURIComponent(filePath)}`,
-        {
-          headers: {
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-        },
+        `${sandboxUrl}/file/content?path=${encodeURIComponent(filePath)}`,
+        { headers },
       );
       if (!res.ok) throw new Error(`Failed to load file: ${res.status}`);
-      return res.blob();
+      const data = await res.json();
+      if (data.encoding === 'base64' && data.content) {
+        const binary = atob(data.content);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        return new Blob([bytes], { type: data.mimeType || 'application/octet-stream' });
+      }
+      // Text content
+      return new Blob([data.content || ''], { type: data.mimeType || 'text/plain' });
     },
     enabled: !!sandboxUrl && !!filePath,
     staleTime: 10 * 60_000,
