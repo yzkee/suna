@@ -216,6 +216,26 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
     return { folders, regularFiles };
   }, [files, showHidden]);
 
+  // All sibling names in current directory (for duplicate detection)
+  const siblingNames = useMemo(() => {
+    if (!files || !Array.isArray(files)) return [];
+    return files.map((f) => f.name.toLowerCase());
+  }, [files]);
+
+  // Check if new folder name already exists (case-insensitive)
+  const folderNameExists = useMemo(() => {
+    if (!newFolderName.trim()) return false;
+    return siblingNames.includes(newFolderName.trim().toLowerCase());
+  }, [newFolderName, siblingNames]);
+
+  // Check if rename target already exists (case-insensitive, excluding current name)
+  const renameNameExists = useMemo(() => {
+    if (!renameName.trim() || !selectedFile) return false;
+    const trimmed = renameName.trim().toLowerCase();
+    if (trimmed === selectedFile.name.toLowerCase()) return false;
+    return siblingNames.includes(trimmed);
+  }, [renameName, selectedFile, siblingNames]);
+
   // Handlers
   const handleFilePress = useCallback((file: SandboxFile) => {
     setSelectedFile(null);
@@ -262,7 +282,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
   }, [selectedFile]);
 
   const handleConfirmRename = useCallback(async () => {
-    if (!renameName.trim() || !selectedFile || !sandboxUrl) return;
+    if (!renameName.trim() || !selectedFile || !sandboxUrl || renameNameExists) return;
     Keyboard.dismiss();
     try {
       const parentDir = selectedFile.path.substring(0, selectedFile.path.lastIndexOf('/'));
@@ -279,7 +299,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
     } catch {
       Alert.alert('Error', 'Failed to rename');
     }
-  }, [selectedFile, renameName, sandboxUrl, renameMutation]);
+  }, [selectedFile, renameName, sandboxUrl, renameMutation, renameNameExists]);
 
   const handleDeleteFile = useCallback(() => {
     if (!selectedFile || !sandboxUrl) return;
@@ -367,7 +387,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
   }, [sandboxUrl, uploadMutation, currentPath]);
 
   const handleCreateFolder = useCallback(async () => {
-    if (!newFolderName.trim() || !sandboxUrl) return;
+    if (!newFolderName.trim() || !sandboxUrl || folderNameExists) return;
     Keyboard.dismiss();
     try {
       const folderPath = `${currentPath}/${newFolderName.trim()}`;
@@ -381,7 +401,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
     } catch {
       Alert.alert('Error', 'Failed to create folder');
     }
-  }, [sandboxUrl, createFolderMutation, currentPath, newFolderName]);
+  }, [sandboxUrl, createFolderMutation, currentPath, newFolderName, folderNameExists]);
 
   // Expose actions to parent via ref (for BottomBar menu)
   useImperativeHandle(ref, () => ({
@@ -1002,47 +1022,59 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
                 ? 'rgba(248, 248, 248, 0.06)'
                 : 'rgba(18, 18, 21, 0.04)',
               borderWidth: 1,
-              borderColor: isDark
-                ? 'rgba(248, 248, 248, 0.1)'
-                : 'rgba(18, 18, 21, 0.08)',
+              borderColor: folderNameExists
+                ? 'rgba(239, 68, 68, 0.6)'
+                : isDark
+                  ? 'rgba(248, 248, 248, 0.1)'
+                  : 'rgba(18, 18, 21, 0.08)',
               borderRadius: 14,
               paddingHorizontal: 16,
               paddingVertical: 14,
               fontSize: 16,
               fontFamily: 'Roobert',
               color: fgColor,
-              marginBottom: 20,
+              marginBottom: folderNameExists ? 8 : 20,
             }}
           />
+          {folderNameExists && (
+            <Text
+              className="text-xs font-roobert mb-4"
+              style={{ color: '#ef4444', paddingLeft: 4 }}
+            >
+              A file or folder with that name already exists
+            </Text>
+          )}
 
           {/* Create button */}
           <BottomSheetTouchable
             onPress={handleCreateFolder}
-            disabled={!newFolderName.trim() || createFolderMutation.isPending}
+            disabled={!newFolderName.trim() || folderNameExists || createFolderMutation.isPending}
             style={{
-              backgroundColor: newFolderName.trim()
-                ? isDark
-                  ? '#f8f8f8'
-                  : '#121215'
-                : isDark
-                  ? 'rgba(248, 248, 248, 0.08)'
-                  : 'rgba(18, 18, 21, 0.06)',
+              backgroundColor:
+                newFolderName.trim() && !folderNameExists
+                  ? isDark
+                    ? '#f8f8f8'
+                    : '#121215'
+                  : isDark
+                    ? 'rgba(248, 248, 248, 0.08)'
+                    : 'rgba(18, 18, 21, 0.06)',
               borderRadius: 14,
               paddingVertical: 15,
               alignItems: 'center',
-              opacity: newFolderName.trim() ? 1 : 0.5,
+              opacity: newFolderName.trim() && !folderNameExists ? 1 : 0.5,
             }}
           >
             <Text
               className="text-[15px] font-roobert-semibold"
               style={{
-                color: newFolderName.trim()
-                  ? isDark
-                    ? '#121215'
-                    : '#f8f8f8'
-                  : isDark
-                    ? 'rgba(248, 248, 248, 0.3)'
-                    : 'rgba(18, 18, 21, 0.3)',
+                color:
+                  newFolderName.trim() && !folderNameExists
+                    ? isDark
+                      ? '#121215'
+                      : '#f8f8f8'
+                    : isDark
+                      ? 'rgba(248, 248, 248, 0.3)'
+                      : 'rgba(18, 18, 21, 0.3)',
               }}
             >
               {createFolderMutation.isPending ? 'Creating...' : 'Create Folder'}
@@ -1136,57 +1168,70 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
                 ? 'rgba(248, 248, 248, 0.06)'
                 : 'rgba(18, 18, 21, 0.04)',
               borderWidth: 1,
-              borderColor: isDark
-                ? 'rgba(248, 248, 248, 0.1)'
-                : 'rgba(18, 18, 21, 0.08)',
+              borderColor: renameNameExists
+                ? 'rgba(239, 68, 68, 0.6)'
+                : isDark
+                  ? 'rgba(248, 248, 248, 0.1)'
+                  : 'rgba(18, 18, 21, 0.08)',
               borderRadius: 14,
               paddingHorizontal: 16,
               paddingVertical: 14,
               fontSize: 16,
               fontFamily: 'Roobert',
               color: fgColor,
-              marginBottom: 20,
+              marginBottom: renameNameExists ? 8 : 20,
             }}
           />
+          {renameNameExists && (
+            <Text
+              className="text-xs font-roobert mb-4"
+              style={{ color: '#ef4444', paddingLeft: 4 }}
+            >
+              A file or folder with that name already exists
+            </Text>
+          )}
 
           {/* Rename button */}
-          <BottomSheetTouchable
-            onPress={handleConfirmRename}
-            disabled={!renameName.trim() || renameName.trim() === selectedFile?.name || renameMutation.isPending}
-            style={{
-              backgroundColor:
-                renameName.trim() && renameName.trim() !== selectedFile?.name
-                  ? isDark
-                    ? '#f8f8f8'
-                    : '#121215'
-                  : isDark
-                    ? 'rgba(248, 248, 248, 0.08)'
-                    : 'rgba(18, 18, 21, 0.06)',
-              borderRadius: 14,
-              paddingVertical: 15,
-              alignItems: 'center',
-              opacity:
-                renameName.trim() && renameName.trim() !== selectedFile?.name
-                  ? 1
-                  : 0.5,
-            }}
-          >
-            <Text
-              className="text-[15px] font-roobert-semibold"
-              style={{
-                color:
-                  renameName.trim() && renameName.trim() !== selectedFile?.name
+          {(() => {
+            const canRename =
+              !!renameName.trim() &&
+              renameName.trim() !== selectedFile?.name &&
+              !renameNameExists;
+            return (
+              <BottomSheetTouchable
+                onPress={handleConfirmRename}
+                disabled={!canRename || renameMutation.isPending}
+                style={{
+                  backgroundColor: canRename
                     ? isDark
-                      ? '#121215'
-                      : '#f8f8f8'
+                      ? '#f8f8f8'
+                      : '#121215'
                     : isDark
-                      ? 'rgba(248, 248, 248, 0.3)'
-                      : 'rgba(18, 18, 21, 0.3)',
-              }}
-            >
-              {renameMutation.isPending ? 'Renaming...' : 'Rename'}
-            </Text>
-          </BottomSheetTouchable>
+                      ? 'rgba(248, 248, 248, 0.08)'
+                      : 'rgba(18, 18, 21, 0.06)',
+                  borderRadius: 14,
+                  paddingVertical: 15,
+                  alignItems: 'center',
+                  opacity: canRename ? 1 : 0.5,
+                }}
+              >
+                <Text
+                  className="text-[15px] font-roobert-semibold"
+                  style={{
+                    color: canRename
+                      ? isDark
+                        ? '#121215'
+                        : '#f8f8f8'
+                      : isDark
+                        ? 'rgba(248, 248, 248, 0.3)'
+                        : 'rgba(18, 18, 21, 0.3)',
+                  }}
+                >
+                  {renameMutation.isPending ? 'Renaming...' : 'Rename'}
+                </Text>
+              </BottomSheetTouchable>
+            );
+          })()}
         </BottomSheetView>
       </BottomSheetModal>
 
