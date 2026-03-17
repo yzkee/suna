@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import {
   Loader2,
@@ -12,6 +12,12 @@ import {
   ArrowUp,
   ArrowDown,
   CornerDownLeft,
+  FolderKanban,
+  Bot,
+  Cpu,
+  ChevronRight,
+  ArrowLeft,
+  Check,
 } from 'lucide-react';
 
 import {
@@ -33,15 +39,10 @@ import {
 import { useSidebar } from '@/components/ui/sidebar';
 import {
   useOpenCodeSessions,
+  useOpenCodeProjects,
+  useOpenCodeAgents,
+  useOpenCodeProviders,
 } from '@/hooks/opencode/use-opencode-sessions';
-// TODO: Re-enable file/text/semantic search once OpenCode server endpoints are fixed.
-// Currently broken:
-//   - File search (GET /find/file) — returns empty or errors
-//   - Text search (GET /find) — endpoint may work but needs verification
-//   - Semantic search (GET /lss/search) — requires OPENAI_API_KEY in sandbox
-// Imports kept for reference:
-// import { useTextSearch, useLssSearch } from '@/features/files';
-// import type { FindMatch } from '@/features/files';
 import { toast } from '@/lib/toast';
 import { useCreateOpenCodeSession } from '@/hooks/opencode/use-opencode-sessions';
 import { openTabAndNavigate } from '@/stores/tab-store';
@@ -55,6 +56,19 @@ import { isBillingEnabled } from '@/lib/config';
 import { useTheme } from 'next-themes';
 import { clearUserLocalStorage } from '@/lib/utils/clear-local-storage';
 import { useAdminRole } from '@/hooks/admin';
+import { flattenModels } from '@/components/session/session-chat-input';
+import { useModelStore } from '@/hooks/opencode/use-model-store';
+import {
+  PROVIDER_LABELS,
+  ProviderLogo,
+  MODEL_SELECTOR_PROVIDER_IDS,
+} from '@/components/providers/provider-branding';
+
+// ============================================================================
+// Types
+// ============================================================================
+
+type PalettePage = 'root' | 'agents' | 'models';
 
 // ============================================================================
 // Helpers
@@ -72,7 +86,11 @@ function formatRelativeTime(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString();
 }
 
-// Kbd is now shared as CommandKbd from '@/components/ui/command'
+function deriveProjectName(project: { id: string; name?: string; worktree: string }): string {
+  if (project.name) return project.name;
+  if (project.worktree === '/' || project.id === 'global') return 'Global';
+  return project.worktree.split('/').pop() || project.worktree;
+}
 
 // ============================================================================
 // Command Palette
@@ -81,12 +99,14 @@ function formatRelativeTime(timestamp: number): string {
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [page, setPage] = useState<PalettePage>('root');
   const [isCreating, setIsCreating] = useState(false);
   const [compactOpen, setCompactOpen] = useState(false);
   const [diffOpen, setDiffOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>('general');
   const [planModalOpen, setPlanModalOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const pathname = usePathname();
   const currentSessionId = useMemo(() => {
@@ -101,10 +121,44 @@ export function CommandPalette() {
   const { data: adminRoleData } = useAdminRole();
   const isAdmin = adminRoleData?.isAdmin ?? false;
 
-  // Fetch all sessions (for client-side title filter)
+  // ── Data hooks ──
   const { data: sessions } = useOpenCodeSessions();
+  const { data: projects } = useOpenCodeProjects();
+  const { data: agents } = useOpenCodeAgents();
+  const { data: providers } = useOpenCodeProviders();
+
+  // ── Derived: flat models ──
+  const allModels = useMemo(() => flattenModels(providers), [providers]);
+  const modelStore = useModelStore(allModels);
+
+  // ── Current agent/model for the active session ──
+  const currentAgentName = useMemo(() => {
+    if (!currentSessionId) return undefined;
+    return modelStore.getSessionAgentName(currentSessionId);
+  }, [currentSessionId, modelStore]);
+
+  const currentAgent = useMemo(() => {
+    if (!currentAgentName || !agents) return agents?.[0];
+    return agents.find((a) => a.name === currentAgentName) ?? agents[0];
+  }, [currentAgentName, agents]);
+
+  const currentModelKey = useMemo(() => {
+    if (!currentAgent) return undefined;
+    return modelStore.getSelectedModel(currentAgent.name);
+  }, [currentAgent, modelStore]);
 
   const close = useCallback(() => setOpen(false), []);
+
+  // ── Page navigation helpers ──
+  const goToPage = useCallback((p: PalettePage) => {
+    setPage(p);
+    setQuery('');
+  }, []);
+
+  const goBack = useCallback(() => {
+    setPage('root');
+    setQuery('');
+  }, []);
 
   const handleOpenTerminal = useCallback(async () => {
     try {
@@ -117,7 +171,7 @@ export function CommandPalette() {
         type: 'terminal',
         href: `/terminal/${pty.id}`,
       });
-    } catch (e) {
+    } catch {
       toast.error('Failed to open terminal');
     }
     close();
@@ -139,12 +193,26 @@ export function CommandPalette() {
     return () => document.removeEventListener('keydown', down);
   }, [handleOpenTerminal]);
 
-  // Reset query when dialog closes
+  // Reset when dialog closes
   useEffect(() => {
     if (!open) {
       setQuery('');
+      setPage('root');
     }
   }, [open]);
+
+  // Backspace on empty query goes back to root
+  useEffect(() => {
+    if (page === 'root') return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Backspace' && query === '') {
+        e.preventDefault();
+        goBack();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [page, query, goBack]);
 
   // Fuzzy match helper
   const fuzzyMatch = useCallback((text: string, q: string): boolean => {
@@ -153,7 +221,7 @@ export function CommandPalette() {
     return words.every((w) => haystack.includes(w));
   }, []);
 
-  // Filter sessions by query
+  // ── Filter: sessions ──
   const filteredSessions = useMemo(() => {
     if (!sessions || !query.trim()) return [];
     const q = query.trim();
@@ -166,6 +234,21 @@ export function CommandPalette() {
       .slice(0, 20);
   }, [sessions, query, fuzzyMatch]);
 
+  // ── Filter: projects ──
+  const filteredProjects = useMemo(() => {
+    if (!projects) return [];
+    const sorted = [...projects].sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0));
+    if (!query.trim()) return sorted.slice(0, 5);
+    const q = query.trim();
+    return sorted
+      .filter((p) => {
+        const name = deriveProjectName(p);
+        const searchable = [name, p.worktree, p.id].join(' ');
+        return fuzzyMatch(searchable, q);
+      })
+      .slice(0, 15);
+  }, [projects, query, fuzzyMatch]);
+
   // Recent sessions for idle state
   const recentSessions = useMemo(() => {
     if (!sessions) return [];
@@ -176,6 +259,7 @@ export function CommandPalette() {
   const queryLongEnough = query.trim().length >= 2;
 
   const hasSessionResults = filteredSessions.length > 0;
+  const hasProjectResults = filteredProjects.length > 0;
 
   // ── Palette items ──
   const allPaletteItems = useMemo(() => {
@@ -203,13 +287,86 @@ export function CommandPalette() {
     });
   }, [allPaletteItems, hasQuery, query]);
 
+  // ── Submenu: agents ──
+  const visibleAgents = useMemo(() => {
+    if (!agents) return [];
+    return agents.filter((a) => !a.hidden);
+  }, [agents]);
+
+  const filteredAgents = useMemo(() => {
+    if (!visibleAgents.length) return [];
+    if (!query.trim()) return visibleAgents;
+    const q = query.trim().toLowerCase();
+    return visibleAgents.filter((a) =>
+      a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q),
+    );
+  }, [visibleAgents, query]);
+
+  const primaryAgents = useMemo(() => filteredAgents.filter((a) => a.mode !== 'subagent'), [filteredAgents]);
+  const subAgents = useMemo(() => filteredAgents.filter((a) => a.mode === 'subagent'), [filteredAgents]);
+
+  // ── Submenu: models (grouped by provider) ──
+  const visibleModels = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return allModels
+      .filter((m) => {
+        if (!q && !modelStore.isVisible({ providerID: m.providerID, modelID: m.modelID })) return false;
+        return !q || m.modelName.toLowerCase().includes(q) || m.modelID.toLowerCase().includes(q) || m.providerName.toLowerCase().includes(q);
+      })
+      .sort((a, b) => a.modelName.localeCompare(b.modelName));
+  }, [allModels, query, modelStore]);
+
+  const groupedModels = useMemo(() => {
+    const groups = new Map<string, { providerID: string; providerName: string; models: typeof visibleModels }>();
+    for (const m of visibleModels) {
+      const existing = groups.get(m.providerID);
+      if (existing) {
+        existing.models.push(m);
+      } else {
+        groups.set(m.providerID, { providerID: m.providerID, providerName: PROVIDER_LABELS[m.providerID] || m.providerName, models: [m] });
+      }
+    }
+    const entries = Array.from(groups.values());
+    entries.sort((a, b) => {
+      const ai = MODEL_SELECTOR_PROVIDER_IDS.indexOf(a.providerID);
+      const bi = MODEL_SELECTOR_PROVIDER_IDS.indexOf(b.providerID);
+      if (ai >= 0 && bi < 0) return -1;
+      if (ai < 0 && bi >= 0) return 1;
+      if (ai >= 0 && bi >= 0) return ai - bi;
+      return a.providerName.localeCompare(b.providerName);
+    });
+    return entries;
+  }, [visibleModels]);
+
+  // ── "Change Agent" and "Change Model" virtual palette items ──
+  const sessionActionItems = useMemo(() => {
+    if (!hasQuery) return [];
+    const q = query.trim().toLowerCase();
+    const words = q.split(/\s+/).filter(Boolean);
+    const items: { id: string; label: string; keywords: string; targetPage: PalettePage }[] = [];
+    if (currentSessionId) {
+      items.push({
+        id: 'change-agent',
+        label: 'Change Agent',
+        keywords: 'change agent worker switch select bot assistant',
+        targetPage: 'agents',
+      });
+      items.push({
+        id: 'change-model',
+        label: 'Change Model',
+        keywords: 'change model llm switch select provider anthropic openai claude gpt',
+        targetPage: 'models',
+      });
+    }
+    return items.filter((item) => {
+      const haystack = [item.label, item.keywords].join(' ').toLowerCase();
+      return words.every((w) => haystack.includes(w));
+    });
+  }, [hasQuery, query, currentSessionId]);
+
   const hasNavResults = filteredNavItems.length > 0;
-
-  const hasAnyResults = hasNavResults || hasSessionResults;
-
-  // TODO: Re-enable when search endpoints are fixed.
-  // const showLssSection = hasQuery && queryLongEnough;
-  // const showTextSection = hasQuery && textQueryLongEnough;
+  const hasSessionActionResults = sessionActionItems.length > 0;
+  const hasAnyResults = hasNavResults || hasSessionResults || hasProjectResults || hasSessionActionResults;
 
   const showNoResults =
     hasQuery &&
@@ -269,6 +426,19 @@ export function CommandPalette() {
     [close],
   );
 
+  const handleSelectProject = useCallback(
+    (projectId: string, name: string) => {
+      openTabAndNavigate({
+        id: `page:/projects/${projectId}`,
+        title: name,
+        type: 'page',
+        href: `/projects/${projectId}`,
+      }, router);
+      close();
+    },
+    [router, close],
+  );
+
   const handleToggleSidebar = useCallback(() => {
     toggleSidebar();
     close();
@@ -313,7 +483,6 @@ export function CommandPalette() {
   // ── Registry action dispatcher ──
   const handleOpenProviderModal = useCallback(() => {
     close();
-    // Dynamic import to avoid circular deps — lazy is fine for a click handler
     import('@/stores/provider-modal-store').then(({ useProviderModalStore }) => {
       useProviderModalStore.getState().openProviderModal('connected');
     });
@@ -349,134 +518,406 @@ export function CommandPalette() {
     }
   }, [handleNavigate, handleOpenSettings, handleSetTheme, actionHandlers]);
 
-  // Count how many search results are active (for footer context)
+  // ── Agent/Model selection handlers ──
+  const handleSelectAgent = useCallback((agentName: string) => {
+    if (!currentSessionId) return;
+    modelStore.setSessionAgentName(currentSessionId, agentName);
+    toast.success(`Agent switched to ${agentName}`);
+    close();
+  }, [currentSessionId, modelStore, close]);
+
+  const handleSelectModel = useCallback((providerID: string, modelID: string) => {
+    if (!currentAgent) return;
+    modelStore.setSelectedModel(currentAgent.name, { providerID, modelID });
+    modelStore.pushRecent({ providerID, modelID });
+    const model = allModels.find((m) => m.providerID === providerID && m.modelID === modelID);
+    toast.success(`Model switched to ${model?.modelName || modelID}`);
+    close();
+  }, [currentAgent, modelStore, allModels, close]);
+
+  // Count results for footer
   const totalSearchResults = useMemo(() => {
+    if (page === 'agents') return filteredAgents.length;
+    if (page === 'models') return visibleModels.length;
     if (!hasQuery) return 0;
-    return filteredNavItems.length + filteredSessions.length;
-  }, [hasQuery, filteredNavItems, filteredSessions]);
+    return filteredNavItems.length + filteredSessions.length + filteredProjects.length + sessionActionItems.length;
+  }, [page, hasQuery, filteredNavItems, filteredSessions, filteredProjects, sessionActionItems, filteredAgents, visibleModels]);
+
+  // ── Placeholder text ──
+  const placeholder = useMemo(() => {
+    if (page === 'agents') return 'Search agents...';
+    if (page === 'models') return 'Search models...';
+    return 'Search commands, projects, sessions...';
+  }, [page]);
+
+  // ── Page title for submenu header ──
+  const pageTitle = useMemo(() => {
+    if (page === 'agents') return 'Change Agent';
+    if (page === 'models') return 'Change Model';
+    return null;
+  }, [page]);
 
   return (
     <>
       <CommandDialog open={open} onOpenChange={setOpen} className="sm:max-w-[680px]">
+        {/* Submenu breadcrumb header */}
+        {page !== 'root' && (
+          <div className="flex items-center gap-2 px-4 pt-3 pb-1">
+            <button
+              type="button"
+              onClick={goBack}
+              className="flex items-center gap-1 text-xs text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer"
+            >
+              <ArrowLeft className="h-3 w-3" />
+              <span>Back</span>
+            </button>
+            <span className="text-xs text-muted-foreground/30">/</span>
+            <span className="text-xs font-medium text-foreground/80">{pageTitle}</span>
+          </div>
+        )}
+
         <CommandInput
-          placeholder="Search commands, files, sessions..."
+          ref={inputRef}
+          placeholder={placeholder}
           value={query}
           onValueChange={setQuery}
         />
 
-        {/* ── Unified CommandList — one list for both idle & search so arrow keys always work ── */}
         <CommandList>
-          {/* ── IDLE STATE — Spotlight / Raycast style ── */}
-          {!hasQuery && (
+          {/* ============================================================ */}
+          {/* PAGE: ROOT                                                    */}
+          {/* ============================================================ */}
+          {page === 'root' && (
             <>
-              <CommandGroup heading="Suggestions" forceMount>
-                {allPaletteItems
-                  .filter(
-                    (item) =>
-                      item.group === 'actions' ||
-                      item.group === 'navigation',
-                  )
-                  .slice(0, 8)
-                  .map((item) => {
-                    const Icon = item.icon;
-                    const isToggleSidebar = item.id === 'toggle-sidebar';
-                    const DisplayIcon = isToggleSidebar
-                      ? sidebarOpen
-                        ? PanelLeftClose
-                        : PanelLeftIcon
-                      : Icon;
-                    const displayLabel = isToggleSidebar
-                      ? sidebarOpen
-                        ? 'Collapse Sidebar'
-                        : 'Expand Sidebar'
-                      : item.label;
+              {/* ── IDLE STATE ── */}
+              {!hasQuery && (
+                <>
+                  <CommandGroup heading="Suggestions" forceMount>
+                    {allPaletteItems
+                      .filter(
+                        (item) =>
+                          item.group === 'actions' ||
+                          item.group === 'navigation',
+                      )
+                      .slice(0, 8)
+                      .map((item) => {
+                        const Icon = item.icon;
+                        const isToggleSidebar = item.id === 'toggle-sidebar';
+                        const DisplayIcon = isToggleSidebar
+                          ? sidebarOpen
+                            ? PanelLeftClose
+                            : PanelLeftIcon
+                          : Icon;
+                        const displayLabel = isToggleSidebar
+                          ? sidebarOpen
+                            ? 'Collapse Sidebar'
+                            : 'Expand Sidebar'
+                          : item.label;
 
-                    return (
-                      <CommandItem
-                        key={item.id}
-                        value={`suggestion ${item.label} ${item.keywords || ''}`}
-                        onSelect={() => handleRegistryItem(item)}
-                        disabled={item.id === 'new-session' && isCreating}
-                      >
-                        {item.id === 'new-session' && isCreating ? (
-                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                        ) : (
-                          <DisplayIcon className="h-4 w-4" />
-                        )}
-                        <span className="flex-1">{displayLabel}</span>
-                        {item.shortcut && (
-                          <CommandShortcut>{item.shortcut}</CommandShortcut>
-                        )}
-                      </CommandItem>
-                    );
-                  })}
-              </CommandGroup>
+                        return (
+                          <CommandItem
+                            key={item.id}
+                            value={`suggestion ${item.label} ${item.keywords || ''}`}
+                            onSelect={() => handleRegistryItem(item)}
+                            disabled={item.id === 'new-session' && isCreating}
+                          >
+                            {item.id === 'new-session' && isCreating ? (
+                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                            ) : (
+                              <DisplayIcon className="h-4 w-4" />
+                            )}
+                            <span className="flex-1">{displayLabel}</span>
+                            {item.shortcut && (
+                              <CommandShortcut>{item.shortcut}</CommandShortcut>
+                            )}
+                          </CommandItem>
+                        );
+                      })}
 
-              {/* Recent Sessions */}
-              {recentSessions.length > 0 && (
-                <CommandGroup heading="Recent" forceMount>
-                  {recentSessions.map((session) => (
-                    <CommandItem
-                      key={session.id}
-                      value={`recent ${session.title || ''} ${session.slug || ''} ${session.id}`}
-                      onSelect={() =>
-                        handleSelectSession(
-                          session.id,
-                          session.title || session.slug || 'Untitled',
-                        )
-                      }
-                    >
-                      <MessageCircle className="h-4 w-4 flex-shrink-0" />
-                      <span className="truncate flex-1">
-                        {session.title || session.slug || 'Untitled'}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground/30 tabular-nums flex-shrink-0">
-                        {formatRelativeTime(session.time.updated)}
-                      </span>
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
+                    {/* Session actions in idle state */}
+                    {currentSessionId && (
+                      <>
+                        <CommandItem
+                          value="suggestion change agent worker switch"
+                          onSelect={() => goToPage('agents')}
+                        >
+                          <Bot className="h-4 w-4" />
+                          <span className="flex-1">Change Agent</span>
+                          {currentAgent && (
+                            <span className="text-[10px] text-muted-foreground/40">{currentAgent.name}</span>
+                          )}
+                          <ChevronRight className="h-3 w-3 text-muted-foreground/30" />
+                        </CommandItem>
+                        <CommandItem
+                          value="suggestion change model llm switch"
+                          onSelect={() => goToPage('models')}
+                        >
+                          <Cpu className="h-4 w-4" />
+                          <span className="flex-1">Change Model</span>
+                          {currentModelKey && (
+                            <span className="text-[10px] text-muted-foreground/40 truncate max-w-[160px]">
+                              {allModels.find(
+                                (m) => m.providerID === currentModelKey.providerID && m.modelID === currentModelKey.modelID,
+                              )?.modelName || currentModelKey.modelID}
+                            </span>
+                          )}
+                          <ChevronRight className="h-3 w-3 text-muted-foreground/30" />
+                        </CommandItem>
+                      </>
+                    )}
+                  </CommandGroup>
+
+                  {/* Projects */}
+                  {filteredProjects.length > 0 && (
+                    <CommandGroup heading="Projects" forceMount>
+                      {filteredProjects.map((project) => {
+                        const name = deriveProjectName(project);
+                        return (
+                          <CommandItem
+                            key={project.id}
+                            value={`project ${name} ${project.worktree} ${project.id}`}
+                            onSelect={() => handleSelectProject(project.id, name)}
+                          >
+                            <FolderKanban className="h-4 w-4 flex-shrink-0" />
+                            <div className="flex flex-col overflow-hidden flex-1 min-w-0">
+                              <span className="truncate text-sm font-medium">{name}</span>
+                              {project.worktree && project.worktree !== '/' && (
+                                <span className="text-[11px] text-muted-foreground/40 truncate font-mono">
+                                  {project.worktree}
+                                </span>
+                              )}
+                            </div>
+                            {project.time?.updated && (
+                              <span className="text-[10px] text-muted-foreground/30 tabular-nums flex-shrink-0">
+                                {formatRelativeTime(project.time.updated)}
+                              </span>
+                            )}
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  )}
+
+                  {/* Recent Sessions */}
+                  {recentSessions.length > 0 && (
+                    <CommandGroup heading="Recent Sessions" forceMount>
+                      {recentSessions.map((session) => (
+                        <CommandItem
+                          key={session.id}
+                          value={`recent ${session.title || ''} ${session.slug || ''} ${session.id}`}
+                          onSelect={() =>
+                            handleSelectSession(
+                              session.id,
+                              session.title || session.slug || 'Untitled',
+                            )
+                          }
+                        >
+                          <MessageCircle className="h-4 w-4 flex-shrink-0" />
+                          <span className="truncate flex-1">
+                            {session.title || session.slug || 'Untitled'}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground/30 tabular-nums flex-shrink-0">
+                            {formatRelativeTime(session.time.updated)}
+                          </span>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  )}
+                </>
+              )}
+
+              {/* ── SEARCH STATE ── */}
+              {hasQuery && (
+                <>
+                  {/* Session actions (Change Agent / Change Model) */}
+                  {hasSessionActionResults && (
+                    <CommandGroup heading="Session" forceMount>
+                      {sessionActionItems.map((item) => (
+                        <CommandItem
+                          key={item.id}
+                          value={`${item.label} ${item.keywords}`}
+                          onSelect={() => goToPage(item.targetPage)}
+                        >
+                          {item.id === 'change-agent' ? <Bot className="h-4 w-4" /> : <Cpu className="h-4 w-4" />}
+                          <span className="flex-1">{item.label}</span>
+                          <ChevronRight className="h-3 w-3 text-muted-foreground/30" />
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  )}
+
+                  {/* Navigation */}
+                  {hasNavResults && (
+                    <CommandGroup heading="Navigation" forceMount>
+                      {filteredNavItems.map((item) => {
+                        const Icon = item.icon;
+                        const isToggleSidebar = item.id === 'toggle-sidebar';
+                        const SidebarIcon = isToggleSidebar
+                          ? (sidebarOpen ? PanelLeftClose : PanelLeftIcon)
+                          : Icon;
+                        const displayLabel = isToggleSidebar
+                          ? (sidebarOpen ? 'Collapse Sidebar' : 'Expand Sidebar')
+                          : item.label;
+                        const isActiveTheme = item.kind === 'theme' && theme === item.themeValue;
+
+                        return (
+                          <CommandItem
+                            key={item.id}
+                            value={item.keywords || `${item.group} ${item.label} ${item.id}`}
+                            onSelect={() => handleRegistryItem(item)}
+                            disabled={item.id === 'new-session' && isCreating}
+                          >
+                            {item.id === 'new-session' && isCreating ? (
+                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                            ) : (
+                              <SidebarIcon className="h-4 w-4" />
+                            )}
+                            <span className="flex-1">{displayLabel}</span>
+                            {item.shortcut && (
+                              <CommandShortcut>
+                                {item.shortcut}
+                              </CommandShortcut>
+                            )}
+                            {isActiveTheme && (
+                              <span className="text-[10px] text-primary/60 font-medium">Active</span>
+                            )}
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  )}
+
+                  {/* Projects */}
+                  {hasProjectResults && (
+                    <CommandGroup heading="Projects" forceMount>
+                      {filteredProjects.map((project) => {
+                        const name = deriveProjectName(project);
+                        return (
+                          <CommandItem
+                            key={project.id}
+                            value={`project-${project.id}`}
+                            onSelect={() => handleSelectProject(project.id, name)}
+                          >
+                            <FolderKanban className="h-4 w-4 flex-shrink-0" />
+                            <div className="flex flex-col overflow-hidden flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate text-sm font-medium">{name}</span>
+                                {project.worktree && project.worktree !== '/' && (
+                                  <span className="text-[10px] text-muted-foreground/40 font-mono flex-shrink-0 truncate max-w-[200px]">
+                                    {project.worktree}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            {project.time?.updated && (
+                              <span className="text-[10px] text-muted-foreground/30 tabular-nums flex-shrink-0">
+                                {formatRelativeTime(project.time.updated)}
+                              </span>
+                            )}
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  )}
+
+                  {/* Sessions */}
+                  {hasSessionResults && (
+                    <CommandGroup heading="Sessions" forceMount>
+                      {filteredSessions.map((session) => {
+                        const hasTitle = !!(session.title || session.slug);
+                        return (
+                          <CommandItem
+                            key={session.id}
+                            value={`session-${session.id}`}
+                            onSelect={() =>
+                              handleSelectSession(
+                                session.id,
+                                session.title || session.slug || session.id,
+                              )
+                            }
+                          >
+                            <MessageCircle className="h-4 w-4 flex-shrink-0" />
+                            <div className="flex flex-col overflow-hidden flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                {hasTitle ? (
+                                  <>
+                                    <span className="truncate text-sm font-medium">
+                                      {session.title || session.slug}
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground/40 font-mono flex-shrink-0">
+                                      {session.id}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className="truncate text-sm font-mono text-muted-foreground/70">
+                                    {session.id}
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[11px] text-muted-foreground/50 truncate">
+                                {formatRelativeTime(session.time.updated)}
+                                {session.summary && session.summary.files > 0 && (
+                                  <span className="ml-1">
+                                    · {session.summary.files} file
+                                    {session.summary.files !== 1 ? 's' : ''}
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                            <ArrowRightLeft className="h-3 w-3 text-muted-foreground/30 flex-shrink-0" />
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  )}
+
+                  {/* No results */}
+                  {showNoResults && (
+                    <div className="flex flex-col items-center gap-2 py-12" cmdk-empty="">
+                      <div className="flex items-center justify-center h-10 w-10 rounded-full bg-muted/30">
+                        <Search className="h-4 w-4 text-muted-foreground/30" />
+                      </div>
+                      <div className="text-center">
+                        <span className="text-sm text-muted-foreground/60">
+                          No results for &ldquo;{query.trim()}&rdquo;
+                        </span>
+                        <p className="text-[11px] text-muted-foreground/30 mt-1">
+                          Try a different search term
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
 
-          {/* ── SEARCH STATE ── */}
-          {hasQuery && (
+          {/* ============================================================ */}
+          {/* PAGE: AGENTS                                                  */}
+          {/* ============================================================ */}
+          {page === 'agents' && (
             <>
-              {/* ── Navigation (always first — we filter ourselves) ── */}
-              {hasNavResults && (
-                <CommandGroup heading="Navigation" forceMount>
-                  {filteredNavItems.map((item) => {
-                    const Icon = item.icon;
-                    const isToggleSidebar = item.id === 'toggle-sidebar';
-                    const SidebarIcon = isToggleSidebar
-                      ? (sidebarOpen ? PanelLeftClose : PanelLeftIcon)
-                      : Icon;
-                    const displayLabel = isToggleSidebar
-                      ? (sidebarOpen ? 'Collapse Sidebar' : 'Expand Sidebar')
-                      : item.label;
-                    const isActiveTheme = item.kind === 'theme' && theme === item.themeValue;
-
+              {primaryAgents.length > 0 && (
+                <CommandGroup heading="Agents" forceMount>
+                  {primaryAgents.map((agent) => {
+                    const isActive = currentAgent?.name === agent.name;
                     return (
                       <CommandItem
-                        key={item.id}
-                        value={item.keywords || `${item.group} ${item.label} ${item.id}`}
-                        onSelect={() => handleRegistryItem(item)}
-                        disabled={item.id === 'new-session' && isCreating}
+                        key={agent.name}
+                        value={`agent ${agent.name} ${agent.description || ''}`}
+                        onSelect={() => handleSelectAgent(agent.name)}
                       >
-                        {item.id === 'new-session' && isCreating ? (
-                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                        ) : (
-                          <SidebarIcon className="h-4 w-4" />
-                        )}
-                        <span className="flex-1">{displayLabel}</span>
-                        {item.shortcut && (
-                          <CommandShortcut>
-                            {item.shortcut}
-                          </CommandShortcut>
-                        )}
-                        {isActiveTheme && (
-                          <span className="text-[10px] text-primary/60 font-medium">Active</span>
+                        <Bot className="h-4 w-4" />
+                        <div className="flex flex-col overflow-hidden flex-1 min-w-0">
+                          <span className="truncate text-sm font-medium">{agent.name}</span>
+                          {agent.description && (
+                            <span className="text-[11px] text-muted-foreground/50 truncate">
+                              {agent.description}
+                            </span>
+                          )}
+                        </div>
+                        {isActive && (
+                          <Check className="h-3.5 w-3.5 text-primary flex-shrink-0" />
                         )}
                       </CommandItem>
                     );
@@ -484,99 +925,112 @@ export function CommandPalette() {
                 </CommandGroup>
               )}
 
-              {/* No results — only when truly nothing matches (including nav) */}
-              {showNoResults && (
+              {subAgents.length > 0 && (
+                <CommandGroup heading="Sub-agents" forceMount>
+                  {subAgents.map((agent) => {
+                    const isActive = currentAgent?.name === agent.name;
+                    return (
+                      <CommandItem
+                        key={agent.name}
+                        value={`subagent ${agent.name} ${agent.description || ''}`}
+                        onSelect={() => handleSelectAgent(agent.name)}
+                      >
+                        <Bot className="h-4 w-4 text-muted-foreground/50" />
+                        <div className="flex flex-col overflow-hidden flex-1 min-w-0">
+                          <span className="truncate text-sm">{agent.name}</span>
+                          {agent.description && (
+                            <span className="text-[11px] text-muted-foreground/50 truncate">
+                              {agent.description}
+                            </span>
+                          )}
+                        </div>
+                        {isActive && (
+                          <Check className="h-3.5 w-3.5 text-primary flex-shrink-0" />
+                        )}
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              )}
+
+              {filteredAgents.length === 0 && (
                 <div className="flex flex-col items-center gap-2 py-12" cmdk-empty="">
-                  <div className="flex items-center justify-center h-10 w-10 rounded-full bg-muted/30">
-                    <Search className="h-4 w-4 text-muted-foreground/30" />
-                  </div>
-                  <div className="text-center">
-                    <span className="text-sm text-muted-foreground/60">
-                      No results for &ldquo;{query.trim()}&rdquo;
-                    </span>
-                    <p className="text-[11px] text-muted-foreground/30 mt-1">
-                      Try a different search term
-                    </p>
-                  </div>
+                  <Bot className="h-5 w-5 text-muted-foreground/30" />
+                  <span className="text-sm text-muted-foreground/60">
+                    {query ? `No agents matching "${query}"` : 'No agents available'}
+                  </span>
                 </div>
               )}
+            </>
+          )}
 
-              {/* ── Sessions ── */}
-              {hasSessionResults && (
-                <CommandGroup heading="Sessions" forceMount>
-                  {filteredSessions.map((session) => {
-                    const hasTitle = !!(session.title || session.slug);
+          {/* ============================================================ */}
+          {/* PAGE: MODELS                                                  */}
+          {/* ============================================================ */}
+          {page === 'models' && (
+            <>
+              {groupedModels.map((group) => (
+                <CommandGroup
+                  key={group.providerID}
+                  heading={
+                    <span className="inline-flex items-center gap-1.5">
+                      <ProviderLogo providerID={group.providerID} size="small" />
+                      {group.providerName}
+                    </span>
+                  }
+                  forceMount
+                >
+                  {group.models.map((model) => {
+                    const isActive =
+                      currentModelKey?.providerID === model.providerID &&
+                      currentModelKey?.modelID === model.modelID;
                     return (
                       <CommandItem
-                        key={session.id}
-                        value={`session-${session.id}`}
-                        onSelect={() =>
-                          handleSelectSession(
-                            session.id,
-                            session.title || session.slug || session.id,
-                          )
-                        }
+                        key={`${model.providerID}:${model.modelID}`}
+                        value={`model ${model.providerName} ${model.modelName} ${model.modelID}`}
+                        onSelect={() => handleSelectModel(model.providerID, model.modelID)}
                       >
-                        <MessageCircle className="h-4 w-4 flex-shrink-0" />
+                        <Cpu className="h-4 w-4 text-muted-foreground/50" />
                         <div className="flex flex-col overflow-hidden flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            {hasTitle ? (
-                              <>
-                                <span className="truncate text-sm font-medium">
-                                  {session.title || session.slug}
-                                </span>
-                                <span className="text-[10px] text-muted-foreground/40 font-mono flex-shrink-0">
-                                  {session.id}
-                                </span>
-                              </>
-                            ) : (
-                              <span className="truncate text-sm font-mono text-muted-foreground/70">
-                                {session.id}
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-[11px] text-muted-foreground/50 truncate">
-                            {formatRelativeTime(session.time.updated)}
-                            {session.summary && session.summary.files > 0 && (
-                              <span className="ml-1">
-                                · {session.summary.files} file
-                                {session.summary.files !== 1 ? 's' : ''}
-                              </span>
-                            )}
+                          <span className="truncate text-sm">{model.modelName}</span>
+                          <span className="text-[10px] text-muted-foreground/40 font-mono truncate">
+                            {model.modelID}
                           </span>
                         </div>
-                        <ArrowRightLeft className="h-3 w-3 text-muted-foreground/30 flex-shrink-0" />
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {model.capabilities?.reasoning && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium leading-none bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                              reasoning
+                            </span>
+                          )}
+                          {model.capabilities?.vision && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium leading-none bg-purple-500/10 text-purple-600 dark:text-purple-400">
+                              vision
+                            </span>
+                          )}
+                          {isActive && (
+                            <Check className="h-3.5 w-3.5 text-primary" />
+                          )}
+                        </div>
                       </CommandItem>
                     );
                   })}
                 </CommandGroup>
-              )}
+              ))}
 
-              {/*
-               * TODO: Re-enable File Search, Text Search, and Semantic Search
-               * once the OpenCode server endpoints are verified working.
-               *
-               * Known issues:
-               *   - GET /find/file — file name search returns empty/errors
-               *   - GET /find — text content search (ripgrep) needs verification
-               *   - GET /lss/search — semantic search requires OPENAI_API_KEY
-               *
-               * When re-enabling:
-               *   1. Import useFileSearch, useTextSearch, useLssSearch from '@/features/files'
-               *   2. Import FindMatch type
-               *   3. Add back debounce state + effects for each search type
-               *   4. Add back the search hook calls
-               *   5. Add back filteredTextResults, filteredLssResults memos
-               *   6. Add back showFileSection, showTextSection, showLssSection logic
-               *   7. Add back the <CommandGroup> blocks for each search type
-               *   8. Add shouldFilter={false} on Command (already done in command.tsx)
-               *   9. Test that results actually render (cmdk filter was hiding them before)
-               */}
+              {visibleModels.length === 0 && (
+                <div className="flex flex-col items-center gap-2 py-12" cmdk-empty="">
+                  <Cpu className="h-5 w-5 text-muted-foreground/30" />
+                  <span className="text-sm text-muted-foreground/60">
+                    {query ? `No models matching "${query}"` : 'No models available'}
+                  </span>
+                </div>
+              )}
             </>
           )}
         </CommandList>
 
-        {/* ── Footer — always visible ── */}
+        {/* ── Footer ── */}
         <CommandFooter>
           <div className="flex items-center gap-1">
             <ArrowUp className="h-3 w-3" />
@@ -587,11 +1041,17 @@ export function CommandPalette() {
             <CornerDownLeft className="h-3 w-3" />
             <span>select</span>
           </div>
+          {page !== 'root' && (
+            <div className="flex items-center gap-1">
+              <CommandKbd>⌫</CommandKbd>
+              <span>back</span>
+            </div>
+          )}
           <div className="flex items-center gap-1">
             <CommandKbd>esc</CommandKbd>
             <span>close</span>
           </div>
-          {hasQuery && totalSearchResults > 0 && (
+          {totalSearchResults > 0 && (
             <span className="ml-auto tabular-nums">
               {totalSearchResults} result{totalSearchResults !== 1 ? 's' : ''}
             </span>

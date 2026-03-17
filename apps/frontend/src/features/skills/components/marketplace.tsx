@@ -2,18 +2,13 @@
 
 import { useMemo, useState } from 'react';
 import {
-	Bot,
 	Check,
-	Cpu,
 	Download,
 	FileText,
 	Loader2,
 	Package,
-	Plus,
-	Puzzle,
 	Search,
 	Sparkles,
-	Wrench,
 	X,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -55,15 +50,15 @@ const FILTERS: Array<{ key: FilterKey; label: string }> = [
 	{ key: 'plugins', label: 'Plugins' },
 ];
 
-const TYPE_META: Record<string, { icon: typeof Bot; label: string }> = {
-	'ocx:skill': { icon: Bot, label: 'Skill' },
-	'ocx:agent': { icon: Cpu, label: 'Agent' },
-	'ocx:tool': { icon: Wrench, label: 'Tool' },
-	'ocx:plugin': { icon: Puzzle, label: 'Plugin' },
+const TYPE_META: Record<string, { label: string; color: string; dotColor: string }> = {
+	'ocx:skill': { label: 'Skill', color: 'text-blue-600 dark:text-blue-400 bg-blue-500/10 border-blue-500/20', dotColor: 'bg-blue-500' },
+	'ocx:agent': { label: 'Agent', color: 'text-violet-600 dark:text-violet-400 bg-violet-500/10 border-violet-500/20', dotColor: 'bg-violet-500' },
+	'ocx:tool': { label: 'Tool', color: 'text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/20', dotColor: 'bg-amber-500' },
+	'ocx:plugin': { label: 'Plugin', color: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20', dotColor: 'bg-emerald-500' },
 };
 
 function getComponentMeta(type: string) {
-	return TYPE_META[type] ?? { icon: Bot, label: type.replace('ocx:', '') };
+	return TYPE_META[type] ?? { label: type.replace('ocx:', ''), color: 'text-muted-foreground bg-muted border-border', dotColor: 'bg-muted-foreground' };
 }
 
 // ── PTY install helpers ───────────────────────────────────────────────────────
@@ -155,7 +150,6 @@ function ComponentDetailModal({
 
 	const bundle = data as RegistryComponentBundle | undefined;
 	const meta = component ? getComponentMeta(component.type) : getComponentMeta('ocx:skill');
-	const Icon = meta.icon;
 	const isInstalled = component ? installedSkills.has(component.name.toLowerCase()) : false;
 	const isInstalling = component ? installing.includes(component.name) : false;
 
@@ -193,11 +187,11 @@ function ComponentDetailModal({
 					<div className="flex items-start justify-between gap-6 pr-8">
 						<div className="min-w-0">
 							<div className="flex items-center gap-3">
-								<div className="flex items-center justify-center w-9 h-9 rounded-[10px] bg-muted border border-border/50 shrink-0">
-									<Icon className="h-4.5 w-4.5 text-foreground" />
-								</div>
 								<h2 className="text-lg font-semibold tracking-tight text-foreground">{component?.name}</h2>
-								<Badge variant="secondary" className="text-[10px]">{meta.label}</Badge>
+								<span className={cn('inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border', meta.color)}>
+									<span className={cn('h-1.5 w-1.5 rounded-full', meta.dotColor)} />
+									{meta.label}
+								</span>
 								{bundle?.version.version && (
 									<Badge variant="outline" className="text-[10px]">v{bundle.version.version}</Badge>
 								)}
@@ -311,7 +305,6 @@ function ComponentCard({
 	const isInstalled = installedSkills.has(component.name.toLowerCase());
 	const isInstalling = installing.includes(component.name);
 	const meta = getComponentMeta(component.type);
-	const Icon = meta.icon;
 
 	const handleInstall = async (e: React.MouseEvent) => {
 		e.stopPropagation();
@@ -340,22 +333,21 @@ function ComponentCard({
 					onClick={() => onOpen(component)}
 					className="p-4 sm:p-5 flex flex-col h-full cursor-pointer"
 				>
-					<div className="flex items-center gap-3 mb-3">
-						<div className="flex items-center justify-center w-9 h-9 rounded-[10px] bg-muted border border-border/50 shrink-0">
-							<Icon className="h-4.5 w-4.5 text-foreground" />
+					<div className="flex items-start justify-between gap-2 mb-2">
+						<div className="min-w-0 flex-1">
+							<h3 className="text-sm font-semibold text-foreground truncate">{component.name}</h3>
 						</div>
-						<div className="flex-1 min-w-0">
-							<div className="flex items-center gap-1.5">
-								<h3 className="text-sm font-semibold text-foreground truncate">{component.name}</h3>
-								{isInstalled && (
-									<Badge variant="highlight" className="text-xs shrink-0">Installed</Badge>
-								)}
-							</div>
-							<div className="flex items-center gap-1.5 mt-0.5">
-								<span className="text-xs text-muted-foreground">{meta.label}</span>
-								<span className="text-xs text-muted-foreground/50">v{component.version}</span>
-							</div>
-						</div>
+						{isInstalled && (
+							<Badge variant="highlight" className="text-[10px] shrink-0">Installed</Badge>
+						)}
+					</div>
+
+					<div className="flex items-center gap-2 mb-3">
+						<span className={cn('inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border', meta.color)}>
+							<span className={cn('h-1.5 w-1.5 rounded-full', meta.dotColor)} />
+							{meta.label}
+						</span>
+						<span className="text-[10px] text-muted-foreground/50">v{component.version}</span>
 					</div>
 
 					<div className="h-[34px] mb-3">
@@ -403,12 +395,12 @@ function LoadingSkeleton() {
 		<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
 			{[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
 				<div key={i} className="rounded-2xl border dark:bg-card p-4 sm:p-5">
-					<div className="flex items-center gap-3 mb-3">
-						<Skeleton className="h-9 w-9 rounded-[10px]" />
-						<div className="flex-1 space-y-2">
-							<Skeleton className="h-4 w-24" />
-							<Skeleton className="h-3 w-16" />
-						</div>
+					<div className="flex items-start justify-between gap-2 mb-2">
+						<Skeleton className="h-4 w-28" />
+					</div>
+					<div className="flex items-center gap-2 mb-3">
+						<Skeleton className="h-5 w-14 rounded-full" />
+						<Skeleton className="h-3 w-10" />
 					</div>
 					<Skeleton className="h-3 w-full mb-1" />
 					<Skeleton className="h-3 w-4/5 mb-3" />

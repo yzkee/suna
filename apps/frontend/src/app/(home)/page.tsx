@@ -3,13 +3,12 @@
 import { useState, useCallback } from 'react';
 import { BackgroundAALChecker } from '@/components/auth/background-aal-checker';
 import { WallpaperBackground } from '@/components/ui/wallpaper-background';
-import { ArrowRight, Check, Copy } from 'lucide-react';
+import { ArrowRight, Check, Copy, Globe, Smartphone, Bot, Sparkles, Terminal, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { trackCtaSignup } from '@/lib/analytics/gtm';
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { PlanSelectionModal } from '@/components/billing/pricing/plan-selection-modal';
 import { GithubButton } from '@/components/home/github-button';
-import { useGitHubStars } from '@/hooks/utils/use-github-stars';
 import Image from 'next/image';
 
 const INSTALL_CMD = 'curl -fsSL https://kortix.com/install | bash';
@@ -91,6 +90,14 @@ function GoogleDriveIcon({ className }: { className?: string }) {
   );
 }
 
+function TeamsIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor">
+      <path d="M20.625 8.073h-5.17v7.704a1.97 1.97 0 0 1-1.97 1.97H9.202A5.627 5.627 0 0 0 14.83 22.5a5.627 5.627 0 0 0 5.796-5.452V8.073zM16.97 6.89a2.485 2.485 0 1 0 0-4.97 2.485 2.485 0 0 0 0 4.97zM10.28 7.5H2.456A1.455 1.455 0 0 0 1 8.955v6.136a5.418 5.418 0 0 0 4.64 5.362 5.418 5.418 0 0 0 6.195-5.362V8.955A1.455 1.455 0 0 0 10.28 7.5zM6.368 6.317a2.817 2.817 0 1 0 0-5.634 2.817 2.817 0 0 0 0 5.634z"/>
+    </svg>
+  );
+}
+
 /* ─── Feature check item ─── */
 function FeatureItem({ title, desc }: { title: string; desc: string }) {
   return (
@@ -116,12 +123,17 @@ function IntegrationPill({ icon, name }: { icon: React.ReactNode; name: string }
   );
 }
 
-/* ─── Stat card ─── */
-function StatCard({ value, label }: { value: string; label: string }) {
+/* ─── Config card (for agents/skills/commands/triggers) ─── */
+function ConfigCard({ icon, title, desc }: { icon: React.ReactNode; title: string; desc: string }) {
   return (
-    <div className="flex flex-col items-center gap-1 p-6">
-      <span className="text-3xl sm:text-4xl font-semibold text-foreground tracking-tight">{value}</span>
-      <span className="text-sm text-muted-foreground/60">{label}</span>
+    <div className="flex items-start gap-3 p-4 rounded-xl border border-border/40 bg-card/20">
+      <div className="mt-0.5 flex items-center justify-center size-8 rounded-lg bg-foreground/[0.04] border border-foreground/[0.06] shrink-0">
+        {icon}
+      </div>
+      <div>
+        <span className="text-sm font-medium text-foreground/80">{title}</span>
+        <p className="text-[13px] text-muted-foreground/60 mt-0.5 leading-relaxed">{desc}</p>
+      </div>
     </div>
   );
 }
@@ -129,14 +141,9 @@ function StatCard({ value, label }: { value: string; label: string }) {
 /* ═══════════════════════════════════════════════════════ */
 
 export default function Home() {
-  // NOTE: Authenticated-user redirect to /dashboard is handled by the
-  // middleware (server-side getUser check). Doing it client-side via
-  // useAuth() caused redirect loops when the local session cache was stale
-  // but the server session was expired — the homepage would push to
-  // /dashboard, middleware would bounce to /auth, user could never see /.
   const [copied, setCopied] = useState(false);
   const [launchOpen, setLaunchOpen] = useState(false);
-  const { formattedStars } = useGitHubStars();
+
   const { scrollY } = useScroll();
   const drawerRadius = useTransform(scrollY, [200, 600], [24, 0]);
   const heroOpacity = useTransform(scrollY, [0, 400], [1, 0]);
@@ -161,7 +168,7 @@ export default function Home() {
           >
             <div className="flex-1 flex items-center justify-center pt-40 pointer-events-none">
               <h1 className="text-4xl sm:text-5xl md:text-6xl font-medium tracking-tight text-foreground">
-                The AI Computer
+                The AGI OS
               </h1>
             </div>
             <div className="relative z-[1] pb-8 px-4 flex flex-col items-center gap-6">
@@ -229,7 +236,6 @@ export default function Home() {
               </div>
               <span className="text-[10px] font-mono text-muted-foreground/30 ml-1">kortix.com</span>
             </div>
-            {/* Video placeholder — replace src with a real video when available */}
             <div className="relative aspect-video bg-muted/5">
               <Image
                 src="/showcase/data/dashboard.png"
@@ -249,32 +255,51 @@ export default function Home() {
         {/* ═══════════════ WHAT IS KORTIX ═══════════════ */}
         <section className="max-w-3xl mx-auto px-6 py-20 sm:py-28">
           <p className="text-2xl sm:text-3xl md:text-4xl font-medium text-foreground leading-snug tracking-tight">
-            Kortix is an AI computer.<br />
+            Kortix is the AGI OS.<br />
             <span className="text-muted-foreground/50">The operating system for autonomous companies.</span>
           </p>
           <p className="mt-5 text-base sm:text-lg text-muted-foreground leading-relaxed max-w-2xl">
-            Self-running. Self-evolving. A persistent machine where agents connect every tool, run every workflow, and deliver real outputs — code, reports, dashboards, emails — without you in the loop.
+            A persistent, always-on operating system where AI agents connect every tool, run every workflow, and deliver real outputs — code, reports, dashboards, emails — with you in or out of the loop.
           </p>
-
-          <div className="mt-10 flex flex-col gap-4">
-            <FeatureItem title="500+ integrations" desc="Gmail, Slack, GitHub, Stripe, Notion, HubSpot, and anything with an API or OAuth." />
-            <FeatureItem title="Agents that run 24/7" desc="Deploy agents on cron schedules, webhooks, or event triggers. They work while you sleep." />
-            <FeatureItem title="Persistent memory" desc="Every agent remembers past sessions, decisions, and context across every run." />
-            <FeatureItem title="Real browser" desc="Agents navigate, click, scrape, and fill forms with Chromium — including logged-in sessions." />
-            <FeatureItem title="Any channel" desc="Talk to agents via the web dashboard, phone, Slack, Telegram, or Discord." />
-            <FeatureItem title="Skills & commands" desc="Reusable knowledge packs and slash commands that trigger multi-step workflows." />
-            <FeatureItem title="Open source" desc="Elastic 2.0 licensed. Self-host on your own infrastructure or use the cloud." />
-          </div>
         </section>
 
-        {/* ═══════════════ STATS ═══════════════ */}
-        <section className="max-w-3xl mx-auto px-6 pb-20 sm:pb-28">
-          <div className="rounded-2xl border border-border/50 bg-card/30 overflow-hidden">
-            <div className="grid grid-cols-3 divide-x divide-border/30">
-              <StatCard value={formattedStars} label="GitHub Stars" />
-              <StatCard value="500+" label="Integrations" />
-              <StatCard value="24/7" label="Agent Uptime" />
-            </div>
+        {/* ═══════════════ THE KORTIX ═══════════════ */}
+        <section className="max-w-3xl mx-auto px-6 py-20 sm:py-28">
+          <h2 className="text-2xl sm:text-3xl font-semibold text-foreground tracking-tight mb-3">
+            The Kortix
+          </h2>
+          <p className="text-base text-muted-foreground leading-relaxed max-w-2xl mb-4">
+            A cognitive architecture for long-horizon autonomous work. The Kortix is an orchestrator and worker in one — it plans, delegates, executes, verifies, and only stops when the job is done.
+          </p>
+          <p className="text-sm text-muted-foreground/50 leading-relaxed max-w-2xl mb-12">
+            Full long-term memory. Automatic short-term memory management. Built-in autowork loops with self-verification. Every agent ships with a battle-tested autonomous harness that makes it capable from day one.
+          </p>
+
+          <div className="flex flex-col gap-4">
+            <FeatureItem
+              title="Autowork"
+              desc="Autonomous work loops that run until the task is done and verified. Self-correcting, self-recovering, persistent across sessions. Agents don't stop — they finish."
+            />
+            <FeatureItem
+              title="Full LTM & STM"
+              desc="Long-term memory with semantic search across all sessions. Automatic short-term memory management. Every decision, pattern, and context is retained and retrievable."
+            />
+            <FeatureItem
+              title="Autonomous agent harness"
+              desc="Every agent ships with a production-grade harness — identity, permissions, tools, triggers, skills, commands, and memory. Wired together. Autonomous by default."
+            />
+            <FeatureItem
+              title="Prebuilt agents & skills"
+              desc="Ships with prebuilt agents, coding skills, browser automation, research, integrations, document generation, and more. Powerful out of the box — extensible to anything."
+            />
+            <FeatureItem
+              title="Agent builder"
+              desc="Design custom agents with their own identity, tool access, triggers, and composed skill sets. Or let the harness builder skill create them for you."
+            />
+            <FeatureItem
+              title="Open source"
+              desc="Elastic 2.0 licensed. Self-host on your own infrastructure, inspect every line, or use the cloud. The full system — no feature gates."
+            />
           </div>
         </section>
 
@@ -284,18 +309,18 @@ export default function Home() {
             How it works
           </h2>
           <p className="text-base text-muted-foreground leading-relaxed max-w-2xl mb-14">
-            Three steps to an autonomous workforce. Connect your tools, build your agents, talk to them from anywhere.
+            Three steps. Connect your tools, configure your agents, talk to them from anywhere.
           </p>
 
           <div className="flex flex-col gap-16">
-            {/* Step 1 */}
+            {/* Step 1 — Connect Everything */}
             <div>
               <div className="flex items-center gap-3 mb-4">
                 <span className="text-[13px] font-mono text-muted-foreground/40">/01</span>
                 <span className="text-sm font-medium text-foreground/80">Connect everything</span>
               </div>
               <p className="text-base text-muted-foreground leading-relaxed mb-6 max-w-xl">
-                Plug in every tool your company uses. Your agents get the same access your team has.
+                Every tool your company uses. MCP servers, REST APIs, OAuth apps, CLI tools, environment variables — if it has an interface, Kortix connects to it. 3,000+ integrations out of the box, and any custom integration is trivial to add.
               </p>
               <div className="flex flex-wrap gap-2">
                 <IntegrationPill icon={<GmailIcon className="size-4 text-[#EA4335]" />} name="Gmail" />
@@ -307,36 +332,118 @@ export default function Home() {
                 <IntegrationPill icon={<GoogleDriveIcon className="size-4 text-[#4285F4]" />} name="Drive" />
               </div>
               <p className="mt-3 text-[11px] text-muted-foreground/30">
-                + 500 more via OAuth · MCP servers · REST APIs · env vars
+                3,000+ integrations via MCP · OAuth · REST APIs · CLI · env vars — anything with an interface.
               </p>
             </div>
 
-            {/* Step 2 */}
+            {/* Step 2 — Configure Your System */}
             <div>
               <div className="flex items-center gap-3 mb-4">
                 <span className="text-[13px] font-mono text-muted-foreground/40">/02</span>
-                <span className="text-sm font-medium text-foreground/80">Build your agents</span>
+                <span className="text-sm font-medium text-foreground/80">Configure your system</span>
               </div>
-              <p className="text-base text-muted-foreground leading-relaxed max-w-xl">
-                Each agent is a specialist — with its own identity, skills, tools, memory, and triggers. A support agent, a bookkeeper, a recruiter. Compose them into an autonomous workforce that runs your company.
+              <p className="text-base text-muted-foreground leading-relaxed mb-6 max-w-xl">
+                Define your agents, teach them skills, set up triggers, and create commands. Each agent is a specialist — with its own identity, memory, tools, and activation rules. Compose them into an autonomous workforce.
               </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <ConfigCard
+                  icon={<Bot className="size-4 text-foreground/50" />}
+                  title="Agents"
+                  desc="Specialist workers with custom identities, memory, tools, and permissions. A support agent, a bookkeeper, a recruiter."
+                />
+                <ConfigCard
+                  icon={<Sparkles className="size-4 text-foreground/50" />}
+                  title="Skills"
+                  desc="Reusable knowledge packs that teach agents how to do real work — coding, research, browser automation, writing, and more."
+                />
+                <ConfigCard
+                  icon={<Terminal className="size-4 text-foreground/50" />}
+                  title="Commands"
+                  desc="Slash commands that trigger structured multi-step workflows. /deploy, /report, /onboarding — your playbooks, automated."
+                />
+                <ConfigCard
+                  icon={<Zap className="size-4 text-foreground/50" />}
+                  title="Triggers"
+                  desc="Cron schedules for time-based work. Webhooks for event-driven reactions. Pipedream for third-party event streams. Agents activate themselves."
+                />
+              </div>
             </div>
 
-            {/* Step 3 */}
+            {/* Step 3 — Talk From Anywhere */}
             <div>
               <div className="flex items-center gap-3 mb-4">
                 <span className="text-[13px] font-mono text-muted-foreground/40">/03</span>
                 <span className="text-sm font-medium text-foreground/80">Talk from anywhere</span>
               </div>
               <p className="text-base text-muted-foreground leading-relaxed mb-6 max-w-xl">
-                Message your agents from the dashboard, your phone, or your team&apos;s messaging platform. They respond and execute immediately.
+                Message your agents from the web dashboard, your phone, or your team&apos;s messaging platform. They respond and execute immediately — wherever you are.
               </p>
               <div className="flex flex-wrap gap-2">
+                <IntegrationPill icon={<Globe className="size-4 text-foreground/60" />} name="Web" />
+                <IntegrationPill icon={<Smartphone className="size-4 text-foreground/60" />} name="iOS / Android" />
                 <IntegrationPill icon={<SlackIcon className="size-4" />} name="Slack" />
+                <IntegrationPill icon={<TeamsIcon className="size-4 text-[#6264A7]" />} name="MS Teams" />
                 <IntegrationPill icon={<TelegramIcon className="size-4 text-[#229ED9]" />} name="Telegram" />
                 <IntegrationPill icon={<DiscordIcon className="size-4 text-[#5865F2]" />} name="Discord" />
               </div>
+              <p className="mt-3 text-[11px] text-muted-foreground/30">
+                More channels coming. If your team uses it, Kortix will be there.
+              </p>
             </div>
+          </div>
+        </section>
+
+        {/* ═══════════════ WHY AGI OS? ═══════════════ */}
+        <section className="max-w-3xl mx-auto px-6 py-20 sm:py-28">
+          <h2 className="text-2xl sm:text-3xl font-semibold text-foreground tracking-tight mb-3">
+            Why &ldquo;AGI OS&rdquo;?
+          </h2>
+          <p className="text-base text-muted-foreground leading-relaxed max-w-2xl mb-12">
+            Because it&apos;s a 24/7 always-on computer where AI does the work. A persistent substrate where agents run continuously, connect to anything, and share a single source of truth.
+          </p>
+
+          <div className="flex flex-col gap-4">
+            <FeatureItem
+              title="Always on, always running"
+              desc="A persistent computer that never sleeps. Agents output tokens 24/7 — on schedules, on triggers, on events. Your autonomous workforce runs while you don't."
+            />
+            <FeatureItem
+              title="Universal connectivity"
+              desc="Connect and listen to any third-party system in real time. MCP servers, REST APIs, OAuth, webhooks, CLI tools. If it has an interface, Kortix talks to it."
+            />
+            <FeatureItem
+              title="Single source of truth"
+              desc="All knowledge, all context, all memory lives on one computer. No fragmentation across tools. Every agent shares the same persistent substrate — searchable, shareable, always available."
+            />
+            <FeatureItem
+              title="Context orchestration"
+              desc="One computer orchestrating all context. Agents carry forward decisions, learnings, and state across every interaction, every session, every project. Nothing is ever lost."
+            />
+          </div>
+        </section>
+
+        {/* ═══════════════ THE COMPANY OS ═══════════════ */}
+        <section className="max-w-3xl mx-auto px-6 py-20 sm:py-28">
+          <h2 className="text-2xl sm:text-3xl font-semibold text-foreground tracking-tight mb-3">
+            The autonomous company OS
+          </h2>
+          <p className="text-base text-muted-foreground leading-relaxed max-w-2xl mb-12">
+            Built to run companies with AI — today and tomorrow. Kortix is the foundation for autonomous operations. Deploy agents as specialists across every function of your business. Self-running. Self-evolving. With you in or out of the loop.
+          </p>
+
+          <div className="flex flex-col gap-4">
+            <FeatureItem
+              title="Agents as employees"
+              desc="Deploy specialists that handle support, sales, engineering, finance, and ops. Each with their own tools, memory, and expertise. They learn, they improve, they deliver."
+            />
+            <FeatureItem
+              title="Always improving"
+              desc="Agents learn from every interaction. Long-term memory means the system gets smarter, faster, and more capable over time. Institutional knowledge that never walks out the door."
+            />
+            <FeatureItem
+              title="Human in the loop — or not"
+              desc="Stay involved when you want oversight. Step away when you don't. Kortix works either way. Approve critical decisions, or let agents handle everything autonomously."
+            />
           </div>
         </section>
 
@@ -344,7 +451,7 @@ export default function Home() {
         <section className="max-w-3xl mx-auto px-6 py-20 sm:py-28">
           <div className="rounded-2xl border border-border/50 bg-card/30 p-8 sm:p-12 text-center">
             <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-foreground mb-4">
-              Ready to launch your computer?
+              Ready to launch your AGI OS?
             </h2>
             <p className="text-base text-muted-foreground/70 leading-relaxed max-w-md mx-auto mb-8">
               Open source, self-hosted, free forever. Or use the cloud — $0 to start.
@@ -380,7 +487,7 @@ export default function Home() {
           </div>
 
           <p className="mt-10 text-sm text-muted-foreground/40 text-center">
-            A company in a computer. It grows with you.
+            The operating system for autonomous companies. It grows with you.
           </p>
         </section>
 

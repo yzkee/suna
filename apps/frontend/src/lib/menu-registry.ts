@@ -308,6 +308,7 @@ export const menuRegistry: MenuItemDef[] = [
     kind: 'navigate',
     href: '/workspace',
     activePathPrefixes: ['/workspace', '/agents', '/skills', '/commands', '/tools'],
+    keywords: 'workspace agents skills commands tools build create',
   },
   {
     id: 'secrets-quick',

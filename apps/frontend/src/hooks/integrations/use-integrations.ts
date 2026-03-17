@@ -195,13 +195,14 @@ export const useIntegrationApps = (query?: string) => {
   });
 };
 
-export const useIntegrationConnections = () => {
+export const useIntegrationConnections = (options?: { enabled?: boolean }) => {
   return useQuery({
     queryKey: ['integration-connections'],
     queryFn: fetchConnections,
     staleTime: 1 * 60 * 1000,
     refetchInterval: 30 * 1000,
     retry: 1,
+    enabled: options?.enabled !== false,
   });
 };
 

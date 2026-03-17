@@ -11,7 +11,7 @@
  * - Variant persistence via useModelStore
  */
 
-import { useMemo, useCallback, useRef, useEffect } from 'react';
+import { useMemo, useCallback, useRef, useEffect, useState } from 'react';
 import { useModelStore, type ModelKey } from './use-model-store';
 import type { FlatModel } from '@/components/session/session-chat-input';
 import type { Agent, ProviderListResponse, Config } from '@opencode-ai/sdk/v2/client';
@@ -183,11 +183,18 @@ export function useOpenCodeLocal({
     [rawAgents],
   );
 
-  // Read/write agent name from per-session localStorage slot
-  const currentAgentName = sessionId ? modelStore.getSessionAgentName(sessionId) : undefined;
+  // Local fallback state for when there's no sessionId (e.g., dashboard before session creation)
+  const [localAgentName, setLocalAgentName] = useState<string | undefined>(undefined);
+
+  // Read/write agent name from per-session localStorage slot (or local state fallback)
+  const currentAgentName = sessionId ? modelStore.getSessionAgentName(sessionId) : localAgentName;
   const setCurrentAgentName = useCallback(
     (name: string | undefined) => {
-      if (sessionId) modelStore.setSessionAgentName(sessionId, name);
+      if (sessionId) {
+        modelStore.setSessionAgentName(sessionId, name);
+      } else {
+        setLocalAgentName(name);
+      }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [sessionId, modelStore.setSessionAgentName],

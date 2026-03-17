@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-import { authenticatedFetch } from '@/lib/auth-token';
+import { authenticatedFetch, getSupabaseAccessToken } from '@/lib/auth-token';
 import { isBillingEnabled } from '@/lib/config';
 
 /**
@@ -518,18 +518,23 @@ export const useServerStore = create<ServerStore>()(
 
         // Load custom entries from API (user-added URLs).
         // Sandbox entries come from useSandbox hook, not from here.
+        // Only sync with API if user is authenticated — otherwise these
+        // fire-and-forget requests produce 401 console errors on the homepage.
         const localServers = [...state.servers];
-        loadFromApi(localServers).then((apiEntries) => {
-          if (apiEntries && apiEntries.length > 0) {
-            // Merge: keep sandbox entries from zustand + custom entries from API
-            const currentState = useServerStore.getState();
-            const sandboxEntries = currentState.servers.filter((s) => s.provider);
-            const apiIds = new Set(apiEntries.map((s) => s.id));
-            const kept = sandboxEntries.filter((s) => !apiIds.has(s.id));
-            useServerStore.setState({ servers: [...kept, ...apiEntries] });
-          } else {
-            syncAllToApi(localServers);
-          }
+        getSupabaseAccessToken().then((token) => {
+          if (!token) return; // Not authenticated, skip API sync
+          loadFromApi(localServers).then((apiEntries) => {
+            if (apiEntries && apiEntries.length > 0) {
+              // Merge: keep sandbox entries from zustand + custom entries from API
+              const currentState = useServerStore.getState();
+              const sandboxEntries = currentState.servers.filter((s) => s.provider);
+              const apiIds = new Set(apiEntries.map((s) => s.id));
+              const kept = sandboxEntries.filter((s) => !apiIds.has(s.id));
+              useServerStore.setState({ servers: [...kept, ...apiEntries] });
+            } else {
+              syncAllToApi(localServers);
+            }
+          });
         });
       },
     },

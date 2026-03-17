@@ -16,7 +16,7 @@ export function IntegrationConnectProvider({ children }: { children: React.React
   const { user } = useAuth();
   const createToken = useCreateConnectToken();
   const saveConnection = useSaveConnection();
-  const { data: connections = [] } = useIntegrationConnections();
+  const { data: connections = [] } = useIntegrationConnections({ enabled: !!user });
 
   // Access store methods via .getState() to avoid subscribing to store changes
   // and causing re-render loops. These functions are stable references.

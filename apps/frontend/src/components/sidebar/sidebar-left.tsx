@@ -92,9 +92,10 @@ interface CollapsedIconButtonProps {
   onClick?: () => void;
   flyoutContent?: React.ReactNode;
   disabled?: boolean;
+  isActive?: boolean;
 }
 
-function CollapsedIconButton({ icon, label, onClick, flyoutContent, disabled }: CollapsedIconButtonProps) {
+function CollapsedIconButton({ icon, label, onClick, flyoutContent, disabled, isActive }: CollapsedIconButtonProps) {
   const [open, setOpen] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -116,7 +117,9 @@ function CollapsedIconButton({ icon, label, onClick, flyoutContent, disabled }: 
       className={cn(
         'flex items-center justify-center w-full py-2 rounded-lg cursor-pointer',
         'transition-all duration-150 ease-out',
-        'text-sidebar-foreground hover:bg-sidebar-accent',
+        isActive
+          ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+          : 'text-sidebar-foreground hover:bg-sidebar-accent',
         disabled && 'opacity-50 cursor-not-allowed',
       )}
     >
@@ -932,6 +935,7 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
           <CollapsedIconButton
             icon={<Sparkles className="h-4 w-4" />}
             label="Marketplace"
+            isActive={pathname === '/marketplace'}
             onClick={() => {
               openTabAndNavigate({
                 id: 'marketplace',
@@ -944,6 +948,7 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
           <CollapsedIconButton
             icon={<FolderOpen className="h-4 w-4" />}
             label="Files"
+            isActive={pathname === '/files'}
             onClick={() => {
               openTabAndNavigate({
                 id: 'page:/files',
@@ -1024,7 +1029,13 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
                   href: '/marketplace',
                 });
               }}
-              className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150 cursor-pointer"
+              className={cn(
+                'flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] cursor-pointer',
+                'transition-colors duration-150',
+                pathname === '/marketplace'
+                  ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+                  : 'text-sidebar-foreground hover:bg-sidebar-accent',
+              )}
             >
               <Sparkles className="h-4 w-4 flex-shrink-0" />
               <span className="flex-1 text-left">Marketplace</span>
