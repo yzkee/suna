@@ -32,7 +32,7 @@ import { useSyncStore } from '@/lib/opencode/sync-store';
 import { getAuthToken } from '@/api/config';
 import type { Session } from '@/lib/opencode/types';
 import { SessionPage } from '@/components/session/SessionPage';
-import { SessionChatInput, type PromptOptions } from '@/components/session/SessionChatInput';
+import { SessionChatInput, type PromptOptions, type TrackedMention } from '@/components/session/SessionChatInput';
 import { BottomBar } from '@/components/session/BottomBar';
 import type { BottomBarRef } from '@/components/session/BottomBar';
 import { TabsOverview } from '@/components/session/TabsOverview';
@@ -342,8 +342,19 @@ export default function HomeScreen() {
   }, [deleteSession, navigateToSession]);
 
   const handleDashboardSend = useCallback(
-    async (text: string, options: PromptOptions) => {
+    async (text: string, options: PromptOptions, mentions?: TrackedMention[]) => {
       if (!sandboxUrl) return;
+
+      // Process session mentions — append XML refs (same as frontend)
+      let finalText = text;
+      const sessionMentions = mentions?.filter((m) => m.kind === 'session' && m.value);
+      if (sessionMentions && sessionMentions.length > 0) {
+        const refs = sessionMentions
+          .map((m) => `<session_ref id="${m.value}" title="${m.label}" />`)
+          .join('\n');
+        finalText = `${text}\n\nReferenced sessions (use the session_context tool to fetch details when needed):\n${refs}`;
+      }
+
       try {
         const session = await createSession.mutateAsync({});
         navigateToSession(session.id);
@@ -358,12 +369,12 @@ export default function HomeScreen() {
             sessionID: session.id,
             time: { created: Date.now() },
           },
-          parts: [{ type: 'text', id: partId, text }],
+          parts: [{ type: 'text', id: partId, text: finalText }],
         });
         useSyncStore.getState().setStatus(session.id, { type: 'busy' });
 
         const payload: Record<string, any> = {
-          parts: [{ type: 'text', text }],
+          parts: [{ type: 'text', text: finalText }],
         };
         if (options.model) payload.model = options.model;
         if (options.agent) payload.agent = options.agent;
@@ -718,6 +729,8 @@ export default function HomeScreen() {
                   onAgentChange={resolved.setAgent}
                   onModelChange={resolved.setModel}
                   onVariantCycle={resolved.cycleVariant}
+                  sessions={sessions}
+                  sandboxUrl={sandboxUrl}
                 />
               </View>
             </View>
@@ -729,6 +742,12 @@ export default function HomeScreen() {
               <BottomBar
                 ref={bottomBarRef}
                 activeSessionId={activeSessionId}
+                onMenuDismiss={() => {
+                  if (activePageId === 'page:files') {
+                    filesPageRef.current?.deselectFile();
+                    setFilesSelectedName(null);
+                  }
+                }}
                 tabCount={openTabIds.length + openPageIds.length}
                 canGoBack={canGoBack}
                 canGoForward={canGoForward}
@@ -750,78 +769,76 @@ export default function HomeScreen() {
                 onArchiveSession={() => { if (activeSessionId) handleArchive(activeSessionId); }}
                 customMenuItems={
                   activePageId === 'page:files'
-                    ? ([
-                        // Contextual file actions (when a file/folder is long-pressed)
-                        ...(filesSelectedName
-                          ? [
-                              {
-                                icon: FileText,
-                                label: `Open ${filesSelectedName}`,
-                                onPress: () => {
-                                  filesPageRef.current?.openFile();
-                                  setFilesSelectedName(null);
-                                },
+                    ? (filesSelectedName
+                        ? ([
+                            // Contextual file actions only (long-press)
+                            {
+                              icon: FileText,
+                              label: `Open ${filesSelectedName}`,
+                              onPress: () => {
+                                filesPageRef.current?.openFile();
+                                setFilesSelectedName(null);
                               },
-                              {
-                                icon: Copy,
-                                label: 'Copy path',
-                                onPress: () => {
-                                  filesPageRef.current?.copyPath();
-                                  setFilesSelectedName(null);
-                                },
+                            },
+                            {
+                              icon: Copy,
+                              label: 'Copy path',
+                              onPress: () => {
+                                filesPageRef.current?.copyPath();
+                                setFilesSelectedName(null);
                               },
-                              {
-                                icon: Pencil,
-                                label: 'Rename',
-                                onPress: () => filesPageRef.current?.renameFile(),
+                            },
+                            {
+                              icon: Pencil,
+                              label: 'Rename',
+                              onPress: () => filesPageRef.current?.renameFile(),
+                            },
+                            {
+                              icon: Trash2,
+                              label: 'Delete',
+                              destructive: true,
+                              onPress: () => filesPageRef.current?.deleteFile(),
+                            },
+                          ] as BottomBarMenuItem[])
+                        : ([
+                            // General file actions (three-dot tap)
+                            {
+                              icon: filesViewMode === 'list' ? LayoutGrid : List,
+                              label: filesViewMode === 'list' ? 'Grid view' : 'List view',
+                              onPress: () => {
+                                filesPageRef.current?.toggleViewMode();
+                                setFilesViewMode((v) => (v === 'list' ? 'grid' : 'list'));
                               },
-                              {
-                                icon: Trash2,
-                                label: 'Delete',
-                                destructive: true,
-                                onPress: () => filesPageRef.current?.deleteFile(),
+                            },
+                            {
+                              icon: filesShowHidden ? Eye : EyeOff,
+                              label: filesShowHidden ? 'Hide dotfiles' : 'Show dotfiles',
+                              onPress: () => {
+                                filesPageRef.current?.toggleHidden();
+                                setFilesShowHidden((v) => !v);
                               },
-                              { type: 'divider' as const },
-                            ]
-                          : []),
-                        // General file actions
-                        {
-                          icon: filesViewMode === 'list' ? LayoutGrid : List,
-                          label: filesViewMode === 'list' ? 'Grid view' : 'List view',
-                          onPress: () => {
-                            filesPageRef.current?.toggleViewMode();
-                            setFilesViewMode((v) => (v === 'list' ? 'grid' : 'list'));
-                          },
-                        },
-                        {
-                          icon: filesShowHidden ? Eye : EyeOff,
-                          label: filesShowHidden ? 'Hide dotfiles' : 'Show dotfiles',
-                          onPress: () => {
-                            filesPageRef.current?.toggleHidden();
-                            setFilesShowHidden((v) => !v);
-                          },
-                        },
-                        {
-                          icon: Upload,
-                          label: 'Upload file',
-                          onPress: () => filesPageRef.current?.uploadDocument(),
-                        },
-                        {
-                          icon: Image,
-                          label: 'Upload image',
-                          onPress: () => filesPageRef.current?.uploadImage(),
-                        },
-                        {
-                          icon: FolderPlus,
-                          label: 'New folder',
-                          onPress: () => filesPageRef.current?.createFolder(),
-                        },
-                        {
-                          icon: RefreshCw,
-                          label: 'Refresh',
-                          onPress: () => filesPageRef.current?.refetch(),
-                        },
-                      ] as BottomBarMenuItem[])
+                            },
+                            {
+                              icon: Upload,
+                              label: 'Upload file',
+                              onPress: () => filesPageRef.current?.uploadDocument(),
+                            },
+                            {
+                              icon: Image,
+                              label: 'Upload image',
+                              onPress: () => filesPageRef.current?.uploadImage(),
+                            },
+                            {
+                              icon: FolderPlus,
+                              label: 'New folder',
+                              onPress: () => filesPageRef.current?.createFolder(),
+                            },
+                            {
+                              icon: RefreshCw,
+                              label: 'Refresh',
+                              onPress: () => filesPageRef.current?.refetch(),
+                            },
+                          ] as BottomBarMenuItem[]))
                     : undefined
                 }
               />

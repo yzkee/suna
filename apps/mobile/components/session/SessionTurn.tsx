@@ -35,6 +35,154 @@ import {
   formatDuration,
 } from '@/lib/opencode/turns';
 
+// ─── Mention highlighting ────────────────────────────────────────────────────
+
+interface ParsedSessionRef {
+  id: string;
+  title: string;
+}
+
+function parseSessionReferences(text: string): {
+  cleanText: string;
+  sessions: ParsedSessionRef[];
+} {
+  const sessions: ParsedSessionRef[] = [];
+  let cleaned = text.replace(
+    /<session_ref\s+id="([^"]*?)"\s+title="([^"]*?)"\s*\/>/g,
+    (_, id, title) => {
+      sessions.push({ id, title });
+      return '';
+    },
+  );
+  cleaned = cleaned
+    .replace(
+      /\n*Referenced sessions \(use the session_context tool to fetch details when needed\):\n?/g,
+      '',
+    )
+    .trim();
+  return { cleanText: cleaned, sessions };
+}
+
+type MentionType = 'file' | 'agent' | 'session';
+
+interface TextSegment {
+  text: string;
+  type?: MentionType;
+  /** Session ID (for session mentions) */
+  sessionId?: string;
+}
+
+const MENTION_COLORS: Record<MentionType, string> = {
+  file: '#3b82f6',    // blue
+  agent: '#a855f7',   // purple
+  session: '#10b981', // emerald
+};
+
+function HighlightMentions({
+  text,
+  agentNames,
+  onFileMention,
+  onSessionMention,
+}: {
+  text: string;
+  agentNames?: string[];
+  onFileMention?: (path: string) => void;
+  onSessionMention?: (sessionId: string) => void;
+}) {
+  const segments = useMemo<TextSegment[]>(() => {
+    const { cleanText, sessions } = parseSessionReferences(text);
+    if (!cleanText) return [{ text: '' }];
+
+    // Detect session mentions first (titles can contain spaces)
+    const detected: { start: number; end: number; type: MentionType; sessionId?: string }[] = [];
+    for (const s of sessions) {
+      const needle = `@${s.title}`;
+      const idx = cleanText.indexOf(needle);
+      if (idx !== -1) {
+        detected.push({ start: idx, end: idx + needle.length, type: 'session', sessionId: s.id });
+      }
+    }
+
+    // Detect agent/file @mentions
+    const agentSet = new Set(agentNames || []);
+    const mentionRegex = /@(\S+)/g;
+    let match: RegExpExecArray | null;
+    while ((match = mentionRegex.exec(cleanText)) !== null) {
+      const mStart = match.index;
+      // Skip if overlaps with a session mention
+      if (detected.some((s) => mStart >= s.start && mStart < s.end)) continue;
+      const name = match[1];
+      detected.push({
+        start: mStart,
+        end: match.index + match[0].length,
+        type: agentSet.has(name) ? 'agent' : 'file',
+      });
+    }
+
+    if (detected.length === 0) return [{ text: cleanText }];
+
+    detected.sort((a, b) => a.start - b.start || b.end - a.end);
+    const result: TextSegment[] = [];
+    let lastIndex = 0;
+    for (const ref of detected) {
+      if (ref.start < lastIndex) continue;
+      if (ref.start > lastIndex) result.push({ text: cleanText.slice(lastIndex, ref.start) });
+      result.push({ text: cleanText.slice(ref.start, ref.end), type: ref.type, sessionId: ref.sessionId });
+      lastIndex = ref.end;
+    }
+    if (lastIndex < cleanText.length) result.push({ text: cleanText.slice(lastIndex) });
+    return result;
+  }, [text, agentNames]);
+
+  if (segments.length === 1 && !segments[0].type) {
+    return (
+      <Text className="text-[15px] leading-[22px] text-foreground">
+        {segments[0].text}
+      </Text>
+    );
+  }
+
+  return (
+    <Text className="text-[15px] leading-[22px] text-foreground">
+      {segments.map((seg, i) => {
+        if (!seg.type) {
+          return <Text key={i}>{seg.text}</Text>;
+        }
+
+        const isClickable =
+          (seg.type === 'file' && onFileMention) ||
+          (seg.type === 'session' && onSessionMention && seg.sessionId);
+
+        return (
+          <Text
+            key={i}
+            style={{
+              color: MENTION_COLORS[seg.type],
+              fontFamily: 'Roobert-Medium',
+              ...(isClickable ? { textDecorationLine: 'underline' as const, textDecorationColor: `${MENTION_COLORS[seg.type]}40` } : {}),
+            }}
+            onPress={
+              isClickable
+                ? () => {
+                    if (seg.type === 'file' && onFileMention) {
+                      onFileMention(seg.text.replace(/^@/, ''));
+                    } else if (seg.type === 'session' && onSessionMention && seg.sessionId) {
+                      onSessionMention(seg.sessionId);
+                    }
+                  }
+                : undefined
+            }
+          >
+            {seg.text}
+          </Text>
+        );
+      })}
+    </Text>
+  );
+}
+
+// ─── SessionTurn ─────────────────────────────────────────────────────────────
+
 interface SessionTurnProps {
   turn: Turn;
   allMessages: MessageWithParts[];
@@ -42,6 +190,9 @@ interface SessionTurnProps {
   isBusy: boolean;
   pendingQuestions?: QuestionRequest[];
   onFork?: (assistantMessageId: string) => void;
+  agentNames?: string[];
+  onFileMention?: (path: string) => void;
+  onSessionMention?: (sessionId: string) => void;
 }
 
 export function SessionTurn({
@@ -51,6 +202,9 @@ export function SessionTurn({
   isBusy,
   pendingQuestions = [],
   onFork,
+  agentNames,
+  onFileMention,
+  onSessionMention,
 }: SessionTurnProps) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -145,9 +299,12 @@ export function SessionTurn({
       {/* User message */}
       <View className="flex-row justify-end mb-2 px-4">
         <View className="rounded-2xl rounded-br-md px-4 py-3 max-w-[85%] bg-card border border-border">
-          <Text className="text-[15px] leading-[22px] text-foreground">
-            {userText}
-          </Text>
+          <HighlightMentions
+            text={userText}
+            agentNames={agentNames}
+            onFileMention={onFileMention}
+            onSessionMention={onSessionMention}
+          />
         </View>
       </View>
 

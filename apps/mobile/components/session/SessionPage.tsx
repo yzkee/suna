@@ -39,9 +39,10 @@ import { useResolvedConfig } from '@/lib/opencode/hooks/use-local-config';
 import { getAuthToken } from '@/api/config';
 import { log } from '@/lib/logger';
 
-import { SessionChatInput, type PromptOptions } from './SessionChatInput';
+import { SessionChatInput, type PromptOptions, type TrackedMention } from './SessionChatInput';
 import { SessionTurn } from './SessionTurn';
 import { QuestionPrompt } from './QuestionPrompt';
+import { useSessions } from '@/lib/platform/hooks';
 
 interface SessionPageProps {
   sessionId: string;
@@ -62,6 +63,7 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
 
   // Session metadata
   const { data: session } = useSession(sandboxUrl, sessionId);
+  const { data: allSessions = [] } = useSessions(sandboxUrl);
 
   // Fork origin — check server parentID and AsyncStorage fallback
   const [forkParentId, setForkParentId] = useState<string | null>(null);
@@ -148,6 +150,14 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
   // Resolution uses ALL models (fallback chain); selector shows only visible
   const resolved = useResolvedConfig(agents, allModels, config, defaults);
 
+  // Agent names for mention highlighting in user bubbles
+  const agentNames = useMemo(() => agents.map((a) => a.name), [agents]);
+
+  // Mention click handlers
+  const handleSessionMention = useCallback((mentionedSessionId: string) => {
+    useTabStore.getState().navigateToSession(mentionedSessionId);
+  }, []);
+
   // Group messages into turns
   const turns = useMemo(() => groupMessagesIntoTurns(safeMessages), [safeMessages]);
 
@@ -175,8 +185,18 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
 
   // Send handler
   const handleSend = useCallback(
-    async (text: string, options: PromptOptions) => {
+    async (text: string, options: PromptOptions, mentions?: TrackedMention[]) => {
       if (!sandboxUrl) return;
+
+      // Process session mentions — append XML refs (same as frontend)
+      let finalText = text;
+      const sessionMentions = mentions?.filter((m) => m.kind === 'session' && m.value);
+      if (sessionMentions && sessionMentions.length > 0) {
+        const refs = sessionMentions
+          .map((m) => `<session_ref id="${m.value}" title="${m.label}" />`)
+          .join('\n');
+        finalText = `${text}\n\nReferenced sessions (use the session_context tool to fetch details when needed):\n${refs}`;
+      }
 
       // Optimistic user message
       const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -189,14 +209,14 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
           sessionID: sessionId,
           time: { created: Date.now() },
         },
-        parts: [{ type: 'text', id: partId, text }],
+        parts: [{ type: 'text', id: partId, text: finalText }],
       });
       useSyncStore.getState().setStatus(sessionId, { type: 'busy' });
       // Scroll is handled by the useEffect watching turns.length
 
       // Build prompt payload (matches frontend POST /session/{id}/message)
       const payload: Record<string, any> = {
-        parts: [{ type: 'text', text }],
+        parts: [{ type: 'text', text: finalText }],
       };
       if (options.model) payload.model = options.model;
       if (options.agent) payload.agent = options.agent;
@@ -332,10 +352,12 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
           isBusy={isBusy}
           pendingQuestions={pendingQuestions}
           onFork={handleFork}
+          agentNames={agentNames}
+          onSessionMention={handleSessionMention}
         />
       </View>
     ),
-    [safeMessages, sessionStatus, isBusy, turns.length, pendingQuestions, handleFork],
+    [safeMessages, sessionStatus, isBusy, turns.length, pendingQuestions, handleFork, agentNames, handleSessionMention],
   );
 
   const title = session?.title || 'New Session';
@@ -456,6 +478,9 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
             onAgentChange={resolved.setAgent}
             onModelChange={resolved.setModel}
             onVariantCycle={resolved.cycleVariant}
+            sessions={allSessions}
+            currentSessionId={sessionId}
+            sandboxUrl={sandboxUrl}
           />
         </Animated.View>
 

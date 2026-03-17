@@ -53,6 +53,8 @@ interface BottomBarProps {
    * When provided, these replace the default session actions.
    */
   customMenuItems?: BottomBarMenuItem[];
+  /** Called when the three-dot menu sheet is dismissed */
+  onMenuDismiss?: () => void;
 }
 
 export interface BottomBarRef {
@@ -74,6 +76,7 @@ export const BottomBar = forwardRef<BottomBarRef, BottomBarProps>(function Botto
   onDiagnostics,
   onArchiveSession,
   customMenuItems,
+  onMenuDismiss,
 }, ref) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -223,6 +226,7 @@ export const BottomBar = forwardRef<BottomBarRef, BottomBarProps>(function Botto
         enableDynamicSizing
         enablePanDownToClose
         backdropComponent={renderBackdrop}
+        onDismiss={onMenuDismiss}
         backgroundStyle={{
           backgroundColor: isDark ? '#161618' : '#FFFFFF',
           borderTopLeftRadius: 20,
