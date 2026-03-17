@@ -118,10 +118,12 @@ interface FilesPageProps {
   onOpenDrawer?: () => void;
   onOpenRightDrawer?: () => void;
   onFileSelectionChange?: (file: SandboxFile | null) => void;
+  /** Called when the file actions menu should open (e.g. after long-press) */
+  onRequestMenu?: () => void;
 }
 
 export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function FilesPage(
-  { page, onBack, onOpenDrawer, onOpenRightDrawer, onFileSelectionChange },
+  { page, onBack, onOpenDrawer, onOpenRightDrawer, onFileSelectionChange, onRequestMenu },
   ref,
 ) {
   const { colorScheme } = useColorScheme();
@@ -154,10 +156,15 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
   const renameSheetRef = useRef<BottomSheetModal>(null);
   const [renameName, setRenameName] = useState('');
 
-  // Notify parent when selection changes
+  // Notify parent when selection changes, auto-open menu on select
   useEffect(() => {
     onFileSelectionChange?.(selectedFile);
-  }, [selectedFile, onFileSelectionChange]);
+    if (selectedFile) {
+      // Small delay to let React re-render with updated menu items
+      const timer = setTimeout(() => onRequestMenu?.(), 50);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedFile, onFileSelectionChange, onRequestMenu]);
 
   // Fetch files via OpenCode API (same as frontend)
   const {

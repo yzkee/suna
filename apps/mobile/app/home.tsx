@@ -34,6 +34,7 @@ import type { Session } from '@/lib/opencode/types';
 import { SessionPage } from '@/components/session/SessionPage';
 import { SessionChatInput, type PromptOptions } from '@/components/session/SessionChatInput';
 import { BottomBar } from '@/components/session/BottomBar';
+import type { BottomBarRef } from '@/components/session/BottomBar';
 import { TabsOverview } from '@/components/session/TabsOverview';
 import {
   useOpenCodeAgents,
@@ -218,6 +219,7 @@ export default function HomeScreen() {
 
   // Files page ref (for BottomBar menu integration)
   const filesPageRef = useRef<FilesPageRef>(null);
+  const bottomBarRef = useRef<BottomBarRef>(null);
   const [filesShowHidden, setFilesShowHidden] = useState(false);
   const [filesViewMode, setFilesViewMode] = useState<'list' | 'grid'>('list');
   const [filesSelectedName, setFilesSelectedName] = useState<string | null>(null);
@@ -633,6 +635,7 @@ export default function HomeScreen() {
               onOpenDrawer={handleDrawerOpen}
               onOpenRightDrawer={handleRightDrawerOpen}
               onFileSelectionChange={(file) => setFilesSelectedName(file?.name ?? null)}
+              onRequestMenu={() => bottomBarRef.current?.presentMenu()}
             />
 
           /* Active page tab — other pages (placeholder) */
@@ -724,6 +727,7 @@ export default function HomeScreen() {
           {!showTabsOverview && (
             <View>
               <BottomBar
+                ref={bottomBarRef}
                 activeSessionId={activeSessionId}
                 tabCount={openTabIds.length + openPageIds.length}
                 canGoBack={canGoBack}

@@ -5,7 +5,7 @@
  * The "More" menu shows session-specific actions via a bottom sheet.
  */
 
-import React, { useCallback, useRef, useMemo } from 'react';
+import React, { useCallback, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { View, TouchableOpacity } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
@@ -55,7 +55,11 @@ interface BottomBarProps {
   customMenuItems?: BottomBarMenuItem[];
 }
 
-export function BottomBar({
+export interface BottomBarRef {
+  presentMenu: () => void;
+}
+
+export const BottomBar = forwardRef<BottomBarRef, BottomBarProps>(function BottomBar({
   activeSessionId,
   tabCount,
   onBack,
@@ -70,11 +74,15 @@ export function BottomBar({
   onDiagnostics,
   onArchiveSession,
   customMenuItems,
-}: BottomBarProps) {
+}, ref) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
   const sheetRef = useRef<BottomSheetModal>(null);
+
+  useImperativeHandle(ref, () => ({
+    presentMenu: () => sheetRef.current?.present(),
+  }), []);
 
   const hasActiveSession = !!activeSessionId;
   const hasCustomMenu = !!customMenuItems && customMenuItems.length > 0;
@@ -281,4 +289,4 @@ export function BottomBar({
       </BottomSheetModal>
     </>
   );
-}
+});
