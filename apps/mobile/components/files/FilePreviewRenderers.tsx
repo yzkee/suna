@@ -73,14 +73,23 @@ export function getFilePreviewType(filename: string): FilePreviewType {
   const htmlExtensions = ['html', 'htm'];
   const jsonExtensions = ['json', 'jsonc', 'json5'];
   const codeExtensions = [
-    'js', 'jsx', 'ts', 'tsx', 'py', 'java', 'c', 'cpp', 'h', 'hpp',
-    'cs', 'rb', 'go', 'rs', 'php', 'swift', 'kt', 'scala', 'r',
+    'js', 'jsx', 'ts', 'tsx', 'py', 'pyi', 'pyx', 'pyw',
+    'java', 'c', 'cpp', 'cc', 'cxx', 'h', 'hpp', 'hxx', 'm', 'mm',
+    'cs', 'rb', 'erb', 'go', 'rs', 'php', 'swift', 'kt', 'kts', 'scala',
+    'r', 'rmd', 'hs', 'lhs', 'lua', 'perl', 'pl', 'pm',
     'sql', 'sh', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'cmd',
     'css', 'scss', 'sass', 'less', 'styl',
-    'yaml', 'yml', 'toml', 'ini', 'conf', 'config',
-    'dart', 'lua', 'perl', 'vim', 'dockerfile', 'makefile',
+    'yaml', 'yml', 'toml', 'ini', 'conf', 'config', 'cfg', 'properties',
+    'xml', 'xsl', 'xslt', 'wsdl',
+    'dart', 'vim', 'dockerfile', 'makefile',
+    'vue', 'svelte',
+    'proto', 'graphql', 'gql',
+    'gradle', 'groovy', 'clj', 'cljs', 'ex', 'exs',
+    'f90', 'f95', 'f03', 'for',
+    'zig', 'nim', 'v', 'cr', 'jl',
+    'env', 'gitignore', 'editorconfig',
   ];
-  const textExtensions = ['txt', 'log', 'md', 'rtf', 'tex'];
+  const textExtensions = ['txt', 'log', 'rtf', 'tex', 'rst', 'org', 'nfo', 'info'];
   const binaryExtensions = ['zip', 'tar', 'gz', 'rar', '7z', 'exe', 'dmg', 'pkg', 'deb', 'rpm'];
 
   if (imageExtensions.includes(ext)) return FilePreviewType.IMAGE;
@@ -103,49 +112,47 @@ export function getLanguageFromFilename(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
 
   const languageMap: Record<string, string> = {
-    'js': 'javascript',
-    'jsx': 'javascript',
-    'ts': 'typescript',
-    'tsx': 'typescript',
-    'py': 'python',
-    'rb': 'ruby',
+    'js': 'javascript', 'jsx': 'javascript', 'mjs': 'javascript', 'cjs': 'javascript',
+    'ts': 'typescript', 'tsx': 'typescript',
+    'py': 'python', 'pyi': 'python', 'pyx': 'python', 'pyw': 'python',
+    'rb': 'ruby', 'erb': 'ruby', 'gemspec': 'ruby',
     'java': 'java',
-    'c': 'c',
-    'cpp': 'cpp',
-    'h': 'c',
-    'hpp': 'cpp',
+    'c': 'c', 'h': 'c', 'm': 'objectivec',
+    'cpp': 'cpp', 'cc': 'cpp', 'cxx': 'cpp', 'hpp': 'cpp', 'hxx': 'cpp', 'mm': 'objectivec',
     'cs': 'csharp',
     'go': 'go',
     'rs': 'rust',
     'php': 'php',
     'swift': 'swift',
-    'kt': 'kotlin',
+    'kt': 'kotlin', 'kts': 'kotlin',
     'scala': 'scala',
-    'r': 'r',
-    'sql': 'sql',
-    'sh': 'bash',
-    'bash': 'bash',
-    'zsh': 'bash',
-    'fish': 'bash',
-    'ps1': 'powershell',
-    'bat': 'batch',
-    'cmd': 'batch',
-    'css': 'css',
-    'scss': 'scss',
-    'sass': 'sass',
-    'less': 'less',
-    'html': 'html',
-    'xml': 'xml',
-    'yaml': 'yaml',
-    'yml': 'yaml',
-    'json': 'json',
-    'md': 'markdown',
-    'dart': 'dart',
+    'r': 'r', 'rmd': 'r',
+    'hs': 'haskell', 'lhs': 'haskell',
     'lua': 'lua',
-    'perl': 'perl',
+    'perl': 'perl', 'pl': 'perl', 'pm': 'perl',
+    'sql': 'sql',
+    'sh': 'bash', 'bash': 'bash', 'zsh': 'bash', 'fish': 'bash',
+    'ps1': 'powershell', 'bat': 'dos', 'cmd': 'dos',
+    'css': 'css', 'scss': 'scss', 'sass': 'scss', 'less': 'less',
+    'html': 'html', 'htm': 'html',
+    'xml': 'xml', 'xsl': 'xml', 'xslt': 'xml', 'wsdl': 'xml',
+    'yaml': 'yaml', 'yml': 'yaml',
+    'toml': 'ini', 'ini': 'ini', 'conf': 'ini', 'cfg': 'ini', 'properties': 'properties',
+    'json': 'json', 'jsonc': 'json', 'json5': 'json',
+    'md': 'markdown', 'mdx': 'markdown',
+    'dart': 'dart',
+    'vim': 'vim',
+    'vue': 'xml', 'svelte': 'xml',
+    'proto': 'protobuf', 'graphql': 'graphql', 'gql': 'graphql',
+    'gradle': 'gradle', 'groovy': 'groovy',
+    'clj': 'clojure', 'cljs': 'clojure',
+    'ex': 'elixir', 'exs': 'elixir',
+    'jl': 'julia',
+    'zig': 'zig', 'nim': 'nim',
+    'dockerfile': 'dockerfile', 'makefile': 'makefile',
   };
 
-  return languageMap[ext] || 'text';
+  return languageMap[ext] || 'plaintext';
 }
 
 interface FilePreviewProps {
@@ -1286,8 +1293,12 @@ export function FilePreview({
 
     case FilePreviewType.XLSX:
     case FilePreviewType.BINARY:
-    default:
       return <FallbackPreview fileName={fileName} previewType={previewType} />;
+
+    case FilePreviewType.OTHER:
+    default:
+      // Any unrecognized file with text content — render as plain text
+      return <TextPreview content={content} />;
   }
 }
 
