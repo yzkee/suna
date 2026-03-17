@@ -153,6 +153,11 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
   // Agent names for mention highlighting in user bubbles
   const agentNames = useMemo(() => agents.map((a) => a.name), [agents]);
 
+  // Mention click handlers
+  const handleSessionMention = useCallback((mentionedSessionId: string) => {
+    useTabStore.getState().navigateToSession(mentionedSessionId);
+  }, []);
+
   // Group messages into turns
   const turns = useMemo(() => groupMessagesIntoTurns(safeMessages), [safeMessages]);
 
@@ -348,10 +353,11 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
           pendingQuestions={pendingQuestions}
           onFork={handleFork}
           agentNames={agentNames}
+          onSessionMention={handleSessionMention}
         />
       </View>
     ),
-    [safeMessages, sessionStatus, isBusy, turns.length, pendingQuestions, handleFork, agentNames],
+    [safeMessages, sessionStatus, isBusy, turns.length, pendingQuestions, handleFork, agentNames, handleSessionMention],
   );
 
   const title = session?.title || 'New Session';

@@ -68,6 +68,8 @@ type MentionType = 'file' | 'agent' | 'session';
 interface TextSegment {
   text: string;
   type?: MentionType;
+  /** Session ID (for session mentions) */
+  sessionId?: string;
 }
 
 const MENTION_COLORS: Record<MentionType, string> = {
@@ -79,21 +81,25 @@ const MENTION_COLORS: Record<MentionType, string> = {
 function HighlightMentions({
   text,
   agentNames,
+  onFileMention,
+  onSessionMention,
 }: {
   text: string;
   agentNames?: string[];
+  onFileMention?: (path: string) => void;
+  onSessionMention?: (sessionId: string) => void;
 }) {
   const segments = useMemo<TextSegment[]>(() => {
     const { cleanText, sessions } = parseSessionReferences(text);
     if (!cleanText) return [{ text: '' }];
 
     // Detect session mentions first (titles can contain spaces)
-    const detected: { start: number; end: number; type: MentionType }[] = [];
+    const detected: { start: number; end: number; type: MentionType; sessionId?: string }[] = [];
     for (const s of sessions) {
       const needle = `@${s.title}`;
       const idx = cleanText.indexOf(needle);
       if (idx !== -1) {
-        detected.push({ start: idx, end: idx + needle.length, type: 'session' });
+        detected.push({ start: idx, end: idx + needle.length, type: 'session', sessionId: s.id });
       }
     }
 
@@ -121,7 +127,7 @@ function HighlightMentions({
     for (const ref of detected) {
       if (ref.start < lastIndex) continue;
       if (ref.start > lastIndex) result.push({ text: cleanText.slice(lastIndex, ref.start) });
-      result.push({ text: cleanText.slice(ref.start, ref.end), type: ref.type });
+      result.push({ text: cleanText.slice(ref.start, ref.end), type: ref.type, sessionId: ref.sessionId });
       lastIndex = ref.end;
     }
     if (lastIndex < cleanText.length) result.push({ text: cleanText.slice(lastIndex) });
@@ -138,18 +144,39 @@ function HighlightMentions({
 
   return (
     <Text className="text-[15px] leading-[22px] text-foreground">
-      {segments.map((seg, i) =>
-        seg.type ? (
+      {segments.map((seg, i) => {
+        if (!seg.type) {
+          return <Text key={i}>{seg.text}</Text>;
+        }
+
+        const isClickable =
+          (seg.type === 'file' && onFileMention) ||
+          (seg.type === 'session' && onSessionMention && seg.sessionId);
+
+        return (
           <Text
             key={i}
-            style={{ color: MENTION_COLORS[seg.type], fontFamily: 'Roobert-Medium' }}
+            style={{
+              color: MENTION_COLORS[seg.type],
+              fontFamily: 'Roobert-Medium',
+              ...(isClickable ? { textDecorationLine: 'underline' as const, textDecorationColor: `${MENTION_COLORS[seg.type]}40` } : {}),
+            }}
+            onPress={
+              isClickable
+                ? () => {
+                    if (seg.type === 'file' && onFileMention) {
+                      onFileMention(seg.text.replace(/^@/, ''));
+                    } else if (seg.type === 'session' && onSessionMention && seg.sessionId) {
+                      onSessionMention(seg.sessionId);
+                    }
+                  }
+                : undefined
+            }
           >
             {seg.text}
           </Text>
-        ) : (
-          <Text key={i}>{seg.text}</Text>
-        ),
-      )}
+        );
+      })}
     </Text>
   );
 }
@@ -164,6 +191,8 @@ interface SessionTurnProps {
   pendingQuestions?: QuestionRequest[];
   onFork?: (assistantMessageId: string) => void;
   agentNames?: string[];
+  onFileMention?: (path: string) => void;
+  onSessionMention?: (sessionId: string) => void;
 }
 
 export function SessionTurn({
@@ -174,6 +203,8 @@ export function SessionTurn({
   pendingQuestions = [],
   onFork,
   agentNames,
+  onFileMention,
+  onSessionMention,
 }: SessionTurnProps) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -268,7 +299,12 @@ export function SessionTurn({
       {/* User message */}
       <View className="flex-row justify-end mb-2 px-4">
         <View className="rounded-2xl rounded-br-md px-4 py-3 max-w-[85%] bg-card border border-border">
-          <HighlightMentions text={userText} agentNames={agentNames} />
+          <HighlightMentions
+            text={userText}
+            agentNames={agentNames}
+            onFileMention={onFileMention}
+            onSessionMention={onSessionMention}
+          />
         </View>
       </View>
 
