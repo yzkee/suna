@@ -294,6 +294,8 @@ function JsonPreview({ content }: { content: string }) {
         javaScriptEnabled
         scrollEnabled
         showsVerticalScrollIndicator
+        scalesPageToFit={false}
+        bounces={false}
         startInLoadingState
         renderLoading={() => (
           <View
@@ -353,7 +355,7 @@ function generateHighlightedCodeHtml(
 <html>
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/${theme}.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <style>
@@ -470,6 +472,8 @@ function CodePreview({ content, fileName }: { content: string; fileName: string 
         javaScriptEnabled
         scrollEnabled
         showsVerticalScrollIndicator
+        scalesPageToFit={false}
+        bounces={false}
         startInLoadingState
         renderLoading={() => (
           <View
