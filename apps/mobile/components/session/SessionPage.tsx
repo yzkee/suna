@@ -150,6 +150,9 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
   // Resolution uses ALL models (fallback chain); selector shows only visible
   const resolved = useResolvedConfig(agents, allModels, config, defaults);
 
+  // Agent names for mention highlighting in user bubbles
+  const agentNames = useMemo(() => agents.map((a) => a.name), [agents]);
+
   // Group messages into turns
   const turns = useMemo(() => groupMessagesIntoTurns(safeMessages), [safeMessages]);
 
@@ -344,10 +347,11 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
           isBusy={isBusy}
           pendingQuestions={pendingQuestions}
           onFork={handleFork}
+          agentNames={agentNames}
         />
       </View>
     ),
-    [safeMessages, sessionStatus, isBusy, turns.length, pendingQuestions, handleFork],
+    [safeMessages, sessionStatus, isBusy, turns.length, pendingQuestions, handleFork, agentNames],
   );
 
   const title = session?.title || 'New Session';
