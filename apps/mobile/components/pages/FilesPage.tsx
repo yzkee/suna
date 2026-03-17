@@ -46,6 +46,7 @@ import {
 } from '@gorhom/bottom-sheet';
 import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
 import * as Haptics from 'expo-haptics';
+import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -58,6 +59,7 @@ import {
   useOpenCodeUploadFile,
   useOpenCodeDeleteFile,
   useOpenCodeMkdir,
+  useOpenCodeRenameFile,
 } from '@/lib/files/hooks';
 import type { SandboxFile } from '@/api/types';
 import type { PageTab } from '@/stores/tab-store';
@@ -96,12 +98,18 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 export interface FilesPageRef {
   showHidden: boolean;
   viewMode: 'list' | 'grid';
+  selectedFile: SandboxFile | null;
   toggleHidden: () => void;
   toggleViewMode: () => void;
   refetch: () => void;
   uploadDocument: () => void;
   uploadImage: () => void;
   createFolder: () => void;
+  openFile: () => void;
+  copyPath: () => void;
+  renameFile: () => void;
+  deleteFile: () => void;
+  deselectFile: () => void;
 }
 
 interface FilesPageProps {
@@ -109,10 +117,11 @@ interface FilesPageProps {
   onBack: () => void;
   onOpenDrawer?: () => void;
   onOpenRightDrawer?: () => void;
+  onFileSelectionChange?: (file: SandboxFile | null) => void;
 }
 
 export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function FilesPage(
-  { page, onBack, onOpenDrawer, onOpenRightDrawer },
+  { page, onBack, onOpenDrawer, onOpenRightDrawer, onFileSelectionChange },
   ref,
 ) {
   const { colorScheme } = useColorScheme();
@@ -134,11 +143,21 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
 
   // Viewer state
   const [viewerVisible, setViewerVisible] = useState(false);
+  const [viewerFile, setViewerFile] = useState<SandboxFile | null>(null);
+
+  // Context-selected file (long-press selects for three-dot menu actions)
   const [selectedFile, setSelectedFile] = useState<SandboxFile | null>(null);
 
-  // Create folder bottom sheet
+  // Create folder / rename bottom sheets
   const createFolderSheetRef = useRef<BottomSheetModal>(null);
   const [newFolderName, setNewFolderName] = useState('');
+  const renameSheetRef = useRef<BottomSheetModal>(null);
+  const [renameName, setRenameName] = useState('');
+
+  // Notify parent when selection changes
+  useEffect(() => {
+    onFileSelectionChange?.(selectedFile);
+  }, [selectedFile, onFileSelectionChange]);
 
   // Fetch files via OpenCode API (same as frontend)
   const {
@@ -153,6 +172,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
   const uploadMutation = useOpenCodeUploadFile();
   const deleteMutation = useOpenCodeDeleteFile();
   const createFolderMutation = useOpenCodeMkdir();
+  const renameMutation = useOpenCodeRenameFile();
 
   // Bottom sheet backdrop
   const renderBackdrop = useCallback(
@@ -191,41 +211,101 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
 
   // Handlers
   const handleFilePress = useCallback((file: SandboxFile) => {
+    setSelectedFile(null);
     if (file.type === 'directory') {
       setCurrentPath(normalizePath(file.path));
     } else {
-      setSelectedFile(file);
+      setViewerFile(file);
       setViewerVisible(true);
     }
   }, []);
 
   const handleFileLongPress = useCallback(
     (file: SandboxFile) => {
-      Alert.alert('Delete', `Delete "${file.name}"?`, [
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      setSelectedFile(file);
+    },
+    [],
+  );
+
+  // File context actions (exposed via ref for BottomBar menu)
+  const handleOpenSelectedFile = useCallback(() => {
+    if (!selectedFile) return;
+    if (selectedFile.type === 'directory') {
+      setCurrentPath(normalizePath(selectedFile.path));
+    } else {
+      setViewerFile(selectedFile);
+      setViewerVisible(true);
+    }
+    setSelectedFile(null);
+  }, [selectedFile]);
+
+  const handleCopyPath = useCallback(async () => {
+    if (!selectedFile) return;
+    await Clipboard.setStringAsync(selectedFile.path);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setSelectedFile(null);
+  }, [selectedFile]);
+
+  const handleRenameFile = useCallback(() => {
+    if (!selectedFile) return;
+    setRenameName(selectedFile.name);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    renameSheetRef.current?.present();
+  }, [selectedFile]);
+
+  const handleConfirmRename = useCallback(async () => {
+    if (!renameName.trim() || !selectedFile || !sandboxUrl) return;
+    Keyboard.dismiss();
+    try {
+      const parentDir = selectedFile.path.substring(0, selectedFile.path.lastIndexOf('/'));
+      const newPath = `${parentDir}/${renameName.trim()}`;
+      await renameMutation.mutateAsync({
+        sandboxUrl,
+        from: selectedFile.path,
+        to: newPath,
+      });
+      renameSheetRef.current?.dismiss();
+      setSelectedFile(null);
+      setRenameName('');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      Alert.alert('Error', 'Failed to rename');
+    }
+  }, [selectedFile, renameName, sandboxUrl, renameMutation]);
+
+  const handleDeleteFile = useCallback(() => {
+    if (!selectedFile || !sandboxUrl) return;
+    const name = selectedFile.name;
+    const isDir = selectedFile.type === 'directory';
+    Alert.alert(
+      `Delete ${isDir ? 'folder' : 'file'}`,
+      `Delete "${name}"? This cannot be undone.`,
+      [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            if (!sandboxUrl) return;
             try {
               await deleteMutation.mutateAsync({
                 sandboxUrl,
-                filePath: file.path,
+                filePath: selectedFile.path,
               });
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             } catch {
-              Alert.alert('Error', 'Failed to delete file');
+              Alert.alert('Error', 'Failed to delete');
             }
+            setSelectedFile(null);
           },
         },
-      ]);
-    },
-    [sandboxUrl, deleteMutation],
-  );
+      ],
+    );
+  }, [selectedFile, sandboxUrl, deleteMutation]);
 
   const handleNavigate = useCallback((path: string) => {
     setCurrentPath(normalizePath(path));
+    setSelectedFile(null);
   }, []);
 
   const handleUploadDocument = useCallback(async () => {
@@ -300,13 +380,19 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
   useImperativeHandle(ref, () => ({
     showHidden,
     viewMode,
+    selectedFile,
     toggleHidden: () => setShowHidden((v) => !v),
     toggleViewMode: () => setViewMode((v) => (v === 'list' ? 'grid' : 'list')),
     refetch: () => refetch(),
     uploadDocument: () => handleUploadDocument(),
     uploadImage: () => handleUploadImage(),
     createFolder: () => openCreateFolder(),
-  }), [showHidden, viewMode, refetch, handleUploadDocument, handleUploadImage, openCreateFolder]);
+    openFile: () => handleOpenSelectedFile(),
+    copyPath: () => handleCopyPath(),
+    renameFile: () => handleRenameFile(),
+    deleteFile: () => handleDeleteFile(),
+    deselectFile: () => setSelectedFile(null),
+  }), [showHidden, viewMode, selectedFile, refetch, handleUploadDocument, handleUploadImage, openCreateFolder, handleOpenSelectedFile, handleCopyPath, handleRenameFile, handleDeleteFile]);
 
   const isAtRoot = currentPath === '/workspace';
 
@@ -958,14 +1044,153 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
         </BottomSheetView>
       </BottomSheetModal>
 
+      {/* Rename Bottom Sheet */}
+      <BottomSheetModal
+        ref={renameSheetRef}
+        enableDynamicSizing
+        enablePanDownToClose
+        backdropComponent={renderBackdrop}
+        keyboardBehavior="interactive"
+        keyboardBlurBehavior="restore"
+        android_keyboardInputMode="adjustResize"
+        onDismiss={() => setRenameName('')}
+        backgroundStyle={{
+          backgroundColor: isDark ? '#161618' : '#FFFFFF',
+          borderTopLeftRadius: 24,
+          borderTopRightRadius: 24,
+        }}
+        handleIndicatorStyle={{
+          backgroundColor: isDark ? '#3F3F46' : '#D4D4D8',
+          width: 36,
+          height: 5,
+          borderRadius: 3,
+        }}
+      >
+        <BottomSheetView
+          style={{
+            paddingHorizontal: 24,
+            paddingTop: 8,
+            paddingBottom: Math.max(insets.bottom, 20) + 16,
+          }}
+        >
+          {/* Header */}
+          <View className="flex-row items-center mb-5">
+            <View
+              className="w-10 h-10 rounded-xl items-center justify-center mr-3"
+              style={{
+                backgroundColor: isDark
+                  ? 'rgba(248, 248, 248, 0.08)'
+                  : 'rgba(18, 18, 21, 0.05)',
+              }}
+            >
+              <Icon
+                as={selectedFile?.type === 'directory' ? Folder : Folder}
+                size={20}
+                color={fgColor}
+                strokeWidth={1.8}
+              />
+            </View>
+            <View className="flex-1">
+              <Text
+                className="text-lg font-roobert-semibold"
+                style={{ color: fgColor }}
+              >
+                Rename
+              </Text>
+              <Text
+                className="text-xs font-roobert mt-0.5"
+                style={{
+                  color: isDark
+                    ? 'rgba(248, 248, 248, 0.4)'
+                    : 'rgba(18, 18, 21, 0.4)',
+                }}
+                numberOfLines={1}
+              >
+                {selectedFile?.name}
+              </Text>
+            </View>
+          </View>
+
+          {/* Input */}
+          <BottomSheetTextInput
+            value={renameName}
+            onChangeText={setRenameName}
+            placeholder="Enter new name"
+            placeholderTextColor={
+              isDark ? 'rgba(248, 248, 248, 0.25)' : 'rgba(18, 18, 21, 0.3)'
+            }
+            autoFocus
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="done"
+            onSubmitEditing={handleConfirmRename}
+            style={{
+              backgroundColor: isDark
+                ? 'rgba(248, 248, 248, 0.06)'
+                : 'rgba(18, 18, 21, 0.04)',
+              borderWidth: 1,
+              borderColor: isDark
+                ? 'rgba(248, 248, 248, 0.1)'
+                : 'rgba(18, 18, 21, 0.08)',
+              borderRadius: 14,
+              paddingHorizontal: 16,
+              paddingVertical: 14,
+              fontSize: 16,
+              fontFamily: 'Roobert',
+              color: fgColor,
+              marginBottom: 20,
+            }}
+          />
+
+          {/* Rename button */}
+          <BottomSheetTouchable
+            onPress={handleConfirmRename}
+            disabled={!renameName.trim() || renameName.trim() === selectedFile?.name || renameMutation.isPending}
+            style={{
+              backgroundColor:
+                renameName.trim() && renameName.trim() !== selectedFile?.name
+                  ? isDark
+                    ? '#f8f8f8'
+                    : '#121215'
+                  : isDark
+                    ? 'rgba(248, 248, 248, 0.08)'
+                    : 'rgba(18, 18, 21, 0.06)',
+              borderRadius: 14,
+              paddingVertical: 15,
+              alignItems: 'center',
+              opacity:
+                renameName.trim() && renameName.trim() !== selectedFile?.name
+                  ? 1
+                  : 0.5,
+            }}
+          >
+            <Text
+              className="text-[15px] font-roobert-semibold"
+              style={{
+                color:
+                  renameName.trim() && renameName.trim() !== selectedFile?.name
+                    ? isDark
+                      ? '#121215'
+                      : '#f8f8f8'
+                    : isDark
+                      ? 'rgba(248, 248, 248, 0.3)'
+                      : 'rgba(18, 18, 21, 0.3)',
+              }}
+            >
+              {renameMutation.isPending ? 'Renaming...' : 'Rename'}
+            </Text>
+          </BottomSheetTouchable>
+        </BottomSheetView>
+      </BottomSheetModal>
+
       {/* File Viewer */}
       <FileViewer
         visible={viewerVisible}
         onClose={() => {
           setViewerVisible(false);
-          setSelectedFile(null);
+          setViewerFile(null);
         }}
-        file={selectedFile}
+        file={viewerFile}
         sandboxId={sandboxId || ''}
         sandboxUrl={sandboxUrl}
       />

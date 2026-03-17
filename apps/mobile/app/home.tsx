@@ -46,7 +46,10 @@ import { RightDrawerContent } from '@/components/session/RightDrawerContent';
 import { PlaceholderPage } from '@/components/session/PlaceholderPage';
 import { FilesPage } from '@/components/pages/FilesPage';
 import type { FilesPageRef } from '@/components/pages/FilesPage';
-import { Eye, EyeOff, RefreshCw, Upload, Image, FolderPlus, LayoutGrid, List } from 'lucide-react-native';
+import {
+  Eye, EyeOff, RefreshCw, Upload, Image, FolderPlus, LayoutGrid, List,
+  FileText, Copy, Pencil, Trash2,
+} from 'lucide-react-native';
 import type { BottomBarMenuItem } from '@/components/session/BottomBar';
 import { log } from '@/lib/logger';
 
@@ -217,6 +220,7 @@ export default function HomeScreen() {
   const filesPageRef = useRef<FilesPageRef>(null);
   const [filesShowHidden, setFilesShowHidden] = useState(false);
   const [filesViewMode, setFilesViewMode] = useState<'list' | 'grid'>('list');
+  const [filesSelectedName, setFilesSelectedName] = useState<string | null>(null);
 
   // Persisted tab state (survives app restarts)
   const activeSessionId = useTabStore((s) => s.activeSessionId);
@@ -628,6 +632,7 @@ export default function HomeScreen() {
               onBack={handleBack}
               onOpenDrawer={handleDrawerOpen}
               onOpenRightDrawer={handleRightDrawerOpen}
+              onFileSelectionChange={(file) => setFilesSelectedName(file?.name ?? null)}
             />
 
           /* Active page tab — other pages (placeholder) */
@@ -742,6 +747,40 @@ export default function HomeScreen() {
                 customMenuItems={
                   activePageId === 'page:files'
                     ? ([
+                        // Contextual file actions (when a file/folder is long-pressed)
+                        ...(filesSelectedName
+                          ? [
+                              {
+                                icon: FileText,
+                                label: `Open ${filesSelectedName}`,
+                                onPress: () => {
+                                  filesPageRef.current?.openFile();
+                                  setFilesSelectedName(null);
+                                },
+                              },
+                              {
+                                icon: Copy,
+                                label: 'Copy path',
+                                onPress: () => {
+                                  filesPageRef.current?.copyPath();
+                                  setFilesSelectedName(null);
+                                },
+                              },
+                              {
+                                icon: Pencil,
+                                label: 'Rename',
+                                onPress: () => filesPageRef.current?.renameFile(),
+                              },
+                              {
+                                icon: Trash2,
+                                label: 'Delete',
+                                destructive: true,
+                                onPress: () => filesPageRef.current?.deleteFile(),
+                              },
+                              { type: 'divider' as const },
+                            ]
+                          : []),
+                        // General file actions
                         {
                           icon: filesViewMode === 'list' ? LayoutGrid : List,
                           label: filesViewMode === 'list' ? 'Grid view' : 'List view',

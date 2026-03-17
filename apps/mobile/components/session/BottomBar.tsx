@@ -13,12 +13,17 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { BottomSheetModal, BottomSheetBackdrop, BottomSheetView } from '@gorhom/bottom-sheet';
 
-export interface BottomBarMenuItem {
-  icon: React.ComponentType<any>;
-  label: string;
-  onPress: () => void;
-  destructive?: boolean;
-}
+export type BottomBarMenuItem =
+  | {
+      type?: 'action';
+      icon: React.ComponentType<any>;
+      label: string;
+      onPress: () => void;
+      destructive?: boolean;
+    }
+  | {
+      type: 'divider';
+    };
 
 interface BottomBarProps {
   /** Currently active session ID (null = on dashboard) */
@@ -222,7 +227,21 @@ export function BottomBar({
       >
         <BottomSheetView style={{ paddingBottom: insets.bottom + 12 }}>
           {hasCustomMenu ? (
-            customMenuItems!.map((item) => {
+            customMenuItems!.map((item, index) => {
+              if (item.type === 'divider') {
+                return (
+                  <View
+                    key={`divider-${index}`}
+                    className="mx-6 my-1.5"
+                    style={{
+                      height: 1,
+                      backgroundColor: isDark
+                        ? 'rgba(248, 248, 248, 0.08)'
+                        : 'rgba(18, 18, 21, 0.06)',
+                    }}
+                  />
+                );
+              }
               const IconComp = item.icon;
               return (
                 <TouchableOpacity

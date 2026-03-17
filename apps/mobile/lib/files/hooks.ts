@@ -352,6 +352,42 @@ export function useOpenCodeMkdir(
   });
 }
 
+/**
+ * Rename/move a file using OpenCode API: POST {sandboxUrl}/file/rename
+ */
+export function useOpenCodeRenameFile(
+  options?: UseMutationOptions<any, Error, { sandboxUrl: string; from: string; to: string }>
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ sandboxUrl, from, to }) => {
+      const token = await getAuthToken();
+      const res = await fetch(`${sandboxUrl}/file/rename`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ from, to }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Rename failed: ${res.status} ${text}`);
+      }
+      return res.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ['files', 'opencode', variables.sandboxUrl],
+        exact: false,
+        refetchType: 'all',
+      });
+    },
+    ...options,
+  });
+}
+
 // ============================================================================
 // Legacy Query Hooks (via API_URL/sandboxes/{id}/files)
 // ============================================================================
