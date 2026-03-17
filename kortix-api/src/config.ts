@@ -137,6 +137,7 @@ const envSchema = z.object({
   JUSTAVPS_PROVIDER:                  optStrDefault('hetzner'),  // underlying provider in JustAVPS
   JUSTAVPS_DEFAULT_LOCATION:          optStrDefault('nbg1'),
   JUSTAVPS_DEFAULT_SERVER_TYPE:       optStrDefault('cpx22'),
+  JUSTAVPS_WEBHOOK_SECRET:            optStr,   // HMAC secret for verifying JustAVPS webhook signatures
 
   // ── Sandbox Platform (optional) ──────────────────────────────────────────
   KORTIX_URL:                  optStr,
@@ -407,6 +408,7 @@ export const config = {
   JUSTAVPS_PROVIDER: env.JUSTAVPS_PROVIDER,
   JUSTAVPS_DEFAULT_LOCATION: env.JUSTAVPS_DEFAULT_LOCATION,
   JUSTAVPS_DEFAULT_SERVER_TYPE: env.JUSTAVPS_DEFAULT_SERVER_TYPE,
+  JUSTAVPS_WEBHOOK_SECRET: env.JUSTAVPS_WEBHOOK_SECRET,
 
   // ─── Sandbox Provisioning (Platform) ──────────────────────────────────────
   KORTIX_URL: env.KORTIX_URL,

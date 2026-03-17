@@ -166,7 +166,8 @@ export async function proxyToSandbox(
   }
 
   // On 401 from sandbox: service key mismatch. Sync our key and retry once.
-  if (response.status === 401 && !_serviceKeySynced) {
+  // Only attempt local docker exec sync for local_docker provider (no baseUrlOverride).
+  if (response.status === 401 && !_serviceKeySynced && !baseUrlOverride) {
     const synced = trySyncServiceKey();
     if (synced) {
       // Retry the request with the same key (now the sandbox should accept it)

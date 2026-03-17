@@ -813,13 +813,37 @@ function SelfHostedLoginContent() {
         const jwt = data.session?.access_token;
         if (!jwt) { setSandboxChecked(true); return; }
 
-        const res = await fetch(`${backendUrl}/platform/init/local/status`, {
-          headers: { 'Authorization': `Bearer ${jwt}` },
-        });
-        if (!res.ok) { setSandboxChecked(true); return; }
-        const statusData = await res.json();
+        // Check sandbox status: use local-specific endpoint for local_docker,
+        // generic sandbox endpoint for cloud providers (justavps, hetzner, etc.)
+        let sandboxIsReady = false;
+        if (defaultProvider === 'local_docker' || !defaultProvider) {
+          const res = await fetch(`${backendUrl}/platform/init/local/status`, {
+            headers: { 'Authorization': `Bearer ${jwt}` },
+          });
+          if (!res.ok) { setSandboxChecked(true); return; }
+          const statusData = await res.json();
+          sandboxIsReady = statusData.status === 'ready';
+          if (!sandboxIsReady) {
+            // Sandbox not ready (error, none, pulling, etc.) — go to wizard step 2
+            handleWizardStepChange(2);
+            setSandboxChecked(true);
+            return;
+          }
+        } else {
+          const res = await fetch(`${backendUrl}/platform/sandbox`, {
+            headers: { 'Authorization': `Bearer ${jwt}` },
+          });
+          if (!res.ok) { setSandboxChecked(true); return; }
+          const result = await res.json();
+          sandboxIsReady = result.success && !!result.data;
+          if (!sandboxIsReady) {
+            handleWizardStepChange(2);
+            setSandboxChecked(true);
+            return;
+          }
+        }
 
-        if (statusData.status === 'ready') {
+        if (sandboxIsReady) {
           // Sandbox is provisioned — check if the user already completed
           // onboarding (existing users). If so, skip ALL wizard steps and
           // go straight to the dashboard. Without this, returning users see
@@ -871,10 +895,6 @@ function SelfHostedLoginContent() {
             return;
           }
           sessionStorage.setItem('setup_complete', 'true');
-          setSandboxChecked(true);
-        } else {
-          // Sandbox not ready (error, none, pulling, etc.) — go to wizard step 2
-          handleWizardStepChange(2);
           setSandboxChecked(true);
         }
       } catch {

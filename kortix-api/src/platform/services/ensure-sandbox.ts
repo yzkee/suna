@@ -140,18 +140,76 @@ export async function ensureSandbox(opts: {
     type: 'sandbox',
   });
 
+  const createOpts = {
+    accountId,
+    userId,
+    name: `sandbox-${accountId.slice(0, 8)}`,
+    hetznerServerType: opts.hetznerServerType,
+    hetznerLocation: opts.hetznerLocation,
+    envVars: {
+      KORTIX_TOKEN: sandboxKey.secretKey,
+    },
+  };
+
+  // For async providers (justavps), run provisioning in background and return immediately.
+  // The frontend polls GET /platform/sandbox for status updates via metadata.provisioningStage.
+  // Webhooks from JustAVPS update the stage and flip to 'active' when services_ready.
+  if (providerName === 'justavps') {
+    // Store the service key immediately so webhooks can find this sandbox
+    await db
+      .update(sandboxes)
+      .set({
+        config: { serviceKey: sandboxKey.secretKey },
+        metadata: { provisioningStage: 'server_creating', provisioningMessage: 'Creating server...' },
+        updatedAt: new Date(),
+      })
+      .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
+
+    // provider.create() for JustAVPS returns instantly (just POST /machines → 202).
+    // It gives us the machine ID immediately so webhooks can find this sandbox.
+    try {
+      const result = await provider.create(createOpts);
+      const [updated] = await db
+        .update(sandboxes)
+        .set({
+          externalId: result.externalId,
+          baseUrl: result.baseUrl || '',
+          metadata: {
+            ...result.metadata,
+            provisioningStage: 'server_creating',
+            provisioningMessage: 'Creating server...',
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(sandboxes.sandboxId, sandbox.sandboxId))
+        .returning();
+
+      console.log(
+        `[ensureSandbox] JustAVPS machine ${result.externalId} created for sandbox ${sandbox.sandboxId}, ` +
+        `webhooks will update status as provisioning progresses`,
+      );
+
+      return { row: updated, created: true };
+    } catch (err) {
+      await db
+        .update(sandboxes)
+        .set({
+          status: 'error',
+          metadata: {
+            provisioningStage: 'error',
+            provisioningError: err instanceof Error ? err.message : String(err),
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
+      throw err;
+    }
+  }
+
+  // For synchronous providers (hetzner, local_docker, daytona), block until ready.
   let result: { externalId: string; baseUrl: string; metadata?: Record<string, any> };
   try {
-    result = await provider.create({
-      accountId,
-      userId,
-      name: `sandbox-${accountId.slice(0, 8)}`,
-      hetznerServerType: opts.hetznerServerType,
-      hetznerLocation: opts.hetznerLocation,
-      envVars: {
-        KORTIX_TOKEN: sandboxKey.secretKey,
-      },
-    });
+    result = await provider.create(createOpts);
   } catch (err) {
     await db
       .update(sandboxes)

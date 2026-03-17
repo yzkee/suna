@@ -1,17 +1,3 @@
-/**
- * JustAVPS sandbox provider.
- *
- * Provisions sandboxes via the JustAVPS API — a VPS management platform
- * that handles Hetzner provisioning, DNS, proxy, and machine lifecycle.
- *
- * Instead of calling Hetzner directly, this provider delegates to JustAVPS
- * which manages the full machine lifecycle including CF Worker proxy,
- * DNS records, SSH keys, and cloud-init.
- *
- * Auth: Uses JustAVPS API key (sk_live_xxx) for all API calls.
- * The sandbox's INTERNAL_SERVICE_KEY is injected via cloud-init by JustAVPS.
- */
-
 import { eq } from 'drizzle-orm';
 import { sandboxes } from '@kortix/db';
 import { db } from '../../shared/db';
@@ -25,29 +11,17 @@ import type {
   ResolvedEndpoint,
 } from './index';
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-
 const KORTIX_MASTER_PORT = 8000;
-
-/** Timeout for JustAVPS API calls (ms). */
-const API_TIMEOUT_MS = 30_000;
-
-/**
- * Max wait for machine to reach "ready" state (ms).
- * JustAVPS provisions from snapshots (~60s) but we allow extra headroom.
- */
+const API_TIMEOUT_MS = 300_000;
 const PROVISION_TIMEOUT_MS = 600_000;
-
-/** Poll interval when waiting for machine state (ms). */
 const POLL_INTERVAL_MS = 3_000;
-
-// ─── JustAVPS API Types ─────────────────────────────────────────────────────
 
 interface JustAVPSMachine {
   id: string;
   slug: string;
   name: string;
   status: string;
+  provisioning_stage: string | null;
   provider: string;
   snapshot_id: string | null;
   server_type: string;
@@ -87,8 +61,6 @@ interface JustAVPSServerType {
   available: boolean;
 }
 
-// ─── API Helper ─────────────────────────────────────────────────────────────
-
 async function justavpsFetch<T = any>(
   path: string,
   options: { method?: string; body?: unknown } = {},
@@ -113,8 +85,6 @@ async function justavpsFetch<T = any>(
   return res.json() as Promise<T>;
 }
 
-// ─── Public: List Available Server Types ────────────────────────────────────
-
 export interface ServerTypeWithPricing {
   name: string;
   description: string;
@@ -124,14 +94,10 @@ export interface ServerTypeWithPricing {
   cpuType: string;
   architecture: string;
   priceMonthly: number;
-  /** JustAVPS already includes markup in price_monthly. */
   priceMonthlyMarkup: number;
   location: string;
 }
 
-/**
- * Fetch available server types from JustAVPS for a given location.
- */
 export async function listServerTypes(
   location?: string,
 ): Promise<ServerTypeWithPricing[]> {
@@ -152,17 +118,14 @@ export async function listServerTypes(
       cpuType: st.cpu_type,
       architecture: st.architecture,
       priceMonthly: st.price_monthly,
-      priceMonthlyMarkup: st.price_monthly, // JustAVPS price already includes markup
+      priceMonthlyMarkup: st.price_monthly,
       location: loc,
     }))
     .sort((a, b) => a.priceMonthly - b.priceMonthly);
 }
 
-// ─── Provider ────────────────────────────────────────────────────────────────
-
 export class JustAVPSProvider implements SandboxProvider {
   readonly name: ProviderName = 'justavps';
-
   async create(opts: CreateSandboxOpts): Promise<ProvisionResult> {
     const serverType = opts.hetznerServerType || config.JUSTAVPS_DEFAULT_SERVER_TYPE;
     const location = opts.hetznerLocation || config.JUSTAVPS_DEFAULT_LOCATION;
@@ -172,6 +135,18 @@ export class JustAVPSProvider implements SandboxProvider {
       throw new Error('JUSTAVPS_SNAPSHOT_ID is required — create a snapshot in JustAVPS first');
     }
 
+    const serviceKey = opts.envVars?.KORTIX_TOKEN || '';
+    const envVars: Record<string, string> = {
+      KORTIX_API_URL: config.KORTIX_URL.replace(/\/v1\/router\/?$/, ''),
+      ENV_MODE: 'cloud',
+      INTERNAL_SERVICE_KEY: serviceKey,
+      KORTIX_TOKEN: serviceKey,
+      KORTIX_SANDBOX_VERSION: SANDBOX_VERSION,
+      PUID: '1000',
+      PGID: '1000',
+      ...opts.envVars,
+    };
+
     const machine = await justavpsFetch<JustAVPSMachine>('/machines', {
       method: 'POST',
       body: {
@@ -180,52 +155,33 @@ export class JustAVPSProvider implements SandboxProvider {
         server_type: serverType,
         region: location,
         name: `kortix-sandbox-${opts.accountId.slice(0, 8)}-${Date.now().toString(36)}`,
+        env_vars: envVars,
+        docker_image: config.SANDBOX_IMAGE,
       },
     });
 
-    // Wait for the machine to be ready (JustAVPS returns provisioning status)
-    if (machine.status !== 'ready') {
-      await this.waitForStatus(machine.id, 'ready');
-    }
-
-    // Re-fetch to get the final IP
-    const ready = await justavpsFetch<JustAVPSMachine>(`/machines/${machine.id}`);
-    const publicIp = ready.ip;
-
-    if (!publicIp) {
-      throw new Error(`[JUSTAVPS] Machine ${machine.id} is ready but has no IP`);
-    }
-
-    const baseUrl = `http://${publicIp}:${KORTIX_MASTER_PORT}`;
-
-    console.log(
-      `[JUSTAVPS] Created machine ${ready.slug} (ID: ${machine.id}, IP: ${publicIp}, ` +
-      `type: ${serverType}) for account ${opts.accountId}`,
-    );
+    console.log(`[JUSTAVPS] Machine creation started: ${machine.id} (slug: ${machine.slug})`);
 
     return {
       externalId: machine.id,
-      baseUrl,
+      baseUrl: '',
       metadata: {
         justavpsMachineId: machine.id,
-        justavpsSlug: ready.slug,
+        justavpsSlug: machine.slug,
+        provisioningStage: 'server_creating',
         serverType,
         location,
-        publicIp,
         version: SANDBOX_VERSION,
       },
     };
   }
 
   async start(externalId: string): Promise<void> {
-    // JustAVPS uses reboot to start a stopped machine
     await justavpsFetch(`/machines/${externalId}/reboot`, { method: 'POST' });
     console.log(`[JUSTAVPS] Started machine ${externalId}`);
   }
 
   async stop(externalId: string): Promise<void> {
-    // JustAVPS doesn't have a dedicated stop endpoint — use reboot as a workaround
-    // For now, this is a no-op since JustAVPS manages lifecycle
     console.log(`[JUSTAVPS] Stop requested for machine ${externalId} (not directly supported — use delete)`);
   }
 
@@ -241,7 +197,7 @@ export class JustAVPSProvider implements SandboxProvider {
       if (status === 'ready') return 'running';
       if (status === 'stopped') return 'stopped';
       if (status === 'deleted') return 'removed';
-      if (status === 'provisioning') return 'running'; // still booting
+      if (status === 'provisioning') return 'running';
       return 'unknown';
     } catch (err: any) {
       if (err.message?.includes('404')) return 'removed';
@@ -250,7 +206,6 @@ export class JustAVPSProvider implements SandboxProvider {
   }
 
   async resolveEndpoint(externalId: string): Promise<ResolvedEndpoint> {
-    // Get machine info from JustAVPS
     const machine = await justavpsFetch<JustAVPSMachine>(`/machines/${externalId}`);
     const publicIp = machine.ip;
 
@@ -264,7 +219,6 @@ export class JustAVPSProvider implements SandboxProvider {
       'Content-Type': 'application/json',
     };
 
-    // Look up the service key from the sandbox config in our DB
     try {
       const [row] = await db
         .select({ config: sandboxes.config })
@@ -293,7 +247,21 @@ export class JustAVPSProvider implements SandboxProvider {
     await this.waitForStatus(externalId, 'ready');
   }
 
-  // ── Private Helpers ─────────────────────────────────────────────────────
+  private async waitForIp(
+    machineId: string,
+    timeoutMs = PROVISION_TIMEOUT_MS,
+  ): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const machine = await justavpsFetch<JustAVPSMachine>(`/machines/${machineId}`);
+      if (machine.ip) return;
+      if (machine.status === 'error' || machine.status === 'deleted') {
+        throw new Error(`[JUSTAVPS] Machine ${machineId} entered '${machine.status}' while waiting for IP`);
+      }
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    }
+    throw new Error(`[JUSTAVPS] Machine ${machineId} did not get an IP within ${timeoutMs / 1000}s`);
+  }
 
   private async waitForStatus(
     machineId: string,
