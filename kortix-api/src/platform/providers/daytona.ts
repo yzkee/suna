@@ -17,10 +17,23 @@ import type {
   ProvisionResult,
   SandboxStatus,
   ResolvedEndpoint,
+  ProvisioningTraits,
+  ProvisioningStatus,
 } from './index';
 
 export class DaytonaProvider implements SandboxProvider {
   readonly name: ProviderName = 'daytona';
+
+  readonly provisioning: ProvisioningTraits = {
+    async: false,
+    stages: [
+      { id: 'creating', progress: 50, message: 'Creating sandbox...' },
+    ],
+  };
+
+  async getProvisioningStatus(): Promise<ProvisioningStatus | null> {
+    return null;
+  }
 
   async create(opts: CreateSandboxOpts): Promise<ProvisionResult> {
     const snapshot = config.DAYTONA_SNAPSHOT;

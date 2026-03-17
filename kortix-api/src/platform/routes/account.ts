@@ -145,6 +145,68 @@ export function createAccountRouter(
     }
   });
 
+  router.get('/init/status', async (c) => {
+    const userId = c.get('userId');
+
+    try {
+      const accountId = await resolveAccountId(userId);
+
+      const [row] = await db
+        .select()
+        .from(sandboxes)
+        .where(eq(sandboxes.accountId, accountId))
+        .orderBy(desc(sandboxes.createdAt))
+        .limit(1);
+
+      if (!row) {
+        return c.json({ success: true, status: 'none', message: 'No sandbox found' });
+      }
+
+      if (row.status === 'active') {
+        return c.json({ success: true, status: 'ready', data: serializeSandbox(row) });
+      }
+
+      if (row.status === 'error') {
+        const meta = (row.metadata as Record<string, unknown>) ?? {};
+        return c.json({
+          success: true,
+          status: 'error',
+          message: (meta.provisioningError as string) || (meta.provisioningMessage as string) || 'Provisioning failed',
+        });
+      }
+
+      if (row.status === 'provisioning') {
+        const provider = getProvider(row.provider);
+        const provisioningStatus = await provider.getProvisioningStatus(row.sandboxId);
+
+        if (provisioningStatus?.complete) {
+          return c.json({ success: true, status: 'ready', data: serializeSandbox(row) });
+        }
+
+        if (provisioningStatus?.error) {
+          return c.json({
+            success: true,
+            status: 'error',
+            message: provisioningStatus.errorMessage || provisioningStatus.message,
+          });
+        }
+
+        return c.json({
+          success: true,
+          status: 'provisioning',
+          stage: provisioningStatus?.stage || 'creating',
+          progress: provisioningStatus?.progress ?? 10,
+          message: provisioningStatus?.message || 'Provisioning...',
+        });
+      }
+
+      return c.json({ success: true, status: row.status });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ success: false, error: message }, 500);
+    }
+  });
+
   // ─── POST /init/local ──────────────────────────────────────────────────
   // Local Docker sandbox init with async image pull + progress polling.
   // Returns immediately with { status: 'pulling', progress: 0 } if image

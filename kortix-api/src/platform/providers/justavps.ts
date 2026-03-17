@@ -9,6 +9,8 @@ import type {
   ProvisionResult,
   SandboxStatus,
   ResolvedEndpoint,
+  ProvisioningTraits,
+  ProvisioningStatus,
 } from './index';
 
 const KORTIX_MASTER_PORT = 8000;
@@ -126,6 +128,58 @@ export async function listServerTypes(
 
 export class JustAVPSProvider implements SandboxProvider {
   readonly name: ProviderName = 'justavps';
+
+  readonly provisioning: ProvisioningTraits = {
+    async: true,
+    stages: [
+      { id: 'server_creating', progress: 10, message: 'Creating server...' },
+      { id: 'server_created', progress: 20, message: 'Server created, running cloud-init...' },
+      { id: 'cloud_init_running', progress: 35, message: 'Configuring machine...' },
+      { id: 'cloud_init_done', progress: 50, message: 'Configuration complete...' },
+      { id: 'docker_pulling', progress: 60, message: 'Starting sandbox container...' },
+      { id: 'docker_running', progress: 75, message: 'Container started, booting services...' },
+      { id: 'services_starting', progress: 85, message: 'Services booting...' },
+      { id: 'services_ready', progress: 100, message: 'Ready' },
+    ],
+  };
+
+  async getProvisioningStatus(sandboxId: string): Promise<ProvisioningStatus | null> {
+    const [row] = await db
+      .select({ metadata: sandboxes.metadata, status: sandboxes.status })
+      .from(sandboxes)
+      .where(eq(sandboxes.sandboxId, sandboxId))
+      .limit(1);
+
+    if (!row) return null;
+
+    const meta = (row.metadata as Record<string, unknown>) ?? {};
+    const stage = (meta.provisioningStage as string) || 'server_creating';
+    const stageInfo = this.provisioning.stages.find((s) => s.id === stage);
+
+    if (row.status === 'active') {
+      return { stage: 'services_ready', progress: 100, message: 'Ready', complete: true, error: false };
+    }
+
+    if (row.status === 'error') {
+      return {
+        stage: 'error',
+        progress: 0,
+        message: (meta.provisioningError as string) || (meta.provisioningMessage as string) || 'Provisioning failed',
+        complete: false,
+        error: true,
+        errorMessage: (meta.provisioningError as string) || undefined,
+      };
+    }
+
+    return {
+      stage,
+      progress: stageInfo?.progress ?? 10,
+      message: (meta.provisioningMessage as string) || stageInfo?.message || 'Provisioning...',
+      complete: false,
+      error: false,
+    };
+  }
+
   async create(opts: CreateSandboxOpts): Promise<ProvisionResult> {
     const serverType = opts.hetznerServerType || config.JUSTAVPS_DEFAULT_SERVER_TYPE;
     const location = opts.hetznerLocation || config.JUSTAVPS_DEFAULT_LOCATION;
