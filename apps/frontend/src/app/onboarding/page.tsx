@@ -208,7 +208,9 @@ export default function OnboardingPage() {
   // ── Query param controls ───────────────────────────────────────
   // ?skip_onboarding / ?skip → set ONBOARDING_COMPLETE=true & go to dashboard
   // ?redo                    → set ONBOARDING_COMPLETE=false so flow reruns
+  // Depends on `user` so it only fires after auth hydrates — avoids naked requests.
   useEffect(() => {
+    if (!user) return;
     const params = new URLSearchParams(window.location.search);
 
     if (params.has('skip_onboarding') || params.has('skip')) {
@@ -250,7 +252,7 @@ export default function OnboardingPage() {
       window.history.replaceState({}, '', clean.pathname + clean.search);
       return;
     }
-  }, []);
+  }, [user]);
 
   // ── Redirect if already onboarded ─────────────────────────────
   // Re-runs when auth state or sandbox registration changes so it doesn't
