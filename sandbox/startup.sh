@@ -80,6 +80,28 @@ if [ ! -e /workspace/opencode ] && [ ! -L /workspace/opencode ]; then
   ln -s /workspace/.opencode /workspace/opencode
 fi
 
+# ── Exclude opencode internal dirs from git (prevents 16K+ snapshot diffs) ──
+# opencode's snapshot system uses .git/info/exclude to filter tracked files.
+# Without this, every health check log line and snapshot git object gets included
+# in session.diff events sent to the frontend.
+mkdir -p /workspace/.git/info 2>/dev/null || true
+cat > /workspace/.git/info/exclude << 'GITEXCLUDE'
+# opencode internal data — never include in snapshot diffs
+.local/share/opencode/
+.cache/opencode/
+.opencode/
+.kortix/
+.kortix-state/
+.secrets/
+.browser-profile/
+.lss/
+.ocx/
+.XDG/
+.bun/
+.npm-global/
+opencode
+GITEXCLUDE
+
 # ── Clean stale browser locks ───────────────────────────────────────────────
 # After unclean shutdown, Chromium singletons prevent agent-browser from starting.
 rm -f /workspace/.browser-profile/SingletonLock \
