@@ -74,6 +74,7 @@ export interface ResolvedConfig {
   setAgent: (name: string) => void;
   setModel: (providerID: string, modelID: string) => void;
   cycleVariant: () => void;
+  setVariant: (variant: string | null) => void;
 }
 
 export function useResolvedConfig(
@@ -161,6 +162,11 @@ export function useResolvedConfig(
     }
   };
 
+  const setVariantDirect = (v: string | null) => {
+    if (!modelKey) return;
+    store.setVariant(modelKey, v);
+  };
+
   return {
     agent,
     agents: primaryAgents,
@@ -171,5 +177,6 @@ export function useResolvedConfig(
     setAgent,
     setModel,
     cycleVariant,
+    setVariant: setVariantDirect,
   };
 }

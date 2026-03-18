@@ -729,6 +729,7 @@ export default function HomeScreen() {
                   onAgentChange={resolved.setAgent}
                   onModelChange={resolved.setModel}
                   onVariantCycle={resolved.cycleVariant}
+                  onVariantSet={resolved.setVariant}
                   sessions={sessions}
                   sandboxUrl={sandboxUrl}
                 />
