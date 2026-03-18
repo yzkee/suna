@@ -108,10 +108,13 @@ export function SessionChatInput({
   const handleTextChange = useCallback(
     (newText: string) => {
       setText(newText);
-      // Use latest cursor position (updated via onSelectionChange)
-      mention.handleTextChange(newText, cursorRef.current);
+      // On React Native, onChangeText doesn't provide cursor position.
+      // Use text length (typing appends at end). onSelectionChange
+      // will re-detect for mid-text edits.
+      cursorRef.current = newText.length;
+      mention.handleTextChange(newText, newText.length);
     },
-    [mention.handleTextChange],
+    [mention],
   );
 
   const handleSelectionChange = useCallback(
@@ -125,10 +128,11 @@ export function SessionChatInput({
     (item: MentionItem) => {
       const newText = mention.selectMention(item, text);
       setText(newText);
-      // Move cursor to end of inserted mention
+      cursorRef.current = newText.length;
+      // Refocus after selection (like frontend's requestAnimationFrame)
       setTimeout(() => inputRef.current?.focus(), 50);
     },
-    [mention.selectMention, text],
+    [mention, text],
   );
 
   // ── Animated placeholder ────────────────────────────────────────────────
@@ -230,8 +234,8 @@ export function SessionChatInput({
   return (
     <>
       <View>
-        {/* Mention suggestions — above the input */}
-        {mention.isOpen && (
+        {/* Mention suggestions — above the input (same condition as frontend) */}
+        {mention.isOpen && (mention.items.length > 0 || mention.fileSearchLoading) && (
           <MentionSuggestions
             items={mention.items}
             selectedIndex={mention.selectedIndex}
