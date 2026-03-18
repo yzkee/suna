@@ -652,7 +652,7 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
   const pollJustAVPSStatus = useCallback((jwt: string, backendUrl: string, sandboxId: string, sandboxData: any) => {
     const eventSource = new EventSource(
       `${backendUrl}/platform/sandbox/${sandboxId}/provision-stream`,
-      // @ts-ignore — EventSource doesn't support headers natively
+      // @ts-expect-error — EventSource doesn't support headers natively
     );
 
     // EventSource doesn't support auth headers. Fall back to polling.
