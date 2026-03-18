@@ -64,6 +64,8 @@ interface SessionChatInputProps {
   onEnqueue?: (text: string) => void;
   /** Slot rendered above the text input inside the card (used for queue UI) */
   inputSlot?: React.ReactNode;
+  /** Emits whether the draft currently has non-whitespace content */
+  onDraftChange?: (hasText: boolean) => void;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -90,6 +92,7 @@ export function SessionChatInput({
   sandboxUrl,
   onEnqueue,
   inputSlot,
+  onDraftChange,
 }: SessionChatInputProps) {
   const [text, setText] = useState('');
   const inputRef = useRef<TextInput>(null);
@@ -207,6 +210,12 @@ export function SessionChatInput({
   // ────────────────────────────────────────────────────────────────────────
 
   const canSend = text.trim().length > 0 && !disabled;
+  const hasDraftText = text.trim().length > 0;
+
+  useEffect(() => {
+    onDraftChange?.(hasDraftText);
+  }, [hasDraftText, onDraftChange]);
+
   const hasToolbar = agents.length > 0 || models.length > 0;
 
   const handleSubmit = useCallback(() => {
