@@ -218,6 +218,7 @@ export default function HomeScreen() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [rightDrawerOpen, setRightDrawerOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [pendingFilePath, setPendingFilePath] = useState<string | null>(null);
 
   // Files page ref (for BottomBar menu integration)
   const filesPageRef = useRef<FilesPageRef>(null);
@@ -280,6 +281,19 @@ export default function HomeScreen() {
 
   // Stable error message (prevents re-render loops from error object identity)
   const sandboxErrorMsg = sandboxError?.message || null;
+
+  // Open file selected from command palette once Files page is active.
+  useEffect(() => {
+    if (!pendingFilePath) return;
+    if (activePageId !== 'page:files') return;
+
+    const timer = setTimeout(() => {
+      filesPageRef.current?.openPath(pendingFilePath);
+      setPendingFilePath(null);
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [pendingFilePath, activePageId]);
 
   // ── Handlers (all useCallback for stable refs) ──
 
@@ -875,6 +889,7 @@ export default function HomeScreen() {
         sandboxUrl={sandboxUrl}
         onFileSelect={(path) => {
           useTabStore.getState().navigateToPage('page:files');
+          setPendingFilePath(path);
         }}
       />
     </>

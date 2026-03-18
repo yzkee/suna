@@ -110,6 +110,7 @@ export interface FilesPageRef {
   renameFile: () => void;
   deleteFile: () => void;
   deselectFile: () => void;
+  openPath: (path: string) => void;
 }
 
 interface FilesPageProps {
@@ -337,6 +338,31 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
     setSelectedFile(null);
   }, []);
 
+  const handleOpenPath = useCallback((path: string) => {
+    const normalized = normalizePath(path);
+    const isDir = normalized.endsWith('/');
+
+    if (isDir) {
+      setCurrentPath(normalized.replace(/\/$/, ''));
+      setSelectedFile(null);
+      return;
+    }
+
+    // Navigate to the file's parent directory for context, then open viewer.
+    const lastSlash = normalized.lastIndexOf('/');
+    const parentDir = lastSlash > 0 ? normalized.slice(0, lastSlash) : '/workspace';
+    const name = normalized.split('/').pop() || normalized;
+
+    setCurrentPath(parentDir || '/workspace');
+    setSelectedFile(null);
+    setViewerFile({
+      name,
+      path: normalized,
+      type: 'file',
+    });
+    setViewerVisible(true);
+  }, []);
+
   const handleUploadDocument = useCallback(async () => {
     if (!sandboxUrl) return;
     try {
@@ -421,7 +447,8 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
     renameFile: () => handleRenameFile(),
     deleteFile: () => handleDeleteFile(),
     deselectFile: () => setSelectedFile(null),
-  }), [showHidden, viewMode, selectedFile, refetch, handleUploadDocument, handleUploadImage, openCreateFolder, handleOpenSelectedFile, handleCopyPath, handleRenameFile, handleDeleteFile]);
+    openPath: (path: string) => handleOpenPath(path),
+  }), [showHidden, viewMode, selectedFile, refetch, handleUploadDocument, handleUploadImage, openCreateFolder, handleOpenSelectedFile, handleCopyPath, handleRenameFile, handleDeleteFile, handleOpenPath]);
 
   const isAtRoot = currentPath === '/workspace';
 
