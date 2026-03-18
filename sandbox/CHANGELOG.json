@@ -1,5 +1,37 @@
 [ 
   {
+    "version": "0.8.12",
+    "date": "2026-03-18",
+    "title": "Fix flaky onboarding: model resolution, snapshot diffs, env unlock, auth races",
+    "description": "Fixes three root causes of broken onboarding: ProviderModelNotFoundError from wrong model prefix, 16K+ session.diff payloads from unfiltered snapshot tracking, and ONBOARDING_COMPLETE never being set due to LLM deviating from curl instructions. Also fixes auth hydration race conditions causing 401/431 errors.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Model config changed from anthropic/claude-sonnet-4-20250514 to kortix/claude-sonnet — the anthropic provider doesn't exist on the sandbox, only kortix"
+      },
+      {
+        "type": "fix",
+        "text": "Exclude opencode internal dirs (.local/share/opencode, .cache/opencode, etc.) from git snapshot tracking via .git/info/exclude at boot, eliminating 16K+ session.diff payloads"
+      },
+      {
+        "type": "fix",
+        "text": "Hardcode http://localhost:8000 in onboarding curl commands instead of KORTIX_MASTER_URL variable — LLM was deviating and using wrong hostnames, causing ONBOARDING_COMPLETE to never be set"
+      },
+      {
+        "type": "fix",
+        "text": "Add verification step in onboarding to check ONBOARDING_COMPLETE was actually set after firing the unlock curl"
+      },
+      {
+        "type": "fix",
+        "text": "Preview session cookie path aligned to /v1/p/ to prevent duplicate cookies causing HTTP 431 Request Header Fields Too Large"
+      },
+      {
+        "type": "fix",
+        "text": "Frontend auth hydration race conditions fixed: useProviders gated on !!user, backendApi returns silent failure when no session, authenticatedFetch waits 500ms for hydration, sandbox health checks skip until auth ready, onboarding skip/redo effect gated on user"
+      }
+    ]
+  },
+  {
     "version": "0.8.11",
     "date": "2026-03-18",
     "title": "Eliminate UID 1000 vs abc (911) permission mismatch across entire sandbox",
