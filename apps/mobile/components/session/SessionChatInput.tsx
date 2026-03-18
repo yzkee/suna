@@ -55,6 +55,7 @@ interface SessionChatInputProps {
   onAgentChange?: (name: string) => void;
   onModelChange?: (providerID: string, modelID: string) => void;
   onVariantCycle?: () => void;
+  onVariantSet?: (variant: string | null) => void;
   /** Data for @mentions */
   sessions?: Session[];
   currentSessionId?: string | null;
@@ -79,6 +80,7 @@ export function SessionChatInput({
   onAgentChange,
   onModelChange,
   onVariantCycle,
+  onVariantSet,
   sessions = [],
   currentSessionId,
   sandboxUrl,
@@ -378,7 +380,7 @@ export function SessionChatInput({
           onModelChange={(pid, mid) => { onModelChange?.(pid, mid); }}
           variants={variants}
           selectedVariant={variant || null}
-          onVariantCycle={() => onVariantCycle?.()}
+          onVariantSet={(v) => onVariantSet?.(v)}
           onClose={() => setShowConfigSheet(false)}
         />
       </Modal>
@@ -409,7 +411,7 @@ function ConfigSheet({
   onModelChange,
   variants,
   selectedVariant,
-  onVariantCycle,
+  onVariantSet,
   onClose,
 }: {
   isDark: boolean;
@@ -421,7 +423,7 @@ function ConfigSheet({
   onModelChange: (providerId: string, modelId: string) => void;
   variants: string[];
   selectedVariant: string | null;
-  onVariantCycle: () => void;
+  onVariantSet: (variant: string | null) => void;
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -668,7 +670,7 @@ function ConfigSheet({
         {activeTab === 'thinking' && (
           <>
             <TouchableOpacity
-              onPress={() => { if (selectedVariant) onVariantCycle(); }}
+              onPress={() => onVariantSet(null)}
               activeOpacity={0.6}
               style={{
                 flexDirection: 'row',
@@ -701,7 +703,7 @@ function ConfigSheet({
               return (
                 <TouchableOpacity
                   key={v}
-                  onPress={() => { if (!isSelected) onVariantCycle(); }}
+                  onPress={() => onVariantSet(v)}
                   activeOpacity={0.6}
                   style={{
                     flexDirection: 'row',

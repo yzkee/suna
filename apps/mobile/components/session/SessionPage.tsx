@@ -492,6 +492,7 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
             onAgentChange={resolved.setAgent}
             onModelChange={resolved.setModel}
             onVariantCycle={resolved.cycleVariant}
+            onVariantSet={resolved.setVariant}
             sessions={allSessions}
             currentSessionId={sessionId}
             sandboxUrl={sandboxUrl}
