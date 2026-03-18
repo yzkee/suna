@@ -36,6 +36,7 @@ import { SessionChatInput, type PromptOptions, type TrackedMention } from '@/com
 import { BottomBar } from '@/components/session/BottomBar';
 import type { BottomBarRef } from '@/components/session/BottomBar';
 import { TabsOverview } from '@/components/session/TabsOverview';
+import { CommandPalette } from '@/components/session/CommandPalette';
 import {
   useOpenCodeAgents,
   useOpenCodeModels,
@@ -216,6 +217,8 @@ export default function HomeScreen() {
   // State
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [rightDrawerOpen, setRightDrawerOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [pendingFilePath, setPendingFilePath] = useState<string | null>(null);
 
   // Files page ref (for BottomBar menu integration)
   const filesPageRef = useRef<FilesPageRef>(null);
@@ -278,6 +281,19 @@ export default function HomeScreen() {
 
   // Stable error message (prevents re-render loops from error object identity)
   const sandboxErrorMsg = sandboxError?.message || null;
+
+  // Open file selected from command palette once Files page is active.
+  useEffect(() => {
+    if (!pendingFilePath) return;
+    if (activePageId !== 'page:files') return;
+
+    const timer = setTimeout(() => {
+      filesPageRef.current?.openPath(pendingFilePath);
+      setPendingFilePath(null);
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [pendingFilePath, activePageId]);
 
   // ── Handlers (all useCallback for stable refs) ──
 
@@ -421,10 +437,14 @@ export default function HomeScreen() {
       >
         {/* Search + New session */}
         <View className="flex-row items-center px-3 pt-2 pb-2">
-          <View className="flex-1 flex-row items-center rounded-xl bg-card border border-border px-3 py-2 mr-2">
+          <TouchableOpacity
+            onPress={() => { setDrawerOpen(false); setCommandPaletteOpen(true); }}
+            className="flex-1 flex-row items-center rounded-xl bg-card border border-border px-3 py-2 mr-2"
+            activeOpacity={0.6}
+          >
             <Ionicons name="search-outline" size={18} color={mutedColor} />
             <Text className="text-sm ml-2 text-muted-foreground">Search</Text>
-          </View>
+          </TouchableOpacity>
           <TouchableOpacity
             onPress={handleNewSession}
             className="h-9 w-9 items-center justify-center rounded-xl bg-card border border-border"
@@ -848,6 +868,30 @@ export default function HomeScreen() {
         </View>
         </Drawer>
       </Drawer>
+
+      {/* Command Palette */}
+      <CommandPalette
+        visible={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        sessions={sessions}
+        onNewSession={handleNewSession}
+        onSessionSelect={(id) => {
+          if (id) {
+            navigateToSession(id);
+          } else {
+            navigateToSession(null);
+          }
+        }}
+        onPageSelect={(pageId) => {
+          useTabStore.getState().navigateToPage(pageId);
+        }}
+        onSettings={handleGoToSettings}
+        sandboxUrl={sandboxUrl}
+        onFileSelect={(path) => {
+          useTabStore.getState().navigateToPage('page:files');
+          setPendingFilePath(path);
+        }}
+      />
     </>
   );
 }

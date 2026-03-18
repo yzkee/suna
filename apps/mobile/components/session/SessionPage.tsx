@@ -48,6 +48,8 @@ import { QuestionPrompt } from './QuestionPrompt';
 import { useSessions } from '@/lib/platform/hooks';
 import { FileViewer } from '@/components/files/FileViewer';
 import type { SandboxFile } from '@/api/types';
+import KortixSymbolBlack from '@/assets/brand/kortix-symbol-scale-effect-black.svg';
+import KortixSymbolWhite from '@/assets/brand/kortix-symbol-scale-effect-white.svg';
 
 interface SessionPageProps {
   sessionId: string;
@@ -60,7 +62,7 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const { sandboxUrl } = useSandboxContext();
   const flatListRef = useRef<FlatList>(null);
 
@@ -368,6 +370,17 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
 
   // Group messages into turns
   const turns = useMemo(() => groupMessagesIntoTurns(safeMessages), [safeMessages]);
+  const isFreshSession = turns.length === 0;
+  const showFreshHero = isFreshSession && !hasQuestion && queuedMessages.length === 0 && !isBusy;
+  const heroOpacity = useRef(new Animated.Value(showFreshHero ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(heroOpacity, {
+      toValue: showFreshHero ? 1 : 0,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [showFreshHero, heroOpacity]);
 
   // When a new turn appears, scroll so the latest user bubble is at the top
   const prevTurnCount = useRef(turns.length);
@@ -524,44 +537,53 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
         </View>
       </View>
 
-      {/* Messages */}
-      <FlatList
-        ref={flatListRef}
-        data={turns}
-        renderItem={renderTurn}
-        keyExtractor={(item) => item.userMessage.info.id}
-        contentContainerStyle={{ paddingTop: 16 }}
-        showsVerticalScrollIndicator={false}
-        ListHeaderComponent={
-          forkParentId ? (
-            <ForkBanner
-              parentTitle={parentSession?.title}
-              onPress={() => useTabStore.getState().navigateToSession(forkParentId)}
-              isDark={isDark}
+      {/* Messages + Fresh Session Hero */}
+      <View style={{ flex: 1 }}>
+        <FlatList
+          ref={flatListRef}
+          data={turns}
+          renderItem={renderTurn}
+          keyExtractor={(item) => item.userMessage.info.id}
+          contentContainerStyle={{ paddingTop: 16 }}
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={
+            forkParentId ? (
+              <ForkBanner
+                parentTitle={parentSession?.title}
+                onPress={() => useTabStore.getState().navigateToSession(forkParentId)}
+                isDark={isDark}
+              />
+            ) : null
+          }
+          ListFooterComponent={
+            <View
+              style={{
+                // Fill remaining viewport so the last turn's user bubble
+                // sits at the top. Subtract: header (~60+insets), input (~120+insets),
+                // footer bar (~50), and the actual measured last turn height.
+                height: Math.max(0, windowHeight - insets.top - insets.bottom - 210 - lastTurnHeight),
+              }}
             />
-          ) : null
-        }
-        ListFooterComponent={
-          <View
-            style={{
-              // Fill remaining viewport so the last turn's user bubble
-              // sits at the top. Subtract: header (~60+insets), input (~120+insets),
-              // footer bar (~50), and the actual measured last turn height.
-              height: Math.max(0, windowHeight - insets.top - insets.bottom - 210 - lastTurnHeight),
-            }}
-          />
-        }
-        onScrollToIndexFailed={(info) => {
-          setTimeout(() => {
-            flatListRef.current?.scrollToIndex({
-              index: info.index,
-              viewPosition: 0,
-              viewOffset: 0,
-              animated: true,
-            });
-          }, 200);
-        }}
-      />
+          }
+          onScrollToIndexFailed={(info) => {
+            setTimeout(() => {
+              flatListRef.current?.scrollToIndex({
+                index: info.index,
+                viewPosition: 0,
+                viewOffset: 0,
+                animated: true,
+              });
+            }, 200);
+          }}
+        />
+
+        <FreshSessionHero
+          isDark={isDark}
+          opacity={heroOpacity}
+          visible={showFreshHero}
+          windowWidth={windowWidth}
+        />
+      </View>
 
       {/* Fade gradient above input — only when textarea is shown */}
       {!hasQuestion && (
@@ -669,6 +691,110 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
         sandboxUrl={sandboxUrl}
       />
     </View>
+  );
+}
+
+function getGreetingLabel(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function FreshSessionHero({
+  isDark,
+  opacity,
+  visible,
+  windowWidth,
+}: {
+  isDark: boolean;
+  opacity: Animated.Value;
+  visible: boolean;
+  windowWidth: number;
+}) {
+  const Symbol = isDark ? KortixSymbolWhite : KortixSymbolBlack;
+  const greeting = useMemo(() => getGreetingLabel(), []);
+  const logoOpacity = useRef(new Animated.Value(0)).current;
+  const textOpacity = useRef(new Animated.Value(0)).current;
+  const textTranslateY = useRef(new Animated.Value(14)).current;
+  const leftOffset = (windowWidth - 393) / 2;
+
+  useEffect(() => {
+    if (visible) {
+      logoOpacity.setValue(0);
+      textOpacity.setValue(0);
+      textTranslateY.setValue(14);
+
+      // Logo: fade-in only
+      Animated.timing(logoOpacity, {
+        toValue: 1,
+        duration: 520,
+        useNativeDriver: true,
+      }).start();
+
+      // Greeting: fade + gentle rise
+      Animated.parallel([
+        Animated.timing(textOpacity, {
+          toValue: 1,
+          duration: 620,
+          useNativeDriver: true,
+        }),
+        Animated.timing(textTranslateY, {
+          toValue: 0,
+          duration: 760,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [visible, logoOpacity, textOpacity, textTranslateY]);
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        opacity,
+      }}
+    >
+      <Animated.View
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: -80 + leftOffset,
+          width: 554,
+          height: 462,
+          opacity: Animated.multiply(logoOpacity, 0.4),
+        }}
+      >
+        <Symbol width={554} height={462} />
+      </Animated.View>
+
+      <Animated.View
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: textOpacity,
+          transform: [{ translateY: textTranslateY }],
+        }}
+      >
+        <RNText
+          style={{
+            fontSize: 14,
+            fontFamily: 'Roobert',
+            color: isDark ? 'rgba(248,248,248,0.46)' : 'rgba(18,18,21,0.4)',
+            letterSpacing: 0.28,
+            marginTop: -88,
+          }}
+        >
+          {greeting}
+        </RNText>
+      </Animated.View>
+    </Animated.View>
   );
 }
 

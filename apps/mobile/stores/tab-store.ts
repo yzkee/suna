@@ -52,7 +52,7 @@ interface TabState {
   openTabIds: string[];
   /** List of open page tab IDs */
   openPageIds: string[];
-  /** Session navigation history (for back/forward) */
+  /** Navigation history (session IDs, page IDs, and __dashboard__) */
   sessionHistory: string[];
   /** Current position in history */
   historyIndex: number;
@@ -81,11 +81,24 @@ export const useTabStore = create<TabState>()(
 
       navigateToSession: (sessionId) => {
         set((state) => {
+          const entry = sessionId ?? '__dashboard__';
+          const currentEntry =
+            state.historyIndex >= 0 ? state.sessionHistory[state.historyIndex] : undefined;
+
+          const nextHistory = currentEntry === entry
+            ? state.sessionHistory
+            : [...state.sessionHistory.slice(0, state.historyIndex + 1), entry];
+          const nextIndex = currentEntry === entry
+            ? state.historyIndex
+            : nextHistory.length - 1;
+
           if (!sessionId) {
             return {
               activeSessionId: null,
               activePageId: null,
               showTabsOverview: false,
+              sessionHistory: nextHistory,
+              historyIndex: nextIndex,
             };
           }
 
@@ -93,16 +106,13 @@ export const useTabStore = create<TabState>()(
             ? state.openTabIds
             : [...state.openTabIds, sessionId];
 
-          const trimmedHistory = state.sessionHistory.slice(0, state.historyIndex + 1);
-          const newHistory = [...trimmedHistory, sessionId];
-
           return {
             activeSessionId: sessionId,
             activePageId: null,
             showTabsOverview: false,
             openTabIds: newOpenTabIds,
-            sessionHistory: newHistory,
-            historyIndex: state.historyIndex + 1,
+            sessionHistory: nextHistory,
+            historyIndex: nextIndex,
           };
         });
       },
@@ -113,11 +123,22 @@ export const useTabStore = create<TabState>()(
             ? state.openPageIds
             : [...state.openPageIds, pageId];
 
+          const currentEntry =
+            state.historyIndex >= 0 ? state.sessionHistory[state.historyIndex] : undefined;
+          const nextHistory = currentEntry === pageId
+            ? state.sessionHistory
+            : [...state.sessionHistory.slice(0, state.historyIndex + 1), pageId];
+          const nextIndex = currentEntry === pageId
+            ? state.historyIndex
+            : nextHistory.length - 1;
+
           return {
             activeSessionId: null,
             activePageId: pageId,
             showTabsOverview: false,
             openPageIds: newOpenPageIds,
+            sessionHistory: nextHistory,
+            historyIndex: nextIndex,
           };
         });
       },
@@ -153,10 +174,43 @@ export const useTabStore = create<TabState>()(
         const { historyIndex, sessionHistory } = get();
         if (historyIndex <= 0) return;
         const newIndex = historyIndex - 1;
+        const entry = sessionHistory[newIndex];
+
+        if (entry === '__dashboard__') {
+          set({
+            historyIndex: newIndex,
+            activeSessionId: null,
+            activePageId: null,
+          });
+          return;
+        }
+
+        if (entry?.startsWith('page:')) {
+          const { openPageIds } = get();
+          const nextOpenPageIds = openPageIds.includes(entry)
+            ? openPageIds
+            : [...openPageIds, entry];
+          set({
+            historyIndex: newIndex,
+            activeSessionId: null,
+            activePageId: entry,
+            openPageIds: nextOpenPageIds,
+          });
+          return;
+        }
+
+        if (!entry) return;
+
+        const { openTabIds } = get();
+        const nextOpenTabIds = openTabIds.includes(entry)
+          ? openTabIds
+          : [...openTabIds, entry];
+
         set({
           historyIndex: newIndex,
-          activeSessionId: sessionHistory[newIndex],
+          activeSessionId: entry,
           activePageId: null,
+          openTabIds: nextOpenTabIds,
         });
       },
 
@@ -164,10 +218,43 @@ export const useTabStore = create<TabState>()(
         const { historyIndex, sessionHistory } = get();
         if (historyIndex >= sessionHistory.length - 1) return;
         const newIndex = historyIndex + 1;
+        const entry = sessionHistory[newIndex];
+
+        if (entry === '__dashboard__') {
+          set({
+            historyIndex: newIndex,
+            activeSessionId: null,
+            activePageId: null,
+          });
+          return;
+        }
+
+        if (entry?.startsWith('page:')) {
+          const { openPageIds } = get();
+          const nextOpenPageIds = openPageIds.includes(entry)
+            ? openPageIds
+            : [...openPageIds, entry];
+          set({
+            historyIndex: newIndex,
+            activeSessionId: null,
+            activePageId: entry,
+            openPageIds: nextOpenPageIds,
+          });
+          return;
+        }
+
+        if (!entry) return;
+
+        const { openTabIds } = get();
+        const nextOpenTabIds = openTabIds.includes(entry)
+          ? openTabIds
+          : [...openTabIds, entry];
+
         set({
           historyIndex: newIndex,
-          activeSessionId: sessionHistory[newIndex],
+          activeSessionId: entry,
           activePageId: null,
+          openTabIds: nextOpenTabIds,
         });
       },
 
