@@ -52,10 +52,15 @@ getAuthToken.post('/', async (c) => {
   // Set session cookie — host-only (no Domain= attribute) so the browser
   // scopes it to the exact subdomain that served the response. This avoids
   // Chrome rejecting the cookie when Domain=localhost is treated as a public suffix.
+  //
+  // IMPORTANT: Path MUST be /v1/p/ — matching the combinedAuth middleware cookie
+  // path. Using Path=/ would create a SECOND cookie at a different scope, causing
+  // both to be sent on /v1/p/* requests and doubling the Cookie header size,
+  // which leads to HTTP 431 (Request Header Fields Too Large).
   const encoded = encodeURIComponent(token);
   c.header(
     'Set-Cookie',
-    `${PREVIEW_SESSION_COOKIE}=${encoded}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${COOKIE_MAX_AGE}`,
+    `${PREVIEW_SESSION_COOKIE}=${encoded}; Path=/v1/p/; HttpOnly; SameSite=Lax; Max-Age=${COOKIE_MAX_AGE}`,
     { append: true },
   );
 
