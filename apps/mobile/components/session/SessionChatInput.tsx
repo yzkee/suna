@@ -60,6 +60,10 @@ interface SessionChatInputProps {
   sessions?: Session[];
   currentSessionId?: string | null;
   sandboxUrl?: string;
+  /** Called when the user submits while agent is busy — enqueue instead of send */
+  onEnqueue?: (text: string) => void;
+  /** Slot rendered above the text input inside the card (used for queue UI) */
+  inputSlot?: React.ReactNode;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -84,6 +88,8 @@ export function SessionChatInput({
   sessions = [],
   currentSessionId,
   sandboxUrl,
+  onEnqueue,
+  inputSlot,
 }: SessionChatInputProps) {
   const [text, setText] = useState('');
   const inputRef = useRef<TextInput>(null);
@@ -213,6 +219,14 @@ export function SessionChatInput({
     const trimmed = text.trim();
     if (!trimmed || disabled) return;
 
+    // If the agent is busy and we have an enqueue handler, queue instead of sending
+    if (isBusy && onEnqueue) {
+      onEnqueue(trimmed);
+      setText('');
+      mention.reset();
+      return;
+    }
+
     const options: PromptOptions = {};
     if (agent?.name) options.agent = agent.name;
     if (modelKey) options.model = modelKey;
@@ -222,7 +236,7 @@ export function SessionChatInput({
     onSend(trimmed, options, trackedMentions);
     setText('');
     mention.reset();
-  }, [text, disabled, onSend, agent, modelKey, variant, mention]);
+  }, [text, disabled, onSend, agent, modelKey, variant, mention, isBusy, onEnqueue]);
 
   // Variant display
   const variantLabel = variant
@@ -245,6 +259,9 @@ export function SessionChatInput({
         {/* Text input area */}
         <View className="px-4 pt-1 pb-3">
           <View className="rounded-2xl px-4 pt-2 pb-1 bg-card border border-border">
+            {/* Queue / question slot — rendered above textarea */}
+            {inputSlot}
+
             {/* Animated placeholder overlay */}
             {showAnimatedPlaceholder && (
               <Animated.Text
@@ -329,8 +346,38 @@ export function SessionChatInput({
                 />
               </TouchableOpacity>
 
-              {/* Right: send/stop */}
-              <View className="flex-row items-center">
+              {/* Right: send/stop/queue */}
+              <View className="flex-row items-center" style={{ gap: 8 }}>
+                {isBusy && canSend && onEnqueue && (
+                  <TouchableOpacity
+                    onPress={handleSubmit}
+                    activeOpacity={0.7}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingHorizontal: 10,
+                      paddingVertical: 5,
+                      borderRadius: 20,
+                      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                    }}
+                  >
+                    <Ionicons
+                      name="list-outline"
+                      size={13}
+                      color={isDark ? '#a1a1aa' : '#71717a'}
+                      style={{ marginRight: 4 }}
+                    />
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        fontFamily: 'Roobert-Medium',
+                        color: isDark ? '#a1a1aa' : '#71717a',
+                      }}
+                    >
+                      Queue
+                    </Text>
+                  </TouchableOpacity>
+                )}
                 {isBusy ? (
                   <TouchableOpacity
                     onPress={onStop}

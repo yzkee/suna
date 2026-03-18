@@ -11,6 +11,7 @@ import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react'
 import {
   View,
   FlatList,
+  ScrollView,
   TouchableOpacity,
   useWindowDimensions,
   Animated,
@@ -29,6 +30,8 @@ import { groupMessagesIntoTurns } from '@/lib/opencode/turns';
 import type { Turn, QuestionRequest } from '@/lib/opencode/types';
 import { useSession, replyToQuestion, rejectQuestion, forkSession } from '@/lib/platform/hooks';
 import { useTabStore } from '@/stores/tab-store';
+import { useMessageQueueStore } from '@/stores/message-queue-store';
+import type { QueuedMessage } from '@/stores/message-queue-store';
 import { useSandboxContext } from '@/contexts/SandboxContext';
 import {
   useOpenCodeAgents,
@@ -92,9 +95,47 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
 
   const isBusy = sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry';
 
+  // ── Message Queue ──────────────────────────────────────────────────────
+  const queueHydrated = useMessageQueueStore((s) => s.hydrated);
+  const allQueuedMessages = useMessageQueueStore((s) => s.messages);
+  const queuedMessages = useMemo(
+    () => allQueuedMessages.filter((m) => m.sessionId === sessionId),
+    [allQueuedMessages, sessionId],
+  );
+  const queueEnqueue = useMessageQueueStore((s) => s.enqueue);
+  const queueRemove = useMessageQueueStore((s) => s.remove);
+  const queueMoveUp = useMessageQueueStore((s) => s.moveUp);
+  const queueMoveDown = useMessageQueueStore((s) => s.moveDown);
+  const queueClearSession = useMessageQueueStore((s) => s.clearSession);
+
+  // Hydrate queue store from AsyncStorage once
+  useEffect(() => {
+    if (!queueHydrated) {
+      useMessageQueueStore.getState().hydrate();
+    }
+  }, [queueHydrated]);
+
+  // Enqueue handler — called by SessionChatInput when agent is busy
+  const handleEnqueue = useCallback(
+    (text: string) => {
+      queueEnqueue(sessionId, text);
+    },
+    [sessionId, queueEnqueue],
+  );
+
+  // Queue expanded/collapsed state
+  const [queueExpanded, setQueueExpanded] = useState(false);
+
   // The first pending question for this session (if any)
   const activeQuestion: QuestionRequest | undefined = pendingQuestions[0];
   const hasQuestion = !!activeQuestion;
+
+  // ── Queue Draining ─────────────────────────────────────────────────────
+  // Automatically send the next queued message when the agent becomes idle.
+  // Mirrors the frontend's drainNextWhenSettled pattern.
+
+  const drainScheduledRef = useRef(false);
+  const queueInFlightRef = useRef<{ queueId: string; sentAt: number } | null>(null);
 
   // Keep the last question around so we can still render it during exit animation
   const lastQuestionRef = useRef<QuestionRequest | undefined>(undefined);
@@ -143,6 +184,160 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
       });
     }
   }, [hasQuestion, inputAnim, questionAnim]);
+
+  // ── Send / Stop handlers (defined early so queue drain logic can reference them) ──
+
+  const handleSend = useCallback(
+    async (text: string, options: PromptOptions, mentions?: TrackedMention[]) => {
+      if (!sandboxUrl) return;
+
+      // Process session mentions — append XML refs (same as frontend)
+      let finalText = text;
+      const sessionMentions = mentions?.filter((m) => m.kind === 'session' && m.value);
+      if (sessionMentions && sessionMentions.length > 0) {
+        const refs = sessionMentions
+          .map((m) => `<session_ref id="${m.value}" title="${m.label}" />`)
+          .join('\n');
+        finalText = `${text}\n\nReferenced sessions (use the session_context tool to fetch details when needed):\n${refs}`;
+      }
+
+      // Optimistic user message
+      const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const partId = `prt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      useSyncStore.getState().addOptimisticMessage(sessionId, {
+        info: {
+          id: messageId,
+          role: 'user',
+          sessionID: sessionId,
+          time: { created: Date.now() },
+        },
+        parts: [{ type: 'text', id: partId, text: finalText }],
+      });
+      useSyncStore.getState().setStatus(sessionId, { type: 'busy' });
+
+      // Build prompt payload
+      const payload: Record<string, any> = {
+        parts: [{ type: 'text', text: finalText }],
+      };
+      if (options.model) payload.model = options.model;
+      if (options.agent) payload.agent = options.agent;
+      if (options.variant) payload.variant = options.variant;
+
+      try {
+        const token = await getAuthToken();
+        const res = await fetch(`${sandboxUrl}/session/${sessionId}/prompt_async`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+          const errorText = await res.text().catch(() => '');
+          log.error('[SessionPage] Prompt failed:', res.status, errorText);
+          useSyncStore.getState().setStatus(sessionId, { type: 'idle' });
+        } else {
+          log.log('[SessionPage] Prompt sent (async)');
+        }
+      } catch (err: any) {
+        log.error('[SessionPage] Prompt error:', err?.message || err);
+        useSyncStore.getState().setStatus(sessionId, { type: 'idle' });
+      }
+    },
+    [sandboxUrl, sessionId],
+  );
+
+  const handleStop = useCallback(async () => {
+    if (!sandboxUrl) return;
+    useSyncStore.getState().setStatus(sessionId, { type: 'idle' });
+    try {
+      const token = await getAuthToken();
+      await fetch(`${sandboxUrl}/session/${sessionId}/abort`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+    } catch (err: any) {
+      log.error('[SessionPage] Abort error:', err?.message || err);
+    }
+  }, [sandboxUrl, sessionId]);
+
+  // ── Queue drain logic ───────────────────────────────────────────────────
+
+  const drainNextWhenSettled = useCallback(() => {
+    if (drainScheduledRef.current) return;
+    if (queueInFlightRef.current) return;
+    if (isBusy) return;
+    if (hasQuestion) return;
+
+    const sessionQueue = useMessageQueueStore
+      .getState()
+      .messages.filter((m) => m.sessionId === sessionId);
+    if (sessionQueue.length === 0) return;
+
+    drainScheduledRef.current = true;
+    setTimeout(() => {
+      drainScheduledRef.current = false;
+
+      // Re-check guards after delay
+      const status = useSyncStore.getState().sessionStatus[sessionId];
+      const stillBusy = status?.type === 'busy' || status?.type === 'retry';
+      const stillHasQuestion = (useSyncStore.getState().questions[sessionId] ?? []).length > 0;
+      if (stillBusy || stillHasQuestion || queueInFlightRef.current) return;
+
+      const next = useMessageQueueStore.getState().dequeue(sessionId);
+      if (next) {
+        queueInFlightRef.current = { queueId: next.id, sentAt: Date.now() };
+        // Send with default options (agent/model/variant come from resolved config)
+        handleSend(next.text, {}).catch(() => {
+          queueInFlightRef.current = null;
+        });
+      }
+    }, 500);
+  }, [isBusy, hasQuestion, sessionId, handleSend]);
+
+  // Release in-flight lock when agent finishes and drain next
+  useEffect(() => {
+    const inFlight = queueInFlightRef.current;
+    if (!inFlight) return;
+    if (isBusy || hasQuestion) return;
+
+    // Agent finished — release lock and drain next
+    queueInFlightRef.current = null;
+    setTimeout(() => drainNextWhenSettled(), 100);
+  }, [safeMessages, isBusy, hasQuestion, drainNextWhenSettled]);
+
+  // Fallback drain: triggers when isBusy changes to false and queue has items
+  useEffect(() => {
+    if (isBusy || drainScheduledRef.current) return;
+    const sessionQueue = useMessageQueueStore
+      .getState()
+      .messages.filter((m) => m.sessionId === sessionId);
+    if (sessionQueue.length === 0) return;
+    drainNextWhenSettled();
+  }, [isBusy, queuedMessages.length, sessionId, drainNextWhenSettled]);
+
+  // "Send now" — abort current processing and immediately send a queued message
+  const handleQueueSendNow = useCallback(
+    (messageId: string) => {
+      const msg = useMessageQueueStore
+        .getState()
+        .messages.find((m) => m.id === messageId);
+      if (!msg) return;
+      queueInFlightRef.current = null;
+      queueRemove(messageId);
+      handleStop();
+      setTimeout(() => {
+        handleSend(msg.text, {});
+      }, 200);
+    },
+    [queueRemove, handleStop, handleSend],
+  );
 
   // Agent/model/variant config
   const { data: agents = [] } = useOpenCodeAgents(sandboxUrl);
@@ -195,92 +390,6 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
     }
     prevTurnCount.current = turns.length;
   }, [turns.length]);
-
-  // Send handler
-  const handleSend = useCallback(
-    async (text: string, options: PromptOptions, mentions?: TrackedMention[]) => {
-      if (!sandboxUrl) return;
-
-      // Process session mentions — append XML refs (same as frontend)
-      let finalText = text;
-      const sessionMentions = mentions?.filter((m) => m.kind === 'session' && m.value);
-      if (sessionMentions && sessionMentions.length > 0) {
-        const refs = sessionMentions
-          .map((m) => `<session_ref id="${m.value}" title="${m.label}" />`)
-          .join('\n');
-        finalText = `${text}\n\nReferenced sessions (use the session_context tool to fetch details when needed):\n${refs}`;
-      }
-
-      // Optimistic user message
-      const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const partId = `prt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-      useSyncStore.getState().addOptimisticMessage(sessionId, {
-        info: {
-          id: messageId,
-          role: 'user',
-          sessionID: sessionId,
-          time: { created: Date.now() },
-        },
-        parts: [{ type: 'text', id: partId, text: finalText }],
-      });
-      useSyncStore.getState().setStatus(sessionId, { type: 'busy' });
-      // Scroll is handled by the useEffect watching turns.length
-
-      // Build prompt payload (matches frontend POST /session/{id}/message)
-      const payload: Record<string, any> = {
-        parts: [{ type: 'text', text: finalText }],
-      };
-      if (options.model) payload.model = options.model;
-      if (options.agent) payload.agent = options.agent;
-      if (options.variant) payload.variant = options.variant;
-
-      // Use prompt_async — returns immediately, SSE handles updates.
-      // The blocking /session/{id}/message endpoint hangs until AI finishes,
-      // which causes RN fetch to stall/timeout.
-      try {
-        const token = await getAuthToken();
-        const res = await fetch(`${sandboxUrl}/session/${sessionId}/prompt_async`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify(payload),
-        });
-
-        if (!res.ok) {
-          const errorText = await res.text().catch(() => '');
-          log.error('❌ [SessionPage] Prompt failed:', res.status, errorText);
-          useSyncStore.getState().setStatus(sessionId, { type: 'idle' });
-        } else {
-          log.log('✅ [SessionPage] Prompt sent (async)');
-        }
-      } catch (err: any) {
-        log.error('❌ [SessionPage] Prompt error:', err?.message || err);
-        useSyncStore.getState().setStatus(sessionId, { type: 'idle' });
-      }
-    },
-    [sandboxUrl, sessionId],
-  );
-
-  // Stop handler
-  const handleStop = useCallback(async () => {
-    if (!sandboxUrl) return;
-    useSyncStore.getState().setStatus(sessionId, { type: 'idle' });
-    try {
-      const token = await getAuthToken();
-      await fetch(`${sandboxUrl}/session/${sessionId}/abort`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-    } catch (err: any) {
-      log.error('❌ [SessionPage] Abort error:', err?.message || err);
-    }
-  }, [sandboxUrl, sessionId]);
 
   // Question reply/reject handlers
   const handleQuestionReply = useCallback(
@@ -496,6 +605,22 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
             sessions={allSessions}
             currentSessionId={sessionId}
             sandboxUrl={sandboxUrl}
+            onEnqueue={handleEnqueue}
+            inputSlot={
+              queuedMessages.length > 0 ? (
+                <QueuePanel
+                  messages={queuedMessages}
+                  expanded={queueExpanded}
+                  onToggle={() => setQueueExpanded((v) => !v)}
+                  onRemove={queueRemove}
+                  onMoveUp={queueMoveUp}
+                  onMoveDown={queueMoveDown}
+                  onClear={() => queueClearSession(sessionId)}
+                  onSendNow={handleQueueSendNow}
+                  isDark={isDark}
+                />
+              ) : undefined
+            }
           />
         </Animated.View>
 
@@ -543,6 +668,187 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
         sandboxId=""
         sandboxUrl={sandboxUrl}
       />
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// QueuePanel — collapsible list of queued messages shown above the text input
+// ---------------------------------------------------------------------------
+
+function QueuePanel({
+  messages,
+  expanded,
+  onToggle,
+  onRemove,
+  onMoveUp,
+  onMoveDown,
+  onClear,
+  onSendNow,
+  isDark,
+}: {
+  messages: QueuedMessage[];
+  expanded: boolean;
+  onToggle: () => void;
+  onRemove: (id: string) => void;
+  onMoveUp: (id: string) => void;
+  onMoveDown: (id: string) => void;
+  onClear: () => void;
+  onSendNow: (id: string) => void;
+  isDark: boolean;
+}) {
+  const bgColor = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)';
+  const borderColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
+  const mutedText = isDark ? '#888' : '#999';
+  const fgText = isDark ? '#ccc' : '#444';
+
+  return (
+    <View
+      style={{
+        borderRadius: 12,
+        backgroundColor: bgColor,
+        borderWidth: 1,
+        borderColor,
+        marginBottom: 8,
+        overflow: 'hidden',
+      }}
+    >
+      {/* Header — tap to expand/collapse */}
+      <TouchableOpacity
+        onPress={onToggle}
+        activeOpacity={0.7}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+        }}
+      >
+        <Ionicons
+          name="list-outline"
+          size={14}
+          color={mutedText}
+          style={{ marginRight: 6 }}
+        />
+        <RNText
+          style={{
+            flex: 1,
+            fontSize: 12,
+            fontFamily: 'Roobert-Medium',
+            color: mutedText,
+          }}
+          numberOfLines={1}
+        >
+          {messages.length} message{messages.length !== 1 ? 's' : ''} queued
+          {!expanded && messages.length > 0
+            ? ` — ${messages[0].text.length > 40 ? messages[0].text.slice(0, 40) + '...' : messages[0].text}`
+            : ''}
+        </RNText>
+        {/* Clear all */}
+        <TouchableOpacity
+          onPress={() => onClear()}
+          hitSlop={8}
+          style={{ marginRight: 8 }}
+        >
+          <Ionicons name="close" size={14} color={mutedText} />
+        </TouchableOpacity>
+        {/* Expand/collapse chevron */}
+        <Ionicons
+          name={expanded ? 'chevron-up' : 'chevron-down'}
+          size={14}
+          color={mutedText}
+        />
+      </TouchableOpacity>
+
+      {/* Expanded list */}
+      {expanded && messages.length > 0 && (
+        <View style={{ maxHeight: 160 }}>
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            nestedScrollEnabled
+          >
+            {messages.map((qm, idx) => (
+              <View
+                key={qm.id}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderTopWidth: 1,
+                  borderTopColor: borderColor,
+                }}
+              >
+                {/* Index badge */}
+                <RNText
+                  style={{
+                    fontSize: 10,
+                    fontFamily: 'Roobert-Medium',
+                    color: mutedText,
+                    width: 18,
+                  }}
+                >
+                  {idx + 1}
+                </RNText>
+
+                {/* Message text */}
+                <RNText
+                  numberOfLines={1}
+                  style={{
+                    flex: 1,
+                    fontSize: 13,
+                    fontFamily: 'Roobert',
+                    color: fgText,
+                    marginRight: 8,
+                  }}
+                >
+                  {qm.text}
+                </RNText>
+
+                {/* Action buttons */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  {/* Send now */}
+                  <TouchableOpacity
+                    onPress={() => onSendNow(qm.id)}
+                    hitSlop={6}
+                    style={{ padding: 4 }}
+                  >
+                    <Ionicons name="send" size={12} color={isDark ? '#60a5fa' : '#3b82f6'} />
+                  </TouchableOpacity>
+                  {/* Move up */}
+                  {idx > 0 && (
+                    <TouchableOpacity
+                      onPress={() => onMoveUp(qm.id)}
+                      hitSlop={6}
+                      style={{ padding: 4 }}
+                    >
+                      <Ionicons name="arrow-up" size={12} color={mutedText} />
+                    </TouchableOpacity>
+                  )}
+                  {/* Move down */}
+                  {idx < messages.length - 1 && (
+                    <TouchableOpacity
+                      onPress={() => onMoveDown(qm.id)}
+                      hitSlop={6}
+                      style={{ padding: 4 }}
+                    >
+                      <Ionicons name="arrow-down" size={12} color={mutedText} />
+                    </TouchableOpacity>
+                  )}
+                  {/* Remove */}
+                  <TouchableOpacity
+                    onPress={() => onRemove(qm.id)}
+                    hitSlop={6}
+                    style={{ padding: 4 }}
+                  >
+                    <Ionicons name="close" size={12} color={mutedText} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      )}
     </View>
   );
 }
