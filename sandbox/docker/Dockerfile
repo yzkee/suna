@@ -99,6 +99,31 @@ RUN mkdir -p /workspace/.browser-profile \
     /workspace/.npm-global/bin \
     /workspace/.npm-global/lib \
     && chmod 700 /workspace/.secrets \
+    # Bake .gitignore so these dirs are always excluded from git snapshots.
+    # kortix-env-setup.sh commits this in the initial workspace commit.
+    && printf '%s\n' \
+        '# kortix/opencode internal dirs — excluded from agent snapshots' \
+        '.local/share/opencode/' \
+        '.cache/' \
+        '.config/' \
+        '.opencode/' \
+        '.kortix/' \
+        '.kortix-state/' \
+        '.secrets/' \
+        '.browser-profile/' \
+        '.agent-browser/' \
+        '.lss/' \
+        '.ocx/' \
+        '.XDG/' \
+        '.bun/' \
+        '.npm-global/' \
+        '.npm/' \
+        '.dbus/' \
+        '.pki/' \
+        '.ssh/' \
+        'ssl/' \
+        'opencode' \
+        > /workspace/.gitignore \
     && chown -R abc:abc /workspace \
     && rm -rf /config \
     && ln -s /workspace /config \

@@ -17,16 +17,58 @@ fi
 # resolves a real project ID instead of falling back to id="global".
 if [ ! -d /workspace/.git ] || [ -z "$(git -C /workspace rev-list --max-parents=0 --all 2>/dev/null)" ]; then
     cd /workspace
-    [ ! -d .git ] && git init
+    # Use .git/HEAD as the real indicator — startup.sh pre-creates .git/info/
+    # which makes `[ ! -d .git ]` return false even when git init hasn't run.
+    [ ! -f .git/HEAD ] && git init
+
+    # Write info/exclude HERE — after git init — because git init overwrites
+    # info/exclude with its default template, clobbering anything written earlier
+    # (e.g. by startup.sh). The .gitignore baked into the image is the primary
+    # guard; info/exclude is belt-and-suspenders.
+    mkdir -p /workspace/.git/info
+    cat > /workspace/.git/info/exclude << 'GITEXCLUDE'
+# kortix/opencode internal dirs — never include in snapshot diffs
+.local/share/opencode/
+.cache/
+.config/
+.opencode/
+.kortix/
+.kortix-state/
+.secrets/
+.browser-profile/
+.agent-browser/
+.lss/
+.ocx/
+.XDG/
+.bun/
+.npm-global/
+.npm/
+.dbus/
+.pki/
+.ssh/
+ssl/
+opencode
+GITEXCLUDE
+
     # Ensure at least one commit exists (OpenCode needs root commit for project ID)
     if [ -z "$(git rev-list --max-parents=0 --all 2>/dev/null)" ]; then
-        # Stage .kortix and .opencode config only — don't commit user projects
+        # Stage .kortix, .opencode, and .gitignore — .gitignore commits the
+        # snapshot exclusions so they're always respected, even without info/exclude.
         git add .kortix .opencode .gitignore 2>/dev/null || true
         git commit --allow-empty -m "Workspace init" >/dev/null 2>&1
     fi
     chown -R abc:users /workspace/.git 2>/dev/null || true
     echo "[Kortix] Workspace git repo initialized"
 fi
+
+# ── Untrack excluded dirs from git index ─────────────────────────────────────
+# If any excluded dirs were accidentally committed before exclusions were set up
+# (e.g. old image, volume from previous version), remove them from the index.
+# This is a no-op if they were never tracked.
+git -C /workspace rm --cached -r --ignore-unmatch \
+    .browser-profile .local/share/opencode .cache/opencode \
+    .bun .npm-global .lss .ocx .XDG \
+    >/dev/null 2>&1 || true
 
 # ── Dev server crash protection ─────────────────────────────────────────────
 GUARD_PATH="/opt/kortix-master/econnreset-guard.cjs"

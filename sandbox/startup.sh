@@ -81,26 +81,36 @@ if [ ! -e /workspace/opencode ] && [ ! -L /workspace/opencode ]; then
 fi
 
 # ── Exclude opencode internal dirs from git (prevents 16K+ snapshot diffs) ──
-# opencode's snapshot system uses .git/info/exclude to filter tracked files.
-# Without this, every health check log line and snapshot git object gets included
-# in session.diff events sent to the frontend.
-mkdir -p /workspace/.git/info 2>/dev/null || true
-cat > /workspace/.git/info/exclude << 'GITEXCLUDE'
+# Only refresh info/exclude when the git repo already exists (container restart).
+# For fresh workspaces, kortix-env-setup.sh writes info/exclude AFTER git init
+# (git init overwrites info/exclude with its default template, so writing it here
+# on fresh repos is pointless — it gets clobbered).
+if [ -f /workspace/.git/HEAD ]; then
+  mkdir -p /workspace/.git/info 2>/dev/null || true
+  cat > /workspace/.git/info/exclude << 'GITEXCLUDE'
 # opencode internal data — never include in snapshot diffs
 .local/share/opencode/
-.cache/opencode/
+.cache/
+.config/
 .opencode/
 .kortix/
 .kortix-state/
 .secrets/
 .browser-profile/
+.agent-browser/
 .lss/
 .ocx/
 .XDG/
 .bun/
 .npm-global/
+.npm/
+.dbus/
+.pki/
+.ssh/
+ssl/
 opencode
 GITEXCLUDE
+fi
 
 # ── Clean stale browser locks ───────────────────────────────────────────────
 # After unclean shutdown, Chromium singletons prevent agent-browser from starting.
