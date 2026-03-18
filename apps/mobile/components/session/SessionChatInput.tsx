@@ -14,6 +14,7 @@ import {
   TextInput,
   TouchableOpacity,
   Modal,
+  ScrollView,
   Platform,
   Animated,
   type NativeSyntheticEvent,
@@ -23,10 +24,11 @@ import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
 import { Ionicons } from '@expo/vector-icons';
 
-import type { Agent, FlatModel } from '@/lib/opencode/hooks/use-opencode-data';
+import type { Agent, FlatModel, Command } from '@/lib/opencode/hooks/use-opencode-data';
 import type { Session } from '@/lib/platform/types';
 import { MentionSuggestions } from './MentionSuggestions';
 import { useMentions, type TrackedMention, type MentionItem } from './useMentions';
+import { Text as RNText } from 'react-native';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -66,6 +68,10 @@ interface SessionChatInputProps {
   inputSlot?: React.ReactNode;
   /** Emits whether the draft currently has non-whitespace content */
   onDraftChange?: (hasText: boolean) => void;
+  /** Slash commands fetched from server */
+  commands?: Command[];
+  /** Called when a command is submitted (staged command + optional args) */
+  onCommand?: (command: Command, args?: string) => void;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -93,6 +99,8 @@ export function SessionChatInput({
   onEnqueue,
   inputSlot,
   onDraftChange,
+  commands = [],
+  onCommand,
 }: SessionChatInputProps) {
   const [text, setText] = useState('');
   const inputRef = useRef<TextInput>(null);
@@ -102,6 +110,12 @@ export function SessionChatInput({
 
   // Config sheet
   const [showConfigSheet, setShowConfigSheet] = useState(false);
+
+  // ── Slash commands ───────────────────────────────────────────────────────
+
+  const [slashFilter, setSlashFilter] = useState<string | null>(null);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [stagedCommand, setStagedCommand] = useState<Command | null>(null);
 
   // ── Mentions ────────────────────────────────────────────────────────────
 
@@ -115,13 +129,21 @@ export function SessionChatInput({
   const handleTextChange = useCallback(
     (newText: string) => {
       setText(newText);
-      // On React Native, onChangeText doesn't provide cursor position.
-      // Use text length (typing appends at end). onSelectionChange
-      // will re-detect for mid-text edits.
       cursorRef.current = newText.length;
       mention.handleTextChange(newText, newText.length);
+
+      // Slash command detection (disabled while a command is staged)
+      if (!stagedCommand) {
+        const match = newText.match(/^\/(\S*)$/);
+        if (match) {
+          setSlashFilter(match[1]);
+          setSlashIndex(0);
+        } else {
+          setSlashFilter(null);
+        }
+      }
     },
-    [mention],
+    [mention, stagedCommand],
   );
 
   const handleSelectionChange = useCallback(
@@ -136,10 +158,30 @@ export function SessionChatInput({
       const newText = mention.selectMention(item, text);
       setText(newText);
       cursorRef.current = newText.length;
-      // Refocus after selection (like frontend's requestAnimationFrame)
       setTimeout(() => inputRef.current?.focus(), 50);
     },
     [mention, text],
+  );
+
+  const filteredCommands = useMemo(() => {
+    if (slashFilter === null) return [];
+    const q = slashFilter.toLowerCase();
+    return commands.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        (c.description && c.description.toLowerCase().includes(q)),
+    );
+  }, [commands, slashFilter]);
+
+  const handleSelectCommand = useCallback(
+    (cmd: Command) => {
+      setStagedCommand(cmd);
+      setText('');
+      setSlashFilter(null);
+      setSlashIndex(0);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    },
+    [],
   );
 
   // ── Animated placeholder ────────────────────────────────────────────────
@@ -206,7 +248,7 @@ export function SessionChatInput({
     }
   }, [text, fadeAnim, slideAnim]);
 
-  const showAnimatedPlaceholder = text.trim().length === 0 && !inputSlot;
+  const showAnimatedPlaceholder = text.trim().length === 0 && !inputSlot && !stagedCommand;
   // ────────────────────────────────────────────────────────────────────────
 
   const canSend = text.trim().length > 0 && !disabled;
@@ -219,9 +261,23 @@ export function SessionChatInput({
   const hasToolbar = agents.length > 0 || models.length > 0;
 
   const handleSubmit = useCallback(() => {
+    // Slash command popover open — select highlighted command
+    if (slashFilter !== null && filteredCommands.length > 0) {
+      handleSelectCommand(filteredCommands[slashIndex]);
+      return;
+    }
+
     if (mention.isOpen) {
-      // If mention popover is open, don't submit — dismiss it
       mention.dismiss();
+      return;
+    }
+
+    // Staged command — execute it with args
+    if (stagedCommand) {
+      const args = text.trim();
+      onCommand?.(stagedCommand, args || undefined);
+      setText('');
+      setStagedCommand(null);
       return;
     }
 
@@ -245,7 +301,7 @@ export function SessionChatInput({
     onSend(trimmed, options, trackedMentions);
     setText('');
     mention.reset();
-  }, [text, disabled, onSend, agent, modelKey, variant, mention, isBusy, onEnqueue]);
+  }, [text, disabled, onSend, agent, modelKey, variant, mention, isBusy, onEnqueue, slashFilter, filteredCommands, slashIndex, handleSelectCommand, stagedCommand, onCommand]);
 
   // Variant display
   const variantLabel = variant
@@ -255,8 +311,18 @@ export function SessionChatInput({
   return (
     <>
       <View>
+        {/* Slash command suggestions — above the input */}
+        {slashFilter !== null && filteredCommands.length > 0 && (
+          <SlashCommandSuggestions
+            commands={filteredCommands}
+            selectedIndex={slashIndex}
+            onSelect={handleSelectCommand}
+            isDark={isDark}
+          />
+        )}
+
         {/* Mention suggestions — above the input (same condition as frontend) */}
-        {mention.isOpen && (mention.items.length > 0 || mention.fileSearchLoading) && (
+        {slashFilter === null && mention.isOpen && (mention.items.length > 0 || mention.fileSearchLoading) && (
           <MentionSuggestions
             items={mention.items}
             selectedIndex={mention.selectedIndex}
@@ -270,6 +336,69 @@ export function SessionChatInput({
           <View className="rounded-2xl px-4 pt-2 pb-1 bg-card border border-border">
             {/* Queue / question slot — rendered above textarea */}
             {inputSlot}
+
+            {/* Staged command badge */}
+            {stagedCommand && (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingBottom: 6,
+                  gap: 8,
+                }}
+              >
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: 8,
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                    borderWidth: 1,
+                    borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                  }}
+                >
+                  <Ionicons
+                    name="terminal-outline"
+                    size={12}
+                    color={isDark ? '#a1a1aa' : '#71717a'}
+                    style={{ marginRight: 6 }}
+                  />
+                  <RNText
+                    style={{
+                      fontSize: 13,
+                      fontFamily: 'Roobert-Medium',
+                      color: isDark ? '#F8F8F8' : '#121215',
+                      maxWidth: 220,
+                    }}
+                    numberOfLines={1}
+                  >
+                    /{stagedCommand.name}
+                  </RNText>
+                  <TouchableOpacity
+                    onPress={() => { setStagedCommand(null); setText(''); }}
+                    hitSlop={8}
+                    style={{ marginLeft: 6 }}
+                  >
+                    <Ionicons name="close" size={12} color={isDark ? '#71717a' : '#a1a1aa'} />
+                  </TouchableOpacity>
+                </View>
+                {stagedCommand.description && (
+                  <RNText
+                    numberOfLines={1}
+                    style={{
+                      fontSize: 11,
+                      fontFamily: 'Roobert',
+                      color: isDark ? '#71717a' : '#a1a1aa',
+                      flex: 1,
+                    }}
+                  >
+                    {stagedCommand.description}
+                  </RNText>
+                )}
+              </View>
+            )}
 
             {/* TextInput + animated placeholder wrapper */}
             <View style={{ position: 'relative' }}>
@@ -295,8 +424,8 @@ export function SessionChatInput({
                 value={text}
                 onChangeText={handleTextChange}
                 onSelectionChange={handleSelectionChange}
-                placeholder=""
-                placeholderTextColor="transparent"
+                placeholder={stagedCommand ? 'Enter details and press send, or tap X to cancel' : ''}
+                placeholderTextColor={isDark ? '#555' : '#aaa'}
                 multiline
                 maxLength={10000}
                 style={{
@@ -447,9 +576,86 @@ export function SessionChatInput({
   );
 }
 
+// ─── Slash Command Suggestions ───────────────────────────────────────────────
+
+function SlashCommandSuggestions({
+  commands,
+  selectedIndex,
+  onSelect,
+  isDark,
+}: {
+  commands: Command[];
+  selectedIndex: number;
+  onSelect: (cmd: Command) => void;
+  isDark: boolean;
+}) {
+  const bgColor = isDark ? '#1e1e20' : '#FFFFFF';
+  const borderColor = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)';
+  const selectedBg = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
+  const fgColor = isDark ? '#F8F8F8' : '#121215';
+  const mutedColor = isDark ? '#888' : '#999';
+
+  return (
+    <View
+      style={{
+        marginHorizontal: 16,
+        marginBottom: 4,
+        borderRadius: 12,
+        backgroundColor: bgColor,
+        borderWidth: 1,
+        borderColor,
+        maxHeight: 220,
+        overflow: 'hidden',
+      }}
+    >
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {commands.map((cmd, i) => (
+          <TouchableOpacity
+            key={cmd.name}
+            onPress={() => onSelect(cmd)}
+            activeOpacity={0.6}
+            style={{
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              backgroundColor: i === selectedIndex ? selectedBg : 'transparent',
+              borderBottomWidth: i < commands.length - 1 ? 1 : 0,
+              borderBottomColor: borderColor,
+            }}
+          >
+            <RNText
+              style={{
+                fontSize: 14,
+                fontFamily: 'Roobert-Medium',
+                color: fgColor,
+              }}
+            >
+              /{cmd.name}
+            </RNText>
+            {cmd.description && (
+              <RNText
+                numberOfLines={2}
+                style={{
+                  fontSize: 12,
+                  fontFamily: 'Roobert',
+                  color: mutedColor,
+                  marginTop: 2,
+                }}
+              >
+                {cmd.description}
+              </RNText>
+            )}
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
 // ─── Config Sheet ────────────────────────────────────────────────────────────
 
-import { ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type ConfigTab = 'agent' | 'model' | 'thinking';
