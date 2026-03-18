@@ -116,8 +116,7 @@ Keep it specific — tell them exactly what the key is for, exactly where to get
 If they paste the key, save it immediately:
 
 ```bash
-MASTER_URL="${KORTIX_MASTER_URL:-http://localhost:8000}"
-curl -s -X POST "$MASTER_URL/env/KEY_NAME_HERE" \
+curl -s -X POST "http://localhost:8000/env/KEY_NAME_HERE" \
   -H "Content-Type: application/json" \
   -d '{"value":"THEIR_KEY_HERE"}'
 ```
@@ -298,7 +297,7 @@ Some tools don't have OAuth but can be configured via API keys or CLI tokens (e.
 
 Use the env API to save any keys they provide:
 ```bash
-curl -s -X POST "${KORTIX_MASTER_URL:-http://localhost:8000}/env/KEY_NAME" \
+curl -s -X POST "http://localhost:8000/env/KEY_NAME" \
   -H "Content-Type: application/json" -d '{"value":"their-key-here"}'
 ```
 
@@ -492,15 +491,22 @@ mem_save(
 
 ### Fire the Unlock
 
+**CRITICAL: Use EXACTLY this URL. Do NOT change the host or port. Do NOT use `kortix-master` or any other hostname. The ONLY valid URL is `http://localhost:8000`.**
+
 ```bash
-MASTER_URL="${KORTIX_MASTER_URL:-http://localhost:8000}"
-curl -s -X POST "$MASTER_URL/env/ONBOARDING_COMPLETE" -H "Content-Type: application/json" -d '{"value":"true"}'
-curl -s -X POST "$MASTER_URL/env/ONBOARDING_USER_NAME" -H "Content-Type: application/json" -d "{\"value\":\"USER_NAME_HERE\"}"
-curl -s -X POST "$MASTER_URL/env/ONBOARDING_USER_SUMMARY" -H "Content-Type: application/json" -d "{\"value\":\"SUMMARY_HERE\"}"
-curl -s -X POST "$MASTER_URL/env/ONBOARDING_COMPLETED_AT" -H "Content-Type: application/json" -d "{\"value\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
+curl -s -X POST "http://localhost:8000/env/ONBOARDING_COMPLETE" -H "Content-Type: application/json" -d '{"value":"true"}'
+curl -s -X POST "http://localhost:8000/env/ONBOARDING_USER_NAME" -H "Content-Type: application/json" -d "{\"value\":\"USER_NAME_HERE\"}"
+curl -s -X POST "http://localhost:8000/env/ONBOARDING_USER_SUMMARY" -H "Content-Type: application/json" -d "{\"value\":\"SUMMARY_HERE\"}"
+curl -s -X POST "http://localhost:8000/env/ONBOARDING_COMPLETED_AT" -H "Content-Type: application/json" -d "{\"value\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
 ```
 
 Replace `USER_NAME_HERE` with their name and `SUMMARY_HERE` with a one-line summary (role + company + primary use case).
+
+**After firing the curls, verify the unlock worked:**
+```bash
+curl -s "http://localhost:8000/env/ONBOARDING_COMPLETE"
+```
+If the response does NOT contain `"true"`, retry the POST.
 
 > You're in. Dashboard is unlocking now. I know who you are, what you're building, and what tools you use — next time we talk, we pick up right where we left off.
 
