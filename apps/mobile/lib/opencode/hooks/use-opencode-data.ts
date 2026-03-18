@@ -187,10 +187,22 @@ export function filterToLatestModels(models: FlatModel[]): FlatModel[] {
 
 // ─── Query Keys ──────────────────────────────────────────────────────────────
 
+export interface Command {
+  name: string;
+  description?: string;
+  agent?: string;
+  model?: string;
+  source?: 'command' | 'mcp' | 'skill';
+  template: string;
+  subtask?: boolean;
+  hints: string[];
+}
+
 export const opencodeKeys = {
   agents: (url: string) => ['opencode', 'agents', url] as const,
   providers: (url: string) => ['opencode', 'providers', url] as const,
   config: (url: string) => ['opencode', 'config', url] as const,
+  commands: (url: string) => ['opencode', 'commands', url] as const,
 };
 
 // ─── Hooks ───────────────────────────────────────────────────────────────────
@@ -239,6 +251,19 @@ export function useOpenCodeConfig(sandboxUrl: string | undefined) {
  * `allModels` is the unfiltered list (for model resolution fallback).
  * `data` is the filtered list (for display in the selector).
  */
+export function useOpenCodeCommands(sandboxUrl: string | undefined) {
+  return useQuery({
+    queryKey: opencodeKeys.commands(sandboxUrl || ''),
+    queryFn: async () => {
+      if (!sandboxUrl) throw new Error('No sandbox URL');
+      return opencodeFetch<Command[]>(sandboxUrl, '/command');
+    },
+    enabled: !!sandboxUrl,
+    staleTime: Infinity,
+    gcTime: 10 * 60 * 1000,
+  });
+}
+
 export function useOpenCodeModels(sandboxUrl: string | undefined) {
   const { data: providers, ...rest } = useOpenCodeProviders(sandboxUrl);
   const allModels = providers ? flattenModels(providers) : [];

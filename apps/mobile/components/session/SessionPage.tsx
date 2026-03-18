@@ -37,6 +37,8 @@ import {
   useOpenCodeAgents,
   useOpenCodeModels,
   useOpenCodeConfig,
+  useOpenCodeCommands,
+  type Command,
 } from '@/lib/opencode/hooks/use-opencode-data';
 import { useResolvedConfig } from '@/lib/opencode/hooks/use-local-config';
 import { getAuthToken } from '@/api/config';
@@ -345,6 +347,7 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
   const { data: agents = [] } = useOpenCodeAgents(sandboxUrl);
   const { data: visibleModels = [], allModels = [], defaults } = useOpenCodeModels(sandboxUrl);
   const { data: config } = useOpenCodeConfig(sandboxUrl);
+  const { data: commands = [] } = useOpenCodeCommands(sandboxUrl);
 
   // Resolution uses ALL models (fallback chain); selector shows only visible
   const resolved = useResolvedConfig(agents, allModels, config, defaults);
@@ -435,6 +438,42 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
     [sandboxUrl, sessionId, handleStop],
   );
 
+  // Command handler — executes a slash command via the server
+  const handleCommand = useCallback(
+    async (cmd: Command, args?: string) => {
+      if (!sandboxUrl) return;
+      useSyncStore.getState().setStatus(sessionId, { type: 'busy' });
+      try {
+        const token = await getAuthToken();
+        const payload: Record<string, any> = {
+          command: cmd.name,
+          arguments: args || '',
+        };
+        if (resolved.agent?.name) payload.agent = resolved.agent.name;
+        if (resolved.modelKey) payload.model = `${resolved.modelKey.providerID}/${resolved.modelKey.modelID}`;
+        if (resolved.variant) payload.variant = resolved.variant;
+
+        const res = await fetch(`${sandboxUrl}/session/${sessionId}/command`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const errorText = await res.text().catch(() => '');
+          log.error('[SessionPage] Command failed:', res.status, errorText);
+          useSyncStore.getState().setStatus(sessionId, { type: 'idle' });
+        }
+      } catch (err: any) {
+        log.error('[SessionPage] Command error:', err?.message || err);
+        useSyncStore.getState().setStatus(sessionId, { type: 'idle' });
+      }
+    },
+    [sandboxUrl, sessionId, resolved.agent, resolved.modelKey, resolved.variant],
+  );
+
   // Fork handler — forks session at the given assistant message
   const handleFork = useCallback(
     async (assistantMessageId: string) => {
@@ -490,10 +529,11 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
           agentNames={agentNames}
           onFileMention={handleFileMention}
           onSessionMention={handleSessionMention}
+          commands={commands}
         />
       </View>
     ),
-    [safeMessages, sessionStatus, isBusy, turns.length, pendingQuestions, handleFork, agentNames, handleFileMention, handleSessionMention],
+    [safeMessages, sessionStatus, isBusy, turns.length, pendingQuestions, handleFork, agentNames, handleFileMention, handleSessionMention, commands],
   );
 
   const title = session?.title || 'New Session';
@@ -628,6 +668,8 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
             currentSessionId={sessionId}
             sandboxUrl={sandboxUrl}
             onEnqueue={handleEnqueue}
+            commands={commands}
+            onCommand={handleCommand}
             inputSlot={
               queuedMessages.length > 0 ? (
                 <QueuePanel
