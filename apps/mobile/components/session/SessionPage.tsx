@@ -529,10 +529,11 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
           agentNames={agentNames}
           onFileMention={handleFileMention}
           onSessionMention={handleSessionMention}
+          commands={commands}
         />
       </View>
     ),
-    [safeMessages, sessionStatus, isBusy, turns.length, pendingQuestions, handleFork, agentNames, handleFileMention, handleSessionMention],
+    [safeMessages, sessionStatus, isBusy, turns.length, pendingQuestions, handleFork, agentNames, handleFileMention, handleSessionMention, commands],
   );
 
   const title = session?.title || 'New Session';
