@@ -43,6 +43,8 @@ import { SessionChatInput, type PromptOptions, type TrackedMention } from './Ses
 import { SessionTurn } from './SessionTurn';
 import { QuestionPrompt } from './QuestionPrompt';
 import { useSessions } from '@/lib/platform/hooks';
+import { FileViewer } from '@/components/files/FileViewer';
+import type { SandboxFile } from '@/api/types';
 
 interface SessionPageProps {
   sessionId: string;
@@ -156,6 +158,17 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
   // Mention click handlers
   const handleSessionMention = useCallback((mentionedSessionId: string) => {
     useTabStore.getState().navigateToSession(mentionedSessionId);
+  }, []);
+
+  // File mention viewer
+  const [mentionFileViewerVisible, setMentionFileViewerVisible] = useState(false);
+  const [mentionViewerFile, setMentionViewerFile] = useState<SandboxFile | null>(null);
+
+  const handleFileMention = useCallback((path: string) => {
+    const name = path.split('/').pop() || path;
+    const fullPath = path.startsWith('/') ? path : `/workspace/${path}`;
+    setMentionViewerFile({ name, path: fullPath, type: 'file' });
+    setMentionFileViewerVisible(true);
   }, []);
 
   // Group messages into turns
@@ -353,11 +366,12 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
           pendingQuestions={pendingQuestions}
           onFork={handleFork}
           agentNames={agentNames}
+          onFileMention={handleFileMention}
           onSessionMention={handleSessionMention}
         />
       </View>
     ),
-    [safeMessages, sessionStatus, isBusy, turns.length, pendingQuestions, handleFork, agentNames, handleSessionMention],
+    [safeMessages, sessionStatus, isBusy, turns.length, pendingQuestions, handleFork, agentNames, handleFileMention, handleSessionMention],
   );
 
   const title = session?.title || 'New Session';
@@ -516,6 +530,18 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
           </View>
         )}
       </View>
+
+      {/* File mention viewer */}
+      <FileViewer
+        visible={mentionFileViewerVisible}
+        onClose={() => {
+          setMentionFileViewerVisible(false);
+          setMentionViewerFile(null);
+        }}
+        file={mentionViewerFile}
+        sandboxId=""
+        sandboxUrl={sandboxUrl}
+      />
     </View>
   );
 }
