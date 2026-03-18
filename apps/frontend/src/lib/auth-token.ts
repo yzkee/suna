@@ -182,10 +182,27 @@ export async function authenticatedFetch(
 ): Promise<Response> {
   const { retryOnAuthError = true } = options ?? {};
 
-  const token = await getAuthToken();
+  let token = await getAuthToken();
+
+  // If no token yet (Supabase session still hydrating), wait briefly and retry
+  // once before giving up. This handles the race where authenticatedFetch is
+  // called immediately on mount before the auth cookie has been parsed.
   if (!token) {
-    throw new Error('Not authenticated — no auth token available');
+    await new Promise((r) => setTimeout(r, 500));
+    invalidateTokenCache();
+    token = await getAuthToken();
   }
+
+  // Still no token — return a synthetic 401 response instead of sending a
+  // naked request. Safe for all callers including the OpenCode SDK which
+  // expects fetch() semantics (returns Response, never throws).
+  if (!token) {
+    return new Response(JSON.stringify({ error: 'Not authenticated' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   const headers = buildAuthHeaders(input, init, token);
   const mergedInit = { ...init, headers };
 
