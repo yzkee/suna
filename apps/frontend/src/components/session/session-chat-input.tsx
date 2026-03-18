@@ -511,6 +511,9 @@ function InfinityOff({ className, strokeWidth = 2 }: { className?: string; strok
   );
 }
 
+/** Default mode when user clicks "On" — Kraemer is the reliable all-rounder */
+const DEFAULT_AUTOCONTINUE_MODE: AutoContinueMode = 'autowork';
+
 function AutoContinueSelector({
   selected,
   onSelect,
@@ -521,6 +524,8 @@ function AutoContinueSelector({
   commands: Command[];
 }) {
   const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [explicitPick, setExplicitPick] = useState(false);
   const [detailAlg, setDetailAlg] = useState<AutoContinueAlgorithm | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -536,6 +541,7 @@ function AutoContinueSelector({
     function handleClickOutside(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) {
         setOpen(false);
+        setExpanded(false);
       }
     }
     if (open) {
@@ -543,6 +549,13 @@ function AutoContinueSelector({
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [open]);
+
+  // When menu opens, show expanded list if already active (user is picking modes)
+  useEffect(() => {
+    if (open && selected !== null) {
+      setExpanded(true);
+    }
+  }, [open, selected]);
 
   if (available.length === 0) return null;
 
@@ -569,8 +582,8 @@ function AutoContinueSelector({
               ) : (
                 <InfinityOff className="size-4" />
               )}
-              {isActive && currentAlg && (
-                <span className="text-[11px]">{currentAlg.label}</span>
+              {isActive && (
+                <span className="text-[11px]">{explicitPick && currentAlg ? currentAlg.label : 'Auto'}</span>
               )}
               <ChevronDown className={cn('size-3 opacity-50 transition-transform duration-200', open && 'rotate-180')} />
             </button>
@@ -583,15 +596,18 @@ function AutoContinueSelector({
         </Tooltip>
 
         {open && (
-          <div className="absolute bottom-full left-0 mb-1.5 z-50 bg-popover border border-border rounded-xl overflow-hidden min-w-[300px] animate-in fade-in-0 slide-in-from-bottom-2 duration-150">
+          <div
+            className="absolute bottom-full left-0 mb-1.5 z-50 bg-popover border border-border rounded-xl overflow-hidden animate-in fade-in-0 slide-in-from-bottom-2 duration-150"
+            style={{ width: 320 }}
+          >
             <div className="p-1">
               <div className="px-2.5 pt-1.5 pb-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                 AutoContinue
               </div>
 
-              {/* Off option */}
+              {/* Off */}
               <button
-                onClick={() => { onSelect(null); setOpen(false); }}
+                onClick={() => { onSelect(null); setExplicitPick(false); setExpanded(false); setOpen(false); }}
                 className={cn(
                   'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] transition-colors cursor-pointer',
                   !isActive ? 'bg-muted' : 'hover:bg-muted',
@@ -602,37 +618,63 @@ function AutoContinueSelector({
                 {!isActive && <Check className="size-3 text-foreground shrink-0" />}
               </button>
 
-              <div className="mx-2 my-1 border-t border-border" />
+              {/* On — clicking selects Kraemer default and expands the mode list */}
+              <button
+                onClick={() => {
+                  if (!isActive) onSelect(DEFAULT_AUTOCONTINUE_MODE);
+                  setExpanded(true);
+                }}
+                className={cn(
+                  'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] transition-colors cursor-pointer',
+                  isActive && !expanded ? 'bg-muted' : isActive ? 'bg-primary/5' : 'hover:bg-muted',
+                )}
+              >
+                <Infinity className="size-3.5 shrink-0" strokeWidth={2.5} />
+                <span className="font-medium flex-1 text-left">
+                  {isActive && explicitPick && currentAlg ? `On — ${currentAlg.label}` : 'On'}
+                </span>
+                {isActive && !expanded && <Check className="size-3 text-foreground shrink-0" />}
+                {!expanded && <ChevronDown className="size-3 text-muted-foreground shrink-0" />}
+              </button>
 
-              {/* Algorithm options — compact rows */}
-              {available.map((alg) => {
-                const isSelected = selected === alg.id;
-                return (
-                  <div
-                    key={alg.id}
-                    className={cn(
-                      'flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] transition-colors',
-                      isSelected ? 'bg-muted' : 'hover:bg-muted',
-                    )}
-                  >
-                    <button
-                      onClick={() => { onSelect(alg.id); setOpen(false); }}
-                      className="flex items-center gap-2 flex-1 min-w-0 text-left cursor-pointer"
+              {/* Expanded algorithm list — animated reveal after clicking On */}
+              <div
+                className="overflow-hidden transition-all duration-200 ease-out"
+                style={{
+                  maxHeight: expanded ? available.length * 40 + 16 : 0,
+                  opacity: expanded ? 1 : 0,
+                }}
+              >
+                <div className="mx-2 my-1 border-t border-border" />
+                {available.map((alg) => {
+                  const isSelected = selected === alg.id;
+                  return (
+                    <div
+                      key={alg.id}
+                      className={cn(
+                        'flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] transition-colors',
+                        isSelected ? 'bg-muted' : 'hover:bg-muted',
+                      )}
                     >
-                      <span className="font-medium shrink-0">{alg.label}</span>
-                      <span className="text-[10px] text-muted-foreground/70 shrink-0">{alg.role}</span>
-                      <span className="text-[11px] text-muted-foreground truncate">{alg.description}</span>
-                      {isSelected && <Check className="size-3 text-foreground shrink-0 ml-auto" />}
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setDetailAlg(alg); setOpen(false); }}
-                      className="shrink-0 p-0.5 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted-foreground/10 transition-colors cursor-pointer"
-                    >
-                      <Info className="size-3.5" />
-                    </button>
-                  </div>
-                );
-              })}
+                      <button
+                        onClick={() => { onSelect(alg.id); setExplicitPick(true); setOpen(false); setExpanded(false); }}
+                        className="flex items-center gap-2 flex-1 min-w-0 text-left cursor-pointer"
+                      >
+                        <span className="font-medium shrink-0">{alg.label}</span>
+                        <span className="text-[10px] text-muted-foreground/70 shrink-0">{alg.role}</span>
+                        <span className="text-[11px] text-muted-foreground truncate">{alg.description}</span>
+                        {isSelected && <Check className="size-3 text-foreground shrink-0 ml-auto" />}
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDetailAlg(alg); setOpen(false); setExpanded(false); }}
+                        className="shrink-0 p-0.5 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted-foreground/10 transition-colors cursor-pointer"
+                      >
+                        <Info className="size-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}
@@ -657,13 +699,11 @@ function AutoContinueSelector({
               </DialogHeader>
 
               <div className="space-y-4 mt-2">
-                {/* Best for */}
                 <div>
                   <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Best for</h4>
                   <p className="text-sm">{detailAlg.bestFor}</p>
                 </div>
 
-                {/* Strengths & weaknesses side by side */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Strengths</h4>
@@ -689,7 +729,6 @@ function AutoContinueSelector({
                   </div>
                 </div>
 
-                {/* How it works */}
                 <div>
                   <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">How it works</h4>
                   <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line bg-muted/50 rounded-lg p-3">
