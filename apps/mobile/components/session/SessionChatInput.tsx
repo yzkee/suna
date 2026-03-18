@@ -569,48 +569,100 @@ function ConfigSheet({
           );
         })}
 
-        {/* Model tab */}
-        {activeTab === 'model' && models.map((m) => {
-          const isSelected =
-            selectedModel?.providerID === m.providerID &&
-            selectedModel?.modelID === m.modelID;
-          return (
-            <TouchableOpacity
-              key={`${m.providerID}/${m.modelID}`}
-              onPress={() => onModelChange(m.providerID, m.modelID)}
-              activeOpacity={0.6}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                paddingHorizontal: 20,
-                paddingVertical: 14,
-                backgroundColor: isSelected ? selectedBg : 'transparent',
-              }}
-            >
-              <View style={{ flex: 1 }}>
+        {/* Model tab — grouped by provider */}
+        {activeTab === 'model' && (() => {
+          // Group models by provider
+          const groups: { providerID: string; providerName: string; models: typeof models }[] = [];
+          const seen = new Map<string, typeof models>();
+          for (const m of models) {
+            const key = m.providerID;
+            if (!seen.has(key)) {
+              const group: typeof models = [];
+              seen.set(key, group);
+              groups.push({ providerID: key, providerName: m.providerName || key, models: group });
+            }
+            seen.get(key)!.push(m);
+          }
+
+          return groups.map((group) => (
+            <View key={group.providerID}>
+              {/* Provider header */}
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  paddingHorizontal: 20,
+                  paddingTop: 16,
+                  paddingBottom: 8,
+                }}
+              >
                 <Text
                   style={{
-                    fontSize: 16,
-                    fontFamily: isSelected ? 'Roobert-Medium' : 'Roobert',
-                    color: fgColor,
+                    fontSize: 11,
+                    fontFamily: 'Roobert-SemiBold',
+                    color: mutedColor,
+                    textTransform: 'uppercase',
+                    letterSpacing: 0.8,
                   }}
-                  numberOfLines={1}
                 >
-                  {m.modelName || m.modelID}
+                  {group.providerName}
                 </Text>
                 <Text
-                  style={{ fontSize: 13, fontFamily: 'Roobert', color: mutedColor, marginTop: 3 }}
-                  numberOfLines={1}
+                  style={{
+                    fontSize: 11,
+                    fontFamily: 'Roobert-Medium',
+                    color: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)',
+                  }}
                 >
-                  {m.providerName || m.providerID}
+                  {group.models.length}
                 </Text>
               </View>
-              {isSelected && (
-                <Ionicons name="checkmark-circle" size={22} color="#60a5fa" />
-              )}
-            </TouchableOpacity>
-          );
-        })}
+              {/* Models in this provider */}
+              {group.models.map((m) => {
+                const isSelected =
+                  selectedModel?.providerID === m.providerID &&
+                  selectedModel?.modelID === m.modelID;
+                return (
+                  <TouchableOpacity
+                    key={`${m.providerID}/${m.modelID}`}
+                    onPress={() => onModelChange(m.providerID, m.modelID)}
+                    activeOpacity={0.6}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingHorizontal: 20,
+                      paddingVertical: 12,
+                      backgroundColor: isSelected ? selectedBg : 'transparent',
+                    }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={{
+                          fontSize: 15,
+                          fontFamily: isSelected ? 'Roobert-Medium' : 'Roobert',
+                          color: fgColor,
+                        }}
+                        numberOfLines={1}
+                      >
+                        {m.modelName || m.modelID}
+                      </Text>
+                      <Text
+                        style={{ fontSize: 12, fontFamily: 'Roobert', color: mutedColor, marginTop: 2 }}
+                        numberOfLines={1}
+                      >
+                        {m.modelID}
+                      </Text>
+                    </View>
+                    {isSelected && (
+                      <Ionicons name="checkmark-circle" size={22} color="#60a5fa" />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ));
+        })()}
 
         {/* Thinking tab */}
         {activeTab === 'thinking' && (
