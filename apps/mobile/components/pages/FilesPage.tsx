@@ -150,7 +150,6 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
 
   // Context-selected file (long-press selects for three-dot menu actions)
   const [selectedFile, setSelectedFile] = useState<SandboxFile | null>(null);
-  const suppressAutoMenuRef = useRef(false);
 
   // Create folder / rename bottom sheets
   const createFolderSheetRef = useRef<BottomSheetModal>(null);
@@ -163,10 +162,6 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
   useEffect(() => {
     onFileSelectionChange?.(selectedFile);
     if (selectedFile) {
-      if (suppressAutoMenuRef.current) {
-        suppressAutoMenuRef.current = false;
-        return;
-      }
       // Small delay to let React re-render with updated menu items
       const timer = setTimeout(() => onRequestMenu?.(), 50);
       return () => clearTimeout(timer);
@@ -359,13 +354,8 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
     const name = normalized.split('/').pop() || normalized;
 
     setCurrentPath(parentDir || '/workspace');
-    suppressAutoMenuRef.current = true;
+    setSelectedFile(null);
     setViewerFile({
-      name,
-      path: normalized,
-      type: 'file',
-    });
-    setSelectedFile({
       name,
       path: normalized,
       type: 'file',
@@ -911,7 +901,6 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
                         file={file}
                         isDark={isDark}
                         fgColor={fgColor}
-                        isSelected={selectedFile?.path === file.path}
                         onPress={() => handleFilePress(file)}
                         onLongPress={() => handleFileLongPress(file)}
                       />
@@ -950,7 +939,6 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
                     file={file}
                     onPress={handleFilePress}
                     onLongPress={handleFileLongPress}
-                    isSelected={selectedFile?.path === file.path}
                   />
                 ))}
               </View>
@@ -975,7 +963,6 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
                     file={file}
                     onPress={handleFilePress}
                     onLongPress={handleFileLongPress}
-                    isSelected={selectedFile?.path === file.path}
                   />
                 ))}
               </View>
@@ -1305,14 +1292,12 @@ function FileGridCard({
   file,
   isDark,
   fgColor,
-  isSelected,
   onPress,
   onLongPress,
 }: {
   file: SandboxFile;
   isDark: boolean;
   fgColor: string;
-  isSelected: boolean;
   onPress: () => void;
   onLongPress: () => void;
 }) {
@@ -1324,12 +1309,10 @@ function FileGridCard({
       onLongPress={onLongPress}
       className="rounded-xl border overflow-hidden active:opacity-70"
       style={{
-        borderColor: isSelected
-          ? (isDark ? 'rgba(248,248,248,0.28)' : 'rgba(18,18,21,0.22)')
-          : (isDark ? 'rgba(248, 248, 248, 0.1)' : 'rgba(18, 18, 21, 0.1)'),
-        backgroundColor: isSelected
-          ? (isDark ? '#212124' : '#f8f8f9')
-          : (isDark ? '#1a1a1c' : '#ffffff'),
+        borderColor: isDark
+          ? 'rgba(248, 248, 248, 0.1)'
+          : 'rgba(18, 18, 21, 0.1)',
+        backgroundColor: isDark ? '#1a1a1c' : '#ffffff',
       }}
     >
       {/* Thumbnail area */}
