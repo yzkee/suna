@@ -203,7 +203,7 @@ export function SessionChatInput({
     }
   }, [text, fadeAnim, slideAnim]);
 
-  const showAnimatedPlaceholder = text.trim().length === 0;
+  const showAnimatedPlaceholder = text.trim().length === 0 && !inputSlot;
   // ────────────────────────────────────────────────────────────────────────
 
   const canSend = text.trim().length > 0 && !disabled;
@@ -262,46 +262,49 @@ export function SessionChatInput({
             {/* Queue / question slot — rendered above textarea */}
             {inputSlot}
 
-            {/* Animated placeholder overlay */}
-            {showAnimatedPlaceholder && (
-              <Animated.Text
-                pointerEvents="none"
+            {/* TextInput + animated placeholder wrapper */}
+            <View style={{ position: 'relative' }}>
+              {showAnimatedPlaceholder && (
+                <Animated.Text
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: Platform.OS === 'ios' ? 6 : 4,
+                    fontSize: 16,
+                    color: isDark ? '#999999' : '#6e6e6e',
+                    opacity: fadeAnim,
+                    transform: [{ translateY: slideAnim }],
+                    zIndex: 1,
+                  }}
+                >
+                  {placeholderVariants[placeholderIndex]}
+                </Animated.Text>
+              )}
+              <TextInput
+                ref={inputRef}
+                value={text}
+                onChangeText={handleTextChange}
+                onSelectionChange={handleSelectionChange}
+                placeholder=""
+                placeholderTextColor="transparent"
+                multiline
+                maxLength={10000}
                 style={{
-                  position: 'absolute',
-                  left: 16,
-                  top: Platform.OS === 'ios' ? 14 : 12,
+                  maxHeight: 120,
                   fontSize: 16,
-                  color: isDark ? '#999999' : '#6e6e6e',  // muted-foreground
-                  opacity: fadeAnim,
-                  transform: [{ translateY: slideAnim }],
+                  lineHeight: 22,
+                  color: isDark ? '#F8F8F8' : '#121215',
+                  paddingTop: Platform.OS === 'ios' ? 6 : 4,
+                  paddingBottom: Platform.OS === 'ios' ? 6 : 4,
+                  minHeight: 36,
                 }}
-              >
-                {placeholderVariants[placeholderIndex]}
-              </Animated.Text>
-            )}
-            <TextInput
-              ref={inputRef}
-              value={text}
-              onChangeText={handleTextChange}
-              onSelectionChange={handleSelectionChange}
-              placeholder=""
-              placeholderTextColor="transparent"
-              multiline
-              maxLength={10000}
-              style={{
-                maxHeight: 120,
-                fontSize: 16,
-                lineHeight: 22,
-                color: isDark ? '#F8F8F8' : '#121215',  // foreground
-                paddingTop: Platform.OS === 'ios' ? 6 : 4,
-                paddingBottom: Platform.OS === 'ios' ? 6 : 4,
-                minHeight: 36,
-              }}
-              onSubmitEditing={handleSubmit}
-              blurOnSubmit={false}
-              returnKeyType="default"
-              editable={!disabled}
-            />
+                onSubmitEditing={handleSubmit}
+                blurOnSubmit={false}
+                returnKeyType="default"
+                editable={!disabled}
+              />
+            </View>
 
             {/* Toolbar row — inside the input card */}
             <View className="flex-row items-center justify-between py-1.5">
