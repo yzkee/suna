@@ -56,6 +56,11 @@ async function makeRequest<T = any>(
 
     if (session?.access_token) {
       headers['Authorization'] = `Bearer ${session.access_token}`;
+    } else {
+      // No session yet — Supabase hasn't hydrated from cookies.
+      // Throw so React Query treats this as a retryable error instead
+      // of sending a naked request that will 401.
+      throw new Error('Not authenticated — session not available yet');
     }
 
     // Note: X-Refresh-Token was removed to reduce header size and prevent HTTP 431 errors.

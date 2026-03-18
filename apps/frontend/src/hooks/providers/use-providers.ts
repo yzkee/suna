@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { backendApi } from '@/lib/api-client';
 import { toast } from '@/lib/toast';
+import { useAuth } from '@/components/AuthProvider';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -40,37 +41,40 @@ export interface HealthData {
 
 /** Fetch all providers with connection status */
 export function useProviders() {
+  const { user } = useAuth();
   return useQuery<ProviderStatus[]>({
     queryKey: ['providers'],
     queryFn: async () => {
       const res = await backendApi.get('/providers');
       return res.data.providers;
     },
-    enabled: true,
+    enabled: !!user,
   });
 }
 
 /** Fetch provider schema (registry definitions) */
 export function useProviderSchema() {
+  const { user } = useAuth();
   return useQuery<ProviderDef[]>({
     queryKey: ['providers-schema'],
     queryFn: async () => {
       const res = await backendApi.get('/providers/schema');
       return res.data;
     },
-    enabled: true,
+    enabled: !!user,
   });
 }
 
 /** Fetch system health status */
 export function useProviderHealth() {
+  const { user } = useAuth();
   return useQuery<HealthData>({
     queryKey: ['providers-health'],
     queryFn: async () => {
       const res = await backendApi.get('/providers/health');
       return res.data;
     },
-    enabled: true,
+    enabled: !!user,
     refetchInterval: 30000,
   });
 }

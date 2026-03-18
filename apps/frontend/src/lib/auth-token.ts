@@ -183,6 +183,9 @@ export async function authenticatedFetch(
   const { retryOnAuthError = true } = options ?? {};
 
   const token = await getAuthToken();
+  if (!token) {
+    throw new Error('Not authenticated — no auth token available');
+  }
   const headers = buildAuthHeaders(input, init, token);
   const mergedInit = { ...init, headers };
 
