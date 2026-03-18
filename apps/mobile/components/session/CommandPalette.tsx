@@ -16,7 +16,7 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  Keyboard,
+  ActivityIndicator,
   Platform,
   Text as RNText,
 } from 'react-native';
@@ -26,6 +26,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Fuse from 'fuse.js';
 
 import type { Session } from '@/lib/opencode/types';
+import { searchFiles } from '@/lib/utils/file-search';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,6 +54,10 @@ interface CommandPaletteProps {
   onPageSelect: (pageId: string) => void;
   /** Navigate to settings */
   onSettings: () => void;
+  /** Sandbox URL for file search */
+  sandboxUrl?: string;
+  /** Called when a file is selected */
+  onFileSelect?: (path: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,6 +72,8 @@ export function CommandPalette({
   onSessionSelect,
   onPageSelect,
   onSettings,
+  sandboxUrl,
+  onFileSelect,
 }: CommandPaletteProps) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -74,14 +81,53 @@ export function CommandPalette({
   const inputRef = useRef<TextInput>(null);
   const [query, setQuery] = useState('');
 
+  // File search state
+  const [fileResults, setFileResults] = useState<string[]>([]);
+  const [fileSearchLoading, setFileSearchLoading] = useState(false);
+  const fileSearchTimer = useRef<ReturnType<typeof setTimeout>>();
+  const fileSearchSeq = useRef(0);
+
   // Auto-focus and reset on open
   useEffect(() => {
     if (visible) {
       setQuery('');
+      setFileResults([]);
+      setFileSearchLoading(false);
       // Delay focus to ensure modal is mounted
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [visible]);
+
+  // Debounced file search
+  useEffect(() => {
+    clearTimeout(fileSearchTimer.current);
+
+    if (!query.trim() || !sandboxUrl || !visible) {
+      setFileResults([]);
+      setFileSearchLoading(false);
+      return;
+    }
+
+    setFileSearchLoading(true);
+    const seq = ++fileSearchSeq.current;
+
+    fileSearchTimer.current = setTimeout(async () => {
+      try {
+        const results = await searchFiles(sandboxUrl, query.trim());
+        if (seq === fileSearchSeq.current) {
+          setFileResults(results);
+          setFileSearchLoading(false);
+        }
+      } catch {
+        if (seq === fileSearchSeq.current) {
+          setFileResults([]);
+          setFileSearchLoading(false);
+        }
+      }
+    }, 250);
+
+    return () => clearTimeout(fileSearchTimer.current);
+  }, [query, sandboxUrl, visible]);
 
   // ── Command items ───────────────────────────────────────────────────────
 
@@ -403,8 +449,34 @@ export function CommandPalette({
                   </>
                 )}
 
+                {/* ── Files ── */}
+                {fileResults.length > 0 && (
+                  <>
+                    <SectionHeader label="FILES" color={sectionColor} />
+                    {fileResults.slice(0, 10).map((filePath) => (
+                      <FileRow
+                        key={filePath}
+                        filePath={filePath}
+                        onPress={() => {
+                          onFileSelect?.(filePath);
+                          onClose();
+                        }}
+                        fgColor={fgColor}
+                        mutedColor={mutedColor}
+                      />
+                    ))}
+                  </>
+                )}
+
+                {/* File search loading */}
+                {fileSearchLoading && fileResults.length === 0 && (
+                  <View style={{ paddingVertical: 12, alignItems: 'center' }}>
+                    <ActivityIndicator size="small" color={mutedColor} />
+                  </View>
+                )}
+
                 {/* ── Empty state ── */}
-                {filteredCommands.length === 0 && filteredSessions.length === 0 && (
+                {filteredCommands.length === 0 && filteredSessions.length === 0 && fileResults.length === 0 && !fileSearchLoading && (
                   <View style={{ paddingVertical: 32, alignItems: 'center' }}>
                     <RNText
                       style={{
@@ -553,6 +625,70 @@ function SessionRow({
           {timeLabel}
         </RNText>
       ) : null}
+    </TouchableOpacity>
+  );
+}
+
+function FileRow({
+  filePath,
+  onPress,
+  fgColor,
+  mutedColor,
+}: {
+  filePath: string;
+  onPress: () => void;
+  fgColor: string;
+  mutedColor: string;
+}) {
+  const fileName = filePath.split('/').pop() || filePath;
+  // Show parent directory for context
+  const parts = filePath.split('/');
+  const dirPath = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.6}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 11,
+        marginHorizontal: 6,
+        borderRadius: 10,
+      }}
+    >
+      <Ionicons
+        name="document-outline"
+        size={16}
+        color={mutedColor}
+        style={{ marginRight: 12, width: 22, textAlign: 'center' }}
+      />
+      <View style={{ flex: 1 }}>
+        <RNText
+          numberOfLines={1}
+          style={{
+            fontSize: 15,
+            fontFamily: 'Roobert',
+            color: fgColor,
+          }}
+        >
+          {fileName}
+        </RNText>
+        {dirPath ? (
+          <RNText
+            numberOfLines={1}
+            style={{
+              fontSize: 11,
+              fontFamily: 'Roobert',
+              color: mutedColor,
+              marginTop: 1,
+            }}
+          >
+            {dirPath}
+          </RNText>
+        ) : null}
+      </View>
     </TouchableOpacity>
   );
 }

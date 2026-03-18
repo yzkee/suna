@@ -872,6 +872,10 @@ export default function HomeScreen() {
           useTabStore.getState().navigateToPage(pageId);
         }}
         onSettings={handleGoToSettings}
+        sandboxUrl={sandboxUrl}
+        onFileSelect={(path) => {
+          useTabStore.getState().navigateToPage('page:files');
+        }}
       />
     </>
   );
