@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { authenticatedFetch } from "@/lib/auth-token";
+import { authenticatedFetch, getAuthToken } from "@/lib/auth-token";
 import {
 	incrementSandboxFail,
 	markInitialCheckDone,
@@ -74,6 +74,14 @@ export function useSandboxConnection() {
 
 			const url = useServerStore.getState().getActiveServerUrl();
 			if (!url) {
+				scheduleNext();
+				return;
+			}
+
+			// Don't fire health checks until auth is ready — avoids naked requests
+			// that return synthetic 401s and cause false "unreachable" status.
+			const token = await getAuthToken();
+			if (!token) {
 				scheduleNext();
 				return;
 			}
