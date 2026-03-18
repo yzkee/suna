@@ -15,7 +15,6 @@ import {
   TouchableOpacity,
   Modal,
   Platform,
-  Pressable,
   Animated,
   type NativeSyntheticEvent,
   type TextInputSelectionChangeEventData,
@@ -26,8 +25,6 @@ import { Ionicons } from '@expo/vector-icons';
 
 import type { Agent, FlatModel } from '@/lib/opencode/hooks/use-opencode-data';
 import type { Session } from '@/lib/platform/types';
-import { AgentSelector } from './AgentSelector';
-import { ModelSelector } from './ModelSelector';
 import { MentionSuggestions } from './MentionSuggestions';
 import { useMentions, type TrackedMention, type MentionItem } from './useMentions';
 
@@ -92,9 +89,8 @@ export function SessionChatInput({
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
 
-  // Selector modals
-  const [showAgentSheet, setShowAgentSheet] = useState(false);
-  const [showModelSheet, setShowModelSheet] = useState(false);
+  // Config sheet
+  const [showConfigSheet, setShowConfigSheet] = useState(false);
 
   // ── Mentions ────────────────────────────────────────────────────────────
 
@@ -290,72 +286,46 @@ export function SessionChatInput({
 
             {/* Toolbar row — inside the input card */}
             <View className="flex-row items-center justify-between py-1.5">
-              {/* Left: selectors */}
-              <View className="flex-row items-center flex-1 mr-2" style={{ overflow: 'hidden' }}>
-                {/* Agent */}
-                {agents.length > 0 && (
-                  <TouchableOpacity
-                    onPress={() => setShowAgentSheet(true)}
-                    className="flex-row items-center rounded-lg px-2 py-1 mr-1.5 bg-muted"
-                    activeOpacity={0.6}
-                    hitSlop={4}
-                  >
-                    <Text className="text-xs font-medium capitalize text-muted-foreground">
-                      {agent?.name || 'Agent'}
-                    </Text>
-                    <Ionicons
-                      name="chevron-down"
-                      size={11}
-                      color={isDark ? '#999999' : '#6e6e6e'}
-                      style={{ marginLeft: 2 }}
-                    />
-                  </TouchableOpacity>
-                )}
-
-                {/* Model */}
-                {models.length > 0 && (
-                  <TouchableOpacity
-                    onPress={() => setShowModelSheet(true)}
-                    className="flex-row items-center rounded-lg px-2 py-1 mr-1.5 bg-muted"
-                    activeOpacity={0.6}
-                    hitSlop={4}
-                  >
-                    <Text
-                      className="text-xs font-medium text-muted-foreground"
-                      numberOfLines={1}
-                      style={{ maxWidth: 130 }}
-                    >
-                      {model?.modelName || 'Model'}
-                    </Text>
-                    <Ionicons
-                      name="chevron-down"
-                      size={11}
-                      color={isDark ? '#999999' : '#6e6e6e'}
-                      style={{ marginLeft: 2 }}
-                    />
-                  </TouchableOpacity>
-                )}
-
-                {/* Variant (thinking) toggle */}
-                {variants.length > 0 && (
-                  <TouchableOpacity
-                    onPress={onVariantCycle}
-                    className={`rounded-lg px-2 py-1 ${
-                      variant ? 'bg-primary/10' : 'bg-muted'
-                    }`}
-                    activeOpacity={0.6}
-                    hitSlop={4}
-                  >
-                    <Text
-                      className={`text-xs font-medium ${
-                        variant ? 'text-foreground' : 'text-muted-foreground'
-                      }`}
-                    >
-                      {variantLabel}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
+              {/* Left: config button */}
+              <TouchableOpacity
+                onPress={() => setShowConfigSheet(true)}
+                activeOpacity={0.7}
+                hitSlop={6}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: 20,
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                }}
+              >
+                <Ionicons
+                  name="options-outline"
+                  size={14}
+                  color={isDark ? '#a1a1aa' : '#71717a'}
+                  style={{ marginRight: 6 }}
+                />
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    fontSize: 12,
+                    fontFamily: 'Roobert-Medium',
+                    color: isDark ? '#a1a1aa' : '#71717a',
+                    maxWidth: 200,
+                  }}
+                >
+                  {agent?.name || 'Agent'}
+                  {model?.modelName ? ` · ${model.modelName}` : ''}
+                  {variant ? ` · ${variantLabel}` : ''}
+                </Text>
+                <Ionicons
+                  name="chevron-down"
+                  size={10}
+                  color={isDark ? '#52525b' : '#a1a1aa'}
+                  style={{ marginLeft: 4 }}
+                />
+              </TouchableOpacity>
 
               {/* Right: send/stop */}
               <View className="flex-row items-center">
@@ -391,41 +361,328 @@ export function SessionChatInput({
 
       </View>
 
-      {/* Agent bottom sheet */}
+      {/* Config bottom sheet — agent, model, variant */}
       <Modal
-        visible={showAgentSheet}
+        visible={showConfigSheet}
         animationType="slide"
-        transparent
-        onRequestClose={() => setShowAgentSheet(false)}
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowConfigSheet(false)}
       >
-        <Pressable className="flex-1" onPress={() => setShowAgentSheet(false)}>
-          <View className="flex-1" />
-        </Pressable>
-        <AgentSelector
+        <ConfigSheet
+          isDark={isDark}
           agents={agents}
-          selected={agent || null}
-          onSelect={(name) => onAgentChange?.(name)}
-          onClose={() => setShowAgentSheet(false)}
-        />
-      </Modal>
-
-      {/* Model bottom sheet */}
-      <Modal
-        visible={showModelSheet}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setShowModelSheet(false)}
-      >
-        <Pressable className="flex-1" onPress={() => setShowModelSheet(false)}>
-          <View className="flex-1" />
-        </Pressable>
-        <ModelSelector
+          selectedAgent={agent || null}
+          onAgentChange={(name) => { onAgentChange?.(name); }}
           models={models}
-          selected={model || null}
-          onSelect={(pid, mid) => onModelChange?.(pid, mid)}
-          onClose={() => setShowModelSheet(false)}
+          selectedModel={model || null}
+          onModelChange={(pid, mid) => { onModelChange?.(pid, mid); }}
+          variants={variants}
+          selectedVariant={variant || null}
+          onVariantCycle={() => onVariantCycle?.()}
+          onClose={() => setShowConfigSheet(false)}
         />
       </Modal>
     </>
+  );
+}
+
+// ─── Config Sheet ────────────────────────────────────────────────────────────
+
+import { ScrollView } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+type ConfigTab = 'agent' | 'model' | 'thinking';
+
+const TAB_CONFIG: { key: ConfigTab; label: string; icon: string; color: string }[] = [
+  { key: 'agent', label: 'Agent', icon: 'person-outline', color: '#a78bfa' },
+  { key: 'model', label: 'Model', icon: 'hardware-chip-outline', color: '#60a5fa' },
+  { key: 'thinking', label: 'Thinking', icon: 'flash-outline', color: '#fbbf24' },
+];
+
+function ConfigSheet({
+  isDark,
+  agents,
+  selectedAgent,
+  onAgentChange,
+  models,
+  selectedModel,
+  onModelChange,
+  variants,
+  selectedVariant,
+  onVariantCycle,
+  onClose,
+}: {
+  isDark: boolean;
+  agents: Agent[];
+  selectedAgent: Agent | null;
+  onAgentChange: (name: string) => void;
+  models: FlatModel[];
+  selectedModel: FlatModel | null;
+  onModelChange: (providerId: string, modelId: string) => void;
+  variants: string[];
+  selectedVariant: string | null;
+  onVariantCycle: () => void;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const [activeTab, setActiveTab] = useState<ConfigTab>('agent');
+  const fgColor = isDark ? '#F8F8F8' : '#121215';
+  const mutedColor = isDark ? '#a1a1aa' : '#71717a';
+  const selectedBg = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
+  const tabBg = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)';
+  const tabActiveBg = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)';
+
+  // Filter tabs to only show ones with content
+  const visibleTabs = TAB_CONFIG.filter((t) => {
+    if (t.key === 'agent') return agents.length > 0;
+    if (t.key === 'model') return models.length > 0;
+    if (t.key === 'thinking') return variants.length > 0;
+    return false;
+  });
+
+  return (
+    <View style={{ flex: 1, backgroundColor: isDark ? '#121215' : '#FFFFFF' }}>
+      {/* Handle */}
+      <View style={{ alignItems: 'center', paddingTop: 10, paddingBottom: 6 }}>
+        <View
+          style={{
+            width: 36,
+            height: 5,
+            borderRadius: 3,
+            backgroundColor: isDark ? '#3F3F46' : '#D4D4D8',
+          }}
+        />
+      </View>
+
+      {/* Header */}
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingHorizontal: 20,
+          paddingBottom: 12,
+        }}
+      >
+        <Text style={{ fontSize: 20, fontFamily: 'Roobert-SemiBold', color: fgColor }}>
+          Configuration
+        </Text>
+        <TouchableOpacity onPress={onClose} activeOpacity={0.7} hitSlop={10}>
+          <Ionicons name="close" size={24} color={mutedColor} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Tabs */}
+      <View
+        style={{
+          flexDirection: 'row',
+          marginHorizontal: 20,
+          marginBottom: 16,
+          borderRadius: 12,
+          backgroundColor: tabBg,
+          padding: 3,
+        }}
+      >
+        {visibleTabs.map((tab) => {
+          const isActive = activeTab === tab.key;
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              onPress={() => setActiveTab(tab.key)}
+              activeOpacity={0.7}
+              style={{
+                flex: 1,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingVertical: 8,
+                borderRadius: 10,
+                backgroundColor: isActive ? tabActiveBg : 'transparent',
+                gap: 5,
+              }}
+            >
+              <Ionicons
+                name={tab.icon as any}
+                size={14}
+                color={isActive ? tab.color : mutedColor}
+              />
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontFamily: isActive ? 'Roobert-SemiBold' : 'Roobert-Medium',
+                  color: isActive ? fgColor : mutedColor,
+                }}
+              >
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* Content */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Agent tab */}
+        {activeTab === 'agent' && agents.filter((a) => !a.hidden).map((a) => {
+          const isSelected = selectedAgent?.name === a.name;
+          return (
+            <TouchableOpacity
+              key={a.name}
+              onPress={() => onAgentChange(a.name)}
+              activeOpacity={0.6}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingHorizontal: 20,
+                paddingVertical: 14,
+                backgroundColor: isSelected ? selectedBg : 'transparent',
+              }}
+            >
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    fontSize: 16,
+                    fontFamily: isSelected ? 'Roobert-Medium' : 'Roobert',
+                    color: fgColor,
+                    textTransform: 'capitalize',
+                  }}
+                >
+                  {a.name}
+                </Text>
+                {a.description ? (
+                  <Text
+                    style={{ fontSize: 13, fontFamily: 'Roobert', color: mutedColor, marginTop: 3 }}
+                    numberOfLines={2}
+                  >
+                    {a.description}
+                  </Text>
+                ) : null}
+              </View>
+              {isSelected && (
+                <Ionicons name="checkmark-circle" size={22} color="#a78bfa" />
+              )}
+            </TouchableOpacity>
+          );
+        })}
+
+        {/* Model tab */}
+        {activeTab === 'model' && models.map((m) => {
+          const isSelected =
+            selectedModel?.providerID === m.providerID &&
+            selectedModel?.modelID === m.modelID;
+          return (
+            <TouchableOpacity
+              key={`${m.providerID}/${m.modelID}`}
+              onPress={() => onModelChange(m.providerID, m.modelID)}
+              activeOpacity={0.6}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingHorizontal: 20,
+                paddingVertical: 14,
+                backgroundColor: isSelected ? selectedBg : 'transparent',
+              }}
+            >
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    fontSize: 16,
+                    fontFamily: isSelected ? 'Roobert-Medium' : 'Roobert',
+                    color: fgColor,
+                  }}
+                  numberOfLines={1}
+                >
+                  {m.modelName || m.modelID}
+                </Text>
+                <Text
+                  style={{ fontSize: 13, fontFamily: 'Roobert', color: mutedColor, marginTop: 3 }}
+                  numberOfLines={1}
+                >
+                  {m.providerName || m.providerID}
+                </Text>
+              </View>
+              {isSelected && (
+                <Ionicons name="checkmark-circle" size={22} color="#60a5fa" />
+              )}
+            </TouchableOpacity>
+          );
+        })}
+
+        {/* Thinking tab */}
+        {activeTab === 'thinking' && (
+          <>
+            <TouchableOpacity
+              onPress={() => { if (selectedVariant) onVariantCycle(); }}
+              activeOpacity={0.6}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingHorizontal: 20,
+                paddingVertical: 14,
+                backgroundColor: !selectedVariant ? selectedBg : 'transparent',
+              }}
+            >
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    fontSize: 16,
+                    fontFamily: !selectedVariant ? 'Roobert-Medium' : 'Roobert',
+                    color: fgColor,
+                  }}
+                >
+                  Default
+                </Text>
+                <Text style={{ fontSize: 13, fontFamily: 'Roobert', color: mutedColor, marginTop: 3 }}>
+                  Standard response
+                </Text>
+              </View>
+              {!selectedVariant && (
+                <Ionicons name="checkmark-circle" size={22} color="#fbbf24" />
+              )}
+            </TouchableOpacity>
+            {variants.map((v) => {
+              const isSelected = selectedVariant === v;
+              return (
+                <TouchableOpacity
+                  key={v}
+                  onPress={() => { if (!isSelected) onVariantCycle(); }}
+                  activeOpacity={0.6}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingHorizontal: 20,
+                    paddingVertical: 14,
+                    backgroundColor: isSelected ? selectedBg : 'transparent',
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{
+                        fontSize: 16,
+                        fontFamily: isSelected ? 'Roobert-Medium' : 'Roobert',
+                        color: isSelected ? (isDark ? '#fbbf24' : '#d97706') : fgColor,
+                        textTransform: 'capitalize',
+                      }}
+                    >
+                      {v}
+                    </Text>
+                    <Text style={{ fontSize: 13, fontFamily: 'Roobert', color: mutedColor, marginTop: 3 }}>
+                      Extended thinking mode
+                    </Text>
+                  </View>
+                  {isSelected && (
+                    <Ionicons name="checkmark-circle" size={22} color="#fbbf24" />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </>
+        )}
+      </ScrollView>
+    </View>
   );
 }
