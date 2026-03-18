@@ -44,6 +44,7 @@ interface FileItemProps {
   file: SandboxFile;
   onPress: (file: SandboxFile) => void;
   onLongPress?: (file: SandboxFile) => void;
+  isSelected?: boolean;
 }
 
 /**
@@ -202,7 +203,7 @@ export function getFileIconAndColor(
 /**
  * File Item Component
  */
-export function FileItem({ file, onPress, onLongPress }: FileItemProps) {
+export function FileItem({ file, onPress, onLongPress, isSelected = false }: FileItemProps) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const scale = useSharedValue(1);
@@ -233,7 +234,19 @@ export function FileItem({ file, onPress, onLongPress }: FileItemProps) {
       }}
       onPress={handlePress}
       onLongPress={handleLongPress}
-      style={animatedStyle}
+      style={[
+        animatedStyle,
+        isSelected
+          ? {
+              backgroundColor: isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.06)',
+              borderWidth: 1,
+              borderColor: isDark ? 'rgba(248,248,248,0.16)' : 'rgba(18,18,21,0.12)',
+              borderRadius: 12,
+              paddingHorizontal: 8,
+              paddingVertical: 4,
+            }
+          : undefined,
+      ]}
       className="flex-row items-center justify-between active:opacity-70 mb-2"
       accessibilityRole="button"
       accessibilityLabel={file.type === 'directory' ? `Folder ${file.name}` : `File ${file.name}`}
@@ -288,4 +301,3 @@ export function FileItem({ file, onPress, onLongPress }: FileItemProps) {
     </AnimatedPressable>
   );
 }
-
