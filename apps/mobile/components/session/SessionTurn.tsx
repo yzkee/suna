@@ -5,7 +5,7 @@
  */
 
 import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
-import { View, TouchableOpacity, Animated, StyleSheet, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { View, TouchableOpacity, Animated, StyleSheet, LayoutAnimation, Platform, UIManager, ScrollView } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
 import { Ionicons } from '@expo/vector-icons';
@@ -411,6 +411,181 @@ function HighlightedBashCommand({ command, isDark }: { command: string; isDark: 
   );
 }
 
+// ─── Lightweight code syntax highlighting ────────────────────────────────────
+
+type CodeTokenType = 'keyword' | 'string' | 'comment' | 'number' | 'heading' | 'bold' | 'bullet' | 'operator' | 'property' | 'tag' | 'attr' | 'plain';
+
+interface CodeToken {
+  text: string;
+  type: CodeTokenType;
+}
+
+function getExtFromPath(filePath: string): string {
+  const dot = filePath.lastIndexOf('.');
+  if (dot < 0) return '';
+  return filePath.slice(dot + 1).toLowerCase();
+}
+
+const MD_HEADING_RE = /^(#{1,6}\s)/;
+const MD_BOLD_RE = /\*\*[^*]+\*\*/g;
+const MD_BULLET_RE = /^(\s*[-*+]|\s*\d+\.)\s/;
+
+function tokenizeMarkdown(line: string): CodeToken[] {
+  // Headings
+  const headingMatch = line.match(MD_HEADING_RE);
+  if (headingMatch) {
+    return [{ text: line, type: 'heading' }];
+  }
+  // Bullets
+  const bulletMatch = line.match(MD_BULLET_RE);
+  if (bulletMatch) {
+    const tokens: CodeToken[] = [{ text: bulletMatch[0], type: 'bullet' }];
+    const rest = line.slice(bulletMatch[0].length);
+    tokens.push(...tokenizeMarkdownInline(rest));
+    return tokens;
+  }
+  return tokenizeMarkdownInline(line);
+}
+
+function tokenizeMarkdownInline(text: string): CodeToken[] {
+  const tokens: CodeToken[] = [];
+  let lastIdx = 0;
+  const boldRe = /\*\*([^*]+)\*\*/g;
+  let m: RegExpExecArray | null;
+  while ((m = boldRe.exec(text)) !== null) {
+    if (m.index > lastIdx) tokens.push({ text: text.slice(lastIdx, m.index), type: 'plain' });
+    tokens.push({ text: m[0], type: 'bold' });
+    lastIdx = m.index + m[0].length;
+  }
+  if (lastIdx < text.length) tokens.push({ text: text.slice(lastIdx), type: 'plain' });
+  if (tokens.length === 0) tokens.push({ text, type: 'plain' });
+  return tokens;
+}
+
+// Generic code tokenizer for JS/TS/Python/JSON/etc
+const CODE_KEYWORDS = new Set([
+  'import', 'export', 'from', 'const', 'let', 'var', 'function', 'return',
+  'if', 'else', 'for', 'while', 'class', 'extends', 'new', 'this', 'super',
+  'try', 'catch', 'finally', 'throw', 'async', 'await', 'yield',
+  'default', 'switch', 'case', 'break', 'continue', 'typeof', 'instanceof',
+  'in', 'of', 'true', 'false', 'null', 'undefined', 'void',
+  'def', 'elif', 'except', 'pass', 'raise', 'with', 'as', 'lambda',
+  'None', 'True', 'False', 'self', 'type', 'interface', 'enum',
+]);
+
+function tokenizeCode(line: string): CodeToken[] {
+  const tokens: CodeToken[] = [];
+  // Comment
+  const commentIdx = line.indexOf('//');
+  const hashIdx = line.indexOf('#');
+  const commentStart = commentIdx >= 0 ? commentIdx : (hashIdx === 0 ? 0 : -1);
+
+  const codePart = commentStart >= 0 ? line.slice(0, commentStart) : line;
+  const commentPart = commentStart >= 0 ? line.slice(commentStart) : '';
+
+  // Tokenize code part
+  const re = /("[^"]*"|'[^']*'|`[^`]*`|\b\d+\.?\d*\b|\b[a-zA-Z_]\w*\b|[{}()[\]:;,=<>!+\-*/&|?.]+|\s+)/g;
+  let m: RegExpExecArray | null;
+  let lastIdx = 0;
+  while ((m = re.exec(codePart)) !== null) {
+    if (m.index > lastIdx) tokens.push({ text: codePart.slice(lastIdx, m.index), type: 'plain' });
+    const word = m[0];
+    if (/^["'`]/.test(word)) {
+      tokens.push({ text: word, type: 'string' });
+    } else if (/^\d/.test(word)) {
+      tokens.push({ text: word, type: 'number' });
+    } else if (CODE_KEYWORDS.has(word)) {
+      tokens.push({ text: word, type: 'keyword' });
+    } else if (/^[{}()[\]:;,=<>!+\-*/&|?.]+$/.test(word)) {
+      tokens.push({ text: word, type: 'operator' });
+    } else if (/^\s+$/.test(word)) {
+      tokens.push({ text: word, type: 'plain' });
+    } else {
+      tokens.push({ text: word, type: 'plain' });
+    }
+    lastIdx = m.index + m[0].length;
+  }
+  if (lastIdx < codePart.length) tokens.push({ text: codePart.slice(lastIdx), type: 'plain' });
+
+  if (commentPart) tokens.push({ text: commentPart, type: 'comment' });
+  if (tokens.length === 0) tokens.push({ text: line, type: 'plain' });
+  return tokens;
+}
+
+function tokenizeLine(line: string, ext: string): CodeToken[] {
+  if (ext === 'md' || ext === 'mdx' || ext === 'markdown') return tokenizeMarkdown(line);
+  if (['json', 'js', 'jsx', 'ts', 'tsx', 'py', 'rb', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'cs', 'swift', 'kt'].includes(ext)) {
+    return tokenizeCode(line);
+  }
+  // Default: try code tokenizer
+  return tokenizeCode(line);
+}
+
+function HighlightedCode({
+  content,
+  filePath,
+  isDark,
+  maxLines = 25,
+}: {
+  content: string;
+  filePath: string;
+  isDark: boolean;
+  maxLines?: number;
+}) {
+  const ext = getExtFromPath(filePath);
+
+  const colors: Record<CodeTokenType, string> = {
+    keyword: isDark ? '#c4b5fd' : '#7c3aed',     // purple
+    string: isDark ? '#86efac' : '#16a34a',       // green
+    comment: isDark ? '#6b7280' : '#9ca3af',      // gray
+    number: isDark ? '#fdba74' : '#ea580c',       // orange
+    heading: isDark ? '#93c5fd' : '#2563eb',      // blue
+    bold: isDark ? '#e2e8f0' : '#1e293b',         // strong fg
+    bullet: isDark ? '#fdba74' : '#ea580c',       // orange
+    operator: isDark ? '#a1a1aa' : '#71717a',     // muted
+    property: isDark ? '#93c5fd' : '#2563eb',     // blue
+    tag: isDark ? '#fca5a5' : '#dc2626',          // red
+    attr: isDark ? '#fdba74' : '#ea580c',         // orange
+    plain: mutedStrong(isDark),
+  };
+
+  const lines = content.split('\n').slice(0, maxLines);
+  const truncated = content.split('\n').length > maxLines;
+  const fs = 10;
+  const lh = 15;
+
+  return (
+    <View>
+      {lines.map((line, lineIdx) => {
+        const tokens = tokenizeLine(line, ext);
+        return (
+          <Text key={lineIdx} style={{ fontSize: fs, fontFamily: monoFont, lineHeight: lh }}>
+            {tokens.map((token, i) => (
+              <Text
+                key={i}
+                style={{
+                  color: colors[token.type],
+                  fontSize: fs,
+                  fontFamily: monoFont,
+                  lineHeight: lh,
+                  fontWeight: token.type === 'heading' || token.type === 'bold' ? '600' : undefined,
+                }}
+              >
+                {token.text}
+              </Text>
+            ))}
+          </Text>
+        );
+      })}
+      {truncated && (
+        <Text style={{ fontSize: fs, fontFamily: monoFont, lineHeight: lh, color: muted(isDark) }}>
+          ...
+        </Text>
+      )}
+    </View>
+  );
+}
+
 // ─── Tool-specific expanded content renderers ────────────────────────────────
 
 function ShellExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
@@ -506,11 +681,19 @@ function WriteEditExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: bo
           </View>
         </View>
       ) : content ? (
-        <View style={{ paddingHorizontal: 12, paddingVertical: 10, maxHeight: 250 }}>
-          <MonoBlock isDark={isDark} maxLines={25}>
-            {content.length > 2000 ? content.slice(0, 2000) + '\n...' : content}
-          </MonoBlock>
-        </View>
+        <ScrollView
+          style={{ maxHeight: 250 }}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 10 }}
+          nestedScrollEnabled
+          showsVerticalScrollIndicator
+        >
+          <HighlightedCode
+            content={content.length > 3000 ? content.slice(0, 3000) : content}
+            filePath={filePath}
+            isDark={isDark}
+            maxLines={40}
+          />
+        </ScrollView>
       ) : null}
       {!!output && <OutputSection output={output} isDark={isDark} />}
     </View>
