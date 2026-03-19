@@ -1281,6 +1281,231 @@ function GenericExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: bool
   );
 }
 
+// ─── Memory tool renderers ───────────────────────────────────────────────────
+
+function GetMemExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const output = useMemo(() => {
+    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
+      return tool.state.output.trim();
+    }
+    return '';
+  }, [tool.state]);
+
+  const parsed = useMemo(() => {
+    if (!output) return null;
+
+    // Try LTM format: === LTM #N [type] ===
+    const ltmMatch = output.match(/===\s*LTM\s*#(\d+)\s*\[(\w+)\]\s*===/);
+    if (ltmMatch) {
+      const id = ltmMatch[1];
+      const type = ltmMatch[2];
+      const body = output.slice(ltmMatch.index! + ltmMatch[0].length);
+      const caption = body.match(/Caption:\s*(.+)/)?.[1]?.trim() || '';
+      const content = body.match(/Content:\s*([\s\S]*?)(?=\n(?:Session|Created|Tags):|$)/)?.[1]?.trim() || '';
+      const session = body.match(/Session:\s*(\S+)/)?.[1]?.trim() || '';
+      const created = body.match(/Created:\s*(.+?)(?:\s*\||\s*$)/)?.[1]?.trim() || '';
+      const updated = body.match(/Updated:\s*(.+)/)?.[1]?.trim() || '';
+      const tagsStr = body.match(/Tags:\s*(.+)/)?.[1]?.trim() || '';
+      const tags = tagsStr ? tagsStr.split(',').map(t => t.trim()).filter(Boolean) : [];
+      return { kind: 'ltm' as const, id, type, caption, content, session, created, updated, tags };
+    }
+
+    // Try Observation format: === Observation #N [type] ===
+    const obsMatch = output.match(/===\s*Observation\s*#(\d+)\s*\[(\w+)\]\s*===/);
+    if (obsMatch) {
+      const id = obsMatch[1];
+      const type = obsMatch[2];
+      const body = output.slice(obsMatch.index! + obsMatch[0].length);
+      const title = body.match(/Title:\s*(.+)/)?.[1]?.trim() || '';
+      const narrative = body.match(/Narrative:\s*([\s\S]*?)(?=\n(?:Facts|Concepts|Tool|Session|Created):|$)/)?.[1]?.trim() || '';
+      const factsStr = body.match(/Facts:\s*([\s\S]*?)(?=\n(?:Concepts|Tool|Session|Created):|$)/)?.[1]?.trim() || '';
+      const facts = factsStr ? factsStr.split('\n').map(f => f.replace(/^[-•*]\s*/, '').trim()).filter(Boolean) : [];
+      const conceptsStr = body.match(/Concepts:\s*(.+)/)?.[1]?.trim() || '';
+      const concepts = conceptsStr ? conceptsStr.split(',').map(c => c.trim()).filter(Boolean) : [];
+      return { kind: 'observation' as const, id, type, title, narrative, facts, concepts };
+    }
+
+    return null;
+  }, [output]);
+
+  if (!parsed && !output) return null;
+
+  const tagColor = isDark ? { bg: 'rgba(16,185,129,0.12)', text: '#34d399', border: 'rgba(16,185,129,0.2)' }
+                          : { bg: 'rgba(16,185,129,0.08)', text: '#059669', border: 'rgba(16,185,129,0.2)' };
+  const headerBg = isDark ? 'rgba(245,158,11,0.06)' : 'rgba(245,158,11,0.04)';
+  const badgeBg = isDark ? 'rgba(245,158,11,0.12)' : 'rgba(245,158,11,0.08)';
+  const badgeText = isDark ? '#fbbf24' : '#b45309';
+  const sectionBorder = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+
+  if (!parsed) {
+    return (
+      <View style={{ paddingHorizontal: 12, paddingVertical: 10, maxHeight: 250 }}>
+        <MonoBlock isDark={isDark} maxLines={30}>{output.slice(0, 3000)}</MonoBlock>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView style={{ maxHeight: 350 }} nestedScrollEnabled showsVerticalScrollIndicator contentContainerStyle={{ padding: 10 }}>
+      {/* Header */}
+      <View style={{ backgroundColor: headerBg, borderRadius: 10, padding: 10, marginBottom: 8 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+          <View style={{ backgroundColor: badgeBg, borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 }}>
+            <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: badgeText }}>
+              {parsed.kind === 'ltm' ? `LTM #${parsed.id}` : `Observation #${parsed.id}`}
+            </Text>
+          </View>
+          <View style={{ backgroundColor: badgeBg, borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 }}>
+            <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: badgeText, textTransform: 'uppercase' }}>
+              {parsed.type}
+            </Text>
+          </View>
+        </View>
+        {parsed.kind === 'observation' && parsed.title && (
+          <Text style={{ fontSize: 13, fontFamily: 'Roobert-SemiBold', color: fg(isDark), marginTop: 6 }}>
+            {parsed.title}
+          </Text>
+        )}
+      </View>
+
+      {/* Content sections */}
+      {parsed.kind === 'ltm' && (
+        <>
+          {!!parsed.caption && (
+            <View style={{ borderRadius: 8, borderWidth: 1, borderColor: sectionBorder, padding: 10, marginBottom: 6 }}>
+              <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: muted(isDark), textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Caption</Text>
+              <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: fg(isDark), lineHeight: 17 }}>{parsed.caption}</Text>
+            </View>
+          )}
+          {!!parsed.content && (
+            <View style={{ borderRadius: 8, borderWidth: 1, borderColor: sectionBorder, padding: 10, marginBottom: 6 }}>
+              <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: muted(isDark), textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Content</Text>
+              <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: fg(isDark), lineHeight: 17 }}>{parsed.content}</Text>
+            </View>
+          )}
+          {parsed.tags.length > 0 && (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+              {parsed.tags.map((tag, i) => (
+                <View key={i} style={{ backgroundColor: tagColor.bg, borderRadius: 10, borderWidth: 1, borderColor: tagColor.border, paddingHorizontal: 7, paddingVertical: 2 }}>
+                  <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: tagColor.text }}>{tag}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+          {(parsed.session || parsed.created) && (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+              {!!parsed.session && <Text style={{ fontSize: 9, fontFamily: monoFont, color: muted(isDark) }}>{parsed.session}</Text>}
+              {!!parsed.created && <Text style={{ fontSize: 9, fontFamily: 'Roobert', color: muted(isDark) }}>{parsed.created}</Text>}
+            </View>
+          )}
+        </>
+      )}
+
+      {parsed.kind === 'observation' && (
+        <>
+          {!!parsed.narrative && (
+            <View style={{ borderRadius: 8, borderWidth: 1, borderColor: sectionBorder, padding: 10, marginBottom: 6 }}>
+              <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: muted(isDark), textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Narrative</Text>
+              <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: fg(isDark), lineHeight: 17 }}>{parsed.narrative}</Text>
+            </View>
+          )}
+          {parsed.facts.length > 0 && (
+            <View style={{ borderRadius: 8, borderWidth: 1, borderColor: sectionBorder, padding: 10, marginBottom: 6 }}>
+              <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: muted(isDark), textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Facts</Text>
+              {parsed.facts.map((fact, i) => (
+                <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 3 }}>
+                  <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: isDark ? '#34d399' : '#059669', marginTop: 5, marginRight: 6 }} />
+                  <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: fg(isDark), lineHeight: 17, flex: 1 }}>{fact}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+          {parsed.concepts.length > 0 && (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+              {parsed.concepts.map((concept, i) => (
+                <View key={i} style={{ backgroundColor: tagColor.bg, borderRadius: 10, borderWidth: 1, borderColor: tagColor.border, paddingHorizontal: 7, paddingVertical: 2 }}>
+                  <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: tagColor.text }}>{concept}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </>
+      )}
+    </ScrollView>
+  );
+}
+
+function LtmSearchExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const output = useMemo(() => {
+    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
+      return tool.state.output.trim();
+    }
+    return '';
+  }, [tool.state]);
+
+  const { label, hits } = useMemo(() => {
+    if (!output) return { label: '', hits: [] as any[] };
+
+    // Parse header: === LTM Search: "query" (N results) ===
+    const headerMatch = output.match(/===\s*(.+?)\s*===/);
+    const label = headerMatch?.[1] || '';
+
+    // Parse detailed blocks: #N [type] — content
+    const blockRe = /#(\d+)\s*\[(\w+)\]\s*[—–-]\s*([\s\S]*?)(?=\n\s*#\d+\s*\[|$)/g;
+    const hits: { id: string; type: string; content: string; confidence?: number }[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = blockRe.exec(output)) !== null) {
+      const content = m[3].trim().replace(/^\s*Files:.*$/m, '').trim();
+      hits.push({ id: m[1], type: m[2], content });
+    }
+
+    return { label, hits };
+  }, [output]);
+
+  if (!output) return null;
+
+  if (hits.length === 0) {
+    return (
+      <View style={{ paddingHorizontal: 12, paddingVertical: 10, maxHeight: 250 }}>
+        <MonoBlock isDark={isDark} maxLines={30}>{output.slice(0, 3000)}</MonoBlock>
+      </View>
+    );
+  }
+
+  const sectionBorder = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+
+  return (
+    <ScrollView style={{ maxHeight: 350 }} nestedScrollEnabled showsVerticalScrollIndicator contentContainerStyle={{ padding: 10 }}>
+      {hits.map((hit, i) => (
+        <View
+          key={i}
+          style={{
+            borderRadius: 8, borderWidth: 1, borderColor: sectionBorder,
+            padding: 10, marginBottom: 6, backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)',
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <View style={{
+              backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+              borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2,
+            }}>
+              <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: mutedStrong(isDark) }}>
+                {hit.type}
+              </Text>
+            </View>
+            <Text style={{ fontSize: 9, fontFamily: monoFont, color: muted(isDark) }}>
+              #{hit.id}
+            </Text>
+          </View>
+          <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: fg(isDark), lineHeight: 17 }}>
+            {hit.content}
+          </Text>
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
 function QuestionExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
   const input = getToolInput(tool);
 
@@ -1403,6 +1628,20 @@ function getExpandedContent(tool: ToolPart, isDark: boolean): React.ReactNode {
       return <GlobGrepExpandedContent tool={tool} isDark={isDark} />;
     case 'question':
       return <QuestionExpandedContent tool={tool} isDark={isDark} />;
+    case 'get_mem':
+    case 'get-mem':
+    case 'oc-get_mem':
+    case 'oc-get-mem':
+      return <GetMemExpandedContent tool={tool} isDark={isDark} />;
+    case 'ltm_search':
+    case 'ltm-search':
+    case 'mem_search':
+    case 'mem-search':
+    case 'memory_search':
+    case 'memory-search':
+    case 'oc-mem_search':
+    case 'oc-mem-search':
+      return <LtmSearchExpandedContent tool={tool} isDark={isDark} />;
     case 'show':
     case 'show-user':
       return <ShowExpandedContent tool={tool} isDark={isDark} />;
