@@ -294,6 +294,59 @@ describe('SecretStore', () => {
     })
   })
 
+  // ─── Concurrency (mutex) ────────────────────────────────────────────────
+
+  describe('concurrent writes (mutex)', () => {
+    it('does not lose keys when multiple set() calls run concurrently', async () => {
+      const store = new SecretStore()
+      // Simulate the onboarding scenario: 4 rapid-fire concurrent writes
+      await Promise.all([
+        store.set('ONBOARDING_COMPLETE', 'true'),
+        store.set('ONBOARDING_USER_NAME', 'Test User'),
+        store.set('ONBOARDING_USER_SUMMARY', 'Developer at Acme'),
+        store.set('ONBOARDING_COMPLETED_AT', '2026-03-19T00:00:00Z'),
+      ])
+
+      // ALL four keys must be present — without the mutex, some would be lost
+      expect(await store.get('ONBOARDING_COMPLETE')).toBe('true')
+      expect(await store.get('ONBOARDING_USER_NAME')).toBe('Test User')
+      expect(await store.get('ONBOARDING_USER_SUMMARY')).toBe('Developer at Acme')
+      expect(await store.get('ONBOARDING_COMPLETED_AT')).toBe('2026-03-19T00:00:00Z')
+
+      const keys = await store.listKeys()
+      expect(keys.length).toBe(4)
+    })
+
+    it('does not lose keys when set() and delete() interleave', async () => {
+      const store = new SecretStore()
+      await store.set('KEEP_ME', 'important')
+
+      await Promise.all([
+        store.set('NEW_KEY', 'new-value'),
+        store.delete('NON_EXISTENT'),
+        store.set('ANOTHER', 'another-value'),
+      ])
+
+      expect(await store.get('KEEP_ME')).toBe('important')
+      expect(await store.get('NEW_KEY')).toBe('new-value')
+      expect(await store.get('ANOTHER')).toBe('another-value')
+    })
+
+    it('handles 20 concurrent writes without data loss', async () => {
+      const store = new SecretStore()
+      const writes = Array.from({ length: 20 }, (_, i) =>
+        store.set(`KEY_${i}`, `value_${i}`),
+      )
+      await Promise.all(writes)
+
+      for (let i = 0; i < 20; i++) {
+        expect(await store.get(`KEY_${i}`)).toBe(`value_${i}`)
+      }
+      const keys = await store.listKeys()
+      expect(keys.length).toBe(20)
+    })
+  })
+
   // ─── Persistence across instances ────────────────────────────────────────
 
   describe('persistence', () => {
