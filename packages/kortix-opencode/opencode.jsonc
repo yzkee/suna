@@ -76,6 +76,7 @@
     }
   },
   "plugin": [
+    "./plugin/anthropic-auth.ts",
     "./plugin/opencode-pty/src/plugin.ts",
     "./plugin/opencode-morph-plugin/index.ts",
     "./plugin/orphan-tool-fixer.ts",
