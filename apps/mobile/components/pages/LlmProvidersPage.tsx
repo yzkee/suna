@@ -43,8 +43,8 @@ import {
 import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
 
 import { useSandboxContext } from '@/contexts/SandboxContext';
-import { useOpenCodeProviders } from '@/lib/opencode/hooks/use-opencode-data';
-import type { ProviderInfo } from '@/lib/opencode/hooks/use-opencode-data';
+import { useOpenCodeProviders, flattenModels } from '@/lib/opencode/hooks/use-opencode-data';
+import type { ProviderInfo, FlatModel } from '@/lib/opencode/hooks/use-opencode-data';
 import { getAuthToken } from '@/api/config';
 import { log } from '@/lib/logger';
 import { SearchBar } from '@/components/ui/SearchBar';
@@ -241,6 +241,9 @@ export function LlmProvidersPage({ page, onBack, onOpenDrawer, onOpenRightDrawer
 
   const { data: providers, isLoading, refetch } = useOpenCodeProviders(sandboxUrl);
 
+  type Tab = 'providers' | 'connected' | 'models';
+  const [activeTab, setActiveTab] = useState<Tab>('providers');
+
   // State
   const [searchQuery, setSearchQuery] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -282,6 +285,29 @@ export function LlmProvidersPage({ page, onBack, onOpenDrawer, onOpenRightDrawer
 
     return { connectedProviders: connected, popularProviders: popular, otherProviders: other };
   }, [providers, searchQuery, connectedSet]);
+
+  // Models grouped by provider
+  const modelsByProvider = useMemo(() => {
+    if (!providers) return [];
+    const allModels = flattenModels(providers);
+    const q = searchQuery.toLowerCase();
+    const filtered = q ? allModels.filter((m) =>
+      m.modelName.toLowerCase().includes(q) || m.modelID.toLowerCase().includes(q) || m.providerName.toLowerCase().includes(q)
+    ) : allModels;
+
+    // Group by provider
+    const groups: { providerID: string; providerName: string; models: FlatModel[] }[] = [];
+    const map = new Map<string, FlatModel[]>();
+    for (const m of filtered) {
+      const arr = map.get(m.providerID) || [];
+      arr.push(m);
+      map.set(m.providerID, arr);
+    }
+    for (const [pid, models] of map) {
+      groups.push({ providerID: pid, providerName: models[0].providerName, models });
+    }
+    return groups;
+  }, [providers, searchQuery]);
 
   // Connect
   const openConnect = useCallback((provider: ProviderInfo) => {
@@ -360,8 +386,46 @@ export function LlmProvidersPage({ page, onBack, onOpenDrawer, onOpenRightDrawer
           )}
         </View>
 
-        <View style={{ marginTop: 12 }}>
-          <SearchBar value={searchQuery} onChangeText={setSearchQuery} placeholder="Search providers" onClear={() => setSearchQuery('')} />
+        {/* Tabs */}
+        <View style={{ flexDirection: 'row', gap: 0, marginTop: 12, borderRadius: 10, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', padding: 3 }}>
+          {([
+            { id: 'providers' as Tab, label: 'Providers' },
+            { id: 'connected' as Tab, label: `Connected (${connectedSet.size})` },
+            { id: 'models' as Tab, label: 'Models' },
+          ]).map((tab) => {
+            const active = activeTab === tab.id;
+            return (
+              <TouchableOpacity
+                key={tab.id}
+                onPress={() => { setActiveTab(tab.id); setSearchQuery(''); }}
+                style={{
+                  flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: 'center',
+                  backgroundColor: active ? (isDark ? 'rgba(255,255,255,0.1)' : '#FFFFFF') : 'transparent',
+                  ...(active ? {
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 1 },
+                    shadowOpacity: isDark ? 0.3 : 0.08,
+                    shadowRadius: 3,
+                    elevation: 2,
+                  } : {}),
+                }}
+              >
+                <Text style={{ fontSize: 12, fontFamily: active ? 'Roobert-Medium' : 'Roobert', color: active ? fgColor : mutedColor }}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Search */}
+        <View style={{ marginTop: 10 }}>
+          <SearchBar
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder={activeTab === 'models' ? 'Search models' : 'Search providers'}
+            onClear={() => setSearchQuery('')}
+          />
         </View>
       </View>
 
@@ -376,44 +440,110 @@ export function LlmProvidersPage({ page, onBack, onOpenDrawer, onOpenRightDrawer
           </View>
         )}
 
-        {/* Connected */}
-        {connectedProviders.length > 0 && (
+        {/* ── Providers tab ── */}
+        {activeTab === 'providers' && (
           <>
-            <SectionHeader title={`Connected (${connectedProviders.length})`} />
-            {connectedProviders.map((p) => (
-              <ProviderRow key={p.id} provider={p} isConnected isDark={isDark} onConnect={openConnect} onDisconnect={openDisconnect} />
-            ))}
+            {popularProviders.length > 0 && (
+              <>
+                <SectionHeader title="Popular" />
+                {popularProviders.map((p) => (
+                  <ProviderRow key={p.id} provider={p} isConnected={false} isDark={isDark} onConnect={openConnect} onDisconnect={openDisconnect} />
+                ))}
+              </>
+            )}
+            {otherProviders.length > 0 && (
+              <>
+                <SectionHeader title="Other" />
+                {otherProviders.map((p) => (
+                  <ProviderRow key={p.id} provider={p} isConnected={false} isDark={isDark} onConnect={openConnect} onDisconnect={openDisconnect} />
+                ))}
+              </>
+            )}
+            {/* Also show connected in providers tab */}
+            {connectedProviders.length > 0 && (
+              <>
+                <SectionHeader title={`Connected (${connectedProviders.length})`} />
+                {connectedProviders.map((p) => (
+                  <ProviderRow key={p.id} provider={p} isConnected isDark={isDark} onConnect={openConnect} onDisconnect={openDisconnect} />
+                ))}
+              </>
+            )}
+            {!isLoading && providers && connectedProviders.length === 0 && popularProviders.length === 0 && otherProviders.length === 0 && (
+              <View style={{ padding: 40, alignItems: 'center' }}>
+                <Cpu size={32} color={mutedColor} style={{ marginBottom: 12, opacity: 0.5 }} />
+                <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: mutedColor }}>
+                  {searchQuery ? 'No providers match your search' : 'No providers available'}
+                </Text>
+              </View>
+            )}
           </>
         )}
 
-        {/* Popular */}
-        {popularProviders.length > 0 && (
+        {/* ── Connected tab ── */}
+        {activeTab === 'connected' && (
           <>
-            <SectionHeader title="Popular" />
-            {popularProviders.map((p) => (
-              <ProviderRow key={p.id} provider={p} isConnected={false} isDark={isDark} onConnect={openConnect} onDisconnect={openDisconnect} />
-            ))}
+            {connectedProviders.length > 0 ? (
+              connectedProviders.map((p) => (
+                <ProviderRow key={p.id} provider={p} isConnected isDark={isDark} onConnect={openConnect} onDisconnect={openDisconnect} />
+              ))
+            ) : (
+              <View style={{ padding: 40, alignItems: 'center' }}>
+                <Cpu size={32} color={mutedColor} style={{ marginBottom: 12, opacity: 0.5 }} />
+                <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: mutedColor, marginBottom: 4 }}>
+                  {searchQuery ? 'No connected providers match' : 'No providers connected'}
+                </Text>
+                <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: mutedColor, textAlign: 'center', opacity: 0.7 }}>
+                  Connect a provider to start using models
+                </Text>
+              </View>
+            )}
           </>
         )}
 
-        {/* Other */}
-        {otherProviders.length > 0 && (
+        {/* ── Models tab ── */}
+        {activeTab === 'models' && (
           <>
-            <SectionHeader title="Other" />
-            {otherProviders.map((p) => (
-              <ProviderRow key={p.id} provider={p} isConnected={false} isDark={isDark} onConnect={openConnect} onDisconnect={openDisconnect} />
-            ))}
+            {modelsByProvider.length > 0 ? (
+              modelsByProvider.map((group) => (
+                <View key={group.providerID}>
+                  <SectionHeader title={`${getProviderLabel(group.providerID, group.providerName)} (${group.models.length})`} />
+                  {group.models.map((m) => (
+                    <View
+                      key={`${m.providerID}/${m.modelID}`}
+                      style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: borderColor }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text numberOfLines={1} style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: fgColor }}>{m.modelName}</Text>
+                        <Text numberOfLines={1} style={{ fontSize: 10, fontFamily: monoFont, color: mutedColor, marginTop: 1 }}>{m.modelID}</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                        {m.reasoning && (
+                          <View style={{ backgroundColor: isDark ? 'rgba(139,92,246,0.12)' : 'rgba(139,92,246,0.08)', borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1 }}>
+                            <Text style={{ fontSize: 8, fontFamily: 'Roobert-Medium', color: '#8b5cf6' }}>reasoning</Text>
+                          </View>
+                        )}
+                        {m.contextWindow && (
+                          <Text style={{ fontSize: 10, fontFamily: monoFont, color: mutedColor }}>
+                            {m.contextWindow >= 1000000 ? `${(m.contextWindow / 1000000).toFixed(0)}M` : m.contextWindow >= 1000 ? `${Math.round(m.contextWindow / 1000)}k` : m.contextWindow}
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ))
+            ) : (
+              <View style={{ padding: 40, alignItems: 'center' }}>
+                <Cpu size={32} color={mutedColor} style={{ marginBottom: 12, opacity: 0.5 }} />
+                <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: mutedColor, marginBottom: 4 }}>
+                  {searchQuery ? 'No models match your search' : 'No models available'}
+                </Text>
+                <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: mutedColor, textAlign: 'center', opacity: 0.7 }}>
+                  Connect a provider to see available models
+                </Text>
+              </View>
+            )}
           </>
-        )}
-
-        {/* Empty */}
-        {!isLoading && providers && connectedProviders.length === 0 && popularProviders.length === 0 && otherProviders.length === 0 && (
-          <View style={{ padding: 40, alignItems: 'center' }}>
-            <Cpu size={32} color={mutedColor} style={{ marginBottom: 12, opacity: 0.5 }} />
-            <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: mutedColor }}>
-              {searchQuery ? 'No providers match your search' : 'No providers available'}
-            </Text>
-          </View>
         )}
 
         <View style={{ height: insets.bottom + 80 }} />
