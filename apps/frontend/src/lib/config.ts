@@ -82,9 +82,11 @@ export const isBillingEnabled = (): boolean => {
 
 /**
  * Whether this is a self-hosted deployment.
- * Derived from billing: if billing is disabled, it's self-hosted.
  * Self-hosted mode uses email+password auth (no magic links, no OAuth).
  * The first user to sign up becomes the owner.
+ *
+ * Determined by ENV_MODE: 'cloud' = not self-hosted, anything else = self-hosted.
+ * Falls back to billing check for backward compatibility.
  */
 export const isSelfHosted = (): boolean => {
   return !isBillingEnabled();

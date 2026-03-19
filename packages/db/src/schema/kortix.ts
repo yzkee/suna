@@ -412,6 +412,83 @@ export const serverEntries = kortixSchema.table(
   ],
 );
 
+// ─── OAuth2 Provider ──────────────────────────────────────────────────────
+
+export const oauthClients = kortixSchema.table(
+  'oauth_clients',
+  {
+    clientId: uuid('client_id').defaultRandom().primaryKey(),
+    clientSecretHash: varchar('client_secret_hash', { length: 128 }).notNull(),
+    name: varchar('name', { length: 255 }).notNull(),
+    redirectUris: jsonb('redirect_uris').default([]).$type<string[]>(),
+    scopes: jsonb('scopes').default([]).$type<string[]>(),
+    active: boolean('active').default(true).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+);
+
+export const oauthAuthorizationCodes = kortixSchema.table(
+  'oauth_authorization_codes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    code: varchar('code', { length: 128 }).notNull(),
+    clientId: uuid('client_id').notNull().references(() => oauthClients.clientId, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull(),
+    accountId: uuid('account_id').notNull(),
+    redirectUri: text('redirect_uri').notNull(),
+    scopes: jsonb('scopes').default([]).$type<string[]>(),
+    codeChallenge: text('code_challenge').notNull(),
+    codeChallengeMethod: varchar('code_challenge_method', { length: 10 }).default('S256').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_oauth_codes_code').on(table.code),
+    index('idx_oauth_codes_client').on(table.clientId),
+    index('idx_oauth_codes_expires').on(table.expiresAt),
+  ],
+);
+
+export const oauthAccessTokens = kortixSchema.table(
+  'oauth_access_tokens',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tokenHash: varchar('token_hash', { length: 128 }).notNull(),
+    clientId: uuid('client_id').notNull().references(() => oauthClients.clientId, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull(),
+    accountId: uuid('account_id').notNull(),
+    scopes: jsonb('scopes').default([]).$type<string[]>(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_oauth_access_token_hash').on(table.tokenHash),
+    index('idx_oauth_access_tokens_client').on(table.clientId),
+    index('idx_oauth_access_tokens_user').on(table.userId),
+  ],
+);
+
+export const oauthRefreshTokens = kortixSchema.table(
+  'oauth_refresh_tokens',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tokenHash: varchar('token_hash', { length: 128 }).notNull(),
+    accessTokenId: uuid('access_token_id').notNull().references(() => oauthAccessTokens.id, { onDelete: 'cascade' }),
+    clientId: uuid('client_id').notNull().references(() => oauthClients.clientId, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull(),
+    accountId: uuid('account_id').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_oauth_refresh_token_hash').on(table.tokenHash),
+    index('idx_oauth_refresh_tokens_client').on(table.clientId),
+  ],
+);
+
 export const sandboxesRelations = relations(sandboxes, ({ one, many }) => ({
   account: one(accounts, {
     fields: [sandboxes.accountId],

@@ -64,6 +64,11 @@ export {
   tunnelPermissionsRelations,
   tunnelPermissionRequestsRelations,
   tunnelAuditLogsRelations,
+  // OAuth2 Provider
+  oauthClients,
+  oauthAuthorizationCodes,
+  oauthAccessTokens,
+  oauthRefreshTokens,
   // WoA
   woaPostTypeEnum,
   woaPosts,

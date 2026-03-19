@@ -33,6 +33,7 @@ import { accessControlApp } from './access-control';
 import { startAccessControlCache, stopAccessControlCache } from './shared/access-control-cache';
 import { legacyApp } from './legacy';
 import { adminApp } from './admin';
+import { oauthApp } from './oauth';
 
 // ─── App Setup ──────────────────────────────────────────────────────────────
 
@@ -52,6 +53,10 @@ const cloudOrigins = [
   'https://new.kortix.com',
   'https://computer-preview.kortix.com',
 ];
+const justavpsOrigins = [
+  'https://justavps.com',
+  'http://localhost:3001',
+];
 const localOrigins = [
   'http://localhost:3000',
   'http://127.0.0.1:3000',
@@ -62,6 +67,7 @@ const extraOrigins = process.env.CORS_ALLOWED_ORIGINS
 const corsOrigins = [
   ...new Set([
     ...cloudOrigins,
+    ...justavpsOrigins,
     ...localOrigins,  // Always include — needed for local dev and self-hosted
     ...extraOrigins,
   ]),
@@ -250,6 +256,9 @@ app.route('/v1/legacy', legacyApp); // /v1/legacy/threads, /v1/legacy/threads/:i
 // Setup — install-status is public (needed before any user exists), rest requires auth.
 app.route('/v1/setup', setupApp);          // /v1/setup/install-status (public), rest (auth inside router)
 app.route('/v1/admin', adminApp);          // /v1/admin/api/sandboxes, /v1/admin/api/env, /v1/admin/api/health, etc.
+
+// OAuth2 provider — public token endpoint, auth on authorize/consent
+app.route('/v1/oauth', oauthApp);
 
 // All remaining routes require authentication (JWT or kortix_ token).
 app.use('/v1/providers/*', combinedAuth);
