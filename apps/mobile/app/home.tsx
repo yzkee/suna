@@ -48,6 +48,7 @@ import { RightDrawerContent } from '@/components/session/RightDrawerContent';
 import { PlaceholderPage } from '@/components/session/PlaceholderPage';
 import { FilesPage } from '@/components/pages/FilesPage';
 import type { FilesPageRef } from '@/components/pages/FilesPage';
+import { SecretsPage } from '@/components/pages/SecretsPage';
 import {
   Eye, EyeOff, RefreshCw, Upload, Image, FolderPlus, LayoutGrid, List,
   FileText, Copy, Pencil, Trash2,
@@ -667,6 +668,15 @@ export default function HomeScreen() {
               onOpenRightDrawer={handleRightDrawerOpen}
               onFileSelectionChange={(file) => setFilesSelectedName(file?.name ?? null)}
               onRequestMenu={() => bottomBarRef.current?.presentMenu()}
+            />
+
+          /* Active page tab — Secrets */
+          ) : activePageId === 'page:secrets' && PAGE_TABS[activePageId] && !showTabsOverview ? (
+            <SecretsPage
+              page={PAGE_TABS[activePageId]}
+              onBack={handleBack}
+              onOpenDrawer={handleDrawerOpen}
+              onOpenRightDrawer={handleRightDrawerOpen}
             />
 
           /* Active page tab — other pages (placeholder) */

@@ -155,6 +155,13 @@ export function CommandPalette({
         onSelect: () => { onPageSelect('page:files'); onClose(); },
       },
       {
+        id: 'page:secrets',
+        label: 'Secrets Manager',
+        icon: 'key-outline',
+        group: 'navigation',
+        onSelect: () => { onPageSelect('page:secrets'); onClose(); },
+      },
+      {
         id: 'page:triggers',
         label: 'Triggers',
         icon: 'calendar-outline',
