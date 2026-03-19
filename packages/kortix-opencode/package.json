@@ -4,6 +4,7 @@
   "type": "commonjs",
   "private": true,
   "dependencies": {
+    "@openauthjs/openauth": "^0.4.3",
     "@opencode-ai/plugin": "1.2.27",
     "@opencode-ai/sdk": "^1.2.25",
     "@kortix/opencode-agent-triggers": "^0.1.0",
