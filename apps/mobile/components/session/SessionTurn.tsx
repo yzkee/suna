@@ -130,6 +130,18 @@ function ShimmerStatusText({ text, size = 'sm' }: { text: string; size?: 'sm' | 
   );
 }
 
+// ─── Tool input resolver ─────────────────────────────────────────────────────
+// The SDK sends `input` inside `state.input`, but mobile types define it at `tool.input`.
+// At runtime the data may be in either location. This helper checks both.
+
+function getToolInput(tool: ToolPart): Record<string, any> {
+  const stateInput = (tool.state as any)?.input;
+  if (stateInput && typeof stateInput === 'object' && Object.keys(stateInput).length > 0) {
+    return stateInput;
+  }
+  return tool.input || {};
+}
+
 // ─── Tool icon resolver ──────────────────────────────────────────────────────
 
 const TOOL_ICON_MAP: Record<string, LucideIcon> = {
@@ -255,10 +267,15 @@ function OutputSection({
 // ─── Tool-specific expanded content renderers ────────────────────────────────
 
 function ShellExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
-  const command = tool.input?.command || '';
+  const input = getToolInput(tool);
+  const metadata = (tool.state as any)?.metadata || {};
+  const command = input.command || metadata.command || '';
   const output = useMemo(() => {
     if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
-      return stripAnsi(tool.state.output).trim();
+      // Strip bash_metadata XML tags if present
+      let raw = tool.state.output;
+      raw = raw.replace(/<bash_metadata>[\s\S]*?<\/bash_metadata>/g, '');
+      return stripAnsi(raw).trim();
     }
     if (tool.state.status === 'error' && 'error' in tool.state) {
       return tool.state.error;
@@ -285,8 +302,9 @@ function ShellExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolea
 }
 
 function WriteEditExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
-  const content = tool.input?.content || tool.input?.newString || '';
-  const filePath = tool.input?.filePath || '';
+  const input = getToolInput(tool);
+  const content = input.content || input.newString || '';
+  const filePath = input.filePath || '';
   const output = useMemo(() => {
     if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
       return stripAnsi(tool.state.output).trim();
@@ -295,8 +313,8 @@ function WriteEditExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: bo
   }, [tool.state]);
 
   // For edit, show old -> new
-  const oldString = tool.input?.oldString;
-  const newString = tool.input?.newString;
+  const oldString = input.oldString;
+  const newString = input.newString;
   const isEdit = tool.tool === 'edit' || tool.tool === 'morph_edit';
 
   return (
@@ -356,8 +374,9 @@ function WriteEditExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: bo
 
 function TodosExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
   const todos = useMemo(() => {
-    // Try parsing input.todos
-    const raw = tool.input?.todos;
+    // Try parsing input.todos (check both state.input and top-level input)
+    const input = getToolInput(tool);
+    const raw = input.todos;
     if (Array.isArray(raw)) return raw;
     // Try parsing output
     if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
@@ -620,15 +639,17 @@ function getExpandedContent(tool: ToolPart, isDark: boolean): React.ReactNode {
 
 function toolHasExpandableContent(tool: ToolPart): boolean {
   const { state } = tool;
+  const input = getToolInput(tool);
   // Todos always expandable if input has todos
-  if (tool.tool === 'todowrite' && Array.isArray(tool.input?.todos) && tool.input.todos.length > 0) return true;
-  // Shell expandable if has command or output
-  if (tool.tool === 'bash' && tool.input?.command) return true;
+  if (tool.tool === 'todowrite' && Array.isArray(input.todos) && input.todos.length > 0) return true;
+  // Shell expandable if has command, description, or output
+  if (tool.tool === 'bash' && (input.command || input.description)) return true;
   // Write/Edit expandable if has content
   if ((tool.tool === 'write' || tool.tool === 'edit' || tool.tool === 'morph_edit') &&
-      (tool.input?.content || tool.input?.oldString || tool.input?.newString)) return true;
-  // Default: expandable if has output
+      (input.content || input.oldString || input.newString)) return true;
+  // Any tool with completed output is expandable
   if (state.status === 'completed' && 'output' in state && state.output?.trim()) return true;
+  // Any tool with error is expandable
   if (state.status === 'error' && 'error' in state && state.error) return true;
   return false;
 }
@@ -643,7 +664,8 @@ function ToolCard({
   isDark: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const info = getToolInfo(tool.tool, tool.input);
+  const input = getToolInput(tool);
+  const info = getToolInfo(tool.tool, input);
   const isRunning = tool.state.status === 'pending' || tool.state.status === 'running';
   const isError = tool.state.status === 'error';
 
