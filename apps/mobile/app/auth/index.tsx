@@ -9,20 +9,19 @@ import * as React from 'react';
 import {
   View,
   TextInput,
-  TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/ui/text';
-import { useAuth } from '@/hooks/useAuth';
 import { useAuthContext } from '@/contexts';
 import { log } from '@/lib/logger';
 import { supabase } from '@/api/supabase';
+import { KortixLogo } from '@/components/ui/KortixLogo';
+import { AuthButton } from '@/components/auth/AuthButton';
+import { AuthInput } from '@/components/auth/AuthInput';
 
 export default function AuthScreen() {
   const router = useRouter();
@@ -58,7 +57,7 @@ export default function AuthScreen() {
     setErrorMessage(null);
 
     try {
-      log.log('🔐 Signing in with email/password...');
+      log.log('Signing in with email/password...');
 
       const { data, error } = await supabase.auth.signInWithPassword({
         email: trimmedEmail,
@@ -66,14 +65,14 @@ export default function AuthScreen() {
       });
 
       if (error) {
-        log.error('❌ Sign in error:', error.message);
+        log.error('Sign in error:', error.message);
 
         // If user doesn't exist, try to create account (self-hosted first-time setup)
         if (
           error.message.includes('Invalid login credentials') ||
           error.message.includes('Email not confirmed')
         ) {
-          log.log('🔄 Trying to create account (self-hosted first-time setup)...');
+          log.log('Trying to create account (self-hosted first-time setup)...');
 
           const { data: signUpData, error: signUpError } =
             await supabase.auth.signUp({
@@ -85,7 +84,7 @@ export default function AuthScreen() {
             });
 
           if (signUpError) {
-            log.error('❌ Sign up error:', signUpError.message);
+            log.error('Sign up error:', signUpError.message);
             setErrorMessage(signUpError.message);
             setLoading(false);
             return;
@@ -110,14 +109,14 @@ export default function AuthScreen() {
             }
 
             if (retryData.session) {
-              log.log('✅ Account created and signed in');
+              log.log('Account created and signed in');
               router.replace('/home');
               return;
             }
           }
 
           if (signUpData.session) {
-            log.log('✅ Account created and signed in');
+            log.log('Account created and signed in');
             router.replace('/home');
             return;
           }
@@ -133,11 +132,11 @@ export default function AuthScreen() {
       }
 
       if (data.session) {
-        log.log('✅ Signed in successfully');
+        log.log('Signed in successfully');
         router.replace('/home');
       }
     } catch (err: any) {
-      log.error('❌ Auth exception:', err);
+      log.error('Auth exception:', err);
       setErrorMessage(err.message || 'An unexpected error occurred');
     } finally {
       setLoading(false);
@@ -153,94 +152,70 @@ export default function AuthScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <View
-          className="flex-1 items-center justify-center px-6"
-          style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
+          className="flex-1 justify-center px-8"
+          style={{ paddingTop: insets.top, paddingBottom: insets.bottom + 32 }}
         >
-          {/* Card */}
-          <View
-            className="w-full max-w-sm rounded-2xl px-6 py-8 bg-card border border-border"
-            style={{
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: isDark ? 0.3 : 0.08,
-              shadowRadius: 12,
-              elevation: 4,
-            }}
-          >
-            {/* Header */}
-            <View className="items-center mb-8">
-              <Text className="text-xl font-semibold mb-1 text-foreground">
-                Sign in to Kortix
-              </Text>
-              <Text className="text-sm text-muted-foreground">
-                Your AI Computer
-              </Text>
-            </View>
+          {/* Logo + headline */}
+          <View className="items-start mb-10">
+            <KortixLogo
+              variant="symbol"
+              size={36}
+              color={isDark ? 'dark' : 'light'}
+            />
+            <Text className="text-[28px] font-roobert-semibold text-foreground mt-5 leading-tight">
+              Sign in to{'\n'}Kortix
+            </Text>
+            <Text className="text-[15px] text-muted-foreground mt-2 font-roobert">
+              Your AI Computer
+            </Text>
+          </View>
 
-            {/* Email input */}
-            <View className="mb-3">
-              <TextInput
-                value={email}
-                onChangeText={setEmail}
-                placeholder="Email address"
-                placeholderTextColor={isDark ? '#999999' : '#6e6e6e'}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                autoComplete="email"
-                returnKeyType="next"
-                onSubmitEditing={() => passwordRef.current?.focus()}
-                editable={!loading}
-                className="rounded-xl px-4 py-3.5 text-base bg-muted text-foreground"
-              />
-            </View>
-
-            {/* Password input */}
-            <View className="mb-5">
-              <TextInput
-                ref={passwordRef}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="Password"
-                placeholderTextColor={isDark ? '#999999' : '#6e6e6e'}
-                secureTextEntry
-                autoComplete="password"
-                returnKeyType="go"
-                onSubmitEditing={handleSignIn}
-                editable={!loading}
-                className="rounded-xl px-4 py-3.5 text-base bg-muted text-foreground"
-              />
-            </View>
-
+          {/* Form */}
+          <View className="w-full">
             {/* Error message */}
             {errorMessage && (
-              <View className="mb-4 rounded-lg bg-destructive/10 px-3 py-2">
-                <Text className="text-sm text-destructive text-center">
+              <View className="mb-4 rounded-2xl bg-destructive/10 px-4 py-3">
+                <Text className="text-sm text-destructive text-center font-roobert">
                   {errorMessage}
                 </Text>
               </View>
             )}
 
+            {/* Email input */}
+            <View className="mb-3">
+              <AuthInput
+                value={email}
+                onChangeText={setEmail}
+                placeholder="Email address"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+                returnKeyType="next"
+                onSubmitEditing={() => passwordRef.current?.focus()}
+              />
+            </View>
+
+            {/* Password input */}
+            <View className="mb-5">
+              <AuthInput
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Password"
+                secureTextEntry
+                autoComplete="password"
+                returnKeyType="go"
+                onSubmitEditing={handleSignIn}
+              />
+            </View>
+
             {/* Sign in button */}
-            <TouchableOpacity
+            <AuthButton
+              label="Sign in"
               onPress={handleSignIn}
-              disabled={loading}
-              className={`rounded-xl py-3.5 items-center bg-primary ${
-                loading ? 'opacity-70' : ''
-              }`}
-              activeOpacity={0.8}
-            >
-              {loading ? (
-                <ActivityIndicator
-                  size="small"
-                  color={isDark ? '#121215' : '#F8F8F8'}
-                />
-              ) : (
-                <Text className="text-base font-semibold text-primary-foreground">
-                  Sign in
-                </Text>
-              )}
-            </TouchableOpacity>
+              isLoading={loading}
+              variant="primary"
+              showArrow={false}
+            />
           </View>
         </View>
       </KeyboardAvoidingView>

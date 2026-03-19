@@ -52,45 +52,44 @@ let currentInitializationParams: { userId: string; email?: string; canTrack: boo
  * IMPORTANT: This should be called after logout/login cycles as the SDK may reset the handler.
  */
 function ensureLogHandler(): void {
-  try {
-    Purchases.setLogHandler((logLevel, message) => {
-      // User cancellation is expected behavior, not an error - downgrade to info
-      const isCancelledMessage = 
-        message.toLowerCase().includes('cancelled') ||
-        message.toLowerCase().includes('canceled') ||
-        message.toLowerCase().includes('usercancelled');
-      
-      switch (logLevel) {
-        case LOG_LEVEL.VERBOSE:
-          log.rcDebug(message);
-          break;
-        case LOG_LEVEL.DEBUG:
-          log.rcDebug(message);
-          break;
-        case LOG_LEVEL.INFO:
-          log.rc(message);
-          break;
-        case LOG_LEVEL.WARN:
-          // Downgrade cancellation warnings to debug level
-          if (isCancelledMessage) {
-            log.rcDebug(message);
-          } else {
-            log.rcWarn(message);
-          }
-          break;
-        case LOG_LEVEL.ERROR:
-          // Downgrade cancellation "errors" to info level - this is expected user behavior
-          if (isCancelledMessage) {
-            log.rc('User cancelled purchase (expected behavior)');
-          } else {
-            log.rcError(message);
-          }
-          break;
-      }
-    });
-  } catch {
-    // SDK might not be initialized yet, which is fine - handler will be set on configure
-  }
+  // TEMPORARILY DISABLED: setLogHandler triggers "Purchases-TrackedEvent is not a supported event type"
+  // error in RNPurchases. Disabling until SDK is updated to fix this issue.
+  // try {
+  //   Purchases.setLogHandler((logLevel, message) => {
+  //     const isCancelledMessage = 
+  //       message.toLowerCase().includes('cancelled') ||
+  //       message.toLowerCase().includes('canceled') ||
+  //       message.toLowerCase().includes('usercancelled');
+  //     
+  //     switch (logLevel) {
+  //       case LOG_LEVEL.VERBOSE:
+  //         log.rcDebug(message);
+  //         break;
+  //       case LOG_LEVEL.DEBUG:
+  //         log.rcDebug(message);
+  //         break;
+  //       case LOG_LEVEL.INFO:
+  //         log.rc(message);
+  //         break;
+  //       case LOG_LEVEL.WARN:
+  //         if (isCancelledMessage) {
+  //           log.rcDebug(message);
+  //         } else {
+  //           log.rcWarn(message);
+  //         }
+  //         break;
+  //       case LOG_LEVEL.ERROR:
+  //         if (isCancelledMessage) {
+  //           log.rc('User cancelled purchase (expected behavior)');
+  //         } else {
+  //           log.rcError(message);
+  //         }
+  //         break;
+  //     }
+  //   });
+  // } catch {
+  //   // SDK might not be initialized yet, which is fine - handler will be set on configure
+  // }
 }
 
 async function isRevenueCatAlreadyConfigured(): Promise<boolean> {

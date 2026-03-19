@@ -5,7 +5,7 @@
  */
 
 import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
-import { View, TouchableOpacity, Animated, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, Animated, StyleSheet, LayoutAnimation, Platform, UIManager, ScrollView, Image } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,6 +21,26 @@ import ReAnimated, {
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaskedView from '@react-native-masked-view/masked-view';
+import {
+  Terminal,
+  FileCode2,
+  Search,
+  Globe,
+  Glasses,
+  CheckSquare,
+  Cpu,
+  SquareKanban,
+  ImageIcon,
+  Presentation,
+  List,
+  Scissors,
+  MessageCircle,
+  ChevronRight,
+  Check,
+  CircleAlert,
+  Loader2,
+  type LucideIcon,
+} from 'lucide-react-native';
 import type {
   Turn,
   MessageWithParts,
@@ -29,6 +49,7 @@ import type {
   ToolPart,
   ReasoningPart,
   QuestionRequest,
+  Part,
 } from '@/lib/opencode/types';
 import type { Command } from '@/lib/opencode/hooks/use-opencode-data';
 import {
@@ -44,7 +65,13 @@ import {
   getToolInfo,
   shouldShowToolPart,
   formatDuration,
+  stripAnsi,
 } from '@/lib/opencode/turns';
+
+// Enable LayoutAnimation on Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 // ─── Shimmer text for status indicators ──────────────────────────────────────
 
@@ -100,6 +127,1734 @@ function ShimmerStatusText({ text, size = 'sm' }: { text: string; size?: 'sm' | 
         </View>
       </MaskedView>
     </View>
+  );
+}
+
+// ─── Tool input resolver ─────────────────────────────────────────────────────
+// The SDK sends `input` inside `state.input`, but mobile types define it at `tool.input`.
+// At runtime the data may be in either location. This helper checks both.
+
+function getToolInput(tool: ToolPart): Record<string, any> {
+  const stateInput = (tool.state as any)?.input;
+  if (stateInput && typeof stateInput === 'object' && Object.keys(stateInput).length > 0) {
+    return stateInput;
+  }
+  return tool.input || {};
+}
+
+// ─── Tool icon resolver ──────────────────────────────────────────────────────
+
+const TOOL_ICON_MAP: Record<string, LucideIcon> = {
+  terminal: Terminal,
+  'file-pen': FileCode2,
+  search: Search,
+  globe: Globe,
+  glasses: Glasses,
+  'check-square': CheckSquare,
+  'square-kanban': SquareKanban,
+  image: ImageIcon,
+  presentation: Presentation,
+  list: List,
+  scissors: Scissors,
+  'message-circle': MessageCircle,
+  cpu: Cpu,
+};
+
+function getToolLucideIcon(iconName: string): LucideIcon {
+  return TOOL_ICON_MAP[iconName] ?? Cpu;
+}
+
+// ─── Shared styles ───────────────────────────────────────────────────────────
+
+const monoFont = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
+
+function cardBorder(isDark: boolean) {
+  return isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+}
+function cardBg(isDark: boolean) {
+  return isDark ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.8)';
+}
+function mutedBg(isDark: boolean) {
+  return isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)';
+}
+function fg(isDark: boolean) {
+  return isDark ? '#F8F8F8' : '#121215';
+}
+function muted(isDark: boolean) {
+  return isDark ? '#71717a' : '#a1a1aa';
+}
+function mutedStrong(isDark: boolean) {
+  return isDark ? '#a1a1aa' : '#71717a';
+}
+
+// ─── MonoBlock — reusable monospace code block ───────────────────────────────
+
+function MonoBlock({
+  children,
+  isDark,
+  color,
+  maxLines,
+}: {
+  children: string;
+  isDark: boolean;
+  color?: string;
+  maxLines?: number;
+}) {
+  return (
+    <Text
+      numberOfLines={maxLines}
+      style={{
+        fontSize: 11,
+        fontFamily: monoFont,
+        lineHeight: 17,
+        color: color || mutedStrong(isDark),
+      }}
+    >
+      {children}
+    </Text>
+  );
+}
+
+// ─── OutputSection — "OUTPUT" label + content block ──────────────────────────
+
+function OutputSection({
+  output,
+  isDark,
+  isError,
+}: {
+  output: string;
+  isDark: boolean;
+  isError?: boolean;
+}) {
+  const displayOutput = output.length > 3000 ? output.slice(0, 3000) + '\n...' : output;
+  return (
+    <View
+      style={{
+        marginHorizontal: 10,
+        marginBottom: 10,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+        backgroundColor: mutedBg(isDark),
+        overflow: 'hidden',
+      }}
+    >
+      {/* Label */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingTop: 8, paddingBottom: 4 }}>
+        <View
+          style={{
+            width: 5,
+            height: 5,
+            borderRadius: 2.5,
+            backgroundColor: isError ? (isDark ? '#ef4444' : '#dc2626') : muted(isDark),
+            marginRight: 6,
+          }}
+        />
+        <Text style={{ fontSize: 10, fontFamily: 'Roobert', color: muted(isDark), textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          {isError ? 'Error' : 'Output'}
+        </Text>
+      </View>
+      {/* Content */}
+      <View style={{ paddingHorizontal: 10, paddingBottom: 10 }}>
+        <MonoBlock isDark={isDark} color={isError ? (isDark ? '#f87171' : '#dc2626') : undefined} maxLines={30}>
+          {displayOutput}
+        </MonoBlock>
+      </View>
+    </View>
+  );
+}
+
+// ─── Bash syntax highlighting ────────────────────────────────────────────────
+
+// Common bash commands/builtins to highlight
+const BASH_COMMANDS = new Set([
+  'ls', 'cd', 'cat', 'echo', 'grep', 'find', 'mkdir', 'rm', 'cp', 'mv',
+  'touch', 'chmod', 'chown', 'head', 'tail', 'sort', 'uniq', 'wc', 'diff',
+  'sed', 'awk', 'curl', 'wget', 'tar', 'zip', 'unzip', 'git', 'npm', 'npx',
+  'node', 'python', 'python3', 'pip', 'pip3', 'yarn', 'pnpm', 'docker',
+  'which', 'export', 'source', 'eval', 'exec', 'xargs', 'tee', 'tr',
+  'cut', 'paste', 'test', 'read', 'set', 'unset', 'true', 'false',
+  'pwd', 'env', 'printenv', 'date', 'sleep', 'kill', 'pkill', 'ps',
+  'apt', 'brew', 'make', 'cmake', 'go', 'cargo', 'rustc', 'javac', 'java',
+  'ssh', 'scp', 'rsync', 'jq', 'rg', 'fd', 'bat', 'exa',
+]);
+
+// Bash operators and redirections
+const BASH_OPERATORS = new Set(['&&', '||', '|', ';', '>>', '2>', '2>&1', '>&2']);
+
+interface BashToken {
+  text: string;
+  type: 'prompt' | 'command' | 'flag' | 'string' | 'operator' | 'redirect' | 'path' | 'plain';
+}
+
+function tokenizeBash(command: string): BashToken[] {
+  const tokens: BashToken[] = [];
+  // Add prompt
+  tokens.push({ text: '$ ', type: 'prompt' });
+
+  let i = 0;
+  let isFirstWord = true;
+  let afterOperator = false;
+
+  while (i < command.length) {
+    // Skip whitespace
+    if (command[i] === ' ' || command[i] === '\t') {
+      let ws = '';
+      while (i < command.length && (command[i] === ' ' || command[i] === '\t')) {
+        ws += command[i];
+        i++;
+      }
+      tokens.push({ text: ws, type: 'plain' });
+      continue;
+    }
+
+    // Quoted strings
+    if (command[i] === '"' || command[i] === "'") {
+      const quote = command[i];
+      let str = quote;
+      i++;
+      while (i < command.length && command[i] !== quote) {
+        if (command[i] === '\\' && i + 1 < command.length) {
+          str += command[i] + command[i + 1];
+          i += 2;
+        } else {
+          str += command[i];
+          i++;
+        }
+      }
+      if (i < command.length) { str += command[i]; i++; }
+      tokens.push({ text: str, type: 'string' });
+      isFirstWord = false;
+      afterOperator = false;
+      continue;
+    }
+
+    // Multi-char operators: &&, ||, >>, 2>, 2>&1
+    const rest = command.slice(i);
+    let matchedOp = '';
+    for (const op of ['2>&1', '>&2', '2>', '>>', '&&', '||']) {
+      if (rest.startsWith(op)) { matchedOp = op; break; }
+    }
+    if (matchedOp) {
+      tokens.push({ text: matchedOp, type: 'operator' });
+      i += matchedOp.length;
+      isFirstWord = true;
+      afterOperator = true;
+      continue;
+    }
+
+    // Single-char operators: |, ;, >, <
+    if ('|;><'.includes(command[i])) {
+      tokens.push({ text: command[i], type: 'operator' });
+      i++;
+      isFirstWord = true;
+      afterOperator = true;
+      continue;
+    }
+
+    // Word
+    let word = '';
+    while (i < command.length && !' \t|;&><"\''.includes(command[i])) {
+      word += command[i];
+      i++;
+    }
+
+    if (!word) { i++; continue; }
+
+    // Classify word
+    if (isFirstWord || afterOperator) {
+      // Command position
+      if (BASH_COMMANDS.has(word)) {
+        tokens.push({ text: word, type: 'command' });
+      } else {
+        tokens.push({ text: word, type: 'command' });
+      }
+      isFirstWord = false;
+      afterOperator = false;
+    } else if (word.startsWith('-')) {
+      tokens.push({ text: word, type: 'flag' });
+    } else if (word.startsWith('/') || word.includes('/') || word.startsWith('~')) {
+      tokens.push({ text: word, type: 'path' });
+    } else {
+      tokens.push({ text: word, type: 'plain' });
+    }
+  }
+
+  return tokens;
+}
+
+function HighlightedBashCommand({ command, isDark }: { command: string; isDark: boolean }) {
+  const tokens = useMemo(() => tokenizeBash(command), [command]);
+
+  const colors: Record<BashToken['type'], string> = {
+    prompt: isDark ? '#71717a' : '#a1a1aa',
+    command: isDark ? '#c4b5fd' : '#7c3aed', // purple
+    flag: isDark ? '#93c5fd' : '#2563eb',     // blue
+    string: isDark ? '#86efac' : '#16a34a',   // green
+    operator: isDark ? '#fca5a5' : '#dc2626', // red
+    redirect: isDark ? '#fca5a5' : '#dc2626', // red
+    path: isDark ? '#e2e8f0' : '#334155',     // slate (near-white/dark)
+    plain: fg(isDark),
+  };
+
+  const fs = 11;
+  const lh = 17;
+
+  return (
+    <Text style={{ fontSize: fs, fontFamily: monoFont, lineHeight: lh }}>
+      {tokens.map((token, i) => (
+        <Text key={i} style={{ color: colors[token.type], fontSize: fs, fontFamily: monoFont, lineHeight: lh }}>
+          {token.text}
+        </Text>
+      ))}
+    </Text>
+  );
+}
+
+// ─── Lightweight code syntax highlighting ────────────────────────────────────
+
+type CodeTokenType = 'keyword' | 'string' | 'comment' | 'number' | 'heading' | 'bold' | 'bullet' | 'operator' | 'property' | 'tag' | 'attr' | 'plain';
+
+interface CodeToken {
+  text: string;
+  type: CodeTokenType;
+}
+
+function getExtFromPath(filePath: string): string {
+  const dot = filePath.lastIndexOf('.');
+  if (dot < 0) return '';
+  return filePath.slice(dot + 1).toLowerCase();
+}
+
+const MD_HEADING_RE = /^(#{1,6}\s)/;
+const MD_BOLD_RE = /\*\*[^*]+\*\*/g;
+const MD_BULLET_RE = /^(\s*[-*+]|\s*\d+\.)\s/;
+
+function tokenizeMarkdown(line: string): CodeToken[] {
+  // Headings
+  const headingMatch = line.match(MD_HEADING_RE);
+  if (headingMatch) {
+    return [{ text: line, type: 'heading' }];
+  }
+  // Bullets
+  const bulletMatch = line.match(MD_BULLET_RE);
+  if (bulletMatch) {
+    const tokens: CodeToken[] = [{ text: bulletMatch[0], type: 'bullet' }];
+    const rest = line.slice(bulletMatch[0].length);
+    tokens.push(...tokenizeMarkdownInline(rest));
+    return tokens;
+  }
+  return tokenizeMarkdownInline(line);
+}
+
+function tokenizeMarkdownInline(text: string): CodeToken[] {
+  const tokens: CodeToken[] = [];
+  let lastIdx = 0;
+  const boldRe = /\*\*([^*]+)\*\*/g;
+  let m: RegExpExecArray | null;
+  while ((m = boldRe.exec(text)) !== null) {
+    if (m.index > lastIdx) tokens.push({ text: text.slice(lastIdx, m.index), type: 'plain' });
+    tokens.push({ text: m[0], type: 'bold' });
+    lastIdx = m.index + m[0].length;
+  }
+  if (lastIdx < text.length) tokens.push({ text: text.slice(lastIdx), type: 'plain' });
+  if (tokens.length === 0) tokens.push({ text, type: 'plain' });
+  return tokens;
+}
+
+// Generic code tokenizer for JS/TS/Python/JSON/etc
+const CODE_KEYWORDS = new Set([
+  'import', 'export', 'from', 'const', 'let', 'var', 'function', 'return',
+  'if', 'else', 'for', 'while', 'class', 'extends', 'new', 'this', 'super',
+  'try', 'catch', 'finally', 'throw', 'async', 'await', 'yield',
+  'default', 'switch', 'case', 'break', 'continue', 'typeof', 'instanceof',
+  'in', 'of', 'true', 'false', 'null', 'undefined', 'void',
+  'def', 'elif', 'except', 'pass', 'raise', 'with', 'as', 'lambda',
+  'None', 'True', 'False', 'self', 'type', 'interface', 'enum',
+]);
+
+function tokenizeCode(line: string): CodeToken[] {
+  const tokens: CodeToken[] = [];
+  // Comment
+  const commentIdx = line.indexOf('//');
+  const hashIdx = line.indexOf('#');
+  const commentStart = commentIdx >= 0 ? commentIdx : (hashIdx === 0 ? 0 : -1);
+
+  const codePart = commentStart >= 0 ? line.slice(0, commentStart) : line;
+  const commentPart = commentStart >= 0 ? line.slice(commentStart) : '';
+
+  // Tokenize code part
+  const re = /("[^"]*"|'[^']*'|`[^`]*`|\b\d+\.?\d*\b|\b[a-zA-Z_]\w*\b|[{}()[\]:;,=<>!+\-*/&|?.]+|\s+)/g;
+  let m: RegExpExecArray | null;
+  let lastIdx = 0;
+  while ((m = re.exec(codePart)) !== null) {
+    if (m.index > lastIdx) tokens.push({ text: codePart.slice(lastIdx, m.index), type: 'plain' });
+    const word = m[0];
+    if (/^["'`]/.test(word)) {
+      tokens.push({ text: word, type: 'string' });
+    } else if (/^\d/.test(word)) {
+      tokens.push({ text: word, type: 'number' });
+    } else if (CODE_KEYWORDS.has(word)) {
+      tokens.push({ text: word, type: 'keyword' });
+    } else if (/^[{}()[\]:;,=<>!+\-*/&|?.]+$/.test(word)) {
+      tokens.push({ text: word, type: 'operator' });
+    } else if (/^\s+$/.test(word)) {
+      tokens.push({ text: word, type: 'plain' });
+    } else {
+      tokens.push({ text: word, type: 'plain' });
+    }
+    lastIdx = m.index + m[0].length;
+  }
+  if (lastIdx < codePart.length) tokens.push({ text: codePart.slice(lastIdx), type: 'plain' });
+
+  if (commentPart) tokens.push({ text: commentPart, type: 'comment' });
+  if (tokens.length === 0) tokens.push({ text: line, type: 'plain' });
+  return tokens;
+}
+
+function tokenizeLine(line: string, ext: string): CodeToken[] {
+  if (ext === 'md' || ext === 'mdx' || ext === 'markdown') return tokenizeMarkdown(line);
+  if (['json', 'js', 'jsx', 'ts', 'tsx', 'py', 'rb', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'cs', 'swift', 'kt'].includes(ext)) {
+    return tokenizeCode(line);
+  }
+  // Default: try code tokenizer
+  return tokenizeCode(line);
+}
+
+function HighlightedCode({
+  content,
+  filePath,
+  isDark,
+  maxLines = 25,
+}: {
+  content: string;
+  filePath: string;
+  isDark: boolean;
+  maxLines?: number;
+}) {
+  const ext = getExtFromPath(filePath);
+
+  const colors: Record<CodeTokenType, string> = {
+    keyword: isDark ? '#c4b5fd' : '#7c3aed',     // purple
+    string: isDark ? '#86efac' : '#16a34a',       // green
+    comment: isDark ? '#6b7280' : '#9ca3af',      // gray
+    number: isDark ? '#fdba74' : '#ea580c',       // orange
+    heading: isDark ? '#93c5fd' : '#2563eb',      // blue
+    bold: isDark ? '#e2e8f0' : '#1e293b',         // strong fg
+    bullet: isDark ? '#fdba74' : '#ea580c',       // orange
+    operator: isDark ? '#a1a1aa' : '#71717a',     // muted
+    property: isDark ? '#93c5fd' : '#2563eb',     // blue
+    tag: isDark ? '#fca5a5' : '#dc2626',          // red
+    attr: isDark ? '#fdba74' : '#ea580c',         // orange
+    plain: mutedStrong(isDark),
+  };
+
+  const lines = content.split('\n').slice(0, maxLines);
+  const truncated = content.split('\n').length > maxLines;
+  const fs = 10;
+  const lh = 15;
+
+  return (
+    <View>
+      {lines.map((line, lineIdx) => {
+        const tokens = tokenizeLine(line, ext);
+        return (
+          <Text key={lineIdx} style={{ fontSize: fs, fontFamily: monoFont, lineHeight: lh }}>
+            {tokens.map((token, i) => (
+              <Text
+                key={i}
+                style={{
+                  color: colors[token.type],
+                  fontSize: fs,
+                  fontFamily: monoFont,
+                  lineHeight: lh,
+                  fontWeight: token.type === 'heading' || token.type === 'bold' ? '600' : undefined,
+                }}
+              >
+                {token.text}
+              </Text>
+            ))}
+          </Text>
+        );
+      })}
+      {truncated && (
+        <Text style={{ fontSize: fs, fontFamily: monoFont, lineHeight: lh, color: muted(isDark) }}>
+          ...
+        </Text>
+      )}
+    </View>
+  );
+}
+
+// ─── Tool-specific expanded content renderers ────────────────────────────────
+
+function ShellExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const input = getToolInput(tool);
+  const metadata = (tool.state as any)?.metadata || {};
+  const command = input.command || metadata.command || '';
+  const output = useMemo(() => {
+    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
+      // Strip bash_metadata XML tags if present
+      let raw = tool.state.output;
+      raw = raw.replace(/<bash_metadata>[\s\S]*?<\/bash_metadata>/g, '');
+      return stripAnsi(raw).trim();
+    }
+    if (tool.state.status === 'error' && 'error' in tool.state) {
+      return tool.state.error;
+    }
+    return undefined;
+  }, [tool.state]);
+
+  return (
+    <View>
+      {/* Command */}
+      {!!command && (
+        <View style={{ paddingHorizontal: 12, paddingVertical: 10 }}>
+          <HighlightedBashCommand command={command} isDark={isDark} />
+        </View>
+      )}
+      {/* Output */}
+      {!!output && (
+        <OutputSection output={output} isDark={isDark} isError={tool.state.status === 'error'} />
+      )}
+    </View>
+  );
+}
+
+function WriteEditExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const input = getToolInput(tool);
+  const content = input.content || input.newString || '';
+  const filePath = input.filePath || '';
+  const output = useMemo(() => {
+    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
+      return stripAnsi(tool.state.output).trim();
+    }
+    return undefined;
+  }, [tool.state]);
+
+  // For edit, show old -> new
+  const oldString = input.oldString;
+  const newString = input.newString;
+  const isEdit = tool.tool === 'edit' || tool.tool === 'morph_edit';
+
+  return (
+    <View>
+      {isEdit && oldString && newString ? (
+        <View style={{ paddingHorizontal: 12, paddingVertical: 10 }}>
+          {/* Deletions */}
+          <View style={{ marginBottom: 4 }}>
+            {oldString.split('\n').slice(0, 15).map((line: string, i: number) => (
+              <View
+                key={`del-${i}`}
+                style={{
+                  flexDirection: 'row',
+                  backgroundColor: isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.06)',
+                  paddingHorizontal: 4,
+                  borderRadius: 2,
+                }}
+              >
+                <Text style={{ fontSize: 11, fontFamily: monoFont, lineHeight: 17, color: isDark ? '#f87171' : '#dc2626', marginRight: 6 }}>-</Text>
+                <Text style={{ fontSize: 11, fontFamily: monoFont, lineHeight: 17, color: isDark ? '#f87171' : '#dc2626', flex: 1 }} numberOfLines={1}>
+                  {line}
+                </Text>
+              </View>
+            ))}
+          </View>
+          {/* Additions */}
+          <View>
+            {newString.split('\n').slice(0, 15).map((line: string, i: number) => (
+              <View
+                key={`add-${i}`}
+                style={{
+                  flexDirection: 'row',
+                  backgroundColor: isDark ? 'rgba(16,185,129,0.08)' : 'rgba(16,185,129,0.06)',
+                  paddingHorizontal: 4,
+                  borderRadius: 2,
+                }}
+              >
+                <Text style={{ fontSize: 11, fontFamily: monoFont, lineHeight: 17, color: isDark ? '#34d399' : '#059669', marginRight: 6 }}>+</Text>
+                <Text style={{ fontSize: 11, fontFamily: monoFont, lineHeight: 17, color: isDark ? '#34d399' : '#059669', flex: 1 }} numberOfLines={1}>
+                  {line}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      ) : content ? (
+        <ScrollView
+          style={{ maxHeight: 250 }}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 10 }}
+          nestedScrollEnabled
+          showsVerticalScrollIndicator
+        >
+          <HighlightedCode
+            content={content.length > 3000 ? content.slice(0, 3000) : content}
+            filePath={filePath}
+            isDark={isDark}
+            maxLines={40}
+          />
+        </ScrollView>
+      ) : null}
+      {!!output && <OutputSection output={output} isDark={isDark} />}
+    </View>
+  );
+}
+
+function TodosExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const todos = useMemo(() => {
+    // Try parsing input.todos (check both state.input and top-level input)
+    const input = getToolInput(tool);
+    const raw = input.todos;
+    if (Array.isArray(raw)) return raw;
+    // Try parsing output
+    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
+      try {
+        const parsed = JSON.parse(tool.state.output);
+        if (Array.isArray(parsed)) return parsed;
+        if (parsed?.todos && Array.isArray(parsed.todos)) return parsed.todos;
+      } catch {}
+    }
+    return [];
+  }, [tool.input, tool.state]);
+
+  if (todos.length === 0) return null;
+
+  const statusIcons: Record<string, { icon: string; color: string }> = {
+    completed: { icon: 'checkmark-circle', color: isDark ? '#4ade80' : '#16a34a' },
+    in_progress: { icon: 'ellipsis-horizontal-circle', color: isDark ? '#60a5fa' : '#2563eb' },
+    pending: { icon: 'ellipse-outline', color: muted(isDark) },
+    cancelled: { icon: 'close-circle-outline', color: muted(isDark) },
+  };
+
+  return (
+    <View style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
+      {todos.map((todo: any, i: number) => {
+        const st = statusIcons[todo.status] || statusIcons.pending;
+        return (
+          <View
+            key={i}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'flex-start',
+              paddingVertical: 5,
+              borderBottomWidth: i < todos.length - 1 ? 1 : 0,
+              borderBottomColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+            }}
+          >
+            <Ionicons
+              name={st.icon as any}
+              size={16}
+              color={st.color}
+              style={{ marginRight: 8, marginTop: 1 }}
+            />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontFamily: 'Roobert',
+                  lineHeight: 18,
+                  color: todo.status === 'cancelled' ? muted(isDark) : fg(isDark),
+                  textDecorationLine: todo.status === 'cancelled' ? 'line-through' : 'none',
+                }}
+              >
+                {todo.content}
+              </Text>
+              {todo.priority && (
+                <Text style={{ fontSize: 10, fontFamily: 'Roobert', color: muted(isDark), marginTop: 1 }}>
+                  {todo.priority}
+                </Text>
+              )}
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function ReadExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const input = getToolInput(tool);
+  const filePath = input.filePath || '';
+
+  const { content, lineNumbers } = useMemo(() => {
+    if (tool.state.status !== 'completed' || !('output' in tool.state) || !tool.state.output) {
+      return { content: '', lineNumbers: false };
+    }
+    const raw = tool.state.output.trim();
+
+    // Try to extract content from <content>...</content> XML tags
+    const contentMatch = raw.match(/<content>([\s\S]*?)<\/content>/);
+    if (contentMatch) {
+      const extracted = contentMatch[1];
+      // Content often has line numbers like "1: line text\n2: line text"
+      const lines = extracted.split('\n');
+      const hasLineNumbers = lines.length > 1 && lines.slice(0, 3).every(l => /^\d+:\s/.test(l));
+      if (hasLineNumbers) {
+        // Strip line number prefixes for clean display
+        const cleanLines = lines.map(l => l.replace(/^\d+:\s/, ''));
+        return { content: cleanLines.join('\n'), lineNumbers: true };
+      }
+      return { content: extracted, lineNumbers: false };
+    }
+
+    // Fallback: if no XML, use raw output but strip common XML wrappers
+    const stripped = raw
+      .replace(/<path>[\s\S]*?<\/path>/g, '')
+      .replace(/<type>[\s\S]*?<\/type>/g, '')
+      .replace(/<content>|<\/content>/g, '')
+      .trim();
+
+    return { content: stripped || raw, lineNumbers: false };
+  }, [tool.state]);
+
+  if (!content) return null;
+
+  return (
+    <ScrollView
+      style={{ maxHeight: 300 }}
+      contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 10 }}
+      nestedScrollEnabled
+      showsVerticalScrollIndicator
+    >
+      <HighlightedCode
+        content={content.length > 4000 ? content.slice(0, 4000) : content}
+        filePath={filePath || 'file.txt'}
+        isDark={isDark}
+        maxLines={50}
+      />
+    </ScrollView>
+  );
+}
+
+function getFaviconUrl(url: string): string {
+  try {
+    const domain = url.replace(/^https?:\/\//, '').split('/')[0];
+    return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+  } catch {
+    return '';
+  }
+}
+
+// ─── Web Search output parser (matches web frontend) ─────────────────────────
+
+interface WebSearchSource {
+  title: string;
+  url: string;
+  snippet?: string;
+  author?: string;
+}
+
+interface WebSearchQueryResult {
+  query: string;
+  answer?: string;
+  sources: WebSearchSource[];
+}
+
+function parseWebSearchOutput(output: string | undefined): WebSearchQueryResult[] {
+  if (!output) return [];
+
+  let parsed: any = null;
+  try {
+    let result = JSON.parse(output);
+    // Handle double-encoded JSON
+    if (typeof result === 'string') {
+      try { result = JSON.parse(result); } catch {}
+    }
+    parsed = typeof result === 'object' ? result : null;
+  } catch {
+    // Try trimming whitespace/BOM
+    const trimmed = output.trim().replace(/^\uFEFF/, '');
+    if (trimmed !== output) {
+      try { parsed = JSON.parse(trimmed); } catch {}
+    }
+  }
+
+  if (parsed) {
+    // Batch mode: { results: [{ query, answer, results: [...] }] }
+    if (parsed.results && Array.isArray(parsed.results) && parsed.results.length > 0) {
+      const firstItem = parsed.results[0];
+      if (firstItem && typeof firstItem.query === 'string') {
+        const queryResults: WebSearchQueryResult[] = [];
+        for (const r of parsed.results) {
+          if (typeof r.query !== 'string') continue;
+          const sources: WebSearchSource[] = [];
+          if (Array.isArray(r.results)) {
+            for (const s of r.results) {
+              if (s.title && s.url) {
+                sources.push({
+                  title: s.title, url: s.url,
+                  snippet: s.snippet || s.content || s.text || undefined,
+                  author: s.author || undefined,
+                });
+              }
+            }
+          }
+          queryResults.push({ query: r.query, answer: r.answer || undefined, sources });
+        }
+        if (queryResults.length > 0) return queryResults;
+      } else if (firstItem && (firstItem.title || firstItem.url)) {
+        // Direct results array: { results: [{title, url, content}] }
+        const sources: WebSearchSource[] = [];
+        for (const s of parsed.results) {
+          if (s.title && s.url) {
+            sources.push({
+              title: s.title, url: s.url,
+              snippet: s.snippet || s.content || s.text || undefined,
+              author: s.author || undefined,
+            });
+          }
+        }
+        if (sources.length > 0) return [{ query: parsed.query || '', answer: parsed.answer || undefined, sources }];
+      }
+    }
+    // Single result: { query, answer, results: [...] }
+    if (parsed.query && typeof parsed.query === 'string') {
+      const sources: WebSearchSource[] = [];
+      if (Array.isArray(parsed.results)) {
+        for (const s of parsed.results) {
+          if (s.title && s.url) {
+            sources.push({
+              title: s.title, url: s.url,
+              snippet: s.snippet || s.content || s.text || undefined,
+              author: s.author || undefined,
+            });
+          }
+        }
+      }
+      return [{ query: parsed.query, answer: parsed.answer || undefined, sources }];
+    }
+    // Flat array: [{title, url}, ...]
+    if (Array.isArray(parsed) && parsed.length > 0 && (parsed[0].title || parsed[0].url)) {
+      const sources: WebSearchSource[] = [];
+      for (const s of parsed) {
+        if (s.title && s.url) {
+          sources.push({
+            title: s.title, url: s.url,
+            snippet: s.snippet || s.content || s.text || undefined,
+            author: s.author || undefined,
+          });
+        }
+      }
+      if (sources.length > 0) return [{ query: '', sources }];
+    }
+  }
+
+  // Plain text fallback: Title: ...\nURL: ...
+  if (typeof output === 'string') {
+    const blocks = output.split(/(?=^Title: )/m).filter(Boolean);
+    const sources: WebSearchSource[] = [];
+    for (const block of blocks) {
+      const titleMatch = block.match(/^Title:\s*(.+)/m);
+      const urlMatch = block.match(/^URL:\s*(.+)/m);
+      const textMatch = block.match(/^Text:\s*([\s\S]*?)$/m);
+      if (titleMatch && urlMatch) {
+        sources.push({
+          title: titleMatch[1].trim(), url: urlMatch[1].trim(),
+          snippet: textMatch?.[1]?.trim() || undefined,
+        });
+      }
+    }
+    if (sources.length > 0) return [{ query: '', sources }];
+  }
+  return [];
+}
+
+// ─── Web Search source row ───────────────────────────────────────────────────
+
+function WebSearchSourceRow({ source, isDark }: { source: WebSearchSource; isDark: boolean }) {
+  const domain = source.url.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+  const faviconUri = getFaviconUrl(source.url);
+
+  return (
+    <View style={{ flexDirection: 'row', paddingVertical: 7 }}>
+      {/* Favicon */}
+      <View style={{
+        width: 20, height: 20, borderRadius: 4,
+        backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+        alignItems: 'center', justifyContent: 'center',
+        marginRight: 10, marginTop: 1,
+      }}>
+        <Image source={{ uri: faviconUri }} style={{ width: 14, height: 14, borderRadius: 2 }} />
+      </View>
+      {/* Content */}
+      <View style={{ flex: 1 }}>
+        <Text numberOfLines={1} style={{ fontSize: 11, fontFamily: 'Roobert-Medium', color: fg(isDark) }}>
+          {source.title}
+        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 1 }}>
+          <Text numberOfLines={1} style={{ fontSize: 9, fontFamily: monoFont, color: muted(isDark) }}>
+            {domain}
+          </Text>
+          {source.author && (
+            <Text numberOfLines={1} style={{ fontSize: 9, fontFamily: 'Roobert', color: muted(isDark), marginLeft: 6 }}>
+              {source.author}
+            </Text>
+          )}
+        </View>
+        {source.snippet && (
+          <Text numberOfLines={2} style={{ fontSize: 10, fontFamily: 'Roobert', color: mutedStrong(isDark), lineHeight: 15, marginTop: 2 }}>
+            {source.snippet.slice(0, 200)}
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
+// ─── Web Search expanded content ─────────────────────────────────────────────
+
+function WebSearchExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const rawOutput = tool.state.status === 'completed' && 'output' in tool.state ? tool.state.output : undefined;
+  const queryResults = useMemo(() => parseWebSearchOutput(rawOutput), [rawOutput]);
+  const [expandedQuery, setExpandedQuery] = useState<number | null>(null);
+
+  const isMulti = queryResults.length > 1;
+
+  if (queryResults.length === 0) {
+    if (rawOutput?.trim()) {
+      return (
+        <View style={{ paddingHorizontal: 12, paddingVertical: 10 }}>
+          <MonoBlock isDark={isDark} maxLines={20}>{rawOutput.trim()}</MonoBlock>
+        </View>
+      );
+    }
+    return null;
+  }
+
+  return (
+    <ScrollView style={{ maxHeight: 400 }} nestedScrollEnabled showsVerticalScrollIndicator>
+      {queryResults.map((qr, qi) => {
+        const isExpanded = expandedQuery === qi;
+        const showContent = !isMulti || isExpanded;
+
+        return (
+          <View
+            key={qi}
+            style={{
+              borderTopWidth: qi > 0 ? 1 : 0,
+              borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+            }}
+          >
+            {/* Query header (batch mode only) */}
+            {isMulti && (
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => {
+                  LayoutAnimation.configureNext({
+                    duration: 200,
+                    create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+                    update: { type: LayoutAnimation.Types.easeInEaseOut },
+                    delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+                  });
+                  setExpandedQuery(isExpanded ? null : qi);
+                }}
+                style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8 }}
+              >
+                <Search size={12} color={muted(isDark)} style={{ marginRight: 8 }} />
+                <Text numberOfLines={1} style={{ fontSize: 11, fontFamily: 'Roobert-Medium', color: fg(isDark), flex: 1 }}>
+                  {qr.query}
+                </Text>
+                {qr.sources.length > 0 && (
+                  <View style={{
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                    width: 20, height: 20, borderRadius: 10,
+                    alignItems: 'center', justifyContent: 'center', marginLeft: 6,
+                  }}>
+                    <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: mutedStrong(isDark), textAlign: 'center', includeFontPadding: false, lineHeight: 10 }}>
+                      {qr.sources.length}
+                    </Text>
+                  </View>
+                )}
+                <ChevronRight
+                  size={12}
+                  color={muted(isDark)}
+                  style={{ marginLeft: 4, transform: [{ rotate: isExpanded ? '90deg' : '0deg' }] }}
+                />
+              </TouchableOpacity>
+            )}
+
+            {/* Answer + Sources */}
+            {showContent && (
+              <View style={{ paddingHorizontal: 12, paddingBottom: 10 }}>
+                {/* AI Answer */}
+                {!!qr.answer && (
+                  <View style={{ marginBottom: 8, marginTop: isMulti ? 0 : 4 }}>
+                    <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: fg(isDark), lineHeight: 17 }}>
+                      {qr.answer.slice(0, 500)}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Sources */}
+                {qr.sources.length > 0 && (
+                  <View>
+                    {qr.answer && (
+                      <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: muted(isDark), textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
+                        Sources
+                      </Text>
+                    )}
+                    {qr.sources.map((src, si) => (
+                      <View
+                        key={si}
+                        style={{
+                          borderTopWidth: si > 0 ? 1 : 0,
+                          borderTopColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                        }}
+                      >
+                        <WebSearchSourceRow source={src} isDark={isDark} />
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
+function GlobGrepExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const output = useMemo(() => {
+    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
+      return stripAnsi(tool.state.output).trim();
+    }
+    return undefined;
+  }, [tool.state]);
+
+  if (!output) return null;
+
+  const lines = output.split('\n').filter(Boolean);
+  const isPathList = lines.length > 0 && lines.slice(0, 5).every(l => l.includes('/') || l.includes('.'));
+
+  if (isPathList) {
+    return (
+      <View style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
+        {lines.slice(0, 30).map((line, i) => {
+          const parts = line.split('/');
+          const filename = parts[parts.length - 1] || line;
+          const dir = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+          return (
+            <View
+              key={i}
+              style={{
+                flexDirection: 'row',
+                paddingVertical: 4,
+                borderBottomWidth: i < Math.min(lines.length, 30) - 1 ? 1 : 0,
+                borderBottomColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+              }}
+            >
+              <Text numberOfLines={1} style={{ fontSize: 11, fontFamily: monoFont, color: fg(isDark) }}>
+                {filename}
+              </Text>
+              {!!dir && (
+                <Text numberOfLines={1} style={{ fontSize: 11, fontFamily: monoFont, color: muted(isDark), marginLeft: 6, flex: 1 }}>
+                  {dir}
+                </Text>
+              )}
+            </View>
+          );
+        })}
+        {lines.length > 30 && (
+          <Text style={{ fontSize: 10, fontFamily: 'Roobert', color: muted(isDark), marginTop: 6 }}>
+            +{lines.length - 30} more
+          </Text>
+        )}
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ paddingHorizontal: 12, paddingVertical: 10, maxHeight: 250 }}>
+      <MonoBlock isDark={isDark} maxLines={30}>
+        {output.length > 3000 ? output.slice(0, 3000) + '\n...' : output}
+      </MonoBlock>
+    </View>
+  );
+}
+
+function ShowExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const input = getToolInput(tool);
+  const title = input.title || input.description || '';
+  const filePath = input.path || '';
+  const content = input.content || '';
+
+  // Parse output (always, to avoid conditional hook)
+  const parsedOutput = useMemo(() => {
+    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
+      const raw = tool.state.output.trim();
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed.entry?.path || parsed.path) {
+          const p = parsed.entry?.path || parsed.path;
+          const t = parsed.entry?.title || parsed.title || title;
+          return { type: 'file' as const, path: p, title: t };
+        }
+        if (parsed.message) {
+          return { type: 'message' as const, text: parsed.message };
+        }
+      } catch {}
+      return { type: 'raw' as const, text: raw };
+    }
+    return undefined;
+  }, [tool.state, title]);
+
+  // Show file content with syntax highlighting if available
+  if (content) {
+    return (
+      <ScrollView
+        style={{ maxHeight: 300 }}
+        contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 10 }}
+        nestedScrollEnabled
+        showsVerticalScrollIndicator
+      >
+        <HighlightedCode
+          content={content.length > 4000 ? content.slice(0, 4000) : content}
+          filePath={filePath || 'file.md'}
+          isDark={isDark}
+          maxLines={50}
+        />
+      </ScrollView>
+    );
+  }
+
+  if (!parsedOutput) return null;
+
+  if (parsedOutput.type === 'file') {
+    return (
+      <View style={{ paddingHorizontal: 12, paddingVertical: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+          <Ionicons name="document-text-outline" size={14} color={muted(isDark)} style={{ marginRight: 6 }} />
+          <Text numberOfLines={1} style={{ fontSize: 11, fontFamily: monoFont, color: mutedStrong(isDark), flex: 1 }}>
+            {parsedOutput.path}
+          </Text>
+        </View>
+        {parsedOutput.title && (
+          <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: fg(isDark) }}>
+            {parsedOutput.title}
+          </Text>
+        )}
+      </View>
+    );
+  }
+
+  if (parsedOutput.type === 'message') {
+    return (
+      <View style={{ paddingHorizontal: 12, paddingVertical: 10 }}>
+        <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: fg(isDark), lineHeight: 18 }}>
+          {parsedOutput.text}
+        </Text>
+      </View>
+    );
+  }
+
+  // Raw fallback
+  return (
+    <View style={{ paddingHorizontal: 12, paddingVertical: 10, maxHeight: 200 }}>
+      <MonoBlock isDark={isDark} maxLines={15}>
+        {parsedOutput.text.length > 1000 ? parsedOutput.text.slice(0, 1000) + '\n...' : parsedOutput.text}
+      </MonoBlock>
+    </View>
+  );
+}
+
+function GenericExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const output = useMemo(() => {
+    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
+      return stripAnsi(tool.state.output).trim();
+    }
+    if (tool.state.status === 'error' && 'error' in tool.state) {
+      return tool.state.error;
+    }
+    return undefined;
+  }, [tool.state]);
+
+  if (!output) return null;
+
+  return (
+    <View style={{ paddingHorizontal: 12, paddingVertical: 10, maxHeight: 250 }}>
+      <MonoBlock isDark={isDark} color={tool.state.status === 'error' ? (isDark ? '#f87171' : '#dc2626') : undefined} maxLines={30}>
+        {output.length > 3000 ? output.slice(0, 3000) + '\n...' : output}
+      </MonoBlock>
+    </View>
+  );
+}
+
+// ─── Memory tool renderers ───────────────────────────────────────────────────
+
+function GetMemExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const output = useMemo(() => {
+    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
+      return tool.state.output.trim();
+    }
+    return '';
+  }, [tool.state]);
+
+  const parsed = useMemo(() => {
+    if (!output) return null;
+
+    // Try LTM format: === LTM #N [type] ===
+    const ltmMatch = output.match(/===\s*LTM\s*#(\d+)\s*\[(\w+)\]\s*===/);
+    if (ltmMatch) {
+      const id = ltmMatch[1];
+      const type = ltmMatch[2];
+      const body = output.slice(ltmMatch.index! + ltmMatch[0].length);
+      const caption = body.match(/Caption:\s*(.+)/)?.[1]?.trim() || '';
+      const content = body.match(/Content:\s*([\s\S]*?)(?=\n(?:Session|Created|Tags):|$)/)?.[1]?.trim() || '';
+      const session = body.match(/Session:\s*(\S+)/)?.[1]?.trim() || '';
+      const created = body.match(/Created:\s*(.+?)(?:\s*\||\s*$)/)?.[1]?.trim() || '';
+      const updated = body.match(/Updated:\s*(.+)/)?.[1]?.trim() || '';
+      const tagsStr = body.match(/Tags:\s*(.+)/)?.[1]?.trim() || '';
+      const tags = tagsStr ? tagsStr.split(',').map(t => t.trim()).filter(Boolean) : [];
+      return { kind: 'ltm' as const, id, type, caption, content, session, created, updated, tags };
+    }
+
+    // Try Observation format: === Observation #N [type] ===
+    const obsMatch = output.match(/===\s*Observation\s*#(\d+)\s*\[(\w+)\]\s*===/);
+    if (obsMatch) {
+      const id = obsMatch[1];
+      const type = obsMatch[2];
+      const body = output.slice(obsMatch.index! + obsMatch[0].length);
+      const title = body.match(/Title:\s*(.+)/)?.[1]?.trim() || '';
+      const narrative = body.match(/Narrative:\s*([\s\S]*?)(?=\n(?:Facts|Concepts|Tool|Session|Created):|$)/)?.[1]?.trim() || '';
+      const factsStr = body.match(/Facts:\s*([\s\S]*?)(?=\n(?:Concepts|Tool|Session|Created):|$)/)?.[1]?.trim() || '';
+      const facts = factsStr ? factsStr.split('\n').map(f => f.replace(/^[-•*]\s*/, '').trim()).filter(Boolean) : [];
+      const conceptsStr = body.match(/Concepts:\s*(.+)/)?.[1]?.trim() || '';
+      const concepts = conceptsStr ? conceptsStr.split(',').map(c => c.trim()).filter(Boolean) : [];
+      return { kind: 'observation' as const, id, type, title, narrative, facts, concepts };
+    }
+
+    return null;
+  }, [output]);
+
+  if (!parsed && !output) return null;
+
+  const tagColor = isDark ? { bg: 'rgba(16,185,129,0.12)', text: '#34d399', border: 'rgba(16,185,129,0.2)' }
+                          : { bg: 'rgba(16,185,129,0.08)', text: '#059669', border: 'rgba(16,185,129,0.2)' };
+  const headerBg = isDark ? 'rgba(245,158,11,0.06)' : 'rgba(245,158,11,0.04)';
+  const badgeBg = isDark ? 'rgba(245,158,11,0.12)' : 'rgba(245,158,11,0.08)';
+  const badgeText = isDark ? '#fbbf24' : '#b45309';
+  const sectionBorder = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+
+  if (!parsed) {
+    return (
+      <View style={{ paddingHorizontal: 12, paddingVertical: 10, maxHeight: 250 }}>
+        <MonoBlock isDark={isDark} maxLines={30}>{output.slice(0, 3000)}</MonoBlock>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView style={{ maxHeight: 350 }} nestedScrollEnabled showsVerticalScrollIndicator contentContainerStyle={{ padding: 10 }}>
+      {/* Header */}
+      <View style={{ backgroundColor: headerBg, borderRadius: 10, padding: 10, marginBottom: 8 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+          <View style={{ backgroundColor: badgeBg, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1 }}>
+            <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: badgeText }}>
+              {parsed.kind === 'ltm' ? `LTM #${parsed.id}` : `Observation #${parsed.id}`}
+            </Text>
+          </View>
+          <View style={{ backgroundColor: badgeBg, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1 }}>
+            <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: badgeText, textTransform: 'uppercase' }}>
+              {parsed.type}
+            </Text>
+          </View>
+        </View>
+        {parsed.kind === 'observation' && parsed.title && (
+          <Text style={{ fontSize: 13, fontFamily: 'Roobert-SemiBold', color: fg(isDark), marginTop: 6 }}>
+            {parsed.title}
+          </Text>
+        )}
+      </View>
+
+      {/* Content sections */}
+      {parsed.kind === 'ltm' && (
+        <>
+          {!!parsed.caption && (
+            <View style={{ borderRadius: 8, borderWidth: 1, borderColor: sectionBorder, padding: 10, marginBottom: 6 }}>
+              <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: muted(isDark), textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Caption</Text>
+              <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: fg(isDark), lineHeight: 17 }}>{parsed.caption}</Text>
+            </View>
+          )}
+          {!!parsed.content && (
+            <View style={{ borderRadius: 8, borderWidth: 1, borderColor: sectionBorder, padding: 10, marginBottom: 6 }}>
+              <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: muted(isDark), textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Content</Text>
+              <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: fg(isDark), lineHeight: 17 }}>{parsed.content}</Text>
+            </View>
+          )}
+          {parsed.tags.length > 0 && (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+              {parsed.tags.map((tag, i) => (
+                <View key={i} style={{ backgroundColor: tagColor.bg, borderRadius: 10, borderWidth: 1, borderColor: tagColor.border, paddingHorizontal: 6, paddingVertical: 1 }}>
+                  <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: tagColor.text }}>{tag}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+          {(parsed.session || parsed.created) && (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+              {!!parsed.session && <Text style={{ fontSize: 9, fontFamily: monoFont, color: muted(isDark) }}>{parsed.session}</Text>}
+              {!!parsed.created && <Text style={{ fontSize: 9, fontFamily: 'Roobert', color: muted(isDark) }}>{parsed.created}</Text>}
+            </View>
+          )}
+        </>
+      )}
+
+      {parsed.kind === 'observation' && (
+        <>
+          {!!parsed.narrative && (
+            <View style={{ borderRadius: 8, borderWidth: 1, borderColor: sectionBorder, padding: 10, marginBottom: 6 }}>
+              <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: muted(isDark), textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Narrative</Text>
+              <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: fg(isDark), lineHeight: 17 }}>{parsed.narrative}</Text>
+            </View>
+          )}
+          {parsed.facts.length > 0 && (
+            <View style={{ borderRadius: 8, borderWidth: 1, borderColor: sectionBorder, padding: 10, marginBottom: 6 }}>
+              <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: muted(isDark), textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Facts</Text>
+              {parsed.facts.map((fact, i) => (
+                <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 3 }}>
+                  <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: isDark ? '#34d399' : '#059669', marginTop: 5, marginRight: 6 }} />
+                  <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: fg(isDark), lineHeight: 17, flex: 1 }}>{fact}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+          {parsed.concepts.length > 0 && (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+              {parsed.concepts.map((concept, i) => (
+                <View key={i} style={{ backgroundColor: tagColor.bg, borderRadius: 10, borderWidth: 1, borderColor: tagColor.border, paddingHorizontal: 6, paddingVertical: 1 }}>
+                  <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: tagColor.text }}>{concept}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </>
+      )}
+    </ScrollView>
+  );
+}
+
+function LtmSearchExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const output = useMemo(() => {
+    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
+      return tool.state.output.trim();
+    }
+    return '';
+  }, [tool.state]);
+
+  const { label, hits } = useMemo(() => {
+    if (!output) return { label: '', hits: [] as any[] };
+
+    // Parse header: === LTM Search: "query" (N results) ===
+    const headerMatch = output.match(/===\s*(.+?)\s*===/);
+    const label = headerMatch?.[1] || '';
+
+    // Parse detailed blocks: #N [type] — content
+    const blockRe = /#(\d+)\s*\[(\w+)\]\s*[—–-]\s*([\s\S]*?)(?=\n\s*#\d+\s*\[|$)/g;
+    const hits: { id: string; type: string; content: string; confidence?: number }[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = blockRe.exec(output)) !== null) {
+      const content = m[3].trim().replace(/^\s*Files:.*$/m, '').trim();
+      hits.push({ id: m[1], type: m[2], content });
+    }
+
+    return { label, hits };
+  }, [output]);
+
+  if (!output) return null;
+
+  if (hits.length === 0) {
+    return (
+      <View style={{ paddingHorizontal: 12, paddingVertical: 10, maxHeight: 250 }}>
+        <MonoBlock isDark={isDark} maxLines={30}>{output.slice(0, 3000)}</MonoBlock>
+      </View>
+    );
+  }
+
+  const sectionBorder = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+
+  return (
+    <ScrollView style={{ maxHeight: 350 }} nestedScrollEnabled showsVerticalScrollIndicator contentContainerStyle={{ padding: 10 }}>
+      {hits.map((hit, i) => (
+        <View
+          key={i}
+          style={{
+            borderRadius: 8, borderWidth: 1, borderColor: sectionBorder,
+            padding: 10, marginBottom: 6, backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)',
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <View style={{
+              backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+              borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1,
+            }}>
+              <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: mutedStrong(isDark) }}>
+                {hit.type}
+              </Text>
+            </View>
+            <Text style={{ fontSize: 9, fontFamily: monoFont, color: muted(isDark) }}>
+              #{hit.id}
+            </Text>
+          </View>
+          <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: fg(isDark), lineHeight: 17 }}>
+            {hit.content}
+          </Text>
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
+function QuestionExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const input = getToolInput(tool);
+
+  // Parse questions and answers from input or output
+  const qaPairs = useMemo(() => {
+    const pairs: { question: string; answer: string }[] = [];
+
+    // First, try to get answers from output
+    const outputAnswers = new Map<string, string>();
+    const raw = (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output)
+      ? tool.state.output.trim() : '';
+
+    if (raw) {
+      // Try "question"="answer" format
+      const pairMatches = [...raw.matchAll(/"([^"]+?)"\s*=\s*"([^"]*?)"/g)];
+      for (const m of pairMatches) {
+        outputAnswers.set(m[1], m[2]);
+      }
+
+      // Try JSON format
+      if (outputAnswers.size === 0) {
+        try {
+          const parsed = JSON.parse(raw);
+          const arr = Array.isArray(parsed) ? parsed : parsed?.questions;
+          if (Array.isArray(arr)) {
+            for (const item of arr) {
+              if (item.question && item.answer) {
+                outputAnswers.set(item.question, item.answer);
+              }
+            }
+          }
+        } catch {}
+      }
+    }
+
+    // Get questions from input and merge with answers from output
+    const questions = input.questions;
+    if (Array.isArray(questions)) {
+      for (const q of questions) {
+        const qText = typeof q === 'object' ? q.question : typeof q === 'string' ? q : '';
+        const inputAnswer = typeof q === 'object' ? q.answer || '' : '';
+        const outputAnswer = outputAnswers.get(qText) || '';
+        pairs.push({ question: qText, answer: inputAnswer || outputAnswer });
+      }
+      // Also add any output pairs not found in input
+      for (const [question, answer] of outputAnswers) {
+        if (!pairs.some(p => p.question === question)) {
+          pairs.push({ question, answer });
+        }
+      }
+      if (pairs.length > 0) return pairs;
+    }
+
+    // No input questions — use output pairs directly
+    if (outputAnswers.size > 0) {
+      for (const [question, answer] of outputAnswers) {
+        pairs.push({ question, answer });
+      }
+      return pairs;
+    }
+
+    // Fallback: show raw output
+    if (raw) return [{ question: '', answer: raw }];
+
+    return pairs;
+  }, [input, tool.state]);
+
+  const answeredCount = qaPairs.filter(q => q.answer).length;
+
+  if (qaPairs.length === 0) return null;
+
+  return (
+    <View style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
+      {qaPairs.map((qa, i) => (
+        <View
+          key={i}
+          style={{
+            paddingVertical: 6,
+            borderBottomWidth: i < qaPairs.length - 1 ? 1 : 0,
+            borderBottomColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+          }}
+        >
+          {!!qa.question && (
+            <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: mutedStrong(isDark), lineHeight: 18 }}>
+              {qa.question}
+            </Text>
+          )}
+          {!!qa.answer && (
+            <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: fg(isDark), lineHeight: 18, marginTop: qa.question ? 2 : 0 }}>
+              {qa.answer}
+            </Text>
+          )}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// ─── Get expanded content by tool type ───────────────────────────────────────
+
+function getExpandedContent(tool: ToolPart, isDark: boolean): React.ReactNode {
+  switch (tool.tool) {
+    case 'bash':
+      return <ShellExpandedContent tool={tool} isDark={isDark} />;
+    case 'write':
+    case 'edit':
+    case 'morph_edit':
+      return <WriteEditExpandedContent tool={tool} isDark={isDark} />;
+    case 'todowrite':
+      return <TodosExpandedContent tool={tool} isDark={isDark} />;
+    case 'read':
+      return <ReadExpandedContent tool={tool} isDark={isDark} />;
+    case 'websearch':
+    case 'web-search':
+    case 'web_search':
+      return <WebSearchExpandedContent tool={tool} isDark={isDark} />;
+    case 'glob':
+    case 'grep':
+    case 'list':
+      return <GlobGrepExpandedContent tool={tool} isDark={isDark} />;
+    case 'question':
+      return <QuestionExpandedContent tool={tool} isDark={isDark} />;
+    case 'get_mem':
+    case 'get-mem':
+    case 'oc-get_mem':
+    case 'oc-get-mem':
+      return <GetMemExpandedContent tool={tool} isDark={isDark} />;
+    case 'ltm_search':
+    case 'ltm-search':
+    case 'mem_search':
+    case 'mem-search':
+    case 'memory_search':
+    case 'memory-search':
+    case 'oc-mem_search':
+    case 'oc-mem-search':
+      return <LtmSearchExpandedContent tool={tool} isDark={isDark} />;
+    case 'show':
+    case 'show-user':
+      return <ShowExpandedContent tool={tool} isDark={isDark} />;
+    case 'webfetch':
+    case 'scrape-webpage':
+      return <GenericExpandedContent tool={tool} isDark={isDark} />;
+    default:
+      return <GenericExpandedContent tool={tool} isDark={isDark} />;
+  }
+}
+
+// ─── Check if tool has expandable content ────────────────────────────────────
+
+function toolHasExpandableContent(tool: ToolPart): boolean {
+  const { state } = tool;
+  const input = getToolInput(tool);
+  // Running/pending tools are always expandable (to watch streaming)
+  if (state.status === 'running' || state.status === 'pending') return true;
+  // Todos always expandable if input has todos
+  if (tool.tool === 'todowrite' && Array.isArray(input.todos) && input.todos.length > 0) return true;
+  // Shell expandable if has command, description, or output
+  if (tool.tool === 'bash' && (input.command || input.description)) return true;
+  // Write/Edit expandable if has content
+  if ((tool.tool === 'write' || tool.tool === 'edit' || tool.tool === 'morph_edit') &&
+      (input.content || input.oldString || input.newString)) return true;
+  // Show tool expandable if has content or path
+  if ((tool.tool === 'show' || tool.tool === 'show-user') && (input.content || input.path)) return true;
+  // Question tool always expandable
+  if (tool.tool === 'question') return true;
+  // Any tool with completed output is expandable
+  if (state.status === 'completed' && 'output' in state && state.output?.trim()) return true;
+  // Any tool with error is expandable
+  if (state.status === 'error' && 'error' in state && state.error) return true;
+  return false;
+}
+
+// ─── ToolCard — expandable tool call card ────────────────────────────────────
+
+function ToolCard({
+  tool,
+  isDark,
+}: {
+  tool: ToolPart;
+  isDark: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const input = getToolInput(tool);
+  const info = getToolInfo(tool.tool, input);
+  const isRunning = tool.state.status === 'pending' || tool.state.status === 'running';
+  const isError = tool.state.status === 'error';
+
+  // Question tool: compute "N answered" subtitle
+  const questionSubtitle = useMemo(() => {
+    if (tool.tool !== 'question') return undefined;
+    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
+      const raw = tool.state.output.trim();
+      // Count answered questions from "q"="a" pairs
+      const matches = [...raw.matchAll(/"[^"]+?"\s*=\s*"[^"]*?"/g)];
+      if (matches.length > 0) return `${matches.length} answered`;
+      // Try JSON
+      try {
+        const parsed = JSON.parse(raw);
+        const arr = Array.isArray(parsed) ? parsed : parsed?.questions;
+        if (Array.isArray(arr)) {
+          const answered = arr.filter((q: any) => q.answer).length;
+          if (answered > 0) return `${answered} answered`;
+        }
+      } catch {}
+    }
+    return undefined;
+  }, [tool.tool, tool.state]);
+
+  const displaySubtitle = questionSubtitle || info.subtitle;
+
+  const IconComponent = getToolLucideIcon(info.icon);
+  const iconColor = mutedStrong(isDark);
+
+  const hasExpandable = toolHasExpandableContent(tool);
+
+  const chevronRotation = useSharedValue(0);
+
+  const handlePress = useCallback(() => {
+    if (!hasExpandable && !isRunning) return;
+    LayoutAnimation.configureNext({
+      duration: 200,
+      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+      update: { type: LayoutAnimation.Types.easeInEaseOut },
+      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+    });
+    setExpanded((prev) => !prev);
+  }, [hasExpandable, isRunning]);
+
+  useEffect(() => {
+    chevronRotation.value = withTiming(expanded ? 1 : 0, { duration: 200 });
+  }, [expanded]);
+
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${chevronRotation.value * 90}deg` }],
+  }));
+
+  return (
+    <View
+      style={{
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: cardBorder(isDark),
+        backgroundColor: cardBg(isDark),
+        marginBottom: 6,
+        overflow: 'hidden',
+      }}
+    >
+      {/* Header row */}
+      <TouchableOpacity
+        activeOpacity={hasExpandable ? 0.7 : 1}
+        onPress={handlePress}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+        }}
+      >
+        {/* Tool icon */}
+        <IconComponent size={15} color={iconColor} style={{ marginRight: 8 }} />
+
+        {isRunning ? (
+          /* Shimmer over title + subtitle while streaming */
+          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+            <ShimmerStatusText text={info.title + (info.subtitle ? ` ${info.subtitle}` : '')} size="sm" />
+          </View>
+        ) : (
+          <>
+            {/* Title */}
+            <Text
+              style={{
+                fontSize: 13,
+                fontFamily: 'Roobert-Medium',
+                color: fg(isDark),
+              }}
+            >
+              {info.title}
+            </Text>
+
+            {/* Subtitle */}
+            {displaySubtitle && (
+              <Text
+                numberOfLines={1}
+                style={{
+                  flex: 1,
+                  marginLeft: 6,
+                  fontSize: 12,
+                  fontFamily: questionSubtitle ? 'Roobert' : monoFont,
+                  color: muted(isDark),
+                }}
+              >
+                {displaySubtitle}
+              </Text>
+            )}
+          </>
+        )}
+
+        {/* Right side: status indicator or chevron */}
+        <View style={{ marginLeft: 'auto', paddingLeft: 8 }}>
+          {isRunning ? (
+            <SpinningLoader size={14} color={muted(isDark)} />
+          ) : isError ? (
+            <CircleAlert size={14} color={isDark ? '#ef4444' : '#dc2626'} />
+          ) : hasExpandable ? (
+            <ReAnimated.View style={chevronStyle}>
+              <ChevronRight size={14} color={isDark ? '#52525b' : '#a1a1aa'} />
+            </ReAnimated.View>
+          ) : (
+            <Check size={14} color={isDark ? '#4ade80' : '#16a34a'} />
+          )}
+        </View>
+      </TouchableOpacity>
+
+      {/* Expanded content — tool-specific */}
+      {expanded && (
+        <View
+          style={{
+            borderTopWidth: 1,
+            borderTopColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+          }}
+        >
+          {getExpandedContent(tool, isDark)}
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ─── Spinning Loader ─────────────────────────────────────────────────────────
+
+function SpinningLoader({ size, color }: { size: number; color: string }) {
+  const rotation = useSharedValue(0);
+
+  useEffect(() => {
+    rotation.value = withRepeat(
+      withTiming(360, { duration: 1000, easing: Easing.linear }),
+      -1,
+      false,
+    );
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+  }));
+
+  return (
+    <ReAnimated.View style={animatedStyle}>
+      <Loader2 size={size} color={color} />
+    </ReAnimated.View>
   );
 }
 
@@ -305,46 +2060,29 @@ export function SessionTurn({
     [userText, commands],
   );
 
-  // Get response text
-  const response = useMemo(() => {
-    if (working) {
-      // While working, get streaming text from last assistant message
-      const lastMsg = turn.assistantMessages[turn.assistantMessages.length - 1];
-      if (lastMsg) {
-        return lastMsg.parts
-          .filter(isTextPart)
-          .map((p) => (p as TextPart).text)
-          .join('');
-      }
-      return '';
-    }
-    const lastText = findLastTextPart(allParts);
-    return lastText?.text ?? '';
-  }, [working, turn.assistantMessages, allParts]);
-
-  // Get tool parts — hide question tool when there's a pending question for it
-  const toolParts = useMemo(() => {
+  // Build interleaved parts list (text, tools, reasoning in natural order)
+  // Hide question tool parts with pending questions, hide internal tools
+  const visibleParts = useMemo(() => {
     const pendingCallIDs = new Set(
       pendingQuestions.filter((q) => q.tool).map((q) => q.tool!.callID),
     );
-    return allParts
-      .filter(({ part }) => {
-        if (!isToolPart(part)) return false;
+    return allParts.filter(({ part }) => {
+      if (isToolPart(part)) {
         const tp = part as ToolPart;
         if (!shouldShowToolPart(tp)) return false;
-        // Hide question tool parts that have a pending question
         if (tp.tool === 'question' && pendingCallIDs.has(tp.callID)) return false;
         return true;
-      })
-      .map(({ part }) => part as ToolPart);
+      }
+      if (isTextPart(part)) return !!(part as TextPart).text?.trim();
+      if (isReasoningPart(part)) return !!(part as ReasoningPart).text?.trim();
+      return false;
+    });
   }, [allParts, pendingQuestions]);
 
-  // Get reasoning
-  const reasoningText = useMemo(() => {
-    return allParts
-      .filter(({ part }) => isReasoningPart(part) && !!(part as ReasoningPart).text?.trim())
-      .map(({ part }) => (part as ReasoningPart).text)
-      .join('\n');
+  // Get the final response text (last text part) for copy/actions
+  const response = useMemo(() => {
+    const lastText = findLastTextPart(allParts);
+    return lastText?.text ?? '';
   }, [allParts]);
 
   const turnError = useMemo(() => getTurnError(turn), [turn]);
@@ -429,76 +2167,56 @@ export function SessionTurn({
         )}
       </View>
 
-      {/* Assistant response */}
+      {/* Assistant response — interleaved text + tool calls */}
       {(turn.assistantMessages.length > 0 || working) && (
         <View className="px-4">
-          {/* Tool calls */}
-          {toolParts.length > 0 && (
-            <View className="mb-2">
-              {toolParts.map((tool) => {
-                const info = getToolInfo(tool.tool, tool.input);
-                const isRunning =
-                  tool.state.status === 'pending' || tool.state.status === 'running';
-                const isError = tool.state.status === 'error';
-
-                return (
-                  <View
-                    key={tool.id}
-                    className="flex-row items-center rounded-lg px-3 py-2 mb-1 bg-muted/20 border border-border/40"
+          {visibleParts.map(({ part }) => {
+            if (isToolPart(part)) {
+              const tp = part as ToolPart;
+              return <ToolCard key={tp.id} tool={tp} isDark={isDark} />;
+            }
+            if (isTextPart(part)) {
+              const tp = part as TextPart;
+              if (!tp.text?.trim()) return null;
+              return (
+                <View key={tp.id} className="mb-2">
+                  <SelectableMarkdownText isDark={isDark}>
+                    {tp.text}
+                  </SelectableMarkdownText>
+                </View>
+              );
+            }
+            if (isReasoningPart(part)) {
+              const rp = part as ReasoningPart;
+              if (!rp.text?.trim()) return null;
+              return (
+                <View
+                  key={rp.id}
+                  className="rounded-lg px-3 py-2 mb-2 border-l-2 bg-muted/20 border-border/30"
+                >
+                  <Text
+                    className="text-xs italic text-muted-foreground/65"
+                    numberOfLines={3}
                   >
-                    <Text className="text-xs mr-2">
-                      {isRunning ? '⏳' : isError ? '❌' : '✅'}
-                    </Text>
-                    <Text
-                      className="text-sm font-medium text-foreground"
-                      numberOfLines={1}
-                    >
-                      {info.title}
-                    </Text>
-                    {info.subtitle && (
-                      <Text
-                        className="text-sm ml-1 flex-1 text-muted-foreground"
-                        numberOfLines={1}
-                      >
-                        {info.subtitle}
-                      </Text>
-                    )}
-                  </View>
-                );
-              })}
-            </View>
-          )}
-
-          {/* Reasoning */}
-          {!!reasoningText && (
-            <View className="rounded-lg px-3 py-2 mb-2 border-l-2 bg-muted/20 border-border/30">
-              <Text
-                className="text-xs italic text-muted-foreground/65"
-                numberOfLines={3}
-              >
-                {reasoningText}
-              </Text>
-            </View>
-          )}
-
-          {/* Response text (rendered as markdown) */}
-          {!!response && (
-            <SelectableMarkdownText isDark={isDark}>
-              {response}
-            </SelectableMarkdownText>
-          )}
+                    {rp.text}
+                  </Text>
+                </View>
+              );
+            }
+            return null;
+          })}
 
           {/* Working indicator */}
-          {working && !response && (
+          {working && visibleParts.length === 0 && (
             <View className="flex-row items-center py-2">
               <View className="h-2 w-2 rounded-full bg-foreground mr-2 animate-pulse" />
               <ShimmerStatusText text={statusText || 'Thinking...'} size="sm" />
             </View>
           )}
 
-          {/* Working status with response */}
-          {working && !!response && (
-            <View className="flex-row items-center mt-1">
+          {/* Working status when there are already parts */}
+          {working && visibleParts.length > 0 && (
+            <View className="flex-row items-center mt-1 mb-1">
               <View className="h-1.5 w-1.5 rounded-full bg-foreground mr-1.5" />
               <ShimmerStatusText text={statusText || 'Working...'} size="xs" />
             </View>
