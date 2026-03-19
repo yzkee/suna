@@ -5,7 +5,7 @@
  */
 
 import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
-import { View, TouchableOpacity, Animated, StyleSheet, LayoutAnimation, Platform, UIManager, ScrollView } from 'react-native';
+import { View, TouchableOpacity, Animated, StyleSheet, LayoutAnimation, Platform, UIManager, ScrollView, Image } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
 import { Ionicons } from '@expo/vector-icons';
@@ -791,26 +791,47 @@ function ReadExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean
   );
 }
 
+function getFaviconUrl(url: string): string {
+  try {
+    const domain = url.replace(/^https?:\/\//, '').split('/')[0];
+    return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+  } catch {
+    return '';
+  }
+}
+
 function WebSearchExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
-  const results = useMemo(() => {
-    if (tool.state.status !== 'completed' || !('output' in tool.state) || !tool.state.output) return [];
+  const { aiAnswer, sources } = useMemo(() => {
+    if (tool.state.status !== 'completed' || !('output' in tool.state) || !tool.state.output) {
+      return { aiAnswer: '', sources: [] };
+    }
     try {
       const parsed = JSON.parse(tool.state.output);
-      // Handle different formats
-      if (Array.isArray(parsed)) return parsed;
-      if (parsed?.results && Array.isArray(parsed.results)) return parsed.results;
-      if (parsed?.queries) {
-        // Batch format - flatten
-        return parsed.queries.flatMap((q: any) => q.sources || q.results || []);
+
+      // Batch format with queries
+      if (parsed?.queries && Array.isArray(parsed.queries)) {
+        const allSources = parsed.queries.flatMap((q: any) => q.sources || q.results || []);
+        const answer = parsed.queries.map((q: any) => q.answer || q.ai_answer || '').filter(Boolean).join('\n\n');
+        return { aiAnswer: answer, sources: allSources };
       }
-      return [];
+      // Single query format
+      if (parsed?.sources || parsed?.results) {
+        return {
+          aiAnswer: parsed.answer || parsed.ai_answer || '',
+          sources: parsed.sources || parsed.results || [],
+        };
+      }
+      // Flat array of results
+      if (Array.isArray(parsed)) {
+        return { aiAnswer: '', sources: parsed };
+      }
+      return { aiAnswer: '', sources: [] };
     } catch {
-      return [];
+      return { aiAnswer: '', sources: [] };
     }
   }, [tool.state]);
 
-  if (results.length === 0) {
-    // Fallback to raw output
+  if (sources.length === 0 && !aiAnswer) {
     const rawOutput = tool.state.status === 'completed' && 'output' in tool.state ? tool.state.output?.trim() : undefined;
     if (rawOutput) {
       return (
@@ -823,32 +844,90 @@ function WebSearchExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: bo
   }
 
   return (
-    <View style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
-      {results.slice(0, 8).map((result: any, i: number) => (
-        <View
-          key={i}
-          style={{
-            paddingVertical: 6,
-            borderBottomWidth: i < Math.min(results.length, 8) - 1 ? 1 : 0,
-            borderBottomColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
-          }}
-        >
-          <Text numberOfLines={1} style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: fg(isDark), marginBottom: 2 }}>
-            {result.title || result.name || 'Untitled'}
+    <ScrollView
+      style={{ maxHeight: 350 }}
+      nestedScrollEnabled
+      showsVerticalScrollIndicator
+    >
+      {/* AI Answer */}
+      {!!aiAnswer && (
+        <View style={{
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          borderBottomWidth: sources.length > 0 ? 1 : 0,
+          borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+        }}>
+          <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: fg(isDark), lineHeight: 18 }}>
+            {aiAnswer.slice(0, 500)}
           </Text>
-          {(result.url || result.link) && (
-            <Text numberOfLines={1} style={{ fontSize: 10, fontFamily: monoFont, color: muted(isDark), marginBottom: 2 }}>
-              {(result.url || result.link).replace(/^https?:\/\//, '').split('/')[0]}
-            </Text>
-          )}
-          {(result.snippet || result.description || result.text) && (
-            <Text numberOfLines={2} style={{ fontSize: 11, fontFamily: 'Roobert', color: mutedStrong(isDark), lineHeight: 16 }}>
-              {(result.snippet || result.description || result.text).slice(0, 200)}
-            </Text>
-          )}
         </View>
-      ))}
-    </View>
+      )}
+
+      {/* Sources header */}
+      {sources.length > 0 && (
+        <View style={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: 4 }}>
+          <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: muted(isDark), textTransform: 'uppercase', letterSpacing: 1 }}>
+            Sources
+          </Text>
+        </View>
+      )}
+
+      {/* Source results */}
+      {sources.slice(0, 10).map((result: any, i: number) => {
+        const url = result.url || result.link || '';
+        const domain = url.replace(/^https?:\/\//, '').split('/')[0];
+        const faviconUri = url ? getFaviconUrl(url) : '';
+
+        return (
+          <View
+            key={i}
+            style={{
+              flexDirection: 'row',
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              borderBottomWidth: i < Math.min(sources.length, 10) - 1 ? 1 : 0,
+              borderBottomColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+            }}
+          >
+            {/* Favicon */}
+            {!!faviconUri && (
+              <View style={{
+                width: 20,
+                height: 20,
+                borderRadius: 4,
+                backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginRight: 10,
+                marginTop: 1,
+              }}>
+                <Image
+                  source={{ uri: faviconUri }}
+                  style={{ width: 14, height: 14, borderRadius: 2 }}
+                />
+              </View>
+            )}
+
+            {/* Content */}
+            <View style={{ flex: 1 }}>
+              <Text numberOfLines={1} style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: fg(isDark) }}>
+                {result.title || result.name || 'Untitled'}
+              </Text>
+              {!!domain && (
+                <Text numberOfLines={1} style={{ fontSize: 10, fontFamily: monoFont, color: muted(isDark), marginTop: 1 }}>
+                  {domain}
+                </Text>
+              )}
+              {(result.snippet || result.description || result.text) && (
+                <Text numberOfLines={2} style={{ fontSize: 11, fontFamily: 'Roobert', color: mutedStrong(isDark), lineHeight: 15, marginTop: 1 }}>
+                  {(result.snippet || result.description || result.text).slice(0, 200)}
+                </Text>
+              )}
+            </View>
+          </View>
+        );
+      })}
+    </ScrollView>
   );
 }
 
