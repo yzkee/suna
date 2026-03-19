@@ -486,9 +486,9 @@ export function MemoryPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: Me
               </TouchableOpacity>
             )}
             <View>
-              <Text style={{ fontSize: 17, fontFamily: 'Roobert-SemiBold', color: fgColor }}>Memory</Text>
+              <Text style={{ fontSize: 17, fontFamily: 'Roobert-SemiBold', color: fgColor, lineHeight: 18, includeFontPadding: false }}>Memory</Text>
               {!!statsText && (
-                <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: mutedColor, marginTop: 2 }}>{statsText}</Text>
+                <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: mutedColor, marginTop: -3, includeFontPadding: false }}>{statsText}</Text>
               )}
             </View>
           </View>
