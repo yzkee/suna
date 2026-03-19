@@ -1281,6 +1281,104 @@ function GenericExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: bool
   );
 }
 
+function QuestionExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const input = getToolInput(tool);
+
+  // Parse questions and answers from input or output
+  const qaPairs = useMemo(() => {
+    const pairs: { question: string; answer: string }[] = [];
+
+    // First, try to get answers from output
+    const outputAnswers = new Map<string, string>();
+    const raw = (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output)
+      ? tool.state.output.trim() : '';
+
+    if (raw) {
+      // Try "question"="answer" format
+      const pairMatches = [...raw.matchAll(/"([^"]+?)"\s*=\s*"([^"]*?)"/g)];
+      for (const m of pairMatches) {
+        outputAnswers.set(m[1], m[2]);
+      }
+
+      // Try JSON format
+      if (outputAnswers.size === 0) {
+        try {
+          const parsed = JSON.parse(raw);
+          const arr = Array.isArray(parsed) ? parsed : parsed?.questions;
+          if (Array.isArray(arr)) {
+            for (const item of arr) {
+              if (item.question && item.answer) {
+                outputAnswers.set(item.question, item.answer);
+              }
+            }
+          }
+        } catch {}
+      }
+    }
+
+    // Get questions from input and merge with answers from output
+    const questions = input.questions;
+    if (Array.isArray(questions)) {
+      for (const q of questions) {
+        const qText = typeof q === 'object' ? q.question : typeof q === 'string' ? q : '';
+        const inputAnswer = typeof q === 'object' ? q.answer || '' : '';
+        const outputAnswer = outputAnswers.get(qText) || '';
+        pairs.push({ question: qText, answer: inputAnswer || outputAnswer });
+      }
+      // Also add any output pairs not found in input
+      for (const [question, answer] of outputAnswers) {
+        if (!pairs.some(p => p.question === question)) {
+          pairs.push({ question, answer });
+        }
+      }
+      if (pairs.length > 0) return pairs;
+    }
+
+    // No input questions — use output pairs directly
+    if (outputAnswers.size > 0) {
+      for (const [question, answer] of outputAnswers) {
+        pairs.push({ question, answer });
+      }
+      return pairs;
+    }
+
+    // Fallback: show raw output
+    if (raw) return [{ question: '', answer: raw }];
+
+    return pairs;
+  }, [input, tool.state]);
+
+  const answeredCount = qaPairs.filter(q => q.answer).length;
+
+  if (qaPairs.length === 0) return null;
+
+  return (
+    <View style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
+      {qaPairs.map((qa, i) => (
+        <View
+          key={i}
+          style={{
+            paddingVertical: 6,
+            borderBottomWidth: i < qaPairs.length - 1 ? 1 : 0,
+            borderBottomColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+          }}
+        >
+          {!!qa.question && (
+            <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: mutedStrong(isDark), lineHeight: 18 }}>
+              {qa.question}
+            </Text>
+          )}
+          {!!qa.answer && (
+            <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: fg(isDark), lineHeight: 18, marginTop: qa.question ? 2 : 0 }}>
+              {qa.answer}
+            </Text>
+          )}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 // ─── Get expanded content by tool type ───────────────────────────────────────
 
 function getExpandedContent(tool: ToolPart, isDark: boolean): React.ReactNode {
@@ -1303,6 +1401,8 @@ function getExpandedContent(tool: ToolPart, isDark: boolean): React.ReactNode {
     case 'grep':
     case 'list':
       return <GlobGrepExpandedContent tool={tool} isDark={isDark} />;
+    case 'question':
+      return <QuestionExpandedContent tool={tool} isDark={isDark} />;
     case 'show':
     case 'show-user':
       return <ShowExpandedContent tool={tool} isDark={isDark} />;
@@ -1330,6 +1430,8 @@ function toolHasExpandableContent(tool: ToolPart): boolean {
       (input.content || input.oldString || input.newString)) return true;
   // Show tool expandable if has content or path
   if ((tool.tool === 'show' || tool.tool === 'show-user') && (input.content || input.path)) return true;
+  // Question tool always expandable
+  if (tool.tool === 'question') return true;
   // Any tool with completed output is expandable
   if (state.status === 'completed' && 'output' in state && state.output?.trim()) return true;
   // Any tool with error is expandable
@@ -1351,6 +1453,29 @@ function ToolCard({
   const info = getToolInfo(tool.tool, input);
   const isRunning = tool.state.status === 'pending' || tool.state.status === 'running';
   const isError = tool.state.status === 'error';
+
+  // Question tool: compute "N answered" subtitle
+  const questionSubtitle = useMemo(() => {
+    if (tool.tool !== 'question') return undefined;
+    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
+      const raw = tool.state.output.trim();
+      // Count answered questions from "q"="a" pairs
+      const matches = [...raw.matchAll(/"[^"]+?"\s*=\s*"[^"]*?"/g)];
+      if (matches.length > 0) return `${matches.length} answered`;
+      // Try JSON
+      try {
+        const parsed = JSON.parse(raw);
+        const arr = Array.isArray(parsed) ? parsed : parsed?.questions;
+        if (Array.isArray(arr)) {
+          const answered = arr.filter((q: any) => q.answer).length;
+          if (answered > 0) return `${answered} answered`;
+        }
+      } catch {}
+    }
+    return undefined;
+  }, [tool.tool, tool.state]);
+
+  const displaySubtitle = questionSubtitle || info.subtitle;
 
   const IconComponent = getToolLucideIcon(info.icon);
   const iconColor = mutedStrong(isDark);
@@ -1422,18 +1547,18 @@ function ToolCard({
             </Text>
 
             {/* Subtitle */}
-            {info.subtitle && (
+            {displaySubtitle && (
               <Text
                 numberOfLines={1}
                 style={{
                   flex: 1,
                   marginLeft: 6,
                   fontSize: 12,
-                  fontFamily: monoFont,
+                  fontFamily: questionSubtitle ? 'Roobert' : monoFont,
                   color: muted(isDark),
                 }}
               >
-                {info.subtitle}
+                {displaySubtitle}
               </Text>
             )}
           </>
