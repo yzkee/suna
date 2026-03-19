@@ -800,43 +800,186 @@ function getFaviconUrl(url: string): string {
   }
 }
 
+// ─── Web Search output parser (matches web frontend) ─────────────────────────
+
+interface WebSearchSource {
+  title: string;
+  url: string;
+  snippet?: string;
+  author?: string;
+}
+
+interface WebSearchQueryResult {
+  query: string;
+  answer?: string;
+  sources: WebSearchSource[];
+}
+
+function parseWebSearchOutput(output: string | undefined): WebSearchQueryResult[] {
+  if (!output) return [];
+
+  let parsed: any = null;
+  try {
+    let result = JSON.parse(output);
+    // Handle double-encoded JSON
+    if (typeof result === 'string') {
+      try { result = JSON.parse(result); } catch {}
+    }
+    parsed = typeof result === 'object' ? result : null;
+  } catch {
+    // Try trimming whitespace/BOM
+    const trimmed = output.trim().replace(/^\uFEFF/, '');
+    if (trimmed !== output) {
+      try { parsed = JSON.parse(trimmed); } catch {}
+    }
+  }
+
+  if (parsed) {
+    // Batch mode: { results: [{ query, answer, results: [...] }] }
+    if (parsed.results && Array.isArray(parsed.results) && parsed.results.length > 0) {
+      const firstItem = parsed.results[0];
+      if (firstItem && typeof firstItem.query === 'string') {
+        const queryResults: WebSearchQueryResult[] = [];
+        for (const r of parsed.results) {
+          if (typeof r.query !== 'string') continue;
+          const sources: WebSearchSource[] = [];
+          if (Array.isArray(r.results)) {
+            for (const s of r.results) {
+              if (s.title && s.url) {
+                sources.push({
+                  title: s.title, url: s.url,
+                  snippet: s.snippet || s.content || s.text || undefined,
+                  author: s.author || undefined,
+                });
+              }
+            }
+          }
+          queryResults.push({ query: r.query, answer: r.answer || undefined, sources });
+        }
+        if (queryResults.length > 0) return queryResults;
+      } else if (firstItem && (firstItem.title || firstItem.url)) {
+        // Direct results array: { results: [{title, url, content}] }
+        const sources: WebSearchSource[] = [];
+        for (const s of parsed.results) {
+          if (s.title && s.url) {
+            sources.push({
+              title: s.title, url: s.url,
+              snippet: s.snippet || s.content || s.text || undefined,
+              author: s.author || undefined,
+            });
+          }
+        }
+        if (sources.length > 0) return [{ query: parsed.query || '', answer: parsed.answer || undefined, sources }];
+      }
+    }
+    // Single result: { query, answer, results: [...] }
+    if (parsed.query && typeof parsed.query === 'string') {
+      const sources: WebSearchSource[] = [];
+      if (Array.isArray(parsed.results)) {
+        for (const s of parsed.results) {
+          if (s.title && s.url) {
+            sources.push({
+              title: s.title, url: s.url,
+              snippet: s.snippet || s.content || s.text || undefined,
+              author: s.author || undefined,
+            });
+          }
+        }
+      }
+      return [{ query: parsed.query, answer: parsed.answer || undefined, sources }];
+    }
+    // Flat array: [{title, url}, ...]
+    if (Array.isArray(parsed) && parsed.length > 0 && (parsed[0].title || parsed[0].url)) {
+      const sources: WebSearchSource[] = [];
+      for (const s of parsed) {
+        if (s.title && s.url) {
+          sources.push({
+            title: s.title, url: s.url,
+            snippet: s.snippet || s.content || s.text || undefined,
+            author: s.author || undefined,
+          });
+        }
+      }
+      if (sources.length > 0) return [{ query: '', sources }];
+    }
+  }
+
+  // Plain text fallback: Title: ...\nURL: ...
+  if (typeof output === 'string') {
+    const blocks = output.split(/(?=^Title: )/m).filter(Boolean);
+    const sources: WebSearchSource[] = [];
+    for (const block of blocks) {
+      const titleMatch = block.match(/^Title:\s*(.+)/m);
+      const urlMatch = block.match(/^URL:\s*(.+)/m);
+      const textMatch = block.match(/^Text:\s*([\s\S]*?)$/m);
+      if (titleMatch && urlMatch) {
+        sources.push({
+          title: titleMatch[1].trim(), url: urlMatch[1].trim(),
+          snippet: textMatch?.[1]?.trim() || undefined,
+        });
+      }
+    }
+    if (sources.length > 0) return [{ query: '', sources }];
+  }
+  return [];
+}
+
+// ─── Web Search source row ───────────────────────────────────────────────────
+
+function WebSearchSourceRow({ source, isDark }: { source: WebSearchSource; isDark: boolean }) {
+  const domain = source.url.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+  const faviconUri = getFaviconUrl(source.url);
+
+  return (
+    <View style={{ flexDirection: 'row', paddingVertical: 7 }}>
+      {/* Favicon */}
+      <View style={{
+        width: 20, height: 20, borderRadius: 4,
+        backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+        alignItems: 'center', justifyContent: 'center',
+        marginRight: 10, marginTop: 1,
+      }}>
+        <Image source={{ uri: faviconUri }} style={{ width: 14, height: 14, borderRadius: 2 }} />
+      </View>
+      {/* Content */}
+      <View style={{ flex: 1 }}>
+        <Text numberOfLines={1} style={{ fontSize: 11, fontFamily: 'Roobert-Medium', color: fg(isDark) }}>
+          {source.title}
+        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 1 }}>
+          <Text numberOfLines={1} style={{ fontSize: 9, fontFamily: monoFont, color: muted(isDark) }}>
+            {domain}
+          </Text>
+          {source.author && (
+            <Text numberOfLines={1} style={{ fontSize: 9, fontFamily: 'Roobert', color: muted(isDark), marginLeft: 6 }}>
+              {source.author}
+            </Text>
+          )}
+        </View>
+        {source.snippet && (
+          <Text numberOfLines={2} style={{ fontSize: 10, fontFamily: 'Roobert', color: mutedStrong(isDark), lineHeight: 15, marginTop: 2 }}>
+            {source.snippet.slice(0, 200)}
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
+// ─── Web Search expanded content ─────────────────────────────────────────────
+
 function WebSearchExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
-  const { aiAnswer, sources } = useMemo(() => {
-    if (tool.state.status !== 'completed' || !('output' in tool.state) || !tool.state.output) {
-      return { aiAnswer: '', sources: [] };
-    }
-    try {
-      const parsed = JSON.parse(tool.state.output);
+  const rawOutput = tool.state.status === 'completed' && 'output' in tool.state ? tool.state.output : undefined;
+  const queryResults = useMemo(() => parseWebSearchOutput(rawOutput), [rawOutput]);
+  const [expandedQuery, setExpandedQuery] = useState<number | null>(null);
 
-      // Batch format with queries
-      if (parsed?.queries && Array.isArray(parsed.queries)) {
-        const allSources = parsed.queries.flatMap((q: any) => q.sources || q.results || []);
-        const answer = parsed.queries.map((q: any) => q.answer || q.ai_answer || '').filter(Boolean).join('\n\n');
-        return { aiAnswer: answer, sources: allSources };
-      }
-      // Single query format
-      if (parsed?.sources || parsed?.results) {
-        return {
-          aiAnswer: parsed.answer || parsed.ai_answer || '',
-          sources: parsed.sources || parsed.results || [],
-        };
-      }
-      // Flat array of results
-      if (Array.isArray(parsed)) {
-        return { aiAnswer: '', sources: parsed };
-      }
-      return { aiAnswer: '', sources: [] };
-    } catch {
-      return { aiAnswer: '', sources: [] };
-    }
-  }, [tool.state]);
+  const isMulti = queryResults.length > 1;
 
-  if (sources.length === 0 && !aiAnswer) {
-    const rawOutput = tool.state.status === 'completed' && 'output' in tool.state ? tool.state.output?.trim() : undefined;
-    if (rawOutput) {
+  if (queryResults.length === 0) {
+    if (rawOutput?.trim()) {
       return (
         <View style={{ paddingHorizontal: 12, paddingVertical: 10 }}>
-          <MonoBlock isDark={isDark} maxLines={20}>{rawOutput}</MonoBlock>
+          <MonoBlock isDark={isDark} maxLines={20}>{rawOutput.trim()}</MonoBlock>
         </View>
       );
     }
@@ -844,86 +987,92 @@ function WebSearchExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: bo
   }
 
   return (
-    <ScrollView
-      style={{ maxHeight: 350 }}
-      nestedScrollEnabled
-      showsVerticalScrollIndicator
-    >
-      {/* AI Answer */}
-      {!!aiAnswer && (
-        <View style={{
-          paddingHorizontal: 12,
-          paddingVertical: 10,
-          borderBottomWidth: sources.length > 0 ? 1 : 0,
-          borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-        }}>
-          <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: fg(isDark), lineHeight: 18 }}>
-            {aiAnswer.slice(0, 500)}
-          </Text>
-        </View>
-      )}
-
-      {/* Sources header */}
-      {sources.length > 0 && (
-        <View style={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: 4 }}>
-          <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: muted(isDark), textTransform: 'uppercase', letterSpacing: 1 }}>
-            Sources
-          </Text>
-        </View>
-      )}
-
-      {/* Source results */}
-      {sources.slice(0, 10).map((result: any, i: number) => {
-        const url = result.url || result.link || '';
-        const domain = url.replace(/^https?:\/\//, '').split('/')[0];
-        const faviconUri = url ? getFaviconUrl(url) : '';
+    <ScrollView style={{ maxHeight: 400 }} nestedScrollEnabled showsVerticalScrollIndicator>
+      {queryResults.map((qr, qi) => {
+        const isExpanded = expandedQuery === qi;
+        const showContent = !isMulti || isExpanded;
 
         return (
           <View
-            key={i}
+            key={qi}
             style={{
-              flexDirection: 'row',
-              paddingHorizontal: 12,
-              paddingVertical: 8,
-              borderBottomWidth: i < Math.min(sources.length, 10) - 1 ? 1 : 0,
-              borderBottomColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+              borderTopWidth: qi > 0 ? 1 : 0,
+              borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
             }}
           >
-            {/* Favicon */}
-            {!!faviconUri && (
-              <View style={{
-                width: 20,
-                height: 20,
-                borderRadius: 4,
-                backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginRight: 10,
-                marginTop: 1,
-              }}>
-                <Image
-                  source={{ uri: faviconUri }}
-                  style={{ width: 14, height: 14, borderRadius: 2 }}
+            {/* Query header (batch mode only) */}
+            {isMulti && (
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => {
+                  LayoutAnimation.configureNext({
+                    duration: 200,
+                    create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+                    update: { type: LayoutAnimation.Types.easeInEaseOut },
+                    delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+                  });
+                  setExpandedQuery(isExpanded ? null : qi);
+                }}
+                style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8 }}
+              >
+                <Search size={12} color={muted(isDark)} style={{ marginRight: 8 }} />
+                <Text numberOfLines={1} style={{ fontSize: 11, fontFamily: 'Roobert-Medium', color: fg(isDark), flex: 1 }}>
+                  {qr.query}
+                </Text>
+                {qr.sources.length > 0 && (
+                  <View style={{
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                    width: 20, height: 20, borderRadius: 10,
+                    alignItems: 'center', justifyContent: 'center', marginLeft: 6,
+                  }}>
+                    <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: mutedStrong(isDark), textAlign: 'center', includeFontPadding: false, lineHeight: 10 }}>
+                      {qr.sources.length}
+                    </Text>
+                  </View>
+                )}
+                <ChevronRight
+                  size={12}
+                  color={muted(isDark)}
+                  style={{ marginLeft: 4, transform: [{ rotate: isExpanded ? '90deg' : '0deg' }] }}
                 />
-              </View>
+              </TouchableOpacity>
             )}
 
-            {/* Content */}
-            <View style={{ flex: 1 }}>
-              <Text numberOfLines={1} style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: fg(isDark) }}>
-                {result.title || result.name || 'Untitled'}
-              </Text>
-              {!!domain && (
-                <Text numberOfLines={1} style={{ fontSize: 10, fontFamily: monoFont, color: muted(isDark), marginTop: 1 }}>
-                  {domain}
-                </Text>
-              )}
-              {(result.snippet || result.description || result.text) && (
-                <Text numberOfLines={2} style={{ fontSize: 11, fontFamily: 'Roobert', color: mutedStrong(isDark), lineHeight: 15, marginTop: 1 }}>
-                  {(result.snippet || result.description || result.text).slice(0, 200)}
-                </Text>
-              )}
-            </View>
+            {/* Answer + Sources */}
+            {showContent && (
+              <View style={{ paddingHorizontal: 12, paddingBottom: 10 }}>
+                {/* AI Answer */}
+                {!!qr.answer && (
+                  <View style={{ marginBottom: 8, marginTop: isMulti ? 0 : 4 }}>
+                    <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: fg(isDark), lineHeight: 17 }}>
+                      {qr.answer.slice(0, 500)}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Sources */}
+                {qr.sources.length > 0 && (
+                  <View>
+                    {qr.answer && (
+                      <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: muted(isDark), textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>
+                        Sources
+                      </Text>
+                    )}
+                    {qr.sources.map((src, si) => (
+                      <View
+                        key={si}
+                        style={{
+                          borderTopWidth: si > 0 ? 1 : 0,
+                          borderTopColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                        }}
+                      >
+                        <WebSearchSourceRow source={src} isDark={isDark} />
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+            )}
           </View>
         );
       })}
