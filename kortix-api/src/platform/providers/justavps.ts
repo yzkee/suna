@@ -24,15 +24,19 @@ interface JustAVPSMachine {
   name: string;
   status: string;
   provisioning_stage: string | null;
+  provisioning_stage_updated_at: string | null;
   provider: string;
-  snapshot_id: string | null;
+  image_id: string | null;
   server_type: string;
   region: string;
   ip: string | null;
   price_monthly: number | null;
+  backups_enabled: boolean;
+  source: string;
+  kortix_sandbox_id: string | null;
   created_at: string;
   ready_at: string | null;
-  urls: { vscode: string; pty: string } | null;
+  urls: { vscode: string; pty: string; port_template: string } | null;
   ssh: string | null;
   ssh_key: {
     private_key: string | null;
@@ -44,10 +48,15 @@ interface JustAVPSMachine {
     ssh_command: string | null;
     setup_command: string | null;
     vscode_url: string;
-    vscode_password: string;
     cursor_ssh: string | null;
   } | null;
-  health: Record<string, unknown> | null;
+  health: {
+    cpu: number;
+    memory: number;
+    disk: number;
+    services: Record<string, boolean>;
+    last_heartbeat_at: string | null;
+  } | null;
 }
 
 interface JustAVPSServerType {
@@ -60,7 +69,17 @@ interface JustAVPSServerType {
   architecture: string;
   price_monthly: number;
   provider_price_monthly: number;
+  backup_price_monthly: number;
   available: boolean;
+}
+
+interface JustAVPSWebhook {
+  id: string;
+  url: string;
+  events: string[];
+  secret: string;
+  active: boolean;
+  created_at: string;
 }
 
 async function justavpsFetch<T = any>(
@@ -97,6 +116,7 @@ export interface ServerTypeWithPricing {
   architecture: string;
   priceMonthly: number;
   priceMonthlyMarkup: number;
+  providerPriceMonthly: number;
   location: string;
 }
 
@@ -121,9 +141,49 @@ export async function listServerTypes(
       architecture: st.architecture,
       priceMonthly: st.price_monthly,
       priceMonthlyMarkup: st.price_monthly,
+      providerPriceMonthly: st.provider_price_monthly,
       location: loc,
     }))
     .sort((a, b) => a.priceMonthly - b.priceMonthly);
+}
+
+let webhookRegistered = false;
+
+async function ensureWebhookRegistered(): Promise<void> {
+  if (webhookRegistered) return;
+
+  const webhookUrl = config.JUSTAVPS_WEBHOOK_URL;
+  const webhookSecret = config.JUSTAVPS_WEBHOOK_SECRET;
+  if (!webhookUrl) {
+    console.warn('[JUSTAVPS] JUSTAVPS_WEBHOOK_URL not configured — provisioning events will not flow back to Kortix');
+    webhookRegistered = true;
+    return;
+  }
+
+  try {
+    const existing = await justavpsFetch<{ webhooks: JustAVPSWebhook[] }>('/webhooks');
+    const alreadyRegistered = existing.webhooks?.some((w) => w.url === webhookUrl && w.active);
+
+    if (alreadyRegistered) {
+      console.log('[JUSTAVPS] Webhook already registered');
+      webhookRegistered = true;
+      return;
+    }
+
+    await justavpsFetch<JustAVPSWebhook>('/webhooks', {
+      method: 'POST',
+      body: {
+        url: webhookUrl,
+        events: ['*'],
+        secret: webhookSecret || undefined,
+      },
+    });
+
+    console.log(`[JUSTAVPS] Webhook registered → ${webhookUrl}`);
+    webhookRegistered = true;
+  } catch (err) {
+    console.error('[JUSTAVPS] Failed to register webhook:', err);
+  }
 }
 
 export class JustAVPSProvider implements SandboxProvider {
@@ -145,7 +205,7 @@ export class JustAVPSProvider implements SandboxProvider {
 
   async getProvisioningStatus(sandboxId: string): Promise<ProvisioningStatus | null> {
     const [row] = await db
-      .select({ metadata: sandboxes.metadata, status: sandboxes.status })
+      .select({ metadata: sandboxes.metadata, status: sandboxes.status, externalId: sandboxes.externalId })
       .from(sandboxes)
       .where(eq(sandboxes.sandboxId, sandboxId))
       .limit(1);
@@ -153,8 +213,6 @@ export class JustAVPSProvider implements SandboxProvider {
     if (!row) return null;
 
     const meta = (row.metadata as Record<string, unknown>) ?? {};
-    const stage = (meta.provisioningStage as string) || 'server_creating';
-    const stageInfo = this.provisioning.stages.find((s) => s.id === stage);
 
     if (row.status === 'active') {
       return { stage: 'services_ready', progress: 100, message: 'Ready', complete: true, error: false };
@@ -171,6 +229,55 @@ export class JustAVPSProvider implements SandboxProvider {
       };
     }
 
+    // Poll JustAVPS directly for fresh provisioning stage
+    if (row.externalId) {
+      try {
+        const machine = await justavpsFetch<JustAVPSMachine>(`/machines/${row.externalId}`);
+        const stage = machine.provisioning_stage || 'server_creating';
+        const stageInfo = this.provisioning.stages.find((s) => s.id === stage);
+
+        // Update metadata in DB for SSE consumers
+        if (stage !== meta.provisioningStage) {
+          await db.update(sandboxes).set({
+            metadata: { ...meta, provisioningStage: stage },
+            updatedAt: new Date(),
+          }).where(eq(sandboxes.sandboxId, sandboxId));
+        }
+
+        if (machine.status === 'ready') {
+          const ip = machine.ip;
+          await db.update(sandboxes).set({
+            status: 'active',
+            baseUrl: ip ? `http://${ip}:${KORTIX_MASTER_PORT}` : row.externalId,
+            metadata: { ...meta, provisioningStage: 'services_ready', publicIp: ip },
+            updatedAt: new Date(),
+          }).where(eq(sandboxes.sandboxId, sandboxId));
+          return { stage: 'services_ready', progress: 100, message: 'Ready', complete: true, error: false };
+        }
+
+        if (machine.status === 'error') {
+          await db.update(sandboxes).set({
+            status: 'error',
+            metadata: { ...meta, provisioningStage: stage, provisioningError: 'Machine provisioning failed' },
+            updatedAt: new Date(),
+          }).where(eq(sandboxes.sandboxId, sandboxId));
+          return { stage: 'error', progress: 0, message: 'Machine provisioning failed', complete: false, error: true };
+        }
+
+        return {
+          stage,
+          progress: stageInfo?.progress ?? 10,
+          message: stageInfo?.message || 'Provisioning...',
+          complete: false,
+          error: false,
+        };
+      } catch {
+      }
+    }
+
+    const stage = (meta.provisioningStage as string) || 'server_creating';
+    const stageInfo = this.provisioning.stages.find((s) => s.id === stage);
+
     return {
       stage,
       progress: stageInfo?.progress ?? 10,
@@ -181,13 +288,10 @@ export class JustAVPSProvider implements SandboxProvider {
   }
 
   async create(opts: CreateSandboxOpts): Promise<ProvisionResult> {
+    await ensureWebhookRegistered();
+
     const serverType = opts.hetznerServerType || config.JUSTAVPS_DEFAULT_SERVER_TYPE;
     const location = opts.hetznerLocation || config.JUSTAVPS_DEFAULT_LOCATION;
-    const snapshotId = config.JUSTAVPS_SNAPSHOT_ID;
-
-    if (!snapshotId) {
-      throw new Error('JUSTAVPS_SNAPSHOT_ID is required — create a snapshot in JustAVPS first');
-    }
 
     const serviceKey = opts.envVars?.KORTIX_TOKEN || '';
     const envVars: Record<string, string> = {
@@ -201,24 +305,30 @@ export class JustAVPSProvider implements SandboxProvider {
       ...opts.envVars,
     };
 
+    const body: Record<string, unknown> = {
+      provider: config.JUSTAVPS_PROVIDER || 'hetzner',
+      server_type: serverType,
+      region: location,
+      name: `kortix-sandbox-${opts.accountId.slice(0, 8)}-${Date.now().toString(36)}`,
+      env_vars: envVars,
+      docker_image: config.SANDBOX_IMAGE,
+    };
+
+    const snapshotId = config.JUSTAVPS_SNAPSHOT_ID;
+    if (snapshotId) {
+      body.image_id = snapshotId;
+    }
+
     const machine = await justavpsFetch<JustAVPSMachine>('/machines', {
       method: 'POST',
-      body: {
-        snapshot_id: snapshotId,
-        provider: config.JUSTAVPS_PROVIDER || 'hetzner',
-        server_type: serverType,
-        region: location,
-        name: `kortix-sandbox-${opts.accountId.slice(0, 8)}-${Date.now().toString(36)}`,
-        env_vars: envVars,
-        docker_image: config.SANDBOX_IMAGE,
-      },
+      body,
     });
 
     console.log(`[JUSTAVPS] Machine creation started: ${machine.id} (slug: ${machine.slug})`);
 
     return {
       externalId: machine.id,
-      baseUrl: '',
+      baseUrl: machine.ip ? `http://${machine.ip}:${KORTIX_MASTER_PORT}` : '',
       metadata: {
         justavpsMachineId: machine.id,
         justavpsSlug: machine.slug,
@@ -232,11 +342,11 @@ export class JustAVPSProvider implements SandboxProvider {
 
   async start(externalId: string): Promise<void> {
     await justavpsFetch(`/machines/${externalId}/reboot`, { method: 'POST' });
-    console.log(`[JUSTAVPS] Started machine ${externalId}`);
+    console.log(`[JUSTAVPS] Rebooted machine ${externalId}`);
   }
 
   async stop(externalId: string): Promise<void> {
-    console.log(`[JUSTAVPS] Stop requested for machine ${externalId} (not directly supported — use delete)`);
+    console.log(`[JUSTAVPS] Stop not supported for machine ${externalId} — use remove instead`);
   }
 
   async remove(externalId: string): Promise<void> {
@@ -251,7 +361,8 @@ export class JustAVPSProvider implements SandboxProvider {
       if (status === 'ready') return 'running';
       if (status === 'stopped') return 'stopped';
       if (status === 'deleted') return 'removed';
-      if (status === 'provisioning') return 'running';
+      if (status === 'provisioning') return 'unknown';
+      if (status === 'error') return 'stopped';
       return 'unknown';
     } catch (err: any) {
       if (err.message?.includes('404')) return 'removed';
@@ -260,55 +371,72 @@ export class JustAVPSProvider implements SandboxProvider {
   }
 
   async resolveEndpoint(externalId: string): Promise<ResolvedEndpoint> {
-    const machine = await justavpsFetch<JustAVPSMachine>(`/machines/${externalId}`);
-    const publicIp = machine.ip;
+    const [row] = await db
+      .select({ baseUrl: sandboxes.baseUrl, config: sandboxes.config })
+      .from(sandboxes)
+      .where(eq(sandboxes.externalId, externalId))
+      .limit(1);
 
-    if (!publicIp) {
-      throw new Error(`[JUSTAVPS] Machine ${externalId} has no IP`);
+    let url = row?.baseUrl;
+
+    if (!url || url === '') {
+      const machine = await justavpsFetch<JustAVPSMachine>(`/machines/${externalId}`);
+      if (!machine.ip) {
+        throw new Error(`[JUSTAVPS] Machine ${externalId} has no IP`);
+      }
+      url = `http://${machine.ip}:${KORTIX_MASTER_PORT}`;
+
+      if (row) {
+        await db.update(sandboxes).set({ baseUrl: url, updatedAt: new Date() })
+          .where(eq(sandboxes.externalId, externalId));
+      }
     }
-
-    const url = `http://${publicIp}:${KORTIX_MASTER_PORT}`;
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
 
-    try {
-      const [row] = await db
-        .select({ config: sandboxes.config })
-        .from(sandboxes)
-        .where(eq(sandboxes.externalId, externalId))
-        .limit(1);
-      const serviceKey = (row?.config as Record<string, unknown>)?.serviceKey as string | undefined;
-      if (serviceKey) {
-        headers['Authorization'] = `Bearer ${serviceKey}`;
-      }
-    } catch (err) {
-      console.warn(`[JUSTAVPS] Failed to look up service key for ${externalId}:`, err);
-      if (config.INTERNAL_SERVICE_KEY) {
-        headers['Authorization'] = `Bearer ${config.INTERNAL_SERVICE_KEY}`;
-      }
+    const serviceKey = (row?.config as Record<string, unknown>)?.serviceKey as string | undefined;
+    if (serviceKey) {
+      headers['Authorization'] = `Bearer ${serviceKey}`;
+    } else if (config.INTERNAL_SERVICE_KEY) {
+      headers['Authorization'] = `Bearer ${config.INTERNAL_SERVICE_KEY}`;
     }
 
     return { url, headers };
   }
 
   async ensureRunning(externalId: string): Promise<void> {
-    const status = await this.getStatus(externalId);
-    if (status === 'running') return;
-    console.log(`[JUSTAVPS] Machine ${externalId} is ${status}, starting...`);
-    await this.start(externalId);
-    await this.waitForStatus(externalId, 'ready');
+    try {
+      const machine = await justavpsFetch<JustAVPSMachine>(`/machines/${externalId}`);
+      if (machine.status === 'ready') return;
+      if (machine.status === 'provisioning') {
+        console.log(`[JUSTAVPS] Machine ${externalId} still provisioning, waiting...`);
+        await this.waitForStatus(externalId, 'ready');
+        return;
+      }
+      if (machine.status === 'error' || machine.status === 'deleted') {
+        throw new Error(`[JUSTAVPS] Machine ${externalId} is in '${machine.status}' state`);
+      }
+      console.log(`[JUSTAVPS] Machine ${externalId} is '${machine.status}', rebooting...`);
+      await this.start(externalId);
+      await this.waitForStatus(externalId, 'ready');
+    } catch (err: any) {
+      if (err.message?.includes('404')) {
+        throw new Error(`[JUSTAVPS] Machine ${externalId} not found`);
+      }
+      throw err;
+    }
   }
 
   private async waitForIp(
     machineId: string,
     timeoutMs = PROVISION_TIMEOUT_MS,
-  ): Promise<void> {
+  ): Promise<string> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       const machine = await justavpsFetch<JustAVPSMachine>(`/machines/${machineId}`);
-      if (machine.ip) return;
+      if (machine.ip) return machine.ip;
       if (machine.status === 'error' || machine.status === 'deleted') {
         throw new Error(`[JUSTAVPS] Machine ${machineId} entered '${machine.status}' while waiting for IP`);
       }

@@ -138,6 +138,7 @@ const envSchema = z.object({
   JUSTAVPS_DEFAULT_LOCATION:          optStrDefault('nbg1'),
   JUSTAVPS_DEFAULT_SERVER_TYPE:       optStrDefault('cpx22'),
   JUSTAVPS_WEBHOOK_SECRET:            optStr,   // HMAC secret for verifying JustAVPS webhook signatures
+  JUSTAVPS_WEBHOOK_URL:               optStr,   // URL where JustAVPS should send webhook events (e.g. https://api.kortix.com/v1/platform/webhooks/justavps)
 
   // ── Sandbox Platform (optional) ──────────────────────────────────────────
   KORTIX_URL:                  optStr,
@@ -409,6 +410,7 @@ export const config = {
   JUSTAVPS_DEFAULT_LOCATION: env.JUSTAVPS_DEFAULT_LOCATION,
   JUSTAVPS_DEFAULT_SERVER_TYPE: env.JUSTAVPS_DEFAULT_SERVER_TYPE,
   JUSTAVPS_WEBHOOK_SECRET: env.JUSTAVPS_WEBHOOK_SECRET,
+  JUSTAVPS_WEBHOOK_URL: env.JUSTAVPS_WEBHOOK_URL,
 
   // ─── Sandbox Provisioning (Platform) ──────────────────────────────────────
   KORTIX_URL: env.KORTIX_URL,

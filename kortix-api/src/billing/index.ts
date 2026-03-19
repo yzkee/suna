@@ -115,12 +115,17 @@ billingApp.post('/setup/initialize', async (c: any) => {
         console.log(`[setup/initialize] Sandbox ${active.sandboxId} already active for account ${accountId}`);
       } else {
         // Kick off provisioning in background — don't await
+        const defaultProvider = config.ALLOWED_SANDBOX_PROVIDERS.includes('justavps')
+          ? 'justavps' as const
+          : config.ALLOWED_SANDBOX_PROVIDERS.includes('hetzner')
+            ? 'hetzner' as const
+            : config.ALLOWED_SANDBOX_PROVIDERS[0] as any;
         void ensureSandbox({
           accountId,
           userId,
-          provider: 'hetzner',
-          hetznerServerType: 'cpx22',
-          hetznerLocation: config.HETZNER_DEFAULT_LOCATION,
+          provider: defaultProvider,
+          hetznerServerType: config.JUSTAVPS_DEFAULT_SERVER_TYPE || 'cpx22',
+          hetznerLocation: config.JUSTAVPS_DEFAULT_LOCATION || config.HETZNER_DEFAULT_LOCATION,
           isIncluded: true,
         })
           .then(({ row, created }) => {
