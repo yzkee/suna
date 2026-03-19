@@ -1148,37 +1148,40 @@ function ToolCard({
         {/* Tool icon */}
         <IconComponent size={15} color={iconColor} style={{ marginRight: 8 }} />
 
-        {/* Title */}
-        <Text
-          style={{
-            fontSize: 13,
-            fontFamily: 'Roobert-Medium',
-            color: fg(isDark),
-          }}
-        >
-          {info.title}
-        </Text>
-
-        {/* Subtitle */}
-        {info.subtitle && (
-          isRunning ? (
-            <View style={{ flex: 1, marginLeft: 6 }}>
-              <ShimmerStatusText text={info.subtitle} size="xs" />
-            </View>
-          ) : (
+        {isRunning ? (
+          /* Shimmer over title + subtitle while streaming */
+          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+            <ShimmerStatusText text={info.title + (info.subtitle ? ` ${info.subtitle}` : '')} size="sm" />
+          </View>
+        ) : (
+          <>
+            {/* Title */}
             <Text
-              numberOfLines={1}
               style={{
-                flex: 1,
-                marginLeft: 6,
-                fontSize: 12,
-                fontFamily: monoFont,
-                color: muted(isDark),
+                fontSize: 13,
+                fontFamily: 'Roobert-Medium',
+                color: fg(isDark),
               }}
             >
-              {info.subtitle}
+              {info.title}
             </Text>
-          )
+
+            {/* Subtitle */}
+            {info.subtitle && (
+              <Text
+                numberOfLines={1}
+                style={{
+                  flex: 1,
+                  marginLeft: 6,
+                  fontSize: 12,
+                  fontFamily: monoFont,
+                  color: muted(isDark),
+                }}
+              >
+                {info.subtitle}
+              </Text>
+            )}
+          </>
         )}
 
         {/* Right side: status indicator or chevron */}
