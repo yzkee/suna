@@ -155,6 +155,20 @@ export function CommandPalette({
         onSelect: () => { onPageSelect('page:files'); onClose(); },
       },
       {
+        id: 'page:memory',
+        label: 'Memory',
+        icon: 'hardware-chip-outline',
+        group: 'navigation',
+        onSelect: () => { onPageSelect('page:memory'); onClose(); },
+      },
+      {
+        id: 'page:llm-providers',
+        label: 'LLM Providers',
+        icon: 'cube-outline',
+        group: 'navigation',
+        onSelect: () => { onPageSelect('page:llm-providers'); onClose(); },
+      },
+      {
         id: 'page:secrets',
         label: 'Secrets Manager',
         icon: 'key-outline',
