@@ -13,7 +13,6 @@ import {
   ScrollView,
   Alert,
   RefreshControl,
-  TextInput,
   ActivityIndicator,
   Platform,
 } from 'react-native';
@@ -25,7 +24,6 @@ import {
   Eye,
   EyeOff,
   Key,
-  Search,
   AlertTriangle,
 } from 'lucide-react-native';
 import { useColorScheme } from 'nativewind';
@@ -44,6 +42,7 @@ import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
 import { useSandboxContext } from '@/contexts/SandboxContext';
 import { getAuthToken } from '@/api/config';
 import { log } from '@/lib/logger';
+import { SearchBar } from '@/components/ui/SearchBar';
 import type { PageTab } from '@/stores/tab-store';
 
 // ─── API ─────────────────────────────────────────────────────────────────────
@@ -340,16 +339,12 @@ export function SecretsPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: S
         </View>
 
         {/* Search */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', borderRadius: 10, paddingHorizontal: 10, marginTop: 12, borderWidth: 1, borderColor }}>
-          <Search size={14} color={mutedColor} style={{ marginRight: 6 }} />
-          <TextInput
+        <View style={{ marginTop: 12 }}>
+          <SearchBar
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Search secrets..."
-            placeholderTextColor={mutedColor}
-            style={{ flex: 1, fontSize: 13, fontFamily: 'Roobert', color: fgColor, paddingVertical: 9 }}
-            autoCapitalize="none"
-            autoCorrect={false}
+            placeholder="Search"
+            onClear={() => setSearchQuery('')}
           />
         </View>
       </View>
