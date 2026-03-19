@@ -1,4 +1,36 @@
-[ 
+[
+  {
+    "version": "0.8.13",
+    "date": "2026-03-19",
+    "title": "Fix ONBOARDING_COMPLETE going null, eliminate 15K snapshot diffs, AutoContinue UX rework",
+    "description": "Fixes the root cause of ONBOARDING_COMPLETE randomly becoming null (concurrent SecretStore writes racing on the same file), properly excludes all internal dirs from git snapshots (browser-profile, cache, config, etc.), and reworks the AutoContinue selector for simpler on/off UX.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Add async mutex to SecretStore — concurrent env writes (onboarding curls, auth-sync) no longer race and overwrite each other, fixing ONBOARDING_COMPLETE going null"
+      },
+      {
+        "type": "fix",
+        "text": "Persist rotated KORTIX_TOKEN to bootstrap file so container restarts don't revert to old token and purge all re-encrypted secrets"
+      },
+      {
+        "type": "fix",
+        "text": "Fix git init never running — startup.sh pre-created .git/info/ which fooled the [ ! -d .git ] check in kortix-env-setup.sh, leaving no real git repo for snapshot tracking"
+      },
+      {
+        "type": "fix",
+        "text": "Expand snapshot exclusions to cover .cache/, .config/, .npm/, .dbus/, .pki/, .ssh/, ssl/, .agent-browser/ — eliminates 15K+ file diffs on first message"
+      },
+      {
+        "type": "fix",
+        "text": "Bake .gitignore into Docker image so exclusions are committed in the initial workspace git commit and always respected by the snapshot system"
+      },
+      {
+        "type": "feat",
+        "text": "Rework AutoContinue selector — click On defaults to Kraemer with expandable advanced picker, explicit mode selection shows mode name"
+      }
+    ]
+  },
   {
     "version": "0.8.12",
     "date": "2026-03-18",
