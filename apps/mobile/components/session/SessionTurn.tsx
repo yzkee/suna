@@ -1350,12 +1350,12 @@ function GetMemExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boole
       {/* Header */}
       <View style={{ backgroundColor: headerBg, borderRadius: 10, padding: 10, marginBottom: 8 }}>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-          <View style={{ backgroundColor: badgeBg, borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 }}>
+          <View style={{ backgroundColor: badgeBg, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1 }}>
             <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: badgeText }}>
               {parsed.kind === 'ltm' ? `LTM #${parsed.id}` : `Observation #${parsed.id}`}
             </Text>
           </View>
-          <View style={{ backgroundColor: badgeBg, borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 }}>
+          <View style={{ backgroundColor: badgeBg, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 1 }}>
             <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: badgeText, textTransform: 'uppercase' }}>
               {parsed.type}
             </Text>
@@ -1386,7 +1386,7 @@ function GetMemExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boole
           {parsed.tags.length > 0 && (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
               {parsed.tags.map((tag, i) => (
-                <View key={i} style={{ backgroundColor: tagColor.bg, borderRadius: 10, borderWidth: 1, borderColor: tagColor.border, paddingHorizontal: 7, paddingVertical: 2 }}>
+                <View key={i} style={{ backgroundColor: tagColor.bg, borderRadius: 10, borderWidth: 1, borderColor: tagColor.border, paddingHorizontal: 6, paddingVertical: 1 }}>
                   <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: tagColor.text }}>{tag}</Text>
                 </View>
               ))}
@@ -1423,7 +1423,7 @@ function GetMemExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boole
           {parsed.concepts.length > 0 && (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
               {parsed.concepts.map((concept, i) => (
-                <View key={i} style={{ backgroundColor: tagColor.bg, borderRadius: 10, borderWidth: 1, borderColor: tagColor.border, paddingHorizontal: 7, paddingVertical: 2 }}>
+                <View key={i} style={{ backgroundColor: tagColor.bg, borderRadius: 10, borderWidth: 1, borderColor: tagColor.border, paddingHorizontal: 6, paddingVertical: 1 }}>
                   <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: tagColor.text }}>{concept}</Text>
                 </View>
               ))}
@@ -1487,7 +1487,7 @@ function LtmSearchExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: bo
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
             <View style={{
               backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-              borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2,
+              borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1,
             }}>
               <Text style={{ fontSize: 9, fontFamily: 'Roobert-Medium', color: mutedStrong(isDark) }}>
                 {hit.type}
