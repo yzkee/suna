@@ -773,21 +773,56 @@ function TodosExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolea
 }
 
 function ReadExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
-  const output = useMemo(() => {
-    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
-      return stripAnsi(tool.state.output).trim();
+  const input = getToolInput(tool);
+  const filePath = input.filePath || '';
+
+  const { content, lineNumbers } = useMemo(() => {
+    if (tool.state.status !== 'completed' || !('output' in tool.state) || !tool.state.output) {
+      return { content: '', lineNumbers: false };
     }
-    return undefined;
+    const raw = tool.state.output.trim();
+
+    // Try to extract content from <content>...</content> XML tags
+    const contentMatch = raw.match(/<content>([\s\S]*?)<\/content>/);
+    if (contentMatch) {
+      const extracted = contentMatch[1];
+      // Content often has line numbers like "1: line text\n2: line text"
+      const lines = extracted.split('\n');
+      const hasLineNumbers = lines.length > 1 && lines.slice(0, 3).every(l => /^\d+:\s/.test(l));
+      if (hasLineNumbers) {
+        // Strip line number prefixes for clean display
+        const cleanLines = lines.map(l => l.replace(/^\d+:\s/, ''));
+        return { content: cleanLines.join('\n'), lineNumbers: true };
+      }
+      return { content: extracted, lineNumbers: false };
+    }
+
+    // Fallback: if no XML, use raw output but strip common XML wrappers
+    const stripped = raw
+      .replace(/<path>[\s\S]*?<\/path>/g, '')
+      .replace(/<type>[\s\S]*?<\/type>/g, '')
+      .replace(/<content>|<\/content>/g, '')
+      .trim();
+
+    return { content: stripped || raw, lineNumbers: false };
   }, [tool.state]);
 
-  if (!output) return null;
+  if (!content) return null;
 
   return (
-    <View style={{ paddingHorizontal: 12, paddingVertical: 10, maxHeight: 250 }}>
-      <MonoBlock isDark={isDark} maxLines={30}>
-        {output.length > 3000 ? output.slice(0, 3000) + '\n...' : output}
-      </MonoBlock>
-    </View>
+    <ScrollView
+      style={{ maxHeight: 300 }}
+      contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 10 }}
+      nestedScrollEnabled
+      showsVerticalScrollIndicator
+    >
+      <HighlightedCode
+        content={content.length > 4000 ? content.slice(0, 4000) : content}
+        filePath={filePath || 'file.txt'}
+        isDark={isDark}
+        maxLines={50}
+      />
+    </ScrollView>
   );
 }
 
