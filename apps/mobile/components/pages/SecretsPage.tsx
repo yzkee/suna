@@ -3,6 +3,7 @@
  *
  * Uses the OpenCode env API (GET/PUT/DELETE {sandboxUrl}/env) to list,
  * create, update, and delete secrets — matching the web frontend.
+ * All mutations happen through bottom sheets following the FilesPage pattern.
  */
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
@@ -14,7 +15,6 @@ import {
   RefreshControl,
   TextInput,
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
 } from 'react-native';
 import { Text } from '@/components/ui/text';
@@ -25,21 +25,28 @@ import {
   Eye,
   EyeOff,
   Key,
-  Check,
-  X,
   Search,
+  AlertTriangle,
 } from 'lucide-react-native';
 import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import {
+  BottomSheetModal,
+  BottomSheetBackdrop,
+  BottomSheetView,
+  BottomSheetTextInput,
+  TouchableOpacity as BottomSheetTouchable,
+} from '@gorhom/bottom-sheet';
+import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
 
 import { useSandboxContext } from '@/contexts/SandboxContext';
 import { getAuthToken } from '@/api/config';
 import { log } from '@/lib/logger';
 import type { PageTab } from '@/stores/tab-store';
 
-// ─── API hooks ───────────────────────────────────────────────────────────────
+// ─── API ─────────────────────────────────────────────────────────────────────
 
 function useSecrets(sandboxUrl: string | undefined) {
   const [secrets, setSecrets] = useState<Record<string, string>>({});
@@ -69,34 +76,26 @@ function useSecrets(sandboxUrl: string | undefined) {
     }
   }, [sandboxUrl]);
 
-  useEffect(() => {
-    fetchSecrets();
-  }, [fetchSecrets]);
+  useEffect(() => { fetchSecrets(); }, [fetchSecrets]);
 
   return { secrets, isLoading, error, refetch: fetchSecrets };
 }
 
-async function setSecret(sandboxUrl: string, key: string, value: string): Promise<void> {
+async function putSecret(sandboxUrl: string, key: string, value: string): Promise<void> {
   const token = await getAuthToken();
   const res = await fetch(`${sandboxUrl}/env/${encodeURIComponent(key)}`, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify({ value }),
   });
   if (!res.ok) throw new Error(`Failed to set secret: ${res.status}`);
 }
 
-async function deleteSecret(sandboxUrl: string, key: string): Promise<void> {
+async function removeSecret(sandboxUrl: string, key: string): Promise<void> {
   const token = await getAuthToken();
   const res = await fetch(`${sandboxUrl}/env/${encodeURIComponent(key)}`, {
     method: 'DELETE',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
   });
   if (!res.ok) throw new Error(`Failed to delete secret: ${res.status}`);
 }
@@ -107,184 +106,58 @@ function SecretRow({
   secretKey,
   value,
   isDark,
-  editingKey,
-  confirmDeleteKey,
   visibleKeys,
   onEdit,
   onDelete,
   onToggleVisibility,
-  onSave,
-  onCancelEdit,
-  onConfirmDelete,
-  onCancelDelete,
-  isSaving,
-  isDeleting,
 }: {
   secretKey: string;
   value: string;
   isDark: boolean;
-  editingKey: string | null;
-  confirmDeleteKey: string | null;
   visibleKeys: Set<string>;
-  onEdit: (key: string) => void;
+  onEdit: (key: string, value: string) => void;
   onDelete: (key: string) => void;
   onToggleVisibility: (key: string) => void;
-  onSave: (key: string, value: string) => void;
-  onCancelEdit: () => void;
-  onConfirmDelete: (key: string) => void;
-  onCancelDelete: () => void;
-  isSaving: boolean;
-  isDeleting: boolean;
 }) {
-  const [editValue, setEditValue] = useState(value);
-  const isEditing = editingKey === secretKey;
-  const isConfirmingDelete = confirmDeleteKey === secretKey;
   const isVisible = visibleKeys.has(secretKey);
   const hasValue = !!value;
-
-  useEffect(() => {
-    if (isEditing) setEditValue(value);
-  }, [isEditing, value]);
-
-  const fg = isDark ? '#F8F8F8' : '#121215';
+  const fgColor = isDark ? '#F8F8F8' : '#121215';
   const mutedColor = isDark ? '#71717a' : '#a1a1aa';
   const borderColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
   const monoFont = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 
   return (
-    <View
-      style={{
-        borderBottomWidth: 1,
-        borderBottomColor: borderColor,
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-      }}
-    >
+    <View style={{ borderBottomWidth: 1, borderBottomColor: borderColor, paddingHorizontal: 16, paddingVertical: 12 }}>
       {/* Key name */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
         <Key size={12} color={mutedColor} style={{ marginRight: 6 }} />
-        <Text
-          style={{
-            fontSize: 13,
-            fontFamily: monoFont,
-            color: hasValue ? fg : mutedColor,
-            flex: 1,
-          }}
-          numberOfLines={1}
-        >
+        <Text style={{ fontSize: 13, fontFamily: monoFont, color: hasValue ? fgColor : mutedColor, flex: 1 }} numberOfLines={1}>
           {secretKey}
         </Text>
       </View>
 
-      {/* Value / Edit / Delete confirm */}
-      {isEditing ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <TextInput
-            value={editValue}
-            onChangeText={setEditValue}
-            autoFocus
-            returnKeyType="done"
-            onSubmitEditing={() => onSave(secretKey, editValue)}
-            style={{
-              flex: 1,
-              fontSize: 13,
-              fontFamily: monoFont,
-              color: fg,
-              backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
-              borderRadius: 8,
-              paddingHorizontal: 10,
-              paddingVertical: 8,
-              borderWidth: 1,
-              borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
-            }}
-            placeholderTextColor={mutedColor}
-            placeholder="Enter value..."
-            secureTextEntry={false}
-          />
-          <TouchableOpacity
-            onPress={() => onSave(secretKey, editValue)}
-            disabled={isSaving}
-            style={{ padding: 6 }}
-          >
-            {isSaving ? (
-              <ActivityIndicator size="small" color={fg} />
-            ) : (
-              <Check size={18} color={isDark ? '#4ade80' : '#16a34a'} />
-            )}
+      {/* Value + actions */}
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Text
+          style={{ flex: 1, fontSize: 12, fontFamily: monoFont, color: hasValue ? mutedColor : (isDark ? '#52525b' : '#d4d4d8') }}
+          numberOfLines={1}
+        >
+          {!hasValue ? 'empty' : isVisible ? value : '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'}
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 4 }}>
+          {hasValue && (
+            <TouchableOpacity onPress={() => onToggleVisibility(secretKey)} style={{ padding: 6 }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              {isVisible ? <EyeOff size={15} color={mutedColor} /> : <Eye size={15} color={mutedColor} />}
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={() => onEdit(secretKey, value)} style={{ padding: 6 }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Pencil size={15} color={mutedColor} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={onCancelEdit} style={{ padding: 6 }}>
-            <X size={18} color={mutedColor} />
+          <TouchableOpacity onPress={() => onDelete(secretKey)} style={{ padding: 6 }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Trash2 size={15} color={mutedColor} />
           </TouchableOpacity>
         </View>
-      ) : isConfirmingDelete ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: isDark ? '#f87171' : '#dc2626' }}>
-            Remove this key?
-          </Text>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TouchableOpacity
-              onPress={() => onConfirmDelete(secretKey)}
-              disabled={isDeleting}
-              style={{ padding: 6 }}
-            >
-              {isDeleting ? (
-                <ActivityIndicator size="small" color={isDark ? '#f87171' : '#dc2626'} />
-              ) : (
-                <Check size={18} color={isDark ? '#f87171' : '#dc2626'} />
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity onPress={onCancelDelete} style={{ padding: 6 }}>
-              <X size={18} color={mutedColor} />
-            </TouchableOpacity>
-          </View>
-        </View>
-      ) : (
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          {/* Masked/visible value */}
-          <Text
-            style={{
-              flex: 1,
-              fontSize: 12,
-              fontFamily: monoFont,
-              color: hasValue ? mutedColor : (isDark ? '#52525b' : '#d4d4d8'),
-            }}
-            numberOfLines={1}
-          >
-            {!hasValue ? 'empty' : isVisible ? value : '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'}
-          </Text>
-
-          {/* Actions */}
-          <View style={{ flexDirection: 'row', gap: 4 }}>
-            {hasValue && (
-              <TouchableOpacity
-                onPress={() => onToggleVisibility(secretKey)}
-                style={{ padding: 6 }}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                {isVisible ? (
-                  <EyeOff size={15} color={mutedColor} />
-                ) : (
-                  <Eye size={15} color={mutedColor} />
-                )}
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              onPress={() => onEdit(secretKey)}
-              style={{ padding: 6 }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Pencil size={15} color={mutedColor} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => onDelete(secretKey)}
-              style={{ padding: 6 }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Trash2 size={15} color={mutedColor} />
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
+      </View>
     </View>
   );
 }
@@ -304,11 +177,12 @@ export function SecretsPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: S
   const insets = useSafeAreaInsets();
   const { sandboxUrl } = useSandboxContext();
 
-  const fg = isDark ? '#F8F8F8' : '#121215';
+  const fgColor = isDark ? '#F8F8F8' : '#121215';
   const mutedColor = isDark ? '#71717a' : '#a1a1aa';
   const bgColor = isDark ? '#121215' : '#F8F8F8';
-  const cardBg = isDark ? 'rgba(255,255,255,0.03)' : '#FFFFFF';
   const borderColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const sheetBg = isDark ? '#161618' : '#FFFFFF';
+  const inputBorder = isDark ? 'rgba(248,248,248,0.1)' : 'rgba(18,18,21,0.08)';
   const monoFont = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 
   // Data
@@ -316,22 +190,29 @@ export function SecretsPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: S
 
   // UI state
   const [searchQuery, setSearchQuery] = useState('');
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [newKey, setNewKey] = useState('');
-  const [newValue, setNewValue] = useState('');
-  const [editingKey, setEditingKey] = useState<string | null>(null);
-  const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Bottom sheet refs
+  const addSheetRef = useRef<BottomSheetModal>(null);
+  const editSheetRef = useRef<BottomSheetModal>(null);
+  const deleteSheetRef = useRef<BottomSheetModal>(null);
+
+  // Add form state
+  const [newKey, setNewKey] = useState('');
+  const [newValue, setNewValue] = useState('');
+
+  // Edit form state
+  const [editKey, setEditKey] = useState('');
+  const [editValue, setEditValue] = useState('');
+
+  // Delete state
+  const [deleteKey, setDeleteKey] = useState('');
+
   // Derived data
   const rows = useMemo(() => {
-    const entries = Object.entries(secrets).map(([key, value]) => ({
-      key,
-      value: value || '',
-      hasValue: !!value,
-    }));
+    const entries = Object.entries(secrets).map(([key, value]) => ({ key, value: value || '', hasValue: !!value }));
     entries.sort((a, b) => a.key.localeCompare(b.key));
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -340,16 +221,34 @@ export function SecretsPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: S
     return entries;
   }, [secrets, searchQuery]);
 
-  // Handlers
+  // Shared backdrop
+  const renderBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.5} pressBehavior="close" />
+    ),
+    [],
+  );
+
+  const sheetStyles = useMemo(() => ({
+    backgroundStyle: { backgroundColor: sheetBg, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+    handleIndicatorStyle: { backgroundColor: isDark ? '#3F3F46' : '#D4D4D8', width: 36, height: 5, borderRadius: 3 },
+  }), [sheetBg, isDark]);
+
+  // ── Add ──
+  const openAdd = useCallback(() => {
+    setNewKey('');
+    setNewValue('');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    addSheetRef.current?.present();
+  }, []);
+
   const handleAdd = useCallback(async () => {
     if (!sandboxUrl || !newKey.trim()) return;
     setIsSaving(true);
     try {
-      await setSecret(sandboxUrl, newKey.trim(), newValue);
+      await putSecret(sandboxUrl, newKey.trim(), newValue);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setNewKey('');
-      setNewValue('');
-      setShowAddForm(false);
+      addSheetRef.current?.dismiss();
       refetch();
     } catch (err: any) {
       Alert.alert('Error', err.message);
@@ -358,291 +257,334 @@ export function SecretsPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: S
     }
   }, [sandboxUrl, newKey, newValue, refetch]);
 
-  const handleSave = useCallback(async (key: string, value: string) => {
-    if (!sandboxUrl) return;
+  // ── Edit ──
+  const openEdit = useCallback((key: string, value: string) => {
+    setEditKey(key);
+    setEditValue(value);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    editSheetRef.current?.present();
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    if (!sandboxUrl || !editKey) return;
     setIsSaving(true);
     try {
-      await setSecret(sandboxUrl, key, value);
+      await putSecret(sandboxUrl, editKey, editValue);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setEditingKey(null);
+      editSheetRef.current?.dismiss();
       refetch();
     } catch (err: any) {
       Alert.alert('Error', err.message);
     } finally {
       setIsSaving(false);
     }
-  }, [sandboxUrl, refetch]);
+  }, [sandboxUrl, editKey, editValue, refetch]);
 
-  const handleConfirmDelete = useCallback(async (key: string) => {
-    if (!sandboxUrl) return;
+  // ── Delete ──
+  const openDelete = useCallback((key: string) => {
+    setDeleteKey(key);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    deleteSheetRef.current?.present();
+  }, []);
+
+  const handleDelete = useCallback(async () => {
+    if (!sandboxUrl || !deleteKey) return;
     setIsDeleting(true);
     try {
-      await deleteSecret(sandboxUrl, key);
+      await removeSecret(sandboxUrl, deleteKey);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setConfirmDeleteKey(null);
+      deleteSheetRef.current?.dismiss();
       refetch();
     } catch (err: any) {
       Alert.alert('Error', err.message);
     } finally {
       setIsDeleting(false);
     }
-  }, [sandboxUrl, refetch]);
+  }, [sandboxUrl, deleteKey, refetch]);
 
   const handleToggleVisibility = useCallback((key: string) => {
     setVisibleKeys((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
-  }, []);
-
-  const handleEdit = useCallback((key: string) => {
-    setConfirmDeleteKey(null);
-    setEditingKey(key);
-  }, []);
-
-  const handleDelete = useCallback((key: string) => {
-    setEditingKey(null);
-    setConfirmDeleteKey(key);
   }, []);
 
   return (
     <View style={{ flex: 1, backgroundColor: bgColor }}>
       {/* Header */}
-      <View
-        style={{
-          paddingTop: insets.top + 8,
-          paddingBottom: 12,
-          paddingHorizontal: 16,
-          borderBottomWidth: 1,
-          borderBottomColor: borderColor,
-        }}
-      >
+      <View style={{ paddingTop: insets.top + 8, paddingBottom: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: borderColor }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             {onOpenDrawer && (
               <TouchableOpacity onPress={onOpenDrawer} style={{ marginRight: 12 }}>
-                <Ionicons name="menu-outline" size={22} color={fg} />
+                <Ionicons name="menu-outline" size={22} color={fgColor} />
               </TouchableOpacity>
             )}
-            <Text style={{ fontSize: 17, fontFamily: 'Roobert-SemiBold', color: fg }}>
-              Secrets
-            </Text>
+            <Text style={{ fontSize: 17, fontFamily: 'Roobert-SemiBold', color: fgColor }}>Secrets</Text>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <TouchableOpacity
-              onPress={() => {
-                setShowAddForm(true);
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              }}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                backgroundColor: fg,
-                borderRadius: 8,
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-              }}
+              onPress={openAdd}
+              style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: fgColor, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 }}
             >
               <Plus size={14} color={bgColor} style={{ marginRight: 4 }} />
-              <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: bgColor }}>
-                Add
-              </Text>
+              <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: bgColor }}>Add</Text>
             </TouchableOpacity>
             {onOpenRightDrawer && (
               <TouchableOpacity onPress={onOpenRightDrawer}>
-                <Ionicons name="apps-outline" size={22} color={fg} />
+                <Ionicons name="apps-outline" size={22} color={fgColor} />
               </TouchableOpacity>
             )}
           </View>
         </View>
 
-        {/* Search bar */}
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
-            borderRadius: 10,
-            paddingHorizontal: 10,
-            marginTop: 12,
-            borderWidth: 1,
-            borderColor: borderColor,
-          }}
-        >
+        {/* Search */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', borderRadius: 10, paddingHorizontal: 10, marginTop: 12, borderWidth: 1, borderColor }}>
           <Search size={14} color={mutedColor} style={{ marginRight: 6 }} />
           <TextInput
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholder="Search secrets..."
             placeholderTextColor={mutedColor}
-            style={{
-              flex: 1,
-              fontSize: 13,
-              fontFamily: 'Roobert',
-              color: fg,
-              paddingVertical: 9,
-            }}
+            style={{ flex: 1, fontSize: 13, fontFamily: 'Roobert', color: fgColor, paddingVertical: 9 }}
             autoCapitalize="none"
             autoCorrect={false}
           />
         </View>
       </View>
 
-      <KeyboardAvoidingView
+      {/* List */}
+      <ScrollView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={insets.top + 60}
+        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={mutedColor} />}
+        keyboardShouldPersistTaps="handled"
       >
-        <ScrollView
-          style={{ flex: 1 }}
-          refreshControl={
-            <RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={mutedColor} />
-          }
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* Add form */}
-          {showAddForm && (
-            <View
+        {isLoading && rows.length === 0 && (
+          <View style={{ padding: 40, alignItems: 'center' }}>
+            <ActivityIndicator size="large" color={mutedColor} />
+          </View>
+        )}
+        {error && (
+          <View style={{ padding: 20, alignItems: 'center' }}>
+            <Text style={{ fontSize: 13, fontFamily: 'Roobert', color: isDark ? '#f87171' : '#dc2626', textAlign: 'center' }}>{error}</Text>
+          </View>
+        )}
+        {!isLoading && !error && rows.length === 0 && (
+          <View style={{ padding: 40, alignItems: 'center' }}>
+            <Key size={32} color={mutedColor} style={{ marginBottom: 12, opacity: 0.5 }} />
+            <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: mutedColor, marginBottom: 4 }}>
+              {searchQuery ? 'No secrets match your search' : 'No secrets yet'}
+            </Text>
+            <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: mutedColor, textAlign: 'center', opacity: 0.7 }}>
+              {searchQuery ? 'Try a different search term' : 'Add environment variables and API keys'}
+            </Text>
+          </View>
+        )}
+        {rows.map((row) => (
+          <SecretRow
+            key={row.key}
+            secretKey={row.key}
+            value={row.value}
+            isDark={isDark}
+            visibleKeys={visibleKeys}
+            onEdit={openEdit}
+            onDelete={openDelete}
+            onToggleVisibility={handleToggleVisibility}
+          />
+        ))}
+        <View style={{ height: insets.bottom + 80 }} />
+      </ScrollView>
+
+      {/* ── Add Secret Sheet ── */}
+      <BottomSheetModal
+        ref={addSheetRef}
+        enableDynamicSizing
+        enablePanDownToClose
+        backdropComponent={renderBackdrop}
+        keyboardBehavior="interactive"
+        keyboardBlurBehavior="restore"
+        android_keyboardInputMode="adjustResize"
+        onDismiss={() => { setNewKey(''); setNewValue(''); }}
+        {...sheetStyles}
+      >
+        <BottomSheetView style={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: Math.max(insets.bottom, 20) + 16 }}>
+          {/* Header */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
+            <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+              <Plus size={20} color={fgColor} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 18, fontFamily: 'Roobert-SemiBold', color: fgColor }}>New Secret</Text>
+              <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: mutedColor, marginTop: 2 }}>Add an environment variable</Text>
+            </View>
+          </View>
+
+          {/* Key input */}
+          <BottomSheetTextInput
+            value={newKey}
+            onChangeText={(text) => setNewKey(text.toUpperCase().replace(/[^A-Z0-9_]/g, ''))}
+            placeholder="KEY_NAME"
+            autoFocus
+            autoCapitalize="characters"
+            autoCorrect={false}
+            placeholderTextColor={mutedColor}
+            style={{
+              borderWidth: 1, borderColor: inputBorder, borderRadius: 14,
+              paddingHorizontal: 16, paddingVertical: 14, fontSize: 16,
+              fontFamily: monoFont, color: fgColor, marginBottom: 10,
+            }}
+          />
+
+          {/* Value input */}
+          <BottomSheetTextInput
+            value={newValue}
+            onChangeText={setNewValue}
+            placeholder="Value"
+            autoCorrect={false}
+            returnKeyType="done"
+            onSubmitEditing={handleAdd}
+            placeholderTextColor={mutedColor}
+            style={{
+              borderWidth: 1, borderColor: inputBorder, borderRadius: 14,
+              paddingHorizontal: 16, paddingVertical: 14, fontSize: 16,
+              fontFamily: monoFont, color: fgColor, marginBottom: 20,
+            }}
+          />
+
+          {/* Submit */}
+          <BottomSheetTouchable
+            onPress={handleAdd}
+            disabled={!newKey.trim() || isSaving}
+            style={{
+              backgroundColor: newKey.trim() ? fgColor : (isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.06)'),
+              borderRadius: 14, paddingVertical: 15, alignItems: 'center',
+              opacity: newKey.trim() && !isSaving ? 1 : 0.5,
+            }}
+          >
+            <Text style={{ fontSize: 16, fontFamily: 'Roobert-SemiBold', color: newKey.trim() ? bgColor : mutedColor }}>
+              {isSaving ? 'Adding...' : 'Add Secret'}
+            </Text>
+          </BottomSheetTouchable>
+        </BottomSheetView>
+      </BottomSheetModal>
+
+      {/* ── Edit Secret Sheet ── */}
+      <BottomSheetModal
+        ref={editSheetRef}
+        enableDynamicSizing
+        enablePanDownToClose
+        backdropComponent={renderBackdrop}
+        keyboardBehavior="interactive"
+        keyboardBlurBehavior="restore"
+        android_keyboardInputMode="adjustResize"
+        onDismiss={() => { setEditKey(''); setEditValue(''); }}
+        {...sheetStyles}
+      >
+        <BottomSheetView style={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: Math.max(insets.bottom, 20) + 16 }}>
+          {/* Header */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
+            <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+              <Pencil size={20} color={fgColor} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 18, fontFamily: 'Roobert-SemiBold', color: fgColor }}>Edit Secret</Text>
+              <Text style={{ fontSize: 12, fontFamily: monoFont, color: mutedColor, marginTop: 2 }} numberOfLines={1}>{editKey}</Text>
+            </View>
+          </View>
+
+          {/* Value input */}
+          <BottomSheetTextInput
+            value={editValue}
+            onChangeText={setEditValue}
+            placeholder="Enter new value"
+            autoFocus
+            autoCorrect={false}
+            returnKeyType="done"
+            onSubmitEditing={handleSave}
+            placeholderTextColor={mutedColor}
+            style={{
+              borderWidth: 1, borderColor: inputBorder, borderRadius: 14,
+              paddingHorizontal: 16, paddingVertical: 14, fontSize: 16,
+              fontFamily: monoFont, color: fgColor, marginBottom: 20,
+            }}
+          />
+
+          {/* Submit */}
+          <BottomSheetTouchable
+            onPress={handleSave}
+            disabled={isSaving}
+            style={{
+              backgroundColor: fgColor, borderRadius: 14, paddingVertical: 15,
+              alignItems: 'center', opacity: isSaving ? 0.5 : 1,
+            }}
+          >
+            <Text style={{ fontSize: 16, fontFamily: 'Roobert-SemiBold', color: bgColor }}>
+              {isSaving ? 'Saving...' : 'Save'}
+            </Text>
+          </BottomSheetTouchable>
+        </BottomSheetView>
+      </BottomSheetModal>
+
+      {/* ── Delete Secret Sheet ── */}
+      <BottomSheetModal
+        ref={deleteSheetRef}
+        enableDynamicSizing
+        enablePanDownToClose
+        backdropComponent={renderBackdrop}
+        onDismiss={() => setDeleteKey('')}
+        {...sheetStyles}
+      >
+        <BottomSheetView style={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: Math.max(insets.bottom, 20) + 16 }}>
+          {/* Header */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
+            <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: isDark ? 'rgba(239,68,68,0.1)' : 'rgba(239,68,68,0.06)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+              <Trash2 size={20} color={isDark ? '#f87171' : '#dc2626'} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 18, fontFamily: 'Roobert-SemiBold', color: fgColor }}>Delete Secret</Text>
+              <Text style={{ fontSize: 12, fontFamily: monoFont, color: mutedColor, marginTop: 2 }} numberOfLines={1}>{deleteKey}</Text>
+            </View>
+          </View>
+
+          {/* Warning */}
+          <View style={{
+            flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 12, marginBottom: 20,
+            backgroundColor: isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.04)',
+            borderWidth: 1, borderColor: isDark ? 'rgba(239,68,68,0.15)' : 'rgba(239,68,68,0.1)',
+          }}>
+            <AlertTriangle size={16} color={isDark ? '#f87171' : '#dc2626'} style={{ marginRight: 8 }} />
+            <Text style={{ fontSize: 13, fontFamily: 'Roobert', color: isDark ? '#fca5a5' : '#b91c1c', flex: 1, lineHeight: 18 }}>
+              This will permanently remove this environment variable.
+            </Text>
+          </View>
+
+          {/* Buttons */}
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <BottomSheetTouchable
+              onPress={() => deleteSheetRef.current?.dismiss()}
               style={{
-                paddingHorizontal: 16,
-                paddingVertical: 14,
-                borderBottomWidth: 1,
-                borderBottomColor: borderColor,
-                backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)',
+                flex: 1, borderRadius: 14, paddingVertical: 15, alignItems: 'center',
+                borderWidth: 1, borderColor: borderColor,
               }}
             >
-              <TextInput
-                value={newKey}
-                onChangeText={(text) => setNewKey(text.toUpperCase().replace(/[^A-Z0-9_]/g, ''))}
-                placeholder="KEY_NAME"
-                placeholderTextColor={mutedColor}
-                autoFocus
-                autoCapitalize="characters"
-                autoCorrect={false}
-                style={{
-                  fontSize: 13,
-                  fontFamily: monoFont,
-                  color: fg,
-                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
-                  borderRadius: 8,
-                  paddingHorizontal: 10,
-                  paddingVertical: 8,
-                  borderWidth: 1,
-                  borderColor: borderColor,
-                  marginBottom: 8,
-                }}
-              />
-              <TextInput
-                value={newValue}
-                onChangeText={setNewValue}
-                placeholder="Value"
-                placeholderTextColor={mutedColor}
-                returnKeyType="done"
-                onSubmitEditing={handleAdd}
-                style={{
-                  fontSize: 13,
-                  fontFamily: monoFont,
-                  color: fg,
-                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
-                  borderRadius: 8,
-                  paddingHorizontal: 10,
-                  paddingVertical: 8,
-                  borderWidth: 1,
-                  borderColor: borderColor,
-                  marginBottom: 10,
-                }}
-              />
-              <View style={{ flexDirection: 'row', gap: 8, justifyContent: 'flex-end' }}>
-                <TouchableOpacity
-                  onPress={() => { setShowAddForm(false); setNewKey(''); setNewValue(''); }}
-                  style={{
-                    paddingHorizontal: 16,
-                    paddingVertical: 7,
-                    borderRadius: 8,
-                    borderWidth: 1,
-                    borderColor: borderColor,
-                  }}
-                >
-                  <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: mutedColor }}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={handleAdd}
-                  disabled={!newKey.trim() || isSaving}
-                  style={{
-                    paddingHorizontal: 16,
-                    paddingVertical: 7,
-                    borderRadius: 8,
-                    backgroundColor: fg,
-                    opacity: !newKey.trim() || isSaving ? 0.5 : 1,
-                  }}
-                >
-                  {isSaving ? (
-                    <ActivityIndicator size="small" color={bgColor} />
-                  ) : (
-                    <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: bgColor }}>Add</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
-          {/* Loading */}
-          {isLoading && rows.length === 0 && (
-            <View style={{ padding: 40, alignItems: 'center' }}>
-              <ActivityIndicator size="large" color={mutedColor} />
-            </View>
-          )}
-
-          {/* Error */}
-          {error && (
-            <View style={{ padding: 20, alignItems: 'center' }}>
-              <Text style={{ fontSize: 13, fontFamily: 'Roobert', color: isDark ? '#f87171' : '#dc2626', textAlign: 'center' }}>
-                {error}
+              <Text style={{ fontSize: 16, fontFamily: 'Roobert-SemiBold', color: fgColor }}>Cancel</Text>
+            </BottomSheetTouchable>
+            <BottomSheetTouchable
+              onPress={handleDelete}
+              disabled={isDeleting}
+              style={{
+                flex: 1, borderRadius: 14, paddingVertical: 15, alignItems: 'center',
+                backgroundColor: isDark ? '#dc2626' : '#ef4444', opacity: isDeleting ? 0.5 : 1,
+              }}
+            >
+              <Text style={{ fontSize: 16, fontFamily: 'Roobert-SemiBold', color: '#FFFFFF' }}>
+                {isDeleting ? 'Deleting...' : 'Delete'}
               </Text>
-            </View>
-          )}
-
-          {/* Empty state */}
-          {!isLoading && !error && rows.length === 0 && (
-            <View style={{ padding: 40, alignItems: 'center' }}>
-              <Key size={32} color={mutedColor} style={{ marginBottom: 12, opacity: 0.5 }} />
-              <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: mutedColor, marginBottom: 4 }}>
-                {searchQuery ? 'No secrets match your search' : 'No secrets yet'}
-              </Text>
-              <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: mutedColor, textAlign: 'center', opacity: 0.7 }}>
-                {searchQuery ? 'Try a different search term' : 'Add environment variables and API keys'}
-              </Text>
-            </View>
-          )}
-
-          {/* Secrets list */}
-          {rows.map((row) => (
-            <SecretRow
-              key={row.key}
-              secretKey={row.key}
-              value={row.value}
-              isDark={isDark}
-              editingKey={editingKey}
-              confirmDeleteKey={confirmDeleteKey}
-              visibleKeys={visibleKeys}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-              onToggleVisibility={handleToggleVisibility}
-              onSave={handleSave}
-              onCancelEdit={() => setEditingKey(null)}
-              onConfirmDelete={handleConfirmDelete}
-              onCancelDelete={() => setConfirmDeleteKey(null)}
-              isSaving={isSaving}
-              isDeleting={isDeleting}
-            />
-          ))}
-
-          {/* Bottom spacing */}
-          <View style={{ height: insets.bottom + 80 }} />
-        </ScrollView>
-      </KeyboardAvoidingView>
+            </BottomSheetTouchable>
+          </View>
+        </BottomSheetView>
+      </BottomSheetModal>
     </View>
   );
 }
