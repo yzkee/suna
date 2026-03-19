@@ -13,10 +13,26 @@ export class SecretStore {
   private secretsPath: string
   private saltPath: string
   private salt: Buffer | null = null
+  /** Async mutex — serializes all read→modify→write operations to prevent data loss */
+  private lock: Promise<void> = Promise.resolve()
 
   constructor() {
     this.secretsPath = process.env.SECRET_FILE_PATH || '/workspace/.secrets/.secrets.json'
     this.saltPath = process.env.SALT_FILE_PATH || '/workspace/.secrets/.salt'
+  }
+
+  /** Queue an async operation behind the mutex. Guarantees serial execution. */
+  private async withLock<T>(fn: () => Promise<T>): Promise<T> {
+    let release!: () => void
+    const next = new Promise<void>((resolve) => { release = resolve })
+    const prev = this.lock
+    this.lock = next
+    await prev
+    try {
+      return await fn()
+    } finally {
+      release()
+    }
   }
 
   private async ensureDirectories() {
@@ -80,79 +96,91 @@ export class SecretStore {
   }
 
   async get(key: string): Promise<string | null> {
-    const data = await this.loadSecrets()
-    const encrypted = data.secrets[key]
-    if (!encrypted) return null
-    try {
-      return await this.decrypt(encrypted)
-    } catch {
-      // Stale key encrypted with old master key — silently skip.
-      // Callers (loadIntoProcessEnv, getAll) aggregate the count.
-      return null
-    }
+    return this.withLock(async () => {
+      const data = await this.loadSecrets()
+      const encrypted = data.secrets[key]
+      if (!encrypted) return null
+      try {
+        return await this.decrypt(encrypted)
+      } catch {
+        // Stale key encrypted with old master key — silently skip.
+        // Callers (loadIntoProcessEnv, getAll) aggregate the count.
+        return null
+      }
+    })
   }
 
   async set(key: string, value: string): Promise<void> {
-    const data = await this.loadSecrets()
-    data.secrets[key] = await this.encrypt(value)
-    await this.saveSecrets(data)
+    return this.withLock(async () => {
+      const data = await this.loadSecrets()
+      data.secrets[key] = await this.encrypt(value)
+      await this.saveSecrets(data)
+    })
   }
 
   async delete(key: string): Promise<void> {
-    const data = await this.loadSecrets()
-    delete data.secrets[key]
-    await this.saveSecrets(data)
+    return this.withLock(async () => {
+      const data = await this.loadSecrets()
+      delete data.secrets[key]
+      await this.saveSecrets(data)
+    })
   }
 
   async listKeys(): Promise<string[]> {
-    const data = await this.loadSecrets()
-    return Object.keys(data.secrets)
+    return this.withLock(async () => {
+      const data = await this.loadSecrets()
+      return Object.keys(data.secrets)
+    })
   }
 
   /** Load all secrets into process.env. Auto-purges stale keys that can't be decrypted. */
   async loadIntoProcessEnv(): Promise<void> {
-    const data = await this.loadSecrets()
-    const keys = Object.keys(data.secrets)
-    let loaded = 0
-    const staleKeys: string[] = []
-    for (const key of keys) {
-      try {
-        const value = await this.decrypt(data.secrets[key])
-        process.env[key] = value
-        loaded++
-      } catch {
-        staleKeys.push(key)
+    return this.withLock(async () => {
+      const data = await this.loadSecrets()
+      const keys = Object.keys(data.secrets)
+      let loaded = 0
+      const staleKeys: string[] = []
+      for (const key of keys) {
+        try {
+          const value = await this.decrypt(data.secrets[key])
+          process.env[key] = value
+          loaded++
+        } catch {
+          staleKeys.push(key)
+        }
       }
-    }
-    // Auto-purge stale keys (encrypted with old master key)
-    if (staleKeys.length > 0) {
-      for (const key of staleKeys) delete data.secrets[key]
-      await this.saveSecrets(data)
-      console.warn(`[SecretStore] Purged ${staleKeys.length} stale secret(s) (old encryption key)`)
-    }
-    if (loaded > 0) {
-      console.log(`[SecretStore] Loaded ${loaded} env var(s)`)
-    }
+      // Auto-purge stale keys (encrypted with old master key)
+      if (staleKeys.length > 0) {
+        for (const key of staleKeys) delete data.secrets[key]
+        await this.saveSecrets(data)
+        console.warn(`[SecretStore] Purged ${staleKeys.length} stale secret(s) (old encryption key)`)
+      }
+      if (loaded > 0) {
+        console.log(`[SecretStore] Loaded ${loaded} env var(s)`)
+      }
+    })
   }
 
   /** Get all secrets decrypted. Auto-purges stale keys that can't be decrypted. */
   async getAll(): Promise<Record<string, string>> {
-    const data = await this.loadSecrets()
-    const result: Record<string, string> = {}
-    const staleKeys: string[] = []
-    for (const key of Object.keys(data.secrets)) {
-      try {
-        result[key] = await this.decrypt(data.secrets[key])
-      } catch {
-        staleKeys.push(key)
+    return this.withLock(async () => {
+      const data = await this.loadSecrets()
+      const result: Record<string, string> = {}
+      const staleKeys: string[] = []
+      for (const key of Object.keys(data.secrets)) {
+        try {
+          result[key] = await this.decrypt(data.secrets[key])
+        } catch {
+          staleKeys.push(key)
+        }
       }
-    }
-    if (staleKeys.length > 0) {
-      for (const key of staleKeys) delete data.secrets[key]
-      await this.saveSecrets(data)
-      console.warn(`[SecretStore] Purged ${staleKeys.length} stale secret(s) (old encryption key)`)
-    }
-    return result
+      if (staleKeys.length > 0) {
+        for (const key of staleKeys) delete data.secrets[key]
+        await this.saveSecrets(data)
+        console.warn(`[SecretStore] Purged ${staleKeys.length} stale secret(s) (old encryption key)`)
+      }
+      return result
+    })
   }
 
   async setEnv(key: string, value: string): Promise<void> {
@@ -170,25 +198,35 @@ export class SecretStore {
    * Atomically: decrypt everything with old key → update token → re-encrypt with new key.
    */
   async rotateToken(newToken: string): Promise<{ rotated: number }> {
-    // 1. Decrypt all secrets using the current key (derived from current KORTIX_TOKEN)
-    const allSecrets = await this.getAll()
+    return this.withLock(async () => {
+      // 1. Decrypt all secrets using the current key (derived from current KORTIX_TOKEN)
+      const data = await this.loadSecrets()
+      const allSecrets: Record<string, string> = {}
+      const staleKeys: string[] = []
+      for (const key of Object.keys(data.secrets)) {
+        try {
+          allSecrets[key] = await this.decrypt(data.secrets[key])
+        } catch {
+          staleKeys.push(key)
+        }
+      }
 
-    // 2. Wipe the salt so a fresh one is generated for the new key
-    this.salt = null
-    try { await rm(this.saltPath) } catch {}
+      // 2. Wipe the salt so a fresh one is generated for the new key
+      this.salt = null
+      try { await rm(this.saltPath) } catch {}
 
-    // 3. Switch to the new token — getKey() now derives from the new value
-    process.env.KORTIX_TOKEN = newToken
+      // 3. Switch to the new token — getKey() now derives from the new value
+      process.env.KORTIX_TOKEN = newToken
 
-    // 4. Re-encrypt and save all secrets (including KORTIX_TOKEN itself if present)
-    //    Remove KORTIX_TOKEN from the set — we don't store the token in its own encrypted store
-    delete allSecrets['KORTIX_TOKEN']
-    const data: SecretsData = { secrets: {}, version: 1 }
-    for (const [key, value] of Object.entries(allSecrets)) {
-      data.secrets[key] = await this.encrypt(value)
-    }
-    await this.saveSecrets(data)
+      // 4. Re-encrypt and save all secrets (excluding KORTIX_TOKEN itself)
+      delete allSecrets['KORTIX_TOKEN']
+      const newData: SecretsData = { secrets: {}, version: 1 }
+      for (const [key, value] of Object.entries(allSecrets)) {
+        newData.secrets[key] = await this.encrypt(value)
+      }
+      await this.saveSecrets(newData)
 
-    return { rotated: Object.keys(data.secrets).length }
+      return { rotated: Object.keys(newData.secrets).length }
+    })
   }
 }

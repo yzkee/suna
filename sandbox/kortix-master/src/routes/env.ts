@@ -230,8 +230,9 @@ envRouter.post('/rotate-token',
       // Atomic rotation: decrypt all with old key → switch → re-encrypt with new key
       const result = await secretStore.rotateToken(newToken)
 
-      // Write new token to s6 env dir so restarted services pick it up
+      // Persist new token to s6 env dir + bootstrap so it survives service/container restarts
       await writeS6Env('KORTIX_TOKEN', newToken)
+      updateBootstrapKey('KORTIX_TOKEN', newToken)
 
       // Restart OpenCode to pick up the new token
       await restartServices()
