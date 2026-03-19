@@ -911,6 +911,91 @@ function GlobGrepExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boo
   );
 }
 
+function ShowExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const input = getToolInput(tool);
+  const title = input.title || input.description || '';
+  const filePath = input.path || '';
+  const content = input.content || '';
+
+  // Parse output (always, to avoid conditional hook)
+  const parsedOutput = useMemo(() => {
+    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
+      const raw = tool.state.output.trim();
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed.entry?.path || parsed.path) {
+          const p = parsed.entry?.path || parsed.path;
+          const t = parsed.entry?.title || parsed.title || title;
+          return { type: 'file' as const, path: p, title: t };
+        }
+        if (parsed.message) {
+          return { type: 'message' as const, text: parsed.message };
+        }
+      } catch {}
+      return { type: 'raw' as const, text: raw };
+    }
+    return undefined;
+  }, [tool.state, title]);
+
+  // Show file content with syntax highlighting if available
+  if (content) {
+    return (
+      <ScrollView
+        style={{ maxHeight: 300 }}
+        contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 10 }}
+        nestedScrollEnabled
+        showsVerticalScrollIndicator
+      >
+        <HighlightedCode
+          content={content.length > 4000 ? content.slice(0, 4000) : content}
+          filePath={filePath || 'file.md'}
+          isDark={isDark}
+          maxLines={50}
+        />
+      </ScrollView>
+    );
+  }
+
+  if (!parsedOutput) return null;
+
+  if (parsedOutput.type === 'file') {
+    return (
+      <View style={{ paddingHorizontal: 12, paddingVertical: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+          <Ionicons name="document-text-outline" size={14} color={muted(isDark)} style={{ marginRight: 6 }} />
+          <Text numberOfLines={1} style={{ fontSize: 11, fontFamily: monoFont, color: mutedStrong(isDark), flex: 1 }}>
+            {parsedOutput.path}
+          </Text>
+        </View>
+        {parsedOutput.title && (
+          <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: fg(isDark) }}>
+            {parsedOutput.title}
+          </Text>
+        )}
+      </View>
+    );
+  }
+
+  if (parsedOutput.type === 'message') {
+    return (
+      <View style={{ paddingHorizontal: 12, paddingVertical: 10 }}>
+        <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: fg(isDark), lineHeight: 18 }}>
+          {parsedOutput.text}
+        </Text>
+      </View>
+    );
+  }
+
+  // Raw fallback
+  return (
+    <View style={{ paddingHorizontal: 12, paddingVertical: 10, maxHeight: 200 }}>
+      <MonoBlock isDark={isDark} maxLines={15}>
+        {parsedOutput.text.length > 1000 ? parsedOutput.text.slice(0, 1000) + '\n...' : parsedOutput.text}
+      </MonoBlock>
+    </View>
+  );
+}
+
 function GenericExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
   const output = useMemo(() => {
     if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
@@ -955,6 +1040,9 @@ function getExpandedContent(tool: ToolPart, isDark: boolean): React.ReactNode {
     case 'grep':
     case 'list':
       return <GlobGrepExpandedContent tool={tool} isDark={isDark} />;
+    case 'show':
+    case 'show-user':
+      return <ShowExpandedContent tool={tool} isDark={isDark} />;
     case 'webfetch':
     case 'scrape-webpage':
       return <GenericExpandedContent tool={tool} isDark={isDark} />;
@@ -975,6 +1063,8 @@ function toolHasExpandableContent(tool: ToolPart): boolean {
   // Write/Edit expandable if has content
   if ((tool.tool === 'write' || tool.tool === 'edit' || tool.tool === 'morph_edit') &&
       (input.content || input.oldString || input.newString)) return true;
+  // Show tool expandable if has content or path
+  if ((tool.tool === 'show' || tool.tool === 'show-user') && (input.content || input.path)) return true;
   // Any tool with completed output is expandable
   if (state.status === 'completed' && 'output' in state && state.output?.trim()) return true;
   // Any tool with error is expandable
