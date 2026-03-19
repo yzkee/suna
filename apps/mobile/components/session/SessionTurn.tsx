@@ -1056,6 +1056,8 @@ function getExpandedContent(tool: ToolPart, isDark: boolean): React.ReactNode {
 function toolHasExpandableContent(tool: ToolPart): boolean {
   const { state } = tool;
   const input = getToolInput(tool);
+  // Running/pending tools are always expandable (to watch streaming)
+  if (state.status === 'running' || state.status === 'pending') return true;
   // Todos always expandable if input has todos
   if (tool.tool === 'todowrite' && Array.isArray(input.todos) && input.todos.length > 0) return true;
   // Shell expandable if has command, description, or output
@@ -1100,7 +1102,6 @@ function ToolCard({
 
   const handlePress = useCallback(() => {
     if (!hasExpandable && !isRunning) return;
-    if (isRunning) return;
     setExpanded((prev) => !prev);
   }, [hasExpandable, isRunning]);
 
