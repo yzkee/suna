@@ -297,39 +297,41 @@ describe('SecretStore', () => {
   // ─── Concurrency (mutex) ────────────────────────────────────────────────
 
   describe('concurrent writes (mutex)', () => {
-    it('does not lose keys when multiple set() calls run concurrently', async () => {
-      const store = new SecretStore()
-      // Simulate the onboarding scenario: 4 rapid-fire concurrent writes
-      await Promise.all([
-        store.set('ONBOARDING_COMPLETE', 'true'),
-        store.set('ONBOARDING_USER_NAME', 'Test User'),
-        store.set('ONBOARDING_USER_SUMMARY', 'Developer at Acme'),
-        store.set('ONBOARDING_COMPLETED_AT', '2026-03-19T00:00:00Z'),
-      ])
+    it('does not lose keys when multiple set() calls run concurrently (onboarding scenario)', async () => {
+      // Run 20 iterations — without the mutex each has ~20% failure rate,
+      // so P(all pass without mutex) ≈ 0.8^20 ≈ 1%. This makes the test
+      // a reliable regression guard, not a flaky timing coin-flip.
+      for (let i = 0; i < 20; i++) {
+        const store = new SecretStore()
+        await Promise.all([
+          store.set(`COMPLETE_${i}`, 'true'),
+          store.set(`NAME_${i}`, 'Test User'),
+          store.set(`SUMMARY_${i}`, 'Developer at Acme'),
+          store.set(`TIME_${i}`, '2026-03-19T00:00:00Z'),
+        ])
 
-      // ALL four keys must be present — without the mutex, some would be lost
-      expect(await store.get('ONBOARDING_COMPLETE')).toBe('true')
-      expect(await store.get('ONBOARDING_USER_NAME')).toBe('Test User')
-      expect(await store.get('ONBOARDING_USER_SUMMARY')).toBe('Developer at Acme')
-      expect(await store.get('ONBOARDING_COMPLETED_AT')).toBe('2026-03-19T00:00:00Z')
-
-      const keys = await store.listKeys()
-      expect(keys.length).toBe(4)
+        expect(await store.get(`COMPLETE_${i}`)).toBe('true')
+        expect(await store.get(`NAME_${i}`)).toBe('Test User')
+        expect(await store.get(`SUMMARY_${i}`)).toBe('Developer at Acme')
+        expect(await store.get(`TIME_${i}`)).toBe('2026-03-19T00:00:00Z')
+      }
     })
 
     it('does not lose keys when set() and delete() interleave', async () => {
-      const store = new SecretStore()
-      await store.set('KEEP_ME', 'important')
+      for (let i = 0; i < 20; i++) {
+        const store = new SecretStore()
+        await store.set('KEEP_ME', 'important')
 
-      await Promise.all([
-        store.set('NEW_KEY', 'new-value'),
-        store.delete('NON_EXISTENT'),
-        store.set('ANOTHER', 'another-value'),
-      ])
+        await Promise.all([
+          store.set('NEW_KEY', 'new-value'),
+          store.delete('NON_EXISTENT'),
+          store.set('ANOTHER', 'another-value'),
+        ])
 
-      expect(await store.get('KEEP_ME')).toBe('important')
-      expect(await store.get('NEW_KEY')).toBe('new-value')
-      expect(await store.get('ANOTHER')).toBe('another-value')
+        expect(await store.get('KEEP_ME')).toBe('important')
+        expect(await store.get('NEW_KEY')).toBe('new-value')
+        expect(await store.get('ANOTHER')).toBe('another-value')
+      }
     })
 
     it('handles 20 concurrent writes without data loss', async () => {
