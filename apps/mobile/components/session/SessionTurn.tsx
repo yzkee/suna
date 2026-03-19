@@ -152,6 +152,487 @@ function getToolLucideIcon(iconName: string): LucideIcon {
   return TOOL_ICON_MAP[iconName] ?? Cpu;
 }
 
+// ─── Shared styles ───────────────────────────────────────────────────────────
+
+const monoFont = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
+
+function cardBorder(isDark: boolean) {
+  return isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+}
+function cardBg(isDark: boolean) {
+  return isDark ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.8)';
+}
+function mutedBg(isDark: boolean) {
+  return isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)';
+}
+function fg(isDark: boolean) {
+  return isDark ? '#F8F8F8' : '#121215';
+}
+function muted(isDark: boolean) {
+  return isDark ? '#71717a' : '#a1a1aa';
+}
+function mutedStrong(isDark: boolean) {
+  return isDark ? '#a1a1aa' : '#71717a';
+}
+
+// ─── MonoBlock — reusable monospace code block ───────────────────────────────
+
+function MonoBlock({
+  children,
+  isDark,
+  color,
+  maxLines,
+}: {
+  children: string;
+  isDark: boolean;
+  color?: string;
+  maxLines?: number;
+}) {
+  return (
+    <Text
+      numberOfLines={maxLines}
+      style={{
+        fontSize: 11,
+        fontFamily: monoFont,
+        lineHeight: 17,
+        color: color || mutedStrong(isDark),
+      }}
+    >
+      {children}
+    </Text>
+  );
+}
+
+// ─── OutputSection — "OUTPUT" label + content block ──────────────────────────
+
+function OutputSection({
+  output,
+  isDark,
+  isError,
+}: {
+  output: string;
+  isDark: boolean;
+  isError?: boolean;
+}) {
+  const displayOutput = output.length > 3000 ? output.slice(0, 3000) + '\n...' : output;
+  return (
+    <View
+      style={{
+        marginHorizontal: 10,
+        marginBottom: 10,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+        backgroundColor: mutedBg(isDark),
+        overflow: 'hidden',
+      }}
+    >
+      {/* Label */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingTop: 8, paddingBottom: 4 }}>
+        <View
+          style={{
+            width: 5,
+            height: 5,
+            borderRadius: 2.5,
+            backgroundColor: isError ? (isDark ? '#ef4444' : '#dc2626') : muted(isDark),
+            marginRight: 6,
+          }}
+        />
+        <Text style={{ fontSize: 10, fontFamily: 'Roobert', color: muted(isDark), textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          {isError ? 'Error' : 'Output'}
+        </Text>
+      </View>
+      {/* Content */}
+      <View style={{ paddingHorizontal: 10, paddingBottom: 10 }}>
+        <MonoBlock isDark={isDark} color={isError ? (isDark ? '#f87171' : '#dc2626') : undefined} maxLines={30}>
+          {displayOutput}
+        </MonoBlock>
+      </View>
+    </View>
+  );
+}
+
+// ─── Tool-specific expanded content renderers ────────────────────────────────
+
+function ShellExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const command = tool.input?.command || '';
+  const output = useMemo(() => {
+    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
+      return stripAnsi(tool.state.output).trim();
+    }
+    if (tool.state.status === 'error' && 'error' in tool.state) {
+      return tool.state.error;
+    }
+    return undefined;
+  }, [tool.state]);
+
+  return (
+    <View>
+      {/* Command */}
+      {!!command && (
+        <View style={{ paddingHorizontal: 12, paddingVertical: 10 }}>
+          <MonoBlock isDark={isDark} color={fg(isDark)}>
+            {'$ ' + command}
+          </MonoBlock>
+        </View>
+      )}
+      {/* Output */}
+      {!!output && (
+        <OutputSection output={output} isDark={isDark} isError={tool.state.status === 'error'} />
+      )}
+    </View>
+  );
+}
+
+function WriteEditExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const content = tool.input?.content || tool.input?.newString || '';
+  const filePath = tool.input?.filePath || '';
+  const output = useMemo(() => {
+    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
+      return stripAnsi(tool.state.output).trim();
+    }
+    return undefined;
+  }, [tool.state]);
+
+  // For edit, show old -> new
+  const oldString = tool.input?.oldString;
+  const newString = tool.input?.newString;
+  const isEdit = tool.tool === 'edit' || tool.tool === 'morph_edit';
+
+  return (
+    <View>
+      {isEdit && oldString && newString ? (
+        <View style={{ paddingHorizontal: 12, paddingVertical: 10 }}>
+          {/* Deletions */}
+          <View style={{ marginBottom: 4 }}>
+            {oldString.split('\n').slice(0, 15).map((line: string, i: number) => (
+              <View
+                key={`del-${i}`}
+                style={{
+                  flexDirection: 'row',
+                  backgroundColor: isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.06)',
+                  paddingHorizontal: 4,
+                  borderRadius: 2,
+                }}
+              >
+                <Text style={{ fontSize: 11, fontFamily: monoFont, lineHeight: 17, color: isDark ? '#f87171' : '#dc2626', marginRight: 6 }}>-</Text>
+                <Text style={{ fontSize: 11, fontFamily: monoFont, lineHeight: 17, color: isDark ? '#f87171' : '#dc2626', flex: 1 }} numberOfLines={1}>
+                  {line}
+                </Text>
+              </View>
+            ))}
+          </View>
+          {/* Additions */}
+          <View>
+            {newString.split('\n').slice(0, 15).map((line: string, i: number) => (
+              <View
+                key={`add-${i}`}
+                style={{
+                  flexDirection: 'row',
+                  backgroundColor: isDark ? 'rgba(16,185,129,0.08)' : 'rgba(16,185,129,0.06)',
+                  paddingHorizontal: 4,
+                  borderRadius: 2,
+                }}
+              >
+                <Text style={{ fontSize: 11, fontFamily: monoFont, lineHeight: 17, color: isDark ? '#34d399' : '#059669', marginRight: 6 }}>+</Text>
+                <Text style={{ fontSize: 11, fontFamily: monoFont, lineHeight: 17, color: isDark ? '#34d399' : '#059669', flex: 1 }} numberOfLines={1}>
+                  {line}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      ) : content ? (
+        <View style={{ paddingHorizontal: 12, paddingVertical: 10, maxHeight: 250 }}>
+          <MonoBlock isDark={isDark} maxLines={25}>
+            {content.length > 2000 ? content.slice(0, 2000) + '\n...' : content}
+          </MonoBlock>
+        </View>
+      ) : null}
+      {!!output && <OutputSection output={output} isDark={isDark} />}
+    </View>
+  );
+}
+
+function TodosExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const todos = useMemo(() => {
+    // Try parsing input.todos
+    const raw = tool.input?.todos;
+    if (Array.isArray(raw)) return raw;
+    // Try parsing output
+    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
+      try {
+        const parsed = JSON.parse(tool.state.output);
+        if (Array.isArray(parsed)) return parsed;
+        if (parsed?.todos && Array.isArray(parsed.todos)) return parsed.todos;
+      } catch {}
+    }
+    return [];
+  }, [tool.input, tool.state]);
+
+  if (todos.length === 0) return null;
+
+  const statusIcons: Record<string, { icon: string; color: string }> = {
+    completed: { icon: 'checkmark-circle', color: isDark ? '#4ade80' : '#16a34a' },
+    in_progress: { icon: 'ellipsis-horizontal-circle', color: isDark ? '#60a5fa' : '#2563eb' },
+    pending: { icon: 'ellipse-outline', color: muted(isDark) },
+    cancelled: { icon: 'close-circle-outline', color: muted(isDark) },
+  };
+
+  return (
+    <View style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
+      {todos.map((todo: any, i: number) => {
+        const st = statusIcons[todo.status] || statusIcons.pending;
+        return (
+          <View
+            key={i}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'flex-start',
+              paddingVertical: 5,
+              borderBottomWidth: i < todos.length - 1 ? 1 : 0,
+              borderBottomColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+            }}
+          >
+            <Ionicons
+              name={st.icon as any}
+              size={16}
+              color={st.color}
+              style={{ marginRight: 8, marginTop: 1 }}
+            />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontFamily: 'Roobert',
+                  lineHeight: 18,
+                  color: todo.status === 'cancelled' ? muted(isDark) : fg(isDark),
+                  textDecorationLine: todo.status === 'cancelled' ? 'line-through' : 'none',
+                }}
+              >
+                {todo.content}
+              </Text>
+              {todo.priority && (
+                <Text style={{ fontSize: 10, fontFamily: 'Roobert', color: muted(isDark), marginTop: 1 }}>
+                  {todo.priority}
+                </Text>
+              )}
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function ReadExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const output = useMemo(() => {
+    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
+      return stripAnsi(tool.state.output).trim();
+    }
+    return undefined;
+  }, [tool.state]);
+
+  if (!output) return null;
+
+  return (
+    <View style={{ paddingHorizontal: 12, paddingVertical: 10, maxHeight: 250 }}>
+      <MonoBlock isDark={isDark} maxLines={30}>
+        {output.length > 3000 ? output.slice(0, 3000) + '\n...' : output}
+      </MonoBlock>
+    </View>
+  );
+}
+
+function WebSearchExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const results = useMemo(() => {
+    if (tool.state.status !== 'completed' || !('output' in tool.state) || !tool.state.output) return [];
+    try {
+      const parsed = JSON.parse(tool.state.output);
+      // Handle different formats
+      if (Array.isArray(parsed)) return parsed;
+      if (parsed?.results && Array.isArray(parsed.results)) return parsed.results;
+      if (parsed?.queries) {
+        // Batch format - flatten
+        return parsed.queries.flatMap((q: any) => q.sources || q.results || []);
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }, [tool.state]);
+
+  if (results.length === 0) {
+    // Fallback to raw output
+    const rawOutput = tool.state.status === 'completed' && 'output' in tool.state ? tool.state.output?.trim() : undefined;
+    if (rawOutput) {
+      return (
+        <View style={{ paddingHorizontal: 12, paddingVertical: 10 }}>
+          <MonoBlock isDark={isDark} maxLines={20}>{rawOutput}</MonoBlock>
+        </View>
+      );
+    }
+    return null;
+  }
+
+  return (
+    <View style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
+      {results.slice(0, 8).map((result: any, i: number) => (
+        <View
+          key={i}
+          style={{
+            paddingVertical: 6,
+            borderBottomWidth: i < Math.min(results.length, 8) - 1 ? 1 : 0,
+            borderBottomColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+          }}
+        >
+          <Text numberOfLines={1} style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: fg(isDark), marginBottom: 2 }}>
+            {result.title || result.name || 'Untitled'}
+          </Text>
+          {(result.url || result.link) && (
+            <Text numberOfLines={1} style={{ fontSize: 10, fontFamily: monoFont, color: muted(isDark), marginBottom: 2 }}>
+              {(result.url || result.link).replace(/^https?:\/\//, '').split('/')[0]}
+            </Text>
+          )}
+          {(result.snippet || result.description || result.text) && (
+            <Text numberOfLines={2} style={{ fontSize: 11, fontFamily: 'Roobert', color: mutedStrong(isDark), lineHeight: 16 }}>
+              {(result.snippet || result.description || result.text).slice(0, 200)}
+            </Text>
+          )}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function GlobGrepExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const output = useMemo(() => {
+    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
+      return stripAnsi(tool.state.output).trim();
+    }
+    return undefined;
+  }, [tool.state]);
+
+  if (!output) return null;
+
+  const lines = output.split('\n').filter(Boolean);
+  const isPathList = lines.length > 0 && lines.slice(0, 5).every(l => l.includes('/') || l.includes('.'));
+
+  if (isPathList) {
+    return (
+      <View style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
+        {lines.slice(0, 30).map((line, i) => {
+          const parts = line.split('/');
+          const filename = parts[parts.length - 1] || line;
+          const dir = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+          return (
+            <View
+              key={i}
+              style={{
+                flexDirection: 'row',
+                paddingVertical: 4,
+                borderBottomWidth: i < Math.min(lines.length, 30) - 1 ? 1 : 0,
+                borderBottomColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+              }}
+            >
+              <Text numberOfLines={1} style={{ fontSize: 11, fontFamily: monoFont, color: fg(isDark) }}>
+                {filename}
+              </Text>
+              {!!dir && (
+                <Text numberOfLines={1} style={{ fontSize: 11, fontFamily: monoFont, color: muted(isDark), marginLeft: 6, flex: 1 }}>
+                  {dir}
+                </Text>
+              )}
+            </View>
+          );
+        })}
+        {lines.length > 30 && (
+          <Text style={{ fontSize: 10, fontFamily: 'Roobert', color: muted(isDark), marginTop: 6 }}>
+            +{lines.length - 30} more
+          </Text>
+        )}
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ paddingHorizontal: 12, paddingVertical: 10, maxHeight: 250 }}>
+      <MonoBlock isDark={isDark} maxLines={30}>
+        {output.length > 3000 ? output.slice(0, 3000) + '\n...' : output}
+      </MonoBlock>
+    </View>
+  );
+}
+
+function GenericExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
+  const output = useMemo(() => {
+    if (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output) {
+      return stripAnsi(tool.state.output).trim();
+    }
+    if (tool.state.status === 'error' && 'error' in tool.state) {
+      return tool.state.error;
+    }
+    return undefined;
+  }, [tool.state]);
+
+  if (!output) return null;
+
+  return (
+    <View style={{ paddingHorizontal: 12, paddingVertical: 10, maxHeight: 250 }}>
+      <MonoBlock isDark={isDark} color={tool.state.status === 'error' ? (isDark ? '#f87171' : '#dc2626') : undefined} maxLines={30}>
+        {output.length > 3000 ? output.slice(0, 3000) + '\n...' : output}
+      </MonoBlock>
+    </View>
+  );
+}
+
+// ─── Get expanded content by tool type ───────────────────────────────────────
+
+function getExpandedContent(tool: ToolPart, isDark: boolean): React.ReactNode {
+  switch (tool.tool) {
+    case 'bash':
+      return <ShellExpandedContent tool={tool} isDark={isDark} />;
+    case 'write':
+    case 'edit':
+    case 'morph_edit':
+      return <WriteEditExpandedContent tool={tool} isDark={isDark} />;
+    case 'todowrite':
+      return <TodosExpandedContent tool={tool} isDark={isDark} />;
+    case 'read':
+      return <ReadExpandedContent tool={tool} isDark={isDark} />;
+    case 'websearch':
+    case 'web-search':
+    case 'web_search':
+      return <WebSearchExpandedContent tool={tool} isDark={isDark} />;
+    case 'glob':
+    case 'grep':
+    case 'list':
+      return <GlobGrepExpandedContent tool={tool} isDark={isDark} />;
+    case 'webfetch':
+    case 'scrape-webpage':
+      return <GenericExpandedContent tool={tool} isDark={isDark} />;
+    default:
+      return <GenericExpandedContent tool={tool} isDark={isDark} />;
+  }
+}
+
+// ─── Check if tool has expandable content ────────────────────────────────────
+
+function toolHasExpandableContent(tool: ToolPart): boolean {
+  const { state } = tool;
+  // Todos always expandable if input has todos
+  if (tool.tool === 'todowrite' && Array.isArray(tool.input?.todos) && tool.input.todos.length > 0) return true;
+  // Shell expandable if has command or output
+  if (tool.tool === 'bash' && tool.input?.command) return true;
+  // Write/Edit expandable if has content
+  if ((tool.tool === 'write' || tool.tool === 'edit' || tool.tool === 'morph_edit') &&
+      (tool.input?.content || tool.input?.oldString || tool.input?.newString)) return true;
+  // Default: expandable if has output
+  if (state.status === 'completed' && 'output' in state && state.output?.trim()) return true;
+  if (state.status === 'error' && 'error' in state && state.error) return true;
+  return false;
+}
+
 // ─── ToolCard — expandable tool call card ────────────────────────────────────
 
 function ToolCard({
@@ -165,29 +646,18 @@ function ToolCard({
   const info = getToolInfo(tool.tool, tool.input);
   const isRunning = tool.state.status === 'pending' || tool.state.status === 'running';
   const isError = tool.state.status === 'error';
-  const isCompleted = tool.state.status === 'completed';
 
   const IconComponent = getToolLucideIcon(info.icon);
-  const iconColor = isDark ? '#a1a1aa' : '#71717a';
+  const iconColor = mutedStrong(isDark);
 
-  // Get tool output for expanded view
-  const output = useMemo(() => {
-    if (isCompleted && 'output' in tool.state && tool.state.output) {
-      return stripAnsi(tool.state.output).trim();
-    }
-    if (isError && 'error' in tool.state) {
-      return tool.state.error;
-    }
-    return undefined;
-  }, [tool.state, isCompleted, isError]);
-
-  const hasExpandableContent = !!output;
+  const hasExpandable = toolHasExpandableContent(tool);
 
   const handlePress = useCallback(() => {
-    if (!hasExpandableContent) return;
+    if (!hasExpandable && !isRunning) return;
+    if (isRunning) return;
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setExpanded((prev) => !prev);
-  }, [hasExpandableContent]);
+  }, [hasExpandable, isRunning]);
 
   const chevronRotation = useSharedValue(0);
 
@@ -200,20 +670,20 @@ function ToolCard({
   }));
 
   return (
-    <TouchableOpacity
-      activeOpacity={hasExpandableContent ? 0.7 : 1}
-      onPress={handlePress}
+    <View
       style={{
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-        backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.8)',
+        borderColor: cardBorder(isDark),
+        backgroundColor: cardBg(isDark),
         marginBottom: 6,
         overflow: 'hidden',
       }}
     >
       {/* Header row */}
-      <View
+      <TouchableOpacity
+        activeOpacity={hasExpandable ? 0.7 : 1}
+        onPress={handlePress}
         style={{
           flexDirection: 'row',
           alignItems: 'center',
@@ -221,25 +691,15 @@ function ToolCard({
           paddingVertical: 10,
         }}
       >
-        {/* Status/Icon */}
-        {isRunning ? (
-          <ReAnimated.View style={{ marginRight: 8 }}>
-            <Loader2
-              size={15}
-              color={iconColor}
-              style={{ transform: [{ rotate: '0deg' }] }}
-            />
-          </ReAnimated.View>
-        ) : (
-          <IconComponent size={15} color={iconColor} style={{ marginRight: 8 }} />
-        )}
+        {/* Tool icon */}
+        <IconComponent size={15} color={iconColor} style={{ marginRight: 8 }} />
 
         {/* Title */}
         <Text
           style={{
             fontSize: 13,
             fontFamily: 'Roobert-Medium',
-            color: isDark ? '#F8F8F8' : '#121215',
+            color: fg(isDark),
           }}
         >
           {info.title}
@@ -258,8 +718,8 @@ function ToolCard({
                 flex: 1,
                 marginLeft: 6,
                 fontSize: 12,
-                fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-                color: isDark ? '#71717a' : '#a1a1aa',
+                fontFamily: monoFont,
+                color: muted(isDark),
               }}
             >
               {info.subtitle}
@@ -270,10 +730,10 @@ function ToolCard({
         {/* Right side: status indicator or chevron */}
         <View style={{ marginLeft: 'auto', paddingLeft: 8 }}>
           {isRunning ? (
-            <SpinningLoader size={14} color={isDark ? '#a1a1aa' : '#71717a'} />
+            <SpinningLoader size={14} color={muted(isDark)} />
           ) : isError ? (
             <CircleAlert size={14} color={isDark ? '#ef4444' : '#dc2626'} />
-          ) : hasExpandableContent ? (
+          ) : hasExpandable ? (
             <ReAnimated.View style={chevronStyle}>
               <ChevronRight size={14} color={isDark ? '#52525b' : '#a1a1aa'} />
             </ReAnimated.View>
@@ -281,35 +741,20 @@ function ToolCard({
             <Check size={14} color={isDark ? '#4ade80' : '#16a34a'} />
           )}
         </View>
-      </View>
+      </TouchableOpacity>
 
-      {/* Expanded content */}
-      {expanded && output && (
+      {/* Expanded content — tool-specific */}
+      {expanded && (
         <View
           style={{
             borderTopWidth: 1,
-            borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-            paddingHorizontal: 12,
-            paddingVertical: 10,
-            maxHeight: 200,
+            borderTopColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
           }}
         >
-          <Text
-            numberOfLines={20}
-            style={{
-              fontSize: 11,
-              fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-              lineHeight: 16,
-              color: isError
-                ? (isDark ? '#f87171' : '#dc2626')
-                : (isDark ? '#a1a1aa' : '#71717a'),
-            }}
-          >
-            {output.length > 2000 ? output.slice(0, 2000) + '...' : output}
-          </Text>
+          {getExpandedContent(tool, isDark)}
         </View>
       )}
-    </TouchableOpacity>
+    </View>
   );
 }
 
