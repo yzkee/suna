@@ -49,6 +49,7 @@ import { PlaceholderPage } from '@/components/session/PlaceholderPage';
 import { FilesPage } from '@/components/pages/FilesPage';
 import type { FilesPageRef } from '@/components/pages/FilesPage';
 import { SecretsPage } from '@/components/pages/SecretsPage';
+import { MemoryPage } from '@/components/pages/MemoryPage';
 import {
   Eye, EyeOff, RefreshCw, Upload, Image, FolderPlus, LayoutGrid, List,
   FileText, Copy, Pencil, Trash2,
@@ -668,6 +669,15 @@ export default function HomeScreen() {
               onOpenRightDrawer={handleRightDrawerOpen}
               onFileSelectionChange={(file) => setFilesSelectedName(file?.name ?? null)}
               onRequestMenu={() => bottomBarRef.current?.presentMenu()}
+            />
+
+          /* Active page tab — Memory */
+          ) : activePageId === 'page:memory' && PAGE_TABS[activePageId] && !showTabsOverview ? (
+            <MemoryPage
+              page={PAGE_TABS[activePageId]}
+              onBack={handleBack}
+              onOpenDrawer={handleDrawerOpen}
+              onOpenRightDrawer={handleRightDrawerOpen}
             />
 
           /* Active page tab — Secrets */
