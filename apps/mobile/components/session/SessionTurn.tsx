@@ -1094,34 +1094,25 @@ function ToolCard({
 
   const hasExpandable = toolHasExpandableContent(tool);
 
-  // Animated expand/collapse
-  const [measured, setMeasured] = useState(false);
-  const contentHeight = useRef(0);
-  const animProgress = useSharedValue(0);
   const chevronRotation = useSharedValue(0);
 
   const handlePress = useCallback(() => {
     if (!hasExpandable && !isRunning) return;
+    LayoutAnimation.configureNext({
+      duration: 200,
+      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+      update: { type: LayoutAnimation.Types.easeInEaseOut },
+      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+    });
     setExpanded((prev) => !prev);
   }, [hasExpandable, isRunning]);
 
   useEffect(() => {
-    if (expanded && !measured) return; // wait for measurement
-    const ease = Easing.bezier(0.25, 0.1, 0.25, 1);
-    chevronRotation.value = withTiming(expanded ? 1 : 0, { duration: 250, easing: ease });
-    animProgress.value = withTiming(expanded ? 1 : 0, { duration: 250, easing: ease });
-  }, [expanded, measured]);
+    chevronRotation.value = withTiming(expanded ? 1 : 0, { duration: 200 });
+  }, [expanded]);
 
   const chevronStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${chevronRotation.value * 90}deg` }],
-  }));
-
-  const contentAnimStyle = useAnimatedStyle(() => ({
-    height: contentHeight.current > 0
-      ? interpolate(animProgress.value, [0, 1], [0, contentHeight.current])
-      : undefined,
-    opacity: animProgress.value,
-    overflow: 'hidden' as const,
   }));
 
   return (
@@ -1201,27 +1192,16 @@ function ToolCard({
         </View>
       </TouchableOpacity>
 
-      {/* Expanded content — tool-specific, animated */}
-      {hasExpandable && (expanded || animProgress.value > 0) && (
-        <ReAnimated.View style={contentAnimStyle}>
-          <View
-            onLayout={(e) => {
-              const h = e.nativeEvent.layout.height;
-              if (h > 0) {
-                contentHeight.current = h;
-                if (!measured) {
-                  setMeasured(true);
-                }
-              }
-            }}
-            style={{
-              borderTopWidth: 1,
-              borderTopColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
-            }}
-          >
-            {getExpandedContent(tool, isDark)}
-          </View>
-        </ReAnimated.View>
+      {/* Expanded content — tool-specific */}
+      {expanded && (
+        <View
+          style={{
+            borderTopWidth: 1,
+            borderTopColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+          }}
+        >
+          {getExpandedContent(tool, isDark)}
+        </View>
       )}
     </View>
   );
