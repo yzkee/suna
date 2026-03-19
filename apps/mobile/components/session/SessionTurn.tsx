@@ -5,7 +5,7 @@
  */
 
 import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
-import { View, TouchableOpacity, Animated, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, Animated, StyleSheet, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,6 +21,26 @@ import ReAnimated, {
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaskedView from '@react-native-masked-view/masked-view';
+import {
+  Terminal,
+  FileCode2,
+  Search,
+  Globe,
+  Glasses,
+  CheckSquare,
+  Cpu,
+  SquareKanban,
+  ImageIcon,
+  Presentation,
+  List,
+  Scissors,
+  MessageCircle,
+  ChevronRight,
+  Check,
+  CircleAlert,
+  Loader2,
+  type LucideIcon,
+} from 'lucide-react-native';
 import type {
   Turn,
   MessageWithParts,
@@ -29,6 +49,7 @@ import type {
   ToolPart,
   ReasoningPart,
   QuestionRequest,
+  Part,
 } from '@/lib/opencode/types';
 import type { Command } from '@/lib/opencode/hooks/use-opencode-data';
 import {
@@ -44,7 +65,13 @@ import {
   getToolInfo,
   shouldShowToolPart,
   formatDuration,
+  stripAnsi,
 } from '@/lib/opencode/turns';
+
+// Enable LayoutAnimation on Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 // ─── Shimmer text for status indicators ──────────────────────────────────────
 
@@ -100,6 +127,213 @@ function ShimmerStatusText({ text, size = 'sm' }: { text: string; size?: 'sm' | 
         </View>
       </MaskedView>
     </View>
+  );
+}
+
+// ─── Tool icon resolver ──────────────────────────────────────────────────────
+
+const TOOL_ICON_MAP: Record<string, LucideIcon> = {
+  terminal: Terminal,
+  'file-pen': FileCode2,
+  search: Search,
+  globe: Globe,
+  glasses: Glasses,
+  'check-square': CheckSquare,
+  'square-kanban': SquareKanban,
+  image: ImageIcon,
+  presentation: Presentation,
+  list: List,
+  scissors: Scissors,
+  'message-circle': MessageCircle,
+  cpu: Cpu,
+};
+
+function getToolLucideIcon(iconName: string): LucideIcon {
+  return TOOL_ICON_MAP[iconName] ?? Cpu;
+}
+
+// ─── ToolCard — expandable tool call card ────────────────────────────────────
+
+function ToolCard({
+  tool,
+  isDark,
+}: {
+  tool: ToolPart;
+  isDark: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const info = getToolInfo(tool.tool, tool.input);
+  const isRunning = tool.state.status === 'pending' || tool.state.status === 'running';
+  const isError = tool.state.status === 'error';
+  const isCompleted = tool.state.status === 'completed';
+
+  const IconComponent = getToolLucideIcon(info.icon);
+  const iconColor = isDark ? '#a1a1aa' : '#71717a';
+
+  // Get tool output for expanded view
+  const output = useMemo(() => {
+    if (isCompleted && 'output' in tool.state && tool.state.output) {
+      return stripAnsi(tool.state.output).trim();
+    }
+    if (isError && 'error' in tool.state) {
+      return tool.state.error;
+    }
+    return undefined;
+  }, [tool.state, isCompleted, isError]);
+
+  const hasExpandableContent = !!output;
+
+  const handlePress = useCallback(() => {
+    if (!hasExpandableContent) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpanded((prev) => !prev);
+  }, [hasExpandableContent]);
+
+  const chevronRotation = useSharedValue(0);
+
+  useEffect(() => {
+    chevronRotation.value = withTiming(expanded ? 1 : 0, { duration: 200 });
+  }, [expanded]);
+
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${chevronRotation.value * 90}deg` }],
+  }));
+
+  return (
+    <TouchableOpacity
+      activeOpacity={hasExpandableContent ? 0.7 : 1}
+      onPress={handlePress}
+      style={{
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+        backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.8)',
+        marginBottom: 6,
+        overflow: 'hidden',
+      }}
+    >
+      {/* Header row */}
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+        }}
+      >
+        {/* Status/Icon */}
+        {isRunning ? (
+          <ReAnimated.View style={{ marginRight: 8 }}>
+            <Loader2
+              size={15}
+              color={iconColor}
+              style={{ transform: [{ rotate: '0deg' }] }}
+            />
+          </ReAnimated.View>
+        ) : (
+          <IconComponent size={15} color={iconColor} style={{ marginRight: 8 }} />
+        )}
+
+        {/* Title */}
+        <Text
+          style={{
+            fontSize: 13,
+            fontFamily: 'Roobert-Medium',
+            color: isDark ? '#F8F8F8' : '#121215',
+          }}
+        >
+          {info.title}
+        </Text>
+
+        {/* Subtitle */}
+        {info.subtitle && (
+          isRunning ? (
+            <View style={{ flex: 1, marginLeft: 6 }}>
+              <ShimmerStatusText text={info.subtitle} size="xs" />
+            </View>
+          ) : (
+            <Text
+              numberOfLines={1}
+              style={{
+                flex: 1,
+                marginLeft: 6,
+                fontSize: 12,
+                fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+                color: isDark ? '#71717a' : '#a1a1aa',
+              }}
+            >
+              {info.subtitle}
+            </Text>
+          )
+        )}
+
+        {/* Right side: status indicator or chevron */}
+        <View style={{ marginLeft: 'auto', paddingLeft: 8 }}>
+          {isRunning ? (
+            <SpinningLoader size={14} color={isDark ? '#a1a1aa' : '#71717a'} />
+          ) : isError ? (
+            <CircleAlert size={14} color={isDark ? '#ef4444' : '#dc2626'} />
+          ) : hasExpandableContent ? (
+            <ReAnimated.View style={chevronStyle}>
+              <ChevronRight size={14} color={isDark ? '#52525b' : '#a1a1aa'} />
+            </ReAnimated.View>
+          ) : (
+            <Check size={14} color={isDark ? '#4ade80' : '#16a34a'} />
+          )}
+        </View>
+      </View>
+
+      {/* Expanded content */}
+      {expanded && output && (
+        <View
+          style={{
+            borderTopWidth: 1,
+            borderTopColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            maxHeight: 200,
+          }}
+        >
+          <Text
+            numberOfLines={20}
+            style={{
+              fontSize: 11,
+              fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+              lineHeight: 16,
+              color: isError
+                ? (isDark ? '#f87171' : '#dc2626')
+                : (isDark ? '#a1a1aa' : '#71717a'),
+            }}
+          >
+            {output.length > 2000 ? output.slice(0, 2000) + '...' : output}
+          </Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+// ─── Spinning Loader ─────────────────────────────────────────────────────────
+
+function SpinningLoader({ size, color }: { size: number; color: string }) {
+  const rotation = useSharedValue(0);
+
+  useEffect(() => {
+    rotation.value = withRepeat(
+      withTiming(360, { duration: 1000, easing: Easing.linear }),
+      -1,
+      false,
+    );
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+  }));
+
+  return (
+    <ReAnimated.View style={animatedStyle}>
+      <Loader2 size={size} color={color} />
+    </ReAnimated.View>
   );
 }
 
@@ -305,46 +539,29 @@ export function SessionTurn({
     [userText, commands],
   );
 
-  // Get response text
-  const response = useMemo(() => {
-    if (working) {
-      // While working, get streaming text from last assistant message
-      const lastMsg = turn.assistantMessages[turn.assistantMessages.length - 1];
-      if (lastMsg) {
-        return lastMsg.parts
-          .filter(isTextPart)
-          .map((p) => (p as TextPart).text)
-          .join('');
-      }
-      return '';
-    }
-    const lastText = findLastTextPart(allParts);
-    return lastText?.text ?? '';
-  }, [working, turn.assistantMessages, allParts]);
-
-  // Get tool parts — hide question tool when there's a pending question for it
-  const toolParts = useMemo(() => {
+  // Build interleaved parts list (text, tools, reasoning in natural order)
+  // Hide question tool parts with pending questions, hide internal tools
+  const visibleParts = useMemo(() => {
     const pendingCallIDs = new Set(
       pendingQuestions.filter((q) => q.tool).map((q) => q.tool!.callID),
     );
-    return allParts
-      .filter(({ part }) => {
-        if (!isToolPart(part)) return false;
+    return allParts.filter(({ part }) => {
+      if (isToolPart(part)) {
         const tp = part as ToolPart;
         if (!shouldShowToolPart(tp)) return false;
-        // Hide question tool parts that have a pending question
         if (tp.tool === 'question' && pendingCallIDs.has(tp.callID)) return false;
         return true;
-      })
-      .map(({ part }) => part as ToolPart);
+      }
+      if (isTextPart(part)) return !!(part as TextPart).text?.trim();
+      if (isReasoningPart(part)) return !!(part as ReasoningPart).text?.trim();
+      return false;
+    });
   }, [allParts, pendingQuestions]);
 
-  // Get reasoning
-  const reasoningText = useMemo(() => {
-    return allParts
-      .filter(({ part }) => isReasoningPart(part) && !!(part as ReasoningPart).text?.trim())
-      .map(({ part }) => (part as ReasoningPart).text)
-      .join('\n');
+  // Get the final response text (last text part) for copy/actions
+  const response = useMemo(() => {
+    const lastText = findLastTextPart(allParts);
+    return lastText?.text ?? '';
   }, [allParts]);
 
   const turnError = useMemo(() => getTurnError(turn), [turn]);
@@ -429,76 +646,56 @@ export function SessionTurn({
         )}
       </View>
 
-      {/* Assistant response */}
+      {/* Assistant response — interleaved text + tool calls */}
       {(turn.assistantMessages.length > 0 || working) && (
         <View className="px-4">
-          {/* Tool calls */}
-          {toolParts.length > 0 && (
-            <View className="mb-2">
-              {toolParts.map((tool) => {
-                const info = getToolInfo(tool.tool, tool.input);
-                const isRunning =
-                  tool.state.status === 'pending' || tool.state.status === 'running';
-                const isError = tool.state.status === 'error';
-
-                return (
-                  <View
-                    key={tool.id}
-                    className="flex-row items-center rounded-lg px-3 py-2 mb-1 bg-muted/20 border border-border/40"
+          {visibleParts.map(({ part }) => {
+            if (isToolPart(part)) {
+              const tp = part as ToolPart;
+              return <ToolCard key={tp.id} tool={tp} isDark={isDark} />;
+            }
+            if (isTextPart(part)) {
+              const tp = part as TextPart;
+              if (!tp.text?.trim()) return null;
+              return (
+                <View key={tp.id} className="mb-2">
+                  <SelectableMarkdownText isDark={isDark}>
+                    {tp.text}
+                  </SelectableMarkdownText>
+                </View>
+              );
+            }
+            if (isReasoningPart(part)) {
+              const rp = part as ReasoningPart;
+              if (!rp.text?.trim()) return null;
+              return (
+                <View
+                  key={rp.id}
+                  className="rounded-lg px-3 py-2 mb-2 border-l-2 bg-muted/20 border-border/30"
+                >
+                  <Text
+                    className="text-xs italic text-muted-foreground/65"
+                    numberOfLines={3}
                   >
-                    <Text className="text-xs mr-2">
-                      {isRunning ? '⏳' : isError ? '❌' : '✅'}
-                    </Text>
-                    <Text
-                      className="text-sm font-medium text-foreground"
-                      numberOfLines={1}
-                    >
-                      {info.title}
-                    </Text>
-                    {info.subtitle && (
-                      <Text
-                        className="text-sm ml-1 flex-1 text-muted-foreground"
-                        numberOfLines={1}
-                      >
-                        {info.subtitle}
-                      </Text>
-                    )}
-                  </View>
-                );
-              })}
-            </View>
-          )}
-
-          {/* Reasoning */}
-          {!!reasoningText && (
-            <View className="rounded-lg px-3 py-2 mb-2 border-l-2 bg-muted/20 border-border/30">
-              <Text
-                className="text-xs italic text-muted-foreground/65"
-                numberOfLines={3}
-              >
-                {reasoningText}
-              </Text>
-            </View>
-          )}
-
-          {/* Response text (rendered as markdown) */}
-          {!!response && (
-            <SelectableMarkdownText isDark={isDark}>
-              {response}
-            </SelectableMarkdownText>
-          )}
+                    {rp.text}
+                  </Text>
+                </View>
+              );
+            }
+            return null;
+          })}
 
           {/* Working indicator */}
-          {working && !response && (
+          {working && visibleParts.length === 0 && (
             <View className="flex-row items-center py-2">
               <View className="h-2 w-2 rounded-full bg-foreground mr-2 animate-pulse" />
               <ShimmerStatusText text={statusText || 'Thinking...'} size="sm" />
             </View>
           )}
 
-          {/* Working status with response */}
-          {working && !!response && (
-            <View className="flex-row items-center mt-1">
+          {/* Working status when there are already parts */}
+          {working && visibleParts.length > 0 && (
+            <View className="flex-row items-center mt-1 mb-1">
               <View className="h-1.5 w-1.5 rounded-full bg-foreground mr-1.5" />
               <ShimmerStatusText text={statusText || 'Working...'} size="xs" />
             </View>
