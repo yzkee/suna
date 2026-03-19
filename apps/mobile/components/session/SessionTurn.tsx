@@ -264,6 +264,153 @@ function OutputSection({
   );
 }
 
+// ─── Bash syntax highlighting ────────────────────────────────────────────────
+
+// Common bash commands/builtins to highlight
+const BASH_COMMANDS = new Set([
+  'ls', 'cd', 'cat', 'echo', 'grep', 'find', 'mkdir', 'rm', 'cp', 'mv',
+  'touch', 'chmod', 'chown', 'head', 'tail', 'sort', 'uniq', 'wc', 'diff',
+  'sed', 'awk', 'curl', 'wget', 'tar', 'zip', 'unzip', 'git', 'npm', 'npx',
+  'node', 'python', 'python3', 'pip', 'pip3', 'yarn', 'pnpm', 'docker',
+  'which', 'export', 'source', 'eval', 'exec', 'xargs', 'tee', 'tr',
+  'cut', 'paste', 'test', 'read', 'set', 'unset', 'true', 'false',
+  'pwd', 'env', 'printenv', 'date', 'sleep', 'kill', 'pkill', 'ps',
+  'apt', 'brew', 'make', 'cmake', 'go', 'cargo', 'rustc', 'javac', 'java',
+  'ssh', 'scp', 'rsync', 'jq', 'rg', 'fd', 'bat', 'exa',
+]);
+
+// Bash operators and redirections
+const BASH_OPERATORS = new Set(['&&', '||', '|', ';', '>>', '2>', '2>&1', '>&2']);
+
+interface BashToken {
+  text: string;
+  type: 'prompt' | 'command' | 'flag' | 'string' | 'operator' | 'redirect' | 'path' | 'plain';
+}
+
+function tokenizeBash(command: string): BashToken[] {
+  const tokens: BashToken[] = [];
+  // Add prompt
+  tokens.push({ text: '$ ', type: 'prompt' });
+
+  let i = 0;
+  let isFirstWord = true;
+  let afterOperator = false;
+
+  while (i < command.length) {
+    // Skip whitespace
+    if (command[i] === ' ' || command[i] === '\t') {
+      let ws = '';
+      while (i < command.length && (command[i] === ' ' || command[i] === '\t')) {
+        ws += command[i];
+        i++;
+      }
+      tokens.push({ text: ws, type: 'plain' });
+      continue;
+    }
+
+    // Quoted strings
+    if (command[i] === '"' || command[i] === "'") {
+      const quote = command[i];
+      let str = quote;
+      i++;
+      while (i < command.length && command[i] !== quote) {
+        if (command[i] === '\\' && i + 1 < command.length) {
+          str += command[i] + command[i + 1];
+          i += 2;
+        } else {
+          str += command[i];
+          i++;
+        }
+      }
+      if (i < command.length) { str += command[i]; i++; }
+      tokens.push({ text: str, type: 'string' });
+      isFirstWord = false;
+      afterOperator = false;
+      continue;
+    }
+
+    // Multi-char operators: &&, ||, >>, 2>, 2>&1
+    const rest = command.slice(i);
+    let matchedOp = '';
+    for (const op of ['2>&1', '>&2', '2>', '>>', '&&', '||']) {
+      if (rest.startsWith(op)) { matchedOp = op; break; }
+    }
+    if (matchedOp) {
+      tokens.push({ text: matchedOp, type: 'operator' });
+      i += matchedOp.length;
+      isFirstWord = true;
+      afterOperator = true;
+      continue;
+    }
+
+    // Single-char operators: |, ;, >, <
+    if ('|;><'.includes(command[i])) {
+      tokens.push({ text: command[i], type: 'operator' });
+      i++;
+      isFirstWord = true;
+      afterOperator = true;
+      continue;
+    }
+
+    // Word
+    let word = '';
+    while (i < command.length && !' \t|;&><"\''.includes(command[i])) {
+      word += command[i];
+      i++;
+    }
+
+    if (!word) { i++; continue; }
+
+    // Classify word
+    if (isFirstWord || afterOperator) {
+      // Command position
+      if (BASH_COMMANDS.has(word)) {
+        tokens.push({ text: word, type: 'command' });
+      } else {
+        tokens.push({ text: word, type: 'command' });
+      }
+      isFirstWord = false;
+      afterOperator = false;
+    } else if (word.startsWith('-')) {
+      tokens.push({ text: word, type: 'flag' });
+    } else if (word.startsWith('/') || word.includes('/') || word.startsWith('~')) {
+      tokens.push({ text: word, type: 'path' });
+    } else {
+      tokens.push({ text: word, type: 'plain' });
+    }
+  }
+
+  return tokens;
+}
+
+function HighlightedBashCommand({ command, isDark }: { command: string; isDark: boolean }) {
+  const tokens = useMemo(() => tokenizeBash(command), [command]);
+
+  const colors: Record<BashToken['type'], string> = {
+    prompt: isDark ? '#71717a' : '#a1a1aa',
+    command: isDark ? '#c4b5fd' : '#7c3aed', // purple
+    flag: isDark ? '#93c5fd' : '#2563eb',     // blue
+    string: isDark ? '#86efac' : '#16a34a',   // green
+    operator: isDark ? '#fca5a5' : '#dc2626', // red
+    redirect: isDark ? '#fca5a5' : '#dc2626', // red
+    path: isDark ? '#e2e8f0' : '#334155',     // slate (near-white/dark)
+    plain: fg(isDark),
+  };
+
+  const fs = 11;
+  const lh = 17;
+
+  return (
+    <Text style={{ fontSize: fs, fontFamily: monoFont, lineHeight: lh }}>
+      {tokens.map((token, i) => (
+        <Text key={i} style={{ color: colors[token.type], fontSize: fs, fontFamily: monoFont, lineHeight: lh }}>
+          {token.text}
+        </Text>
+      ))}
+    </Text>
+  );
+}
+
 // ─── Tool-specific expanded content renderers ────────────────────────────────
 
 function ShellExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolean }) {
@@ -288,9 +435,7 @@ function ShellExpandedContent({ tool, isDark }: { tool: ToolPart; isDark: boolea
       {/* Command */}
       {!!command && (
         <View style={{ paddingHorizontal: 12, paddingVertical: 10 }}>
-          <MonoBlock isDark={isDark} color={fg(isDark)}>
-            {'$ ' + command}
-          </MonoBlock>
+          <HighlightedBashCommand command={command} isDark={isDark} />
         </View>
       )}
       {/* Output */}
