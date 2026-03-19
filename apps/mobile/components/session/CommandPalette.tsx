@@ -162,6 +162,13 @@ export function CommandPalette({
         onSelect: () => { onPageSelect('page:memory'); onClose(); },
       },
       {
+        id: 'page:llm-providers',
+        label: 'LLM Providers',
+        icon: 'cube-outline',
+        group: 'navigation',
+        onSelect: () => { onPageSelect('page:llm-providers'); onClose(); },
+      },
+      {
         id: 'page:secrets',
         label: 'Secrets Manager',
         icon: 'key-outline',
