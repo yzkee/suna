@@ -3,6 +3,7 @@ import { HTTPException } from 'hono/http-exception';
 import { validateSecretKey } from '../repositories/api-keys';
 import { isKortixToken } from '../shared/crypto';
 import { getSupabase } from '../shared/supabase';
+import { verifySupabaseJwt } from '../shared/jwt-verify';
 import { config } from '../config';
 
 // ─── Cookie name for preview session auth ────────────────────────────────────
@@ -79,6 +80,21 @@ export async function supabaseAuth(c: Context, next: Next) {
   const token = authHeader.slice(7);
   if (!token) {
     throw new HTTPException(401, { message: 'Missing token' });
+  }
+
+  // Fast path: verify JWT locally (no network roundtrip)
+  const local = await verifySupabaseJwt(token);
+  if (local.ok) {
+    c.set('userId', local.userId);
+    c.set('userEmail', local.email);
+    await next();
+    return;
+  }
+
+  // Local verification unavailable (JWKS not loaded yet) — fall back to network
+  if (local.reason !== 'no-keys' && local.reason !== 'no-key-for-kid') {
+    // Token is definitively invalid (bad signature, expired, malformed)
+    throw new HTTPException(401, { message: 'Invalid or expired token' });
   }
 
   try {
@@ -173,7 +189,22 @@ export async function combinedAuth(c: Context, next: Next) {
     return;
   }
 
-  // 2. Try Supabase JWT — used by the frontend
+  // 2. Try Supabase JWT — fast path: local verification (no network roundtrip)
+  const local = await verifySupabaseJwt(token);
+  if (local.ok) {
+    c.set('userId', local.userId);
+    c.set('userEmail', local.email);
+    if (isPreviewRoute) setPreviewSessionCookie(c, token);
+    await next();
+    return;
+  }
+
+  // Token is definitively bad (bad sig, expired, malformed) — reject immediately
+  if (local.reason !== 'no-keys' && local.reason !== 'no-key-for-kid') {
+    throw new HTTPException(401, { message: 'Invalid or expired token' });
+  }
+
+  // JWKS not yet loaded — fall back to network getUser() call
   try {
     const supabase = getSupabase();
     const { data: { user }, error } = await supabase.auth.getUser(token);

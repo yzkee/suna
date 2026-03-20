@@ -35,6 +35,13 @@ export async function getThreadsByAccount(
     `;
 
     return { threads, total: countResult.total };
+  } catch (err: any) {
+    // Table doesn't exist in this environment (e.g. fresh local dev without
+    // legacy schema). Return empty results gracefully instead of 500ing.
+    if (err?.code === '42P01') {
+      return { threads: [], total: 0 };
+    }
+    throw err;
   } finally {
     await sql.end();
   }

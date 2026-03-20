@@ -17,6 +17,7 @@ import { getSandboxBaseUrl, proxyToSandbox } from './daytona-proxy/routes/local-
 import { validateSecretKey } from './repositories/api-keys';
 import { isKortixToken } from './shared/crypto';
 import { getSupabase } from './shared/supabase';
+import { verifySupabaseJwt } from './shared/jwt-verify';
 import { setupApp } from './setup';
 import { providersApp } from './providers/routes';
 import { secretsApp } from './secrets/routes';
@@ -630,6 +631,12 @@ async function validatePreviewToken(token: string): Promise<boolean> {
     const result = await validateSecretKey(token);
     return result.isValid;
   }
+  // Fast path: local JWT verification (no network roundtrip)
+  const local = await verifySupabaseJwt(token);
+  if (local.ok) return true;
+  // Definitively invalid (bad sig, expired, malformed) — reject without network call
+  if (local.reason !== 'no-keys' && local.reason !== 'no-key-for-kid') return false;
+  // JWKS not yet available — fall back to network call
   try {
     const supabase = getSupabase();
     const { data: { user }, error } = await supabase.auth.getUser(token);
