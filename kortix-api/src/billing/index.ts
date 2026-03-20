@@ -195,9 +195,21 @@ billingApp.get('/setup/status', async (c: any) => {
       if (sandboxState === 'provisioning') {
         const updatedAt = sandbox.updatedAt ? new Date(sandbox.updatedAt).getTime() : 0;
         const provisioningAgeMs = Date.now() - updatedAt;
-        // Guard against stale provisioning rows that never transitioned.
         if (updatedAt > 0 && provisioningAgeMs > 15 * 60 * 1000) {
           sandboxState = 'error';
+        }
+        if (sandboxState === 'provisioning' && sandbox.provider) {
+          try {
+            const { getProvider } = await import('../platform/providers/index');
+            const provider = getProvider(sandbox.provider as any);
+            const provStatus = await provider.getProvisioningStatus(sandbox.sandboxId);
+            if (provStatus?.complete) {
+              sandboxState = 'ready';
+            } else if (provStatus?.error) {
+              sandboxState = 'error';
+            }
+          } catch {
+          }
         }
       }
     }
