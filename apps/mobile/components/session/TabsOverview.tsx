@@ -165,16 +165,19 @@ export function TabsOverview({
   const totalCount = allTabIds.length;
 
   const cardWidth = (width - 48) / 2;
-  const cardBodyHeight = cardWidth * 1.3;
+  // Inner content area width (card width minus padding on each side)
+  const cardContentWidth = cardWidth - 16; // 8px padding each side
 
-  // Calculate how much to crop from the top of the screenshot to skip
-  // the status bar + page header. Header is ~44px + safe area inset top.
-  // The screenshot captures the full ViewShot area (screen minus bottom bar).
+  // The screenshot captures the full ViewShot (screen minus bottom bar ~80px).
+  // We crop the header (status bar + nav bar) from the top.
   const headerHeight = insets.top + 44;
-  // The image is rendered at full width inside the card, so the scale factor
-  // determines how many card-pixels correspond to the real header pixels.
-  const screenshotSourceHeight = screenHeight - 80; // approx (minus bottom bar)
-  const cropTop = (headerHeight / screenshotSourceHeight) * cardBodyHeight * 2.2;
+  const bottomBarHeight = 80;
+  const screenshotFullHeight = screenHeight - bottomBarHeight;
+  const contentHeight = screenshotFullHeight - headerHeight;
+
+  // Scale the visible content to fit the card width, preserving aspect ratio.
+  // This gives us the exact card body height so the image fits perfectly.
+  const cardBodyHeight = cardContentWidth * (contentHeight / width);
   const scrollRef = useRef<ScrollView>(null);
   const hasScrolled = useRef(false);
   const activeId = activePageId || activeSessionId;
@@ -314,13 +317,11 @@ export function TabsOverview({
                         <Image
                           source={{ uri: screenshotUri }}
                           style={{
-                            position: 'absolute',
-                            top: -cropTop,
-                            left: 0,
-                            right: 0,
-                            bottom: -(cardBodyHeight * 0.8),
+                            width: cardContentWidth,
+                            height: cardContentWidth * (screenshotFullHeight / width),
+                            marginTop: -(cardContentWidth * (headerHeight / width)),
                           }}
-                          resizeMode="cover"
+                          resizeMode="contain"
                         />
                       </View>
                     ) : previewText ? (
