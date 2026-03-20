@@ -76,16 +76,16 @@
     }
   },
   "plugin": [
-    "./plugin/anthropic-auth.ts",
-    "./plugin/opencode-pty/src/plugin.ts",
-    "./plugin/opencode-morph-plugin/index.ts",
-    "./plugin/orphan-tool-fixer.ts",
-    "./plugin/agent-triggers.ts",
-    "./plugin/static-file-server.ts",
-    "./plugin/kortix-orchestrator/index.ts",
-    "./plugin/worktree/index.ts",
-    "./plugin/kortix-memory/src/index.ts",
-    "./plugin/kortix-continuation/index.ts"
+    "file:///opt/opencode/plugin/anthropic-auth.ts",
+    "file:///opt/opencode/plugin/opencode-pty/src/plugin.ts",
+    "file:///opt/opencode/plugin/opencode-morph-plugin/index.ts",
+    "file:///opt/opencode/plugin/orphan-tool-fixer.ts",
+    "file:///opt/opencode/plugin/agent-triggers.ts",
+    "file:///opt/opencode/plugin/static-file-server.ts",
+    "file:///opt/opencode/plugin/kortix-orchestrator/index.ts",
+    "file:///opt/opencode/plugin/worktree/index.ts",
+    "file:///opt/opencode/plugin/kortix-memory/src/index.ts",
+    "file:///opt/opencode/plugin/kortix-continuation/index.ts"
   ],
   "mcp": {
     "context7": {
