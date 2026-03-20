@@ -21,11 +21,11 @@ import {
   BottomSheetBackdrop,
   BottomSheetModal,
   BottomSheetScrollView,
-  BottomSheetView,
   TouchableOpacity as BottomSheetTouchable,
 } from '@gorhom/bottom-sheet';
 import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
 import * as Clipboard from 'expo-clipboard';
+import { SelectableMarkdownText } from '@/components/ui/selectable-markdown';
 
 type FilterKey = 'all' | 'installed' | 'skills' | 'agents' | 'tools' | 'plugins';
 
@@ -280,9 +280,42 @@ async function installComponentWithOcx(sandboxUrl: string, componentName: string
   }).catch(() => {});
 }
 
-function trimPath(path: string): string {
-  const parts = path.split('/');
-  return parts.length > 1 ? parts.slice(1).join('/') : path;
+function fileLabel(path: string): string {
+  const parts = path.split('/').filter(Boolean);
+  return parts[parts.length - 1] || path;
+}
+
+function isMarkdownPath(path: string): boolean {
+  return /\.(md|mdx|markdown)$/i.test(path);
+}
+
+function MetaPill({
+  label,
+  isDark,
+  active = false,
+}: {
+  label: string;
+  isDark: boolean;
+  active?: boolean;
+}) {
+  return (
+    <View
+      style={{
+        borderRadius: 999,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderWidth: 1,
+        borderColor: active ? 'transparent' : (isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'),
+        backgroundColor: active
+          ? (isDark ? 'rgba(16,185,129,0.2)' : 'rgba(16,185,129,0.12)')
+          : (isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)'),
+      }}
+    >
+      <Text style={{ fontSize: 11, fontFamily: 'Roobert-Medium', color: active ? '#10b981' : (isDark ? '#d4d4d8' : '#4b5563') }}>
+        {label}
+      </Text>
+    </View>
+  );
 }
 
 function MarketplaceCard({
@@ -309,57 +342,66 @@ function MarketplaceCard({
 
   return (
     <TouchableOpacity
-      activeOpacity={0.75}
+      activeOpacity={0.7}
       onPress={() => onOpen(component)}
       style={{
         backgroundColor: cardBg,
         borderWidth: 1,
         borderColor,
-        borderRadius: 14,
-        padding: 12,
+        borderRadius: 16,
+        padding: 14,
         marginBottom: 10,
+        ...(isDark ? {} : {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.04,
+          shadowRadius: 3,
+          elevation: 1,
+        }),
       }}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <View
           style={{
-            width: 34,
-            height: 34,
-            borderRadius: 10,
+            width: 38,
+            height: 38,
+            borderRadius: 12,
             alignItems: 'center',
             justifyContent: 'center',
             backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-            marginRight: 10,
+            borderWidth: 1,
+            borderColor,
+            marginRight: 12,
           }}
         >
           <Ionicons name={iconName as any} size={18} color={fgColor} />
         </View>
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Text style={{ fontSize: 14, fontFamily: 'Roobert-SemiBold', color: fgColor }}>{component.name}</Text>
+            <Text style={{ fontSize: 15, fontFamily: 'Roobert-SemiBold', color: fgColor }}>{component.name}</Text>
             {isInstalled && (
               <View
                 style={{
                   marginLeft: 8,
-                  paddingHorizontal: 6,
-                  paddingVertical: 1,
+                  paddingHorizontal: 7,
+                  paddingVertical: 2,
                   borderRadius: 999,
-                  backgroundColor: isDark ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.08)',
+                  backgroundColor: isDark ? 'rgba(16,185,129,0.15)' : 'rgba(16,185,129,0.1)',
                 }}
               >
                 <Text style={{ fontSize: 10, fontFamily: 'Roobert-Medium', color: '#10b981' }}>Installed</Text>
               </View>
             )}
           </View>
-          <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: mutedColor }}>{typeLabel} · v{component.version}</Text>
+          <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: mutedColor, marginTop: 1 }}>{typeLabel} · v{component.version}</Text>
         </View>
       </View>
 
-      <Text style={{ marginTop: 8, fontSize: 12, lineHeight: 18, fontFamily: 'Roobert', color: mutedColor }} numberOfLines={2}>
+      <Text style={{ marginTop: 10, fontSize: 13, lineHeight: 19, fontFamily: 'Roobert', color: mutedColor }} numberOfLines={2}>
         {component.description || 'No description available.'}
       </Text>
 
-      <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 12 }}>
         <TouchableOpacity
           onPress={(e) => {
             e.stopPropagation();
@@ -368,8 +410,11 @@ function MarketplaceCard({
           disabled={isInstalling || isInstalled}
           style={{
             borderRadius: 10,
-            paddingHorizontal: 12,
-            paddingVertical: 7,
+            paddingHorizontal: 14,
+            paddingVertical: 8,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 5,
             backgroundColor: isInstalled
               ? 'transparent'
               : fgColor,
@@ -378,6 +423,12 @@ function MarketplaceCard({
             opacity: isInstalling ? 0.6 : 1,
           }}
         >
+          {!isInstalled && !isInstalling && (
+            <Ionicons name="download-outline" size={13} color={isDark ? '#121215' : '#FFFFFF'} />
+          )}
+          {isInstalling && (
+            <ActivityIndicator size={12} color={isDark ? '#121215' : '#FFFFFF'} />
+          )}
           <Text style={{
             fontSize: 12,
             fontFamily: 'Roobert-Medium',
@@ -669,92 +720,138 @@ export function MarketplacePage({ page, onBack, onOpenDrawer, onOpenRightDrawer 
         backgroundStyle={{ backgroundColor: sheetBg, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
         handleIndicatorStyle={{ backgroundColor: isDark ? '#3f3f46' : '#d4d4d8', width: 36, height: 5, borderRadius: 3 }}
       >
-        <BottomSheetScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 24 }}>
-          {selectedComponent && (
-            <>
-              <View style={{ marginTop: 6, marginBottom: 8 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Ionicons name={getTypeIcon(selectedComponent.type) as any} size={18} color={fgColor} style={{ marginRight: 8 }} />
-                  <Text style={{ fontSize: 18, fontFamily: 'Roobert-SemiBold', color: fgColor, flex: 1 }}>
-                    {selectedComponent.name}
-                  </Text>
-                  {selectedInstalled && (
-                    <View
-                      style={{
-                        marginLeft: 8,
-                        paddingHorizontal: 8,
-                        paddingVertical: 2,
-                        borderRadius: 999,
-                        backgroundColor: isDark ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.08)',
-                      }}
-                    >
-                      <Text style={{ fontSize: 10, fontFamily: 'Roobert-Medium', color: '#10b981' }}>Installed</Text>
-                    </View>
-                  )}
-                </View>
-                <Text style={{ marginTop: 4, fontSize: 12, fontFamily: 'Roobert', color: mutedColor }}>
-                  {getTypeLabel(selectedComponent.type)} · v{selectedComponent.version}
-                </Text>
-                <Text style={{ marginTop: 10, fontSize: 13, lineHeight: 20, fontFamily: 'Roobert', color: mutedColor }}>
-                  {selectedComponent.description || 'No description available.'}
-                </Text>
-              </View>
-
-              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
+        {selectedComponent && (
+          <View style={{ flex: 1 }}>
+            {/* ── Header ── */}
+            <View style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: borderColor }}>
+              {/* Close button row */}
+              <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 12 }}>
                 <BottomSheetTouchable
-                  onPress={() => Clipboard.setStringAsync(selectedComponent.name)}
+                  onPress={() => detailSheetRef.current?.dismiss()}
                   style={{
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    borderColor,
-                    paddingHorizontal: 12,
-                    paddingVertical: 9,
+                    width: 30,
+                    height: 30,
+                    borderRadius: 999,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
                   }}
                 >
-                  <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: fgColor }}>Copy Name</Text>
+                  <Ionicons name="close" size={18} color={mutedColor} />
                 </BottomSheetTouchable>
+              </View>
+
+              {/* Icon + name */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                <View
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 14,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginRight: 14,
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                    borderWidth: 1,
+                    borderColor,
+                  }}
+                >
+                  <Ionicons name={getTypeIcon(selectedComponent.type) as any} size={22} color={fgColor} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 20, fontFamily: 'Roobert-SemiBold', color: fgColor, lineHeight: 24 }}>
+                    {selectedComponent.name}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                    <MetaPill label={getTypeLabel(selectedComponent.type)} isDark={isDark} />
+                    <MetaPill label={`v${selectedComponent.version}`} isDark={isDark} />
+                    {selectedInstalled && <MetaPill label="Installed" isDark={isDark} active />}
+                  </View>
+                </View>
+              </View>
+
+              {/* Description */}
+              <Text style={{ fontSize: 13, lineHeight: 20, fontFamily: 'Roobert', color: mutedColor, marginBottom: 16 }}>
+                {selectedComponent.description || 'No description available.'}
+              </Text>
+
+              {/* Action buttons */}
+              <View style={{ flexDirection: 'row', gap: 10 }}>
                 <BottomSheetTouchable
                   onPress={() => handleInstall(selectedComponent)}
                   disabled={isInstalling(selectedComponent.name) || selectedInstalled}
                   style={{
+                    flex: 1,
                     borderRadius: 12,
-                    paddingHorizontal: 12,
-                    paddingVertical: 9,
-                    backgroundColor: selectedInstalled ? 'transparent' : fgColor,
-                    borderWidth: selectedInstalled ? 1 : 0,
-                    borderColor,
+                    paddingVertical: 12,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexDirection: 'row',
+                    gap: 6,
+                    backgroundColor: selectedInstalled
+                      ? (isDark ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.08)')
+                      : fgColor,
                     opacity: isInstalling(selectedComponent.name) ? 0.65 : 1,
                   }}
                 >
-                  <Text style={{
-                    fontSize: 12,
-                    fontFamily: 'Roobert-Medium',
-                    color: selectedInstalled ? mutedColor : (isDark ? '#121215' : '#FFFFFF'),
-                  }}>
+                  <Ionicons
+                    name={selectedInstalled ? 'checkmark-circle' : isInstalling(selectedComponent.name) ? 'hourglass-outline' : 'download-outline'}
+                    size={16}
+                    color={selectedInstalled ? '#10b981' : (isDark ? '#121215' : '#FFFFFF')}
+                  />
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontFamily: 'Roobert-SemiBold',
+                      color: selectedInstalled ? '#10b981' : (isDark ? '#121215' : '#FFFFFF'),
+                    }}
+                  >
                     {isInstalling(selectedComponent.name) ? 'Installing...' : selectedInstalled ? 'Installed' : 'Install'}
                   </Text>
                 </BottomSheetTouchable>
-              </View>
 
-              <View style={{ marginBottom: 10 }}>
-                <Text style={{ fontSize: 10, fontFamily: 'Roobert-Medium', color: mutedColor, letterSpacing: 1, textTransform: 'uppercase' }}>
-                  Files
+                <BottomSheetTouchable
+                  onPress={() => Clipboard.setStringAsync(selectedComponent.name)}
+                  style={{
+                    borderRadius: 12,
+                    paddingVertical: 12,
+                    paddingHorizontal: 20,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexDirection: 'row',
+                    gap: 6,
+                    borderWidth: 1,
+                    borderColor,
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                  }}
+                >
+                  <Ionicons name="copy-outline" size={15} color={fgColor} />
+                  <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: fgColor }}>Copy</Text>
+                </BottomSheetTouchable>
+              </View>
+            </View>
+
+            {/* ── File browser ── */}
+            {bundleQuery.isLoading ? (
+              <View style={{ flex: 1, paddingVertical: 40, alignItems: 'center' }}>
+                <ActivityIndicator size="small" color={mutedColor} />
+                <Text style={{ marginTop: 10, fontSize: 12, fontFamily: 'Roobert', color: mutedColor }}>Loading files...</Text>
+              </View>
+            ) : bundleQuery.error ? (
+              <View style={{ margin: 16, padding: 14, borderRadius: 12, borderWidth: 1, borderColor, backgroundColor: isDark ? 'rgba(248,113,113,0.06)' : 'rgba(220,38,38,0.04)' }}>
+                <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: isDark ? '#f87171' : '#dc2626' }}>
+                  {bundleQuery.error instanceof Error ? bundleQuery.error.message : 'Failed to load files'}
                 </Text>
               </View>
-
-              {bundleQuery.isLoading ? (
-                <View style={{ paddingVertical: 20, alignItems: 'center' }}>
-                  <ActivityIndicator size="small" color={mutedColor} />
-                </View>
-              ) : bundleQuery.error ? (
-                <View style={{ padding: 12, borderRadius: 12, borderWidth: 1, borderColor }}>
-                  <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: isDark ? '#f87171' : '#dc2626' }}>
-                    {bundleQuery.error instanceof Error ? bundleQuery.error.message : 'Failed to load files'}
-                  </Text>
-                </View>
-              ) : (
-                <>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 12 }}>
+            ) : (bundleQuery.data?.files?.length ?? 0) > 0 ? (
+              <View style={{ flex: 1 }}>
+                {/* Horizontal file tabs */}
+                <View style={{ borderBottomWidth: 1, borderBottomColor: borderColor }}>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 10, gap: 6 }}
+                  >
                     {(bundleQuery.data?.files || []).map((file) => {
                       const active = activeFile?.path === file.path;
                       return (
@@ -762,48 +859,79 @@ export function MarketplacePage({ page, onBack, onOpenDrawer, onOpenRightDrawer 
                           key={file.path}
                           onPress={() => setSelectedPath(file.path)}
                           style={{
-                            borderRadius: 10,
-                            borderWidth: 1,
-                            borderColor: active ? 'transparent' : borderColor,
-                            backgroundColor: active ? fgColor : 'transparent',
-                            paddingHorizontal: 10,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            paddingHorizontal: 12,
                             paddingVertical: 7,
+                            borderRadius: 10,
+                            gap: 6,
+                            backgroundColor: active
+                              ? (isDark ? fgColor : '#121215')
+                              : (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'),
+                            borderWidth: active ? 0 : 1,
+                            borderColor: active ? 'transparent' : borderColor,
                           }}
                         >
-                          <Text style={{
-                            fontSize: 11,
-                            fontFamily: 'Roobert-Medium',
-                            color: active ? (isDark ? '#121215' : '#FFFFFF') : mutedColor,
-                          }}>
-                            {trimPath(file.path)}
+                          <Ionicons
+                            name="document-text-outline"
+                            size={13}
+                            color={active ? (isDark ? '#121215' : '#FFFFFF') : mutedColor}
+                          />
+                          <Text
+                            numberOfLines={1}
+                            style={{
+                              fontSize: 12,
+                              fontFamily: active ? 'Roobert-Medium' : 'Roobert',
+                              color: active ? (isDark ? '#121215' : '#FFFFFF') : mutedColor,
+                            }}
+                          >
+                            {fileLabel(file.path)}
                           </Text>
                         </BottomSheetTouchable>
                       );
                     })}
                   </ScrollView>
+                </View>
 
-                  <BottomSheetView
-                    style={{
-                      borderWidth: 1,
-                      borderColor,
-                      borderRadius: 12,
-                      padding: 12,
-                      backgroundColor: isDark ? '#141416' : '#FAFAFA',
-                    }}
-                  >
-                    {activeFile ? (
-                      <Text style={{ fontSize: 12, lineHeight: 18, fontFamily: monoFont, color: fgColor }}>
-                        {activeFile.content}
-                      </Text>
+                {/* File content */}
+                <BottomSheetScrollView
+                  style={{ flex: 1 }}
+                  contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24 }}
+                >
+                  {activeFile ? (
+                    isMarkdownPath(activeFile.path) ? (
+                      <SelectableMarkdownText isDark={isDark}>{activeFile.content}</SelectableMarkdownText>
                     ) : (
-                      <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: mutedColor }}>No file selected.</Text>
-                    )}
-                  </BottomSheetView>
-                </>
-              )}
-            </>
-          )}
-        </BottomSheetScrollView>
+                      <View
+                        style={{
+                          borderRadius: 12,
+                          padding: 14,
+                          backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                          borderWidth: 1,
+                          borderColor,
+                        }}
+                      >
+                        <Text style={{ fontSize: 12, lineHeight: 20, fontFamily: monoFont, color: fgColor }}>
+                          {activeFile.content}
+                        </Text>
+                      </View>
+                    )
+                  ) : (
+                    <View style={{ paddingVertical: 32, alignItems: 'center' }}>
+                      <Ionicons name="document-text-outline" size={28} color={isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'} />
+                      <Text style={{ marginTop: 8, fontSize: 13, fontFamily: 'Roobert', color: mutedColor }}>Select a file to preview</Text>
+                    </View>
+                  )}
+                </BottomSheetScrollView>
+              </View>
+            ) : (
+              <View style={{ flex: 1, paddingVertical: 40, alignItems: 'center' }}>
+                <Ionicons name="folder-open-outline" size={28} color={isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'} />
+                <Text style={{ marginTop: 8, fontSize: 13, fontFamily: 'Roobert', color: mutedColor }}>No files in this component</Text>
+              </View>
+            )}
+          </View>
+        )}
       </BottomSheetModal>
     </View>
   );
