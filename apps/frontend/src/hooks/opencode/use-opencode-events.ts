@@ -269,19 +269,20 @@ export function useOpenCodeEventStream() {
 		// Coalescing map — replaces earlier events of the same key
 		const coalesced = new Map<string, number>();
 
-		// Coalescing keys — matches OpenCode global-sdk.tsx exactly.
-		// message.part.updated IS coalesced (same part ID replaces earlier entry).
-		// This is safe because the server sends the FULL part state each time,
-		// not deltas. The sync store's upsertPart replaces the whole part.
+		// Coalescing keys — determines which events can replace earlier ones
+		// in the same 16ms flush batch.
+		// NOTE: message.part.updated is intentionally NOT coalesced. While the
+		// server sends full part state each time, coalescing can cause a stale
+		// snapshot to be the sole survivor of a batch. When that stale snapshot
+		// is processed before any deltas, it inserts the part with wrong/partial
+		// text (prefix-growth guard can't help — nothing to compare against).
+		// The upsertPart prefix-growth guard efficiently rejects stale snapshots
+		// with a no-op return, so processing every snapshot has minimal cost.
 		function getCoalesceKey(event: OpenCodeEvent): string | undefined {
 			if (event.type === "session.status") {
 				return `session.status:${(event.properties as any).sessionID}`;
 			}
 			if (event.type === "lsp.updated") return "lsp.updated";
-			if (event.type === "message.part.updated") {
-				const part = (event.properties as any).part;
-				return `message.part.updated:${part?.messageID}:${part?.id}`;
-			}
 			return undefined;
 		}
 
