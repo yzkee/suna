@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import { createClient } from '@/lib/supabase/client';
@@ -14,7 +14,21 @@ const SCOPE_DESCRIPTIONS: Record<string, string> = {
   'machines:read': 'View your machines provisioned via JustAVPS',
 };
 
-export default function OAuthConsent() {
+export default function OAuthConsentPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="fixed inset-0 bg-background flex items-center justify-center">
+          <KortixLoader size="medium" />
+        </div>
+      }
+    >
+      <OAuthConsent />
+    </Suspense>
+  );
+}
+
+function OAuthConsent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { user, isLoading } = useAuth();
