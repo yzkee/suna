@@ -45,6 +45,6 @@ The single source of truth for the entire Kortix platform. Read the relevant ref
 
 1. If it must survive restarts → `/workspace`
 2. Use the secret API for secrets — never write them to files
-3. Use `portless` for manually started dev servers
+3. Use `pty_spawn` for manually started dev servers
 4. Read the reference file before answering — don't rely on memory
 5. Keep SKILL.md short — depth lives in references

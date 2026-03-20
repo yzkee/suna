@@ -230,9 +230,9 @@ describe("Scenario 2: Cross-session memory recall", () => {
 		})
 		insertLTM(db, {
 			type: "procedural",
-			content: "Use portless <name> <cmd> for dev servers to avoid port conflicts",
+			content: "Use pty_spawn with notifyOnExit=true for dev servers so sessions stay managed",
 			sourceSessionId: "ses_yesterday_2",
-			tags: ["dev", "portless", "workflow"],
+			tags: ["dev", "pty_spawn", "workflow"],
 		})
 		insertLTM(db, {
 			type: "episodic",
@@ -247,7 +247,7 @@ describe("Scenario 2: Cross-session memory recall", () => {
 		// LTM from previous sessions should be present
 		expect(ltmBlock).toContain("SolidJS")
 		expect(ltmBlock).toContain("JWT refresh tokens")
-		expect(ltmBlock).toContain("portless")
+		expect(ltmBlock).toContain("pty_spawn")
 		expect(ltmBlock).toContain("CORS proxy")
 
 		// Unified search should find cross-session knowledge

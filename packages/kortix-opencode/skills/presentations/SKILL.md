@@ -53,11 +53,7 @@ The viewer is **not** a persistent background service. Start it on-demand with t
 bun run "$SCRIPT" serve '{"port":3210}'
 ```
 
-This starts a Bun server on port 3210 that serves all presentations under the `presentations/` directory. Use `portless` when running in the sandbox:
-
-```bash
-portless presentation-viewer bun run "$SCRIPT" serve '{"port":3210}'
-```
+This starts a Bun server on port 3210 that serves all presentations under the `presentations/` directory. When you need it to keep running, launch the same command in `pty_spawn`.
 
 URL scheme:
 - `http://localhost:3210/` — index listing all presentations

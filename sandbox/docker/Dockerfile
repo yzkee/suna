@@ -44,7 +44,6 @@ ARG SANDBOX_VERSION=0.0.0-dev
 ARG OPENCODE_VERSION=1.2.25
 ARG AGENT_BROWSER_VERSION=0.19.0
 ARG OCX_VERSION=2.0.0
-ARG PORTLESS_VERSION=0.5.2
 
 # ── License ──────────────────────────────────────────────────────────────────
 COPY LICENSE /LICENSE
@@ -259,13 +258,12 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
     npm install -g --no-audit --no-fund \
       "opencode-ai@${OPENCODE_VERSION}" \
       "agent-browser@${AGENT_BROWSER_VERSION}" \
-      "ocx@${OCX_VERSION}" \
-      "portless@${PORTLESS_VERSION}" 2>&1 && \
+      "ocx@${OCX_VERSION}" 2>&1 && \
 
     # opencode postinstall caches a non-musl binary at .opencode — remove it \
     # so the launcher resolves the musl variant (Alpine is musl-based) \
     rm -f /usr/local/lib/node_modules/opencode-ai/bin/.opencode 2>/dev/null || true && \
-    echo "[docker] Global binaries: opencode=$(opencode --version 2>/dev/null || echo '?'), agent-browser, ocx, portless" && \
+    echo "[docker] Global binaries: opencode=$(opencode --version 2>/dev/null || echo '?'), agent-browser, ocx" && \
     \
     # ── 10b. Fix agent-browser native binary on Alpine musl ── \
     # The Rust native binary requires glibc's __res_init which doesn't exist in musl. \

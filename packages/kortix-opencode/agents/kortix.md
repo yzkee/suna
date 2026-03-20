@@ -534,12 +534,12 @@ Never leave code in a broken state. Never continue hoping random changes will wo
 
 ## Shell & Process Management
 
-**Portless is mandatory for all server starts.** Whenever launching any dev server, preview server, API server, tunnel, or long-running process that binds a port, wrap the command as `portless <unique-name> <cmd>`. Never run raw `npm run dev`, `next dev`, `vite`, `python -m http.server`, etc. without `portless`.
+**Use `pty_spawn` for all long-running servers.** Whenever launching any dev server, preview server, API server, tunnel, or long-running process that binds a port, start it in `pty_spawn` with `notifyOnExit=true`. Do not run raw long-lived server commands in plain `bash`.
 
 | Scenario | Tool | Why |
 |---|---|---|
 | Quick command (<2 min): git, npm, build, curl | `bash` | Synchronous. Default. |
-| Long-running: dev server, watch mode, REPL | `pty_spawn` | Async background. Use `notifyOnExit=true`. For servers, command must be `portless <name> <cmd>`. |
+| Long-running: dev server, watch mode, REPL | `pty_spawn` | Async background. Use `notifyOnExit=true` so the session is managed correctly. |
 | Sequential where B depends on A | `bash` with `&&` | Both run in order. |
 | Two independent long-running tasks | Two `pty_spawn` calls | Concurrent. |
 | Interactive input needed | `pty_spawn` + `pty_write` | Only PTY supports interactive input. |
@@ -548,7 +548,7 @@ Never leave code in a broken state. Never continue hoping random changes will wo
 - Use `sleep N` as synchronization. Use `&&` or `notifyOnExit`.
 - Run quick commands in PTY. Use `bash`.
 - Use `&` (background) in bash. Use `pty_spawn`.
-- Start web/app servers without `portless`.
+- Start web/app servers in plain `bash` or with `&`.
 
 ---
 

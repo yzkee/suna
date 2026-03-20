@@ -555,7 +555,7 @@
     "version": "0.7.17",
     "date": "2026-03-09",
     "title": "Stable OS base image — Kortix code ships via npm",
-    "description": "The Docker image (kortix/computer) is now a stable OS base that rarely changes. All Kortix-specific code (kortix-master, opencode, agent-browser, portless, opencode-channels) is installed at container boot via @kortix/sandbox postinstall. opencode-channels is now a public npm package @kortix/opencode-channels.",
+    "description": "The Docker image (kortix/computer) is now a stable OS base that rarely changes. All Kortix-specific code (kortix-master, opencode, agent-browser, ocx, opencode-channels) is installed at container boot via @kortix/sandbox postinstall. opencode-channels is now a public npm package @kortix/opencode-channels.",
     "changes": [
       {
         "type": "improvement",

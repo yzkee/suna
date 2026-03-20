@@ -63,16 +63,16 @@ All managed by `s6-rc.d`:
 | Channels | 3456 | — | Slack/Telegram/Discord bridge |
 | lss-sync | — | — | Semantic search indexer |
 
-### Portless Policy
+### Dev Server Policy
 
-Always use `portless` for manually started dev servers:
+Start manually run dev servers in `pty_spawn` so the process stays attached to a managed session:
 
 ```bash
-portless myapp pnpm dev
-portless api npm run start
+pnpm dev
+npm run start
 ```
 
-Share URLs as `http://<name>.localhost:1355`.
+Share the direct localhost URL for the port you started, or a `/proxy/:port/*` route when exposed through Kortix Master.
 
 ---
 
@@ -143,4 +143,3 @@ Inside sandbox / localhost: no auth required for Kortix Master.
 | `ocx` | Marketplace installer |
 | `apk-persist` | Persistent Alpine package installer |
 | `lss` / `lss-sync` | Semantic search CLI and watcher |
-| `portless` | Port manager for dev servers |
