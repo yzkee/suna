@@ -132,6 +132,12 @@ const optimisticIds = new Set<string>();
 // double-render the user's text).
 const bridgedPartIds = new Set<string>();
 
+// Track part IDs that have received at least one delta.
+// Used by upsertPart to avoid overwriting delta-accumulated text with a
+// stale message.part.updated snapshot that arrives in the same event batch.
+// Entries are cleared when the streaming session goes idle.
+const deltaActiveParts = new Set<string>();
+
 function writeStreamCache(
 	sessionID: string,
 	messageID: string,
@@ -286,6 +292,28 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 			if (result.found) {
 				next[result.index] = part;
 			} else {
+				// For NEW text/reasoning parts: if deltas have already been
+				// applied for this part ID, the part was created by the delta
+				// handler with correct accumulated text. A message.part.updated
+				// snapshot arriving later in the same batch could carry stale
+				// text (missing the beginning). Skip the insert — the delta-
+				// created version already exists in the parts list under the
+				// message entry created by the delta handler.
+				const incoming = part as any;
+				if (
+					deltaActiveParts.has(part.id) &&
+					(incoming?.type === "text" || incoming?.type === "reasoning")
+				) {
+					// Delta-created part already exists — check all messageID
+					// buckets since the delta handler may have stored it under
+					// a different (stub) message entry.
+					const allParts = Object.values(s.parts);
+					for (const pl of allParts) {
+						if (pl && pl.some((p) => p.id === part.id)) {
+							return s;
+						}
+					}
+				}
 				next.splice(result.index, 0, part);
 			}
 			return { parts: { ...s.parts, [messageID]: next } };
@@ -306,7 +334,8 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 			return { parts: { ...s.parts, [messageID]: next } };
 		}),
 
-	applyPartDelta: (messageID, partID, field, delta) =>
+	applyPartDelta: (messageID, partID, field, delta) => {
+		deltaActiveParts.add(partID);
 		set((s) => {
 			const list = s.parts[messageID];
 			if (!list) return s;
@@ -320,7 +349,8 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 			(part as Record<string, unknown>)[field] = (existing ?? "") + delta;
 			next[result.index] = part as Part;
 			return { parts: { ...s.parts, [messageID]: next } };
-		}),
+		});
+	},
 
 	setStatus: (sessionID, status) =>
 		set((s) => ({
@@ -818,6 +848,9 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 		case "session.idle": {
 			const sessionID = (event.properties as { sessionID: string }).sessionID;
 			if (sessionID) store.setStatus(sessionID, { type: "idle" });
+			// Streaming finished — clear delta tracking so future
+			// message.part.updated snapshots are accepted normally.
+			deltaActiveParts.clear();
 			return;
 		}
 		case "session.error": {
@@ -828,6 +861,7 @@ export const useSyncStore = create<SyncState>()((set, get) => ({
 
 			// Mark session idle — errors terminate the response.
 			store.setStatus(sid, { type: "idle" });
+			deltaActiveParts.clear();
 
 			// Patch the error onto the last assistant message in the sync store.
 			// If no assistant message exists yet, create a temporary one so the

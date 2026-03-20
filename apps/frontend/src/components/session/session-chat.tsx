@@ -2496,50 +2496,6 @@ function SessionTurn({
 				</div>
 			)}
 
-			{/* Completed status row (only when done) */}
-			{!working && hasSteps && (
-				<div
-					className={cn(
-						"flex items-center gap-2 text-xs transition-colors py-1",
-						"text-muted-foreground",
-					)}
-				>
-					<Check className="size-3 text-muted-foreground/70" />
-					<span>
-						{retryInfo
-							? retryInfo.message.length > 60
-								? retryInfo.message.slice(0, 60) + "..."
-								: retryInfo.message
-							: "Completed"}
-					</span>
-					{retryInfo && (
-						<>
-							<span className="text-muted-foreground/50">·</span>
-							<span className="text-amber-500">
-								Retrying{retrySecondsLeft > 0 ? ` in ${retrySecondsLeft}s` : ""}
-							</span>
-							<span className="text-muted-foreground/50">
-								(#{retryInfo.attempt})
-							</span>
-						</>
-					)}
-					<span className="text-muted-foreground/50">·</span>
-					<span className="text-muted-foreground/70">{duration}</span>
-					{costInfo && (
-						<>
-							<span className="text-muted-foreground/50">·</span>
-							<span className="text-muted-foreground/70">
-								{formatCost(costInfo.cost)}
-							</span>
-							<span className="text-muted-foreground/50">·</span>
-							<span className="text-muted-foreground/70">
-								{formatTokens(costInfo.tokens.input + costInfo.tokens.output)}t
-							</span>
-						</>
-					)}
-				</div>
-			)}
-
 			{/* ── Assistant parts content ──
 			  Renders ALL parts from all assistant messages,
 			  EXCEPT: the response part (last text) is hidden when not working
@@ -2792,8 +2748,8 @@ function SessionTurn({
 			{!working && response && (
 				<>
 					<div className="flex items-center gap-0.5 opacity-0 group-hover/turn:opacity-100 transition-opacity duration-150">
-						{/* Duration & cost — always visible when no steps trigger shows them */}
-						{!hasSteps && duration && (
+						{/* Duration & cost */}
+						{duration && (
 							<span className="text-[11px] text-muted-foreground/50 mr-1">
 								{duration}
 								{costInfo && (

@@ -65,6 +65,9 @@ import {
   getToolInfo,
   shouldShowToolPart,
   formatDuration,
+  formatCost,
+  formatTokens,
+  getTurnCost,
   stripAnsi,
 } from '@/lib/opencode/turns';
 
@@ -2102,6 +2105,12 @@ export function SessionTurn({
     return end - start;
   }, [turn.assistantMessages]);
 
+  // Cost & token info (only when done)
+  const costInfo = useMemo(() => {
+    if (working) return undefined;
+    return getTurnCost(allParts);
+  }, [working, allParts]);
+
   // Last assistant message ID (for fork)
   const lastAssistantMessageId = useMemo(() => {
     if (turn.assistantMessages.length === 0) return undefined;
@@ -2234,6 +2243,7 @@ export function SessionTurn({
             <TurnActions
               response={response}
               duration={duration}
+              costInfo={costInfo}
               isDark={isDark}
               onFork={lastAssistantMessageId ? () => onFork?.(lastAssistantMessageId) : undefined}
             />
@@ -2251,11 +2261,13 @@ export function SessionTurn({
 function TurnActions({
   response,
   duration,
+  costInfo,
   isDark,
   onFork,
 }: {
   response: string;
   duration?: number;
+  costInfo?: { cost: number; tokens: { input: number; output: number } } | undefined;
   isDark: boolean;
   onFork?: () => void;
 }) {
@@ -2296,10 +2308,11 @@ function TurnActions({
         gap: 2,
       }}
     >
-      {/* Duration */}
+      {/* Duration & cost */}
       {duration != null && duration > 0 && (
         <Text className="text-xs text-muted-foreground/50 mr-2">
           {formatDuration(duration)}
+          {costInfo ? ` · ${formatCost(costInfo.cost)} · ${formatTokens(costInfo.tokens.input + costInfo.tokens.output)}t` : ''}
         </Text>
       )}
 

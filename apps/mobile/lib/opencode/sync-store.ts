@@ -79,6 +79,16 @@ export function isOptimistic(id: string): boolean {
   return optimisticIds.has(id);
 }
 
+// Track part IDs that have received at least one delta.
+// Used by upsertPart to avoid overwriting delta-accumulated text with a
+// stale message.part.updated snapshot that arrives before deltas.
+// Cleared when the streaming session goes idle.
+const deltaActiveParts = new Set<string>();
+
+export function clearDeltaActiveParts() {
+  deltaActiveParts.clear();
+}
+
 // ---------------------------------------------------------------------------
 // Store implementation
 // ---------------------------------------------------------------------------
@@ -90,9 +100,49 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   questions: {},
 
   hydrate: (sessionId, messages) =>
-    set((state) => ({
-      messages: { ...state.messages, [sessionId]: messages },
-    })),
+    set((state) => {
+      const existing = state.messages[sessionId];
+      if (!existing || existing.length === 0) {
+        // No existing data — accept the hydration as-is
+        return { messages: { ...state.messages, [sessionId]: messages } };
+      }
+
+      // Reconcile: for text/reasoning parts that are currently being
+      // streamed, the SSE-accumulated version may have MORE content
+      // than the REST snapshot. Prefer the longer version to avoid
+      // clobbering in-progress streaming text.
+      const reconciled = messages.map((incomingMsg) => {
+        const existingMsg = existing.find(
+          (m) => m.info.id === incomingMsg.info.id,
+        );
+        if (!existingMsg) return incomingMsg;
+
+        const reconciledParts = incomingMsg.parts.map((inPart) => {
+          const exPart = existingMsg.parts.find((p) => p.id === inPart.id);
+          if (!exPart) return inPart;
+
+          const isTextLike =
+            inPart.type === 'text' || inPart.type === 'reasoning';
+          if (!isTextLike) return inPart;
+
+          const inText = (inPart as any).text;
+          const exText = (exPart as any).text;
+          if (
+            typeof exText === 'string' &&
+            typeof inText === 'string' &&
+            exText.length > inText.length
+          ) {
+            // SSE version has more content — keep it
+            return exPart;
+          }
+          return inPart;
+        });
+
+        return { ...incomingMsg, parts: reconciledParts };
+      });
+
+      return { messages: { ...state.messages, [sessionId]: reconciled } };
+    }),
 
   upsertMessage: (sessionId, msg) =>
     set((state) => {
@@ -127,8 +177,56 @@ export const useSyncStore = create<SyncState>((set, get) => ({
           const partIdx = msg.parts.findIndex((p) => p.id === part.id);
           let updatedParts: Part[];
           if (partIdx >= 0) {
+            const prev = msg.parts[partIdx] as any;
+            const incoming = part as any;
+
+            // Guard against out-of-order/stale part snapshots that can
+            // cause the stream to jump or start from the middle.
+            // For text/reasoning parts, only accept full-text replacements
+            // that are monotonic prefix growth (incoming starts with
+            // previous text). Otherwise keep the existing part.
+            const tracksStreamingText =
+              (prev?.type === 'text' || prev?.type === 'reasoning') &&
+              (incoming?.type === 'text' || incoming?.type === 'reasoning');
+            const prevText = typeof prev?.text === 'string' ? prev.text : null;
+            const incomingText =
+              typeof incoming?.text === 'string' ? incoming.text : null;
+
+            if (
+              tracksStreamingText &&
+              prevText !== null &&
+              incomingText !== null &&
+              prevText.length > 0
+            ) {
+              const isPrefixGrowth = incomingText.startsWith(prevText);
+              if (!isPrefixGrowth) {
+                // Stale/out-of-order snapshot — reject the update
+                return state;
+              }
+            }
+
             updatedParts = msg.parts.map((p, i) => (i === partIdx ? part : p));
           } else {
+            // For NEW text/reasoning parts: if deltas have already been
+            // applied for this part ID, the part was created by the delta
+            // handler with correct accumulated text. A stale snapshot
+            // arriving later would overwrite it with wrong text.
+            const incoming = part as any;
+            if (
+              deltaActiveParts.has(part.id) &&
+              (incoming?.type === 'text' || incoming?.type === 'reasoning')
+            ) {
+              // Check if the delta-created part already exists in any message
+              for (const sid of Object.keys(state.messages)) {
+                const sessionMsgs = state.messages[sid];
+                for (const m of sessionMsgs) {
+                  if (m.parts.some((p) => p.id === part.id)) {
+                    return state;
+                  }
+                }
+              }
+            }
+
             // When a real part arrives, remove any optimistic fallback parts
             // of the same type to prevent duplicates (e.g. double user text)
             const baseParts = msg.parts.filter(
@@ -167,8 +265,9 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       return { messages: newMessages };
     }),
 
-  appendPartDelta: (messageId, partId, sessionId, field, delta) =>
-    set((state) => {
+  appendPartDelta: (messageId, partId, sessionId, field, delta) => {
+    deltaActiveParts.add(partId);
+    return set((state) => {
       const msgs = state.messages[sessionId];
       if (!msgs) return state;
 
@@ -196,7 +295,8 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       return {
         messages: { ...state.messages, [sessionId]: newMsgs },
       };
-    }),
+    });
+  },
 
   setStatus: (sessionId, status) =>
     set((state) => ({

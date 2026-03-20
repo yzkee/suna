@@ -11,7 +11,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import EventSource from 'react-native-sse';
 import { log } from '@/lib/logger';
 import { getAuthToken } from '@/api/config';
-import { useSyncStore, isOptimistic } from './sync-store';
+import { useSyncStore, isOptimistic, clearDeltaActiveParts } from './sync-store';
 import { platformKeys } from '@/lib/platform/hooks';
 import type { MessageWithParts, Part, SessionStatus } from './types';
 
@@ -141,6 +141,29 @@ export function useOpenCodeEventStream(sandboxUrl: string | undefined) {
       case 'message.part.delta': {
         const { messageID, partID, sessionID, field, delta } = props;
         if (messageID && partID && sessionID && field && delta) {
+          // Ensure the parent message exists before applying the delta.
+          // message.part.delta can arrive before message.updated —
+          // without a stub message, appendPartDelta silently drops
+          // the delta, causing the beginning of streamed text to be lost.
+          const state = syncStore.getState();
+          const msgs = state.messages[sessionID];
+          const msgExists = msgs?.some((m) => m.info.id === messageID);
+          if (!msgExists) {
+            // Only create the stub if a user message already exists
+            // for this session (avoids turn-grouping issues on refresh)
+            const hasUserMsg = msgs?.some((m) => m.info.role === 'user');
+            if (hasUserMsg) {
+              state.upsertMessage(sessionID, {
+                info: {
+                  id: messageID,
+                  sessionID,
+                  role: 'assistant',
+                  time: { created: Date.now() },
+                },
+                parts: [],
+              });
+            }
+          }
           syncStore.getState().appendPartDelta(messageID, partID, sessionID, field, delta);
         }
         break;
@@ -162,6 +185,9 @@ export function useOpenCodeEventStream(sandboxUrl: string | undefined) {
         if (sessionID) {
           log.log(`✅ [SSE] session.idle: ${sessionID}`);
           syncStore.getState().setStatus(sessionID, { type: 'idle' });
+          // Streaming finished — clear delta tracking so future
+          // message.part.updated snapshots are accepted normally.
+          clearDeltaActiveParts();
         }
         break;
       }
@@ -231,6 +257,7 @@ export function useOpenCodeEventStream(sandboxUrl: string | undefined) {
           log.error(`❌ [SSE] Session error in ${props.sessionID}:`, props.error);
           // Set status to idle so the UI stops showing "Working"
           syncStore.getState().setStatus(props.sessionID, { type: 'idle' });
+          clearDeltaActiveParts();
         }
         break;
 
