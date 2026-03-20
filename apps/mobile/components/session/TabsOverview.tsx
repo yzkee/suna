@@ -165,7 +165,7 @@ export function TabsOverview({
   const totalCount = allTabIds.length;
 
   const cardWidth = (width - 48) / 2;
-  const cardBodyHeight = cardWidth * 1.0;
+  const cardBodyHeight = cardWidth * 1.3;
   const scrollRef = useRef<ScrollView>(null);
   const hasScrolled = useRef(false);
   const activeId = activePageId || activeSessionId;
@@ -299,16 +299,21 @@ export function TabsOverview({
                   </View>
 
                   {/* Card body — screenshot, text preview, or icon fallback */}
-                  <View className="px-2 pb-2" style={{ height: cardBodyHeight }}>
+                  <View style={{ height: cardBodyHeight, paddingHorizontal: 8, paddingBottom: 8 }}>
                     {screenshotUri ? (
-                      <Image
-                        source={{ uri: screenshotUri }}
-                        style={{
-                          flex: 1,
-                          borderRadius: 8,
-                        }}
-                        resizeMode="cover"
-                      />
+                      <View className="flex-1 rounded-lg overflow-hidden" style={{ backgroundColor: isDark ? '#1a1a1e' : '#f4f4f5' }}>
+                        <Image
+                          source={{ uri: screenshotUri }}
+                          style={{
+                            position: 'absolute',
+                            top: -(cardBodyHeight * 0.22),
+                            left: 0,
+                            right: 0,
+                            bottom: -(cardBodyHeight * 0.8),
+                          }}
+                          resizeMode="cover"
+                        />
+                      </View>
                     ) : previewText ? (
                       <View
                         className="flex-1 rounded-lg overflow-hidden"
