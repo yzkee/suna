@@ -25,7 +25,6 @@ import {
 } from '@gorhom/bottom-sheet';
 import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
 import * as Clipboard from 'expo-clipboard';
-import { SelectableMarkdownText } from '@/components/ui/selectable-markdown';
 
 type FilterKey = 'all' | 'installed' | 'skills' | 'agents' | 'tools' | 'plugins';
 
@@ -712,6 +711,8 @@ export function MarketplacePage({ page, onBack, onOpenDrawer, onOpenRightDrawer 
         ref={detailSheetRef}
         snapPoints={detailSnapPoints}
         enablePanDownToClose
+        enableDynamicSizing={false}
+        enableContentPanningGesture={false}
         backdropComponent={renderBackdrop}
         onDismiss={() => {
           setSelectedComponent(null);
@@ -722,7 +723,7 @@ export function MarketplacePage({ page, onBack, onOpenDrawer, onOpenRightDrawer 
       >
         {selectedComponent && (
           <View style={{ flex: 1 }}>
-            {/* ── Header ── */}
+            {/* ── Header (non-scrollable, swipe here dismisses sheet) ── */}
             <View style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: borderColor }}>
               {/* Close button row */}
               <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 12 }}>
@@ -776,18 +777,18 @@ export function MarketplacePage({ page, onBack, onOpenDrawer, onOpenRightDrawer 
               </Text>
 
               {/* Action buttons */}
-              <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
                 <BottomSheetTouchable
                   onPress={() => handleInstall(selectedComponent)}
                   disabled={isInstalling(selectedComponent.name) || selectedInstalled}
                   style={{
-                    flex: 1,
-                    borderRadius: 12,
-                    paddingVertical: 12,
+                    height: 32,
+                    borderRadius: 8,
+                    paddingHorizontal: 12,
                     alignItems: 'center',
                     justifyContent: 'center',
                     flexDirection: 'row',
-                    gap: 6,
+                    gap: 5,
                     backgroundColor: selectedInstalled
                       ? (isDark ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.08)')
                       : fgColor,
@@ -796,13 +797,13 @@ export function MarketplacePage({ page, onBack, onOpenDrawer, onOpenRightDrawer 
                 >
                   <Ionicons
                     name={selectedInstalled ? 'checkmark-circle' : isInstalling(selectedComponent.name) ? 'hourglass-outline' : 'download-outline'}
-                    size={16}
+                    size={13}
                     color={selectedInstalled ? '#10b981' : (isDark ? '#121215' : '#FFFFFF')}
                   />
                   <Text
                     style={{
-                      fontSize: 14,
-                      fontFamily: 'Roobert-SemiBold',
+                      fontSize: 12,
+                      fontFamily: 'Roobert-Medium',
                       color: selectedInstalled ? '#10b981' : (isDark ? '#121215' : '#FFFFFF'),
                     }}
                   >
@@ -813,27 +814,77 @@ export function MarketplacePage({ page, onBack, onOpenDrawer, onOpenRightDrawer 
                 <BottomSheetTouchable
                   onPress={() => Clipboard.setStringAsync(selectedComponent.name)}
                   style={{
-                    borderRadius: 12,
-                    paddingVertical: 12,
-                    paddingHorizontal: 20,
+                    height: 32,
+                    borderRadius: 8,
+                    paddingHorizontal: 10,
                     alignItems: 'center',
                     justifyContent: 'center',
                     flexDirection: 'row',
-                    gap: 6,
+                    gap: 5,
                     borderWidth: 1,
                     borderColor,
-                    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
                   }}
                 >
-                  <Ionicons name="copy-outline" size={15} color={fgColor} />
-                  <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: fgColor }}>Copy</Text>
+                  <Ionicons name="copy-outline" size={13} color={mutedColor} />
+                  <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: mutedColor }}>Copy</Text>
                 </BottomSheetTouchable>
               </View>
             </View>
 
-            {/* ── File browser ── */}
+            {/* ── File tabs (non-scrollable) ── */}
+            {!bundleQuery.isLoading && !bundleQuery.error && (bundleQuery.data?.files?.length ?? 0) > 0 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 10, gap: 6, alignItems: 'center' }}
+                style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: borderColor }}
+              >
+                {(bundleQuery.data?.files || []).map((file) => {
+                  const active = activeFile?.path === file.path;
+                  return (
+                    <BottomSheetTouchable
+                      key={file.path}
+                      onPress={() => setSelectedPath(file.path)}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        height: 36,
+                        minHeight: 36,
+                        maxHeight: 36,
+                        paddingHorizontal: 12,
+                        borderRadius: 10,
+                        gap: 6,
+                        backgroundColor: active
+                          ? (isDark ? fgColor : '#121215')
+                          : (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'),
+                        borderWidth: active ? 0 : 1,
+                        borderColor: active ? 'transparent' : borderColor,
+                      }}
+                    >
+                      <Ionicons
+                        name="document-text-outline"
+                        size={13}
+                        color={active ? (isDark ? '#121215' : '#FFFFFF') : mutedColor}
+                      />
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          fontSize: 12,
+                          fontFamily: active ? 'Roobert-Medium' : 'Roobert',
+                          color: active ? (isDark ? '#121215' : '#FFFFFF') : mutedColor,
+                        }}
+                      >
+                        {fileLabel(file.path)}
+                      </Text>
+                    </BottomSheetTouchable>
+                  );
+                })}
+              </ScrollView>
+            )}
+
+            {/* ── Scrollable file content ── */}
             {bundleQuery.isLoading ? (
-              <View style={{ flex: 1, paddingVertical: 40, alignItems: 'center' }}>
+              <View style={{ paddingVertical: 40, alignItems: 'center' }}>
                 <ActivityIndicator size="small" color={mutedColor} />
                 <Text style={{ marginTop: 10, fontSize: 12, fontFamily: 'Roobert', color: mutedColor }}>Loading files...</Text>
               </View>
@@ -844,88 +895,42 @@ export function MarketplacePage({ page, onBack, onOpenDrawer, onOpenRightDrawer 
                 </Text>
               </View>
             ) : (bundleQuery.data?.files?.length ?? 0) > 0 ? (
-              <View style={{ flex: 1 }}>
-                {/* Horizontal file tabs */}
-                <View style={{ borderBottomWidth: 1, borderBottomColor: borderColor }}>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 10, gap: 6 }}
+              <BottomSheetScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 28 }}
+                showsVerticalScrollIndicator
+              >
+                {activeFile ? (
+                  <View
+                    style={{
+                      borderRadius: 12,
+                      padding: 14,
+                      backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                      borderWidth: 1,
+                      borderColor,
+                    }}
                   >
-                    {(bundleQuery.data?.files || []).map((file) => {
-                      const active = activeFile?.path === file.path;
-                      return (
-                        <BottomSheetTouchable
-                          key={file.path}
-                          onPress={() => setSelectedPath(file.path)}
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            paddingHorizontal: 12,
-                            paddingVertical: 7,
-                            borderRadius: 10,
-                            gap: 6,
-                            backgroundColor: active
-                              ? (isDark ? fgColor : '#121215')
-                              : (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'),
-                            borderWidth: active ? 0 : 1,
-                            borderColor: active ? 'transparent' : borderColor,
-                          }}
-                        >
-                          <Ionicons
-                            name="document-text-outline"
-                            size={13}
-                            color={active ? (isDark ? '#121215' : '#FFFFFF') : mutedColor}
-                          />
-                          <Text
-                            numberOfLines={1}
-                            style={{
-                              fontSize: 12,
-                              fontFamily: active ? 'Roobert-Medium' : 'Roobert',
-                              color: active ? (isDark ? '#121215' : '#FFFFFF') : mutedColor,
-                            }}
-                          >
-                            {fileLabel(file.path)}
-                          </Text>
-                        </BottomSheetTouchable>
-                      );
-                    })}
-                  </ScrollView>
-                </View>
-
-                {/* File content */}
-                <BottomSheetScrollView
-                  style={{ flex: 1 }}
-                  contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24 }}
-                >
-                  {activeFile ? (
-                    isMarkdownPath(activeFile.path) ? (
-                      <SelectableMarkdownText isDark={isDark}>{activeFile.content}</SelectableMarkdownText>
-                    ) : (
-                      <View
-                        style={{
-                          borderRadius: 12,
-                          padding: 14,
-                          backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-                          borderWidth: 1,
-                          borderColor,
-                        }}
-                      >
-                        <Text style={{ fontSize: 12, lineHeight: 20, fontFamily: monoFont, color: fgColor }}>
-                          {activeFile.content}
-                        </Text>
-                      </View>
-                    )
-                  ) : (
-                    <View style={{ paddingVertical: 32, alignItems: 'center' }}>
-                      <Ionicons name="document-text-outline" size={28} color={isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'} />
-                      <Text style={{ marginTop: 8, fontSize: 13, fontFamily: 'Roobert', color: mutedColor }}>Select a file to preview</Text>
-                    </View>
-                  )}
-                </BottomSheetScrollView>
-              </View>
+                    <Text
+                      selectable
+                      style={{
+                        fontSize: isMarkdownPath(activeFile.path) ? 14 : 12,
+                        lineHeight: isMarkdownPath(activeFile.path) ? 24 : 20,
+                        fontFamily: isMarkdownPath(activeFile.path) ? 'Roobert' : monoFont,
+                        color: fgColor,
+                      }}
+                    >
+                      {activeFile.content}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={{ paddingVertical: 32, alignItems: 'center' }}>
+                    <Ionicons name="document-text-outline" size={28} color={isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'} />
+                    <Text style={{ marginTop: 8, fontSize: 13, fontFamily: 'Roobert', color: mutedColor }}>Select a file to preview</Text>
+                  </View>
+                )}
+              </BottomSheetScrollView>
             ) : (
-              <View style={{ flex: 1, paddingVertical: 40, alignItems: 'center' }}>
+              <View style={{ paddingVertical: 40, alignItems: 'center' }}>
                 <Ionicons name="folder-open-outline" size={28} color={isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'} />
                 <Text style={{ marginTop: 8, fontSize: 13, fontFamily: 'Roobert', color: mutedColor }}>No files in this component</Text>
               </View>
