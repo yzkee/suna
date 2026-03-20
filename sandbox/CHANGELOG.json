@@ -1,5 +1,21 @@
 [
   {
+    "version": "0.8.14",
+    "date": "2026-03-20",
+    "title": "Fix cloud memory plugin loading with workspace OpenCode config",
+    "description": "Fixes cloud sandbox memory disappearing when OpenCode reads plugin paths from the workspace config directory. Plugin entries now use absolute file URLs so the full bundled plugin set, including kortix-memory, loads reliably in sandbox environments.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Switch sandbox OpenCode plugin entries to absolute file:///opt/opencode/plugin/... paths so workspace config resolution no longer drops kortix-memory and related plugins"
+      },
+      {
+        "type": "fix",
+        "text": "Restore cloud memory with the full plugin set enabled instead of requiring plugin list reductions or temporary workarounds"
+      }
+    ]
+  },
+  {
     "version": "0.8.13",
     "date": "2026-03-19",
     "title": "Fix ONBOARDING_COMPLETE going null, eliminate 15K snapshot diffs, AutoContinue UX rework",
