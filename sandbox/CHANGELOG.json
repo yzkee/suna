@@ -1,5 +1,29 @@
 [
   {
+    "version": "0.8.16",
+    "date": "2026-03-21",
+    "title": "Fix Telegram DM support, agent-tunnel skill, and file attachments",
+    "description": "Telegram DMs now work correctly — messages are no longer silently dropped. File attachments (photos, documents) sent via Telegram are properly forwarded to the agent. The agent-tunnel CLI skill is now bundled into the sandbox image.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Bump chat-sdk and all @chat-adapter/* packages to ^4.20.2 — fixes Telegram DMs being silently dropped because the old chat@4.14.0 did not treat private-chat messages as mentions"
+      },
+      {
+        "type": "fix",
+        "text": "Infer MIME type from attachment type (image→image/jpeg, video→video/mp4) when Telegram omits mimeType and filename, so photos are no longer silently filtered out"
+      },
+      {
+        "type": "fix",
+        "text": "Add mimeFromFilename() fallback for document attachments with known extensions (png, pdf, py, etc.) instead of dropping them as application/octet-stream"
+      },
+      {
+        "type": "improvement",
+        "text": "Bundle agent-tunnel CLI into sandbox image by symlinking /opt/opencode/skills/agent-tunnel/tunnel.ts to the installed npm package"
+      }
+    ]
+  },
+  {
     "version": "0.8.15",
     "date": "2026-03-20",
     "title": "Fix sandbox image missing core runtime contract files",

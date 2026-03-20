@@ -228,6 +228,11 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
     else \
       echo "[docker] opencode: no package.json — skipping bun install (config-only package)"; \
     fi && \
+    # ── 5. agent-tunnel skill (symlink CLI into skills dir) ── \
+    mkdir -p /opt/opencode/skills/agent-tunnel && \
+    ln -sf /opt/opencode/node_modules/agent-tunnel/src/client/cli.ts \
+           /opt/opencode/skills/agent-tunnel/tunnel.ts && \
+    echo "[docker] agent-tunnel skill linked" && \
     bash /opt/opencode/patches/apply.sh /opt/opencode && \
     \
     # ── 6. Binary patches ── \
