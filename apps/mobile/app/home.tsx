@@ -845,6 +845,9 @@ export default function HomeScreen() {
             </View>
           )}
 
+        </>
+        )}
+
           {/* Bottom bar — hidden when tabs overview is showing */}
           {!showTabsOverview && (
             <View>
@@ -953,8 +956,6 @@ export default function HomeScreen() {
               />
             </View>
           )}
-        </>
-        )}
         </Drawer>
       </Drawer>
 

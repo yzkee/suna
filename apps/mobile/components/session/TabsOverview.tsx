@@ -168,16 +168,21 @@ export function TabsOverview({
   // Inner content area width (card width minus padding on each side)
   const cardContentWidth = cardWidth - 16; // 8px padding each side
 
-  // The screenshot captures the full ViewShot (screen minus bottom bar ~80px).
-  // We crop the header (status bar + nav bar) from the top.
-  const headerHeight = insets.top + 44;
-  const bottomBarHeight = 80;
-  const screenshotFullHeight = screenHeight - bottomBarHeight;
-  const contentHeight = screenshotFullHeight - headerHeight;
+  // The screenshot captures the full ViewShot (excludes bottom bar).
+  // We need to crop enough from the top to hide the page header on ALL
+  // pages. Headers vary in height (simple nav ~44px, Files with
+  // breadcrumbs + toolbar ~100px). Use a generous crop that covers the
+  // tallest header, calculated relative to safe area for device compat.
+  const headerCrop = insets.top + 100;
+  const screenshotFullHeight = screenHeight;
 
-  // Scale the visible content to fit the card width, preserving aspect ratio.
-  // This gives us the exact card body height so the image fits perfectly.
-  const cardBodyHeight = cardContentWidth * (contentHeight / width);
+  // Card body shows the content below the cropped header.
+  // Cap height so cards stay compact in the grid.
+  const visibleContentHeight = screenshotFullHeight - headerCrop;
+  const cardBodyHeight = Math.min(
+    cardContentWidth * (visibleContentHeight / width),
+    cardWidth * 1.2,
+  );
   const scrollRef = useRef<ScrollView>(null);
   const hasScrolled = useRef(false);
   const activeId = activePageId || activeSessionId;
@@ -319,7 +324,7 @@ export function TabsOverview({
                           style={{
                             width: cardContentWidth,
                             height: cardContentWidth * (screenshotFullHeight / width),
-                            marginTop: -(cardContentWidth * (headerHeight / width)),
+                            marginTop: -(cardContentWidth * (headerCrop / width)),
                           }}
                           resizeMode="contain"
                         />
