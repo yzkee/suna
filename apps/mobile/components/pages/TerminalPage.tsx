@@ -114,13 +114,14 @@ function getPtyWsUrl(sandboxUrl: string, ptyId: string, token: string): string {
 // ─── Terminal HTML builder ───────────────────────────────────────────────────
 
 function buildTerminalHtml(params: {
-  isDark: boolean;
   wsUrl: string;
   sandboxUrl: string;
   ptyId: string;
 }): string {
-  const { isDark, wsUrl, sandboxUrl, ptyId } = params;
-  const bg = isDark ? '#0f0f14' : '#fafafc';
+  const { wsUrl, sandboxUrl, ptyId } = params;
+  // Terminal is always dark, matching the web frontend
+  const isDark = true;
+  const bg = '#0f0f14';
 
   // Escape for safe JS string embedding
   const safeWsUrl = wsUrl.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -377,10 +378,13 @@ export function TerminalPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: 
   // Track current PTY for cleanup
   const ptyRef = useRef<{ id: string; sandboxUrl: string } | null>(null);
 
+  // Header follows system theme; terminal body is always dark
   const fgColor = isDark ? '#F8F8F8' : '#121215';
   const mutedColor = isDark ? '#71717a' : '#a1a1aa';
-  const bgColor = isDark ? '#0f0f14' : '#fafafc';
+  const headerBg = isDark ? '#121215' : '#F8F8F8';
   const borderColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  // Terminal area is always dark
+  const terminalBg = '#0f0f14';
 
   // Create PTY, build HTML with baked-in connection params
   useEffect(() => {
@@ -415,7 +419,6 @@ export function TerminalPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: 
 
         // 4. Build HTML
         const html = buildTerminalHtml({
-          isDark,
           wsUrl,
           sandboxUrl,
           ptyId: pty.id,
@@ -527,7 +530,7 @@ export function TerminalPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: 
           : 'Disconnected';
 
   return (
-    <View style={{ flex: 1, backgroundColor: bgColor }}>
+    <View style={{ flex: 1, backgroundColor: terminalBg }}>
       {/* Header */}
       <View
         style={{
@@ -536,7 +539,7 @@ export function TerminalPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: 
           paddingHorizontal: 16,
           borderBottomWidth: 1,
           borderBottomColor: borderColor,
-          backgroundColor: isDark ? '#121215' : '#F8F8F8',
+          backgroundColor: headerBg,
         }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -622,8 +625,8 @@ export function TerminalPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: 
               paddingVertical: 8,
             }}
           >
-            <Ionicons name="refresh-outline" size={14} color={bgColor} style={{ marginRight: 6 }} />
-            <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: bgColor }}>Retry</Text>
+            <Ionicons name="refresh-outline" size={14} color={terminalBg} style={{ marginRight: 6 }} />
+            <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: terminalBg }}>Retry</Text>
           </TouchableOpacity>
         </View>
       ) : !terminalHtml ? (
@@ -639,7 +642,7 @@ export function TerminalPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: 
             key={webViewKey}
             ref={webViewRef}
             source={{ html: terminalHtml }}
-            style={{ flex: 1, backgroundColor: bgColor, opacity: webViewReady ? 1 : 0 }}
+            style={{ flex: 1, backgroundColor: terminalBg, opacity: webViewReady ? 1 : 0 }}
             originWhitelist={['*']}
             javaScriptEnabled
             domStorageEnabled
@@ -648,7 +651,7 @@ export function TerminalPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: 
             bounces={false}
             overScrollMode="never"
             keyboardDisplayRequiresUserAction={false}
-            hideKeyboardAccessoryView={false}
+            hideKeyboardAccessoryView
             automaticallyAdjustContentInsets={false}
             contentInsetAdjustmentBehavior="never"
             textInteractionEnabled={false}
@@ -667,7 +670,7 @@ export function TerminalPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: 
                 top: 0, left: 0, right: 0, bottom: 0,
                 alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: bgColor,
+                backgroundColor: terminalBg,
               }}
             >
               <ActivityIndicator size="large" color={mutedColor} />
