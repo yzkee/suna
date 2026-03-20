@@ -59,6 +59,19 @@ import {
 } from 'lucide-react-native';
 import type { BottomBarMenuItem } from '@/components/session/BottomBar';
 import { log } from '@/lib/logger';
+import { useTabScreenshotStore } from '@/stores/tab-screenshot-store';
+
+// Safe import of react-native-view-shot — requires native rebuild.
+// Returns null if the native module isn't available yet.
+let captureRef: ((ref: any, opts?: any) => Promise<string>) | null = null;
+let ViewShotComponent: React.ComponentType<any> | null = null;
+try {
+  const viewShot = require('react-native-view-shot');
+  captureRef = viewShot.captureRef;
+  ViewShotComponent = viewShot.default;
+} catch {
+  // Native module not available — screenshots disabled until rebuild
+}
 
 // ─── Animated collapsible wrapper ────────────────────────────────────────────
 
@@ -228,6 +241,7 @@ export default function HomeScreen() {
   // Files page ref (for BottomBar menu integration)
   const filesPageRef = useRef<FilesPageRef>(null);
   const bottomBarRef = useRef<BottomBarRef>(null);
+  const viewShotRef = useRef<any>(null);
   const [filesShowHidden, setFilesShowHidden] = useState(false);
   const [filesViewMode, setFilesViewMode] = useState<'list' | 'grid'>('list');
   const [filesSelectedName, setFilesSelectedName] = useState<string | null>(null);
@@ -419,6 +433,28 @@ export default function HomeScreen() {
     },
     [sandboxUrl, createSession, navigateToSession],
   );
+
+  // Capture a screenshot of the current tab before showing tabs overview.
+  // Screenshots are stored as temp files in the app's private directory —
+  // they never appear in the user's photo gallery.
+  const handleOpenTabsOverview = useCallback(async () => {
+    const currentTabId = activePageId || activeSessionId;
+    if (currentTabId && viewShotRef.current && captureRef) {
+      try {
+        const uri = await captureRef(viewShotRef, {
+          format: 'jpg',
+          quality: 0.6,
+          result: 'tmpfile',
+        });
+        if (uri) {
+          useTabScreenshotStore.getState().setScreenshot(currentTabId, uri);
+        }
+      } catch (err) {
+        // Native module not available or capture failed — text preview fallback
+      }
+    }
+    setShowTabsOverview(true);
+  }, [activePageId, activeSessionId, setShowTabsOverview]);
 
   const handleGoToSettings = useCallback(() => {
     setDrawerOpen(false);
@@ -632,7 +668,12 @@ export default function HomeScreen() {
           swipeEnabled={false}
           renderDrawerContent={renderRightDrawerContent}
         >
-        <View className="flex-1 bg-background">
+        {React.createElement(
+          ViewShotComponent || View,
+          ViewShotComponent
+            ? { ref: viewShotRef, style: { flex: 1, backgroundColor: isDark ? '#09090B' : '#FFFFFF' } }
+            : { className: 'flex-1 bg-background' },
+          <>
           {/* Loading sandbox */}
           {sandboxLoading ? (
             <View className="flex-1 items-center justify-center">
@@ -730,8 +771,14 @@ export default function HomeScreen() {
               openTabIds={openTabIds}
               activeSessionId={activeSessionId}
               onSelectTab={(id) => navigateToSession(id)}
-              onCloseTab={closeTab}
-              onCloseAll={closeAllTabs}
+              onCloseTab={(id) => {
+                closeTab(id);
+                useTabScreenshotStore.getState().removeScreenshot(id);
+              }}
+              onCloseAll={() => {
+                closeAllTabs();
+                useTabScreenshotStore.getState().clear();
+              }}
               onNewSession={handleNewSession}
               onDismiss={() => setShowTabsOverview(false)}
             />
@@ -798,6 +845,9 @@ export default function HomeScreen() {
             </View>
           )}
 
+        </>
+        )}
+
           {/* Bottom bar — hidden when tabs overview is showing */}
           {!showTabsOverview && (
             <View>
@@ -816,7 +866,7 @@ export default function HomeScreen() {
                 onBack={handleHistoryBack}
                 onForward={handleHistoryForward}
                 onNewSession={handleNewSession}
-                onOpenTabs={() => setShowTabsOverview(true)}
+                onOpenTabs={handleOpenTabsOverview}
                 onCompactSession={() => {
                   if (activeSessionId) {
                     Alert.alert('Compact Session', 'Compact this session to reduce context size?', [
@@ -906,7 +956,6 @@ export default function HomeScreen() {
               />
             </View>
           )}
-        </View>
         </Drawer>
       </Drawer>
 

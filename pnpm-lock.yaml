@@ -1030,6 +1030,9 @@ importers:
       react-native-vector-icons:
         specifier: ^10.3.0
         version: 10.3.0
+      react-native-view-shot:
+        specifier: 4.0.3
+        version: 4.0.3(react-native@0.81.5)(react@19.1.0)
       react-native-web:
         specifier: ^0.21.0
         version: 0.21.2(react-dom@19.1.0)(react@19.1.0)
@@ -27089,6 +27092,17 @@ packages:
     dependencies:
       prop-types: 15.8.1
       yargs: 16.2.0
+    dev: false
+
+  /react-native-view-shot@4.0.3(react-native@0.81.5)(react@19.1.0):
+    resolution: {integrity: sha512-USNjYmED7C0me02c1DxKA0074Hw+y/nxo+xJKlffMvfUWWzL5ELh/TJA/pTnVqFurIrzthZDPtDM7aBFJuhrHQ==}
+    peerDependencies:
+      react: '*'
+      react-native: '*'
+    dependencies:
+      html2canvas: 1.4.1
+      react: 19.1.0
+      react-native: 0.81.5(@babel/core@7.29.0)(@types/react@18.3.28)(react@19.1.0)
     dev: false
 
   /react-native-web@0.21.2(react-dom@19.1.0)(react@19.1.0):
