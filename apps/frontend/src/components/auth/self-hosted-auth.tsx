@@ -382,7 +382,7 @@ function ToolSecretsStep({ onContinue, onSkip, completing }: { onContinue: () =>
         >
           {completing ? (
             <>
-              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
               Finishing…
             </>
           ) : (
@@ -396,7 +396,7 @@ function ToolSecretsStep({ onContinue, onSkip, completing }: { onContinue: () =>
         >
           {saving || completing ? (
             <>
-              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
               {saving ? 'Saving…' : 'Finishing setup…'}
             </>
           ) : filledCount > 0 ? (

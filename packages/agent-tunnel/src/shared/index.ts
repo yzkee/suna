@@ -25,6 +25,8 @@ export type {
   TunnelRelayConfig,
   HeartbeatConfig,
   TunnelServerConfig,
+  TunnelAuthMessage,
+  AuthResult,
   TunnelCapability,
   TunnelMethod,
   TunnelErrorCodeValue,

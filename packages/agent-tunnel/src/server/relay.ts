@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { signMessage } from '../shared/crypto';
+import { signMessage, verifyMessageSignature } from '../shared/crypto';
 import {
   type JsonRpcRequest,
   type JsonRpcResponse,
@@ -16,6 +16,7 @@ interface AgentConnection {
   ws: WebSocket;
   signingKey: string;
   nonce: number;
+  lastResponseNonce: number;
   connectedAt: number;
   metadata?: Record<string, unknown>;
 }
@@ -26,6 +27,8 @@ export class TunnelRelay extends EventEmitter {
   private agents = new Map<string, AgentConnection>();
   private pendingRPCs = new Map<string, PendingRPC>();
   private config: Required<TunnelRelayConfig>;
+
+  onAuthorizeRPC?: (tunnelId: string, method: string, params: Record<string, unknown>) => Promise<boolean>;
 
   constructor(config?: TunnelRelayConfig) {
     super();
@@ -47,11 +50,21 @@ export class TunnelRelay extends EventEmitter {
   ): void {
     const existing = this.agents.get(tunnelId);
     if (existing) {
+      for (const [requestId, pending] of this.pendingRPCs) {
+        if (pending.tunnelId === tunnelId) {
+          clearTimeout(pending.timer);
+          pending.reject(new TunnelRelayError(
+            TunnelErrorCode.NOT_CONNECTED,
+            'Agent connection replaced',
+          ));
+          this.pendingRPCs.delete(requestId);
+        }
+      }
       try { existing.ws.close(1000, 'replaced by new connection'); } catch {}
       this.emitEvent('connection:replaced', { tunnelId });
     }
 
-    this.agents.set(tunnelId, { ws, signingKey, nonce: 0, connectedAt: Date.now(), metadata });
+    this.agents.set(tunnelId, { ws, signingKey, nonce: 0, lastResponseNonce: 0, connectedAt: Date.now(), metadata });
     this.emitEvent('agent:connect', { tunnelId, metadata });
     console.log(`[tunnel-relay] Agent registered: ${tunnelId} (total: ${this.agents.size})`);
   }
@@ -87,7 +100,6 @@ export class TunnelRelay extends EventEmitter {
     for (const [tunnelId, conn] of this.agents) {
       result.set(tunnelId, {
         tunnelId,
-        signingKey: conn.signingKey,
         connectedAt: conn.connectedAt,
         metadata: conn.metadata,
       });
@@ -100,7 +112,7 @@ export class TunnelRelay extends EventEmitter {
   }
 
   handleAgentMessage(tunnelId: string, raw: string | Buffer): void {
-    let msg: JsonRpcResponse;
+    let msg: any;
     try {
       msg = JSON.parse(typeof raw === 'string' ? raw : raw.toString('utf-8'));
     } catch {
@@ -108,8 +120,30 @@ export class TunnelRelay extends EventEmitter {
       return;
     }
 
-    if ('method' in msg && (msg as any).method === 'tunnel.pong') {
-      this.emitEvent('message:pong', { tunnelId, params: (msg as any).params });
+    // Verify HMAC signature on ALL messages from agent (including pong)
+    const agent = this.agents.get(tunnelId);
+    if (agent && msg._sig !== undefined && msg._nonce !== undefined) {
+      if (msg._nonce <= agent.lastResponseNonce) {
+        console.warn(`[tunnel-relay] Replay detected from agent ${tunnelId}: nonce ${msg._nonce} <= ${agent.lastResponseNonce}`);
+        return;
+      }
+
+      const { _sig, _nonce, ...payloadObj } = msg;
+      const payload = JSON.stringify(payloadObj);
+
+      if (!verifyMessageSignature(agent.signingKey, payload, _nonce, _sig)) {
+        console.warn(`[tunnel-relay] Invalid signature from agent ${tunnelId}`);
+        return;
+      }
+
+      agent.lastResponseNonce = _nonce;
+    } else if (agent) {
+      console.warn(`[tunnel-relay] Unsigned message from agent ${tunnelId}, discarding`);
+      return;
+    }
+   
+    if ('method' in msg && msg.method === 'tunnel.pong') {
+      this.emitEvent('message:pong', { tunnelId, params: msg.params });
       return;
     }
 
@@ -160,6 +194,16 @@ export class TunnelRelay extends EventEmitter {
         TunnelErrorCode.NOT_CONNECTED,
         `Tunnel agent ${tunnelId} is not connected`,
       );
+    }
+
+    if (this.onAuthorizeRPC) {
+      const allowed = await this.onAuthorizeRPC(tunnelId, method, params);
+      if (!allowed) {
+        throw new TunnelRelayError(
+          TunnelErrorCode.PERMISSION_DENIED,
+          `RPC ${method} denied for tunnel ${tunnelId}`,
+        );
+      }
     }
 
     const requestId = crypto.randomUUID();

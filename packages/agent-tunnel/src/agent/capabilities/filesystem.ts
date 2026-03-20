@@ -18,14 +18,14 @@ export function createFilesystemCapability(config: TunnelConfig): Capability {
     const path = params.path as string;
     const encoding = (params.encoding as BufferEncoding) || 'utf-8';
 
-    validatePath(path, config.allowedPaths);
+    validatePath(path, config.allowedPaths, config.blockedPaths);
 
-    const content = await readFile(path, { encoding });
     const stats = await stat(path);
-
     if (stats.size > config.maxFileSize) {
       throw new Error(`File exceeds max size (${stats.size} > ${config.maxFileSize})`);
     }
+
+    const content = await readFile(path, { encoding });
 
     return {
       content,
@@ -40,7 +40,7 @@ export function createFilesystemCapability(config: TunnelConfig): Capability {
     const content = params.content as string;
     const encoding = (params.encoding as BufferEncoding) || 'utf-8';
 
-    validatePath(path, config.allowedPaths);
+    validatePath(path, config.allowedPaths, config.blockedPaths);
 
     if (content.length > config.maxFileSize) {
       throw new Error(`Content exceeds max size (${content.length} > ${config.maxFileSize})`);
@@ -62,7 +62,7 @@ export function createFilesystemCapability(config: TunnelConfig): Capability {
     const path = params.path as string;
     const recursive = params.recursive as boolean || false;
 
-    validatePath(path, config.allowedPaths);
+    validatePath(path, config.allowedPaths, config.blockedPaths);
 
     const entries = await readdir(path, { withFileTypes: true });
 
@@ -100,7 +100,7 @@ export function createFilesystemCapability(config: TunnelConfig): Capability {
   methods.set('fs.stat', async (params) => {
     const path = params.path as string;
 
-    validatePath(path, config.allowedPaths);
+    validatePath(path, config.allowedPaths, config.blockedPaths);
 
     const stats = await stat(path);
 
@@ -119,7 +119,7 @@ export function createFilesystemCapability(config: TunnelConfig): Capability {
   methods.set('fs.delete', async (params) => {
     const path = params.path as string;
 
-    validatePath(path, config.allowedPaths);
+    validatePath(path, config.allowedPaths, config.blockedPaths);
 
     await unlink(path);
 

@@ -6,12 +6,17 @@ export interface TunnelConfig {
   token: string;
   tunnelId: string;
   apiUrl: string;
-  /** WS path on the server (default: '/ws'). Override for custom server mounts. */
   wsPath: string;
   maxFileSize: number;
   allowedPaths: string[];
   allowedCommands: string[];
+  blockedCommands: string[];
+  blockedPaths: string[];
   workingDir: string;
+  shellTimeout: number;
+  shellMaxTimeout: number;
+  shellMaxOutputSize: number;
+  shellEnvPassthrough: string[];
 }
 
 const CONFIG_DIR = join(homedir(), '.agent-tunnel');
@@ -23,7 +28,22 @@ const DEFAULTS: Partial<TunnelConfig> = {
   maxFileSize: 10 * 1024 * 1024,
   allowedPaths: [homedir()],
   allowedCommands: [],
+  blockedCommands: [],
+  blockedPaths: [
+    '/etc/shadow',
+    '/etc/passwd',
+    '/etc/sudoers',
+    '/etc/ssh',
+    '/root/.ssh',
+    '/proc',
+    '/sys',
+    '/dev',
+  ],
   workingDir: homedir(),
+  shellTimeout: 30_000,
+  shellMaxTimeout: 120_000,
+  shellMaxOutputSize: 1024 * 1024,
+  shellEnvPassthrough: ['PATH', 'HOME', 'USER', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TMPDIR', 'NODE_ENV', 'HOSTNAME'],
 };
 
 export function loadConfig(overrides: Partial<TunnelConfig> = {}): TunnelConfig {

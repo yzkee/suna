@@ -1301,6 +1301,9 @@ importers:
       '@chat-adapter/state-memory':
         specifier: ^4.14.0
         version: 4.16.0
+      '@chat-adapter/telegram':
+        specifier: ^4.20.0
+        version: 4.20.2
       '@hono/node-server':
         specifier: ^1.13.0
         version: 1.19.10(hono@4.12.3)
@@ -3098,6 +3101,14 @@ packages:
       - supports-color
     dev: false
 
+  /@chat-adapter/shared@4.20.2:
+    resolution: {integrity: sha512-cTtTVHgH/2l9/+ILSExCr/kZwzz2Y8tp7WKRweMRWFOBcXZ0U5ZtviZCCDWBqU/YOBilQUgON8vIP9eo1w0m5w==}
+    dependencies:
+      chat: 4.20.2
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
   /@chat-adapter/slack@4.16.0:
     resolution: {integrity: sha512-5/E6GAzbx3UENZFn2Q3hz5eNScML6sJlCiKTKDEjQmRDFOgg3mBdNlk/Gy7hK5GbuoEIA9BJwyCpkPKMmV2aLA==}
     dependencies:
@@ -3113,6 +3124,15 @@ packages:
     resolution: {integrity: sha512-OF1+ncPOGbHP0lplTvlfKkNizzOT6shsBt1GmJQCciyqAjoAIrj8o+Oh4RxkwI7vGEYpzgHDHz5hvn6UKAeHbA==}
     dependencies:
       chat: 4.16.0
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
+  /@chat-adapter/telegram@4.20.2:
+    resolution: {integrity: sha512-TiQwGhZIzZmZ7IkSSxzYw95Gw/2GjP8Qu4ingbSp7fN8fUxVyOzaihNU23DCP+JWdHtc7j5uF6kLgvEtF6VXMw==}
+    dependencies:
+      '@chat-adapter/shared': 4.20.2
+      chat: 4.20.2
     transitivePeerDependencies:
       - supports-color
     dev: false
@@ -18171,6 +18191,20 @@ packages:
 
   /chat@4.16.0:
     resolution: {integrity: sha512-rO3lA8SX+qPYiQW41/6ft7yTHeovr4BK3kZYAuI8lxiO1XkKD7EgrUPvJp9IWzpXVrhjfUhzJxY8VgHvoy0QYA==}
+    dependencies:
+      '@workflow/serde': 4.1.0-beta.2
+      mdast-util-to-string: 4.0.0
+      remark-gfm: 4.0.1
+      remark-parse: 11.0.0
+      remark-stringify: 11.0.0
+      remend: 1.2.1
+      unified: 11.0.5
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
+  /chat@4.20.2:
+    resolution: {integrity: sha512-iTyMjE3ZRnubw1t4HgSyhU+sOG5coIBYxNS4DZbBmjQCJ9DnArmiejtG3cMigb11E2OlilZ97oKuRGigIOPh4g==}
     dependencies:
       '@workflow/serde': 4.1.0-beta.2
       mdast-util-to-string: 4.0.0

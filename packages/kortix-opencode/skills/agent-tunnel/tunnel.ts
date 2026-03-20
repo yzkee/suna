@@ -1,0 +1,1 @@
+/opt/opencode/node_modules/agent-tunnel/src/client/cli.ts

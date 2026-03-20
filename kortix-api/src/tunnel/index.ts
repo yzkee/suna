@@ -15,7 +15,7 @@
  */
 
 import { Hono } from 'hono';
-import { createWsHandlers } from 'agent-tunnel';
+import { createWsHandlers, type AuthResult } from 'agent-tunnel';
 import { config } from '../config';
 import { createConnectionsRouter } from './routes/connections';
 import { createPermissionsRouter } from './routes/permissions';
@@ -41,6 +41,66 @@ tunnelApp.route('/audit', createAuditRouter());
 const wsHandlers = createWsHandlers(tunnelRelay, {
   heartbeat: heartbeatManager,
   maxMessageSize: config.TUNNEL_MAX_WS_MESSAGE_SIZE,
+  async onAuthenticate(tunnelId: string, token: string): Promise<AuthResult | null> {
+    const { isTunnelToken, hashSecretKey, deriveSigningKey } = await import('../shared/crypto');
+    const { isKortixToken } = await import('../shared/crypto');
+    const { validateSecretKey } = await import('../repositories/api-keys');
+    const { getSupabase } = await import('../shared/supabase');
+    const { eq: eqOp, and: andOp } = await import('drizzle-orm');
+    const { tunnelConnections } = await import('@kortix/db');
+    const { db } = await import('../shared/db');
+
+    let accountId: string | null = null;
+    let tunnel: any = null;
+
+    if (isTunnelToken(token)) {
+      const tokenHash = hashSecretKey(token);
+      const [row] = await db
+        .select()
+        .from(tunnelConnections)
+        .where(andOp(
+          eqOp(tunnelConnections.tunnelId, tunnelId),
+          eqOp(tunnelConnections.setupTokenHash, tokenHash),
+        ));
+      if (row) {
+        accountId = row.accountId;
+        tunnel = row;
+      }
+    } else if (isKortixToken(token)) {
+      const result = await validateSecretKey(token);
+      if (result.isValid) accountId = result.accountId!;
+    } else {
+      try {
+        const supabase = getSupabase();
+        const { data: { user }, error } = await supabase.auth.getUser(token);
+        if (!error && user) accountId = user.id;
+      } catch {}
+    }
+
+    if (!accountId) return null;
+
+    if (!tunnel) {
+      const [row] = await db
+        .select()
+        .from(tunnelConnections)
+        .where(andOp(
+          eqOp(tunnelConnections.tunnelId, tunnelId),
+          eqOp(tunnelConnections.accountId, accountId),
+        ));
+      tunnel = row;
+    }
+
+    if (!tunnel) return null;
+
+    const signingKey = deriveSigningKey(token);
+    return {
+      signingKey,
+      metadata: {
+        accountId,
+        capabilities: tunnel.capabilities || [],
+      },
+    };
+  },
 });
 
 // ─── Lifecycle ───────────────────────────────────────────────────────────────

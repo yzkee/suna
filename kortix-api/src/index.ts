@@ -800,10 +800,8 @@ export default {
     }
 
     // ── Tunnel Agent WebSocket ──────────────────────────────────────────
-    // Matches: ws://host/v1/tunnel/ws?token=kortix_...&tunnelId=...
-    // Local agent (programmatic WS client) connects here to receive RPC requests.
-    // NOTE: Query params are intentional here — the tunnel agent binary can't
-    // set cookies, and WS upgrade doesn't support custom headers in all runtimes.
+    // Agent connects, then authenticates via first message (auth handshake).
+    // Token is never sent in URL — only tunnelId is in the query string.
     if (isWsUpgrade && url.pathname === '/v1/tunnel/ws') {
       if (!schemaReady) {
         return new Response(JSON.stringify({ error: 'Service starting up, try again shortly' }), {
@@ -812,11 +810,10 @@ export default {
         });
       }
 
-      const queryToken = url.searchParams.get('token');
       const tunnelId = url.searchParams.get('tunnelId');
 
-      if (!queryToken || !tunnelId) {
-        return new Response(JSON.stringify({ error: 'Missing token or tunnelId' }), {
+      if (!tunnelId) {
+        return new Response(JSON.stringify({ error: 'Missing tunnelId' }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
         });
@@ -835,77 +832,10 @@ export default {
         });
       }
 
-      // Validate token — supports kortix_ API keys, kortix_tnl_ tunnel tokens, and Supabase JWTs
-      const { isTunnelToken, hashSecretKey: hashKey, verifySecretKey: verifyKey } = await import('./shared/crypto');
-      const { eq: eqOp, and: andOp } = await import('drizzle-orm');
-      const { tunnelConnections } = await import('@kortix/db');
-      const { db: tunnelDb } = await import('./shared/db');
-
-      let accountId: string | null = null;
-      let tunnel: any = null;
-
-      if (isTunnelToken(queryToken)) {
-        // Tunnel setup token — validate against stored hash on the tunnel row
-        const tokenHash = hashKey(queryToken);
-        const [row] = await tunnelDb
-          .select()
-          .from(tunnelConnections)
-          .where(andOp(
-            eqOp(tunnelConnections.tunnelId, tunnelId),
-            eqOp(tunnelConnections.setupTokenHash, tokenHash),
-          ));
-        if (row) {
-          accountId = row.accountId;
-          tunnel = row;
-        }
-      } else if (isKortixToken(queryToken)) {
-        const result = await validateSecretKey(queryToken);
-        if (result.isValid) accountId = result.accountId!;
-      } else {
-        try {
-          const supabase = getSupabase();
-          const { data: { user }, error } = await supabase.auth.getUser(queryToken);
-          if (!error && user) accountId = user.id;
-        } catch {}
-      }
-
-      if (!accountId) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      // Verify tunnel ownership (skip if already loaded via tunnel token path)
-      if (!tunnel) {
-        const [row] = await tunnelDb
-          .select()
-          .from(tunnelConnections)
-          .where(andOp(
-            eqOp(tunnelConnections.tunnelId, tunnelId),
-            eqOp(tunnelConnections.accountId, accountId),
-          ));
-        tunnel = row;
-      }
-
-      if (!tunnel) {
-        return new Response(JSON.stringify({ error: 'Tunnel not found or unauthorized' }), {
-          status: 404,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      // Derive signing key from the raw token (available transiently during handshake)
-      const { deriveSigningKey } = await import('./shared/crypto');
-      const tunnelSigningKey = deriveSigningKey(queryToken);
-
       const success = server.upgrade(req, {
         data: {
           type: 'tunnel-agent',
           tunnelId,
-          accountId,
-          capabilities: tunnel.capabilities || [],
-          signingKey: tunnelSigningKey,
         },
       });
       if (success) return undefined;
@@ -958,8 +888,7 @@ export default {
 
     open(ws: { data: any; send: (data: any) => void; close: (code?: number, reason?: string) => void }) {
       if (ws.data?.type === 'tunnel-agent') {
-        const { tunnelId, signingKey, accountId } = ws.data;
-        tunnelWsHandlers.onOpen(tunnelId, ws as any, signingKey, { accountId });
+        tunnelWsHandlers.onOpen(ws.data.tunnelId, ws as any);
         return;
       }
 

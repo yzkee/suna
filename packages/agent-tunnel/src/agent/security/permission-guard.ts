@@ -50,7 +50,8 @@ export class PermissionGuard {
     }
 
     if (perm.expiresAt) {
-      if (new Date(perm.expiresAt) < new Date()) {
+      const expiry = new Date(perm.expiresAt).getTime();
+      if (isNaN(expiry) || expiry < Date.now()) {
         this.permissions.delete(permissionId);
         return false;
       }

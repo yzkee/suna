@@ -13,9 +13,20 @@ export PATH="/opt/bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 [ -z "$ANTHROPIC_BASE_URL" ] && unset ANTHROPIC_BASE_URL
 [ -z "$OPENAI_BASE_URL" ] && unset OPENAI_BASE_URL
 
-# Pick up vars written by kortix-api after container start
-[ -f /run/s6/container_environment/KORTIX_TOKEN ] && \
-  export KORTIX_TOKEN="$(cat /run/s6/container_environment/KORTIX_TOKEN)"
+# Pick up vars written by kortix-api after container start.
+# On first boot, kortix-api writes the token ~25s after the container starts.
+# Wait up to 60s for it to appear so OpenCode doesn't start without auth.
+TOKEN_FILE="/run/s6/container_environment/KORTIX_TOKEN"
+if [ ! -s "$TOKEN_FILE" ]; then
+  echo "[opencode-serve] Waiting for KORTIX_TOKEN to be provisioned..."
+  for i in $(seq 1 30); do
+    [ -s "$TOKEN_FILE" ] && break
+    sleep 2
+  done
+fi
+
+[ -s "$TOKEN_FILE" ] && \
+  export KORTIX_TOKEN="$(cat "$TOKEN_FILE")"
 [ -f /run/s6/container_environment/KORTIX_API_URL ] && \
   export KORTIX_API_URL="$(cat /run/s6/container_environment/KORTIX_API_URL)"
 
