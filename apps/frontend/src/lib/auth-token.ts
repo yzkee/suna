@@ -138,6 +138,31 @@ export async function getAuthToken(): Promise<string | null> {
 // ── Shared auth-injecting fetch ──
 
 /**
+ * Execute fetch with auth headers, properly handling Request objects.
+ *
+ * When `input` is a Request (e.g. from the OpenCode SDK), we construct a new
+ * Request with the auth headers merged in, rather than passing headers via the
+ * second `init` argument. This avoids a production-only issue where
+ * `fetch(Request, { headers })` silently drops the init headers.
+ */
+function fetchWithAuth(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  headers: Headers,
+): Promise<Response> {
+  if (input instanceof Request) {
+    // Clone the Request with our auth headers baked in.
+    // This guarantees Authorization is part of the Request itself,
+    // not relying on fetch's init-merge behavior.
+    const authedRequest = new Request(input, {
+      headers,
+    });
+    return fetch(authedRequest);
+  }
+  return fetch(input, { ...init, headers });
+}
+
+/**
  * Build a Headers object from request input + init, injecting the auth token.
  */
 function buildAuthHeaders(
@@ -204,9 +229,14 @@ export async function authenticatedFetch(
   }
 
   const headers = buildAuthHeaders(input, init, token);
-  const mergedInit = { ...init, headers };
 
-  const response = await fetch(input, mergedInit);
+  // When the OpenCode SDK passes a Request object (single arg, no init),
+  // we must construct a new Request with the auth headers baked in.
+  // Relying on fetch(Request, { headers }) to override headers is unreliable
+  // in production builds — Next.js's patched fetch and certain browser
+  // implementations don't properly merge init.headers onto an existing
+  // Request, causing the Authorization header to be silently dropped.
+  const response = await fetchWithAuth(input, init, headers);
 
   if (response.status === 401) {
     // The cached token is stale. Retry once with fresh token.
@@ -215,7 +245,7 @@ export async function authenticatedFetch(
       const newToken = await getAuthToken();
       if (newToken && newToken !== token) {
         const retryHeaders = buildAuthHeaders(input, init, newToken);
-        return fetch(input, { ...init, headers: retryHeaders });
+        return fetchWithAuth(input, init, retryHeaders);
       }
     }
   }
