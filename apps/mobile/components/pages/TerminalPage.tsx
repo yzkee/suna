@@ -1,11 +1,14 @@
 /**
  * TerminalPage — Full terminal emulator for the mobile app.
  *
- * Uses a WebView running xterm.js to connect to the sandbox terminal
- * via WebSocket (same protocol as the frontend SSHTerminal).
+ * Uses the OpenCode PTY protocol (same as the frontend PtyTerminal):
+ * 1. POST {sandboxUrl}/pty — create a new PTY session
+ * 2. WebSocket at wss://{sandboxUrl}/pty/{ptyId}/connect?token={jwt} — raw data
+ * 3. PATCH {sandboxUrl}/pty/{ptyId} — resize notifications
+ * 4. DELETE {sandboxUrl}/pty/{ptyId} — cleanup on unmount
  *
- * WebSocket endpoint: wss://<backendUrl>/sandboxes/<sandboxId>/terminal/ws
- * Protocol: JSON messages { type: 'auth' | 'input' | 'resize' | 'output' | ... }
+ * The WebView runs xterm.js and the WebSocket URL + token are baked into the
+ * HTML so it auto-connects on load (no postMessage race conditions).
  */
 
 import React, { useRef, useCallback, useEffect, useState } from 'react';
@@ -26,7 +29,6 @@ import * as Haptics from 'expo-haptics';
 
 import { useSandboxContext } from '@/contexts/SandboxContext';
 import { getAuthToken } from '@/api/config';
-import { API_URL } from '@/api/config';
 import { log } from '@/lib/logger';
 import type { PageTab } from '@/stores/tab-store';
 
@@ -41,17 +43,89 @@ interface TerminalPageProps {
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
-// ─── WebSocket URL helper ────────────────────────────────────────────────────
-
-function getWebSocketBaseUrl(): string {
-  return API_URL.replace('https://', 'wss://').replace('http://', 'ws://');
+interface PtyInfo {
+  id: string;
+  command?: string;
+  title?: string;
 }
 
-// ─── Terminal HTML (xterm.js in WebView) ─────────────────────────────────────
+// ─── PTY API helpers ─────────────────────────────────────────────────────────
 
-function buildTerminalHtml(isDark: boolean): string {
+async function createPty(sandboxUrl: string): Promise<PtyInfo> {
+  const token = await getAuthToken();
+  const res = await fetch(`${sandboxUrl}/pty`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      env: { TERM: 'xterm-256color', COLORTERM: 'truecolor' },
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Failed to create PTY: ${res.status} ${body}`);
+  }
+  return res.json();
+}
+
+async function removePty(sandboxUrl: string, ptyId: string): Promise<void> {
+  const token = await getAuthToken();
+  await fetch(`${sandboxUrl}/pty/${ptyId}`, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  }).catch(() => {});
+}
+
+async function resizePty(
+  sandboxUrl: string,
+  ptyId: string,
+  cols: number,
+  rows: number,
+): Promise<void> {
+  const token = await getAuthToken();
+  await fetch(`${sandboxUrl}/pty/${ptyId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ size: { cols, rows } }),
+  }).catch(() => {});
+}
+
+/** Convert sandboxUrl (http/https) to a WebSocket URL for PTY connect. */
+function getPtyWsUrl(sandboxUrl: string, ptyId: string, token: string): string {
+  let wsUrl: string;
+  try {
+    const parsed = new URL(sandboxUrl);
+    parsed.protocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
+    wsUrl = parsed.toString().replace(/\/+$/, '');
+  } catch {
+    wsUrl = sandboxUrl.replace('https://', 'wss://').replace('http://', 'ws://');
+  }
+  return `${wsUrl}/pty/${ptyId}/connect?token=${encodeURIComponent(token)}`;
+}
+
+// ─── Terminal HTML builder ───────────────────────────────────────────────────
+
+function buildTerminalHtml(params: {
+  isDark: boolean;
+  wsUrl: string;
+  sandboxUrl: string;
+  ptyId: string;
+}): string {
+  const { isDark, wsUrl, sandboxUrl, ptyId } = params;
   const bg = isDark ? '#0f0f14' : '#fafafc';
-  const fg = isDark ? '#e4e4e7' : '#18181b';
+
+  // Escape for safe JS string embedding
+  const safeWsUrl = wsUrl.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const safeSandboxUrl = sandboxUrl.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const safePtyId = ptyId.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
   return `<!DOCTYPE html>
 <html>
@@ -66,23 +140,15 @@ function buildTerminalHtml(isDark: boolean): string {
       height: 100%;
       overflow: hidden;
       background: ${bg};
-      -webkit-user-select: none;
-      user-select: none;
     }
     #terminal {
       width: 100%;
       height: 100%;
       padding: 8px 4px;
     }
-    .xterm {
-      height: 100%;
-    }
-    .xterm-viewport {
-      overflow-y: auto !important;
-    }
-    .xterm-viewport::-webkit-scrollbar {
-      width: 4px;
-    }
+    .xterm { height: 100%; }
+    .xterm-viewport { overflow-y: auto !important; }
+    .xterm-viewport::-webkit-scrollbar { width: 4px; }
     .xterm-viewport::-webkit-scrollbar-thumb {
       background: ${isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'};
       border-radius: 2px;
@@ -94,61 +160,16 @@ function buildTerminalHtml(isDark: boolean): string {
 
   <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"><\/script>
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"><\/script>
-  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"><\/script>
   <script>
     (function() {
+      var WS_URL = '${safeWsUrl}';
+      var SANDBOX_URL = '${safeSandboxUrl}';
+      var PTY_ID = '${safePtyId}';
+
       var ws = null;
       var term = null;
       var fitAddon = null;
-      var connectionId = 0;
-
-      var darkTheme = {
-        background: '${bg}',
-        foreground: '#e4e4e7',
-        cursor: '#a78bfa',
-        cursorAccent: '#0f0f14',
-        selectionBackground: 'rgba(139, 92, 246, 0.3)',
-        black: '#27272a',
-        red: '#f87171',
-        green: '#4ade80',
-        yellow: '#fbbf24',
-        blue: '#60a5fa',
-        magenta: '#c084fc',
-        cyan: '#22d3ee',
-        white: '#e4e4e7',
-        brightBlack: '#52525b',
-        brightRed: '#fca5a5',
-        brightGreen: '#86efac',
-        brightYellow: '#fde047',
-        brightBlue: '#93c5fd',
-        brightMagenta: '#d8b4fe',
-        brightCyan: '#67e8f9',
-        brightWhite: '#fafafa'
-      };
-
-      var lightTheme = {
-        background: '${bg}',
-        foreground: '#18181b',
-        cursor: '#7c3aed',
-        cursorAccent: '#fafafc',
-        selectionBackground: 'rgba(124, 58, 237, 0.15)',
-        black: '#18181b',
-        red: '#dc2626',
-        green: '#16a34a',
-        yellow: '#ca8a04',
-        blue: '#2563eb',
-        magenta: '#9333ea',
-        cyan: '#0891b2',
-        white: '#a1a1aa',
-        brightBlack: '#52525b',
-        brightRed: '#ef4444',
-        brightGreen: '#22c55e',
-        brightYellow: '#eab308',
-        brightBlue: '#3b82f6',
-        brightMagenta: '#a855f7',
-        brightCyan: '#06b6d4',
-        brightWhite: '#fafafa'
-      };
+      var resizeTimer = null;
 
       function postMsg(type, data) {
         try {
@@ -156,178 +177,181 @@ function buildTerminalHtml(isDark: boolean): string {
         } catch(e) {}
       }
 
-      function sanitize(chunk) {
-        return chunk
-          .replace(/\\x1b\\]697;[^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)/g, '')
-          .replace(/\\{"cursor":\\d+\\}/g, '');
-      }
-
-      function initTerminal() {
-        var isDark = ${isDark ? 'true' : 'false'};
-        term = new Terminal({
-          cursorBlink: true,
-          cursorStyle: 'bar',
-          fontSize: 13,
-          fontFamily: 'Menlo, Monaco, Consolas, monospace',
-          theme: isDark ? darkTheme : lightTheme,
-          allowProposedApi: true,
-          scrollback: 5000,
-          convertEol: true
-        });
-
-        fitAddon = new FitAddon.FitAddon();
-        var webLinksAddon = new WebLinksAddon.WebLinksAddon();
-
-        term.loadAddon(fitAddon);
-        term.loadAddon(webLinksAddon);
-
-        term.open(document.getElementById('terminal'));
-
-        setTimeout(function() { fitAddon.fit(); }, 50);
-
-        term.onData(function(data) {
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'input', data: data }));
-          }
-        });
-
-        term.onResize(function(size) {
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'resize', cols: size.cols, rows: size.rows }));
-          }
-        });
-
-        // Handle viewport resize
-        window.addEventListener('resize', function() {
-          if (fitAddon) {
-            setTimeout(function() { fitAddon.fit(); }, 100);
-          }
-        });
-
-        // Observe container size changes
-        var ro = new ResizeObserver(function() {
-          if (fitAddon) {
-            setTimeout(function() { fitAddon.fit(); }, 50);
-          }
-        });
-        ro.observe(document.getElementById('terminal'));
-
-        postMsg('ready', {});
-      }
-
-      function connect(wsUrl, accessToken) {
+      function connect() {
         if (ws) {
-          ws.onopen = null;
-          ws.onmessage = null;
-          ws.onerror = null;
-          ws.onclose = null;
-          if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-            ws.close();
-          }
+          try { ws.close(); } catch(e) {}
           ws = null;
         }
 
-        connectionId++;
-        var myId = connectionId;
-
         postMsg('status', 'connecting');
 
-        ws = new WebSocket(wsUrl);
+        try {
+          ws = new WebSocket(WS_URL);
+        } catch(e) {
+          postMsg('status', 'error');
+          if (term) term.writeln('\\x1b[31mFailed to create WebSocket: ' + e.message + '\\x1b[0m');
+          return;
+        }
 
         ws.onopen = function() {
-          if (connectionId !== myId) { ws.close(); return; }
-          ws.send(JSON.stringify({ type: 'auth', access_token: accessToken }));
+          postMsg('status', 'connected');
+
+          // Send initial size
+          if (term) {
+            postMsg('resize', { cols: term.cols, rows: term.rows });
+          }
+
+          // Set up colors and clear setup noise (same as frontend PtyTerminal)
+          var init = [
+            'export TERM=xterm-256color',
+            'export COLORTERM=truecolor',
+            'export CLICOLOR=1',
+            'alias ls="ls --color=auto" 2>/dev/null',
+            'alias grep="grep --color=auto"',
+            'clear'
+          ].join(' && ');
+          ws.send(init + '\\n');
         };
 
         ws.onmessage = function(event) {
-          if (connectionId !== myId) return;
-          try {
-            var msg = JSON.parse(event.data);
-            switch (msg.type) {
-              case 'status':
-                term.writeln('\\x1b[33m' + msg.message + '\\x1b[0m');
-                break;
-              case 'connected':
-                postMsg('status', 'connected');
-                term.writeln('\\x1b[32m' + msg.message + '\\x1b[0m');
-                term.writeln('');
-                break;
-              case 'output':
-                if (msg.data) {
-                  term.write(sanitize(msg.data));
-                }
-                break;
-              case 'error':
-                postMsg('status', 'error');
-                term.writeln('\\x1b[31mError: ' + msg.message + '\\x1b[0m');
-                break;
-              case 'exit':
-                term.writeln('\\x1b[33mSession ended (code ' + msg.code + ')\\x1b[0m');
-                postMsg('status', 'disconnected');
-                ws = null;
-                break;
-            }
-          } catch(e) {}
+          if (!term) return;
+          // PTY protocol sends raw terminal data (not JSON)
+          if (typeof event.data === 'string') {
+            term.write(event.data);
+          } else if (event.data instanceof Blob) {
+            event.data.text().then(function(text) {
+              term.write(text);
+            });
+          }
         };
 
         ws.onerror = function() {
-          if (connectionId !== myId) return;
           postMsg('status', 'error');
+          if (term) term.writeln('\\x1b[31mWebSocket error\\x1b[0m');
         };
 
-        ws.onclose = function() {
-          if (connectionId !== myId) return;
+        ws.onclose = function(event) {
           ws = null;
           postMsg('status', 'disconnected');
           if (term) {
-            term.writeln('\\x1b[33mConnection closed\\x1b[0m');
+            term.writeln('\\x1b[33mConnection closed' + (event.code ? ' (code ' + event.code + ')' : '') + '\\x1b[0m');
           }
         };
       }
 
-      // Listen for messages from React Native
-      window.addEventListener('message', function(e) {
+      function initTerminal() {
+        try {
+          var isDark = ${isDark ? 'true' : 'false'};
+
+          term = new Terminal({
+            cursorBlink: true,
+            cursorStyle: 'bar',
+            fontSize: 14,
+            lineHeight: 1.2,
+            fontFamily: 'Menlo, Monaco, Consolas, monospace',
+            theme: isDark ? {
+              background: '${bg}',
+              foreground: '#e4e4e7',
+              cursor: '#e4e4e7',
+              cursorAccent: '#0f0f14',
+              selectionBackground: 'rgba(139, 92, 246, 0.3)',
+              black: '#27272a', red: '#f87171', green: '#4ade80', yellow: '#fbbf24',
+              blue: '#60a5fa', magenta: '#c084fc', cyan: '#22d3ee', white: '#e4e4e7',
+              brightBlack: '#52525b', brightRed: '#fca5a5', brightGreen: '#86efac',
+              brightYellow: '#fde047', brightBlue: '#93c5fd', brightMagenta: '#d8b4fe',
+              brightCyan: '#67e8f9', brightWhite: '#fafafa'
+            } : {
+              background: '${bg}',
+              foreground: '#18181b',
+              cursor: '#7c3aed',
+              cursorAccent: '#fafafc',
+              selectionBackground: 'rgba(124, 58, 237, 0.15)',
+              black: '#18181b', red: '#dc2626', green: '#16a34a', yellow: '#ca8a04',
+              blue: '#2563eb', magenta: '#9333ea', cyan: '#0891b2', white: '#a1a1aa',
+              brightBlack: '#52525b', brightRed: '#ef4444', brightGreen: '#22c55e',
+              brightYellow: '#eab308', brightBlue: '#3b82f6', brightMagenta: '#a855f7',
+              brightCyan: '#06b6d4', brightWhite: '#fafafa'
+            },
+            allowProposedApi: true,
+            scrollback: 5000,
+            convertEol: true
+          });
+
+          fitAddon = new FitAddon.FitAddon();
+          term.loadAddon(fitAddon);
+          term.open(document.getElementById('terminal'));
+
+          setTimeout(function() {
+            try { fitAddon.fit(); } catch(e) {}
+          }, 100);
+
+          // User input => raw WebSocket send (PTY protocol uses raw data)
+          term.onData(function(data) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(data);
+            }
+          });
+
+          // Resize => notify RN to PATCH the PTY
+          term.onResize(function(size) {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(function() {
+              postMsg('resize', { cols: size.cols, rows: size.rows });
+            }, 100);
+          });
+
+          // Refit on viewport changes
+          var fitTimer = null;
+          function debouncedFit() {
+            clearTimeout(fitTimer);
+            fitTimer = setTimeout(function() {
+              try { fitAddon.fit(); } catch(e) {}
+            }, 100);
+          }
+          window.addEventListener('resize', debouncedFit);
+          new ResizeObserver(debouncedFit).observe(document.getElementById('terminal'));
+
+          postMsg('ready', {});
+
+          // Auto-connect
+          connect();
+
+        } catch(e) {
+          postMsg('status', 'error');
+          postMsg('log', 'Init error: ' + e.message);
+        }
+      }
+
+      // Listen for RN messages (reconnect / refit)
+      function handleRNMessage(e) {
         try {
           var msg = JSON.parse(e.data);
-          if (msg.type === 'connect') {
-            connect(msg.wsUrl, msg.accessToken);
-          } else if (msg.type === 'disconnect') {
-            if (ws) {
-              ws.close();
-              ws = null;
-            }
+          if (msg.type === 'reconnect') {
+            if (term) term.clear();
+            connect();
           } else if (msg.type === 'refit') {
             if (fitAddon) {
-              setTimeout(function() { fitAddon.fit(); }, 50);
+              setTimeout(function() { try { fitAddon.fit(); } catch(e) {} }, 50);
             }
           }
         } catch(e) {}
-      });
+      }
+      window.addEventListener('message', handleRNMessage);
+      document.addEventListener('message', handleRNMessage);
 
-      // Also listen on document for Android
-      document.addEventListener('message', function(e) {
-        try {
-          var msg = JSON.parse(e.data);
-          if (msg.type === 'connect') {
-            connect(msg.wsUrl, msg.accessToken);
-          } else if (msg.type === 'disconnect') {
-            if (ws) {
-              ws.close();
-              ws = null;
-            }
-          } else if (msg.type === 'refit') {
-            if (fitAddon) {
-              setTimeout(function() { fitAddon.fit(); }, 50);
-            }
-          }
-        } catch(e) {}
-      });
+      // Wait for CDN scripts then init
+      function waitForXterm() {
+        if (typeof Terminal !== 'undefined' && typeof FitAddon !== 'undefined') {
+          initTerminal();
+        } else {
+          setTimeout(waitForXterm, 50);
+        }
+      }
 
-      // Init when DOM is ready
       if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initTerminal);
+        document.addEventListener('DOMContentLoaded', waitForXterm);
       } else {
-        initTerminal();
+        waitForXterm();
       }
     })();
   <\/script>
@@ -341,97 +365,141 @@ export function TerminalPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: 
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
-  const { sandboxId } = useSandboxContext();
+  const { sandboxUrl } = useSandboxContext();
 
   const webViewRef = useRef<WebView>(null);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [webViewReady, setWebViewReady] = useState(false);
-  const hasConnected = useRef(false);
+  const [terminalHtml, setTerminalHtml] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [webViewKey, setWebViewKey] = useState(0);
+
+  // Track current PTY for cleanup
+  const ptyRef = useRef<{ id: string; sandboxUrl: string } | null>(null);
 
   const fgColor = isDark ? '#F8F8F8' : '#121215';
   const mutedColor = isDark ? '#71717a' : '#a1a1aa';
   const bgColor = isDark ? '#0f0f14' : '#fafafc';
   const borderColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
 
-  const terminalHtml = React.useMemo(() => buildTerminalHtml(isDark), [isDark]);
-
-  // Connect to the terminal WebSocket once the WebView is ready
-  const initiateConnection = useCallback(async () => {
-    if (!sandboxId || !webViewReady || hasConnected.current) return;
-
-    try {
-      const token = await getAuthToken();
-      if (!token) {
-        log.error('[TerminalPage] No auth token available');
-        setStatus('error');
-        return;
-      }
-
-      const wsBase = getWebSocketBaseUrl();
-      const wsUrl = `${wsBase}/sandboxes/${sandboxId}/terminal/ws`;
-
-      log.log('[TerminalPage] Connecting to terminal:', wsUrl);
-
-      webViewRef.current?.postMessage(
-        JSON.stringify({
-          type: 'connect',
-          wsUrl,
-          accessToken: token,
-        }),
-      );
-      hasConnected.current = true;
-    } catch (err: any) {
-      log.error('[TerminalPage] Connection error:', err?.message || err);
-      setStatus('error');
-    }
-  }, [sandboxId, webViewReady]);
-
+  // Create PTY, build HTML with baked-in connection params
   useEffect(() => {
-    initiateConnection();
-  }, [initiateConnection]);
+    if (!sandboxUrl) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setError(null);
+        setTerminalHtml(null);
+
+        // 1. Get auth token
+        const token = await getAuthToken();
+        if (cancelled || !token) {
+          if (!cancelled) setError('No auth token');
+          return;
+        }
+
+        // 2. Create a new PTY session
+        log.log('[TerminalPage] Creating PTY on:', sandboxUrl);
+        const pty = await createPty(sandboxUrl);
+        if (cancelled) {
+          removePty(sandboxUrl, pty.id);
+          return;
+        }
+        log.log('[TerminalPage] PTY created:', pty.id);
+        ptyRef.current = { id: pty.id, sandboxUrl };
+
+        // 3. Build WebSocket URL
+        const wsUrl = getPtyWsUrl(sandboxUrl, pty.id, token);
+        log.log('[TerminalPage] WS URL:', wsUrl);
+
+        // 4. Build HTML
+        const html = buildTerminalHtml({
+          isDark,
+          wsUrl,
+          sandboxUrl,
+          ptyId: pty.id,
+        });
+
+        if (!cancelled) {
+          setTerminalHtml(html);
+        }
+      } catch (err: any) {
+        log.error('[TerminalPage] Setup error:', err?.message || err);
+        if (!cancelled) setError(err?.message || 'Failed to create terminal');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      // Cleanup PTY on unmount
+      if (ptyRef.current) {
+        const { id, sandboxUrl: url } = ptyRef.current;
+        log.log('[TerminalPage] Cleaning up PTY:', id);
+        removePty(url, id);
+        ptyRef.current = null;
+      }
+    };
+  }, [sandboxUrl, webViewKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle messages from the WebView
-  const handleWebViewMessage = useCallback((event: WebViewMessageEvent) => {
-    try {
-      const msg = JSON.parse(event.nativeEvent.data);
-      if (msg.type === 'ready') {
-        setWebViewReady(true);
-      } else if (msg.type === 'status') {
-        setStatus(msg.data as ConnectionStatus);
+  const handleWebViewMessage = useCallback(
+    (event: WebViewMessageEvent) => {
+      try {
+        const msg = JSON.parse(event.nativeEvent.data);
+        switch (msg.type) {
+          case 'ready':
+            setWebViewReady(true);
+            break;
+          case 'status':
+            setStatus(msg.data as ConnectionStatus);
+            break;
+          case 'resize':
+            // Forward resize to PTY via HTTP PATCH
+            if (ptyRef.current && sandboxUrl && msg.data?.cols && msg.data?.rows) {
+              resizePty(sandboxUrl, ptyRef.current.id, msg.data.cols, msg.data.rows);
+            }
+            break;
+          case 'log':
+            log.log('[TerminalPage/WebView]', msg.data);
+            break;
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore parse errors
-    }
-  }, []);
+    },
+    [sandboxUrl],
+  );
 
-  // Reconnect handler
-  const handleReconnect = useCallback(async () => {
+  // Reconnect: clean up old PTY, bump key to create a new one
+  const handleReconnect = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    hasConnected.current = false;
-    setWebViewReady(false);
+    // Cleanup old PTY
+    if (ptyRef.current) {
+      removePty(ptyRef.current.sandboxUrl, ptyRef.current.id);
+      ptyRef.current = null;
+    }
     setStatus('disconnected');
-
-    // Force reload the WebView
-    webViewRef.current?.reload();
+    setWebViewReady(false);
+    setTerminalHtml(null);
+    setError(null);
+    setWebViewKey((k) => k + 1);
   }, []);
 
   // Refit terminal on keyboard show/hide
   useEffect(() => {
+    const refit = () => {
+      setTimeout(() => {
+        webViewRef.current?.postMessage(JSON.stringify({ type: 'refit' }));
+      }, 300);
+    };
     const showSub = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      () => {
-        setTimeout(() => {
-          webViewRef.current?.postMessage(JSON.stringify({ type: 'refit' }));
-        }, 200);
-      },
+      refit,
     );
     const hideSub = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => {
-        setTimeout(() => {
-          webViewRef.current?.postMessage(JSON.stringify({ type: 'refit' }));
-        }, 200);
-      },
+      refit,
     );
     return () => {
       showSub.remove();
@@ -502,22 +570,20 @@ export function TerminalPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: 
             </View>
 
             {/* Reconnect button */}
-            {(status === 'disconnected' || status === 'error') && (
-              <TouchableOpacity
-                onPress={handleReconnect}
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 8,
-                  backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="refresh-outline" size={16} color={fgColor} />
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity
+              onPress={handleReconnect}
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="refresh-outline" size={16} color={fgColor} />
+            </TouchableOpacity>
 
             {onOpenRightDrawer && (
               <TouchableOpacity onPress={onOpenRightDrawer}>
@@ -528,45 +594,52 @@ export function TerminalPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: 
         </View>
       </View>
 
-      {/* Terminal WebView */}
-      {!sandboxId ? (
+      {/* Content */}
+      {!sandboxUrl ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <Ionicons name="terminal-outline" size={32} color={mutedColor} style={{ marginBottom: 12, opacity: 0.5 }} />
           <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: mutedColor }}>
             No sandbox available
           </Text>
-          <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: mutedColor, marginTop: 4, opacity: 0.7 }}>
-            Waiting for sandbox to be provisioned...
+        </View>
+      ) : error ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
+          <Ionicons name="alert-circle-outline" size={32} color="#f87171" style={{ marginBottom: 12 }} />
+          <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: fgColor, marginBottom: 4, textAlign: 'center' }}>
+            Terminal Error
+          </Text>
+          <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: mutedColor, textAlign: 'center', marginBottom: 16 }}>
+            {error}
+          </Text>
+          <TouchableOpacity
+            onPress={handleReconnect}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: fgColor,
+              borderRadius: 8,
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+            }}
+          >
+            <Ionicons name="refresh-outline" size={14} color={bgColor} style={{ marginRight: 6 }} />
+            <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: bgColor }}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : !terminalHtml ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator size="large" color={mutedColor} />
+          <Text style={{ fontSize: 13, fontFamily: 'Roobert', color: mutedColor, marginTop: 12 }}>
+            Starting terminal...
           </Text>
         </View>
       ) : (
-        <View style={{ flex: 1, position: 'relative' }}>
-          {/* Loading overlay */}
-          {!webViewReady && (
-            <View
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                zIndex: 10,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: bgColor,
-              }}
-            >
-              <ActivityIndicator size="large" color={mutedColor} />
-              <Text style={{ fontSize: 13, fontFamily: 'Roobert', color: mutedColor, marginTop: 12 }}>
-                Loading terminal...
-              </Text>
-            </View>
-          )}
-
+        <View style={{ flex: 1 }}>
           <WebView
+            key={webViewKey}
             ref={webViewRef}
             source={{ html: terminalHtml }}
-            style={{ flex: 1, backgroundColor: bgColor }}
+            style={{ flex: 1, backgroundColor: bgColor, opacity: webViewReady ? 1 : 0 }}
             originWhitelist={['*']}
             javaScriptEnabled
             domStorageEnabled
@@ -581,10 +654,28 @@ export function TerminalPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: 
             textInteractionEnabled={false}
             allowsInlineMediaPlayback
             mixedContentMode="always"
+            allowUniversalAccessFromFileURLs
             onError={(syntheticEvent) => {
               log.error('[TerminalPage] WebView error:', syntheticEvent.nativeEvent.description);
+              setError('WebView failed to load');
             }}
           />
+          {!webViewReady && (
+            <View
+              style={{
+                position: 'absolute',
+                top: 0, left: 0, right: 0, bottom: 0,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: bgColor,
+              }}
+            >
+              <ActivityIndicator size="large" color={mutedColor} />
+              <Text style={{ fontSize: 13, fontFamily: 'Roobert', color: mutedColor, marginTop: 12 }}>
+                Loading terminal...
+              </Text>
+            </View>
+          )}
         </View>
       )}
     </View>
