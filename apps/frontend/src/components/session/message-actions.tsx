@@ -9,13 +9,6 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -166,8 +159,8 @@ export function MessageActions({
       <ConfirmDialog
         open={revertDialogOpen}
         onOpenChange={setRevertDialogOpen}
-        title="Revert to this point"
-        description="This will undo all messages and file changes after this point. You can restore them later by clicking the undo button in the revert banner."
+        title="Revert to this point?"
+        description="All messages and file changes after this point will be undone. You can restore them later."
         action={handleRevert}
         actionLabel="Revert"
         variant="destructive"
@@ -177,81 +170,4 @@ export function MessageActions({
   );
 }
 
-// ============================================================================
-// RevertBanner — shown at the top of the chat when session is reverted
-// ============================================================================
 
-interface RevertBannerProps {
-  sessionId: string;
-  /** The message ID the session was reverted to */
-  revertMessageId: string;
-  /** Whether unrevert is in progress */
-  loading: boolean;
-  /** Callback to unrevert (restore) the session */
-  onUnrevert: () => Promise<void>;
-}
-
-export function RevertBanner({
-  sessionId,
-  revertMessageId,
-  loading,
-  onUnrevert,
-}: RevertBannerProps) {
-  const [confirmOpen, setConfirmOpen] = useState(false);
-
-  return (
-    <>
-      <div className="flex-shrink-0">
-        {/* Amber accent stripe */}
-        <div className="h-[2px] bg-gradient-to-r from-amber-500/80 via-orange-500/80 to-red-500/60" />
-        {/* Banner content */}
-        <div className="flex items-center h-10 px-3 gap-3 border-b border-border/50 bg-amber-500/5 dark:bg-amber-500/[0.03]">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <Undo2 className="size-3.5 text-amber-500 flex-shrink-0" />
-            <span className="text-xs text-foreground/80 truncate">
-              Session reverted
-            </span>
-            <span className="text-[11px] text-muted-foreground/60 truncate hidden sm:inline">
-              Messages after this point are hidden
-            </span>
-          </div>
-
-          <button
-            onClick={() => setConfirmOpen(true)}
-            disabled={loading}
-            className={cn(
-              'flex items-center gap-1.5 h-7 px-3 rounded-md',
-              'text-xs font-medium',
-              'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-              'hover:bg-amber-500/20 active:bg-amber-500/25',
-              'border border-amber-500/20',
-              'transition-colors cursor-pointer',
-              'disabled:opacity-50 disabled:cursor-not-allowed',
-            )}
-          >
-            {loading ? (
-              <Loader2 className="size-3 animate-spin" />
-            ) : (
-              <Undo2 className="size-3" />
-            )}
-            <span>Restore</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Unrevert confirmation */}
-      <ConfirmDialog
-        open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        title="Restore reverted messages"
-        description="This will restore all previously reverted messages and file changes. The session will return to its full state."
-        action={async () => {
-          await onUnrevert();
-          setConfirmOpen(false);
-        }}
-        actionLabel="Restore all"
-        loading={loading}
-      />
-    </>
-  );
-}

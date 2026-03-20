@@ -1,48 +1,38 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import {
   GitCommitHorizontal,
-  FileCode2,
-  ChevronDown,
-  ChevronRight,
   FileEdit,
-  Copy,
-  Check,
+  ChevronRight,
+  Undo2,
+  Loader2,
 } from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { ConfirmDialog } from '@/components/session/message-actions';
 import { cn } from '@/lib/utils';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-  TooltipProvider,
-} from '@/components/ui/tooltip';
 import type { SnapshotPart, PatchPart } from '@/ui/types';
 
 // ============================================================================
-// OcSnapshotPartView — collapsible metadata card for snapshot parts
+// OcSnapshotPartView — inline metadata for snapshot parts
+// Matches BasicTool trigger style: single-line, muted, minimal.
 // ============================================================================
 
 interface OcSnapshotPartViewProps {
   part: SnapshotPart;
-  onViewDiff?: (snapshotHash: string) => void;
 }
 
-export function OcSnapshotPartView({ part, onViewDiff }: OcSnapshotPartViewProps) {
-  const [copied, setCopied] = useState(false);
+export function OcSnapshotPartView({ part }: OcSnapshotPartViewProps) {
   const shortHash = part.snapshot.slice(0, 8);
-
-  const handleCopy = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(part.snapshot);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
 
   return (
     <div
@@ -52,68 +42,36 @@ export function OcSnapshotPartView({ part, onViewDiff }: OcSnapshotPartViewProps
         'text-xs select-none max-w-full',
       )}
     >
-      <GitCommitHorizontal className="size-3.5 text-blue-500/70 flex-shrink-0" />
-      <span className="text-muted-foreground font-medium">Snapshot</span>
-      <TooltipProvider delayDuration={200}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={handleCopy}
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/40 hover:bg-muted/60 font-mono text-[11px] text-muted-foreground transition-colors cursor-pointer"
-            >
-              {shortHash}
-              {copied ? (
-                <Check className="size-2.5 text-emerald-500" />
-              ) : (
-                <Copy className="size-2.5 opacity-50" />
-              )}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="text-xs">
-            <p>{copied ? 'Copied!' : 'Copy full hash'}</p>
-            {!copied && <p className="text-muted-foreground font-mono text-[10px]">{part.snapshot}</p>}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-      {onViewDiff && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onViewDiff(part.snapshot);
-          }}
-          className="ml-auto px-2 py-0.5 rounded text-[11px] font-medium text-blue-500 hover:bg-blue-500/10 transition-colors cursor-pointer"
-        >
-          View diff
-        </button>
-      )}
+      <GitCommitHorizontal className="size-3.5 text-muted-foreground/50 flex-shrink-0" />
+      <span className="font-medium text-xs text-foreground whitespace-nowrap">Snapshot</span>
+      <span className="text-muted-foreground text-xs truncate font-mono">
+        {shortHash}
+      </span>
     </div>
   );
 }
 
 // ============================================================================
-// OcPatchPartView — collapsible card showing files changed + expandable diff
+// OcPatchPartView — "Checkpoint" card in the session chat.
+// Mirrors the BasicTool pattern exactly:
+//   - Same container: px-2.5 py-1.5 rounded-lg bg-muted/20 border border-border/40
+//   - Icon left, title + subtitle inline, chevron right
+//   - Expandable file list below in mt-1.5 mb-2 rounded-lg bg-muted/20 border
+//   - Revert button on hover with confirmation dialog
 // ============================================================================
 
 interface OcPatchPartViewProps {
   part: PatchPart;
-  sessionId?: string;
-  onViewDiff?: (patchHash: string) => void;
+  onRevert?: (messageId: string, partId: string) => Promise<void>;
+  disabled?: boolean;
 }
 
-export function OcPatchPartView({ part, onViewDiff }: OcPatchPartViewProps) {
-  const [expanded, setExpanded] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const shortHash = part.hash.slice(0, 8);
+export function OcPatchPartView({ part, onRevert, disabled }: OcPatchPartViewProps) {
+  const [open, setOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [reverting, setReverting] = useState(false);
   const fileCount = part.files.length;
 
-  const handleCopy = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(part.hash);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  // Guess file status from name patterns (heuristic since PatchPart doesn't provide status)
   const fileEntries = useMemo(() => {
     return part.files.map((file) => {
       const filename = file.split('/').pop() || file;
@@ -121,73 +79,108 @@ export function OcPatchPartView({ part, onViewDiff }: OcPatchPartViewProps) {
     });
   }, [part.files]);
 
+  const handleRevertClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!onRevert || disabled || reverting) return;
+    setConfirmOpen(true);
+  }, [onRevert, disabled, reverting]);
+
+  const handleRevertConfirm = useCallback(async () => {
+    if (!onRevert || disabled || reverting) return;
+    try {
+      setReverting(true);
+      await onRevert(part.messageID, part.id);
+    } finally {
+      setReverting(false);
+      setConfirmOpen(false);
+    }
+  }, [onRevert, disabled, reverting, part.messageID, part.id]);
+
+  if (fileCount === 0) return null;
+
   return (
-    <Collapsible open={expanded} onOpenChange={setExpanded}>
-      <CollapsibleTrigger asChild>
-        <div
-          className={cn(
-            'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg',
-            'bg-muted/20 hover:bg-muted/40 border border-border/40',
-            'text-xs cursor-pointer transition-colors select-none max-w-full group',
-          )}
-        >
-          {expanded ? (
-            <ChevronDown className="size-3 text-muted-foreground flex-shrink-0" />
-          ) : (
-            <ChevronRight className="size-3 text-muted-foreground flex-shrink-0" />
-          )}
-          <FileCode2 className="size-3.5 text-amber-500/70 flex-shrink-0" />
-          <span className="text-muted-foreground font-medium">Patch</span>
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={handleCopy}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/40 hover:bg-muted/60 font-mono text-[11px] text-muted-foreground transition-colors cursor-pointer"
-                >
-                  {shortHash}
-                  {copied ? (
-                    <Check className="size-2.5 text-emerald-500" />
-                  ) : (
-                    <Copy className="size-2.5 opacity-50" />
-                  )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">
-                <p>{copied ? 'Copied!' : 'Copy full hash'}</p>
-                {!copied && <p className="text-muted-foreground font-mono text-[10px]">{part.hash}</p>}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <span className="text-muted-foreground/70">
-            {fileCount} file{fileCount !== 1 ? 's' : ''} changed
-          </span>
-          {onViewDiff && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onViewDiff(part.hash);
-              }}
-              className="ml-auto px-2 py-0.5 rounded text-[11px] font-medium text-blue-500 hover:bg-blue-500/10 transition-colors cursor-pointer"
-            >
-              View diff
-            </button>
-          )}
-        </div>
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="mt-1 ml-5 pl-3 border-l border-border/40 space-y-0.5 py-1">
-          {fileEntries.map((entry, i) => (
-            <div key={i} className="flex items-center gap-1.5 px-2 py-0.5 text-[11px] text-muted-foreground">
-              <FileEdit className="size-3 text-blue-400/60 flex-shrink-0" />
-              <span className="font-mono truncate" title={entry.path}>
-                {entry.path}
-              </span>
+    <>
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <CollapsibleTrigger asChild>
+          <div
+            className={cn(
+              'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg',
+              'bg-muted/20 border border-border/40',
+              'text-xs transition-colors select-none',
+              'cursor-pointer hover:bg-muted/40',
+              'max-w-full group',
+            )}
+          >
+            <GitCommitHorizontal className="size-3.5 text-muted-foreground/50 flex-shrink-0" />
+            <span className="font-medium text-xs text-foreground whitespace-nowrap">Checkpoint</span>
+            <span className="text-muted-foreground text-xs truncate font-mono">
+              {fileCount} file{fileCount !== 1 ? 's' : ''} changed
+            </span>
+
+            {/* Revert button — visible on hover, same pattern as MessageActions */}
+            {onRevert && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={handleRevertClick}
+                    disabled={disabled || reverting}
+                    className={cn(
+                      'p-1 rounded-md transition-all cursor-pointer flex-shrink-0 ml-auto',
+                      'text-muted-foreground/60 hover:text-foreground hover:bg-muted/60',
+                      'opacity-0 group-hover:opacity-100',
+                      'disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-muted-foreground/60',
+                    )}
+                  >
+                    {reverting ? (
+                      <Loader2 className="size-3 animate-spin" />
+                    ) : (
+                      <Undo2 className="size-3" />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  Revert to this checkpoint
+                </TooltipContent>
+              </Tooltip>
+            )}
+
+            <ChevronRight
+              className={cn(
+                'size-3 transition-transform flex-shrink-0 text-muted-foreground/50',
+                !onRevert && 'ml-auto',
+                open && 'rotate-90',
+              )}
+            />
+          </div>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="mt-1.5 mb-2 rounded-lg bg-muted/20 border border-border/30 text-xs overflow-hidden">
+            <div className="p-2 space-y-0.5">
+              {fileEntries.map((entry, i) => (
+                <div key={i} className="flex items-center gap-1.5 px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                  <FileEdit className="size-3 flex-shrink-0 text-muted-foreground/40" />
+                  <span className="truncate font-mono" title={entry.path}>
+                    {entry.path}
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
+      {/* Revert confirmation dialog */}
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="Revert to this checkpoint?"
+        description={`This will undo all file changes and messages after this checkpoint (${fileCount} file${fileCount !== 1 ? 's' : ''}). You can restore everything later.`}
+        action={handleRevertConfirm}
+        actionLabel="Revert"
+        variant="destructive"
+        loading={reverting}
+      />
+    </>
   );
 }
 
@@ -240,16 +233,10 @@ export function SnapshotTimelineEntry({ item, isLast, onViewDiff }: SnapshotTime
         <div
           className={cn(
             'size-[18px] rounded-full flex items-center justify-center border-2',
-            item.type === 'snapshot'
-              ? 'border-blue-500/50 bg-blue-500/10'
-              : 'border-amber-500/50 bg-amber-500/10',
+            'border-muted-foreground/30 bg-muted/30',
           )}
         >
-          {item.type === 'snapshot' ? (
-            <GitCommitHorizontal className="size-2.5 text-blue-500" />
-          ) : (
-            <FileCode2 className="size-2.5 text-amber-500" />
-          )}
+          <GitCommitHorizontal className="size-2.5 text-muted-foreground/60" />
         </div>
       </div>
 
@@ -257,7 +244,7 @@ export function SnapshotTimelineEntry({ item, isLast, onViewDiff }: SnapshotTime
       <div className="flex-1 min-w-0 pb-4">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-medium text-foreground">
-            {item.type === 'snapshot' ? 'Snapshot' : 'Patch'}
+            {item.type === 'snapshot' ? 'Snapshot' : 'Checkpoint'}
           </span>
           <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-muted/50 text-muted-foreground">
             {shortHash}
@@ -278,15 +265,15 @@ export function SnapshotTimelineEntry({ item, isLast, onViewDiff }: SnapshotTime
           <Collapsible open={expanded} onOpenChange={setExpanded}>
             <CollapsibleTrigger asChild>
               <button className="flex items-center gap-1 mt-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
-                {expanded ? <ChevronDown className="size-2.5" /> : <ChevronRight className="size-2.5" />}
+                <ChevronRight className={cn('size-2.5 transition-transform', expanded && 'rotate-90')} />
                 {fileCount} file{fileCount !== 1 ? 's' : ''} changed
               </button>
             </CollapsibleTrigger>
             <CollapsibleContent>
-              <div className="mt-1 space-y-0.5">
+              <div className="mt-1.5 rounded-lg bg-muted/20 border border-border/30 p-2 space-y-0.5">
                 {item.files!.map((file, i) => (
-                  <div key={i} className="flex items-center gap-1.5 text-[10px] text-muted-foreground/80 font-mono pl-1">
-                    <FileEdit className="size-2.5 text-blue-400/50 flex-shrink-0" />
+                  <div key={i} className="flex items-center gap-1.5 text-[10px] text-muted-foreground/80 font-mono px-1 py-0.5">
+                    <FileEdit className="size-2.5 text-muted-foreground/40 flex-shrink-0" />
                     <span className="truncate">{file}</span>
                   </div>
                 ))}
@@ -298,7 +285,7 @@ export function SnapshotTimelineEntry({ item, isLast, onViewDiff }: SnapshotTime
         {onViewDiff && hash && (
           <button
             onClick={() => onViewDiff(hash)}
-            className="mt-1.5 px-2.5 py-1 rounded text-[11px] font-medium text-blue-500 hover:bg-blue-500/10 border border-blue-500/20 transition-colors cursor-pointer"
+            className="mt-1.5 px-2.5 py-1 rounded text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-border/40 transition-colors cursor-pointer"
           >
             View diff
           </button>

@@ -31,7 +31,6 @@ import { UnifiedMarkdown } from "@/components/markdown/unified-markdown";
 import { ImagePreview } from "@/components/session/image-preview";
 import {
 	ConfirmDialog,
-	RevertBanner,
 } from "@/components/session/message-actions";
 import { ConnectProviderDialog } from "@/components/session/model-selector";
 import {
@@ -45,10 +44,7 @@ import { SessionSiteHeader } from "@/components/session/session-site-header";
 import { QuestionPrompt, type QuestionPromptHandle, type QuestionAction } from "@/components/session/question-prompt";
 import { SessionWelcome } from "@/components/session/session-welcome";
 import { FileCard } from "@/components/file-previews/FileCard";
-import {
-	OcPatchPartView,
-	OcSnapshotPartView,
-} from "@/components/session/snapshot-part-views";
+
 import { ToolPartRenderer } from "@/components/session/tool-renderers";
 import { SandboxUrlDetector } from "@/components/thread/content/sandbox-url-detector";
 import { Button } from "@/components/ui/button";
@@ -92,7 +88,7 @@ import {
 	useOpenCodeSessions,
 	useRevertSession,
 	useSendOpenCodeMessage,
-	useUnrevertSession,
+
 } from "@/hooks/opencode/use-opencode-sessions";
 import { useSessionSync } from "@/hooks/opencode/use-session-sync";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
@@ -1873,7 +1869,7 @@ interface SessionTurnProps {
 	onFork: (messageId: string) => Promise<void>;
 	/** Fork the session at a user message and resend with edited text */
 	onEditFork: (userMessageId: string, newText: string) => Promise<void>;
-	/** Revert the session to before a specific message */
+	/** Revert the session — forks at this point with clean history and reverts file changes */
 	onRevert: (messageId: string) => Promise<void>;
 	/** Providers data for the Connect Provider dialog */
 	providers?: ProviderListResponse;
@@ -2587,22 +2583,9 @@ function SessionTurn({
 							);
 						}
 
-						// Snapshot parts
-						if (isSnapshotPart(part)) {
-							return (
-								<div key={part.id}>
-									<OcSnapshotPartView part={part} />
-								</div>
-							);
-						}
-
-						// Patch parts
-						if (isPatchPart(part)) {
-							return (
-								<div key={part.id}>
-									<OcPatchPartView part={part} sessionId={sessionId} />
-								</div>
-							);
+						// Snapshot & patch parts — internal bookkeeping, not rendered in chat
+						if (isSnapshotPart(part) || isPatchPart(part)) {
+							return null;
 						}
 
 						return null;
@@ -2785,6 +2768,7 @@ function SessionTurn({
 								<TooltipContent>Fork from here</TooltipContent>
 							</Tooltip>
 						)}
+						{/* Revert — disabled for now
 						{!isFirstTurn && !isBusy && !isReverted && (
 							<Tooltip>
 								<TooltipTrigger asChild>
@@ -2798,12 +2782,14 @@ function SessionTurn({
 								<TooltipContent>Revert to before this</TooltipContent>
 							</Tooltip>
 						)}
+						*/}
 					</div>
+					{/* Revert confirmation — disabled for now
 					<ConfirmDialog
 						open={revertDialogOpen}
 						onOpenChange={setRevertDialogOpen}
-						title="Revert to this point"
-						description="This will undo all messages and file changes after this point. You can restore them later by clicking the undo button in the revert banner."
+						title="Revert to this point?"
+						description="This will create a new session with the conversation up to this point and revert all file changes made after it. The original session is preserved."
 						action={async () => {
 							setRevertLoading(true);
 							try {
@@ -2813,10 +2799,11 @@ function SessionTurn({
 								setRevertDialogOpen(false);
 							}
 						}}
-						actionLabel="Revert"
+						actionLabel="Fork & Revert"
 						variant="destructive"
 						loading={revertLoading}
 					/>
+					*/}
 				</>
 			)}
 
@@ -2952,7 +2939,6 @@ export function SessionChat({
 	const abortSession = useAbortOpenCodeSession();
 	const forkSession = useForkSession();
 	const revertSession = useRevertSession();
-	const unrevertSession = useUnrevertSession();
 
 	// ---- Unified model/agent/variant state (1:1 port of SolidJS local.tsx) ----
 	const local = useOpenCodeLocal({ agents, providers, config, sessionId });
@@ -4146,17 +4132,35 @@ export function SessionChat({
 
 	const handleRevert = useCallback(
 		async (messageId: string) => {
+			// Fork + revert: create a clean fork up to this point, revert files
+			// on the original session, then navigate to the fork.
+
+			// 1. Revert file changes on this session (rolls back disk state)
 			await revertSession.mutateAsync({
 				sessionId,
 				messageId,
 			});
-		},
-		[sessionId, revertSession],
-	);
 
-	const handleUnrevert = useCallback(async () => {
-		await unrevertSession.mutateAsync(sessionId);
-	}, [sessionId, unrevertSession]);
+			// 2. Fork at the revert point — copies messages before messageId
+			const forkedSession = await forkSession.mutateAsync({
+				sessionId,
+				messageId,
+			});
+
+			// 3. Navigate to the forked session
+			const title = forkedSession.title || "Reverted session";
+			openTabAndNavigate({
+				id: forkedSession.id,
+				title,
+				type: "session",
+				href: `/sessions/${forkedSession.id}`,
+				parentSessionId: sessionId,
+				serverId: useServerStore.getState().activeServerId,
+			});
+			localStorage.setItem(`fork_origin_${forkedSession.id}`, sessionId);
+		},
+		[sessionId, revertSession, forkSession],
+	);
 
 	// ============================================================================
 	// Send / Stop / Command handlers
@@ -4516,16 +4520,6 @@ export function SessionChat({
 					isSidePanelOpen={isSidePanelOpen}
 					canOpenSidePanel={hasToolCalls}
 					leadingAction={headerLeadingAction}
-				/>
-			)}
-
-			{/* Revert banner — shown when session is in reverted state */}
-			{isReverted && session?.revert?.messageID && (
-				<RevertBanner
-					sessionId={sessionId}
-					revertMessageId={session.revert.messageID}
-					loading={unrevertSession.isPending}
-					onUnrevert={handleUnrevert}
 				/>
 			)}
 
