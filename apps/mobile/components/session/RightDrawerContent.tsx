@@ -34,6 +34,7 @@ const sections: MenuSection[] = [
       { icon: 'terminal-outline', label: 'Terminal', pageId: 'page:terminal' },
       { icon: 'hardware-chip-outline', label: 'Memory', pageId: 'page:memory' },
       { icon: 'grid-outline', label: 'Workspace', pageId: 'page:workspace' },
+      { icon: 'sparkles-outline', label: 'Marketplace', pageId: 'page:marketplace' },
     ],
   },
   {

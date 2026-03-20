@@ -457,15 +457,6 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Marketplace */}
-        <TouchableOpacity
-          className="flex-row items-center px-5 py-2.5"
-          activeOpacity={0.6}
-        >
-          <Ionicons name="sparkles-outline" size={18} color={iconColor} />
-          <Text className="text-sm ml-3 text-foreground">Marketplace</Text>
-        </TouchableOpacity>
-
         {/* Sessions header (collapsible) */}
         <TouchableOpacity
           onPress={() => setSessionsExpanded((v) => !v)}
