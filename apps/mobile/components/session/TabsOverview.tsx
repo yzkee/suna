@@ -51,7 +51,7 @@ export function TabsOverview({
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const { width, height: screenHeight } = useWindowDimensions();
   const iconColor = isDark ? '#F8F8F8' : '#121215';
   const mutedColor = isDark ? '#999999' : '#6e6e6e';
 
@@ -166,6 +166,15 @@ export function TabsOverview({
 
   const cardWidth = (width - 48) / 2;
   const cardBodyHeight = cardWidth * 1.3;
+
+  // Calculate how much to crop from the top of the screenshot to skip
+  // the status bar + page header. Header is ~44px + safe area inset top.
+  // The screenshot captures the full ViewShot area (screen minus bottom bar).
+  const headerHeight = insets.top + 44;
+  // The image is rendered at full width inside the card, so the scale factor
+  // determines how many card-pixels correspond to the real header pixels.
+  const screenshotSourceHeight = screenHeight - 80; // approx (minus bottom bar)
+  const cropTop = (headerHeight / screenshotSourceHeight) * cardBodyHeight * 2.2;
   const scrollRef = useRef<ScrollView>(null);
   const hasScrolled = useRef(false);
   const activeId = activePageId || activeSessionId;
@@ -306,7 +315,7 @@ export function TabsOverview({
                           source={{ uri: screenshotUri }}
                           style={{
                             position: 'absolute',
-                            top: -(cardBodyHeight * 0.22),
+                            top: -cropTop,
                             left: 0,
                             right: 0,
                             bottom: -(cardBodyHeight * 0.8),
