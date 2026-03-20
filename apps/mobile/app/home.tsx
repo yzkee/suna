@@ -51,6 +51,7 @@ import type { FilesPageRef } from '@/components/pages/FilesPage';
 import { SecretsPage } from '@/components/pages/SecretsPage';
 import { MemoryPage } from '@/components/pages/MemoryPage';
 import { LlmProvidersPage } from '@/components/pages/LlmProvidersPage';
+import { MarketplacePage } from '@/components/pages/MarketplacePage';
 import {
   Eye, EyeOff, RefreshCw, Upload, Image, FolderPlus, LayoutGrid, List,
   FileText, Copy, Pencil, Trash2,
@@ -684,6 +685,15 @@ export default function HomeScreen() {
           /* Active page tab — Secrets */
           ) : activePageId === 'page:secrets' && PAGE_TABS[activePageId] && !showTabsOverview ? (
             <SecretsPage
+              page={PAGE_TABS[activePageId]}
+              onBack={handleBack}
+              onOpenDrawer={handleDrawerOpen}
+              onOpenRightDrawer={handleRightDrawerOpen}
+            />
+
+          /* Active page tab — Marketplace */
+          ) : activePageId === 'page:marketplace' && PAGE_TABS[activePageId] && !showTabsOverview ? (
+            <MarketplacePage
               page={PAGE_TABS[activePageId]}
               onBack={handleBack}
               onOpenDrawer={handleDrawerOpen}

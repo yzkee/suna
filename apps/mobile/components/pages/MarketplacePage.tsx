@@ -1,0 +1,810 @@
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import {
+  View,
+  TouchableOpacity,
+  ScrollView,
+  RefreshControl,
+  ActivityIndicator,
+  Platform,
+  Alert,
+} from 'react-native';
+import { Text } from '@/components/ui/text';
+import { useColorScheme } from 'nativewind';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { SearchBar } from '@/components/ui/SearchBar';
+import { useSandboxContext } from '@/contexts/SandboxContext';
+import { getAuthToken } from '@/api/config';
+import type { PageTab } from '@/stores/tab-store';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetScrollView,
+  BottomSheetView,
+  TouchableOpacity as BottomSheetTouchable,
+} from '@gorhom/bottom-sheet';
+import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
+import * as Clipboard from 'expo-clipboard';
+
+type FilterKey = 'all' | 'installed' | 'skills' | 'agents' | 'tools' | 'plugins';
+
+type ComponentType = 'ocx:skill' | 'ocx:agent' | 'ocx:tool' | 'ocx:plugin' | string;
+
+interface RegistryComponent {
+  name: string;
+  version: string;
+  type: ComponentType;
+  description: string;
+}
+
+interface RegistryComponentVersion extends RegistryComponent {
+  files: string[];
+}
+
+interface RegistryComponentDetails {
+  name: string;
+  description: string;
+  'dist-tags'?: { latest?: string };
+  versions: Record<string, RegistryComponentVersion>;
+}
+
+interface RegistryComponentFile {
+  path: string;
+  content: string;
+}
+
+interface RegistryComponentBundle {
+  manifest: RegistryComponentDetails;
+  version: RegistryComponentVersion;
+  files: RegistryComponentFile[];
+}
+
+interface RegistryIndex {
+  components: RegistryComponent[];
+}
+
+interface SkillLike {
+  name: string;
+}
+
+interface MarketplacePageProps {
+  page: PageTab;
+  onBack: () => void;
+  onOpenDrawer?: () => void;
+  onOpenRightDrawer?: () => void;
+}
+
+const REGISTRY_URL = 'https://master.kortix-registry.pages.dev';
+
+const FILTERS: Array<{ key: FilterKey; label: string }> = [
+  { key: 'all', label: 'All' },
+  { key: 'installed', label: 'Installed' },
+  { key: 'skills', label: 'Skills' },
+  { key: 'agents', label: 'Agents' },
+  { key: 'tools', label: 'Tools' },
+  { key: 'plugins', label: 'Plugins' },
+];
+
+function getTypeLabel(type: string): string {
+  if (type === 'ocx:skill') return 'Skill';
+  if (type === 'ocx:agent') return 'Agent';
+  if (type === 'ocx:tool') return 'Tool';
+  if (type === 'ocx:plugin') return 'Plugin';
+  return type.replace('ocx:', '');
+}
+
+function getTypeIcon(type: string): string {
+  if (type === 'ocx:skill') return 'sparkles-outline';
+  if (type === 'ocx:agent') return 'hardware-chip-outline';
+  if (type === 'ocx:tool') return 'build-outline';
+  if (type === 'ocx:plugin') return 'extension-puzzle-outline';
+  return 'cube-outline';
+}
+
+function cleanAnsi(text: string): string {
+  return text.replace(/[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g, '');
+}
+
+function buildWsUrl(sandboxUrl: string, ptyId: string, token: string | null): string {
+  let wsBase = sandboxUrl;
+  try {
+    const parsed = new URL(sandboxUrl);
+    parsed.protocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
+    wsBase = parsed.toString().replace(/\/+$/, '');
+  } catch {
+    wsBase = sandboxUrl.replace('https://', 'wss://').replace('http://', 'ws://').replace(/\/+$/, '');
+  }
+  const base = `${wsBase}/pty/${ptyId}/connect`;
+  if (!token) return base;
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}token=${encodeURIComponent(token)}`;
+}
+
+async function fetchRegistryComponents(): Promise<RegistryComponent[]> {
+  const response = await fetch(`${REGISTRY_URL}/index.json`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch registry (${response.status})`);
+  }
+  const data: RegistryIndex = await response.json();
+  return data.components || [];
+}
+
+async function fetchComponentBundle(componentName: string): Promise<RegistryComponentBundle> {
+  const response = await fetch(`${REGISTRY_URL}/components/${componentName}.json`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch component details (${response.status})`);
+  }
+
+  const manifest: RegistryComponentDetails = await response.json();
+  const latestVersion = manifest['dist-tags']?.latest;
+  if (!latestVersion) {
+    throw new Error('Component does not declare a latest version');
+  }
+
+  const version = manifest.versions[latestVersion];
+  if (!version) {
+    throw new Error(`Missing version payload for ${latestVersion}`);
+  }
+
+  const files = await Promise.all(
+    (version.files || []).map(async (path) => {
+      const fileResponse = await fetch(`${REGISTRY_URL}/components/${componentName}/${path}`);
+      if (!fileResponse.ok) {
+        return { path, content: `Unable to load file (${fileResponse.status})` };
+      }
+      return { path, content: await fileResponse.text() };
+    }),
+  );
+
+  return { manifest, version, files };
+}
+
+async function fetchInstalledSkills(sandboxUrl: string): Promise<Set<string>> {
+  const token = await getAuthToken();
+  const res = await fetch(`${sandboxUrl}/skill`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) throw new Error(`Failed to fetch installed skills (${res.status})`);
+  const data = (await res.json()) as SkillLike[];
+  const installed = new Set<string>();
+  for (const skill of data || []) {
+    const name = (skill?.name || '').toLowerCase();
+    if (!name) continue;
+    installed.add(name);
+    installed.add(`skill-${name}`);
+  }
+  return installed;
+}
+
+async function runPtyCommand(sandboxUrl: string, command: string): Promise<string> {
+  const token = await getAuthToken();
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+
+  const createdRes = await fetch(`${sandboxUrl}/pty`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      command: '/bin/sh',
+      args: ['-c', command],
+      title: '__marketplace-install__',
+    }),
+  });
+
+  if (!createdRes.ok) {
+    const text = await createdRes.text().catch(() => '');
+    throw new Error(`Failed to create PTY (${createdRes.status}): ${text || createdRes.statusText}`);
+  }
+
+  const created = await createdRes.json();
+  const ptyId: string | undefined = created?.id || created?.ptyID || created?.data?.id;
+  if (!ptyId) throw new Error('PTY created but no ID returned');
+
+  const wsUrl = buildWsUrl(sandboxUrl, ptyId, token);
+
+  const output = await new Promise<string>((resolve) => {
+    const chunks: string[] = [];
+    let settled = false;
+    const ws = new WebSocket(wsUrl);
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve(chunks.join(''));
+    };
+
+    const timeout = setTimeout(() => {
+      try { ws.close(); } catch {}
+      finish();
+    }, 60_000);
+
+    ws.onmessage = (event) => {
+      try {
+        if (typeof event.data === 'string') {
+          chunks.push(event.data);
+          return;
+        }
+        if (event.data instanceof ArrayBuffer) {
+          chunks.push(new TextDecoder().decode(event.data));
+          return;
+        }
+        chunks.push(String(event.data));
+      } catch {
+        chunks.push(String(event.data));
+      }
+    };
+
+    ws.onclose = () => {
+      clearTimeout(timeout);
+      finish();
+    };
+
+    ws.onerror = () => {
+      clearTimeout(timeout);
+      finish();
+    };
+  });
+
+  fetch(`${sandboxUrl}/pty/${encodeURIComponent(ptyId)}`, {
+    method: 'DELETE',
+    headers,
+  }).catch(() => {});
+
+  return output;
+}
+
+async function installComponentWithOcx(sandboxUrl: string, componentName: string): Promise<void> {
+  const output = await runPtyCommand(
+    sandboxUrl,
+    `cd /workspace && ocx init -q 2>/dev/null && ocx registry add https://master.kortix-registry.pages.dev --name kortix -q 2>/dev/null; ocx add kortix/${componentName} 2>&1`,
+  );
+  const normalized = output.toLowerCase();
+  const looksInstalled = normalized.includes('installed') || normalized.includes('done');
+  if (!looksInstalled && (normalized.includes('error') || normalized.includes('failed') || normalized.includes('not found'))) {
+    throw new Error(cleanAnsi(output).trim() || 'Install failed');
+  }
+
+  const token = await getAuthToken();
+  fetch(`${sandboxUrl}/global/dispose`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  }).catch(() => {});
+}
+
+function trimPath(path: string): string {
+  const parts = path.split('/');
+  return parts.length > 1 ? parts.slice(1).join('/') : path;
+}
+
+function MarketplaceCard({
+  component,
+  isInstalled,
+  isInstalling,
+  isDark,
+  onOpen,
+  onInstall,
+}: {
+  component: RegistryComponent;
+  isInstalled: boolean;
+  isInstalling: boolean;
+  isDark: boolean;
+  onOpen: (component: RegistryComponent) => void;
+  onInstall: (component: RegistryComponent) => void;
+}) {
+  const fgColor = isDark ? '#F8F8F8' : '#121215';
+  const mutedColor = isDark ? '#71717a' : '#6b7280';
+  const borderColor = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)';
+  const cardBg = isDark ? '#161618' : '#FFFFFF';
+  const typeLabel = getTypeLabel(component.type);
+  const iconName = getTypeIcon(component.type);
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.75}
+      onPress={() => onOpen(component)}
+      style={{
+        backgroundColor: cardBg,
+        borderWidth: 1,
+        borderColor,
+        borderRadius: 14,
+        padding: 12,
+        marginBottom: 10,
+      }}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View
+          style={{
+            width: 34,
+            height: 34,
+            borderRadius: 10,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+            marginRight: 10,
+          }}
+        >
+          <Ionicons name={iconName as any} size={18} color={fgColor} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={{ fontSize: 14, fontFamily: 'Roobert-SemiBold', color: fgColor }}>{component.name}</Text>
+            {isInstalled && (
+              <View
+                style={{
+                  marginLeft: 8,
+                  paddingHorizontal: 6,
+                  paddingVertical: 1,
+                  borderRadius: 999,
+                  backgroundColor: isDark ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.08)',
+                }}
+              >
+                <Text style={{ fontSize: 10, fontFamily: 'Roobert-Medium', color: '#10b981' }}>Installed</Text>
+              </View>
+            )}
+          </View>
+          <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: mutedColor }}>{typeLabel} · v{component.version}</Text>
+        </View>
+      </View>
+
+      <Text style={{ marginTop: 8, fontSize: 12, lineHeight: 18, fontFamily: 'Roobert', color: mutedColor }} numberOfLines={2}>
+        {component.description || 'No description available.'}
+      </Text>
+
+      <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10 }}>
+        <TouchableOpacity
+          onPress={(e) => {
+            e.stopPropagation();
+            if (!isInstalled) onInstall(component);
+          }}
+          disabled={isInstalling || isInstalled}
+          style={{
+            borderRadius: 10,
+            paddingHorizontal: 12,
+            paddingVertical: 7,
+            backgroundColor: isInstalled
+              ? 'transparent'
+              : fgColor,
+            borderWidth: isInstalled ? 1 : 0,
+            borderColor: borderColor,
+            opacity: isInstalling ? 0.6 : 1,
+          }}
+        >
+          <Text style={{
+            fontSize: 12,
+            fontFamily: 'Roobert-Medium',
+            color: isInstalled ? mutedColor : (isDark ? '#121215' : '#FFFFFF'),
+          }}>
+            {isInstalling ? 'Installing...' : isInstalled ? 'View' : 'Install'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+export function MarketplacePage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: MarketplacePageProps) {
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === 'dark';
+  const insets = useSafeAreaInsets();
+  const { sandboxUrl } = useSandboxContext();
+  const queryClient = useQueryClient();
+
+  const fgColor = isDark ? '#F8F8F8' : '#121215';
+  const mutedColor = isDark ? '#71717a' : '#6b7280';
+  const bgColor = isDark ? '#121215' : '#F8F8F8';
+  const borderColor = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)';
+  const sheetBg = isDark ? '#161618' : '#FFFFFF';
+  const monoFont = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
+
+  const [search, setSearch] = useState('');
+  const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
+  const [selectedComponent, setSelectedComponent] = useState<RegistryComponent | null>(null);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [installingNames, setInstallingNames] = useState<string[]>([]);
+
+  const detailSheetRef = useRef<BottomSheetModal>(null);
+  const detailSnapPoints = useMemo(() => ['90%'], []);
+
+  const componentsQuery = useQuery({
+    queryKey: ['marketplace', 'components'],
+    queryFn: fetchRegistryComponents,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const installedQuery = useQuery({
+    queryKey: ['marketplace', 'installed', sandboxUrl || ''],
+    queryFn: () => fetchInstalledSkills(sandboxUrl || ''),
+    enabled: !!sandboxUrl,
+    staleTime: 30 * 1000,
+  });
+
+  const bundleQuery = useQuery({
+    queryKey: ['marketplace', 'bundle', selectedComponent?.name || ''],
+    queryFn: () => fetchComponentBundle(selectedComponent?.name || ''),
+    enabled: !!selectedComponent,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const installedSet = installedQuery.data || new Set<string>();
+
+  const counts = useMemo(() => {
+    const list = componentsQuery.data || [];
+    return {
+      all: list.length,
+      installed: list.filter((c) => installedSet.has(c.name.toLowerCase())).length,
+      skills: list.filter((c) => c.type === 'ocx:skill').length,
+      agents: list.filter((c) => c.type === 'ocx:agent').length,
+      tools: list.filter((c) => c.type === 'ocx:tool').length,
+      plugins: list.filter((c) => c.type === 'ocx:plugin').length,
+    };
+  }, [componentsQuery.data, installedSet]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (componentsQuery.data || []).filter((c) => {
+      const matchesSearch = !q || c.name.toLowerCase().includes(q) || c.description.toLowerCase().includes(q);
+      if (!matchesSearch) return false;
+
+      if (activeFilter === 'installed') return installedSet.has(c.name.toLowerCase());
+      if (activeFilter === 'skills') return c.type === 'ocx:skill';
+      if (activeFilter === 'agents') return c.type === 'ocx:agent';
+      if (activeFilter === 'tools') return c.type === 'ocx:tool';
+      if (activeFilter === 'plugins') return c.type === 'ocx:plugin';
+      return true;
+    });
+  }, [activeFilter, componentsQuery.data, installedSet, search]);
+
+  const activeFile = useMemo(() => {
+    const bundle = bundleQuery.data;
+    if (!bundle) return null;
+    if (selectedPath) {
+      const found = bundle.files.find((file) => file.path === selectedPath);
+      if (found) return found;
+    }
+    return bundle.files[0] || null;
+  }, [bundleQuery.data, selectedPath]);
+
+  const isInstalling = useCallback((name: string) => installingNames.includes(name), [installingNames]);
+
+  const handleInstall = useCallback(async (component: RegistryComponent) => {
+    if (!sandboxUrl) {
+      Alert.alert('Unavailable', 'Sandbox is not connected yet.');
+      return;
+    }
+    setInstallingNames((prev) => (prev.includes(component.name) ? prev : [...prev, component.name]));
+    try {
+      await installComponentWithOcx(sandboxUrl, component.name);
+      await queryClient.invalidateQueries({ queryKey: ['marketplace', 'installed', sandboxUrl] });
+      Alert.alert('Installed', `${component.name} was installed successfully.`);
+    } catch (error: any) {
+      Alert.alert('Install failed', error?.message || 'Unable to install component.');
+    } finally {
+      setInstallingNames((prev) => prev.filter((name) => name !== component.name));
+    }
+  }, [queryClient, sandboxUrl]);
+
+  const handleOpenDetail = useCallback((component: RegistryComponent) => {
+    setSelectedComponent(component);
+    setSelectedPath(null);
+    detailSheetRef.current?.present();
+  }, []);
+
+  const handleRefresh = useCallback(() => {
+    componentsQuery.refetch();
+    installedQuery.refetch();
+    if (selectedComponent) bundleQuery.refetch();
+  }, [bundleQuery, componentsQuery, installedQuery, selectedComponent]);
+
+  const renderBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.5} pressBehavior="close" />
+    ),
+    [],
+  );
+
+  const selectedInstalled = selectedComponent
+    ? installedSet.has(selectedComponent.name.toLowerCase())
+    : false;
+
+  return (
+    <View style={{ flex: 1, backgroundColor: bgColor }}>
+      <View style={{ paddingTop: insets.top + 8, paddingBottom: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: borderColor }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            {onOpenDrawer && (
+              <TouchableOpacity onPress={onOpenDrawer} style={{ marginRight: 12 }}>
+                <Ionicons name="menu-outline" size={22} color={fgColor} />
+              </TouchableOpacity>
+            )}
+            <View>
+              <Text style={{ fontSize: 17, fontFamily: 'Roobert-SemiBold', color: fgColor, lineHeight: 18, includeFontPadding: false }}>{page.label}</Text>
+              <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: mutedColor, marginTop: -3, includeFontPadding: false }}>
+                {counts.all} components available
+              </Text>
+            </View>
+          </View>
+          {onOpenRightDrawer && (
+            <TouchableOpacity onPress={onOpenRightDrawer}>
+              <Ionicons name="apps-outline" size={22} color={fgColor} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <View style={{ marginTop: 12 }}>
+          <SearchBar
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search components"
+            onClear={() => setSearch('')}
+          />
+        </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingTop: 10 }}>
+          {FILTERS.map((filter) => {
+            const active = filter.key === activeFilter;
+            const count = counts[filter.key];
+            return (
+              <TouchableOpacity
+                key={filter.key}
+                onPress={() => setActiveFilter(filter.key)}
+                style={{
+                  borderRadius: 999,
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  backgroundColor: active ? fgColor : 'transparent',
+                  borderWidth: active ? 0 : 1,
+                  borderColor,
+                }}
+              >
+                <Text style={{
+                  fontSize: 12,
+                  fontFamily: 'Roobert-Medium',
+                  color: active ? (isDark ? '#121215' : '#FFFFFF') : mutedColor,
+                }}>
+                  {filter.label} {count > 0 ? `(${count})` : ''}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: 12, paddingBottom: insets.bottom + 84 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={componentsQuery.isFetching || installedQuery.isFetching}
+            onRefresh={handleRefresh}
+            tintColor={mutedColor}
+          />
+        }
+      >
+        {componentsQuery.isLoading ? (
+          <View style={{ paddingVertical: 48, alignItems: 'center' }}>
+            <ActivityIndicator size="large" color={mutedColor} />
+          </View>
+        ) : componentsQuery.error ? (
+          <View style={{ padding: 20, alignItems: 'center' }}>
+            <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: isDark ? '#f87171' : '#dc2626' }}>
+              Failed to load marketplace
+            </Text>
+            <Text style={{ marginTop: 4, fontSize: 12, fontFamily: 'Roobert', color: mutedColor, textAlign: 'center' }}>
+              {componentsQuery.error instanceof Error ? componentsQuery.error.message : 'Unknown error'}
+            </Text>
+          </View>
+        ) : filtered.length === 0 ? (
+          <View
+            style={{
+              marginTop: 20,
+              borderWidth: 1,
+              borderStyle: 'dashed',
+              borderColor,
+              borderRadius: 16,
+              padding: 24,
+              alignItems: 'center',
+              backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.015)',
+            }}
+          >
+            <Ionicons name="sparkles-outline" size={22} color={mutedColor} style={{ marginBottom: 8 }} />
+            <Text style={{ fontSize: 14, fontFamily: 'Roobert-SemiBold', color: fgColor }}>
+              {search ? 'No matching components' : activeFilter === 'installed' ? 'Nothing installed yet' : 'No components found'}
+            </Text>
+            <Text style={{ marginTop: 4, fontSize: 12, fontFamily: 'Roobert', color: mutedColor, textAlign: 'center' }}>
+              {search ? `No components matching "${search}".` : 'Try another filter or install from the full list.'}
+            </Text>
+          </View>
+        ) : (
+          <>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+              <Text style={{ fontSize: 11, fontFamily: 'Roobert-Medium', color: mutedColor, textTransform: 'uppercase', letterSpacing: 1 }}>
+                {activeFilter === 'all' ? 'All Components' : activeFilter}
+              </Text>
+              <View
+                style={{
+                  marginLeft: 6,
+                  borderRadius: 999,
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                  paddingHorizontal: 7,
+                  paddingVertical: 1,
+                }}
+              >
+                <Text style={{ fontSize: 10, fontFamily: 'Roobert-Medium', color: mutedColor }}>{filtered.length}</Text>
+              </View>
+            </View>
+
+            {filtered.map((component) => (
+              <MarketplaceCard
+                key={component.name}
+                component={component}
+                isDark={isDark}
+                isInstalled={installedSet.has(component.name.toLowerCase())}
+                isInstalling={isInstalling(component.name)}
+                onOpen={handleOpenDetail}
+                onInstall={handleInstall}
+              />
+            ))}
+          </>
+        )}
+      </ScrollView>
+
+      <BottomSheetModal
+        ref={detailSheetRef}
+        snapPoints={detailSnapPoints}
+        enablePanDownToClose
+        backdropComponent={renderBackdrop}
+        onDismiss={() => {
+          setSelectedComponent(null);
+          setSelectedPath(null);
+        }}
+        backgroundStyle={{ backgroundColor: sheetBg, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
+        handleIndicatorStyle={{ backgroundColor: isDark ? '#3f3f46' : '#d4d4d8', width: 36, height: 5, borderRadius: 3 }}
+      >
+        <BottomSheetScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 24 }}>
+          {selectedComponent && (
+            <>
+              <View style={{ marginTop: 6, marginBottom: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Ionicons name={getTypeIcon(selectedComponent.type) as any} size={18} color={fgColor} style={{ marginRight: 8 }} />
+                  <Text style={{ fontSize: 18, fontFamily: 'Roobert-SemiBold', color: fgColor, flex: 1 }}>
+                    {selectedComponent.name}
+                  </Text>
+                  {selectedInstalled && (
+                    <View
+                      style={{
+                        marginLeft: 8,
+                        paddingHorizontal: 8,
+                        paddingVertical: 2,
+                        borderRadius: 999,
+                        backgroundColor: isDark ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.08)',
+                      }}
+                    >
+                      <Text style={{ fontSize: 10, fontFamily: 'Roobert-Medium', color: '#10b981' }}>Installed</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={{ marginTop: 4, fontSize: 12, fontFamily: 'Roobert', color: mutedColor }}>
+                  {getTypeLabel(selectedComponent.type)} · v{selectedComponent.version}
+                </Text>
+                <Text style={{ marginTop: 10, fontSize: 13, lineHeight: 20, fontFamily: 'Roobert', color: mutedColor }}>
+                  {selectedComponent.description || 'No description available.'}
+                </Text>
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
+                <BottomSheetTouchable
+                  onPress={() => Clipboard.setStringAsync(selectedComponent.name)}
+                  style={{
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor,
+                    paddingHorizontal: 12,
+                    paddingVertical: 9,
+                  }}
+                >
+                  <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: fgColor }}>Copy Name</Text>
+                </BottomSheetTouchable>
+                <BottomSheetTouchable
+                  onPress={() => handleInstall(selectedComponent)}
+                  disabled={isInstalling(selectedComponent.name) || selectedInstalled}
+                  style={{
+                    borderRadius: 12,
+                    paddingHorizontal: 12,
+                    paddingVertical: 9,
+                    backgroundColor: selectedInstalled ? 'transparent' : fgColor,
+                    borderWidth: selectedInstalled ? 1 : 0,
+                    borderColor,
+                    opacity: isInstalling(selectedComponent.name) ? 0.65 : 1,
+                  }}
+                >
+                  <Text style={{
+                    fontSize: 12,
+                    fontFamily: 'Roobert-Medium',
+                    color: selectedInstalled ? mutedColor : (isDark ? '#121215' : '#FFFFFF'),
+                  }}>
+                    {isInstalling(selectedComponent.name) ? 'Installing...' : selectedInstalled ? 'Installed' : 'Install'}
+                  </Text>
+                </BottomSheetTouchable>
+              </View>
+
+              <View style={{ marginBottom: 10 }}>
+                <Text style={{ fontSize: 10, fontFamily: 'Roobert-Medium', color: mutedColor, letterSpacing: 1, textTransform: 'uppercase' }}>
+                  Files
+                </Text>
+              </View>
+
+              {bundleQuery.isLoading ? (
+                <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+                  <ActivityIndicator size="small" color={mutedColor} />
+                </View>
+              ) : bundleQuery.error ? (
+                <View style={{ padding: 12, borderRadius: 12, borderWidth: 1, borderColor }}>
+                  <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: isDark ? '#f87171' : '#dc2626' }}>
+                    {bundleQuery.error instanceof Error ? bundleQuery.error.message : 'Failed to load files'}
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 12 }}>
+                    {(bundleQuery.data?.files || []).map((file) => {
+                      const active = activeFile?.path === file.path;
+                      return (
+                        <BottomSheetTouchable
+                          key={file.path}
+                          onPress={() => setSelectedPath(file.path)}
+                          style={{
+                            borderRadius: 10,
+                            borderWidth: 1,
+                            borderColor: active ? 'transparent' : borderColor,
+                            backgroundColor: active ? fgColor : 'transparent',
+                            paddingHorizontal: 10,
+                            paddingVertical: 7,
+                          }}
+                        >
+                          <Text style={{
+                            fontSize: 11,
+                            fontFamily: 'Roobert-Medium',
+                            color: active ? (isDark ? '#121215' : '#FFFFFF') : mutedColor,
+                          }}>
+                            {trimPath(file.path)}
+                          </Text>
+                        </BottomSheetTouchable>
+                      );
+                    })}
+                  </ScrollView>
+
+                  <BottomSheetView
+                    style={{
+                      borderWidth: 1,
+                      borderColor,
+                      borderRadius: 12,
+                      padding: 12,
+                      backgroundColor: isDark ? '#141416' : '#FAFAFA',
+                    }}
+                  >
+                    {activeFile ? (
+                      <Text style={{ fontSize: 12, lineHeight: 18, fontFamily: monoFont, color: fgColor }}>
+                        {activeFile.content}
+                      </Text>
+                    ) : (
+                      <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: mutedColor }}>No file selected.</Text>
+                    )}
+                  </BottomSheetView>
+                </>
+              )}
+            </>
+          )}
+        </BottomSheetScrollView>
+      </BottomSheetModal>
+    </View>
+  );
+}
