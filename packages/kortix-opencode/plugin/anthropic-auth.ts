@@ -3,12 +3,23 @@ import type { Plugin } from "@opencode-ai/plugin"
 import type { Auth, Provider } from "@opencode-ai/sdk"
 
 const clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+const tokenURL = "https://platform.claude.com/v1/oauth/token"
+const authUserAgent = "claude-code/2.1.76"
+const expiresSkewMs = 5 * 60 * 1000
 const toolPrefix = "mcp_"
 const requiredBetas = [
   "oauth-2025-04-20",
   "interleaved-thinking-2025-05-14",
   "fine-grained-tool-streaming-2025-05-14",
 ]
+const authScopes = [
+  "org:create_api_key",
+  "user:profile",
+  "user:inference",
+  "user:sessions:claude_code",
+  "user:mcp_servers",
+  "user:file_upload",
+].join(" ")
 
 type OAuthAuth = Extract<Auth, { type: "oauth" }>
 type HeaderInput = Headers | Array<[string, string]> | Record<string, string | number | boolean | undefined>
@@ -50,6 +61,16 @@ function betas(input: string) {
 
 function patchText(value: string) {
   return value.replace(/OpenCode/g, "Claude Code").replace(/opencode/gi, "Claude")
+}
+
+function authHeaders(extra?: HeaderInput) {
+  return merge(
+    {
+      "Content-Type": "application/json",
+      "User-Agent": authUserAgent,
+    },
+    extra instanceof Request ? extra : undefined,
+  )
 }
 
 function patchBody(raw: string) {
@@ -139,7 +160,7 @@ async function authorize(mode: "max" | "console") {
   url.searchParams.set("client_id", clientID)
   url.searchParams.set("response_type", "code")
   url.searchParams.set("redirect_uri", "https://console.anthropic.com/oauth/code/callback")
-  url.searchParams.set("scope", "org:create_api_key user:profile user:inference")
+  url.searchParams.set("scope", authScopes)
   url.searchParams.set("code_challenge", pkce.challenge)
   url.searchParams.set("code_challenge_method", "S256")
   url.searchParams.set("state", pkce.verifier)
@@ -153,11 +174,9 @@ async function exchange(code: string, verifier: string) {
   const parsed = parseCallbackCode(code, verifier)
   let response: Response
   try {
-    response = await fetch("https://console.anthropic.com/v1/oauth/token", {
+    response = await fetch(tokenURL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: authHeaders(),
       body: JSON.stringify({
         code: parsed.code,
         state: parsed.state,
@@ -191,7 +210,7 @@ async function exchange(code: string, verifier: string) {
     type: "success" as const,
     refresh: json.refresh_token,
     access: json.access_token,
-    expires: Date.now() + json.expires_in * 1000,
+    expires: Date.now() + json.expires_in * 1000 - expiresSkewMs,
   }
 }
 
@@ -199,11 +218,9 @@ async function refresh(client: { auth: { set: (input: { path: { id: string }; bo
   if (auth.access && auth.expires > Date.now()) return auth.access
   let response: Response
   try {
-    response = await fetch("https://console.anthropic.com/v1/oauth/token", {
+    response = await fetch(tokenURL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: authHeaders(),
       body: JSON.stringify({
         grant_type: "refresh_token",
         refresh_token: auth.refresh,
@@ -228,7 +245,7 @@ async function refresh(client: { auth: { set: (input: { path: { id: string }; bo
       type: "oauth",
       refresh: json.refresh_token,
       access: json.access_token,
-      expires: Date.now() + json.expires_in * 1000,
+      expires: Date.now() + json.expires_in * 1000 - expiresSkewMs,
     },
   })
   return json.access_token
@@ -260,7 +277,7 @@ const AnthropicAuthPlugin: Plugin = async (input) => {
             const headers = merge(init?.headers, req)
             headers.set("authorization", `Bearer ${access}`)
             headers.set("anthropic-beta", betas(headers.get("anthropic-beta") ?? ""))
-            headers.set("user-agent", "claude-cli/2.1.2 (external, cli)")
+            headers.set("user-agent", authUserAgent)
             headers.delete("x-api-key")
 
             let body = init?.body
@@ -338,10 +355,9 @@ const AnthropicAuthPlugin: Plugin = async (input) => {
                 if (credentials.type === "failed") return credentials
                 const response = await fetch("https://api.anthropic.com/api/oauth/claude_cli/create_api_key", {
                   method: "POST",
-                  headers: {
+                  headers: authHeaders({
                     authorization: `Bearer ${credentials.access}`,
-                    "Content-Type": "application/json",
-                  },
+                  }),
                 })
                 if (!response.ok) {
                   console.error("[anthropic-auth] api key creation failed", {
