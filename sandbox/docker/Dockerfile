@@ -202,8 +202,12 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
     mkdir -p /opt/opencode-channels && \
     rsync -a --exclude=node_modules --exclude=bun.lock --exclude=.git \
       /opt/build/opencode-channels/ /opt/opencode-channels/ && \
-    cd /opt/opencode-channels && bun install 2>&1 && \
-    echo "[docker] opencode-channels: bun install OK" && \
+    if [ -f /opt/opencode-channels/package.json ]; then \
+      cd /opt/opencode-channels && bun install 2>&1 && \
+      echo "[docker] opencode-channels: bun install OK"; \
+    else \
+      echo "[docker] opencode-channels: no package.json - skipping bun install"; \
+    fi && \
     \
     # ── 4. opencode config (kortix-opencode IS the config dir) ── \
     mkdir -p /opt/opencode && \
@@ -250,9 +254,10 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
     \
     # ── 9. Version metadata + core contract ── \
     mkdir -p /opt/kortix/core && \
-    echo "{\"version\":\"${SANDBOX_VERSION}\",\"updatedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > /opt/kortix/.version && \
-    cp /opt/build/CHANGELOG.json /opt/kortix/CHANGELOG.json 2>/dev/null || true && \
+    printf '{"version":"%s","updatedAt":"%s"}\n' "${SANDBOX_VERSION}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > /opt/kortix/.version && \
+    cp /opt/build/CHANGELOG.json /opt/kortix/CHANGELOG.json && \
     cp /opt/build/kortix-master/service-spec.json /opt/kortix/core/service-spec.json && \
+    test -f /opt/kortix/core/service-spec.json && \
     \
     # ── 10. Global CLI binaries (direct install, no intermediate package.json) ── \
     npm install -g --no-audit --no-fund \
@@ -263,6 +268,9 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
     # opencode postinstall caches a non-musl binary at .opencode — remove it \
     # so the launcher resolves the musl variant (Alpine is musl-based) \
     rm -f /usr/local/lib/node_modules/opencode-ai/bin/.opencode 2>/dev/null || true && \
+    command -v opencode >/dev/null && \
+    command -v agent-browser >/dev/null && \
+    command -v ocx >/dev/null && \
     echo "[docker] Global binaries: opencode=$(opencode --version 2>/dev/null || echo '?'), agent-browser, ocx" && \
     \
     # ── 10b. Fix agent-browser native binary on Alpine musl ── \
@@ -272,7 +280,6 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
     gcc -shared -o /usr/local/lib/libres_init.so /tmp/res_init_stub.c && \
     rm -f /tmp/res_init_stub.c && \
     # Create wrapper that sets LD_PRELOAD before calling the real binary \
-    REAL_AB="$(readlink -f /usr/local/bin/agent-browser)" && \
     mv /usr/local/bin/agent-browser /usr/local/bin/agent-browser-real && \
     printf '#!/bin/sh\nexport LD_PRELOAD=/usr/local/lib/libres_init.so\nexec /usr/local/bin/agent-browser-real "$@"\n' > /usr/local/bin/agent-browser && \
     chmod +x /usr/local/bin/agent-browser && \

@@ -1,5 +1,21 @@
 [
   {
+    "version": "0.8.15",
+    "date": "2026-03-20",
+    "title": "Fix sandbox image missing core runtime contract files",
+    "description": "Fixes a sandbox image packaging failure that published images without /opt/kortix metadata and core service specs. New sandboxes now boot OpenCode correctly, so OpenCode-backed routes like /session and /provider no longer get stuck behind 502s while the gateway is up.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Skip opencode-channels bun install when the package has no package.json so the sandbox Docker build no longer silently skips later runtime packaging steps"
+      },
+      {
+        "type": "fix",
+        "text": "Make /opt/kortix version metadata and core service-spec creation strict during sandbox image builds so broken images fail fast instead of shipping with OpenCode unable to start"
+      }
+    ]
+  },
+  {
     "version": "0.8.14",
     "date": "2026-03-20",
     "title": "Fix cloud memory plugin loading with workspace OpenCode config",
