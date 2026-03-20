@@ -647,7 +647,7 @@ export function TerminalPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: 
             javaScriptEnabled
             domStorageEnabled
             onMessage={handleWebViewMessage}
-            scrollEnabled={false}
+            scrollEnabled
             bounces={false}
             overScrollMode="never"
             keyboardDisplayRequiresUserAction={false}
