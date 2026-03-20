@@ -253,7 +253,7 @@ function validateEnv(): z.infer<typeof envSchema> {
   // ── Conditional: justavps → need JustAVPS keys ────────────────────────
   if (providers.includes('justavps')) {
     if (!raw.JUSTAVPS_API_KEY) issues.push({ var: 'JUSTAVPS_API_KEY', message: 'Required when ALLOWED_SANDBOX_PROVIDERS includes "justavps"', level: 'error' });
-    if (!raw.JUSTAVPS_SNAPSHOT_ID) issues.push({ var: 'JUSTAVPS_SNAPSHOT_ID', message: 'Required when ALLOWED_SANDBOX_PROVIDERS includes "justavps"', level: 'error' });
+    if (!raw.JUSTAVPS_SNAPSHOT_ID) issues.push({ var: 'JUSTAVPS_SNAPSHOT_ID', message: 'Optional — without it, provisioning uses docker_image directly (slower cold start)', level: 'warn' });
   }
 
   // ── Conditional: Pipedream integration → need credentials ──────────────
