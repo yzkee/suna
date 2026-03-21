@@ -45,6 +45,10 @@ router.post('/webhooks/justavps', async (c) => {
 
   try {
     const payload = JSON.parse(body);
+    const d = payload.data || {};
+    if (payload.event !== 'machine.heartbeat') {
+      console.log(`[WEBHOOK] ← ${payload.event} | machine=${d.machineId?.slice(0, 8)} stage=${d.stage || '-'} status=${d.status || '-'} msg=${d.message || '-'}`);
+    }
     await sandboxEventBus.processWebhook(payload);
     return c.json({ ack: true });
   } catch (err) {

@@ -786,30 +786,31 @@ export default {
       // NOTE: CORS preflight (OPTIONS) is handled above, before the auth check.
 
       try {
-        // JustAVPS: route through JustAVPS API proxy instead of direct IP
+        // JustAVPS: route through CF Worker proxy at {port}--{slug}.{domain}
         if (config.isJustAVPSEnabled()) {
           const { sandboxes } = await import('@kortix/db');
           const { db } = await import('./shared/db');
           const { eq, and, ne } = await import('drizzle-orm');
           const [sandbox] = await db
-            .select({ provider: sandboxes.provider, baseUrl: sandboxes.baseUrl, config: sandboxes.config })
+            .select({ provider: sandboxes.provider, config: sandboxes.config, metadata: sandboxes.metadata })
             .from(sandboxes)
             .where(and(eq(sandboxes.externalId, sandboxId), ne(sandboxes.status, 'pooled')))
             .limit(1);
 
-          if (sandbox?.provider === 'justavps' && sandbox.baseUrl) {
-            const proxyBase = sandbox.baseUrl.replace(/\/\d+\/?$/, '');
-            const proxyUrl = `${proxyBase}/${port}`;
+          if (sandbox?.provider === 'justavps') {
+            const meta = (sandbox.metadata || {}) as Record<string, unknown>;
+            const slug = meta.justavpsSlug as string || '';
+            const proxyToken = meta.justavpsProxyToken as string || '';
             const svcKey = (sandbox.config as Record<string, unknown>)?.serviceKey as string || '';
-            const extra: Record<string, string> = {
-              'Authorization': `Bearer ${config.JUSTAVPS_API_KEY}`,
-            };
-            if (svcKey) {
-              extra['X-Sandbox-Auth'] = `Bearer ${svcKey}`;
+            const proxyDomain = config.JUSTAVPS_PROXY_DOMAIN;
+            const cfProxyUrl = `https://${port}--${slug}.${proxyDomain}`;
+            const extra: Record<string, string> = {};
+            if (proxyToken) {
+              extra['X-Proxy-Token'] = proxyToken;
             }
             return await proxyToSandbox(
               sandboxId, 8000, req.method, url.pathname, url.search,
-              req.headers, body, acceptsSSE, origin, proxyUrl, '', extra,
+              req.headers, body, acceptsSSE, origin, cfProxyUrl, svcKey, extra,
             );
           }
         }

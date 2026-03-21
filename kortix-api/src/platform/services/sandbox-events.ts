@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { eq } from 'drizzle-orm';
+import { eq, sql, and } from 'drizzle-orm';
 import { sandboxes } from '@kortix/db';
 import { db } from '../../shared/db';
 
@@ -15,6 +15,16 @@ export interface SandboxProvisionEvent {
 
 export type SandboxEventListener = (event: SandboxProvisionEvent) => void;
 
+const STAGE_ORDER: Record<string, number> = {
+  server_creating: 1,
+  server_created: 2,
+  cloud_init_running: 3,
+  cloud_init_done: 4,
+  docker_pulling: 5,
+  docker_running: 6,
+  services_starting: 7,
+  services_ready: 8,
+};
 
 class SandboxEventBus {
   private emitter = new EventEmitter();
@@ -50,6 +60,12 @@ class SandboxEventBus {
     const { data } = payload;
     const externalId = data.machineId;
 
+    // Skip heartbeat events — they don't update sandbox state and cause
+    // read-modify-write races that clobber stage updates
+    if (data.event === 'heartbeat' || payload.event === 'machine.heartbeat') {
+      return;
+    }
+
     let sandbox: typeof sandboxes.$inferSelect | undefined;
     for (let attempt = 0; attempt < 5; attempt++) {
       const [row] = await db
@@ -69,52 +85,80 @@ class SandboxEventBus {
       return;
     }
 
-    const currentMeta = (sandbox.metadata as Record<string, unknown>) ?? {};
-    const updatedMeta: Record<string, unknown> = {
-      ...currentMeta,
-      provisioningStage: data.stage || data.status,
-      provisioningMessage: data.message,
-      provisioningUpdatedAt: data.timestamp,
-    };
+    const incomingStage = data.stage || '';
+    const incomingRank = STAGE_ORDER[incomingStage] ?? 0;
 
-    const updates: Record<string, unknown> = {
-      metadata: updatedMeta,
-      updatedAt: new Date(),
-    };
-
-    if (data.stage === 'server_created' && data.metadata?.ip) {
-      const ip = data.metadata.ip as string;
-      updatedMeta.publicIp = ip;
-      // Route through JustAVPS API proxy if configured, otherwise direct IP
-      if (sandbox.provider === 'justavps') {
-        const { config: appConfig } = await import('../../config');
-        const apiBase = appConfig.JUSTAVPS_API_URL?.replace(/\/$/, '');
-        if (apiBase) {
-          updates.baseUrl = `${apiBase}/machines/${externalId}/proxy/8000`;
-          console.log(`[SANDBOX-EVENTS] Sandbox ${sandbox.sandboxId} baseUrl → ${updates.baseUrl}`);
-        }
-      } else {
-        updates.baseUrl = `http://${ip}:8000`;
-        console.log(`[SANDBOX-EVENTS] Sandbox ${sandbox.sandboxId} baseUrl → http://${ip}:8000`);
+    // Atomic stage update — merge into JSONB with forward-only WHERE clause.
+    // No read-modify-write race: the DB enforces ordering in a single UPDATE.
+    if (incomingStage && incomingRank > 0) {
+      const patch: Record<string, unknown> = {
+        provisioningStage: incomingStage,
+        provisioningMessage: data.message,
+        provisioningUpdatedAt: data.timestamp,
+      };
+      if (data.stage === 'server_created' && data.metadata?.ip) {
+        patch.publicIp = data.metadata.ip;
       }
+
+      // Build the rank check for all stages that are "behind" the incoming one
+      const stagesBehind = Object.entries(STAGE_ORDER)
+        .filter(([_, rank]) => rank < incomingRank)
+        .map(([stage]) => stage);
+
+      // Atomic: only update if current stage is behind incoming stage (or not set)
+      const result = await db
+        .update(sandboxes)
+        .set({
+          metadata: sql`metadata || ${JSON.stringify(patch)}::jsonb`,
+          updatedAt: new Date(),
+          ...(data.stage === 'server_created' && data.metadata?.ip && sandbox.provider === 'justavps' ? (() => {
+            const meta = (sandbox.metadata as Record<string, unknown>) ?? {};
+            const slug = meta.justavpsSlug as string;
+            if (slug) {
+              const { JUSTAVPS_PROXY_DOMAIN } = require('../../config').config;
+              return { baseUrl: `https://${slug}.${JUSTAVPS_PROXY_DOMAIN}` };
+            }
+            return {};
+          })() : data.stage === 'server_created' && data.metadata?.ip ? { baseUrl: `http://${data.metadata.ip}:8000` } : {}),
+        } as any)
+        .where(
+          and(
+            eq(sandboxes.sandboxId, sandbox.sandboxId),
+            sql`COALESCE(metadata->>'provisioningStage', '') IN (${sql.join(
+              ['', ...stagesBehind].map(s => sql`${s}`),
+              sql`, `,
+            )})`,
+          ),
+        );
     }
 
+    // Status updates (services_ready, ready, error) — these don't race with stage updates
     if (data.stage === 'services_ready' || data.status === 'ready') {
       if (sandbox.status === 'provisioning') {
-        updates.status = 'active';
-        console.log(`[SANDBOX-EVENTS] Sandbox ${sandbox.sandboxId} → active (services_ready)`);
+        await db
+          .update(sandboxes)
+          .set({ status: 'active', updatedAt: new Date() } as any)
+          .where(
+            and(
+              eq(sandboxes.sandboxId, sandbox.sandboxId),
+              eq(sandboxes.status, 'provisioning'),
+            ),
+          );
+        console.log(`[SANDBOX-EVENTS] Sandbox ${sandbox.sandboxId} → active`);
       }
     }
 
     if (data.status === 'error') {
-      updates.status = 'error';
+      await db
+        .update(sandboxes)
+        .set({
+          status: 'error',
+          metadata: sql`metadata || ${JSON.stringify({ provisioningError: data.message })}::jsonb`,
+          updatedAt: new Date(),
+        } as any)
+        .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
       console.log(`[SANDBOX-EVENTS] Sandbox ${sandbox.sandboxId} → error: ${data.message}`);
     }
-
-    await db
-      .update(sandboxes)
-      .set(updates as any)
-      .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
 
     this.emit({
       sandboxId: sandbox.sandboxId,
