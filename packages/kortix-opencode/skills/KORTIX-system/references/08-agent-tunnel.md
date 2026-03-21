@@ -7,9 +7,9 @@ Interact with the user's local machine: files, shell, screenshots, mouse/keyboar
 ## Script Location
 
 ```bash
-TUNNEL=/opt/opencode/skills/agent-tunnel/tunnel.ts
+TUNNEL=/opt/opencode/skills/KORTIX-system/agent-tunnel/tunnel.ts
 # or:
-TUNNEL=~/.opencode/skills/agent-tunnel/tunnel.ts
+TUNNEL=~/.opencode/skills/KORTIX-system/agent-tunnel/tunnel.ts
 ```
 
 All commands: `bun run "$TUNNEL" <command> '<json-args>'`

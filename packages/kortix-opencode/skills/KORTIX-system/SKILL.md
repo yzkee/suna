@@ -1,6 +1,6 @@
 ---
 name: kortix-system
-description: "Complete Kortix platform reference. Covers: sandbox architecture (container, services, ports, filesystem), persistence, environment & secrets, OpenCode framework (agents, skills, tools, commands, sessions, providers, plugins, REST/SSE API), memory & session search (plugin, LTM, lss, SQLite, grep), OAuth integrations (Pipedream), channels (Slack/Telegram/Discord bridge), agent tunnel (local machine control), agent triggers (cron/webhook/pipedream), OCX registry (skill discovery & install), skill authoring, and operations/debugging. Load this skill for ANY Kortix system question."
+description: "Complete Kortix platform reference. Covers: sandbox architecture (container, services, ports, filesystem), persistence, environment & secrets, OpenCode framework (agents, skills, tools, commands, sessions, providers, plugins, REST/SSE API), memory & session search (plugin, LTM, lss, SQLite, grep), OAuth integrations (Pipedream), channels (Slack/Telegram/Discord bridge), agent tunnel (local machine control), agent triggers (cron/webhook/pipedream), OCX registry (skill discovery & install), skill authoring, operations/debugging, and agent harness engineering. Load this skill for ANY Kortix system question."
 ---
 
 # Kortix System Reference
@@ -23,6 +23,7 @@ The single source of truth for the entire Kortix platform. Read the relevant ref
 | 10 | `references/10-registry.md` | OCX registry, skill discovery, install workflow |
 | 11 | `references/11-skill-authoring.md` | Skill layout, SKILL.md format, progressive disclosure |
 | 12 | `references/12-operations.md` | Init scripts, health checks, Docker dev, common issues |
+| 13 | `references/13-agent-harness.md` | Agent engineering: identity, permissions, tools, triggers, composition patterns |
 
 ## Routing — Read the Right File
 
@@ -40,6 +41,7 @@ The single source of truth for the entire Kortix platform. Read the relevant ref
 | Finding & installing marketplace skills | `10-registry.md` |
 | Creating or refactoring skills | `11-skill-authoring.md` |
 | Boot order, health checks, Docker, debugging | `12-operations.md` |
+| Building/configuring agents, harness design, composition | `13-agent-harness.md` |
 
 ## Non-Negotiable Rules
 

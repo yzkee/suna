@@ -97,7 +97,7 @@ async function run() {
 	console.log("\n── 2. Project CRUD ──")
 	const createResult = await tools.project_create.execute(
 		{ name: "e2e-test-project", description: "Test project for E2E", path: "" },
-		{ sessionID: "ses_orchestrator", agent: "KortixOrchestrator" },
+		{ sessionID: "ses_orchestrator", agent: "kortix" },
 	)
 	assert(createResult.includes("e2e-test-project"), "project_create returns project name")
 	assert(existsSync(TEST_PROJECT), "Project directory created")
@@ -109,7 +109,7 @@ async function run() {
 	// Idempotent — calling again doesn't crash
 	const createAgain = await tools.project_create.execute(
 		{ name: "e2e-test-project", description: "Updated desc", path: "" },
-		{ sessionID: "ses_orchestrator", agent: "KortixOrchestrator" },
+		{ sessionID: "ses_orchestrator", agent: "kortix" },
 	)
 	assert(createAgain.includes("e2e-test-project"), "project_create idempotent")
 
@@ -135,7 +135,7 @@ async function run() {
 
 	const spawnResult = await tools.session_spawn.execute(
 		{ project: "e2e-test-project", prompt: "Build a hello world app", agent: "" },
-		{ sessionID: "ses_orchestrator", agent: "KortixOrchestrator" },
+		{ sessionID: "ses_orchestrator", agent: "kortix" },
 	)
 	assert(spawnResult.includes("Session spawned") || spawnResult.includes("ses_test"), "session_spawn returns session ID")
 	assert(spawnedSessions.length === 1, "One session created via client.session.create")
@@ -149,7 +149,7 @@ async function run() {
 	const bigPrompt = "X".repeat(20000)
 	const spawnBig = await tools.session_spawn.execute(
 		{ project: "e2e-test-project", prompt: bigPrompt, agent: "" },
-		{ sessionID: "ses_orchestrator", agent: "KortixOrchestrator" },
+		{ sessionID: "ses_orchestrator", agent: "kortix" },
 	)
 	assert(spawnBig.includes("Session spawned") || spawnBig.includes("ses_test"), `20K prompt spawns OK (got: ${spawnBig.slice(0, 100)})`)
 	const bigPrompts = promptCalls.filter(p => !p.noReply && p.bodyLen > 20000)
@@ -179,7 +179,7 @@ async function run() {
 	const proj = db.prepare("SELECT id FROM projects LIMIT 1").get() as { id: string }
 
 	db.prepare(`INSERT INTO delegations (session_id,project_id,prompt,agent,parent_session_id,parent_agent,status,created_at)
-		VALUES ('ses_verified_test',$pid,'test prompt','KortixWorker','ses_orchestrator','KortixOrchestrator','running',$now)`)
+		VALUES ('ses_verified_test',$pid,'test prompt','kortix','ses_orchestrator','kortix','running',$now)`)
 		.run({ $pid: proj.id, $now: new Date().toISOString() })
 
 	// Fire idle event — this starts a 10s debounce timer
@@ -202,7 +202,7 @@ async function run() {
 	promptCalls = []
 
 	db.prepare(`INSERT INTO delegations (session_id,project_id,prompt,agent,parent_session_id,parent_agent,status,created_at)
-		VALUES ('ses_done_no_verified',$pid,'test prompt 2','KortixWorker','ses_orchestrator','KortixOrchestrator','running',$now)`)
+		VALUES ('ses_done_no_verified',$pid,'test prompt 2','kortix','ses_orchestrator','kortix','running',$now)`)
 		.run({ $pid: proj.id, $now: new Date().toISOString() })
 
 	await event({ event: { type: "session.idle", properties: { sessionID: "ses_done_no_verified" } } as any })
@@ -217,7 +217,7 @@ async function run() {
 	promptCalls = []
 
 	db.prepare(`INSERT INTO delegations (session_id,project_id,prompt,agent,parent_session_id,parent_agent,status,created_at)
-		VALUES ('ses_error_test',$pid,'test prompt 3','KortixWorker','ses_orchestrator','KortixOrchestrator','running',$now)`)
+		VALUES ('ses_error_test',$pid,'test prompt 3','kortix','ses_orchestrator','kortix','running',$now)`)
 		.run({ $pid: proj.id, $now: new Date().toISOString() })
 
 	await event({ event: { type: "session.error", properties: { sessionID: "ses_error_test", error: "LLM timeout" } } as any })

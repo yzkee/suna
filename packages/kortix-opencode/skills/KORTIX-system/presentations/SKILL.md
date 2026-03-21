@@ -8,7 +8,7 @@ description: "Create, manage, validate, preview, and export HTML presentation sl
 1920x1080 HTML slide decks. Inter font, D3.js, and Chart.js pre-loaded.
 
 ```
-SCRIPT=~/.opencode/skills/presentations/presentation.ts
+SCRIPT=~/.opencode/skills/KORTIX-system/presentations/presentation.ts
 ```
 
 ## Commands
