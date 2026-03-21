@@ -270,44 +270,68 @@ class Manager {
 
 	// ── Worker Sessions ──
 
-	async spawn(project: ProjectRow, prompt: string, agent: string, parentSid: string, parentAgent: string, command: string = "/autowork", model?: string): Promise<DelegationRow> {
-		// Read project context
+	private async projectState(project: ProjectRow, skipSid?: string): Promise<{ ctx: string; siblingCtx: string }> {
 		let ctx = ""
 		try { ctx = await fs.readFile(path.join(project.path, ".kortix", "context.md"), "utf8") } catch { ctx = "(none)" }
 
-		// List other active sessions in this project — workers need to know what others are doing
 		const siblings = this.db.prepare("SELECT session_id, prompt, status FROM delegations WHERE project_id=$pid ORDER BY created_at DESC LIMIT 10")
 			.all({ $pid: project.id }) as Array<{ session_id: string; prompt: string; status: string }>
-		const siblingCtx = siblings.length > 0
-			? siblings.map(s => `- [${s.status}] ${s.session_id.slice(-8)}: ${s.prompt.slice(0, 120)}`).join("\n")
-			: "(none)"
+		const rows = skipSid ? siblings.filter((s) => s.session_id !== skipSid) : siblings
+		return {
+			ctx,
+			siblingCtx: rows.length > 0
+				? rows.map((s) => `- [${s.status}] ${s.session_id.slice(-8)}: ${s.prompt.slice(0, 120)}`).join("\n")
+				: "(none)",
+		}
+	}
 
-		// Create child session
-		const sess = await this.client.session.create({ body: { title: prompt.slice(0, 80), parentID: parentSid } })
-		if (!sess.data?.id) throw new Error("Failed to create session")
-		const sessionId = sess.data.id
-		// Normalize agent name — "default", "", or invalid → kortix
-		const agentName = (agent && agent !== "default" && agent !== "kortix" && agent !== "KortixWorker") ? agent : "kortix"
-		const now = new Date().toISOString()
+	private model(model?: string): { providerID: string; modelID: string } | undefined {
+		if (!model || !model.includes("/")) return undefined
+		const parts = model.split("/")
+		const providerID = parts[0] || ""
+		const rest = parts.slice(1)
+		return { providerID, modelID: rest.join("/") }
+	}
 
-		// Record delegation
-		this.db.prepare(`INSERT INTO delegations (session_id,project_id,prompt,agent,parent_session_id,parent_agent,status,created_at)
-			VALUES ($sid,$pid,$prompt,$agent,$psid,$pa,'running',$c)`)
-			.run({ $sid: sessionId, $pid: project.id, $prompt: prompt, $agent: agentName, $psid: parentSid, $pa: parentAgent, $c: now })
+	private promptBody(agent: string, text: string, model?: string): Record<string, any> {
+		const body: Record<string, any> = {
+			agent,
+			parts: [{ type: "text" as const, text }],
+			tools: { session_start_background: false, session_spawn: false, session_list_background: false, session_list_spawned: false, session_message: false },
+		}
+		const cfg = this.model(model)
+		if (cfg) body.model = cfg
+		return body
+	}
 
-		// Command prefix triggers the continuation plugin's autowork loop
-		// /autowork is matched by regex /\/autowork\b/ in the continuation plugin
-		// Empty string = one-shot execution (no loop)
+	private dispatch(sessionId: string, body: Record<string, any>): void {
+		this.client.session
+			.prompt({ path: { id: sessionId }, body })
+			.catch(async () => {
+				try {
+					await this.client.session.prompt({ path: { id: sessionId }, body })
+				} catch (err: any) {
+					this.db.prepare("UPDATE delegations SET status='failed',result=$r,completed_at=$t WHERE session_id=$sid")
+						.run({ $r: `Spawn error (after retry): ${err.message}`, $t: new Date().toISOString(), $sid: sessionId })
+					this.notifyParent(sessionId)
+				}
+			})
+	}
+
+	private assignment(project: ProjectRow, sessionId: string, prompt: string, ctx: string, siblingCtx: string, command: string, resumedSessionId?: string): string {
 		const cmdPrefix = command ? `${command}\n\n` : ""
-
-		const fullPrompt = `${cmdPrefix}## Assignment
+		const kind = resumedSessionId ? "## Follow-up Session Work" : "## Session Work"
+		const extra = resumedSessionId
+			? `\n**Resumed Session:** ${resumedSessionId}\n\nContinue work in this same session. Reuse prior context and only respond once this follow-up is actually complete.\n`
+			: ""
+		return `${cmdPrefix}## Assignment
 
 **Project:** ${project.name} — \`${project.path}\`
 **Session:** ${sessionId}
 
-## Task
+${kind}
 
-${prompt}
+${prompt}${extra}
 
 ## Project Context
 
@@ -329,36 +353,39 @@ Other workers may be running in parallel on this project. **Do NOT touch files o
 6. Include test results in your final message.
 7. When fully done and all tests pass, emit \`<promise>DONE</promise>\` then \`<promise>VERIFIED</promise>\`.
 `
+	}
 
-		// Parse model string "provider/model" into SDK format { providerID, modelID }
-		let modelConfig: { providerID: string; modelID: string } | undefined
-		if (model && model.includes("/")) {
-			const [providerID, ...rest] = model.split("/")
-			modelConfig = { providerID, modelID: rest.join("/") }
-		}
+	async spawn(project: ProjectRow, prompt: string, agent: string, parentSid: string, parentAgent: string, command: string = "/autowork", model?: string, title?: string): Promise<DelegationRow> {
+		// Read project context
+		const state = await this.projectState(project)
 
-		// Fire and forget — prompt() without await, same pattern as background-agents plugin
-		const promptBody: Record<string, any> = {
-			agent: agentName,
-			parts: [{ type: "text" as const, text: fullPrompt }],
-			// Prevent recursive spawning from child sessions
-			tools: { session_spawn: false, session_list_spawned: false, session_message: false },
-		}
-		if (modelConfig) promptBody.model = modelConfig
+		// Create child session
+		const sess = await this.client.session.create({ body: { title: (title || prompt).slice(0, 80), parentID: parentSid } })
+		if (!sess.data?.id) throw new Error("Failed to create session")
+		const sessionId = sess.data.id
+		// Normalize agent name — "default", "", or invalid → kortix
+		const agentName = (agent && agent !== "default" && agent !== "kortix" && agent !== "KortixWorker") ? agent : "kortix"
+		const now = new Date().toISOString()
 
-		this.client.session
-			.prompt({ path: { id: sessionId }, body: promptBody })
-			.catch(async (err: Error) => {
-				// Retry once on transient errors (JSON parse, connection issues)
-				try {
-					await this.client.session.prompt({ path: { id: sessionId }, body: promptBody })
-				} catch (retryErr: any) {
-					this.db.prepare("UPDATE delegations SET status='failed',result=$r,completed_at=$t WHERE session_id=$sid")
-						.run({ $r: `Spawn error (after retry): ${retryErr.message}`, $t: new Date().toISOString(), $sid: sessionId })
-					this.notifyParent(sessionId)
-				}
-			})
+		// Record delegation
+		this.db.prepare(`INSERT INTO delegations (session_id,project_id,prompt,agent,parent_session_id,parent_agent,status,created_at)
+			VALUES ($sid,$pid,$prompt,$agent,$psid,$pa,'running',$c)`)
+			.run({ $sid: sessionId, $pid: project.id, $prompt: prompt, $agent: agentName, $psid: parentSid, $pa: parentAgent, $c: now })
 
+		this.dispatch(sessionId, this.promptBody(agentName, this.assignment(project, sessionId, prompt, state.ctx, state.siblingCtx, command), model))
+
+		return this.db.prepare("SELECT * FROM delegations WHERE session_id=$sid").get({ $sid: sessionId }) as DelegationRow
+	}
+
+	async resume(sessionId: string, prompt: string, parentSid: string, parentAgent: string, command: string = "/autowork", model?: string): Promise<DelegationRow> {
+		const del = this.db.prepare("SELECT * FROM delegations WHERE session_id=$sid").get({ $sid: sessionId }) as DelegationRow | null
+		if (!del) throw new Error(`Session \"${sessionId}\" not found.`)
+		const project = this.db.prepare("SELECT * FROM projects WHERE id=$id").get({ $id: del.project_id }) as ProjectRow | null
+		if (!project) throw new Error(`Project for session \"${sessionId}\" not found.`)
+		const state = await this.projectState(project, sessionId)
+		this.db.prepare("UPDATE delegations SET status='running',result=NULL,completed_at=NULL,parent_session_id=$psid,parent_agent=$pa WHERE session_id=$sid")
+			.run({ $psid: parentSid, $pa: parentAgent, $sid: sessionId })
+		this.dispatch(sessionId, this.promptBody(del.agent || "kortix", this.assignment(project, sessionId, prompt, state.ctx, state.siblingCtx, command, sessionId), model))
 		return this.db.prepare("SELECT * FROM delegations WHERE session_id=$sid").get({ $sid: sessionId }) as DelegationRow
 	}
 
@@ -617,6 +644,56 @@ const KortixPlugin: Plugin = async (ctx) => {
 	const db = initDb(path.join(kortixDir, "kortix.db"))
 	const mgr = new Manager(client, workspaceRoot, db)
 
+	const listBackgroundSessions = tool({
+		description: "List background sessions, optionally filtered by project.",
+		args: {
+			project: tool.schema.string().describe('"" for all projects.'),
+		},
+		async execute(args: { project: string }): Promise<string> {
+			let pid: string | undefined
+			if (args.project) { const p = mgr.getProject(args.project); if (!p) return "Project not found."; pid = p.id }
+			const dels = mgr.listDelegations(pid)
+			if (!dels.length) return "No worker sessions."
+			const lines = dels.map(d => {
+				const elapsed = d.status === "running" ? ` ${Math.round((Date.now() - new Date(d.created_at).getTime()) / 1000)}s` : ""
+				return `| ${d.session_id.slice(-8)} | ${d.status}${elapsed} | ${d.project_name || "-"} | ${d.prompt.slice(0, 50)} |`
+			})
+			return `| Session | Status | Project | Prompt |\n|---|---|---|---|\n${lines.join("\n")}`
+		},
+	})
+
+	const spawnBackgroundSession = tool({
+		description: `Spawn or resume a background session in a project. Returns the session ID immediately, then later sends a <session-report> on completion or failure. Runs /autowork by default.`,
+		args: {
+			project: tool.schema.string().describe('Project name or path. "" allowed when resuming via session_id.'),
+			description: tool.schema.string().describe('Short session label. "" to skip.'),
+			prompt: tool.schema.string().describe("Detailed task description. Be thorough — the session starts with zero context beyond this + project's .kortix/context.md."),
+			agent: tool.schema.string().describe('"" for default (kortix). Or any agent name.'),
+			subagent_type: tool.schema.string().describe('Alias of agent.'),
+			session_id: tool.schema.string().describe('Existing session ID to continue instead of creating a fresh one.'),
+			model: tool.schema.string().describe('"" for agent default. Or "provider/model" like "anthropic/claude-sonnet-4-6", "anthropic/claude-opus-4".'),
+			command: tool.schema.string().describe('"" for default (/autowork). Or any command. "none" for one-shot (no loop).'),
+		},
+		async execute(args: { project: string; description: string; prompt: string; agent: string; subagent_type: string; session_id: string; model: string; command: string }, toolCtx: ToolContext): Promise<string> {
+			if (!toolCtx?.sessionID) return "Error: no session context."
+			try {
+				const cmd = args.command === "none" ? "" : (args.command || "/autowork")
+				const agent = args.subagent_type || args.agent || "kortix"
+				const existingSessionId = args.session_id || ""
+				const del = existingSessionId
+					? await mgr.resume(existingSessionId, args.prompt, toolCtx.sessionID, toolCtx.agent, cmd, args.model || undefined)
+					: await (async () => {
+						const p = mgr.getProject(args.project)
+						if (!p) throw new Error(`Project "${args.project}" not found.`)
+						return mgr.spawn(p, args.prompt, agent, toolCtx.sessionID, toolCtx.agent, cmd, args.model || undefined, args.description || undefined)
+					})()
+				const p = db.prepare("SELECT name FROM projects WHERE id=$id").get({ $id: del.project_id }) as { name: string } | null
+				const active = (db.prepare("SELECT COUNT(*) as c FROM delegations WHERE status='running'").get() as { c: number })?.c || 0
+				return `Session ${existingSessionId ? "resumed" : "started"}:\n- **Session:** ${del.session_id}\n- **Project:** ${p?.name || "?"}\n- **Agent:** ${del.agent}${args.model ? `\n- **Model:** ${args.model}` : ""}\n- **Command:** ${cmd || "(one-shot)"}\n- **Active:** ${active}\n\n<session-report> will arrive on completion/failure.`
+			} catch (e) { return `Failed: ${e instanceof Error ? e.message : "unknown"}` }
+		},
+	})
+
 	return {
 		tool: {
 			project_create: tool({
@@ -688,46 +765,32 @@ const KortixPlugin: Plugin = async (ctx) => {
 				},
 			}),
 
+			session_start_background: spawnBackgroundSession,
 			session_spawn: tool({
-				description: `Spawn an async session in a project. Fire & forget — returns the session ID. You'll receive a <session-report> when it completes or fails. Runs /autowork by default.`,
+				description: "Compatibility alias for `session_start_background`.",
 				args: {
-					project: tool.schema.string().describe("Project name or path"),
-					prompt: tool.schema.string().describe("Detailed task description. Be thorough — the session starts with zero context beyond this + project's .kortix/context.md."),
+					project: tool.schema.string().describe('Project name or path. "" allowed when resuming via session_id.'),
+					description: tool.schema.string().describe('Short session label. "" to skip.'),
+					prompt: tool.schema.string().describe("Detailed task description."),
 					agent: tool.schema.string().describe('"" for default (kortix). Or any agent name.'),
-					model: tool.schema.string().describe('"" for agent default. Or "provider/model" like "anthropic/claude-sonnet-4-6", "anthropic/claude-opus-4".'),
+					subagent_type: tool.schema.string().describe('Alias of agent.'),
+					session_id: tool.schema.string().describe('Existing session ID to continue instead of creating a fresh one.'),
+					model: tool.schema.string().describe('"" for agent default. Or "provider/model".'),
 					command: tool.schema.string().describe('"" for default (/autowork). Or any command. "none" for one-shot (no loop).'),
 				},
-				async execute(args: { project: string; prompt: string; agent: string; model: string; command: string }, toolCtx: ToolContext): Promise<string> {
-					if (!toolCtx?.sessionID) return "Error: no session context."
-					const p = mgr.getProject(args.project)
-					if (!p) return `Project "${args.project}" not found.`
-					try {
-						const cmd = args.command === "none" ? "" : (args.command || "/autowork")
-						const del = await mgr.spawn(
-							p, args.prompt, args.agent || "kortix",
-							toolCtx.sessionID, toolCtx.agent, cmd, args.model || undefined,
-						)
-						const active = (db.prepare("SELECT COUNT(*) as c FROM delegations WHERE status='running'").get() as { c: number })?.c || 0
-						return `Session spawned:\n- **Session:** ${del.session_id}\n- **Project:** ${p.name}\n- **Agent:** ${del.agent}${args.model ? `\n- **Model:** ${args.model}` : ""}\n- **Command:** ${cmd || "(one-shot)"}\n- **Active:** ${active}\n\n<session-report> will arrive on completion/failure.`
-					} catch (e) { return `Failed: ${e instanceof Error ? e.message : "unknown"}` }
+				async execute(args: { project: string; description: string; prompt: string; agent: string; subagent_type: string; session_id: string; model: string; command: string }, toolCtx: ToolContext): Promise<string> {
+					return spawnBackgroundSession.execute(args, toolCtx)
 				},
 			}),
 
+			session_list_background: listBackgroundSessions,
 			session_list_spawned: tool({
-				description: "List spawned sessions, optionally filtered by project.",
+				description: "Compatibility alias for `session_list_background`.",
 				args: {
 					project: tool.schema.string().describe('"" for all projects.'),
 				},
 				async execute(args: { project: string }): Promise<string> {
-					let pid: string | undefined
-					if (args.project) { const p = mgr.getProject(args.project); if (!p) return "Project not found."; pid = p.id }
-					const dels = mgr.listDelegations(pid)
-					if (!dels.length) return "No worker sessions."
-					const lines = dels.map(d => {
-						const elapsed = d.status === "running" ? ` ${Math.round((Date.now() - new Date(d.created_at).getTime()) / 1000)}s` : ""
-						return `| ${d.session_id.slice(-8)} | ${d.status}${elapsed} | ${d.project_name || "-"} | ${d.prompt.slice(0, 50)} |`
-					})
-					return `| Session | Status | Project | Prompt |\n|---|---|---|---|\n${lines.join("\n")}`
+					return listBackgroundSessions.execute(args)
 				},
 			}),
 

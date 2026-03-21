@@ -92,7 +92,7 @@ async function run() {
 	const event = plugin.event as (args: { event: any }) => Promise<void>
 
 	console.log("\n── 1. Plugin initialization ──")
-	assert(Object.keys(tools).length === 8, `8 tools registered (got ${Object.keys(tools).length})`)
+	assert(Object.keys(tools).length === 10, `10 tools registered (got ${Object.keys(tools).length})`)
 	assert(typeof event === "function", "Event handler is a function")
 	assert(existsSync(DB_PATH), "SQLite DB created in central workspace .kortix")
 
@@ -135,11 +135,11 @@ async function run() {
 	spawnedSessions = []
 	promptCalls = []
 
-	const spawnResult = await tools.session_spawn.execute(
-		{ project: "e2e-test-project", prompt: "Build a hello world app", agent: "" },
+	const spawnResult = await tools.session_start_background.execute(
+		{ project: "e2e-test-project", description: "hello app", prompt: "Build a hello world app", agent: "", subagent_type: "", session_id: "", model: "", command: "" },
 		{ sessionID: "ses_orchestrator", agent: "kortix" },
 	)
-	assert(spawnResult.includes("Session spawned") || spawnResult.includes("ses_test"), "session_spawn returns session ID")
+	assert(spawnResult.includes("Session:") || spawnResult.includes("ses_test"), "session_start_background returns session ID")
 	assert(spawnedSessions.length === 1, "One session created via client.session.create")
 	// prompt() is fire-and-forget (no await in the plugin), but mock resolves sync
 	const spawnPrompts = promptCalls.filter(p => !p.noReply && p.bodyLen > 100)
@@ -149,18 +149,35 @@ async function run() {
 	// Large prompt — should NOT fail
 	promptCalls = []
 	const bigPrompt = "X".repeat(20000)
-	const spawnBig = await tools.session_spawn.execute(
-		{ project: "e2e-test-project", prompt: bigPrompt, agent: "" },
+	const spawnBig = await tools.session_start_background.execute(
+		{ project: "e2e-test-project", description: "big prompt", prompt: bigPrompt, agent: "", subagent_type: "", session_id: "", model: "", command: "" },
 		{ sessionID: "ses_orchestrator", agent: "kortix" },
 	)
-	assert(spawnBig.includes("Session spawned") || spawnBig.includes("ses_test"), `20K prompt spawns OK (got: ${spawnBig.slice(0, 100)})`)
+	assert(spawnBig.includes("Session:") || spawnBig.includes("ses_test"), `20K prompt spawns OK (got: ${spawnBig.slice(0, 100)})`)
 	const bigPrompts = promptCalls.filter(p => !p.noReply && p.bodyLen > 20000)
 	assert(bigPrompts.length === 1, `prompt() fired for 20K spawn (${bigPrompts.length} calls)`)
 	assert(bigPrompts[0].bodyLen > 20000, `Full 20K prompt passed through (${bigPrompts[0].bodyLen} chars)`)
 
+	console.log("\n── 3b. Session resume ──")
+	promptCalls = []
+	const resumed = await tools.session_start_background.execute(
+		{ project: "", description: "resume hello app", prompt: "Add tests and continue", agent: "", subagent_type: "", session_id: spawnedSessions[0].id, model: "", command: "" },
+		{ sessionID: "ses_orchestrator_2", agent: "kortix" },
+	)
+	assert(resumed.includes(`**Session:** ${spawnedSessions[0].id}`), "session_start_background reuses session_id on resume")
+	assert(spawnedSessions.length === 2, "Resume does not create a new child session")
+	assert(promptCalls.some(p => p.sessionId === spawnedSessions[0].id), "Resume prompts the existing child session")
+	const compatSpawn = await tools.session_spawn.execute(
+		{ project: "", description: "compat resume", prompt: "Ping the same session again", agent: "", subagent_type: "", session_id: spawnedSessions[0].id, model: "", command: "" },
+		{ sessionID: "ses_orchestrator_3", agent: "kortix" },
+	)
+	assert(compatSpawn.includes(`**Session:** ${spawnedSessions[0].id}`), "session_spawn aliases session_start_background")
+
 	console.log("\n── 4. Session list ──")
-	const listSessions = await tools.session_list_spawned.execute({ project: "e2e-test-project" }, {})
-	assert(listSessions.includes("running"), "session_list_spawned shows running sessions")
+	const listSessions = await tools.session_list_background.execute({ project: "e2e-test-project" }, {})
+	assert(listSessions.includes("running"), "session_list_background shows running sessions")
+	const compatListSessions = await tools.session_list_spawned.execute({ project: "e2e-test-project" }, {})
+	assert(compatListSessions === listSessions, "session_list_spawned aliases session_list_background")
 
 	console.log("\n── 5. Session read ──")
 	const readResult = await tools.session_read.execute({ session_id: spawnedSessions[0].id }, {})
@@ -199,6 +216,7 @@ async function run() {
 	assert(completed?.status === "complete", `After debounce: VERIFIED → complete (got ${completed?.status})`)
 	assert(completed?.result?.includes("Work done"), "Result captured from assistant message")
 	assert(promptCalls.some(p => p.sessionId === "ses_orchestrator"), "Orchestrator notified")
+	assert(promptCalls.some(p => p.sessionId === "ses_orchestrator" && p.bodyLen > 100), "Completion report includes session payload")
 
 	console.log("\n── 8. Event handler — DONE without VERIFIED ──")
 	promptCalls = []

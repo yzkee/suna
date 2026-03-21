@@ -1,6 +1,6 @@
 ---
 name: kortix-system
-description: "Router skill for the Kortix platform. Load this when you need to choose the right standalone Kortix/OpenCode skill for sandbox internals, framework behavior, integrations, channels, triggers, operations, or agent harness design."
+description: "Router skill for the Kortix platform. Load this when you need to choose the right standalone Kortix/OpenCode skill for sandbox internals, framework behavior, session orchestration, integrations, channels, triggers, operations, or agent harness design."
 ---
 
 # Kortix System Router
@@ -15,6 +15,7 @@ Use this skill as the top-level map for the Kortix platform. It should route you
 | Persistence, package survival, boot flow | `kortix-persistence` | What persists vs resets, safe install patterns, boot flow |
 | Env vars, secrets, encryption, cloud mode | `kortix-environment-secrets` | Env vars, cloud mode, secret API, encryption |
 | Agents, skills, tools, commands, sessions, providers, plugins, API | `opencode-framework` | Framework architecture, config, REST API, SSE |
+| Kortix background sessions and orchestration tools | `kortix-session-orchestration` | `session_start_background`, `session_list_background`, aliases, scoping, session-report flow |
 | Memory, observations, LTM, session search, SQLite, lss | `kortix-memory-sessions` | Memory plugin, filesystem persistence, session retrieval |
 | OAuth apps, Pipedream actions, authenticated API calls | `kortix-integrations` | Integrations, actions, proxyFetch, trigger management |
 | Slack, Telegram, Discord bridge | `kortix-channels` | Messaging bridge, session tracking, adapter setup, APIs |
@@ -39,5 +40,6 @@ Use this skill as the top-level map for the Kortix platform. It should route you
 
 - Questions about sandbox internals usually start with `kortix-architecture` or `kortix-persistence`.
 - Questions about how OpenCode itself works usually start with `opencode-framework`.
+- Questions about `session_start_background`, `session_list_background`, `session_read`, `session_message`, or project-vs-session scope should start with `kortix-session-orchestration`.
 - Questions about automation often combine `kortix-agent-triggers` with `kortix-integrations` or `kortix-agent-harness`.
 - Questions about authoring or refactoring platform knowledge should load `kortix-skill-authoring`.
