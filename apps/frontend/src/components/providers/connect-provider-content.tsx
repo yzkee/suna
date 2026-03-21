@@ -21,6 +21,9 @@ import {
   AlertCircle,
   ChevronRight,
   ChevronDown,
+  Key,
+  Globe,
+  Plus,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -45,6 +48,36 @@ import type { ProviderListResponse } from '@/hooks/opencode/use-opencode-session
 import { toast } from '@/lib/toast';
 
 const FALLBACK_PROVIDER_CARDS = [] as const;
+
+// =============================================================================
+// Auth method display helpers
+// =============================================================================
+
+/** Normalize auth method label — API type always shows "API key" per upstream convention */
+function methodLabel(method: { type: string; label: string }) {
+  if (method.type === 'api') return 'API key';
+  return method.label || 'OAuth';
+}
+
+/** Get an icon for the auth method based on its label/type */
+function methodIcon(method: { type: string; label: string }) {
+  const label = method.label.toLowerCase();
+  if (method.type === 'api' || label.includes('api key') || label.includes('manually')) return Key;
+  if (label.includes('pro') || label.includes('max') || label.includes('plus')) return Globe;
+  if (label.includes('create')) return Plus;
+  return Globe;
+}
+
+/** Get a short description for the auth method */
+function methodDescription(method: { type: string; label: string }) {
+  const label = method.label.toLowerCase();
+  if (label.includes('pro') && label.includes('max')) return 'Use your Claude Pro or Max subscription';
+  if (label.includes('pro') && label.includes('plus')) return 'Use your ChatGPT Pro or Plus subscription';
+  if (label.includes('create') && label.includes('api')) return 'Automatically create and connect an API key';
+  if (method.type === 'api') return 'Manually enter an existing API key';
+  if (label.includes('copilot') || label.includes('github')) return 'Login with your GitHub account';
+  return undefined;
+}
 
 // =============================================================================
 // ConnectProviderContent
@@ -362,6 +395,18 @@ export function ConnectProviderContent({
   const showOAuthPending = view.type === 'connect' && currentMethod?.type === 'oauth' && oauthState === 'pending';
   const showOAuthError = view.type === 'connect' && oauthState === 'error';
 
+  // Dynamic title: upstream shows "Login with Claude Pro/Max" when that method is selected
+  const connectTitle = (() => {
+    if (view.type !== 'connect') return '';
+    if (currentMethod?.label?.toLowerCase().includes('max') && view.providerID === 'anthropic') {
+      return 'Login with Claude Pro/Max';
+    }
+    if (currentMethod?.label?.toLowerCase().includes('plus') && view.providerID === 'openai') {
+      return 'Login with ChatGPT Pro/Plus';
+    }
+    return `Connect ${PROVIDER_LABELS[view.providerID] || selectedProviderData?.name || view.providerID}`;
+  })();
+
   return (
     <div className="px-5 py-4">
       {/* Header */}
@@ -377,7 +422,7 @@ export function ConnectProviderContent({
         )}
         <h3 className="flex-1 text-sm font-medium text-foreground">
           {view.type === 'custom' && 'Add Custom'}
-          {view.type === 'connect' && PROVIDER_LABELS[view.providerID] || selectedProviderData?.name || view.providerID}
+          {view.type === 'connect' && connectTitle}
           {view.type === 'list' && 'Add Provider'}
         </h3>
       </div>
@@ -593,20 +638,32 @@ export function ConnectProviderContent({
           {showMethodSelect && (
             <>
               <p className="text-sm text-muted-foreground">
-                Choose how to connect:
+                Select login method for {PROVIDER_LABELS[view.providerID] || selectedProviderData?.name || view.providerID}.
               </p>
-              <div className="rounded-2xl border border-border/50 bg-muted/20 p-2">
-                {authMethods.map((method, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => selectMethod(view.providerID, authMethods, i)}
-                    className="group flex w-full items-center gap-2 rounded-xl px-3 py-3 text-left text-sm transition-colors hover:bg-background/70"
-                  >
-                    <span className="flex-1 font-medium">{method.type === 'api' ? 'API Key' : method.label || 'OAuth'}</span>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
-                  </button>
-                ))}
+              <div className="rounded-2xl border border-border/50 bg-muted/20 p-2 space-y-0.5">
+                {authMethods.map((method, i) => {
+                  const Icon = methodIcon(method);
+                  const desc = methodDescription(method);
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => selectMethod(view.providerID, authMethods, i)}
+                      className="group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors hover:bg-background/70"
+                    >
+                      <span className="flex items-center justify-center size-8 rounded-lg bg-muted/50 text-muted-foreground group-hover:text-foreground transition-colors shrink-0">
+                        <Icon className="h-4 w-4" />
+                      </span>
+                      <span className="flex-1 min-w-0">
+                        <span className="text-sm font-medium block">{methodLabel(method)}</span>
+                        {desc && (
+                          <span className="text-xs text-muted-foreground/70 block mt-0.5">{desc}</span>
+                        )}
+                      </span>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors shrink-0" />
+                    </button>
+                  );
+                })}
               </div>
             </>
           )}
@@ -644,10 +701,12 @@ export function ConnectProviderContent({
               <p className="text-sm text-muted-foreground">
                 Visit the{' '}
                 <a href={oauthUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">authorization page</a>
-                {' '}and paste the code below.
+                {' '}and paste the code below to connect {selectedProviderData?.name || view.providerID}.
               </p>
               <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Authorization code</label>
+                <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                  {currentMethod ? `${methodLabel(currentMethod)} code` : 'Authorization code'}
+                </label>
                 <Input placeholder="Enter code..." type="text" value={oauthCode} onChange={(e) => setOauthCode(e.target.value)} className="h-9 rounded-xl border-border/50 bg-background text-sm" autoFocus />
               </div>
               {error && (

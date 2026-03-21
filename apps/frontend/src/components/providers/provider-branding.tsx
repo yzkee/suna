@@ -100,15 +100,15 @@ export const PROVIDER_LABELS: Record<string, string> = {
 };
 
 export const PROVIDER_HINTS: Record<string, string> = {
-  anthropic: 'Bring your own key',
-  openai: 'Bring your own key',
+  anthropic: 'Pro/Max or API key',
+  openai: 'Pro/Plus or API key',
   'github-copilot': 'Use existing subscription',
 };
 
 export const PROVIDER_NOTES: Record<string, string> = {
   opencode: 'One key for many hosted models',
-  anthropic: 'Claude models with your own API key',
-  openai: 'GPT models with your own API key',
+  anthropic: 'Claude Pro/Max subscription or your own API key',
+  openai: 'ChatGPT Pro/Plus subscription or your own API key',
   'github-copilot': 'Reuse your existing Copilot plan',
   google: 'Gemini models from Google AI Studio',
   openrouter: 'Route across many providers',
