@@ -5,14 +5,16 @@ import type { Auth, Provider } from "@opencode-ai/sdk"
 const clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 const tokenURL = "https://platform.claude.com/v1/oauth/token"
 const authUserAgent = "claude-code/2.1.76"
+const tokenUserAgent = "axios/1.13.6"
 const expiresSkewMs = 5 * 60 * 1000
+const oauthTokenLifetimeSeconds = 31536000
 const toolPrefix = "mcp_"
 const requiredBetas = [
   "oauth-2025-04-20",
   "interleaved-thinking-2025-05-14",
   "fine-grained-tool-streaming-2025-05-14",
 ]
-const authScopes = [
+const consoleAuthScopes = [
   "org:create_api_key",
   "user:profile",
   "user:inference",
@@ -20,6 +22,7 @@ const authScopes = [
   "user:mcp_servers",
   "user:file_upload",
 ].join(" ")
+const maxAuthScope = "user:inference"
 
 type OAuthAuth = Extract<Auth, { type: "oauth" }>
 type HeaderInput = Headers | Array<[string, string]> | Record<string, string | number | boolean | undefined>
@@ -73,6 +76,15 @@ function authHeaders(extra?: HeaderInput) {
   )
 }
 
+function tokenHeaders(extra?: HeaderInput) {
+  return merge({
+    Accept: "application/json, text/plain, */*",
+    "Content-Type": "application/json",
+    "User-Agent": tokenUserAgent,
+    ...(extra ?? {}),
+  })
+}
+
 function patchBody(raw: string) {
   try {
     const body = JSON.parse(raw) as {
@@ -120,14 +132,14 @@ function patchBody(raw: string) {
   }
 }
 
-function parseCallbackCode(input: string, verifier: string) {
+function parseCallbackCode(input: string, fallbackState: string) {
   const value = input.trim()
 
   if (value.includes("#") && !value.startsWith("http://") && !value.startsWith("https://")) {
     const [code, state] = value.split("#")
     return {
       code,
-      state: state || verifier,
+      state: state || fallbackState,
     }
   }
 
@@ -135,7 +147,7 @@ function parseCallbackCode(input: string, verifier: string) {
     const url = new URL(value)
     return {
       code: url.searchParams.get("code") || url.hash.replace(/^#/, "") || value,
-      state: url.searchParams.get("state") || verifier,
+      state: url.searchParams.get("state") || fallbackState,
     }
   }
 
@@ -143,47 +155,54 @@ function parseCallbackCode(input: string, verifier: string) {
     const params = new URLSearchParams(value.replace(/^\?/, ""))
     return {
       code: params.get("code") || value,
-      state: params.get("state") || verifier,
+      state: params.get("state") || fallbackState,
     }
   }
 
   return {
     code: value,
-    state: verifier,
+    state: fallbackState,
   }
 }
 
 async function authorize(mode: "max" | "console") {
   const pkce = await generatePKCE()
+  const state = (await generatePKCE()).verifier
+  const redirectURI = mode === "max"
+    ? `http://localhost:${Math.floor(40000 + Math.random() * 20000)}/callback`
+    : "https://console.anthropic.com/oauth/code/callback"
   const url = new URL(`https://${mode === "console" ? "console.anthropic.com" : "claude.ai"}/oauth/authorize`)
   url.searchParams.set("code", "true")
   url.searchParams.set("client_id", clientID)
   url.searchParams.set("response_type", "code")
-  url.searchParams.set("redirect_uri", "https://console.anthropic.com/oauth/code/callback")
-  url.searchParams.set("scope", authScopes)
+  url.searchParams.set("redirect_uri", redirectURI)
+  url.searchParams.set("scope", mode === "max" ? maxAuthScope : consoleAuthScopes)
   url.searchParams.set("code_challenge", pkce.challenge)
   url.searchParams.set("code_challenge_method", "S256")
-  url.searchParams.set("state", pkce.verifier)
+  url.searchParams.set("state", state)
   return {
     url: url.toString(),
     verifier: pkce.verifier,
+    state,
+    redirectURI,
   }
 }
 
-async function exchange(code: string, verifier: string) {
-  const parsed = parseCallbackCode(code, verifier)
+async function exchange(code: string, verifier: string, state: string, redirectURI: string) {
+  const parsed = parseCallbackCode(code, state)
   let response: Response
   try {
     response = await fetch(tokenURL, {
       method: "POST",
-      headers: authHeaders(),
+      headers: tokenHeaders(),
       body: JSON.stringify({
         code: parsed.code,
         state: parsed.state,
         grant_type: "authorization_code",
         client_id: clientID,
-        redirect_uri: "https://console.anthropic.com/oauth/code/callback",
+        redirect_uri: redirectURI,
         code_verifier: verifier,
+        expires_in: oauthTokenLifetimeSeconds,
       }),
     })
   } catch (error) {
@@ -220,11 +239,12 @@ async function refresh(client: { auth: { set: (input: { path: { id: string }; bo
   try {
     response = await fetch(tokenURL, {
       method: "POST",
-      headers: authHeaders(),
+      headers: tokenHeaders(),
       body: JSON.stringify({
         grant_type: "refresh_token",
         refresh_token: auth.refresh,
         client_id: clientID,
+        scope: maxAuthScope,
       }),
     })
   } catch (error) {
@@ -335,9 +355,9 @@ const AnthropicAuthPlugin: Plugin = async (input) => {
             const result = await authorize("max")
             return {
               url: result.url,
-              instructions: "Paste the authorization code here: ",
+              instructions: "After Claude redirects to localhost, paste the full `http://localhost:.../callback?...` URL here: ",
               method: "code" as const,
-              callback: async (code: string) => exchange(code, result.verifier),
+              callback: async (code: string) => exchange(code, result.verifier, result.state, result.redirectURI),
             }
           },
         },
@@ -351,7 +371,7 @@ const AnthropicAuthPlugin: Plugin = async (input) => {
               instructions: "Paste the authorization code here: ",
               method: "code" as const,
               callback: async (code: string) => {
-                const credentials = await exchange(code, result.verifier)
+                const credentials = await exchange(code, result.verifier, result.state, result.redirectURI)
                 if (credentials.type === "failed") return credentials
                 const response = await fetch("https://api.anthropic.com/api/oauth/claude_cli/create_api_key", {
                   method: "POST",

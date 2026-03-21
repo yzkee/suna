@@ -76,6 +76,7 @@
     }
   },
   "plugin": [
+    "./plugin/anthropic-auth.ts",
     "./plugin/opencode-pty/src/plugin.ts",
     "./plugin/opencode-morph-plugin/opencode-morph-plugin.ts",
     "./plugin/kortix-orchestrator/kortix-orchestrator.ts",
