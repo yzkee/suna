@@ -70,12 +70,6 @@ const FilesPage = lazy(() =>
 	})),
 );
 
-const MemoryPage = lazy(() =>
-	import('@/components/memory/memory-page').then((m) => ({
-		default: m.MemoryPage,
-	})),
-);
-
 const MarketplacePage = lazy(() =>
 	import('@/features/skills/components/marketplace').then((m) => ({
 		default: m.Marketplace,
@@ -151,7 +145,6 @@ const PAGE_COMPONENTS: Record<string, ComponentType> = {
 	'/integrations': IntegrationsPage,
 	'/files': FilesPage,
 	'/tunnel': TunnelOverviewPage,
-	'/memory': MemoryPage,
 	...(DEPLOYMENTS_ENABLED ? { '/deployments': DeploymentsPage } : {}),
 	// Admin
 	'/admin/analytics': AdminAnalyticsPage,

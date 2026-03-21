@@ -67,6 +67,7 @@ dump.rdb
 test/
 
 # Sandbox data
+.kortix/
 services/kortix-api/.kortix-data/
 services/kortix-api/.sandbox-auth-token.json
 packages/kortix-opencode/.kortix/

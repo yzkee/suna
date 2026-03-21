@@ -1,59 +1,30 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test";
-import { spawn } from "child_process";
-import { existsSync, unlinkSync } from "fs";
+import { cleanupRuntimeFixture, createRuntimeFixture, startDummyOpenCode, startKortixMaster, type RuntimeFixture, type StartedServer } from "./helpers";
 
 describe("Environment Variable Persistence", () => {
   const baseURL = "http://localhost:8002"; // Different port for isolation
-  const testSecretsPath = "/tmp/persistence-test-secrets.json";
-  const testSaltPath = "/tmp/persistence-test-salt";
+  let fixture: RuntimeFixture;
+  let opencode: Awaited<ReturnType<typeof startDummyOpenCode>> | null = null;
   
-  beforeAll(() => {
-    // Clean up any existing test files
-    if (existsSync(testSecretsPath)) unlinkSync(testSecretsPath);
-    if (existsSync(testSaltPath)) unlinkSync(testSaltPath);
+  beforeAll(async () => {
+    fixture = createRuntimeFixture("kortix-persistence-");
+    opencode = await startDummyOpenCode(9002);
   });
 
-  afterAll(() => {
-    if (existsSync(testSecretsPath)) unlinkSync(testSecretsPath);
-    if (existsSync(testSaltPath)) unlinkSync(testSaltPath);
+  afterAll(async () => {
+    await opencode?.stop();
+    await cleanupRuntimeFixture(fixture);
   });
 
-  async function startServer(): Promise<any> {
-    const serverProcess = spawn("bun", ["run", "src/index.ts"], {
-      cwd: "/Users/markokraemer/Projects/heyagi/computer/sandbox/kortix-master",
-      stdio: ["pipe", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        SECRET_FILE_PATH: testSecretsPath,
-        SALT_FILE_PATH: testSaltPath,
-        KORTIX_TOKEN: "persistence-test-token",
-        KORTIX_MASTER_PORT: "8002"
-      }
+  async function startServer(): Promise<StartedServer> {
+    return startKortixMaster(8002, fixture, {
+      KORTIX_TOKEN: "persistence-test-token",
+      OPENCODE_PORT: "9002",
     });
-
-    // Wait for server to start
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Server startup timeout")), 10000);
-      
-      if (serverProcess.stdout) {
-        serverProcess.stdout.on("data", (data: Buffer) => {
-          if (data.toString().includes("Starting on port")) {
-            clearTimeout(timeout);
-            setTimeout(resolve, 1000); // Give server moment to initialize
-          }
-        });
-      }
-    });
-
-    return serverProcess;
   }
 
-  async function stopServer(serverProcess: any) {
-    if (serverProcess) {
-      serverProcess.kill();
-      // Wait for graceful shutdown
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
+  async function stopServer(serverProcess: StartedServer | null) {
+    await serverProcess?.stop();
   }
 
   async function setEnvVar(key: string, value: string) {
@@ -90,7 +61,8 @@ describe("Environment Variable Persistence", () => {
       throw new Error(`Failed to get all env vars: ${response.status}`);
     }
     
-    return await response.json();
+    const data = await response.json();
+    return data.secrets ?? data;
   }
 
   test("environment variables should persist across server restarts", async () => {

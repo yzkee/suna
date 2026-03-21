@@ -1,51 +1,27 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { spawn } from "child_process";
-import { readFileSync, existsSync, unlinkSync, statSync } from "fs";
+import { readFileSync, existsSync, statSync } from "fs";
+import { cleanupRuntimeFixture, createRuntimeFixture, startDummyOpenCode, startKortixMaster, type RuntimeFixture, type StartedServer } from "./helpers";
 
 describe("Security Tests", () => {
   const baseURL = "http://localhost:8003";
-  const testSecretsPath = "/tmp/security-test-secrets.json";
-  const testSaltPath = "/tmp/security-test-salt";
   
-  let serverProcess: any;
+  let serverProcess: StartedServer | null = null;
+  let opencode: Awaited<ReturnType<typeof startDummyOpenCode>> | null = null;
+  let fixture: RuntimeFixture;
 
   beforeAll(async () => {
-    // Clean up existing files
-    if (existsSync(testSecretsPath)) unlinkSync(testSecretsPath);
-    if (existsSync(testSaltPath)) unlinkSync(testSaltPath);
-
-    // Start server
-    serverProcess = spawn("bun", ["run", "src/index.ts"], {
-      cwd: "/Users/markokraemer/Projects/heyagi/computer/sandbox/kortix-master",
-      stdio: ["pipe", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        SECRET_FILE_PATH: testSecretsPath,
-        SALT_FILE_PATH: testSaltPath,
-        KORTIX_TOKEN: "security-test-token",
-        KORTIX_MASTER_PORT: "8003"
-      }
-    });
-
-    // Wait for server startup
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Server startup timeout")), 10000);
-      
-      if (serverProcess.stdout) {
-        serverProcess.stdout.on("data", (data: Buffer) => {
-          if (data.toString().includes("Starting on port")) {
-            clearTimeout(timeout);
-            setTimeout(resolve, 1000);
-          }
-        });
-      }
+    fixture = createRuntimeFixture("kortix-security-");
+    opencode = await startDummyOpenCode(9003);
+    serverProcess = await startKortixMaster(8003, fixture, {
+      KORTIX_TOKEN: "security-test-token",
+      OPENCODE_PORT: "9003",
     });
   });
 
-  afterAll(() => {
-    if (serverProcess) serverProcess.kill();
-    if (existsSync(testSecretsPath)) unlinkSync(testSecretsPath);
-    if (existsSync(testSaltPath)) unlinkSync(testSaltPath);
+  afterAll(async () => {
+    await serverProcess?.stop();
+    await opencode?.stop();
+    await cleanupRuntimeFixture(fixture);
   });
 
   async function setEnvVar(key: string, value: string) {
@@ -65,15 +41,15 @@ describe("Security Tests", () => {
     await setEnvVar("SECURITY_TEST", "secret-value");
 
     // Check secrets file permissions
-    if (existsSync(testSecretsPath)) {
-      const secretsStats = statSync(testSecretsPath);
+    if (existsSync(fixture.secretFilePath)) {
+      const secretsStats = statSync(fixture.secretFilePath);
       const mode = secretsStats.mode & parseInt("777", 8);
       expect(mode).toBe(parseInt("600", 8)); // Should be 0o600
     }
 
     // Check salt file permissions
-    if (existsSync(testSaltPath)) {
-      const saltStats = statSync(testSaltPath);
+    if (existsSync(fixture.saltFilePath)) {
+      const saltStats = statSync(fixture.saltFilePath);
       const mode = saltStats.mode & parseInt("777", 8);
       expect(mode).toBe(parseInt("600", 8)); // Should be 0o600
     }
@@ -84,8 +60,8 @@ describe("Security Tests", () => {
     await setEnvVar("ENCRYPTION_TEST", secretValue);
 
     // Read the raw secrets file
-    if (existsSync(testSecretsPath)) {
-      const rawContent = readFileSync(testSecretsPath, "utf8");
+    if (existsSync(fixture.secretFilePath)) {
+      const rawContent = readFileSync(fixture.secretFilePath, "utf8");
       
       // The raw file should not contain the plaintext secret
       expect(rawContent).not.toContain(secretValue);
@@ -109,34 +85,13 @@ describe("Security Tests", () => {
     await setEnvVar("TOKEN_TEST", "secret-with-token-1");
     
     // Stop current server
-    if (serverProcess) serverProcess.kill();
+      await serverProcess?.stop();
     
     // Start server with different token
-    const newServerProcess = spawn("bun", ["run", "src/index.ts"], {
-      cwd: "/Users/markokraemer/Projects/heyagi/computer/sandbox/kortix-master",
-      stdio: ["pipe", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        SECRET_FILE_PATH: testSecretsPath,
-        SALT_FILE_PATH: testSaltPath,
-        KORTIX_TOKEN: "different-security-test-token", // Different token
-        KORTIX_MASTER_PORT: "8003"
-      }
-    });
-
-    // Wait for new server to start
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Server startup timeout")), 10000);
-      
-      if (newServerProcess.stdout) {
-        newServerProcess.stdout.on("data", (data: Buffer) => {
-          if (data.toString().includes("Starting on port")) {
-            clearTimeout(timeout);
-            setTimeout(resolve, 1000);
-          }
-        });
-      }
-    });
+      const newServerProcess = await startKortixMaster(8003, fixture, {
+        KORTIX_TOKEN: "different-security-test-token",
+        OPENCODE_PORT: "9003",
+      });
 
     try {
       // Try to retrieve the secret set with the old token
@@ -153,34 +108,14 @@ describe("Security Tests", () => {
       }
     } finally {
       // Clean up
-      newServerProcess.kill();
-    }
+        await newServerProcess.stop();
+      }
 
-    // Restart original server for other tests
-    serverProcess = spawn("bun", ["run", "src/index.ts"], {
-      cwd: "/Users/markokraemer/Projects/heyagi/computer/sandbox/kortix-master",
-      stdio: ["pipe", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        SECRET_FILE_PATH: testSecretsPath,
-        SALT_FILE_PATH: testSaltPath,
+      // Restart original server for other tests
+      serverProcess = await startKortixMaster(8003, fixture, {
         KORTIX_TOKEN: "security-test-token",
-        KORTIX_MASTER_PORT: "8003"
-      }
-    });
-
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Server startup timeout")), 10000);
-      
-      if (serverProcess.stdout) {
-        serverProcess.stdout.on("data", (data: Buffer) => {
-          if (data.toString().includes("Starting on port")) {
-            clearTimeout(timeout);
-            setTimeout(resolve, 1000);
-          }
-        });
-      }
-    });
+        OPENCODE_PORT: "9003",
+      });
   });
 
   test("API should handle malformed requests safely", async () => {

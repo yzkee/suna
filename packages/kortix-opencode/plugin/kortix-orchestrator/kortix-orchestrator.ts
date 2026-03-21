@@ -24,7 +24,7 @@ import { mkdirSync, readdirSync, statSync, readFileSync, existsSync, unlinkSync 
 import * as path from "node:path"
 import { type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
 import type { Event } from "@opencode-ai/sdk"
-import { ensureGlobalMemoryFiles, ensureKortixDir, ensureProjectMemoryFiles, resolveKortixWorkspaceRoot } from "../kortix-paths"
+import { ensureGlobalMemoryFiles, ensureKortixDir, ensureProjectMemoryFiles, renderMergedMemoryContext, resolveKortixWorkspaceRoot } from "../kortix-paths"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -736,7 +736,11 @@ const KortixPlugin: Plugin = async (ctx) => {
 					if (!p) return `Not found: "${args.name}"`
 					const stats = db.prepare("SELECT status, COUNT(*) as c FROM delegations WHERE project_id=$pid GROUP BY status").all({ $pid: p.id }) as Array<{ status: string; c: number }>
 					const ocId = p.opencode_id ? `\nOpenCode ID: ${p.opencode_id}` : ""
-					return `**${p.name}** (${p.id})${ocId}\nPath: \`${p.path}\`\nDesc: ${p.description || "-"}\nSessions: ${stats.map(s => `${s.status}:${s.c}`).join(" ") || "none"}`
+					const globalMemory = ensureGlobalMemoryFiles(import.meta.dir)
+					const projectMemory = ensureProjectMemoryFiles(p.path)
+					const mergedMemory = renderMergedMemoryContext(p.path, import.meta.dir)
+					const mergedPreview = mergedMemory ? `${mergedMemory.slice(0, 500)}${mergedMemory.length > 500 ? "..." : ""}` : "(empty)"
+					return `**${p.name}** (${p.id})${ocId}\nPath: \`${p.path}\`\nDesc: ${p.description || "-"}\nSessions: ${stats.map(s => `${s.status}:${s.c}`).join(" ") || "none"}\nGlobal USER: \`${globalMemory.userPath}\`\nGlobal MEMORY: \`${globalMemory.memoryPath}\`\nProject USER: \`${projectMemory.userPath}\`\nProject MEMORY: \`${projectMemory.memoryPath}\`\nMerged memory preview:\n${mergedPreview}`
 				},
 			}),
 

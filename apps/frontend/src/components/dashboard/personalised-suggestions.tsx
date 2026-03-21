@@ -36,14 +36,14 @@ interface Suggestion {
   icon: string;
 }
 
+interface PersonalisedSuggestionsProps {
+  onSuggestionClick: (text: string) => void;
+}
+
 interface SuggestionsResponse {
   suggestions: Suggestion[];
   personalized: boolean;
   cached: boolean;
-}
-
-interface PersonalisedSuggestionsProps {
-  onSuggestionClick: (text: string) => void;
 }
 
 // ============================================================================
@@ -103,31 +103,21 @@ const fallbackSuggestions = pickRandom(defaultSuggestions, 4);
 // Component
 // ============================================================================
 
-/**
- * Personalised suggestions component.
- *
- * CONSOLIDATED: Now uses React Query with staleTime: 5min to prevent
- * duplicate fetches on remount. Previously used raw fetch + useState
- * with no caching, causing 4x /memory/suggestions calls when the
- * DashboardContent component remounted (React 18 Strict Mode + tab switching).
- */
 export function PersonalisedSuggestions({ onSuggestionClick }: PersonalisedSuggestionsProps) {
   const { data: suggestions, isLoading } = useQuery<Suggestion[]>({
-    queryKey: ['opencode', 'memory', 'suggestions'],
+    queryKey: ['opencode', 'sessions', 'suggestions'],
     queryFn: async () => {
       const baseUrl = getActiveOpenCodeUrl();
       if (!baseUrl) return [];
-      const res = await authenticatedFetch(`${baseUrl}/memory/suggestions`);
-      if (res.ok) {
-        const data: SuggestionsResponse = await res.json();
-        return data.suggestions || [];
-      }
-      return [];
+      const res = await authenticatedFetch(`${baseUrl}/sessions/suggestions`);
+      if (!res.ok) return [];
+      const data: SuggestionsResponse = await res.json();
+      return data.suggestions || [];
     },
-    staleTime: 5 * 60 * 1000, // 5 min — suggestions don't change often
+    staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
-    refetchOnMount: false, // Don't refetch if cached data exists
+    refetchOnMount: false,
     retry: 1,
   });
 

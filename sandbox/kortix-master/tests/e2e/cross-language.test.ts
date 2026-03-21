@@ -1,67 +1,33 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test";
 import { spawn } from "child_process";
 import { promisify } from "util";
-import { existsSync, unlinkSync } from "fs";
+import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
+import { cleanupRuntimeFixture, createRuntimeFixture, startDummyOpenCode, startKortixMaster, type RuntimeFixture } from "./helpers";
 
 const execAsync = promisify(spawn);
 
 describe("Cross-Language Environment Variable Access", () => {
   const baseURL = "http://localhost:8001"; // Use different port for E2E
-  const testSecretsPath = "/tmp/e2e-test-secrets.json";
-  const testSaltPath = "/tmp/e2e-test-salt";
   const scriptsPath = join(import.meta.dir, "../fixtures/test-scripts");
   
-  let serverProcess: any;
+  let serverProcess: Awaited<ReturnType<typeof startKortixMaster>> | null = null;
+  let opencode: Awaited<ReturnType<typeof startDummyOpenCode>> | null = null;
+  let fixture: RuntimeFixture;
 
   beforeAll(async () => {
-    // Set up test environment
-    process.env.SECRET_FILE_PATH = testSecretsPath;
-    process.env.SALT_FILE_PATH = testSaltPath;
-    process.env.KORTIX_TOKEN = "e2e-test-token";
-    process.env.KORTIX_MASTER_PORT = "8001";
-
-    // Clean up any existing test files
-    if (existsSync(testSecretsPath)) unlinkSync(testSecretsPath);
-    if (existsSync(testSaltPath)) unlinkSync(testSaltPath);
-
-    // Start server for E2E testing
-    const { spawn } = await import("child_process");
-    serverProcess = spawn("bun", ["run", "src/index.ts"], {
-      cwd: join(import.meta.dir, "../../"),
-      stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env }
-    });
-
-    // Wait for server to start
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Server startup timeout")), 10000);
-      
-      if (serverProcess.stdout) {
-        serverProcess.stdout.on("data", (data: Buffer) => {
-          if (data.toString().includes("Starting on port")) {
-            clearTimeout(timeout);
-            // Give server a moment to fully initialize
-            setTimeout(resolve, 1000);
-          }
-        });
-      }
-      
-      if (serverProcess.stderr) {
-        serverProcess.stderr.on("data", (data: Buffer) => {
-          console.error("Server error:", data.toString());
-        });
-      }
+    fixture = createRuntimeFixture("kortix-cross-language-");
+    opencode = await startDummyOpenCode(9001);
+    serverProcess = await startKortixMaster(8001, fixture, {
+      KORTIX_TOKEN: "e2e-test-token",
+      OPENCODE_PORT: "9001",
     });
   });
 
-  afterAll(() => {
-    // Clean up server and test files
-    if (serverProcess) {
-      serverProcess.kill();
-    }
-    if (existsSync(testSecretsPath)) unlinkSync(testSecretsPath);
-    if (existsSync(testSaltPath)) unlinkSync(testSaltPath);
+  afterAll(async () => {
+    await serverProcess?.stop();
+    await opencode?.stop();
+    await cleanupRuntimeFixture(fixture);
   });
 
   beforeEach(async () => {
@@ -85,11 +51,17 @@ describe("Cross-Language Environment Variable Access", () => {
 
   async function runScript(scriptName: string, key: string): Promise<any> {
     const scriptPath = join(scriptsPath, scriptName);
+    const s6Env = Object.fromEntries(
+      readdirSync(fixture.s6EnvDir).map((entry) => [entry, readFileSync(join(fixture.s6EnvDir, entry), 'utf8')]),
+    )
+    const command = scriptName === 'test-env'
+      ? { file: 'go', args: ['run', join(scriptsPath, 'test-env.go'), key] }
+      : { file: scriptPath, args: [key] }
     
     return new Promise((resolve, reject) => {
-      const child = spawn(scriptPath, [key], {
+      const child = spawn(command.file, command.args, {
         stdio: ["pipe", "pipe", "pipe"],
-        env: process.env // Inherit environment from server process
+        env: { ...process.env, ...s6Env, S6_ENV_DIR: fixture.s6EnvDir }
       });
 
       let stdout = "";
@@ -225,8 +197,7 @@ describe("Cross-Language Environment Variable Access", () => {
 
     [pythonResult, nodeResult, bashResult, goResult].forEach(result => {
       expect(result.found).toBe(false);
-      expect(result.value).toBeNull(); // Python/Node.js
-      // Note: Bash and Go might return empty string for missing vars
+      expect(result.value == null || result.value === '').toBe(true);
     });
   });
 });

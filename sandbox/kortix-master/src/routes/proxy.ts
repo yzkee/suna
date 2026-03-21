@@ -136,8 +136,9 @@ proxyRouter.all('/:port{[0-9]+}/*',
         if (isConnectionRefused(errMsg)) {
           console.error(`[proxy] Port ${port} unreachable on ${c.req.method} ${remainingPath}: nothing is listening on localhost:${port}`)
           return c.json({
-            error: `Nothing listening on port ${port}`,
+            error: 'Failed to connect to service',
             port,
+            hint: `Nothing listening on localhost:${port}`,
             details: 'Unable to connect. Is the computer able to access the url?',
           }, 502)
         }

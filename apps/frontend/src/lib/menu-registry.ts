@@ -289,16 +289,6 @@ export const menuRegistry: MenuItemDef[] = [
     actionId: 'newTerminal',
   },
   {
-    id: 'memory',
-    label: 'Memory',
-    icon: Brain,
-    group: 'quickActions',
-    subGroup: 'tools',
-    showIn: ['rightSidebar'],
-    kind: 'navigate',
-    href: '/memory',
-  },
-  {
     id: 'workspace',
     label: 'Workspace',
     icon: Blocks,
@@ -497,16 +487,6 @@ export const menuRegistry: MenuItemDef[] = [
     showIn: ['commandPalette'],
     kind: 'navigate',
     href: '/files',
-  },
-  {
-    id: 'memory',
-    label: 'Memory',
-    icon: Brain,
-    group: 'navigation',
-    showIn: ['commandPalette'],
-    kind: 'navigate',
-    href: '/memory',
-    keywords: 'memory agent brain context knowledge long term',
   },
   {
     id: 'tunnel',

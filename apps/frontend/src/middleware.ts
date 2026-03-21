@@ -66,7 +66,6 @@ const PROTECTED_ROUTES = [
   // Tab-only routes (no dedicated page.tsx in earlier versions — now have one)
   '/browser',
   '/desktop',
-  '/memory',
   '/services',
   '/sessions',
   '/terminal',

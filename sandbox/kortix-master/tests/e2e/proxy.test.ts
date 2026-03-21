@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { cleanupRuntimeFixture, createRuntimeFixture, startDummyOpenCode, startKortixMaster, type RuntimeFixture, type StartedServer } from "./helpers";
 
 /**
  * Kortix Sandbox Proxy E2E Tests
@@ -7,46 +8,20 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
  * The proxy enables the frontend to reach any service running inside the
  * sandbox container through the single exposed port 8000.
  *
- * Prerequisites:
- *   - sandbox-desktop container running (docker compose up -d)
- *   - Port 8000 mapped to host
- *
  * Usage:
  *   bun test tests/e2e/proxy.test.ts
- *   PROXY_TEST_BASE_URL=http://localhost:8000 bun test tests/e2e/proxy.test.ts
  */
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
-const BASE_URL = (process.env.PROXY_TEST_BASE_URL || "http://localhost:8000").replace(/\/+$/, "");
-const CONTAINER = process.env.PROXY_TEST_CONTAINER || "sandbox-desktop";
+const BASE_URL = "http://localhost:8000";
 const TEST_PORT = 7777;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Execute a shell command inside the running Docker container. */
-async function dockerExec(cmd: string, timeout = 15_000): Promise<{ code: number; stdout: string; stderr: string }> {
-  const proc = Bun.spawn(["docker", "exec", CONTAINER, "sh", "-c", cmd], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  const timeoutId = setTimeout(() => proc.kill(), timeout);
-
-  const [stdout, stderr] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-
-  clearTimeout(timeoutId);
-  const code = await proc.exited;
-
-  return { code, stdout: stdout.trim(), stderr: stderr.trim() };
-}
 
 /** Perform a fetch against the proxy base URL, returning response + body. */
 async function proxyFetch(
@@ -78,94 +53,60 @@ async function proxyJson<T = unknown>(path: string, init?: RequestInit): Promise
 }
 
 // ---------------------------------------------------------------------------
-// Test server lifecycle — a Bun HTTP server inside the sandbox
+// Test server lifecycle — local Bun HTTP server
 // ---------------------------------------------------------------------------
 
-const TEST_SERVER_SCRIPT = `
-const server = Bun.serve({
-  port: ${TEST_PORT},
-  hostname: "0.0.0.0",
-  fetch(req) {
-    const url = new URL(req.url);
-
-    // Echo endpoint — returns request details as JSON
-    if (url.pathname === "/echo" || url.pathname.startsWith("/echo/")) {
-      return Response.json({
-        method: req.method,
-        path: url.pathname,
-        query: url.search,
-        headers: Object.fromEntries(req.headers.entries()),
-      });
-    }
-
-    // JSON endpoint
-    if (url.pathname === "/api/data") {
-      return Response.json({ items: [1, 2, 3], total: 3 });
-    }
-
-    // POST echo — returns the body back
-    if (url.pathname === "/api/submit" && req.method === "POST") {
-      return req.text().then(body => Response.json({ received: body }));
-    }
-
-    // Custom response headers
-    if (url.pathname === "/custom-headers") {
-      return new Response("OK", {
-        headers: {
-          "X-Custom-Header": "test-value",
-          "X-Sandbox-Port": String(${TEST_PORT}),
-          "Content-Type": "text/plain",
-        },
-      });
-    }
-
-    // Redirect
-    if (url.pathname === "/redirect") {
-      return Response.redirect("http://localhost:${TEST_PORT}/echo?redirected=true", 302);
-    }
-
-    // 404
-    if (url.pathname === "/not-found") {
-      return new Response("Not Found", { status: 404 });
-    }
-
-    // Default HTML page
-    return new Response(
-      "<html><body><h1>Test Server on port ${TEST_PORT}</h1><p>Path: " + url.pathname + "</p></body></html>",
-      { headers: { "Content-Type": "text/html" } }
-    );
-  },
-});
-console.log("test-proxy-server running on port " + server.port);
-`;
-
-async function killPort(port: number): Promise<void> {
-  // Kill any process listening on the port (by PID from ss output)
-  await dockerExec(
-    `ss -tlnp sport = :${port} 2>/dev/null | grep -oP 'pid=\\K[0-9]+' | xargs -r kill -9 2>/dev/null || true`,
-  );
-  await dockerExec(`pkill -f 'bun.*test-proxy-server' 2>/dev/null || true`);
-  await Bun.sleep(500);
-}
+let runtime: RuntimeFixture;
+let master: StartedServer | null = null;
+let opencode: Awaited<ReturnType<typeof startDummyOpenCode>> | null = null;
+let testServer: Bun.Server | null = null;
 
 async function startTestServer(): Promise<boolean> {
-  // Kill any leftover server on the test port
-  await killPort(TEST_PORT);
-
-  // Write the script
-  await dockerExec(`cat > /tmp/test-proxy-server.ts << 'BUNEOF'\n${TEST_SERVER_SCRIPT}\nBUNEOF`);
-
-  // Start in background
-  await dockerExec("/opt/bun/bin/bun run /tmp/test-proxy-server.ts &");
-  await Bun.sleep(2000);
-
-  // Verify it's running
-  const { code } = await dockerExec(`curl -sf http://localhost:${TEST_PORT}/echo`);
-  return code === 0;
+  testServer = Bun.serve({
+    port: TEST_PORT,
+    hostname: '127.0.0.1',
+    fetch(req) {
+      const url = new URL(req.url);
+      if (url.pathname === "/echo" || url.pathname.startsWith("/echo/")) {
+        return Response.json({
+          method: req.method,
+          path: url.pathname,
+          query: url.search,
+          headers: Object.fromEntries(req.headers.entries()),
+        });
+      }
+      if (url.pathname === "/api/data") return Response.json({ items: [1, 2, 3], total: 3 });
+      if (url.pathname === "/api/submit" && req.method === "POST") {
+        return req.text().then(body => Response.json({ received: body }));
+      }
+      if (url.pathname === "/custom-headers") {
+        return new Response("OK", {
+          headers: {
+            "X-Custom-Header": "test-value",
+            "X-Sandbox-Port": String(TEST_PORT),
+            "Content-Type": "text/plain",
+          },
+        });
+      }
+      if (url.pathname === "/redirect") {
+        return Response.redirect(`http://localhost:${TEST_PORT}/echo?redirected=true`, 302);
+      }
+      if (url.pathname === "/not-found") return new Response("Not Found", { status: 404 });
+      return new Response(
+        `<html><body><h1>Test Server on port ${TEST_PORT}</h1><p>Path: ${url.pathname}</p></body></html>`,
+        { headers: { "Content-Type": "text/html" } },
+      );
+    },
+  });
+  await fetch(`http://127.0.0.1:${TEST_PORT}/echo`)
+  return true;
 }
 
 async function stopTestServer(): Promise<void> {
-  await killPort(TEST_PORT);
+  if (testServer) {
+    await testServer.stop(true);
+    testServer = null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -175,13 +116,12 @@ async function stopTestServer(): Promise<void> {
 describe("Kortix Sandbox Proxy E2E", () => {
   // ------ Setup / Teardown ------
   beforeAll(async () => {
-    // Verify sandbox is reachable
-    const { status, data } = await proxyJson<{ status: string }>("/kortix/health");
-    if (status !== 200 || data?.status !== "ok") {
-      throw new Error(
-        `Sandbox not reachable at ${BASE_URL} (HTTP ${status}). Is the container running?`,
-      );
-    }
+    runtime = createRuntimeFixture('kortix-proxy-');
+    opencode = await startDummyOpenCode(9000);
+    master = await startKortixMaster(8000, runtime, {
+      KORTIX_TOKEN: 'proxy-test-token',
+      OPENCODE_PORT: '9000',
+    });
 
     // Start test server
     const ok = await startTestServer();
@@ -192,6 +132,9 @@ describe("Kortix Sandbox Proxy E2E", () => {
 
   afterAll(async () => {
     await stopTestServer();
+    await master?.stop();
+    await opencode?.stop();
+    await cleanupRuntimeFixture(runtime);
   });
 
   // ------ Health ------

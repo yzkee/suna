@@ -24,7 +24,7 @@ import { updateRoutes as updateRouter } from './routes/update'
 import deployRouter from './routes/deploy'
 import servicesRouter from './routes/services'
 import integrationsRouter from './routes/integrations'
-import memoryRouter from './routes/memory'
+import suggestionsRouter from './routes/suggestions'
 import coreRouter from './routes/core'
 import cronRouter from './routes/cron'
 import triggersRouter from './routes/triggers'
@@ -97,21 +97,26 @@ await secretStore.loadIntoProcessEnv()
   saveBootstrapEnv()
 }
 
+const authSyncDisabled = process.env.KORTIX_DISABLE_AUTH_SYNC === 'true'
+
 // Two-way sync: OpenCode auth.json ↔ SecretStore (provider API keys)
-// Boot sync: pull any keys from auth.json into SecretStore + s6 env
-await syncAuthToSecrets(secretStore).catch(err =>
-  console.error('[Kortix Master] auth-sync boot error:', err)
-)
-// File watcher: auto-sync when auth.json changes at runtime
-startAuthWatcher(secretStore)
+if (!authSyncDisabled) {
+  await syncAuthToSecrets(secretStore).catch(err =>
+    console.error('[Kortix Master] auth-sync boot error:', err)
+  )
+  // File watcher: auto-sync when auth.json changes at runtime
+  startAuthWatcher(secretStore)
+}
 
 // REMOVED: startHotReload() — see comment at top of file for rationale.
 
 // Updates are Docker image-based — no crash recovery needed
 
-await coreSupervisor.start().catch(err =>
-  console.error('[Kortix Master] core supervisor start error:', err)
-)
+if (process.env.KORTIX_DISABLE_CORE_SUPERVISOR !== 'true') {
+  await coreSupervisor.start().catch(err =>
+    console.error('[Kortix Master] core supervisor start error:', err)
+  )
+}
 
 getCronManager().start()
 
@@ -315,6 +320,9 @@ app.route('/env', envRouter)
 // LSS semantic search — /lss/search?q=<query> runs local semantic search
 app.route('/lss', lssRouter)
 
+// Dashboard and prompt suggestions
+app.route('/sessions', suggestionsRouter)
+
 // Deployment management (feature-flagged)
 if (config.KORTIX_DEPLOYMENTS_ENABLED) {
   app.route('/kortix/deploy', deployRouter)
@@ -372,9 +380,6 @@ app.route('/web-proxy', webProxyRouter)
 // Mounted BEFORE the catch-all OpenCode proxy so it works regardless of OpenCode version.
 import filesRouter from './routes/files'
 app.route('/file', filesRouter)
-
-// Memory — read-only access to the OpenCode memory plugin's SQLite database
-app.route('/memory', memoryRouter)
 
 // Legacy migration — write old thread data into the OpenCode SQLite database
 import legacyMigrateRouter from './routes/legacy-migrate'

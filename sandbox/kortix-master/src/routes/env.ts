@@ -39,6 +39,18 @@ async function deleteS6Env(key: string): Promise<void> {
   try { await rm(`${S6_ENV_DIR}/${key}`) } catch {}
 }
 
+async function safeJsonBody(c: any): Promise<any | null> {
+  try {
+    return await c.req.json()
+  } catch {
+    return null
+  }
+}
+
+function isValidEnvKey(key: string): boolean {
+  return !!key && key.length <= 255 && !key.includes('/') && !key.includes('\0')
+}
+
 /**
  * Get the innermost PID namespace PID for a given /proc entry.
  * Returns the PID to use with process.kill() from within this namespace.
@@ -157,7 +169,8 @@ envRouter.post('/',
   }),
   async (c) => {
     try {
-      const body = await c.req.json()
+      const body = await safeJsonBody(c)
+      if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
       const keys = body?.keys
       if (!keys || typeof keys !== 'object') {
         return c.json({ error: 'Request body must contain a "keys" object' }, 400)
@@ -194,6 +207,7 @@ envRouter.get('/:key',
   async (c) => {
     try {
       const key = c.req.param('key')
+      if (!isValidEnvKey(key)) return c.json({ error: 'Invalid key' }, 400)
       const value = await secretStore.get(key)
       // Return 200 with null value when key doesn't exist — avoids 404 retry loops
       // in the frontend (e.g. ONBOARDING_COMPLETE before first onboarding).
@@ -221,7 +235,8 @@ envRouter.post('/rotate-token',
   }),
   async (c) => {
     try {
-      const body = await c.req.json()
+      const body = await safeJsonBody(c)
+      if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
       const newToken = body?.token
       if (!newToken || typeof newToken !== 'string') {
         return c.json({ error: 'Request body must contain a "token" string' }, 400)
@@ -263,7 +278,9 @@ envRouter.post('/:key',
   async (c) => {
     try {
       const key = c.req.param('key')
-      const body = await c.req.json()
+      if (!isValidEnvKey(key)) return c.json({ error: 'Invalid key' }, 400)
+      const body = await safeJsonBody(c)
+      if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
       if (!body || typeof body.value !== 'string') {
         return c.json({ error: 'Request body must contain a "value" field' }, 400)
       }
@@ -296,7 +313,9 @@ envRouter.put('/:key',
   async (c) => {
     try {
       const key = c.req.param('key')
-      const body = await c.req.json()
+      if (!isValidEnvKey(key)) return c.json({ error: 'Invalid key' }, 400)
+      const body = await safeJsonBody(c)
+      if (!body) return c.json({ error: 'Invalid JSON body' }, 400)
       if (!body || typeof body.value !== 'string') {
         return c.json({ error: 'Request body must contain a "value" field' }, 400)
       }
@@ -329,6 +348,7 @@ envRouter.delete('/:key',
   async (c) => {
     try {
       const key = c.req.param('key')
+      if (!isValidEnvKey(key)) return c.json({ error: 'Invalid key' }, 400)
       await secretStore.deleteEnv(key)
       await deleteS6Env(key)
       await syncSecretToAuth(key, '')  // clear provider key from auth.json

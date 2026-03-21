@@ -261,51 +261,6 @@ export const PortsResponse = z.object({
 export const ProxyErrorResponse = z.object({
   error: z.string(),
   port: z.number().int(),
+  hint: z.string().optional(),
   details: z.string().optional(),
-})
-
-// ─── Memory schemas ─────────────────────────────────────────────────────────
-
-export const MemoryEntryResponse = z.object({
-  id: z.number().int(),
-  source: z.enum(['ltm', 'observation']),
-  type: z.string(),
-  content: z.string(),
-  title: z.string().optional(),
-  narrative: z.string().optional(),
-  context: z.string().nullable().optional(),
-  sessionId: z.string().nullable().optional(),
-  tags: z.array(z.string()),
-  files: z.array(z.string()),
-  facts: z.array(z.string()).optional(),
-  toolName: z.string().optional(),
-  promptNumber: z.number().int().optional(),
-  createdAt: z.string(),
-  updatedAt: z.string().nullable().optional(),
-  rank: z.number().optional(),
-})
-
-export const MemoryListResponse = z.object({
-  entries: z.array(MemoryEntryResponse),
-  total: z.object({
-    ltm: z.number().int(),
-    observations: z.number().int(),
-  }),
-})
-
-export const MemorySearchResponse = z.object({
-  entries: z.array(MemoryEntryResponse),
-  query: z.string(),
-})
-
-export const MemoryStatsResponse = z.object({
-  ltm: z.object({
-    total: z.number().int(),
-    byType: z.record(z.string(), z.number().int()),
-  }),
-  observations: z.object({
-    total: z.number().int(),
-    byType: z.record(z.string(), z.number().int()),
-  }),
-  sessions: z.number().int(),
 })

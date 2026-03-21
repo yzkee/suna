@@ -14,7 +14,7 @@ export function isTransientError(errMsg: string): boolean {
 }
 
 export function isConnectionRefused(errMsg: string): boolean {
-  return errMsg.includes('ECONNREFUSED') || errMsg.includes('Unable to connect')
+  return errMsg.includes('ECONNREFUSED') || errMsg.includes('Unable to connect') || errMsg.includes('Connection refused')
 }
 
 export const STRIP_REQUEST_HEADERS_BASE = new Set([
