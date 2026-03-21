@@ -102,6 +102,7 @@ function detectMobilePlatformFromUA(userAgent: string | null): 'ios' | 'android'
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+
   // 🚀 HYPER-FAST: Mobile app store redirect for /milano, /berlin, and /app
   // This runs at the edge before ANY page rendering
   if (pathname === '/milano' || pathname === '/berlin' || pathname === '/app') {
