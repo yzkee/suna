@@ -1,3 +1,8 @@
+---
+name: ocx-registry
+description: "OCX registry reference: skill discovery, keyword matching, preview, installation, and loading workflow."
+---
+
 # OCX Registry — Skill Discovery & Installation
 
 Find, evaluate, and install marketplace skills via the Kortix OCX registry.

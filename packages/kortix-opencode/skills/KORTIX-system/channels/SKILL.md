@@ -1,3 +1,8 @@
+---
+name: kortix-channels
+description: "Kortix channels reference: Slack, Telegram, and Discord bridge architecture, session tracking, APIs, adapters, and messaging rules."
+---
+
 # Channels — Messaging Platform Bridge
 
 Bidirectional bridge between Slack, Telegram, Discord and OpenCode agent sessions.

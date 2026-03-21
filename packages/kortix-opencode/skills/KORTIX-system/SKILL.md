@@ -1,52 +1,43 @@
 ---
 name: kortix-system
-description: "Complete Kortix platform reference. Covers: sandbox architecture (container, services, ports, filesystem), persistence, environment & secrets, OpenCode framework (agents, skills, tools, commands, sessions, providers, plugins, REST/SSE API), memory & session search (plugin, LTM, lss, SQLite, grep), OAuth integrations (Pipedream), channels (Slack/Telegram/Discord bridge), agent tunnel (local machine control), agent triggers (cron/webhook/pipedream), OCX registry (skill discovery & install), skill authoring, operations/debugging, and agent harness engineering. Load this skill for ANY Kortix system question."
+description: "Router skill for the Kortix platform. Load this when you need to choose the right standalone Kortix/OpenCode skill for sandbox internals, framework behavior, integrations, channels, triggers, operations, or agent harness design."
 ---
 
-# Kortix System Reference
+# Kortix System Router
 
-The single source of truth for the entire Kortix platform. Read the relevant reference file below before answering system questions.
+Use this skill as the top-level map for the Kortix platform. It should route you to the most specific standalone skill as quickly as possible instead of keeping the whole platform manual in one file.
 
-## Reference Map
+## Load the Most Specific Skill
 
-| # | File | Covers |
-|---|------|--------|
-| 01 | `references/01-architecture.md` | Container image, key paths, services & ports, auth model, runtimes |
-| 02 | `references/02-persistence.md` | What persists vs resets, safe install patterns, boot flow |
-| 03 | `references/03-environment-and-secrets.md` | Env vars, cloud mode, secret API, encryption |
-| 04 | `references/04-opencode-framework.md` | Agents, skills, tools, commands, sessions, providers, plugins, config, REST API, SSE |
-| 05 | `references/05-memory-and-sessions.md` | Memory plugin, LTM, filesystem persistence, session search (plugin, SQL, REST, grep, lss) |
-| 06 | `references/06-integrations.md` | OAuth apps, Pipedream actions, proxyFetch, trigger management |
-| 07 | `references/07-channels.md` | Slack/Telegram/Discord bridge, sending messages, session tracking, DB schema |
-| 08 | `references/08-agent-tunnel.md` | Local machine control: files, shell, screenshots, mouse/keyboard, accessibility tree |
-| 09 | `references/09-agent-triggers.md` | Cron, webhook, Pipedream event triggers; declarative frontmatter; HTTP API |
-| 10 | `references/10-registry.md` | OCX registry, skill discovery, install workflow |
-| 11 | `references/11-skill-authoring.md` | Skill layout, SKILL.md format, progressive disclosure |
-| 12 | `references/12-operations.md` | Init scripts, health checks, Docker dev, common issues |
-| 13 | `references/13-agent-harness.md` | Agent engineering: identity, permissions, tools, triggers, composition patterns |
+| Domain | Load this skill | Covers |
+|---|---|---|
+| Sandbox architecture, paths, services, ports | `kortix-architecture` | Container image, key paths, services, ports, auth model, runtimes |
+| Persistence, package survival, boot flow | `kortix-persistence` | What persists vs resets, safe install patterns, boot flow |
+| Env vars, secrets, encryption, cloud mode | `kortix-environment-secrets` | Env vars, cloud mode, secret API, encryption |
+| Agents, skills, tools, commands, sessions, providers, plugins, API | `opencode-framework` | Framework architecture, config, REST API, SSE |
+| Memory, observations, LTM, session search, SQLite, lss | `kortix-memory-sessions` | Memory plugin, filesystem persistence, session retrieval |
+| OAuth apps, Pipedream actions, authenticated API calls | `kortix-integrations` | Integrations, actions, proxyFetch, trigger management |
+| Slack, Telegram, Discord bridge | `kortix-channels` | Messaging bridge, session tracking, adapter setup, APIs |
+| Local machine control on the user's computer | `agent-tunnel` | Files, shell, screenshots, mouse, keyboard, accessibility tree |
+| Browser automation in websites and web apps | `agent-browser` | Navigation, snapshots, interaction, auth, capture, verification |
+| Scheduled or event-driven agent execution | `kortix-agent-triggers` | Cron, webhook, Pipedream triggers, frontmatter, runtime |
+| OCX marketplace discovery and installs | `ocx-registry` | Registry search, preview, install, load workflow |
+| Creating or refactoring skills | `kortix-skill-authoring` | Skill layout, SKILL.md format, progressive disclosure |
+| Operations, health checks, Docker, debugging | `kortix-operations` | Init scripts, health checks, common issues, Docker dev |
+| Agent design, permissions, composition, harness engineering | `kortix-agent-harness` | Identity, permissions, tools, triggers, composition patterns |
+| Slide decks and presentation workflows | `presentations` | HTML presentations, preview, export, slide workflows |
 
-## Routing — Read the Right File
+## Routing Rules
 
-| Question domain | Read first |
-|---|---|
-| Sandbox architecture, paths, services, ports | `01-architecture.md` |
-| What survives restarts, package installation | `02-persistence.md` |
-| API keys, env vars, secrets, auth tokens | `03-environment-and-secrets.md` |
-| How agents/skills/tools/commands work, API endpoints | `04-opencode-framework.md` |
-| Memory, observations, LTM, session search/retrieval | `05-memory-and-sessions.md` |
-| Gmail, Slack, GitHub OAuth, Pipedream actions | `06-integrations.md` |
-| Slack/Telegram/Discord messaging bridge | `07-channels.md` |
-| Controlling the user's local machine | `08-agent-tunnel.md` |
-| Scheduled/automated agent execution | `09-agent-triggers.md` |
-| Finding & installing marketplace skills | `10-registry.md` |
-| Creating or refactoring skills | `11-skill-authoring.md` |
-| Boot order, health checks, Docker, debugging | `12-operations.md` |
-| Building/configuring agents, harness design, composition | `13-agent-harness.md` |
+1. Prefer the narrow standalone skill over `kortix-system` whenever the question is clearly about one domain.
+2. Load multiple skills only when the task truly spans multiple subsystems.
+3. Keep this router short; detailed operational knowledge belongs in the standalone skills.
+4. For local-machine work use `agent-tunnel`; for browser work use `agent-browser`.
+5. For platform-wide questions, start with the closest skill above and add `kortix-system` only as the router.
 
-## Non-Negotiable Rules
+## Escalation Hints
 
-1. If it must survive restarts → `/workspace`
-2. Use the secret API for secrets — never write them to files
-3. Use `pty_spawn` for manually started dev servers
-4. Read the reference file before answering — don't rely on memory
-5. Keep SKILL.md short — depth lives in references
+- Questions about sandbox internals usually start with `kortix-architecture` or `kortix-persistence`.
+- Questions about how OpenCode itself works usually start with `opencode-framework`.
+- Questions about automation often combine `kortix-agent-triggers` with `kortix-integrations` or `kortix-agent-harness`.
+- Questions about authoring or refactoring platform knowledge should load `kortix-skill-authoring`.

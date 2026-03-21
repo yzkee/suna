@@ -1,3 +1,8 @@
+---
+name: kortix-skill-authoring
+description: "Kortix skill authoring reference: SKILL.md format, layout, progressive disclosure, reference splitting, and registry publishing."
+---
+
 # Skill Authoring
 
 Creating and refactoring skills for the Kortix / OpenCode platform.

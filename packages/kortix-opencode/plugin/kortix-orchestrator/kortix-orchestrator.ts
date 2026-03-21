@@ -3,7 +3,7 @@
  *
  * Projects + async session spawning. That's it.
  *
- * Storage: .kortix/kortix.db (SQLite)
+ * Storage: central .kortix/kortix.db (SQLite)
  *   - projects: registry + auto-discovery via .kortix/project.json
  *   - delegations: which sessions were spawned, in which project, by whom
  *
@@ -24,6 +24,7 @@ import { mkdirSync, readdirSync, statSync, readFileSync, existsSync, unlinkSync 
 import * as path from "node:path"
 import { type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
 import type { Event } from "@opencode-ai/sdk"
+import { ensureKortixDir, resolveKortixWorkspaceRoot } from "../kortix-paths"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -610,9 +611,11 @@ Other workers may be running in parallel on this project. **Do NOT touch files o
 // ── Plugin ───────────────────────────────────────────────────────────────────
 
 const KortixPlugin: Plugin = async (ctx) => {
-	const { client, directory } = ctx
-	const db = initDb(path.join(directory, ".kortix", "kortix.db"))
-	const mgr = new Manager(client, directory, db)
+	const { client } = ctx
+	const workspaceRoot = resolveKortixWorkspaceRoot(import.meta.dir)
+	const kortixDir = ensureKortixDir(import.meta.dir)
+	const db = initDb(path.join(kortixDir, "kortix.db"))
+	const mgr = new Manager(client, workspaceRoot, db)
 
 	return {
 		tool: {

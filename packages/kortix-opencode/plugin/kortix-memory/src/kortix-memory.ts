@@ -40,11 +40,11 @@ import { initEnrichment, enqueueEnrichment } from "./enrich"
 import { initSearch, hybridSearchLTM, hybridSearchObservations } from "./search"
 import { ensureMemDir, writeObservationFile, writeLTMFile } from "./lss"
 import { existsSync, writeFileSync, mkdirSync } from "node:fs"
-import { join } from "node:path"
 import { getEnv, shortTs, changeSummary, formatMessages, ttcCompress, STORAGE_BASE, DB_PATH } from "./session"
 import { MEMORY_CONTEXT_MARKER, upsertMemoryContextAtPromptEnd } from "./message-transform"
 import { setActiveProvider, getActiveProvider } from "./llm"
 import type { LogFn, CreateLTMInput, LTMType } from "./types"
+import { ensureKortixDir } from "../../kortix-paths"
 
 // ─── Plugin Entry ────────────────────────────────────────────────────────────
 
@@ -118,7 +118,7 @@ export const KortixMemoryPlugin: Plugin = async ({ client, project, directory })
 	}
 
 	// Ensure USER.md exists for personalization
-	const KORTIX_DIR = join(directory, ".kortix")
+	const KORTIX_DIR = ensureKortixDir(import.meta.dir)
 	const USER_MD_PATH = `${KORTIX_DIR}/USER.md`
 	try {
 		if (!existsSync(KORTIX_DIR)) mkdirSync(KORTIX_DIR, { recursive: true })

@@ -1,3 +1,8 @@
+---
+name: kortix-agent-triggers
+description: "Kortix agent triggers reference: cron, webhook, and Pipedream event triggers, frontmatter configuration, runtime state, and management tools."
+---
+
 # Agent Triggers — Cron, Webhook, and Event-Driven Execution
 
 Automated agent execution via scheduled, HTTP, or third-party event triggers.

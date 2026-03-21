@@ -1,3 +1,8 @@
+---
+name: kortix-memory-sessions
+description: "Kortix memory and session search reference: memory plugin, long-term memory, filesystem persistence, session tools, SQL, grep, and semantic search."
+---
+
 # Memory and Session Search
 
 Memory plugin, long-term memory, filesystem persistence, session search & retrieval.

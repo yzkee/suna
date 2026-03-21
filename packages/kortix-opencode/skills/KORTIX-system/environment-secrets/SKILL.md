@@ -1,3 +1,8 @@
+---
+name: kortix-environment-secrets
+description: "Kortix environment and secrets reference: cloud mode, env propagation, secret API usage, encryption, and common key categories."
+---
+
 # Environment and Secrets
 
 Setting API keys, env propagation, secret management, and cloud vs local runtime.

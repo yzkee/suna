@@ -1,3 +1,8 @@
+---
+name: kortix-agent-harness
+description: "Agent harness engineering reference for OpenCode and Kortix: knowledge, permissions, capabilities, identity, triggers, and composition patterns."
+---
+
 # Agent Harness Engineering
 
 Build, configure, and wire up OpenCode/Kortix agents. Covers the complete harness: agent identity (system prompt), control surface (permissions, tools, mode), activation layer (cron/webhook triggers), and composition (skills, commands, plugins).
@@ -267,7 +272,7 @@ Good: `"Reviews code for security vulnerabilities. Use for PR reviews and audits
 
 ## Layer 5: Activation
 
-What wakes the agent up. See `09-agent-triggers.md` for full trigger reference.
+What wakes the agent up. Load `kortix-agent-triggers` for the full trigger reference.
 
 ### Cron triggers
 

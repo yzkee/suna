@@ -10,9 +10,10 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { dirname } from "node:path"
+import { ensureKortixDir } from "../../kortix-paths"
 
-const DEFAULT_PLAN_DIR = process.env.KORTIX_DIR || join(process.cwd(), ".kortix")
+const DEFAULT_PLAN_DIR = ensureKortixDir(import.meta.dir)
 const PLAN_FILENAME = "PLAN.md"
 
 export interface PlanSection {

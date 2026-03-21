@@ -1,3 +1,8 @@
+---
+name: kortix-integrations
+description: "Kortix integrations reference: OAuth app connections, Pipedream actions, authenticated requests, exec flows, and trigger management."
+---
+
 # OAuth Integrations
 
 Connecting third-party apps (Gmail, Slack, GitHub, Sheets, etc.) via Pipedream. OAuth flows, API calls, and event triggers.

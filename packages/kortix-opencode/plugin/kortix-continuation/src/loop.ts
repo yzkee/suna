@@ -37,10 +37,11 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, readdir
 import { join } from "node:path"
 import { evaluateTodos, formatRemainingWork } from "./todo-enforcer"
 import type { Todo } from "@opencode-ai/sdk"
+import { ensureKortixDir } from "../../kortix-paths"
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const KORTIX_DIR = process.env.KORTIX_DIR || join(process.cwd(), ".kortix")
+const KORTIX_DIR = ensureKortixDir(import.meta.dir)
 const LOOP_STATE_DIR = `${KORTIX_DIR}/loop-states`
 /** @deprecated kept for migration from single-file to per-session persistence */
 const LEGACY_LOOP_STATE_PATH = `${KORTIX_DIR}/loop-state.json`

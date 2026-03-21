@@ -1,3 +1,8 @@
+---
+name: kortix-architecture
+description: "Kortix sandbox architecture reference: container image, filesystem layout, services, ports, authentication, environment variables, and runtimes."
+---
+
 # Kortix Sandbox Architecture
 
 Container image, filesystem layout, services, ports, authentication, and runtimes.

@@ -1,3 +1,8 @@
+---
+name: opencode-framework
+description: "OpenCode framework reference: agents, skills, tools, commands, sessions, providers, plugins, configuration, REST API, and SSE."
+---
+
 # OpenCode Framework
 
 The AI agent framework that powers the Kortix environment. Manages agents, skills, tools, commands, sessions, providers, and plugins.

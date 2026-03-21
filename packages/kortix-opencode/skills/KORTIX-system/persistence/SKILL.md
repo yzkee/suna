@@ -1,3 +1,8 @@
+---
+name: kortix-persistence
+description: "Kortix persistence model reference: what survives restarts, where to store files, safe install patterns, and boot flow."
+---
+
 # Persistence Model
 
 What survives restarts, where to store files, and how to install packages safely.

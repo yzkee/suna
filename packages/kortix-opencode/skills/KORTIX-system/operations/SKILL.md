@@ -1,3 +1,8 @@
+---
+name: kortix-operations
+description: "Kortix operations reference: init scripts, health checks, service management, common issues, and Docker development notes."
+---
+
 # Operations and Debugging
 
 Init scripts, health checks, service management, common issues, and Docker development.

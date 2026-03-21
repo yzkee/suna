@@ -8,9 +8,11 @@
 import { unlinkSync, rmSync, existsSync, readFileSync } from "node:fs"
 import * as path from "node:path"
 
-const WORKSPACE = path.resolve(import.meta.dir, "../../")
-const TEST_PROJECT = path.join(WORKSPACE, "projects", "e2e-test-project")
-const DB_PATH = path.join(WORKSPACE, ".kortix", "kortix.db")
+const PACKAGE_ROOT = path.resolve(import.meta.dir, "../../")
+const REPO_ROOT = path.resolve(import.meta.dir, "../../../../")
+const NESTED_PLUGIN_DIR = path.join(PACKAGE_ROOT, "plugin", "kortix-orchestrator")
+const TEST_PROJECT = path.join(REPO_ROOT, "projects", "e2e-test-project")
+const DB_PATH = path.join(REPO_ROOT, ".kortix", "kortix.db")
 
 // Cleanup before test
 function cleanup() {
@@ -84,15 +86,15 @@ function assert(condition: boolean, msg: string) {
 async function run() {
 	cleanup()
 	console.log("Loading plugin...")
-	const mod = await import("./index.ts")
-	const plugin = await mod.default({ client: mockClient, directory: WORKSPACE })
+	const mod = await import("./kortix-orchestrator.ts")
+	const plugin = await mod.default({ client: mockClient, directory: NESTED_PLUGIN_DIR })
 	const tools = plugin.tool as Record<string, any>
 	const event = plugin.event as (args: { event: any }) => Promise<void>
 
 	console.log("\n── 1. Plugin initialization ──")
 	assert(Object.keys(tools).length === 8, `8 tools registered (got ${Object.keys(tools).length})`)
 	assert(typeof event === "function", "Event handler is a function")
-	assert(existsSync(DB_PATH), "SQLite DB created")
+	assert(existsSync(DB_PATH), "SQLite DB created in central workspace .kortix")
 
 	console.log("\n── 2. Project CRUD ──")
 	const createResult = await tools.project_create.execute(
