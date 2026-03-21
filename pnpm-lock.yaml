@@ -651,6 +651,9 @@ importers:
       three:
         specifier: ^0.183.2
         version: 0.183.2
+      torph:
+        specifier: ^0.0.9
+        version: 0.0.9(react-dom@18.3.1)(react@18.3.1)
       turndown:
         specifier: ^7.2.1
         version: 7.2.2
@@ -1244,7 +1247,7 @@ importers:
         version: 0.7.2
       agent-tunnel:
         specifier: npm:@kortix/agent-tunnel@*
-        version: /@kortix/agent-tunnel@0.1.1
+        version: link:../agent-tunnel
       bun-pty:
         specifier: ^0.3.0
         version: 0.3.2
@@ -1293,23 +1296,23 @@ importers:
   packages/opencode-channels:
     dependencies:
       '@chat-adapter/discord':
-        specifier: ^4.15.0
-        version: 4.16.0
+        specifier: ^4.20.2
+        version: 4.20.2
       '@chat-adapter/slack':
-        specifier: ^4.14.0
-        version: 4.16.0
+        specifier: ^4.20.2
+        version: 4.20.2
       '@chat-adapter/state-memory':
-        specifier: ^4.14.0
-        version: 4.16.0
+        specifier: ^4.20.2
+        version: 4.20.2
       '@chat-adapter/telegram':
-        specifier: ^4.20.0
+        specifier: ^4.20.2
         version: 4.20.2
       '@hono/node-server':
         specifier: ^1.13.0
         version: 1.19.10(hono@4.12.3)
       chat:
-        specifier: ^4.14.0
-        version: 4.16.0
+        specifier: ^4.20.2
+        version: 4.20.2
       hono:
         specifier: ^4.12.0
         version: 4.12.3
@@ -3079,11 +3082,11 @@ packages:
       '@calcom/embed-core': 1.5.3
     dev: false
 
-  /@chat-adapter/discord@4.16.0:
-    resolution: {integrity: sha512-PJ9oFUbapM2jNOPputx0RVQUn7Tm6x8VbT73BL6IoMg+1HLDRTP48nOFsIUgTlvoxbaQ3j/qgsdcjqkG+v7faQ==}
+  /@chat-adapter/discord@4.20.2:
+    resolution: {integrity: sha512-hA9kKLpfyxmJdgIpldFy64aPc6/3iPQySW/GtfDfDTuUVsAYm9lw5UlW90RNciwLgIL9sqqZLsQ4wJmM4PeJfQ==}
     dependencies:
-      '@chat-adapter/shared': 4.16.0
-      chat: 4.16.0
+      '@chat-adapter/shared': 4.20.2
+      chat: 4.20.2
       discord-api-types: 0.37.120
       discord-interactions: 4.4.0
       discord.js: 14.25.1
@@ -3091,14 +3094,6 @@ packages:
       - bufferutil
       - supports-color
       - utf-8-validate
-    dev: false
-
-  /@chat-adapter/shared@4.16.0:
-    resolution: {integrity: sha512-J/YaclwyB02+oXFKhueM5tu0qHIO1pvl0U7D1SYl8ZgoptyhLwfdG1/kEmh1o80dSwenqCF7j9Vvc/FuEYK0BA==}
-    dependencies:
-      chat: 4.16.0
-    transitivePeerDependencies:
-      - supports-color
     dev: false
 
   /@chat-adapter/shared@4.20.2:
@@ -3109,21 +3104,21 @@ packages:
       - supports-color
     dev: false
 
-  /@chat-adapter/slack@4.16.0:
-    resolution: {integrity: sha512-5/E6GAzbx3UENZFn2Q3hz5eNScML6sJlCiKTKDEjQmRDFOgg3mBdNlk/Gy7hK5GbuoEIA9BJwyCpkPKMmV2aLA==}
+  /@chat-adapter/slack@4.20.2:
+    resolution: {integrity: sha512-DCGMdB5sLG7lJ8TTv6zHUC3GQXfW3zWXLv+w5sRc+Km0Rq4tG43vLMmcCAd3AEj2Bjhl0bnWjhkTwR7txlu7TQ==}
     dependencies:
-      '@chat-adapter/shared': 4.16.0
+      '@chat-adapter/shared': 4.20.2
       '@slack/web-api': 7.14.1
-      chat: 4.16.0
+      chat: 4.20.2
     transitivePeerDependencies:
       - debug
       - supports-color
     dev: false
 
-  /@chat-adapter/state-memory@4.16.0:
-    resolution: {integrity: sha512-OF1+ncPOGbHP0lplTvlfKkNizzOT6shsBt1GmJQCciyqAjoAIrj8o+Oh4RxkwI7vGEYpzgHDHz5hvn6UKAeHbA==}
+  /@chat-adapter/state-memory@4.20.2:
+    resolution: {integrity: sha512-4388hp9Wsp87jMgSpkPfN4abflgIgQn5M3MLSDYdU4f20PNKrUkzhb8elkyPmYliF4MInZUau+llc26b7hZsng==}
     dependencies:
-      chat: 4.16.0
+      chat: 4.20.2
     transitivePeerDependencies:
       - supports-color
     dev: false
@@ -5966,13 +5961,6 @@ packages:
       '@solid-primitives/refs': 1.1.2(solid-js@1.9.11)
       '@solid-primitives/utils': 6.3.2(solid-js@1.9.11)
       solid-js: 1.9.11
-    dev: false
-
-  /@kortix/agent-tunnel@0.1.1:
-    resolution: {integrity: sha512-r3T2g9ig+PcpIOSNT4wNxmX/2dmJtL62GV6fRTeNW3gogXYoGdXs01FGsg2W0DbHEeGfuICUKJRhAUXmgUEpbA==}
-    hasBin: true
-    dependencies:
-      hono: 4.12.3
     dev: false
 
   /@kurkle/color@0.3.4:
@@ -18189,20 +18177,6 @@ packages:
       '@kurkle/color': 0.3.4
     dev: false
 
-  /chat@4.16.0:
-    resolution: {integrity: sha512-rO3lA8SX+qPYiQW41/6ft7yTHeovr4BK3kZYAuI8lxiO1XkKD7EgrUPvJp9IWzpXVrhjfUhzJxY8VgHvoy0QYA==}
-    dependencies:
-      '@workflow/serde': 4.1.0-beta.2
-      mdast-util-to-string: 4.0.0
-      remark-gfm: 4.0.1
-      remark-parse: 11.0.0
-      remark-stringify: 11.0.0
-      remend: 1.2.1
-      unified: 11.0.5
-    transitivePeerDependencies:
-      - supports-color
-    dev: false
-
   /chat@4.20.2:
     resolution: {integrity: sha512-iTyMjE3ZRnubw1t4HgSyhU+sOG5coIBYxNS4DZbBmjQCJ9DnArmiejtG3cMigb11E2OlilZ97oKuRGigIOPh4g==}
     dependencies:
@@ -29302,6 +29276,27 @@ packages:
     dependencies:
       '@tokenizer/token': 0.3.0
       ieee754: 1.2.1
+    dev: false
+
+  /torph@0.0.9(react-dom@18.3.1)(react@18.3.1):
+    resolution: {integrity: sha512-WrFMtJwqXCfIXbLNuTOwHWff0XVm/Ewctb+71bFis3HykPvCXl1CHXapU0r67pQhAI323fsA1L2pGPeqxXeRRA==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+      svelte: '>=5'
+      vue: '>=3'
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-dom:
+        optional: true
+      svelte:
+        optional: true
+      vue:
+        optional: true
+    dependencies:
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
     dev: false
 
   /tr46@0.0.3:

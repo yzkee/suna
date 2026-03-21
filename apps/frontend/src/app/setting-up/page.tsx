@@ -2,11 +2,14 @@
 
 import { useEffect, useState, Suspense, lazy, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
+import { CheckCircle2, AlertCircle, RefreshCw, Loader2 } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 import { backendApi } from '@/lib/api-client';
+import { getEnv } from '@/lib/env-config';
 import { configureAutoTopup, markInstanceError } from '@/lib/api/billing';
 import { KortixLogo } from '@/components/sidebar/kortix-logo';
+import { AnimatedCircularProgressBar } from '@/components/ui/animated-circular-progress';
+import { TextMorph } from 'torph/react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useServerStore } from '@/stores/server-store';
@@ -32,9 +35,20 @@ const STEP_INFO: Record<Exclude<SetupStep, 'success' | 'error'>, StepInfo> = {
   auto_topup:   { label: 'Auto-topup (optional)',    detail: 'Enable automatic credit reloads when balance is low.' },
 };
 
+interface ProvisioningStageInfo {
+  id: string;
+  progress: number;
+  message: string;
+}
+
 interface SetupStatusResponse {
   subscription: 'ready' | 'pending';
   sandbox: 'none' | 'provisioning' | 'ready' | 'error';
+  stage: string | null;
+  stageProgress: number | null;
+  stageMessage: string | null;
+  machineInfo: { ip: string; serverType: string; location: string } | null;
+  stages: ProvisioningStageInfo[] | null;
 }
 
 export default function SettingUpPage() {
@@ -53,12 +67,17 @@ export default function SettingUpPage() {
   const [autoTopupAmount, setAutoTopupAmount] = useState(15);
   const [isSavingAutoTopup, setIsSavingAutoTopup] = useState(false);
   const [sandboxPhase, setSandboxPhase] = useState<'provisioning' | 'booting'>('provisioning');
+  const [provisioningStages, setProvisioningStages] = useState<ProvisioningStageInfo[] | null>(null);
+  const [currentStage, setCurrentStage] = useState<string | null>(null);
+  const [machineInfo, setMachineInfo] = useState<{ ip: string; serverType: string; location: string } | null>(null);
   const [subscriptionSuccess, setSubscriptionSuccess] = useState(false);
   const [checkoutSessionId, setCheckoutSessionId] = useState<string | null>(null);
   // mode=instance: provisioning an additional instance (skip subscription/auto-topup steps)
   const [instanceMode, setInstanceMode] = useState(false);
   const [instanceModeId, setInstanceModeId] = useState<string | null>(null);
   const [paramsReady, setParamsReady] = useState(false);
+  const [mockMode, setMockMode] = useState(false);
+  const mockStartRef = useRef(0);
   const isRunning = useRef(false);
   const runSeqRef = useRef(0);
   const autoStartedRef = useRef(false);
@@ -68,6 +87,10 @@ export default function SettingUpPage() {
     const params = new URLSearchParams(window.location.search);
     setSubscriptionSuccess(params.get('subscription') === 'success');
     setCheckoutSessionId(params.get('session_id'));
+    if (params.get('mock') === 'true') {
+      setMockMode(true);
+      mockStartRef.current = Math.floor(Date.now() / 1000);
+    }
     if (params.get('mode') === 'instance' && params.get('sandbox_id')) {
       setInstanceMode(true);
       setInstanceModeId(params.get('sandbox_id'));
@@ -103,18 +126,36 @@ export default function SettingUpPage() {
 
     while (Date.now() < deadline && isCurrentRun()) {
       const elapsedSec = Math.floor((Date.now() - started) / 1000);
-      if (isHetznerDefault) {
-        setSandboxProgress(Math.max(2, Math.min(96, getHetznerProvisioningProgress(elapsedSec))));
-      } else {
-        // For non-Hetzner, use a simple indeterminate progress
-        setSandboxProgress(Math.min(90, 10 + elapsedSec * 2));
-      }
 
       try {
-        const statusRes = await backendApi.get<SetupStatusResponse>(
-          '/billing/setup/status',
-          { showErrors: false, timeout: 10000 },
-        );
+        let statusRes: { success: boolean; data?: SetupStatusResponse };
+
+        if (mockMode) {
+          // Direct fetch — bypass backendApi which requires auth session
+          const res = await fetch(`${getEnv().BACKEND_URL}/billing/setup/status?mock=true&t=${mockStartRef.current}`, {
+            signal: AbortSignal.timeout(10000),
+          });
+          statusRes = res.ok ? { success: true, data: await res.json() } : { success: false };
+        } else {
+          statusRes = await backendApi.get<SetupStatusResponse>(
+            '/billing/setup/status',
+            { showErrors: false, timeout: 10000 },
+          );
+        }
+
+        if (statusRes.success && statusRes.data) {
+          const d = statusRes.data;
+          if (d.stages) setProvisioningStages(d.stages);
+          if (d.stage) setCurrentStage(d.stage);
+          if (d.machineInfo) setMachineInfo(d.machineInfo);
+          if (d.stageProgress != null) {
+            setSandboxProgress(d.stageProgress);
+          } else if (isHetznerDefault) {
+            setSandboxProgress(Math.max(2, Math.min(96, getHetznerProvisioningProgress(elapsedSec))));
+          } else {
+            setSandboxProgress(Math.min(90, 10 + elapsedSec * 2));
+          }
+        }
 
         if (statusRes.success && statusRes.data?.sandbox === 'error') {
           throw new Error('Cloud instance provisioning failed. Please try again.');
@@ -156,7 +197,7 @@ export default function SettingUpPage() {
     }
 
     return false;
-  }, [isHetznerDefault, getHetznerProvisioningProgress]);
+  }, [isHetznerDefault, getHetznerProvisioningProgress, mockMode]);
 
   /**
    * Poll a specific additional instance (by sandbox_id) until it's active + healthy.
@@ -342,13 +383,31 @@ export default function SettingUpPage() {
   }, [saveAutoTopupSettings, continueToDashboard]);
 
   const runSetup = useCallback(async () => {
-    if (!user || isRunning.current) return;
+    if (isRunning.current) return;
+    if (!mockMode && !user) return;
     isRunning.current = true;
     const runSeq = ++runSeqRef.current;
     const isCurrentRun = () => runSeqRef.current === runSeq;
     setErrorMessage('');
 
     try {
+      // Mock mode: skip auth/billing, just show provisioning stages
+      if (mockMode) {
+        setPlanTier('pro');
+        setStep('checking');
+        await new Promise((r) => setTimeout(r, 1500));
+        if (!isCurrentRun()) return;
+        setStep('subscription');
+        await new Promise((r) => setTimeout(r, 1500));
+        if (!isCurrentRun()) return;
+        setStep('sandbox');
+        setSandboxProgress(0);
+        setSandboxPhase('provisioning');
+        await pollSandboxReady(isCurrentRun, 120000);
+        if (!isCurrentRun()) return;
+        setStep('auto_topup');
+        return;
+      }
       // ── Instance mode: provisioning an additional Hetzner instance ──────────
       // Skip subscription/auto-topup steps — just wait for the sandbox to be ready.
       if (instanceMode && instanceModeId) {
@@ -508,111 +567,230 @@ export default function SettingUpPage() {
   }, [user, isHetznerDefault, pollSandboxReady, pollAdditionalInstanceReady, continueToDashboard, subscriptionSuccess, waitForPaidActivation, instanceMode, instanceModeId]);
 
   useEffect(() => {
-    if (!user || !paramsReady || autoStartedRef.current) return;
+    if (!paramsReady || autoStartedRef.current) return;
+    if (!mockMode && !user) return;
     autoStartedRef.current = true;
     runSetup();
-  }, [user, paramsReady, runSetup]);
+  }, [user, paramsReady, mockMode, runSetup]);
 
   const handleRetry = () => {
     setStep('checking');
     runSetup();
   };
 
-  return (
-    <div className="w-full relative overflow-hidden min-h-screen">
-      <div className="relative flex flex-col items-center w-full px-4 sm:px-6 min-h-screen justify-center">
-        <Suspense fallback={null}>
-          <AnimatedBg variant="hero" />
-        </Suspense>
+  // Human-friendly stage messages (translate internal IDs to user-facing copy)
+  const stageDisplayText = (() => {
+    if (step !== 'sandbox') return stepInfo[step as keyof typeof stepInfo]?.detail || 'Please wait...';
+    if (sandboxPhase === 'booting') return 'Starting your workspace';
+    if (!currentStage) return 'Preparing your workspace';
+    const map: Record<string, string> = {
+      server_creating: 'Spinning up your machine',
+      server_created: 'Machine ready, configuring',
+      cloud_init_running: 'Installing dependencies',
+      cloud_init_done: 'Environment configured',
+      docker_pulling: 'Preparing your workspace image',
+      docker_running: 'Starting services',
+      services_starting: 'Almost there',
+      services_ready: 'Finishing up',
+    };
+    return map[currentStage] || 'Preparing your workspace';
+  })();
 
-        <div className="relative z-10 w-full max-w-[456px] flex flex-col items-center gap-8">
-          <KortixLogo size={32} />
+  const stageCount = provisioningStages?.length || 0;
+  const currentStageIdx = provisioningStages?.findIndex(s => s.id === currentStage) ?? -1;
+  const completedCount = sandboxPhase === 'booting' ? stageCount : Math.max(0, currentStageIdx);
+
+  return (
+    <div className="w-full relative overflow-hidden min-h-screen bg-background">
+      {/* Inline keyframes for animations */}
+      <style>{`
+        @keyframes setting-up-text-in {
+          from { opacity: 0; transform: translateY(8px); filter: blur(4px); }
+          to { opacity: 1; transform: translateY(0); filter: blur(0); }
+        }
+        @keyframes setting-up-dot-pop {
+          0% { transform: scale(1); }
+          50% { transform: scale(1.8); }
+          100% { transform: scale(1); }
+        }
+        @keyframes setting-up-fade-in {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        .setting-up-text-enter {
+          animation: setting-up-text-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        .setting-up-dot-complete {
+          animation: setting-up-dot-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+      `}</style>
+
+      <div className="relative flex flex-col items-center w-full px-4 sm:px-6 min-h-screen justify-center">
+        <div className="relative z-10 w-full max-w-[400px] flex flex-col items-center">
+
+          {/* Top branding */}
+          <div className="mb-12 flex flex-col items-center gap-3" style={{ animation: 'setting-up-fade-in 1s ease-out forwards' }}>
+            <KortixLogo size={22} className="opacity-50" />
+            <h1 className="text-[15px] font-normal text-foreground/30 tracking-[0.15em] uppercase">
+              {step === 'checking' || step === 'subscription' ? 'Setting Up' : step === 'connect' ? 'Connect Instance' : step === 'auto_topup' ? 'Auto-Topup' : 'Creating Workspace'}
+            </h1>
+          </div>
+
+          {(step === 'connect' || step === 'auto_topup') && errorMessage && (
+            <p className="text-sm text-red-400 text-center mb-6">{errorMessage}</p>
+          )}
 
           {step !== 'success' && step !== 'error' && (
             <>
-              <h1 className="text-[43px] font-normal tracking-tight text-foreground leading-none text-center">
-                {step === 'connect'
-                  ? 'Connect Your Instance'
-                  : step === 'auto_topup'
-                    ? 'Optional Auto-Topup'
-                    : instanceMode
-                      ? 'Provisioning Instance'
-                      : 'Setting Up Your Account'}
-              </h1>
-
-              <p className="text-[16px] text-foreground/60 text-center leading-relaxed">
-                {step === 'connect'
-                  ? 'Free plan users bring their own compute. Add one instance to continue.'
-                  : step === 'auto_topup'
-                    ? 'Configure automatic credit reloads now, or skip and do it later in billing settings.'
-                    : instanceMode
-                      ? 'Your new Hetzner instance is being provisioned. This usually takes 2-3 minutes.'
-                      : 'We\'re creating your workspace and preparing everything you need to get started.'}
-              </p>
-
-              {(step === 'connect' || step === 'auto_topup') && errorMessage && (
-                <p className="text-sm text-red-400 text-center">{errorMessage}</p>
+              {(step === 'checking' || step === 'subscription') && (
+                <div className="w-full flex flex-col items-center gap-6">
+                  <div className="relative h-10 w-10 flex items-center justify-center">
+                    <Loader2 className="size-5 text-primary animate-spin" />
+                  </div>
+                  <div className="space-y-3 text-center">
+                    <div className="flex items-center justify-center gap-3">
+                      {step === 'checking' ? (
+                        <Loader2 className="size-3.5 text-primary animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="size-3.5 text-primary/50" />
+                      )}
+                      <span className={`text-[13px] ${step === 'checking' ? 'text-foreground/90 font-medium' : 'text-foreground/30'}`}>
+                        Verifying account
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-center gap-3">
+                      {step === 'subscription' ? (
+                        <Loader2 className="size-3.5 text-primary animate-spin" />
+                      ) : step === 'checking' ? (
+                        <div className="h-1 w-1 rounded-full bg-foreground/15" />
+                      ) : (
+                        <CheckCircle2 className="size-3.5 text-primary/50" />
+                      )}
+                      <span className={`text-[13px] ${step === 'subscription' ? 'text-foreground/90 font-medium' : step === 'checking' ? 'text-foreground/15' : 'text-foreground/30'}`}>
+                        Setting up subscription
+                      </span>
+                    </div>
+                  </div>
+                </div>
               )}
 
-              <Card className="w-full bg-card border border-border">
-                <CardContent className="p-6">
-                  <div className="flex flex-col gap-4">
-                    {(
-                      instanceMode
-                        ? (['sandbox'] as const)
-                        : planTier === 'pro'
-                          ? (['checking', 'subscription', 'sandbox', 'auto_topup'] as const)
-                          : planTier === 'free'
-                            ? (['checking', 'subscription', 'connect'] as const)
-                            : (['checking', 'subscription', 'sandbox'] as const)
-                    ).map((s) => {
-                      const info = stepInfo[s];
-                      const isActive = s === step;
-                      const isDone = getStepOrder(step) > getStepOrder(s);
-
-                      return (
-                        <div key={s} className="flex items-center gap-3">
-                          <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center">
-                            {isDone ? (
-                              <CheckCircle2 className="h-5 w-5 text-green-500" />
-                            ) : isActive ? (
-                              <div className="h-3 w-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                            ) : (
-                              <div className="h-3 w-3 rounded-full bg-foreground/15" />
-                            )}
-                          </div>
-                          <div className="flex flex-col">
-                            <span className={`text-sm font-medium ${isActive ? 'text-blue-400' : isDone ? 'text-green-400' : 'text-foreground/30'}`}>
-                              {info.label}
-                            </span>
-                            {isActive && (
-                              <span className="text-xs text-foreground/40">
-                                {s === 'sandbox'
-                                  ? sandboxPhase === 'booting'
-                                    ? 'Waiting for computer to boot...'
-                                    : isHetznerDefault
-                                      ? `${info.detail} ${Math.round(sandboxProgress)}%`
-                                      : info.detail
-                                  : info.detail}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {step === 'sandbox' && isHetznerDefault && (
-                      <div className="pt-1">
-                        <div className="h-1.5 w-full rounded-full bg-foreground/10 overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-blue-500/90 transition-all duration-1000 ease-out"
-                            style={{ width: `${Math.max(sandboxProgress, 2)}%` }}
-                          />
-                        </div>
-                      </div>
-                    )}
+              {step === 'sandbox' && (
+                <div className="w-full flex flex-col items-center">
+                  <div className="relative" style={{ animation: 'setting-up-fade-in 0.6s ease-out forwards' }}>
+                    <AnimatedCircularProgressBar
+                      value={sandboxProgress}
+                      gaugePrimaryColor="var(--color-primary)"
+                      gaugeSecondaryColor="var(--color-primary)"
+                      className="size-36 [&>span]:hidden [&_circle:first-of-type]:opacity-15"
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <TextMorph className="text-2xl font-light text-foreground/90 tabular-nums">
+                        {`${Math.round(sandboxProgress)}%`}
+                      </TextMorph>
+                    </div>
                   </div>
-                </CardContent>
-              </Card>
+
+                  {provisioningStages && provisioningStages.length > 0 ? (
+                    <div className="mt-8 w-full max-w-[300px] relative h-[108px]" style={{ overflow: 'hidden', clipPath: 'inset(0)' }}>
+                      {/* Fade masks */}
+                      <div className="absolute top-0 left-0 right-0 h-10 bg-gradient-to-b from-background via-background/80 to-transparent z-20 pointer-events-none" />
+                      <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-background via-background/80 to-transparent z-20 pointer-events-none" />
+
+                      {/* Scrolling list */}
+                      <div
+                        className="absolute left-0 right-0 flex flex-col transition-transform duration-700 ease-out"
+                        style={{
+                          transform: `translateY(${36 - (completedCount * 36)}px)`,
+                        }}
+                      >
+                        {provisioningStages.map((ps, i) => {
+                          const isDone = i < completedCount || sandboxPhase === 'booting';
+                          const isActive = i === completedCount && sandboxPhase !== 'booting';
+
+                          return (
+                            <div key={ps.id} className="flex items-center justify-center gap-3 h-9 shrink-0 w-full">
+                              <div className="flex-shrink-0 w-4 h-4 flex items-center justify-center">
+                                {isDone ? (
+                                  <CheckCircle2 className="size-3.5 text-primary/50" />
+                                ) : isActive ? (
+                                  <Loader2 className="size-3.5 text-primary animate-spin" />
+                                ) : (
+                                  <div className="h-1 w-1 rounded-full bg-foreground/15" />
+                                )}
+                              </div>
+                              <span className={`text-[13px] transition-all duration-500 ${
+                                isActive ? 'text-foreground/90 font-medium' : isDone ? 'text-foreground/25' : 'text-foreground/15'
+                              }`}>
+                                {ps.message}
+                              </span>
+                            </div>
+                          );
+                        })}
+                        {sandboxPhase === 'booting' && (
+                          <div className="flex items-center justify-center gap-3 h-9 shrink-0 w-full">
+                            <div className="flex-shrink-0 w-4 h-4 flex items-center justify-center">
+                              <Loader2 className="size-3.5 text-primary animate-spin" />
+                            </div>
+                            <span className="text-[13px] text-foreground/90 font-medium">Starting workspace...</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="mt-6 relative min-h-[24px] flex items-center justify-center">
+                        <h2
+                          key={stageDisplayText}
+                          className="setting-up-text-enter text-[16px] font-normal text-foreground/70 text-center"
+                        >
+                          {stageDisplayText}
+                        </h2>
+                      </div>
+                      <p className="mt-1 text-[12px] text-foreground/20">
+                        This usually takes about a minute
+                      </p>
+                    </>
+                  )}
+
+                  <div className="mt-6 w-12 h-px bg-foreground/[0.06]" />
+
+                  {stageCount > 0 && (
+                    <div className="mt-6 flex items-center gap-[6px]">
+                      {provisioningStages!.map((ps, i) => {
+                        const isDone = i < completedCount;
+                        const isActive = i === completedCount && sandboxPhase !== 'booting';
+                        const allDone = sandboxPhase === 'booting';
+
+                        return (
+                          <div
+                            key={ps.id}
+                            className={`rounded-full transition-all duration-700 ease-out ${
+                              isDone || allDone
+                                ? 'h-[5px] w-[5px] bg-primary/50 setting-up-dot-complete'
+                                : isActive
+                                  ? 'h-[7px] w-[7px] bg-primary/80'
+                                  : 'h-[5px] w-[5px] bg-foreground/[0.06]'
+                            }`}
+                            style={isDone ? { animationDelay: `${i * 60}ms` } : undefined}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {machineInfo?.ip && (
+                    <div
+                      className="mt-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-foreground/[0.03] border border-foreground/[0.06]"
+                      style={{ animation: 'setting-up-fade-in 0.8s ease-out forwards' }}
+                    >
+                      <div className="h-1.5 w-1.5 rounded-full bg-primary/50" />
+                      <span className="text-[11px] text-foreground/30 font-mono tracking-wide">
+                        {machineInfo.location?.toLowerCase().includes('us') || machineInfo.location?.toLowerCase().includes('hil') ? 'US' : 'EU'} · {machineInfo.ip}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {step === 'connect' && (
                 <Card className="w-full bg-card border border-border py-0 gap-0">
@@ -643,154 +821,82 @@ export default function SettingUpPage() {
               )}
 
               {step === 'auto_topup' && (
-                <Card className="w-full bg-card border border-border py-0 gap-0">
-                  <CardContent className="p-4 space-y-3">
+                <div className="w-full flex flex-col items-center gap-6">
+                  <button
+                    type="button"
+                    onClick={() => setAutoTopupEnabled(!autoTopupEnabled)}
+                    className={`w-full rounded-xl border p-4 text-left transition-colors ${
+                      autoTopupEnabled ? 'border-primary/30 bg-primary/5' : 'border-border bg-card hover:bg-muted/40'
+                    }`}
+                  >
                     <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-foreground">Credit Auto-topup</p>
-                      <span className="text-[11px] text-foreground/50">Optional</span>
-                    </div>
-
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={autoTopupEnabled}
-                        onChange={(e) => setAutoTopupEnabled(e.target.checked)}
-                      />
-                      Enable auto-topup
-                    </label>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <label className="text-xs text-foreground/70">Threshold ($)</label>
-                        <input
-                          type="number"
-                          min={5}
-                          value={autoTopupThreshold}
-                          onChange={(e) => setAutoTopupThreshold(Number(e.target.value || 0))}
-                          disabled={!autoTopupEnabled}
-                          className="w-full h-8 px-2.5 rounded-md border border-border bg-background text-sm"
-                        />
+                      <div>
+                        <p className="text-sm font-medium">Enable Auto-Topup</p>
+                        <p className="text-xs text-foreground/40 mt-0.5">Never run out of credits mid-task</p>
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-xs text-foreground/70">Reload amount ($)</label>
-                        <input
-                          type="number"
-                          min={15}
-                          value={autoTopupAmount}
-                          onChange={(e) => setAutoTopupAmount(Number(e.target.value || 0))}
-                          disabled={!autoTopupEnabled}
-                          className="w-full h-8 px-2.5 rounded-md border border-border bg-background text-sm"
-                        />
+                      <div className={`h-5 w-9 rounded-full transition-colors flex items-center px-0.5 ${
+                        autoTopupEnabled ? 'bg-primary justify-end' : 'bg-foreground/10 justify-start'
+                      }`}>
+                        <div className="h-4 w-4 rounded-full bg-white shadow-sm transition-all" />
                       </div>
                     </div>
+                  </button>
 
-                    <div className="flex gap-2">
-                      <Button variant="outline" className="flex-1" onClick={continueToDashboard}>
-                        Skip for now
-                      </Button>
-                      <Button className="flex-1" onClick={handleAutoTopupContinue} disabled={isSavingAutoTopup}>
-                        {autoTopupEnabled ? (isSavingAutoTopup ? 'Saving...' : 'Save & Continue') : 'Continue'}
-                      </Button>
+                  {autoTopupEnabled && (
+                    <div className="w-full grid grid-cols-2 gap-3" style={{ animation: 'setting-up-fade-in 0.3s ease-out forwards' }}>
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] text-foreground/40 uppercase tracking-wider">When balance drops below</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-foreground/30">$</span>
+                          <input
+                            type="number"
+                            min={1}
+                            value={autoTopupThreshold}
+                            onChange={(e) => setAutoTopupThreshold(Number(e.target.value || 0))}
+                            className="w-full h-10 pl-7 pr-3 rounded-lg border border-border bg-card text-sm tabular-nums"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] text-foreground/40 uppercase tracking-wider">Reload amount</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-foreground/30">$</span>
+                          <input
+                            type="number"
+                            min={5}
+                            value={autoTopupAmount}
+                            onChange={(e) => setAutoTopupAmount(Number(e.target.value || 0))}
+                            className="w-full h-10 pl-7 pr-3 rounded-lg border border-border bg-card text-sm tabular-nums"
+                          />
+                        </div>
+                      </div>
                     </div>
-                  </CardContent>
-                </Card>
+                  )}
+
+                  <div className="w-full flex gap-3 pt-2">
+                    <Button variant="outline" className="flex-1 h-10" onClick={continueToDashboard}>
+                      Skip
+                    </Button>
+                    <Button className="flex-1 h-10" onClick={handleAutoTopupContinue} disabled={isSavingAutoTopup}>
+                      {autoTopupEnabled ? (isSavingAutoTopup ? 'Saving...' : 'Save & Continue') : 'Continue'}
+                    </Button>
+                  </div>
+                </div>
               )}
 
-              {step === 'sandbox' && planTier === 'pro' && (
-                <Card className="w-full bg-card border border-border py-0 gap-0">
-                  <CardContent className="p-3 space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-medium text-foreground">Credit Auto-topup</p>
-                      <label className="flex items-center gap-2 text-xs text-foreground/80 whitespace-nowrap">
-                        <span>Enable</span>
-                        <input
-                          type="checkbox"
-                          checked={autoTopupEnabled}
-                          onChange={(e) => setAutoTopupEnabled(e.target.checked)}
-                        />
-                      </label>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <label className="space-y-1">
-                        <span className="text-[11px] text-foreground/70">Threshold ($)</span>
-                        <input
-                          type="number"
-                          min={5}
-                          value={autoTopupThreshold}
-                          onChange={(e) => setAutoTopupThreshold(Number(e.target.value || 0))}
-                          disabled={!autoTopupEnabled}
-                          className="w-full h-8 px-2 rounded-md border border-border bg-background text-sm"
-                        />
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-[11px] text-foreground/70">Reload amount ($)</span>
-                        <input
-                          type="number"
-                          min={15}
-                          value={autoTopupAmount}
-                          onChange={(e) => setAutoTopupAmount(Number(e.target.value || 0))}
-                          disabled={!autoTopupEnabled}
-                          className="w-full h-8 px-2 rounded-md border border-border bg-background text-sm"
-                        />
-                      </label>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-[11px] text-foreground/55">Optional, can be changed later in Billing</p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 px-3"
-                        disabled={isSavingAutoTopup}
-                        onClick={async () => {
-                          setIsSavingAutoTopup(true);
-                          setErrorMessage('');
-                          try {
-                            await saveAutoTopupSettings();
-                          } finally {
-                            setIsSavingAutoTopup(false);
-                          }
-                        }}
-                      >
-                        {isSavingAutoTopup ? 'Saving...' : 'Save'}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
             </>
           )}
 
           {step === 'success' && (
-            <>
-              <h1 className="text-[43px] font-normal tracking-tight text-foreground leading-none text-center">
-                You're All Set!
+            <div className="flex flex-col items-center gap-4">
+              <CheckCircle2 className="h-10 w-10 text-primary/70" />
+              <h1 className="text-[24px] font-normal tracking-tight text-foreground text-center">
+                You&apos;re All Set
               </h1>
-
-              <p className="text-[16px] text-foreground/60 text-center leading-relaxed">
-                Your account is ready. Redirecting you to the dashboard...
+              <p className="text-[14px] text-foreground/40 text-center">
+                Redirecting to your workspace...
               </p>
-
-              <Card className="w-full h-24 bg-card border border-border">
-                <CardContent className="p-6 h-full">
-                  <div className="flex items-center justify-between h-full">
-                    <div className="flex items-center gap-3">
-                      <div className="flex flex-col gap-1">
-                        <div className='flex items-center gap-2'>
-                          <div className="h-2.5 w-2.5 bg-green-500 rounded-full"></div>
-                          <span className="text-base font-medium text-green-400">Ready</span>
-                        </div>
-                        <p className="text-base text-gray-400">Welcome to your workspace!</p>
-                      </div>
-                    </div>
-                    <div className="h-12 w-12 flex items-center justify-center">
-                      <CheckCircle2 className="h-6 w-6 text-green-500" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </>
+            </div>
           )}
 
           {step === 'error' && (
@@ -866,14 +972,15 @@ export default function SettingUpPage() {
           )}
         </div>
 
-        <div
+        {/* <div
           className="absolute inset-0 opacity-[0.15] pointer-events-none z-50"
           style={{
             backgroundImage: 'url(/grain-texture.png)',
             backgroundRepeat: 'repeat',
             mixBlendMode: 'overlay'
           }}
-        />
+        /> */}
+
       </div>
     </div>
   );
