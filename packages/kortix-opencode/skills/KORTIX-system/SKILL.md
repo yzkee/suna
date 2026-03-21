@@ -26,7 +26,6 @@ Use this skill as the top-level map for the Kortix platform. It should route you
 | Creating or refactoring skills | `kortix-skill-authoring` | Skill layout, SKILL.md format, progressive disclosure |
 | Operations, health checks, Docker, debugging | `kortix-operations` | Init scripts, health checks, common issues, Docker dev |
 | Agent design, permissions, composition, harness engineering | `kortix-agent-harness` | Identity, permissions, tools, triggers, composition patterns |
-| Slide decks and presentation workflows | `presentations` | HTML presentations, preview, export, slide workflows |
 
 ## Routing Rules
 

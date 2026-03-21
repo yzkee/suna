@@ -7,6 +7,15 @@ description: "Use for spreadsheet creation, analysis, financial models, and poli
 
 **Design guidance:** For styled spreadsheets (dashboard reports, branded workbooks), see `skills/GENERAL-KNOWLEDGE-WORKER/design-foundations/SKILL.md` for the default accent color and chart colors. Reserve color for emphasis — most cells should use default black text on white. Use the accent color sparingly (header rows, key totals). Financial model color conventions below are industry-standard overrides and take priority.
 
+## User-Facing Delivery
+
+When reporting back to the user:
+
+- describe what the spreadsheet does, not which library created it
+- mention the structure, formulas, sheets, charts, and outputs in plain language
+- say that calculations update automatically when inputs change when that is true
+- do not narrate internal implementation details unless the user explicitly asks
+
 ## All Excel files
 
 ### Professional Font

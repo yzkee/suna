@@ -12,6 +12,8 @@ Use the correct `api_credentials` suffix for billing:
 - `api_credentials=["llm-api:video"]` — video generation
 - `api_credentials=["llm-api:audio"]` — text-to-speech and transcription
 
+If the runtime has the `elevenlabs` skill installed, prefer it for dedicated text-to-speech, voice, and transcription workflows instead of building custom wrappers.
+
 ## asi-generate-image
 
 Generate images from text prompts. Supports img2img with reference images.

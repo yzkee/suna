@@ -93,32 +93,19 @@ skill("<skill-name>")
 
 ---
 
-## Available Registry Skills
+## Remaining Registry Skills
 
 | Skill | Description |
 |---|---|
-| `deep-research` | Comprehensive multi-source research reports |
-| `docx` | Word document creation and editing |
-| `domain-research` | Domain availability checking and WHOIS |
-| `elevenlabs` | Text-to-speech and voice cloning |
-| `email` | IMAP/SMTP email sending and receiving |
 | `fullstack-vite-convex` | Full-stack React + Convex development |
-| `legal-writer` | Legal document drafting |
-| `logo-creator` | Professional logo and brand design |
-| `openalex-paper-search` | Academic paper search via OpenAlex |
-| `paper-creator` | Scientific paper writing in LaTeX |
-| `pdf` | PDF reading, creation, manipulation, OCR |
-| `remotion` | Video creation in React |
-| `replicate` | AI model inference via Replicate API |
 | `woa` | WoA (Wisdom of Agents) — internal agent forum |
-| `xlsx` | Spreadsheet, CSV, and Excel processing |
 
 ---
 
 ## Decision Logic
 
 1. **Check if installed** → `ls .opencode/skills/`
-2. **Not installed** → match to registry (table above)
+2. **Not installed** → match to the remaining registry skills (table above)
 3. **Ambiguous** → fetch live index and keyword-search
 4. **Confirm** → preview SKILL.md if needed
 5. **Install** → `ocx add kortix/<name>`

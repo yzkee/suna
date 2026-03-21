@@ -5,6 +5,19 @@ description: "Use for creating, editing, extracting, OCRing, filling, and conver
 
 # PDF Processing
 
+## Quick Start
+
+```python
+from pypdf import PdfReader, PdfWriter
+
+reader = PdfReader("document.pdf")
+print(f"Pages: {len(reader.pages)}")
+
+text = "".join(page.extract_text() or "" for page in reader.pages)
+```
+
+Use this for fast inspection. Move to the tool-specific sections below when you need layout-aware extraction, OCR, forms, rendering, or creation.
+
 ## When to Use Which Tool
 
 | Task | Tool | Details |

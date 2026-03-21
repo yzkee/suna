@@ -692,7 +692,7 @@ Following all specifications above:
 ```markdown
 ## ✓ Asset Created: [Prospect Name]
 
-[View your asset](computer:///path/to/file.html)
+Deliver the generated file with `show`, or provide the verified local preview URL if the asset is being served locally.
 
 ---
 

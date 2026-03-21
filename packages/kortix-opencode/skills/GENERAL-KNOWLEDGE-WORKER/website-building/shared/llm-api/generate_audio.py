@@ -1,76 +1,31 @@
-"""Async audio generation (TTS) via LLM API. Copy into your project and call from FastAPI handlers.
+"""Provider-agnostic text-to-speech stub.
 
-Usage:
-    from generate_audio import generate_audio, generate_dialogue
+Copy this into a project and wire it to the TTS SDK or HTTP API that the
+project actually uses.
 
-    audio_bytes = await generate_audio("Hello world", voice="kore")
-    audio_bytes = await generate_dialogue([
-        {"speaker": "kore", "text": "Welcome!"},
-        {"speaker": "charon", "text": "Thanks for having me."},
-    ])
+If the runtime has the `elevenlabs` skill installed, prefer that skill for
+text-to-speech and voice workflows before writing custom provider glue.
 """
-
-import base64
-
-from pplx.python.sdks.llm_api import (
-    AudioGenParams,
-    Client,
-    Conversation,
-    DialogueInput,
-    Identity,
-    LLMAPIClient,
-    MediaGenParams,
-    SamplingParams,
-)
-
-TTS_OUTPUT_FORMAT = "mp3_44100_128"
 
 
 async def generate_audio(
     text: str,
     *,
-    voice: str = "kore",
-    model: str = "gemini_2_5_pro_tts",
+    voice: str = "<voice>",
+    model: str = "<tts-model>",
 ) -> bytes:
-    client = LLMAPIClient()
-    convo = Conversation()
-    convo.set_single_audio_prompt(text)
-
-    result = await client.messages.create(
-        model=model,
-        convo=convo,
-        identity=Identity(client=Client.ASI, use_case="webserver_audio_gen"),
-        sampling_params=SamplingParams(max_tokens=1),
-        media_gen_params=MediaGenParams(
-            audio=AudioGenParams(voice=voice, output_format=TTS_OUTPUT_FORMAT),
-        ),
+    raise NotImplementedError(
+        "Implement this function with the project's real TTS provider SDK or API. "
+        "Pass text, voice, and model, then return raw audio bytes."
     )
-
-    if not result.audios:
-        raise RuntimeError("No audio generated")
-    return base64.b64decode(result.audios[0].b64_data)
 
 
 async def generate_dialogue(
     dialogue: list[dict],
     *,
-    model: str = "gemini_2_5_pro_tts",
+    model: str = "<tts-model>",
 ) -> bytes:
-    client = LLMAPIClient()
-    inputs = [DialogueInput(voice=d["speaker"], text=d["text"]) for d in dialogue]
-    convo = Conversation()
-    convo.set_dialogue_prompt(inputs)
-
-    result = await client.messages.create(
-        model=model,
-        convo=convo,
-        identity=Identity(client=Client.ASI, use_case="webserver_audio_gen"),
-        sampling_params=SamplingParams(max_tokens=1),
-        media_gen_params=MediaGenParams(
-            audio=AudioGenParams(output_format=TTS_OUTPUT_FORMAT, dialogue_inputs=inputs),
-        ),
+    raise NotImplementedError(
+        "Implement this function with the project's real TTS provider SDK or API. "
+        "Pass a list of speaker/text turns and return raw audio bytes."
     )
-
-    if not result.audios:
-        raise RuntimeError("No audio generated")
-    return base64.b64decode(result.audios[0].b64_data)
