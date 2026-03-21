@@ -137,6 +137,7 @@ const envSchema = z.object({
   JUSTAVPS_PROVIDER:                  optStrDefault('hetzner'),  // underlying provider in JustAVPS
   JUSTAVPS_DEFAULT_LOCATION:          optStrDefault('nbg1'),
   JUSTAVPS_DEFAULT_SERVER_TYPE:       optStrDefault('cpx22'),
+  JUSTAVPS_PROXY_DOMAIN:              optStrDefault('kortix.cloud'),  // CF Worker proxy domain ({slug}.kortix.cloud)
   JUSTAVPS_WEBHOOK_SECRET:            optStr,   // HMAC secret for verifying JustAVPS webhook signatures
   JUSTAVPS_WEBHOOK_URL:               optStr,   // URL where JustAVPS should send webhook events (e.g. https://api.kortix.com/v1/platform/webhooks/justavps)
 
@@ -409,6 +410,7 @@ export const config = {
   JUSTAVPS_PROVIDER: env.JUSTAVPS_PROVIDER,
   JUSTAVPS_DEFAULT_LOCATION: env.JUSTAVPS_DEFAULT_LOCATION,
   JUSTAVPS_DEFAULT_SERVER_TYPE: env.JUSTAVPS_DEFAULT_SERVER_TYPE,
+  JUSTAVPS_PROXY_DOMAIN: env.JUSTAVPS_PROXY_DOMAIN,
   JUSTAVPS_WEBHOOK_SECRET: env.JUSTAVPS_WEBHOOK_SECRET,
   JUSTAVPS_WEBHOOK_URL: env.JUSTAVPS_WEBHOOK_URL,
 

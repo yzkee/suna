@@ -229,53 +229,8 @@ export class JustAVPSProvider implements SandboxProvider {
       };
     }
 
-    // Poll JustAVPS directly for fresh provisioning stage
-    if (row.externalId) {
-      try {
-        const machine = await justavpsFetch<JustAVPSMachine>(`/machines/${row.externalId}`);
-        const stage = machine.provisioning_stage || 'server_creating';
-        const stageInfo = this.provisioning.stages.find((s) => s.id === stage);
-
-        // Update metadata in DB for SSE consumers
-        if (stage !== meta.provisioningStage) {
-          await db.update(sandboxes).set({
-            metadata: { ...meta, provisioningStage: stage },
-            updatedAt: new Date(),
-          }).where(eq(sandboxes.sandboxId, sandboxId));
-        }
-
-        if (machine.status === 'ready') {
-          const ip = machine.ip;
-          const apiBase = config.JUSTAVPS_API_URL.replace(/\/$/, '');
-          await db.update(sandboxes).set({
-            status: 'active',
-            baseUrl: `${apiBase}/machines/${row.externalId}/proxy/${KORTIX_MASTER_PORT}`,
-            metadata: { ...meta, provisioningStage: 'services_ready', publicIp: ip },
-            updatedAt: new Date(),
-          }).where(eq(sandboxes.sandboxId, sandboxId));
-          return { stage: 'services_ready', progress: 100, message: 'Ready', complete: true, error: false };
-        }
-
-        if (machine.status === 'error') {
-          await db.update(sandboxes).set({
-            status: 'error',
-            metadata: { ...meta, provisioningStage: stage, provisioningError: 'Machine provisioning failed' },
-            updatedAt: new Date(),
-          }).where(eq(sandboxes.sandboxId, sandboxId));
-          return { stage: 'error', progress: 0, message: 'Machine provisioning failed', complete: false, error: true };
-        }
-
-        return {
-          stage,
-          progress: stageInfo?.progress ?? 10,
-          message: stageInfo?.message || 'Provisioning...',
-          complete: false,
-          error: false,
-        };
-      } catch {
-      }
-    }
-
+    // Read provisioning stage from local DB (updated by webhooks).
+    // Don't poll JustAVPS directly — webhooks are the source of truth for stage progression.
     const stage = (meta.provisioningStage as string) || 'server_creating';
     const stageInfo = this.provisioning.stages.find((s) => s.id === stage);
 
@@ -327,14 +282,33 @@ export class JustAVPSProvider implements SandboxProvider {
 
     console.log(`[JUSTAVPS] Machine creation started: ${machine.id} (slug: ${machine.slug})`);
 
-    const apiBase = config.JUSTAVPS_API_URL.replace(/\/$/, '');
+    const proxyDomain = config.JUSTAVPS_PROXY_DOMAIN;
+    const cfBaseUrl = `https://${machine.slug}.${proxyDomain}`;
+
+    // Create a long-lived proxy token for CF Worker auth (30 days, all ports)
+    let proxyToken: string | undefined;
+    try {
+      const tokenRes = await justavpsFetch<{ token: string }>('/proxy-tokens', {
+        method: 'POST',
+        body: {
+          machine_id: machine.id,
+          label: `kortix-sandbox-${machine.id}`,
+          expires_in_seconds: 7 * 24 * 60 * 60, // 30 days
+        },
+      });
+      proxyToken = tokenRes.token;
+      console.log(`[JUSTAVPS] Proxy token created for machine ${machine.id}`);
+    } catch (err) {
+      console.warn(`[JUSTAVPS] Failed to create proxy token for ${machine.id}, will retry on first request:`, err);
+    }
 
     return {
       externalId: machine.id,
-      baseUrl: `${apiBase}/machines/${machine.id}/proxy/${KORTIX_MASTER_PORT}`,
+      baseUrl: cfBaseUrl,
       metadata: {
         justavpsMachineId: machine.id,
         justavpsSlug: machine.slug,
+        justavpsProxyToken: proxyToken,
         provisioningStage: 'server_creating',
         serverType,
         location,
@@ -375,16 +349,26 @@ export class JustAVPSProvider implements SandboxProvider {
 
   async resolveEndpoint(externalId: string): Promise<ResolvedEndpoint> {
     const [row] = await db
-      .select({ baseUrl: sandboxes.baseUrl, config: sandboxes.config })
+      .select({ baseUrl: sandboxes.baseUrl, config: sandboxes.config, metadata: sandboxes.metadata })
       .from(sandboxes)
       .where(eq(sandboxes.externalId, externalId))
       .limit(1);
 
-    const apiBase = config.JUSTAVPS_API_URL.replace(/\/$/, '');
+    const meta = (row?.metadata as Record<string, unknown>) ?? {};
+    const slug = meta.justavpsSlug as string | undefined;
+    const proxyDomain = config.JUSTAVPS_PROXY_DOMAIN;
+
     let url = row?.baseUrl;
 
-    if (!url || url === '' || url.startsWith('http://')) {
-      url = `${apiBase}/machines/${externalId}/proxy/${KORTIX_MASTER_PORT}`;
+    // Migrate old API proxy URLs to CF proxy URLs
+    if (!url || url === '' || url.includes('/machines/') || url.startsWith('http://')) {
+      if (slug) {
+        url = `https://${slug}.${proxyDomain}`;
+      } else {
+        // Fallback: fetch slug from JustAVPS API
+        const machine = await justavpsFetch<JustAVPSMachine>(`/machines/${externalId}`);
+        url = `https://${machine.slug}.${proxyDomain}`;
+      }
 
       if (row) {
         await db.update(sandboxes).set({ baseUrl: url, updatedAt: new Date() })
@@ -394,15 +378,45 @@ export class JustAVPSProvider implements SandboxProvider {
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.JUSTAVPS_API_KEY}`,
     };
 
-    // Pass sandbox service key as X-Sandbox-Auth (JustAVPS proxy forwards it)
+    // Use proxy token for CF Worker auth (doesn't consume Authorization header)
+    let proxyToken = meta.justavpsProxyToken as string | undefined;
+
+    // Lazy-create proxy token for existing sandboxes that don't have one
+    if (!proxyToken) {
+      try {
+        const tokenRes = await justavpsFetch<{ token: string }>('/proxy-tokens', {
+          method: 'POST',
+          body: {
+            machine_id: externalId,
+            label: `kortix-sandbox-${externalId}`,
+            expires_in_seconds: 7 * 24 * 60 * 60,
+          },
+        });
+        proxyToken = tokenRes.token;
+        if (row) {
+          await db.update(sandboxes).set({
+            metadata: { ...meta, justavpsProxyToken: proxyToken },
+            updatedAt: new Date(),
+          }).where(eq(sandboxes.externalId, externalId));
+        }
+        console.log(`[JUSTAVPS] Lazy-created proxy token for sandbox ${externalId}`);
+      } catch (err) {
+        console.warn(`[JUSTAVPS] Failed to lazy-create proxy token for ${externalId}:`, err);
+      }
+    }
+
+    if (proxyToken) {
+      headers['X-Proxy-Token'] = proxyToken;
+    }
+
+    // Service key for sandbox/kortix-master auth
     const serviceKey = (row?.config as Record<string, unknown>)?.serviceKey as string | undefined;
     if (serviceKey) {
-      headers['X-Sandbox-Auth'] = `Bearer ${serviceKey}`;
+      headers['Authorization'] = `Bearer ${serviceKey}`;
     } else if (config.INTERNAL_SERVICE_KEY) {
-      headers['X-Sandbox-Auth'] = `Bearer ${config.INTERNAL_SERVICE_KEY}`;
+      headers['Authorization'] = `Bearer ${config.INTERNAL_SERVICE_KEY}`;
     }
 
     return { url, headers };

@@ -27,21 +27,23 @@ interface ProviderCacheEntry {
   provider: CachedProviderName;
   baseUrl: string;
   serviceKey: string;
+  proxyToken: string;
+  slug: string;
   expiresAt: number;
 }
 const providerCache = new Map<string, ProviderCacheEntry>();
 const PROVIDER_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-async function resolveProvider(externalId: string): Promise<{ provider: CachedProviderName; baseUrl: string; serviceKey: string } | null> {
+async function resolveProvider(externalId: string): Promise<{ provider: CachedProviderName; baseUrl: string; serviceKey: string; proxyToken: string; slug: string } | null> {
   const cached = providerCache.get(externalId);
   if (cached && Date.now() < cached.expiresAt) {
-    return { provider: cached.provider, baseUrl: cached.baseUrl, serviceKey: cached.serviceKey };
+    return { provider: cached.provider, baseUrl: cached.baseUrl, serviceKey: cached.serviceKey, proxyToken: cached.proxyToken, slug: cached.slug };
   }
   providerCache.delete(externalId);
 
   try {
     const [sandbox] = await db
-      .select({ provider: sandboxes.provider, baseUrl: sandboxes.baseUrl, config: sandboxes.config })
+      .select({ provider: sandboxes.provider, baseUrl: sandboxes.baseUrl, config: sandboxes.config, metadata: sandboxes.metadata })
       .from(sandboxes)
       .where(
         and(
@@ -57,8 +59,46 @@ async function resolveProvider(externalId: string): Promise<{ provider: CachedPr
     const baseUrl = sandbox.baseUrl || '';
     const configJson = (sandbox.config || {}) as Record<string, unknown>;
     const serviceKey = typeof configJson.serviceKey === 'string' ? configJson.serviceKey : '';
-    providerCache.set(externalId, { provider, baseUrl, serviceKey, expiresAt: Date.now() + PROVIDER_CACHE_TTL_MS });
-    return { provider, baseUrl, serviceKey };
+    const metaJson = (sandbox.metadata || {}) as Record<string, unknown>;
+    let proxyToken = typeof metaJson.justavpsProxyToken === 'string' ? metaJson.justavpsProxyToken : '';
+    const slug = typeof metaJson.justavpsSlug === 'string' ? metaJson.justavpsSlug : '';
+
+    if (provider === 'justavps' && !proxyToken && config.JUSTAVPS_API_KEY) {
+      try {
+        const apiBase = config.JUSTAVPS_API_URL.replace(/\/$/, '');
+        const res = await fetch(`${apiBase}/proxy-tokens`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${config.JUSTAVPS_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            machine_id: externalId,
+            label: `kortix-sandbox-${externalId}`,
+            expires_in_seconds: 7 * 24 * 60 * 60,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json() as { token: string };
+          proxyToken = data.token;
+          await db.update(sandboxes).set({
+            metadata: { ...metaJson, justavpsProxyToken: proxyToken },
+            updatedAt: new Date(),
+          }).where(eq(sandboxes.externalId, externalId));
+          console.log(`[PREVIEW] Lazy-created proxy token for JustAVPS sandbox ${externalId}`);
+        } else {
+          const errText = await res.text().catch(() => '');
+          console.error(`[PREVIEW] Proxy token creation returned ${res.status}: ${errText.slice(0, 300)}`);
+        }
+      } catch (err) {
+        console.warn(`[PREVIEW] Failed to lazy-create proxy token for ${externalId}:`, err);
+      }
+    }
+
+    // Don't cache JustAVPS entries without a proxy token — retry on next request
+    const cacheTtl = (provider === 'justavps' && !proxyToken) ? 0 : PROVIDER_CACHE_TTL_MS;
+    providerCache.set(externalId, { provider, baseUrl, serviceKey, proxyToken, slug, expiresAt: Date.now() + cacheTtl });
+    return { provider, baseUrl, serviceKey, proxyToken, slug };
   } catch (err) {
     console.error(`[PREVIEW] Provider lookup failed for ${externalId}:`, err);
     return null;
@@ -156,7 +196,7 @@ if (enabledCount === 1 && config.isDaytonaEnabled()) {
 
   daytonaProxyApp.route('/', hetznerOnlyProxy);
 } else if (enabledCount === 1 && config.isJustAVPSEnabled()) {
-  // JustAVPS-only: route through JustAVPS API proxy (not direct IP)
+  // JustAVPS-only: route through CF Worker proxy at {port}--{slug}.kortix.cloud
   const justavpsOnlyProxy = new Hono();
 
   justavpsOnlyProxy.all('/:sandboxId/:port/*', async (c) => {
@@ -167,15 +207,13 @@ if (enabledCount === 1 && config.isDaytonaEnabled()) {
     }
 
     const resolved = await resolveProvider(sandboxId);
-    const serviceKey = resolved?.serviceKey || '';
-    if (!resolved?.baseUrl) {
+    if (!resolved?.slug) {
       return c.json({ error: 'Sandbox not found' }, 404);
     }
 
-    // baseUrl is {JUSTAVPS_API}/machines/{id}/proxy/8000 — strip trailing port
-    // and rebuild with the actual requested port
-    const proxyBase = resolved.baseUrl.replace(/\/\d+\/?$/, '');
-    const proxyUrl = `${proxyBase}/${port}`;
+    // Route through CF Worker: https://{port}--{slug}.{domain}
+    const proxyDomain = config.JUSTAVPS_PROXY_DOMAIN;
+    const cfProxyUrl = `https://${port}--${resolved.slug}.${proxyDomain}`;
 
     const fullPath = new URL(c.req.url).pathname;
     const prefix = `/${sandboxId}/${port}`;
@@ -192,15 +230,13 @@ if (enabledCount === 1 && config.isDaytonaEnabled()) {
     const acceptsSSE = (c.req.header('accept') || '').includes('text/event-stream');
     const origin = c.req.header('Origin') || '';
 
-    // Auth: JustAVPS API key in Authorization, sandbox service key in X-Sandbox-Auth
-    const extraHeaders: Record<string, string> = {
-      'Authorization': `Bearer ${config.JUSTAVPS_API_KEY}`,
-    };
-    if (serviceKey) {
-      extraHeaders['X-Sandbox-Auth'] = `Bearer ${serviceKey}`;
+    // Auth: proxy token for CF Worker, service key for sandbox/kortix-master
+    const extraHeaders: Record<string, string> = {};
+    if (resolved.proxyToken) {
+      extraHeaders['X-Proxy-Token'] = resolved.proxyToken;
     }
 
-    return proxyToSandbox(sandboxId, 8000, method, remainingPath, queryString, c.req.raw.headers, body, acceptsSSE, origin, proxyUrl, '', extraHeaders);
+    return proxyToSandbox(sandboxId, 8000, method, remainingPath, queryString, c.req.raw.headers, body, acceptsSSE, origin, cfProxyUrl, resolved.serviceKey, extraHeaders);
   });
 
   justavpsOnlyProxy.all('/:sandboxId/:port', async (c) => {
@@ -254,16 +290,14 @@ if (enabledCount === 1 && config.isDaytonaEnabled()) {
     }
 
     if (resolved?.provider === 'justavps') {
-      // JustAVPS: route through JustAVPS API proxy (not direct IP)
-      const proxyBase = resolved.baseUrl.replace(/\/\d+\/?$/, '');
-      const proxyUrl = `${proxyBase}/${port}`;
-      const extra: Record<string, string> = {
-        'Authorization': `Bearer ${config.JUSTAVPS_API_KEY}`,
-      };
-      if (resolved.serviceKey) {
-        extra['X-Sandbox-Auth'] = `Bearer ${resolved.serviceKey}`;
+      // JustAVPS: route through CF Worker proxy at {port}--{slug}.{domain}
+      const proxyDomain = config.JUSTAVPS_PROXY_DOMAIN;
+      const cfProxyUrl = `https://${port}--${resolved.slug}.${proxyDomain}`;
+      const extra: Record<string, string> = {};
+      if (resolved.proxyToken) {
+        extra['X-Proxy-Token'] = resolved.proxyToken;
       }
-      return proxyToSandbox(sandboxId, 8000, method, remainingPath, queryString, c.req.raw.headers, body, acceptsSSE, origin, proxyUrl, '', extra);
+      return proxyToSandbox(sandboxId, 8000, method, remainingPath, queryString, c.req.raw.headers, body, acceptsSSE, origin, cfProxyUrl, resolved.serviceKey, extra);
     }
 
     // Default: route to Daytona preview handler
