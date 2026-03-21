@@ -13,7 +13,7 @@
  *
  * Flow:
  *   1. Orchestrator calls worker_spawn(project, prompt) → fire & forget
- *   2. KortixWorker session runs autonomously (autowork loop)
+ *   2. Kortix session runs autonomously (autowork loop)
  *   3. On completion/failure → <session-report> lands in orchestrator's thread
  *   4. Orchestrator processes, spawns next work
  */
@@ -76,7 +76,7 @@ function initDb(dbPath: string): Database {
 			session_id TEXT PRIMARY KEY,
 			project_id TEXT NOT NULL REFERENCES projects(id),
 			prompt TEXT NOT NULL,
-			agent TEXT NOT NULL DEFAULT 'KortixWorker',
+			agent TEXT NOT NULL DEFAULT 'kortix',
 			parent_session_id TEXT NOT NULL,
 			parent_agent TEXT NOT NULL DEFAULT '',
 			status TEXT NOT NULL DEFAULT 'running',
@@ -285,8 +285,8 @@ class Manager {
 		const sess = await this.client.session.create({ body: { title: prompt.slice(0, 80), parentID: parentSid } })
 		if (!sess.data?.id) throw new Error("Failed to create session")
 		const sessionId = sess.data.id
-		// Normalize agent name — "default", "", or invalid → KortixWorker
-		const agentName = (agent && agent !== "default" && agent !== "KortixWorker") ? agent : "KortixWorker"
+		// Normalize agent name — "default", "", or invalid → kortix
+		const agentName = (agent && agent !== "default" && agent !== "kortix" && agent !== "KortixWorker") ? agent : "kortix"
 		const now = new Date().toISOString()
 
 		// Record delegation
@@ -609,7 +609,7 @@ Other workers may be running in parallel on this project. **Do NOT touch files o
 
 // ── Plugin ───────────────────────────────────────────────────────────────────
 
-const KortixOrchestratorPlugin: Plugin = async (ctx) => {
+const KortixPlugin: Plugin = async (ctx) => {
 	const { client, directory } = ctx
 	const db = initDb(path.join(directory, ".kortix", "kortix.db"))
 	const mgr = new Manager(client, directory, db)
@@ -690,7 +690,7 @@ const KortixOrchestratorPlugin: Plugin = async (ctx) => {
 				args: {
 					project: tool.schema.string().describe("Project name or path"),
 					prompt: tool.schema.string().describe("Detailed task description. Be thorough — the session starts with zero context beyond this + project's .kortix/context.md."),
-					agent: tool.schema.string().describe('"" for default (KortixWorker). Or any agent name like "kortix", "KortixWorker".'),
+					agent: tool.schema.string().describe('"" for default (kortix). Or any agent name.'),
 					model: tool.schema.string().describe('"" for agent default. Or "provider/model" like "anthropic/claude-sonnet-4-6", "anthropic/claude-opus-4".'),
 					command: tool.schema.string().describe('"" for default (/autowork). Or any command. "none" for one-shot (no loop).'),
 				},
@@ -701,7 +701,7 @@ const KortixOrchestratorPlugin: Plugin = async (ctx) => {
 					try {
 						const cmd = args.command === "none" ? "" : (args.command || "/autowork")
 						const del = await mgr.spawn(
-							p, args.prompt, args.agent || "KortixWorker",
+							p, args.prompt, args.agent || "kortix",
 							toolCtx.sessionID, toolCtx.agent, cmd, args.model || undefined,
 						)
 						const active = (db.prepare("SELECT COUNT(*) as c FROM delegations WHERE status='running'").get() as { c: number })?.c || 0
@@ -777,4 +777,4 @@ Also works on ANY session ID (not just spawned ones) — use session_list (built
 	}
 }
 
-export default KortixOrchestratorPlugin
+export default KortixPlugin
