@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { ensureKortixDir, resolveKortixDir, resolveKortixWorkspaceRoot } from "./kortix-paths"
+import { ensureGlobalMemoryFiles, ensureKortixDir, ensureProjectMemoryFiles, renderMergedMemoryContext, resolveKortixDir, resolveKortixWorkspaceRoot } from "./kortix-paths"
 
 const envKeys = ["KORTIX_DIR", "KORTIX_WORKSPACE", "OPENCODE_STORAGE_BASE", "OPENCODE_CONFIG_DIR", "HOME"] as const
 const originalEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]])) as Record<(typeof envKeys)[number], string | undefined>
@@ -72,5 +72,48 @@ describe("kortix path resolution", () => {
 
 		expect(resolveKortixWorkspaceRoot(path.join(workspace, "some", "other", "project"))).toBe(workspace)
 		expect(resolveKortixDir(path.join(workspace, "some", "other", "project"))).toBe(path.join(workspace, ".kortix"))
+	})
+
+	test("auto-creates global memory files", () => {
+		const workspace = makeTempDir("kortix-paths-memory-global-")
+		process.env.KORTIX_WORKSPACE = workspace
+
+		const files = ensureGlobalMemoryFiles(path.join(workspace, "nested"))
+
+		expect(existsSync(files.userPath)).toBe(true)
+		expect(existsSync(files.memoryPath)).toBe(true)
+		expect(readFileSync(files.userPath, "utf8")).toContain("# Global User Profile")
+		expect(readFileSync(files.memoryPath, "utf8")).toContain("# Global Memory")
+	})
+
+	test("auto-creates project memory files", () => {
+		const projectRoot = makeTempDir("kortix-paths-memory-project-")
+
+		const files = ensureProjectMemoryFiles(projectRoot)
+
+		expect(existsSync(files.userPath)).toBe(true)
+		expect(existsSync(files.memoryPath)).toBe(true)
+		expect(readFileSync(files.userPath, "utf8")).toContain("# Project User Profile")
+		expect(readFileSync(files.memoryPath, "utf8")).toContain("# Project Memory")
+	})
+
+	test("merged memory context prefers project entries and deduplicates globals", () => {
+		const workspace = makeTempDir("kortix-paths-memory-merge-")
+		const projectRoot = path.join(workspace, "repo")
+		mkdirSync(projectRoot, { recursive: true })
+		process.env.KORTIX_WORKSPACE = workspace
+
+		const globalFiles = ensureGlobalMemoryFiles(projectRoot)
+		const projectFiles = ensureProjectMemoryFiles(projectRoot)
+		writeFileSync(globalFiles.userPath, "# Global User Profile\n\n## Preferences\n\n- concise responses\n- no builds unless asked\n")
+		writeFileSync(globalFiles.memoryPath, "# Global Memory\n\n## Cross-Project Rules\n\n- use session tools first\n")
+		writeFileSync(projectFiles.userPath, "# Project User Profile\n\n## Preferences\n\n- no builds unless asked\n- lint frontend only\n")
+		writeFileSync(projectFiles.memoryPath, "# Project Memory\n\n## Commands\n\n- repo uses Bun\n")
+
+		const merged = renderMergedMemoryContext(projectRoot, projectRoot)
+		expect(merged).toContain("## Project User")
+		expect(merged).toContain("lint frontend only")
+		expect(merged).toContain("use session tools first")
+		expect(merged.match(/no builds unless asked/g)?.length).toBe(1)
 	})
 })

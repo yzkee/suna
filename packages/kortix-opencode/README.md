@@ -19,7 +19,7 @@ plugin/                 <- plugins loaded individually via opencode.jsonc
   orphan-tool-fixer.ts  <- orphan tool-call fixer
   agent-triggers.ts     <- cron/webhook trigger plugin
   agent-tunnel/         <- tunnel client plugin
-  kortix-memory/        <- memory system
+  kortix-sessions/      <- session-first memory + recall system
   kortix-continuation/  <- autonomous continuation plugin
 patches/                <- post-install patches for opencode binary + deps
 ```

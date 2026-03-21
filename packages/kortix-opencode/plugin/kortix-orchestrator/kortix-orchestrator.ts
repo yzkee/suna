@@ -24,7 +24,7 @@ import { mkdirSync, readdirSync, statSync, readFileSync, existsSync, unlinkSync 
 import * as path from "node:path"
 import { type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
 import type { Event } from "@opencode-ai/sdk"
-import { ensureKortixDir, resolveKortixWorkspaceRoot } from "../kortix-paths"
+import { ensureGlobalMemoryFiles, ensureKortixDir, ensureProjectMemoryFiles, resolveKortixWorkspaceRoot } from "../kortix-paths"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -151,6 +151,8 @@ class Manager {
 		const wm = async (f: string, c: string) => { if (!existsSync(f)) await fs.writeFile(f, c, "utf8") }
 		for (const d of [".opencode/agents", ".opencode/skills", ".opencode/commands", ".kortix/plans", ".kortix/docs", ".kortix/sessions"])
 			await fs.mkdir(path.join(pp, d), { recursive: true })
+		ensureGlobalMemoryFiles(import.meta.dir)
+		ensureProjectMemoryFiles(pp)
 		const marker: ProjectMarker = { name, description: desc || "", created: new Date().toISOString() }
 		await wm(path.join(pp, ".kortix", "project.json"), JSON.stringify(marker, null, 2))
 		await wm(path.join(pp, ".kortix", "context.md"), `# ${name}\n\n${desc || "No description."}\n\nCreated: ${marker.created}\n`)

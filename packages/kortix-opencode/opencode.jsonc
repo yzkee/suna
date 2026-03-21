@@ -80,7 +80,7 @@
     "./plugin/opencode-morph-plugin/opencode-morph-plugin.ts",
     "./plugin/kortix-orchestrator/kortix-orchestrator.ts",
     "./plugin/worktree/worktree.ts",
-    "./plugin/kortix-memory/src/kortix-memory.ts",
+    "./plugin/kortix-sessions/kortix-sessions.ts",
     "./plugin/kortix-continuation/kortix-continuation.ts"
   ],
   "mcp": {

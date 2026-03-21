@@ -26,43 +26,25 @@ function stripExistingMemoryContext(messages: ChatMessage[]): void {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const message = messages[i]
 		if (!message) continue
-
 		if (message.info?.id === SYNTHETIC_MEMORY_MESSAGE_ID) {
 			messages.splice(i, 1)
 			continue
 		}
-
 		if (!Array.isArray(message.parts) || message.parts.length === 0) continue
-
 		const filtered = message.parts.filter((part) => !isMemoryContextPart(part))
-		if (filtered.length !== message.parts.length) {
-			message.parts = filtered
-		}
+		if (filtered.length !== message.parts.length) message.parts = filtered
 	}
 }
 
-export function upsertMemoryContextAtPromptEnd(
-	messages: ChatMessage[],
-	syntheticText: string,
-	sessionID?: string,
-): void {
+export function upsertMemoryContextAtPromptEnd(messages: ChatMessage[], syntheticText: string, sessionID?: string): void {
 	stripExistingMemoryContext(messages)
-
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const message = messages[i]
 		if (message?.info?.role !== "user") continue
-
-		if (!Array.isArray(message.parts)) {
-			message.parts = []
-		}
-
-		message.parts.push({
-			type: "text",
-			text: syntheticText,
-		})
+		if (!Array.isArray(message.parts)) message.parts = []
+		message.parts.push({ type: "text", text: syntheticText })
 		return
 	}
-
 	messages.push({
 		info: {
 			role: "user",
@@ -71,9 +53,6 @@ export function upsertMemoryContextAtPromptEnd(
 			parts: [],
 			createdAt: new Date().toISOString(),
 		} as ChatMessage["info"],
-		parts: [{
-			type: "text",
-			text: syntheticText,
-		}],
+		parts: [{ type: "text", text: syntheticText }],
 	})
 }

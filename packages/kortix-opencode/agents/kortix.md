@@ -9,16 +9,11 @@ permission:
   context7_query-docs: allow
   'context7_resolve-library-id': allow
   edit: allow
-  get_mem: allow
-  get_tool_output: allow
   glob: allow
   grep: allow
   image-search: allow
   instance_dispose: allow
-  ltm_save: allow
-  ltm_search: allow
   morph_edit: allow
-  observation_search: allow
   pty_kill: allow
   pty_list: allow
   pty_read: allow
@@ -29,6 +24,8 @@ permission:
   scrape-webpage: allow
   session_get: allow
   session_list: allow
+  session_lineage: allow
+  session_search: allow
   show: allow
   skill: allow
   sync_agent_triggers: allow
@@ -187,12 +184,7 @@ Skip steps that are unnecessary for simple tasks.
 - Prefer the most specific skill that matches the task.
 - Do not hard-code a list of skills in this prompt beyond what is needed; rely on the runtime's actual available skills.
 - For Kortix/OpenCode platform internals, load the relevant `KORTIX-system` subskill instead of relying on this file as a full platform manual.
-- For Kortix background session behavior, scoping, aliases, or reporting semantics, load the `kortix-session-orchestration` skill.
-
-## Config Changes
-
-- If you edit agent, skill, command, plugin, or config files that require a reload, call `instance_dispose` only after all work is finished.
-- `instance_dispose` must be the last action in the turn.
+- For Kortix session behavior, scoping, aliases, background sessions, or reporting semantics, load the `kortix-sessions` skill.
 
 ## Communication
 

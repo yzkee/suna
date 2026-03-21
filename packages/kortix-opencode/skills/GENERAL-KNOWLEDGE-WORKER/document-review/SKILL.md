@@ -134,7 +134,7 @@ An "issue" is a specific problem found in the document. Issues are the primary o
 
 ## Background Session Setup
 
-Document review is a long, meticulous process — always run it in a background session using the Kortix session-orchestration flow.
+Document review is a long, meticulous process — always run it in a background session using the Kortix sessions flow.
 
 Before spawning, determine which **issue types** are relevant from the user's request. When in doubt, default to all 5 types. Examples:
 - "review this", "audit this" → all 5 types

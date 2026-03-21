@@ -20,15 +20,15 @@ Use this skill for substantial research tasks where depth, source quality, and s
 Preferred research flow:
 - `web-search` for discovery and breadth
 - `webfetch` or `scrape-webpage` for source reading
-- `ltm_search` and `observation_search` for continuity when prior work may exist
+- `session_search` and `session_get` for continuity when prior work may exist
 - `bash` for calculations, parsing, or chart generation when needed
 
-For substantial parallel research or long-running build-plus-research work, use the background-session flow from `skills/KORTIX-system/session-orchestration/SKILL.md`.
+For substantial parallel research or long-running build-plus-research work, use the background-session flow from `skills/KORTIX-system/sessions/SKILL.md`.
 
 ## Research Continuity
 
 Before deep research on a topic that may have prior history:
-- search memory for prior findings
+- search sessions for prior findings
 - reuse or extend earlier work where helpful
 - avoid starting from zero if the evidence already exists
 
