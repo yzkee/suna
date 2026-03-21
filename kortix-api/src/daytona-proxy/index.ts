@@ -156,7 +156,7 @@ if (enabledCount === 1 && config.isDaytonaEnabled()) {
 
   daytonaProxyApp.route('/', hetznerOnlyProxy);
 } else if (enabledCount === 1 && config.isJustAVPSEnabled()) {
-  // JustAVPS-only: same pattern as Hetzner — each sandbox has a unique IP
+  // JustAVPS-only: route through JustAVPS API proxy (not direct IP)
   const justavpsOnlyProxy = new Hono();
 
   justavpsOnlyProxy.all('/:sandboxId/:port/*', async (c) => {
@@ -167,11 +167,15 @@ if (enabledCount === 1 && config.isDaytonaEnabled()) {
     }
 
     const resolved = await resolveProvider(sandboxId);
-    const baseUrl = resolved?.baseUrl?.replace(/\/$/, '') || '';
     const serviceKey = resolved?.serviceKey || '';
-    if (!baseUrl) {
+    if (!resolved?.baseUrl) {
       return c.json({ error: 'Sandbox not found' }, 404);
     }
+
+    // baseUrl is {JUSTAVPS_API}/machines/{id}/proxy/8000 — strip trailing port
+    // and rebuild with the actual requested port
+    const proxyBase = resolved.baseUrl.replace(/\/\d+\/?$/, '');
+    const proxyUrl = `${proxyBase}/${port}`;
 
     const fullPath = new URL(c.req.url).pathname;
     const prefix = `/${sandboxId}/${port}`;
@@ -188,7 +192,15 @@ if (enabledCount === 1 && config.isDaytonaEnabled()) {
     const acceptsSSE = (c.req.header('accept') || '').includes('text/event-stream');
     const origin = c.req.header('Origin') || '';
 
-    return proxyToSandbox(sandboxId, port, method, remainingPath, queryString, c.req.raw.headers, body, acceptsSSE, origin, baseUrl, serviceKey);
+    // Auth: JustAVPS API key in Authorization, sandbox service key in X-Sandbox-Auth
+    const extraHeaders: Record<string, string> = {
+      'Authorization': `Bearer ${config.JUSTAVPS_API_KEY}`,
+    };
+    if (serviceKey) {
+      extraHeaders['X-Sandbox-Auth'] = `Bearer ${serviceKey}`;
+    }
+
+    return proxyToSandbox(sandboxId, 8000, method, remainingPath, queryString, c.req.raw.headers, body, acceptsSSE, origin, proxyUrl, '', extraHeaders);
   });
 
   justavpsOnlyProxy.all('/:sandboxId/:port', async (c) => {
@@ -236,10 +248,22 @@ if (enabledCount === 1 && config.isDaytonaEnabled()) {
       return proxyToSandbox(sandboxId, port, method, remainingPath, queryString, c.req.raw.headers, body, acceptsSSE, origin);
     }
 
-    if (resolved?.provider === 'hetzner' || resolved?.provider === 'justavps') {
-      // Hetzner / JustAVPS: proxy to the VPS's public IP (same logic as local, different base URL)
+    if (resolved?.provider === 'hetzner') {
       const baseUrl = resolved.baseUrl.replace(/\/$/, '');
       return proxyToSandbox(sandboxId, port, method, remainingPath, queryString, c.req.raw.headers, body, acceptsSSE, origin, baseUrl, resolved.serviceKey);
+    }
+
+    if (resolved?.provider === 'justavps') {
+      // JustAVPS: route through JustAVPS API proxy (not direct IP)
+      const proxyBase = resolved.baseUrl.replace(/\/\d+\/?$/, '');
+      const proxyUrl = `${proxyBase}/${port}`;
+      const extra: Record<string, string> = {
+        'Authorization': `Bearer ${config.JUSTAVPS_API_KEY}`,
+      };
+      if (resolved.serviceKey) {
+        extra['X-Sandbox-Auth'] = `Bearer ${resolved.serviceKey}`;
+      }
+      return proxyToSandbox(sandboxId, 8000, method, remainingPath, queryString, c.req.raw.headers, body, acceptsSSE, origin, proxyUrl, '', extra);
     }
 
     // Default: route to Daytona preview handler

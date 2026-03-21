@@ -786,6 +786,34 @@ export default {
       // NOTE: CORS preflight (OPTIONS) is handled above, before the auth check.
 
       try {
+        // JustAVPS: route through JustAVPS API proxy instead of direct IP
+        if (config.isJustAVPSEnabled()) {
+          const { sandboxes } = await import('@kortix/db');
+          const { db } = await import('./shared/db');
+          const { eq, and, ne } = await import('drizzle-orm');
+          const [sandbox] = await db
+            .select({ provider: sandboxes.provider, baseUrl: sandboxes.baseUrl, config: sandboxes.config })
+            .from(sandboxes)
+            .where(and(eq(sandboxes.externalId, sandboxId), ne(sandboxes.status, 'pooled')))
+            .limit(1);
+
+          if (sandbox?.provider === 'justavps' && sandbox.baseUrl) {
+            const proxyBase = sandbox.baseUrl.replace(/\/\d+\/?$/, '');
+            const proxyUrl = `${proxyBase}/${port}`;
+            const svcKey = (sandbox.config as Record<string, unknown>)?.serviceKey as string || '';
+            const extra: Record<string, string> = {
+              'Authorization': `Bearer ${config.JUSTAVPS_API_KEY}`,
+            };
+            if (svcKey) {
+              extra['X-Sandbox-Auth'] = `Bearer ${svcKey}`;
+            }
+            return await proxyToSandbox(
+              sandboxId, 8000, req.method, url.pathname, url.search,
+              req.headers, body, acceptsSSE, origin, proxyUrl, '', extra,
+            );
+          }
+        }
+
         return await proxyToSandbox(
           sandboxId, port, req.method, url.pathname, url.search,
           req.headers, body, acceptsSSE, origin,

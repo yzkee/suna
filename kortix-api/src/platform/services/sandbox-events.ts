@@ -84,9 +84,19 @@ class SandboxEventBus {
 
     if (data.stage === 'server_created' && data.metadata?.ip) {
       const ip = data.metadata.ip as string;
-      updates.baseUrl = `http://${ip}:8000`;
       updatedMeta.publicIp = ip;
-      console.log(`[SANDBOX-EVENTS] Sandbox ${sandbox.sandboxId} baseUrl → http://${ip}:8000`);
+      // Route through JustAVPS API proxy if configured, otherwise direct IP
+      if (sandbox.provider === 'justavps') {
+        const { config: appConfig } = await import('../../config');
+        const apiBase = appConfig.JUSTAVPS_API_URL?.replace(/\/$/, '');
+        if (apiBase) {
+          updates.baseUrl = `${apiBase}/machines/${externalId}/proxy/8000`;
+          console.log(`[SANDBOX-EVENTS] Sandbox ${sandbox.sandboxId} baseUrl → ${updates.baseUrl}`);
+        }
+      } else {
+        updates.baseUrl = `http://${ip}:8000`;
+        console.log(`[SANDBOX-EVENTS] Sandbox ${sandbox.sandboxId} baseUrl → http://${ip}:8000`);
+      }
     }
 
     if (data.stage === 'services_ready' || data.status === 'ready') {
