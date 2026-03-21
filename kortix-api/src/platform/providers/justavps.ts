@@ -246,9 +246,10 @@ export class JustAVPSProvider implements SandboxProvider {
 
         if (machine.status === 'ready') {
           const ip = machine.ip;
+          const apiBase = config.JUSTAVPS_API_URL.replace(/\/$/, '');
           await db.update(sandboxes).set({
             status: 'active',
-            baseUrl: ip ? `http://${ip}:${KORTIX_MASTER_PORT}` : row.externalId,
+            baseUrl: `${apiBase}/machines/${row.externalId}/proxy/${KORTIX_MASTER_PORT}`,
             metadata: { ...meta, provisioningStage: 'services_ready', publicIp: ip },
             updatedAt: new Date(),
           }).where(eq(sandboxes.sandboxId, sandboxId));
@@ -326,9 +327,11 @@ export class JustAVPSProvider implements SandboxProvider {
 
     console.log(`[JUSTAVPS] Machine creation started: ${machine.id} (slug: ${machine.slug})`);
 
+    const apiBase = config.JUSTAVPS_API_URL.replace(/\/$/, '');
+
     return {
       externalId: machine.id,
-      baseUrl: machine.ip ? `http://${machine.ip}:${KORTIX_MASTER_PORT}` : '',
+      baseUrl: `${apiBase}/machines/${machine.id}/proxy/${KORTIX_MASTER_PORT}`,
       metadata: {
         justavpsMachineId: machine.id,
         justavpsSlug: machine.slug,
@@ -377,14 +380,11 @@ export class JustAVPSProvider implements SandboxProvider {
       .where(eq(sandboxes.externalId, externalId))
       .limit(1);
 
+    const apiBase = config.JUSTAVPS_API_URL.replace(/\/$/, '');
     let url = row?.baseUrl;
 
-    if (!url || url === '') {
-      const machine = await justavpsFetch<JustAVPSMachine>(`/machines/${externalId}`);
-      if (!machine.ip) {
-        throw new Error(`[JUSTAVPS] Machine ${externalId} has no IP`);
-      }
-      url = `http://${machine.ip}:${KORTIX_MASTER_PORT}`;
+    if (!url || url === '' || url.startsWith('http://')) {
+      url = `${apiBase}/machines/${externalId}/proxy/${KORTIX_MASTER_PORT}`;
 
       if (row) {
         await db.update(sandboxes).set({ baseUrl: url, updatedAt: new Date() })
@@ -394,13 +394,15 @@ export class JustAVPSProvider implements SandboxProvider {
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      'Authorization': `Bearer ${config.JUSTAVPS_API_KEY}`,
     };
 
+    // Pass sandbox service key as X-Sandbox-Auth (JustAVPS proxy forwards it)
     const serviceKey = (row?.config as Record<string, unknown>)?.serviceKey as string | undefined;
     if (serviceKey) {
-      headers['Authorization'] = `Bearer ${serviceKey}`;
+      headers['X-Sandbox-Auth'] = `Bearer ${serviceKey}`;
     } else if (config.INTERNAL_SERVICE_KEY) {
-      headers['Authorization'] = `Bearer ${config.INTERNAL_SERVICE_KEY}`;
+      headers['X-Sandbox-Auth'] = `Bearer ${config.INTERNAL_SERVICE_KEY}`;
     }
 
     return { url, headers };
