@@ -143,7 +143,7 @@ export function createCloudSandboxRouter(
     try {
       const body = await c.req.json().catch(() => ({}));
       const requestedProvider = (body?.provider as ProviderName) || undefined;
-      const requestedHetznerServerType = (body?.hetznerServerType as string | undefined) || undefined;
+      const requestedHetznerServerType = (body?.serverType as string | undefined) || (body?.hetznerServerType as string | undefined) || undefined;
       const requestedLocation = (body?.location as string | undefined) || undefined;
       const backgroundProvisioning = Boolean(body?.backgroundProvisioning);
       const providerName = requestedProvider || getDefaultProviderName();
@@ -154,7 +154,7 @@ export function createCloudSandboxRouter(
 
       const accountId = await resolveAccountId(userId);
 
-      // Validate Hetzner server type/location combo early so we return a clear
+      // Validate server type/location combo early so we return a clear
       // 4xx error instead of failing inside provider create with a generic 500.
       if (providerName === 'hetzner') {
         const { listServerTypes: fetchServerTypes } = await import('../providers/hetzner');
@@ -165,6 +165,20 @@ export function createCloudSandboxRouter(
             {
               success: false,
               error: `Server type '${requestedOrDefaultServerType}' is not available in location '${requestedOrDefaultLocation}'`,
+            },
+            400,
+          );
+        }
+      }
+
+      if (providerName === 'justavps' && requestedHetznerServerType) {
+        const availableTypes = await listJustAVPSServerTypes(requestedOrDefaultLocation);
+        const selected = availableTypes.find((st) => st.name === requestedHetznerServerType);
+        if (!selected) {
+          return c.json(
+            {
+              success: false,
+              error: `Server type '${requestedHetznerServerType}' is not available in location '${requestedOrDefaultLocation}'`,
             },
             400,
           );
@@ -377,7 +391,7 @@ export function createCloudSandboxRouter(
 
       // Background provisioning mode (used by billing Add Instance flow)
       // returns quickly and continues provisioning asynchronously.
-      if (backgroundProvisioning && providerName === 'hetzner') {
+      if (backgroundProvisioning && (providerName === 'hetzner' || providerName === 'justavps')) {
         console.log(`[PLATFORM] Starting background provisioning for sandbox ${sandbox.sandboxId} (${providerName})`);
 
         void (async () => {

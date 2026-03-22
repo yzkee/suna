@@ -8,8 +8,8 @@ import { backendApi } from '@/lib/api-client';
 import { getEnv } from '@/lib/env-config';
 import { configureAutoTopup, markInstanceError } from '@/lib/api/billing';
 import { KortixLogo } from '@/components/sidebar/kortix-logo';
-import { AnimatedCircularProgressBar } from '@/components/ui/animated-circular-progress';
-import { TextMorph } from 'torph/react';
+import { ProvisioningProgress } from '@/components/provisioning/provisioning-progress';
+import type { ProvisioningStageInfo } from '@/components/provisioning/provisioning-progress';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useServerStore } from '@/stores/server-store';
@@ -34,12 +34,6 @@ const STEP_INFO: Record<Exclude<SetupStep, 'success' | 'error'>, StepInfo> = {
   connect:      { label: 'Connect instance',         detail: 'Add your own local/custom instance to continue.' },
   auto_topup:   { label: 'Auto-topup (optional)',    detail: 'Enable automatic credit reloads when balance is low.' },
 };
-
-interface ProvisioningStageInfo {
-  id: string;
-  progress: number;
-  message: string;
-}
 
 interface SetupStatusResponse {
   subscription: 'ready' | 'pending';
@@ -578,28 +572,6 @@ export default function SettingUpPage() {
     runSetup();
   };
 
-  // Human-friendly stage messages (translate internal IDs to user-facing copy)
-  const stageDisplayText = (() => {
-    if (step !== 'sandbox') return stepInfo[step as keyof typeof stepInfo]?.detail || 'Please wait...';
-    if (sandboxPhase === 'booting') return 'Starting your workspace';
-    if (!currentStage) return 'Preparing your workspace';
-    const map: Record<string, string> = {
-      server_creating: 'Spinning up your machine',
-      server_created: 'Machine ready, configuring',
-      cloud_init_running: 'Installing dependencies',
-      cloud_init_done: 'Environment configured',
-      docker_pulling: 'Preparing your workspace image',
-      docker_running: 'Starting services',
-      services_starting: 'Almost there',
-      services_ready: 'Finishing up',
-    };
-    return map[currentStage] || 'Preparing your workspace';
-  })();
-
-  const stageCount = provisioningStages?.length || 0;
-  const currentStageIdx = provisioningStages?.findIndex(s => s.id === currentStage) ?? -1;
-  const completedCount = sandboxPhase === 'booting' ? stageCount : Math.max(0, currentStageIdx);
-
   return (
     <div className="w-full relative overflow-hidden min-h-screen bg-background">
       {/* Inline keyframes for animations */}
@@ -675,121 +647,13 @@ export default function SettingUpPage() {
               )}
 
               {step === 'sandbox' && (
-                <div className="w-full flex flex-col items-center">
-                  <div className="relative" style={{ animation: 'setting-up-fade-in 0.6s ease-out forwards' }}>
-                    <AnimatedCircularProgressBar
-                      value={sandboxProgress}
-                      gaugePrimaryColor="var(--color-primary)"
-                      gaugeSecondaryColor="var(--color-primary)"
-                      className="size-36 [&>span]:hidden [&_circle:first-of-type]:opacity-15"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <TextMorph className="text-2xl font-light text-foreground/90 tabular-nums">
-                        {`${Math.round(sandboxProgress)}%`}
-                      </TextMorph>
-                    </div>
-                  </div>
-
-                  {provisioningStages && provisioningStages.length > 0 ? (
-                    <div className="mt-8 w-full max-w-[300px] relative h-[108px]" style={{ overflow: 'hidden', clipPath: 'inset(0)' }}>
-                      {/* Fade masks */}
-                      <div className="absolute top-0 left-0 right-0 h-10 bg-gradient-to-b from-background via-background/80 to-transparent z-20 pointer-events-none" />
-                      <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-background via-background/80 to-transparent z-20 pointer-events-none" />
-
-                      {/* Scrolling list */}
-                      <div
-                        className="absolute left-0 right-0 flex flex-col transition-transform duration-700 ease-out"
-                        style={{
-                          transform: `translateY(${36 - (completedCount * 36)}px)`,
-                        }}
-                      >
-                        {provisioningStages.map((ps, i) => {
-                          const isDone = i < completedCount || sandboxPhase === 'booting';
-                          const isActive = i === completedCount && sandboxPhase !== 'booting';
-
-                          return (
-                            <div key={ps.id} className="flex items-center justify-center gap-3 h-9 shrink-0 w-full">
-                              <div className="flex-shrink-0 w-4 h-4 flex items-center justify-center">
-                                {isDone ? (
-                                  <CheckCircle2 className="size-3.5 text-primary/50" />
-                                ) : isActive ? (
-                                  <Loader2 className="size-3.5 text-primary animate-spin" />
-                                ) : (
-                                  <div className="h-1 w-1 rounded-full bg-foreground/15" />
-                                )}
-                              </div>
-                              <span className={`text-[13px] transition-all duration-500 ${
-                                isActive ? 'text-foreground/90 font-medium' : isDone ? 'text-foreground/25' : 'text-foreground/15'
-                              }`}>
-                                {ps.message}
-                              </span>
-                            </div>
-                          );
-                        })}
-                        {sandboxPhase === 'booting' && (
-                          <div className="flex items-center justify-center gap-3 h-9 shrink-0 w-full">
-                            <div className="flex-shrink-0 w-4 h-4 flex items-center justify-center">
-                              <Loader2 className="size-3.5 text-primary animate-spin" />
-                            </div>
-                            <span className="text-[13px] text-foreground/90 font-medium">Starting workspace...</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="mt-6 relative min-h-[24px] flex items-center justify-center">
-                        <h2
-                          key={stageDisplayText}
-                          className="setting-up-text-enter text-[16px] font-normal text-foreground/70 text-center"
-                        >
-                          {stageDisplayText}
-                        </h2>
-                      </div>
-                      <p className="mt-1 text-[12px] text-foreground/20">
-                        This usually takes about a minute
-                      </p>
-                    </>
-                  )}
-
-                  <div className="mt-6 w-12 h-px bg-foreground/[0.06]" />
-
-                  {stageCount > 0 && (
-                    <div className="mt-6 flex items-center gap-[6px]">
-                      {provisioningStages!.map((ps, i) => {
-                        const isDone = i < completedCount;
-                        const isActive = i === completedCount && sandboxPhase !== 'booting';
-                        const allDone = sandboxPhase === 'booting';
-
-                        return (
-                          <div
-                            key={ps.id}
-                            className={`rounded-full transition-all duration-700 ease-out ${
-                              isDone || allDone
-                                ? 'h-[5px] w-[5px] bg-primary/50 setting-up-dot-complete'
-                                : isActive
-                                  ? 'h-[7px] w-[7px] bg-primary/80'
-                                  : 'h-[5px] w-[5px] bg-foreground/[0.06]'
-                            }`}
-                            style={isDone ? { animationDelay: `${i * 60}ms` } : undefined}
-                          />
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {machineInfo?.ip && (
-                    <div
-                      className="mt-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-foreground/[0.03] border border-foreground/[0.06]"
-                      style={{ animation: 'setting-up-fade-in 0.8s ease-out forwards' }}
-                    >
-                      <div className="h-1.5 w-1.5 rounded-full bg-primary/50" />
-                      <span className="text-[11px] text-foreground/30 font-mono tracking-wide">
-                        {machineInfo.location?.toLowerCase().includes('us') || machineInfo.location?.toLowerCase().includes('hil') ? 'US' : 'EU'} · {machineInfo.ip}
-                      </span>
-                    </div>
-                  )}
-                </div>
+                <ProvisioningProgress
+                  progress={sandboxProgress}
+                  phase={sandboxPhase}
+                  stages={provisioningStages}
+                  currentStage={currentStage}
+                  machineInfo={machineInfo}
+                />
               )}
 
               {step === 'connect' && (

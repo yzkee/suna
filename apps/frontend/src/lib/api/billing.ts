@@ -692,10 +692,10 @@ export async function getAutoTopupSetupStatus(): Promise<AutoTopupSetupStatus> {
 }
 
 // =============================================================================
-// INSTANCES (Hetzner server types)
+// INSTANCES (server types)
 // =============================================================================
 
-export interface HetznerServerType {
+export interface ServerType {
   name: string;
   description: string;
   cores: number;
@@ -703,10 +703,20 @@ export interface HetznerServerType {
   disk: number;
   cpuType: 'shared' | 'dedicated';
   architecture: 'x86' | 'arm';
-  priceHourly: number;
   priceMonthly: number;
   priceMonthlyMarkup: number;
   location: string;
+}
+
+export type HetznerServerType = ServerType & { priceHourly: number };
+
+export async function getServerTypes(location?: string): Promise<{ serverTypes: ServerType[]; location: string }> {
+  const params = location ? `?location=${location}` : '';
+  const response = await backendApi.get<{ serverTypes: ServerType[]; location: string }>(
+    `/platform/sandbox/justavps/server-types${params}`
+  );
+  if (response.error) throw response.error;
+  return response.data!;
 }
 
 export async function getHetznerServerTypes(location?: string): Promise<{ serverTypes: HetznerServerType[]; location: string }> {
@@ -719,8 +729,9 @@ export async function getHetznerServerTypes(location?: string): Promise<{ server
 }
 
 export interface CreateInstanceRequest {
-  provider: 'hetzner';
-  hetznerServerType: string;
+  provider: 'hetzner' | 'justavps';
+  serverType?: string;
+  hetznerServerType?: string;
   location?: string;
   name?: string;
   isIncluded?: boolean;
@@ -728,8 +739,6 @@ export interface CreateInstanceRequest {
 }
 
 export async function createInstance(request: CreateInstanceRequest): Promise<any> {
-  // Hetzner provisioning can take >30s before API returns success.
-  // Use a longer timeout to avoid client-side false "Request timeout" failures.
   const response = await backendApi.post<any>('/platform/sandbox', request, { timeout: 180000 });
   if (response.error) throw response.error;
   return response.data!;
