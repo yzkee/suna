@@ -1,5 +1,5 @@
 export const MEMORY_CONTEXT_MARKER = "<!-- kortix-mem-context -->"
-export const SYNTHETIC_MEMORY_MESSAGE_ID = "__kortix_mem_context__"
+export const MEMORY_CONTEXT_MESSAGE_ID = "__kortix_mem_context__"
 
 export interface ChatMessagePart {
 	type?: string
@@ -26,12 +26,15 @@ function stripExistingMemoryContext(messages: ChatMessage[]): void {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const message = messages[i]
 		if (!message) continue
-		if (message.info?.id === SYNTHETIC_MEMORY_MESSAGE_ID) {
+		if (!Array.isArray(message.parts) || message.parts.length === 0) {
+			if (message.info?.id === MEMORY_CONTEXT_MESSAGE_ID) messages.splice(i, 1)
+			continue
+		}
+		const filtered = message.parts.filter((part) => !isMemoryContextPart(part))
+		if (filtered.length === 0 && message.info?.id === MEMORY_CONTEXT_MESSAGE_ID) {
 			messages.splice(i, 1)
 			continue
 		}
-		if (!Array.isArray(message.parts) || message.parts.length === 0) continue
-		const filtered = message.parts.filter((part) => !isMemoryContextPart(part))
 		if (filtered.length !== message.parts.length) message.parts = filtered
 	}
 }
@@ -48,9 +51,8 @@ export function upsertMemoryContextAtPromptEnd(messages: ChatMessage[], syntheti
 	messages.push({
 		info: {
 			role: "user",
-			id: SYNTHETIC_MEMORY_MESSAGE_ID,
+			id: MEMORY_CONTEXT_MESSAGE_ID,
 			sessionID: sessionID ?? "",
-			parts: [],
 			createdAt: new Date().toISOString(),
 		} as ChatMessage["info"],
 		parts: [{ type: "text", text: syntheticText }],

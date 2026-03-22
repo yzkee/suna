@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { MEMORY_CONTEXT_MARKER, SYNTHETIC_MEMORY_MESSAGE_ID, upsertMemoryContextAtPromptEnd, type ChatMessage } from "./message-transform"
+import { MEMORY_CONTEXT_MARKER, MEMORY_CONTEXT_MESSAGE_ID, upsertMemoryContextAtPromptEnd, type ChatMessage } from "./message-transform"
 
 function makeUser(text: string, id?: string): ChatMessage {
 	return { info: { role: "user", id: id ?? `user-${text}` }, parts: [{ type: "text", text }] }
@@ -22,15 +22,24 @@ describe("upsertMemoryContextAtPromptEnd", () => {
 		expect(latestParts[latestParts.length - 1]?.text).toBe(`${MEMORY_CONTEXT_MARKER}\ncontext`)
 	})
 
-	test("removes legacy synthetic message and reattaches context to latest user", () => {
+	test("removes marker-only synthetic message and reattaches context to latest user", () => {
 		const messages = [
 			makeSystem("system"),
-			{ info: { role: "user", id: SYNTHETIC_MEMORY_MESSAGE_ID }, parts: [{ type: "text", text: `${MEMORY_CONTEXT_MARKER}\nold` }] },
+			{ info: { role: "user", id: MEMORY_CONTEXT_MESSAGE_ID }, parts: [{ type: "text", text: `${MEMORY_CONTEXT_MARKER}\nold` }] },
 			makeUser("real user"),
 		]
 		upsertMemoryContextAtPromptEnd(messages, `${MEMORY_CONTEXT_MARKER}\nnew`)
 		expect(messages).toHaveLength(2)
-		expect(messages.some((message) => message.info?.id === SYNTHETIC_MEMORY_MESSAGE_ID)).toBe(false)
+		expect(messages.some((message) => message.info?.id === MEMORY_CONTEXT_MESSAGE_ID)).toBe(false)
+		const latestParts = messages[1]?.parts ?? []
+		expect(latestParts[latestParts.length - 1]?.text).toBe(`${MEMORY_CONTEXT_MARKER}\nnew`)
+	})
+
+	test("drops empty synthetic memory messages before reinserting context", () => {
+		const messages = [makeSystem("system"), { info: { role: "user", id: MEMORY_CONTEXT_MESSAGE_ID }, parts: [] }, makeUser("real user")]
+		upsertMemoryContextAtPromptEnd(messages, `${MEMORY_CONTEXT_MARKER}\nnew`)
+		expect(messages).toHaveLength(2)
+		expect(messages.some((message) => message.info?.id === MEMORY_CONTEXT_MESSAGE_ID)).toBe(false)
 		const latestParts = messages[1]?.parts ?? []
 		expect(latestParts[latestParts.length - 1]?.text).toBe(`${MEMORY_CONTEXT_MARKER}\nnew`)
 	})
@@ -47,7 +56,7 @@ describe("upsertMemoryContextAtPromptEnd", () => {
 		const messages = [makeSystem("system"), makeAssistant("assistant")]
 		upsertMemoryContextAtPromptEnd(messages, `${MEMORY_CONTEXT_MARKER}\ncontext`, "ses_123")
 		expect(messages).toHaveLength(3)
-		expect(messages[2]?.info?.id).toBe(SYNTHETIC_MEMORY_MESSAGE_ID)
+		expect(messages[2]?.info?.id).toBe(MEMORY_CONTEXT_MESSAGE_ID)
 		expect(messages[2]?.info?.sessionID).toBe("ses_123")
 	})
 })
