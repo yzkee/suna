@@ -14,7 +14,8 @@ import { CreditPurchaseModal } from '@/components/billing/credit-purchase';
 import { GlobeRegionPicker } from '@/components/instance/globe-region-picker';
 import { INSTANCE_CONFIG } from '@/components/instance/config';
 import { getSizeLabel, formatMemory, formatDisk } from '@/components/instance/size-picker';
-import { getServerTypes, type ServerType } from '@/lib/api/billing';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useServerTypes } from '@/hooks/instance/use-server-types';
 
 interface PricingSectionProps {
   returnUrl?: string;
@@ -58,27 +59,31 @@ export function PricingSection({
 
   const [isLoading, setIsLoading] = useState(false);
   const [showCreditPurchaseModal, setShowCreditPurchaseModal] = useState(false);
-  const [location, setLocation] = useState(INSTANCE_CONFIG.defaultRegion);
-  const [serverTypes, setServerTypes] = useState<ServerType[]>([]);
+  const [location, setLocation] = useState<string>(INSTANCE_CONFIG.fallbackRegion);
   const [selectedMachine, setSelectedMachine] = useState<string | null>(null);
+
+  const { data: serverTypesData, isLoading: typesLoading } = useServerTypes(location);
+  const serverTypes = serverTypesData?.serverTypes ?? [];
 
   const isCurrent = accountState?.subscription?.tier_key === 'pro';
 
-  const fetchTypes = React.useCallback(async (loc: string) => {
-    try {
-      const result = await getServerTypes(loc);
-      setServerTypes(result.serverTypes);
-      if (result.serverTypes.length > 0 && !selectedMachine) {
-        setSelectedMachine(result.serverTypes[0].name);
-      }
-    } catch {
-      setServerTypes([]);
-    }
-  }, [selectedMachine]);
-
+  // Apply default location from API (once)
+  const defaultLocationApplied = React.useRef(false);
   React.useEffect(() => {
-    fetchTypes(location);
-  }, [location, fetchTypes]);
+    if (!serverTypesData?.defaultLocation || defaultLocationApplied.current) return;
+    defaultLocationApplied.current = true;
+    if (serverTypesData.defaultLocation !== location) {
+      setLocation(serverTypesData.defaultLocation);
+    }
+  }, [serverTypesData?.defaultLocation]);
+
+  // Auto-select default server type whenever server types change
+  React.useEffect(() => {
+    if (serverTypes.length === 0) return;
+    const defaultName = serverTypesData?.defaultServerType;
+    const match = defaultName ? serverTypes.find((t) => t.name === defaultName) : null;
+    setSelectedMachine(match?.name || serverTypes[0].name);
+  }, [serverTypes, serverTypesData?.defaultServerType]);
 
   const handleSelect = useCallback(async () => {
     if (!isAuthenticated) {
@@ -121,6 +126,7 @@ export function PricingSection({
   }
 
   const hasScheduledChange = accountState?.subscription.has_scheduled_change && accountState?.subscription.scheduled_change;
+  const includedType = serverTypes.find((t) => t.name === selectedMachine) || serverTypes[0] || null;
 
   return (
     <div className={cn('w-full', !insideDialog && !noPadding && 'py-8')}>
@@ -148,8 +154,8 @@ export function PricingSection({
 
         {/* Left: Globe (hidden in dialog mode) */}
         {!insideDialog && (
-          <div className="hidden md:flex w-[400px] shrink-0 p-6 pr-0">
-            <GlobeRegionPicker location={location} onLocationChange={setLocation} />
+          <div className="hidden md:flex h-[550px] w-[450px] shrink-0 p-6 pr-0">
+            <GlobeRegionPicker location={location} onLocationChange={setLocation} showToggle={false} />
           </div>
         )}
 
@@ -176,23 +182,32 @@ export function PricingSection({
           </div>
 
           {/* Included machine */}
-          {serverTypes.length > 0 && serverTypes[0] && (
+          {typesLoading ? (
+            <div className="mb-6 flex items-center gap-3.5 px-3 py-2.5 rounded-xl border border-border/40">
+              <Skeleton className="w-11 h-11 rounded-lg" />
+              <div className="flex-1 space-y-1.5">
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-3 w-28" />
+              </div>
+              <Skeleton className="h-4 w-14" />
+            </div>
+          ) : includedType ? (
             <div className="mb-6 flex items-center gap-3.5 px-3 py-2.5 rounded-xl border border-border/40 bg-muted/20">
               <div className="shrink-0 w-11 h-11 rounded-lg border bg-foreground text-background flex flex-col items-center justify-center">
-                <span className="text-[15px] font-bold tabular-nums leading-none">{serverTypes[0].cores}</span>
+                <span className="text-[15px] font-bold tabular-nums leading-none">{includedType.cores}</span>
                 <span className="text-[8px] font-medium opacity-60 mt-0.5">vCPU</span>
               </div>
               <div className="flex-1 min-w-0">
-                <span className="text-[13px] font-semibold text-foreground">{getSizeLabel(serverTypes[0].cores)}</span>
+                <span className="text-[13px] font-semibold text-foreground">{getSizeLabel(includedType.cores)}</span>
                 <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground/60">
-                  <span>{formatMemory(serverTypes[0].memory)} RAM</span>
+                  <span>{formatMemory(includedType.memory)} RAM</span>
                   <span className="text-muted-foreground/20">{'\u00B7'}</span>
-                  <span>{formatDisk(serverTypes[0].disk)} SSD</span>
+                  <span>{formatDisk(includedType.disk)} SSD</span>
                 </div>
               </div>
               <span className="text-[12px] font-medium text-primary/70 shrink-0">Included</span>
             </div>
-          )}
+          ) : null}
 
           {/* Features */}
           <div className="border-t border-border/30 pt-5 mb-8">

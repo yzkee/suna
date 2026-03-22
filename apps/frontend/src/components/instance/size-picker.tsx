@@ -1,6 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/skeleton';
 import type { ServerType } from '@/lib/api/billing';
 
 const SIZE_LABELS: Record<number, string> = {
@@ -105,6 +106,23 @@ export function SizePicker({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+export function SizePickerSkeleton({ count = 4, className }: { count?: number; className?: string }) {
+  return (
+    <div className={cn('grid grid-cols-1 gap-1.5', className)}>
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3.5 px-3 py-2.5 rounded-xl border border-border/40">
+          <Skeleton className="w-11 h-11 rounded-lg" />
+          <div className="flex-1 space-y-1.5">
+            <Skeleton className="h-4 w-16" />
+            <Skeleton className="h-3 w-28" />
+          </div>
+          <Skeleton className="h-4 w-16" />
+        </div>
+      ))}
     </div>
   );
 }

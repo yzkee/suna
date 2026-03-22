@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, Suspense, lazy } from 'react';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LogOut } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -17,23 +16,43 @@ import { useAccountState } from '@/hooks/billing';
 const PricingSection = lazy(() => import('@/components/billing/pricing').then(mod => ({ default: mod.PricingSection })));
 const MaintenancePage = lazy(() => import('@/components/maintenance/maintenance-page').then(mod => ({ default: mod.MaintenancePage })));
 
-// Skeleton for immediate FCP
 function SubscriptionSkeleton() {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-muted/20 flex items-center justify-center p-4">
-      <Card className="w-full max-w-6xl">
-        <CardHeader className="text-center">
-          <Skeleton className="h-10 w-64 mx-auto mb-2" />
-          <Skeleton className="h-6 w-96 mx-auto" />
-        </CardHeader>
-        <CardContent>
-          <div className="grid md:grid-cols-3 gap-6">
-            <Skeleton className="h-96 w-full" />
-            <Skeleton className="h-96 w-full" />
-            <Skeleton className="h-96 w-full" />
+    <div className="min-h-screen flex flex-col bg-background">
+      <div className="flex items-center justify-between px-6 py-4 shrink-0">
+        <Skeleton className="h-5 w-5 rounded" />
+        <Skeleton className="h-8 w-20 rounded-lg" />
+      </div>
+      <div className="flex-1 flex items-center justify-center">
+        <div className="w-full max-w-5xl mx-auto px-4">
+          <div className="flex flex-col md:flex-row gap-6 py-8">
+            <div className="hidden md:block w-[400px] shrink-0">
+              <Skeleton className="w-full h-[460px] rounded-2xl" />
+            </div>
+            <div className="flex-1 space-y-6 py-10">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-8 w-48" />
+              <Skeleton className="h-4 w-56" />
+              <Skeleton className="h-10 w-28" />
+              <div className="flex items-center gap-3.5 px-3 py-2.5 rounded-xl border border-border/40">
+                <Skeleton className="w-11 h-11 rounded-lg" />
+                <div className="flex-1 space-y-1.5">
+                  <Skeleton className="h-4 w-16" />
+                  <Skeleton className="h-3 w-28" />
+                </div>
+                <Skeleton className="h-4 w-14" />
+              </div>
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <Skeleton className="h-4 w-36" />
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-4 w-28" />
+              </div>
+              <Skeleton className="h-12 w-44 rounded-xl" />
+            </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }
@@ -119,11 +138,7 @@ export default function SubscriptionRequiredPage() {
       {/* Full-screen pricing */}
       <div className="flex-1 flex items-center justify-center">
         <div className="w-full max-w-5xl mx-auto px-4">
-          <Suspense fallback={
-            <div className="flex items-center justify-center py-24">
-              <Skeleton className="h-[500px] w-full rounded-2xl" />
-            </div>
-          }>
+          <Suspense fallback={null}>
             <PricingSection
               returnUrl={`${typeof window !== 'undefined' ? window.location.origin : ''}/setting-up?subscription=success&session_id={CHECKOUT_SESSION_ID}`}
               showTitleAndTabs={false}

@@ -710,9 +710,16 @@ export interface ServerType {
 
 export type HetznerServerType = ServerType & { priceHourly: number };
 
-export async function getServerTypes(location?: string): Promise<{ serverTypes: ServerType[]; location: string }> {
+export interface ServerTypesResponse {
+  serverTypes: ServerType[];
+  location: string;
+  defaultServerType?: string;
+  defaultLocation?: string;
+}
+
+export async function getServerTypes(location?: string): Promise<ServerTypesResponse> {
   const params = location ? `?location=${location}` : '';
-  const response = await backendApi.get<{ serverTypes: ServerType[]; location: string }>(
+  const response = await backendApi.get<ServerTypesResponse>(
     `/platform/sandbox/justavps/server-types${params}`
   );
   if (response.error) throw response.error;

@@ -1,18 +1,19 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, ChevronRight, ArrowLeft } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { getServerTypes, createInstance, type ServerType } from '@/lib/api/billing';
+import { createInstance } from '@/lib/api/billing';
+import { useServerTypes } from '@/hooks/instance/use-server-types';
 import { toast } from '@/lib/toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateAccountState } from '@/hooks/billing';
 import { GlobeRegionPicker, RegionToggle, LOCATIONS } from '@/components/instance/globe-region-picker';
 import { INSTANCE_CONFIG } from '@/components/instance/config';
-import { SizePicker, formatPrice } from '@/components/instance/size-picker';
+import { SizePicker, SizePickerSkeleton, formatPrice } from '@/components/instance/size-picker';
 
 function formatMemory(gb: number): string {
   return gb >= 1 ? `${gb} GB` : `${Math.round(gb * 1024)} MB`;
@@ -25,9 +26,7 @@ function formatDisk(gb: number): string {
 export function AddInstanceDialog() {
   const [step, setStep] = useState<'select' | 'review'>('select');
   const [open, setOpen] = useState(false);
-  const [location, setLocation] = useState(INSTANCE_CONFIG.defaultRegion);
-  const [serverTypes, setServerTypes] = useState<ServerType[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [location, setLocation] = useState<string>(INSTANCE_CONFIG.fallbackRegion);
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +34,9 @@ export function AddInstanceDialog() {
 
   const queryClient = useQueryClient();
   const router = useRouter();
+
+  const { data: serverTypesData, isLoading: loading } = useServerTypes(location);
+  const serverTypes = serverTypesData?.serverTypes ?? [];
 
   useEffect(() => {
     const handler = () => setOpen(true);
@@ -53,32 +55,20 @@ export function AddInstanceDialog() {
     }
   }, []);
 
-  const fetchTypes = useCallback(async (loc: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await getServerTypes(loc);
-      setServerTypes(result.serverTypes);
-      if (result.serverTypes.length > 0) {
-        setSelected(result.serverTypes[0].name);
-      }
-    } catch (err: any) {
-      setError(err?.message || 'Failed to load server types');
-      setServerTypes([]);
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    if (serverTypes.length > 0 && !selected) {
+      setSelected(serverTypes[0].name);
     }
-  }, []);
+  }, [serverTypes, selected]);
 
   useEffect(() => {
     if (open) {
-      fetchTypes(location);
       setSelected(null);
       setStep('select');
       setError(null);
       setPortalUrl(null);
     }
-  }, [open, location, fetchTypes]);
+  }, [open, location]);
 
   const handleCreate = async () => {
     if (!selected) return;
@@ -172,11 +162,7 @@ export function AddInstanceDialog() {
                       </div>
                     )}
 
-                    {loading && (
-                      <div className="flex items-center justify-center py-12">
-                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground/40" />
-                      </div>
-                    )}
+                    {loading && <SizePickerSkeleton />}
 
                     {!loading && serverTypes.length > 0 && (
                       <SizePicker types={serverTypes} selected={selected} onSelect={setSelected} />

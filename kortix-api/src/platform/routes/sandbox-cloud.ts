@@ -839,7 +839,12 @@ export function createCloudSandboxRouter(
     try {
       const location = c.req.query('location') || config.JUSTAVPS_DEFAULT_LOCATION;
       const types = await listJustAVPSServerTypes(location);
-      return c.json({ serverTypes: types, location });
+      return c.json({
+        serverTypes: types,
+        location,
+        defaultServerType: config.JUSTAVPS_DEFAULT_SERVER_TYPE,
+        defaultLocation: config.JUSTAVPS_DEFAULT_LOCATION,
+      });
     } catch (err: any) {
       console.error('[SANDBOX-CLOUD] justavps server-types error:', err);
       return c.json({ error: 'Failed to fetch server types' }, 500);

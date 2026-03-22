@@ -1,9 +1,16 @@
+/**
+ * Instance configuration — single source of truth for regions and feature flags.
+ * Region IDs must match JustAVPS provider regions (hel1 = EU/Finland, hil = US/Oregon).
+ *
+ * Default server type and location come from the backend API response
+ * (GET /platform/sandbox/justavps/server-types returns defaultServerType + defaultLocation).
+ * The fallbackRegion is only used until the API responds.
+ */
 export const INSTANCE_CONFIG = {
-  defaultRegion: 'hil',
-  defaultServerType: null as string | null,
+  fallbackRegion: 'hel1',
   regions: [
-    { id: 'hil', label: 'United States', shorthand: 'US', icon: '\u{1F1FA}\u{1F1F8}', lat: 45.5231, lng: -122.6765, phi: 2.1, theta: 0.25 },
     { id: 'hel1', label: 'Europe', shorthand: 'EU', icon: '\u{1F1EA}\u{1F1FA}', lat: 60.1699, lng: 24.9384, phi: 5.85, theta: 0.35 },
+    { id: 'hil', label: 'United States', shorthand: 'US', icon: '\u{1F1FA}\u{1F1F8}', lat: 45.5231, lng: -122.6765, phi: 2.1, theta: 0.25 },
   ],
   regionPickerEnabled: true,
 } as const;
