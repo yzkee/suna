@@ -676,12 +676,12 @@ function McpServersSection() {
               <a href={authUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                 authorization page
               </a>{' '}
-              and paste the code below.
+              and after it redirects to `localhost`, paste the full redirected URL below.
             </p>
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Authorization Code</label>
+              <label className="text-xs text-muted-foreground mb-1 block">Localhost Redirect URL</label>
               <Input
-                placeholder="Paste code here..."
+                placeholder="Paste http://localhost:.../callback?..."
                 value={authCode}
                 onChange={(e) => setAuthCode(e.target.value)}
                 autoFocus

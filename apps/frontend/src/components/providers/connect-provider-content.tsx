@@ -701,13 +701,13 @@ export function ConnectProviderContent({
               <p className="text-sm text-muted-foreground">
                 Visit the{' '}
                 <a href={oauthUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">authorization page</a>
-                {' '}and paste the code below to connect {selectedProviderData?.name || view.providerID}.
+                {' '}and after it redirects to `localhost`, paste the full redirected URL below to connect {selectedProviderData?.name || view.providerID}.
               </p>
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                  {currentMethod ? `${methodLabel(currentMethod)} code` : 'Authorization code'}
+                  {currentMethod ? `${methodLabel(currentMethod)} localhost redirect URL` : 'Localhost redirect URL'}
                 </label>
-                <Input placeholder="Enter code..." type="text" value={oauthCode} onChange={(e) => setOauthCode(e.target.value)} className="h-9 rounded-xl border-border/50 bg-background text-sm" autoFocus />
+                <Input placeholder="Paste http://localhost:.../callback?..." type="text" value={oauthCode} onChange={(e) => setOauthCode(e.target.value)} className="h-9 rounded-xl border-border/50 bg-background text-sm" autoFocus />
               </div>
               {error && (
                 <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/5 rounded-lg px-3 py-2">
