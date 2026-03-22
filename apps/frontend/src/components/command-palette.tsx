@@ -92,6 +92,16 @@ function deriveProjectName(project: { id: string; name?: string; worktree: strin
   return project.worktree.split('/').pop() || project.worktree;
 }
 
+/**
+ * Sanitize a value string for use as a cmdk CommandItem value.
+ * cmdk sets data-value then calls querySelector('[data-value="..."]'),
+ * so any characters that break CSS attribute selectors must be removed.
+ */
+function sanitizeCmdkValue(value: string): string {
+  // Remove double quotes, single quotes, backslashes, brackets — all CSS selector breakers
+  return value.replace(/["'\\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 // ============================================================================
 // Command Palette
 // ============================================================================
@@ -617,7 +627,7 @@ export function CommandPalette() {
                         return (
                           <CommandItem
                             key={item.id}
-                            value={`suggestion ${item.label} ${item.keywords || ''}`}
+                            value={sanitizeCmdkValue(`suggestion ${item.label} ${item.keywords || ''}`)}
                             onSelect={() => handleRegistryItem(item)}
                             disabled={item.id === 'new-session' && isCreating}
                           >
@@ -675,7 +685,7 @@ export function CommandPalette() {
                         return (
                           <CommandItem
                             key={project.id}
-                            value={`project ${name} ${project.worktree} ${project.id}`}
+                            value={sanitizeCmdkValue(`project ${name} ${project.worktree} ${project.id}`)}
                             onSelect={() => handleSelectProject(project.id, name)}
                           >
                             <FolderKanban className="h-4 w-4 flex-shrink-0" />
@@ -704,7 +714,7 @@ export function CommandPalette() {
                       {recentSessions.map((session) => (
                         <CommandItem
                           key={session.id}
-                          value={`recent ${session.title || ''} ${session.slug || ''} ${session.id}`}
+                          value={sanitizeCmdkValue(`recent ${session.title || ''} ${session.slug || ''} ${session.id}`)}
                           onSelect={() =>
                             handleSelectSession(
                               session.id,
@@ -761,10 +771,10 @@ export function CommandPalette() {
                         const isActiveTheme = item.kind === 'theme' && theme === item.themeValue;
 
                         return (
-                          <CommandItem
-                            key={item.id}
-                            value={item.keywords || `${item.group} ${item.label} ${item.id}`}
-                            onSelect={() => handleRegistryItem(item)}
+                        <CommandItem
+                          key={item.id}
+                          value={sanitizeCmdkValue(item.keywords || `${item.group} ${item.label} ${item.id}`)}
+                          onSelect={() => handleRegistryItem(item)}
                             disabled={item.id === 'new-session' && isCreating}
                           >
                             {item.id === 'new-session' && isCreating ? (
@@ -904,7 +914,7 @@ export function CommandPalette() {
                     return (
                       <CommandItem
                         key={agent.name}
-                        value={`agent ${agent.name} ${agent.description || ''}`}
+                        value={sanitizeCmdkValue(`agent ${agent.name} ${agent.description || ''}`)}
                         onSelect={() => handleSelectAgent(agent.name)}
                       >
                         <Bot className="h-4 w-4" />
@@ -932,7 +942,7 @@ export function CommandPalette() {
                     return (
                       <CommandItem
                         key={agent.name}
-                        value={`subagent ${agent.name} ${agent.description || ''}`}
+                        value={sanitizeCmdkValue(`subagent ${agent.name} ${agent.description || ''}`)}
                         onSelect={() => handleSelectAgent(agent.name)}
                       >
                         <Bot className="h-4 w-4 text-muted-foreground/50" />
@@ -987,10 +997,9 @@ export function CommandPalette() {
                     return (
                       <CommandItem
                         key={`${model.providerID}:${model.modelID}`}
-                        value={`model ${model.providerName} ${model.modelName} ${model.modelID}`}
+                        value={sanitizeCmdkValue(`model ${model.providerName} ${model.modelName} ${model.modelID}`)}
                         onSelect={() => handleSelectModel(model.providerID, model.modelID)}
                       >
-                        <Cpu className="h-4 w-4 text-muted-foreground/50" />
                         <div className="flex flex-col overflow-hidden flex-1 min-w-0">
                           <span className="truncate text-sm">{model.modelName}</span>
                           <span className="text-[10px] text-muted-foreground/40 font-mono truncate">
