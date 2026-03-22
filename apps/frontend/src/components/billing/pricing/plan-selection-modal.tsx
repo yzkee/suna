@@ -49,7 +49,7 @@ export function PlanSelectionModal({
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
             <DialogContent
-                className="p-0 gap-0 overflow-hidden w-[min(95vw,740px)] max-h-[90vh] overflow-y-auto rounded-2xl border border-foreground/[0.08]"
+                className="p-0 gap-0 overflow-hidden w-[min(95vw,520px)] max-h-[90vh] overflow-y-auto rounded-2xl border border-foreground/[0.08]"
                 hideCloseButton={true}
             >
                 <DialogTitle className="sr-only">

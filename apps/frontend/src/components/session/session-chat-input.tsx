@@ -117,9 +117,11 @@ export interface FlatModel {
 
 export function flattenModels(providers: ProviderListResponse | undefined): FlatModel[] {
   if (!providers) return [];
+  const all = Array.isArray(providers.all) ? providers.all : [];
+  const connected = Array.isArray(providers.connected) ? providers.connected : [];
   const result: FlatModel[] = [];
-  for (const p of providers.all) {
-    if (!providers.connected.includes(p.id)) continue;
+  for (const p of all) {
+    if (!connected.includes(p.id)) continue;
     for (const [modelID, model] of Object.entries(p.models)) {
       const caps = (model as any).capabilities;
       const modalities = (model as any).modalities;
@@ -532,7 +534,7 @@ function AutoContinueSelector({
   const available = useMemo(
     () =>
       AUTOCONTINUE_ALGORITHMS.filter((alg) =>
-        commands.some((c) => c.name === alg.commandName),
+        Array.isArray(commands) && commands.some((c) => c.name === alg.commandName),
       ),
     [commands],
   );

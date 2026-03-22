@@ -446,7 +446,8 @@ export function useOpenCodeAgents() {
     queryFn: async () => {
       const client = getClient();
       const result = await client.app.agents();
-      return unwrap(result);
+      const data = unwrap(result);
+      return Array.isArray(data) ? data : Object.values(data);
     },
     staleTime: Infinity,
     gcTime: 10 * 60 * 1000,

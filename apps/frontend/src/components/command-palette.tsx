@@ -86,9 +86,9 @@ function formatRelativeTime(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString();
 }
 
-function deriveProjectName(project: { id: string; name?: string; worktree: string }): string {
+function deriveProjectName(project: { id: string; name?: string; worktree?: string }): string {
   if (project.name) return project.name;
-  if (project.worktree === '/' || project.id === 'global') return 'Global';
+  if (!project.worktree || project.worktree === '/' || project.id === 'global') return 'Global';
   return project.worktree.split('/').pop() || project.worktree;
 }
 
