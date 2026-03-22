@@ -54,6 +54,9 @@ billingApp.use('*', async (c, next) => {
 billingApp.post('/setup/initialize', async (c: any) => {
   const userId = c.get('userId') as string;
   const email = c.get('userEmail') as string;
+  const body = await c.req.json().catch(() => ({}));
+  const requestedServerType = (body?.server_type as string | undefined) || undefined;
+  const requestedLocation = (body?.location as string | undefined) || undefined;
   const { upsertCreditAccount, getCreditAccount } = await import('./repositories/credit-accounts');
   const { resolvePriceId, isPaidTier } = await import('./services/tiers');
   const { getOrCreateStripeCustomer } = await import('./services/subscriptions');
@@ -131,8 +134,8 @@ billingApp.post('/setup/initialize', async (c: any) => {
           accountId,
           userId,
           provider: defaultProvider,
-          hetznerServerType: config.JUSTAVPS_DEFAULT_SERVER_TYPE || 'cpx22',
-          hetznerLocation: config.JUSTAVPS_DEFAULT_LOCATION || config.HETZNER_DEFAULT_LOCATION,
+          hetznerServerType: requestedServerType || config.JUSTAVPS_DEFAULT_SERVER_TYPE || 'cpx22',
+          hetznerLocation: requestedLocation || config.JUSTAVPS_DEFAULT_LOCATION || config.HETZNER_DEFAULT_LOCATION,
           isIncluded: true,
         })
           .then(({ row, created }) => {

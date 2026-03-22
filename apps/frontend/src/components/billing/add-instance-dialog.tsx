@@ -1,26 +1,18 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, ChevronRight, ArrowLeft } from 'lucide-react';
-import {
-  Dialog,
-  DialogContent,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { getServerTypes, createInstance, type ServerType } from '@/lib/api/billing';
 import { toast } from '@/lib/toast';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateAccountState } from '@/hooks/billing';
-import { Button } from '@/components/ui/button';
-import type { COBEOptions } from 'cobe';
-
-const Globe = lazy(() => import('@/components/ui/globe').then((m) => ({ default: m.Globe })));
-
-const LOCATIONS = [
-  { id: 'hil', label: 'United States', shorthand: 'US', icon: '🇺🇸', lat: 45.5231, lng: -122.6765, phi: 2.1, theta: 0.25 },
-  { id: 'hel1', label: 'Europe', shorthand: 'EU', icon: '🇪🇺', lat: 60.1699, lng: 24.9384, phi: 5.85, theta: 0.35 },
-] as const;
+import { GlobeRegionPicker, RegionToggle, LOCATIONS } from '@/components/instance/globe-region-picker';
+import { INSTANCE_CONFIG } from '@/components/instance/config';
+import { SizePicker, formatPrice } from '@/components/instance/size-picker';
 
 function formatMemory(gb: number): string {
   return gb >= 1 ? `${gb} GB` : `${Math.round(gb * 1024)} MB`;
@@ -30,58 +22,19 @@ function formatDisk(gb: number): string {
   return gb >= 1000 ? `${(gb / 1000).toFixed(0)} TB` : `${gb} GB`;
 }
 
-function formatPrice(price: number): string {
-  return `$${price.toFixed(2)}`;
-}
-
-function useIsDark() {
-  const [dark, setDark] = useState(false);
-  useEffect(() => {
-    const check = () => setDark(document.documentElement.classList.contains('dark'));
-    check();
-    const observer = new MutationObserver(check);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-    return () => observer.disconnect();
-  }, []);
-  return dark;
-}
-
 export function AddInstanceDialog() {
   const [step, setStep] = useState<'select' | 'review'>('select');
   const [open, setOpen] = useState(false);
-  const [location, setLocation] = useState('hil');
+  const [location, setLocation] = useState(INSTANCE_CONFIG.defaultRegion);
   const [serverTypes, setServerTypes] = useState<ServerType[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [portalUrl, setPortalUrl] = useState<string | null>(null);
-  const isDark = useIsDark();
 
   const queryClient = useQueryClient();
   const router = useRouter();
-
-  const selectedLoc = LOCATIONS.find((l) => l.id === location) ?? LOCATIONS[0];
-  const globeConfig = useMemo<COBEOptions>(() => ({
-    width: 800,
-    height: 800,
-    onRender: () => {},
-    devicePixelRatio: 2,
-    phi: selectedLoc.phi,
-    theta: selectedLoc.theta,
-    dark: isDark ? 1 : 0,
-    diffuse: isDark ? 0.4 : 1.2,
-    mapSamples: 16000,
-    mapBrightness: isDark ? 6 : 1.2,
-    baseColor: isDark ? [0.3, 0.3, 0.3] : [0.95, 0.95, 0.95],
-    markerColor: [0.3, 0.5, 1],
-    glowColor: isDark ? [0.1, 0.1, 0.2] : [0.9, 0.9, 1],
-    markers: LOCATIONS.map((loc) => ({
-      location: [loc.lat, loc.lng] as [number, number],
-      size: loc.id === location ? 0.08 : 0.03,
-    })),
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [isDark]);
 
   useEffect(() => {
     const handler = () => setOpen(true);
@@ -175,53 +128,7 @@ export function AddInstanceDialog() {
 
           {/* Left column — Globe */}
           <div className="hidden md:flex w-[400px] shrink-0 p-4 pr-0">
-            <div className="rounded-2xl w-full h-full flex flex-col bg-muted/80 dark:bg-black/60 relative overflow-hidden">
-              {/* Region label */}
-              <div className="relative z-10 px-5 pt-5">
-                <p className="text-[11px] font-semibold text-muted-foreground/60 dark:text-white/30 uppercase tracking-widest">
-                  Region
-                </p>
-                <p className="text-sm font-medium text-foreground dark:text-white/80 mt-0.5">
-                  {selectedLoc.label} <span className="font-normal">{selectedLoc.icon}</span>
-                </p>
-              </div>
-
-              {/* Region toggle */}
-              <div className="relative z-10 px-5 mt-4">
-                <div className="flex items-center gap-0.5 p-1 rounded-full bg-background/80 dark:bg-white/10 backdrop-blur-xl border border-border/50 dark:border-white/10 shadow-sm w-fit">
-                  {LOCATIONS.map((loc) => (
-                    <button
-                      key={loc.id}
-                      type="button"
-                      onClick={() => setLocation(loc.id)}
-                      className={cn(
-                        'px-5 py-1.5 rounded-full text-[13px] font-medium transition-all cursor-pointer',
-                        location === loc.id
-                          ? 'bg-foreground text-background dark:bg-white dark:text-black shadow-sm'
-                          : 'text-muted-foreground hover:text-foreground dark:text-white/40 dark:hover:text-white/70',
-                      )}
-                    >
-                      {loc.shorthand}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Globe — oversized, bottom half clipped by parent overflow-hidden */}
-              <div className="relative h-[340px] mt-auto">
-                <div className="absolute left-1/2 -translate-x-1/2 top-0 w-[560px] h-[560px]">
-                  <Suspense fallback={null}>
-                    <Globe
-                      config={globeConfig}
-                      autoRotate={false}
-                      targetPhi={selectedLoc.phi}
-                      targetTheta={selectedLoc.theta}
-                      className="!static !w-full !h-full !max-w-none"
-                    />
-                  </Suspense>
-                </div>
-              </div>
-            </div>
+            <GlobeRegionPicker location={location} onLocationChange={setLocation} />
           </div>
 
           {/* Right column — Selection / Review */}
@@ -243,33 +150,15 @@ export function AddInstanceDialog() {
                     {step === 'select' ? 'New Instance' : 'Confirm'}
                   </h2>
                   <p className="text-sm text-muted-foreground mt-0.5">
-                    {step === 'select'
-                      ? 'Choose your machine size.'
-                      : 'Review your configuration.'}
+                    {step === 'select' ? 'Choose your machine size.' : 'Review your configuration.'}
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* Mobile-only region selector (no globe on mobile) */}
+            {/* Mobile-only region selector */}
             <div className="md:hidden px-6 pb-4">
-              <div className="flex items-center gap-0.5 p-1 rounded-full bg-muted/40 border border-border/30 w-fit">
-                {LOCATIONS.map((loc) => (
-                  <button
-                    key={loc.id}
-                    type="button"
-                    onClick={() => setLocation(loc.id)}
-                    className={cn(
-                      'px-5 py-1.5 rounded-full text-[13px] font-medium transition-all cursor-pointer',
-                      location === loc.id
-                        ? 'bg-foreground text-background shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    {loc.label}
-                  </button>
-                ))}
-              </div>
+              <RegionToggle location={location} onLocationChange={setLocation} />
             </div>
 
             {/* Scrollable content */}
@@ -290,11 +179,7 @@ export function AddInstanceDialog() {
                     )}
 
                     {!loading && serverTypes.length > 0 && (
-                      <SizePicker
-                        types={serverTypes}
-                        selected={selected}
-                        onSelect={setSelected}
-                      />
+                      <SizePicker types={serverTypes} selected={selected} onSelect={setSelected} />
                     )}
                   </div>
                 ) : (
@@ -339,12 +224,7 @@ export function AddInstanceDialog() {
                       <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 space-y-2">
                         <p className="text-[13px] text-destructive">{error}</p>
                         {portalUrl && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="w-full text-xs h-8 rounded-lg"
-                            onClick={() => window.open(portalUrl, '_blank')}
-                          >
+                          <Button size="sm" variant="outline" className="w-full text-xs h-8 rounded-lg" onClick={() => window.open(portalUrl, '_blank')}>
                             Add payment method
                           </Button>
                         )}
@@ -403,78 +283,5 @@ export function AddInstanceDialog() {
         </div>
       </DialogContent>
     </Dialog>
-  );
-}
-
-const SIZE_LABELS: Record<number, string> = {
-  2: 'Small',
-  3: 'Small',
-  4: 'Medium',
-  8: 'Large',
-  12: 'XL',
-  16: '2XL',
-  32: '4XL',
-};
-
-function getSizeLabel(cores: number): string {
-  return SIZE_LABELS[cores] || `${cores}x`;
-}
-
-function SizePicker({
-  types,
-  selected,
-  onSelect,
-}: {
-  types: ServerType[];
-  selected: string | null;
-  onSelect: (name: string) => void;
-}) {
-  return (
-    <div className="grid grid-cols-1 gap-1.5">
-      {types.map((t) => {
-        const isSelected = selected === t.name;
-        const label = getSizeLabel(t.cores);
-        return (
-          <button
-            key={t.name}
-            type="button"
-            onClick={() => onSelect(t.name)}
-            className={cn(
-              'flex items-center gap-3.5 w-full px-3 py-2.5 rounded-xl border text-left transition-all cursor-pointer',
-              isSelected
-                ? 'border-foreground/20 bg-foreground/[0.04] shadow-sm'
-                : 'border-border/40 hover:bg-muted/40 hover:border-border/60',
-            )}
-          >
-            {/* CPU core count */}
-            <div className={cn(
-              'shrink-0 w-11 h-11 rounded-lg border flex flex-col items-center justify-center',
-              isSelected ? 'bg-foreground text-background' : 'bg-muted/60 text-foreground/70',
-            )}>
-              <span className="text-[15px] font-bold tabular-nums leading-none">{t.cores}</span>
-              <span className="text-[8px] font-medium opacity-60 mt-0.5">vCPU</span>
-            </div>
-
-            {/* Name + specs */}
-            <div className="flex-1 min-w-0">
-              <span className="text-[13px] font-semibold text-foreground">{label}</span>
-              <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground/60">
-                <span>{formatMemory(t.memory)} RAM</span>
-                <span className="text-muted-foreground/20">·</span>
-                <span>{formatDisk(t.disk)} SSD</span>
-              </div>
-            </div>
-
-            {/* Price */}
-            <div className="shrink-0 text-right">
-              <span className="text-[14px] font-semibold text-foreground tabular-nums tracking-tight">
-                {formatPrice(t.priceMonthlyMarkup)}
-              </span>
-              <span className="text-[11px] text-muted-foreground/40">/mo</span>
-            </div>
-          </button>
-        );
-      })}
-    </div>
   );
 }

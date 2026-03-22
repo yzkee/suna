@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
-import Image from 'next/image';
-import { Check, ShoppingCart, ChevronDown, Loader2 } from 'lucide-react';
+import { Check, ShoppingCart, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { createCheckoutSession } from '@/lib/api/billing';
@@ -12,10 +11,10 @@ import { useAccountState } from '@/hooks/billing';
 import { useAuth } from '@/components/AuthProvider';
 import { ScheduledDowngradeCard } from '@/components/billing/scheduled-downgrade-card';
 import { CreditPurchaseModal } from '@/components/billing/credit-purchase';
-
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
+import { GlobeRegionPicker } from '@/components/instance/globe-region-picker';
+import { INSTANCE_CONFIG } from '@/components/instance/config';
+import { getSizeLabel, formatMemory, formatDisk } from '@/components/instance/size-picker';
+import { getServerTypes, type ServerType } from '@/lib/api/billing';
 
 interface PricingSectionProps {
   returnUrl?: string;
@@ -32,37 +31,14 @@ interface PricingSectionProps {
   onboardingFlow?: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const LOCATIONS = [
-  { id: 'ash',  label: 'US', sublabel: 'Ashburn',   flag: '🇺🇸' },
-  { id: 'nbg1', label: 'EU', sublabel: 'Nuremberg', flag: '🇩🇪' },
-] as const;
-type LocationId = (typeof LOCATIONS)[number]['id'];
-
-const MACHINES = [
-  { id: 'ccx13', label: 'Starter',     vcpu: 2,  ram: 8,  disk: 80,  price: 20,  isDefault: true  },
-  { id: 'ccx23', label: 'Standard',    vcpu: 4,  ram: 16, disk: 160, price: 49,  isDefault: false },
-  { id: 'ccx33', label: 'Performance', vcpu: 8,  ram: 32, disk: 240, price: 99,  isDefault: false },
-  { id: 'ccx43', label: 'Pro',         vcpu: 16, ram: 64, disk: 360, price: 199, isDefault: false },
-] as const;
-type MachineId = (typeof MACHINES)[number]['id'];
-
 const INCLUDED = [
-  '24/7 always-on AI Computer',
+  '24/7 always-on cloud computer',
   'Full SSH & root access',
-  'LLM compute credits included',
-  'Multi-model — use any model',
-  'Persistent memory & filesystem',
+  '$10 LLM credits included',
+  'All AI models available',
+  'Persistent filesystem',
   'Unlimited agents & workflows',
-  'OpenCode engine & MCP ecosystem',
 ];
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 export function PricingSection({
   returnUrl = typeof window !== 'undefined' ? window.location.href : '/',
@@ -82,15 +58,28 @@ export function PricingSection({
 
   const [isLoading, setIsLoading] = useState(false);
   const [showCreditPurchaseModal, setShowCreditPurchaseModal] = useState(false);
-  const [location, setLocation] = useState<LocationId>('ash');
-  const [selectedMachine, setSelectedMachine] = useState<MachineId>('ccx13');
-  const [configOpen, setConfigOpen] = useState(false);
+  const [location, setLocation] = useState(INSTANCE_CONFIG.defaultRegion);
+  const [serverTypes, setServerTypes] = useState<ServerType[]>([]);
+  const [selectedMachine, setSelectedMachine] = useState<string | null>(null);
 
-  const machine = MACHINES.find((m) => m.id === selectedMachine)!;
-  const selectedLocation = LOCATIONS.find((l) => l.id === location)!;
   const isCurrent = accountState?.subscription?.tier_key === 'pro';
 
-  // ------- checkout -------
+  const fetchTypes = React.useCallback(async (loc: string) => {
+    try {
+      const result = await getServerTypes(loc);
+      setServerTypes(result.serverTypes);
+      if (result.serverTypes.length > 0 && !selectedMachine) {
+        setSelectedMachine(result.serverTypes[0].name);
+      }
+    } catch {
+      setServerTypes([]);
+    }
+  }, [selectedMachine]);
+
+  React.useEffect(() => {
+    fetchTypes(location);
+  }, [location, fetchTypes]);
+
   const handleSelect = useCallback(async () => {
     if (!isAuthenticated) {
       window.location.href = '/auth?mode=signup';
@@ -98,14 +87,11 @@ export function PricingSection({
     }
     try {
       setIsLoading(true);
-      // Build success URL carefully: returnUrl may contain Stripe template variables
-      // like {CHECKOUT_SESSION_ID} that must NOT be percent-encoded by URLSearchParams.
-      // Append extra params as raw query string fragments instead.
       const baseSuccessUrl = returnUrl.startsWith('http')
         ? returnUrl
         : `${window.location.origin}${returnUrl}`;
       const separator = baseSuccessUrl.includes('?') ? '&' : '?';
-      const successUrlStr = `${baseSuccessUrl}${separator}location=${encodeURIComponent(location)}&server_type=${encodeURIComponent(selectedMachine)}`;
+      const successUrlStr = `${baseSuccessUrl}${separator}location=${encodeURIComponent(location)}`;
       const response = await createCheckoutSession({
         tier_key: 'pro',
         success_url: successUrlStr,
@@ -124,9 +110,8 @@ export function PricingSection({
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, returnUrl, location, selectedMachine, refetch, onSubscriptionUpdate]);
+  }, [isAuthenticated, returnUrl, location, refetch, onSubscriptionUpdate]);
 
-  // ------- guard -------
   if (!isBillingEnabled()) {
     return (
       <div className="p-4 bg-foreground/[0.04] border border-foreground/[0.08] rounded-xl text-center">
@@ -136,12 +121,10 @@ export function PricingSection({
   }
 
   const hasScheduledChange = accountState?.subscription.has_scheduled_change && accountState?.subscription.scheduled_change;
-  const hasCustomConfig = !machine.isDefault || location !== 'ash';
 
   return (
-    <div className={cn('w-full', !insideDialog && !noPadding && 'py-12')}>
+    <div className={cn('w-full', !insideDialog && !noPadding && 'py-8')}>
 
-      {/* ── Alert header (credit exhaustion etc.) ── */}
       {(isAlert || (showTitleAndTabs && customTitle)) && (
         <div className="px-8 sm:px-10 pt-8 sm:pt-10 pb-0">
           <h2 className="text-xl sm:text-2xl font-medium tracking-tight text-foreground">
@@ -161,157 +144,73 @@ export function PricingSection({
         </div>
       )}
 
-      {/* ── Two-column grid ── */}
-      <div className="grid grid-cols-1 md:grid-cols-2">
+      <div className={cn('flex flex-col', !insideDialog && 'md:flex-row md:items-center')}>
 
-        {/* ─── Left: product visual + price + configure ─── */}
-        <div className="flex flex-col p-8 sm:p-10 md:p-12 md:border-r border-border/30 bg-muted/20">
-
-          {/* Product image */}
-          <div className="flex-1 flex items-center justify-center">
-            <div className="relative w-full max-w-[240px]">
-              <Image
-                src="/kortix-computer.png"
-                alt="Kortix Computer"
-                width={240}
-                height={240}
-                className="w-full h-auto object-contain select-none"
-                draggable={false}
-                priority
-              />
-            </div>
+        {/* Left: Globe (hidden in dialog mode) */}
+        {!insideDialog && (
+          <div className="hidden md:flex w-[400px] shrink-0 p-6 pr-0">
+            <GlobeRegionPicker location={location} onLocationChange={setLocation} />
           </div>
+        )}
 
-          {/* Price */}
-          <div className="text-center mt-8">
-            <div className="flex items-baseline justify-center gap-1.5">
-              <span className="text-4xl sm:text-5xl font-medium tracking-tight text-foreground leading-none">
-                ${machine.price}
-              </span>
-              <span className="text-sm text-muted-foreground/50">/month</span>
-            </div>
-            <p className="text-[11px] text-muted-foreground/40 mt-2 leading-relaxed max-w-[260px] mx-auto">
-              {machine.isDefault
-                ? 'Starting price. Scale compute & credits as you grow.'
-                : `${machine.label} — ${machine.vcpu} vCPU · ${machine.ram} GB RAM · ${machine.disk} GB SSD`}
+        {/* Plan details + CTA */}
+        <div className={cn('flex-1 flex flex-col min-h-0', insideDialog ? 'p-8 sm:p-10' : 'p-6 md:p-8 md:py-10')}>
+
+          {/* Plan header */}
+          <div className="mb-6">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/40">
+              Kortix Cloud
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-foreground mt-1">
+              Kortix Computer
+            </h2>
+            <p className="text-sm text-muted-foreground/60 mt-1">
+              Your 24/7 AI machine, managed by us.
             </p>
           </div>
 
-          {/* Configure toggle */}
-          <div className="mt-6">
-            <button
-              type="button"
-              onClick={() => setConfigOpen((p) => !p)}
-              className={cn(
-                'w-full flex items-center gap-2 px-3 py-2.5 rounded-xl border transition-colors cursor-pointer text-left',
-                configOpen
-                  ? 'bg-foreground/[0.04] border-foreground/[0.08]'
-                  : 'border-transparent hover:bg-foreground/[0.03]',
-              )}
-            >
-              <ChevronDown className={cn('size-3.5 text-muted-foreground/40 transition-transform shrink-0', configOpen && 'rotate-180')} />
-              <span className="text-[12px] text-muted-foreground/50">Configure machine & region</span>
-              {hasCustomConfig && !configOpen && (
-                <span className="ml-auto text-[11px] text-muted-foreground/60">
-                  {!machine.isDefault && machine.label}
-                  {!machine.isDefault && location !== 'ash' && ' · '}
-                  {location !== 'ash' && `${selectedLocation.flag} ${selectedLocation.label}`}
-                </span>
-              )}
-            </button>
+          {/* Price */}
+          <div className="flex items-baseline gap-2 mb-6">
+            <span className="text-4xl font-semibold text-foreground tabular-nums tracking-tight">$20</span>
+            <span className="text-sm text-muted-foreground/40">/month</span>
+          </div>
 
-            {configOpen && (
-              <div className="mt-3 space-y-4 px-1 animate-in fade-in slide-in-from-top-1 duration-200">
-                {/* Machine size */}
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground/40">Machine</p>
-                    <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-md bg-foreground/[0.04] border border-foreground/[0.06] text-muted-foreground/40">Available soon</span>
-                  </div>
-                  <div className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-foreground/[0.03] border border-foreground/[0.06] opacity-40 pointer-events-none">
-                    {MACHINES.map((m) => (
-                      <button
-                        key={m.id}
-                        type="button"
-                        disabled
-                        className={cn(
-                          'flex flex-col items-center py-2.5 px-1 rounded-lg transition-all cursor-not-allowed text-center',
-                          selectedMachine === m.id
-                            ? 'bg-background text-foreground shadow-sm border border-foreground/[0.08]'
-                            : 'text-muted-foreground/40 border border-transparent',
-                        )}
-                      >
-                        <span className="text-xs font-medium leading-none">${m.price}</span>
-                        <span className="text-[9px] mt-1.5 text-muted-foreground/40 leading-none">{m.vcpu}v · {m.ram}G</span>
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-[10px] text-muted-foreground/35 mt-1.5">You can resize your machine at any time after subscribing.</p>
-                </div>
-
-                {/* Region */}
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground/40">Region</p>
-                    <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-md bg-foreground/[0.04] border border-foreground/[0.06] text-muted-foreground/40">Available soon</span>
-                  </div>
-                  <div className="flex gap-2 opacity-40 pointer-events-none">
-                    {LOCATIONS.map((loc) => (
-                      <button
-                        key={loc.id}
-                        type="button"
-                        disabled
-                        className={cn(
-                          'flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs transition-all cursor-not-allowed',
-                          location === loc.id
-                            ? 'bg-foreground/[0.04] border-foreground/[0.08] text-foreground/80'
-                            : 'border-foreground/[0.04] text-muted-foreground/40',
-                        )}
-                      >
-                        <span>{loc.flag}</span>
-                        <span className="font-medium">{loc.label}</span>
-                        <span className="text-[10px] text-muted-foreground/35">{loc.sublabel}</span>
-                      </button>
-                    ))}
-                  </div>
+          {/* Included machine */}
+          {serverTypes.length > 0 && serverTypes[0] && (
+            <div className="mb-6 flex items-center gap-3.5 px-3 py-2.5 rounded-xl border border-border/40 bg-muted/20">
+              <div className="shrink-0 w-11 h-11 rounded-lg border bg-foreground text-background flex flex-col items-center justify-center">
+                <span className="text-[15px] font-bold tabular-nums leading-none">{serverTypes[0].cores}</span>
+                <span className="text-[8px] font-medium opacity-60 mt-0.5">vCPU</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="text-[13px] font-semibold text-foreground">{getSizeLabel(serverTypes[0].cores)}</span>
+                <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground/60">
+                  <span>{formatMemory(serverTypes[0].memory)} RAM</span>
+                  <span className="text-muted-foreground/20">{'\u00B7'}</span>
+                  <span>{formatDisk(serverTypes[0].disk)} SSD</span>
                 </div>
               </div>
-            )}
+              <span className="text-[12px] font-medium text-primary/70 shrink-0">Included</span>
+            </div>
+          )}
+
+          {/* Features */}
+          <div className="border-t border-border/30 pt-5 mb-8">
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
+              {INCLUDED.map((item) => (
+                <li key={item} className="flex items-start gap-2.5">
+                  <Check className="size-3.5 text-primary/50 mt-0.5 shrink-0" />
+                  <span className="text-[13px] text-muted-foreground/65">{item}</span>
+                </li>
+              ))}
+            </ul>
           </div>
-        </div>
-
-        {/* ─── Right: product info + CTA ─── */}
-        <div className="p-8 sm:p-10 md:p-12 flex flex-col">
-          <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground/40 mb-4">
-            Kortix Cloud
-          </span>
-
-          <h2 className="text-2xl sm:text-3xl font-medium tracking-tight text-foreground mb-1">
-            Kortix Computer
-          </h2>
-          <p className="text-sm text-muted-foreground/55 mb-6">
-            Your 24/7 AI machine, managed by us.
-          </p>
-
-          <div className="border-t border-border/30 mb-6" />
-
-          <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground/40 mb-3">
-            Included
-          </p>
-          <ul className="space-y-2.5 flex-1">
-            {INCLUDED.map((item) => (
-              <li key={item} className="flex items-start gap-2.5">
-                <Check className="size-3.5 text-foreground/25 mt-0.5 shrink-0" />
-                <span className="text-[13px] text-muted-foreground/65">{item}</span>
-              </li>
-            ))}
-          </ul>
 
           {/* CTA */}
-          <div className="mt-auto pt-8">
+          <div className="mt-auto space-y-3">
             <Button
               size="lg"
-              className="w-full h-12 text-sm rounded-xl shadow-none font-medium"
+              className="w-full sm:w-auto h-12 px-10 text-sm rounded-xl shadow-none font-medium"
               disabled={isCurrent || isLoading}
               onClick={handleSelect}
             >
@@ -324,22 +223,20 @@ export function PricingSection({
               )}
             </Button>
 
-            <p className="text-[11px] text-center text-muted-foreground/30 mt-3">
+            <p className="text-[11px] text-muted-foreground/30">
               Free to try &middot; No commitment &middot; Cancel anytime
             </p>
 
             {showBuyCredits && isAuthenticated && accountState?.subscription.can_purchase_credits && (
-              <div className="mt-3 flex justify-center">
-                <Button
-                  onClick={() => setShowCreditPurchaseModal(true)}
-                  variant="ghost"
-                  size="sm"
-                  className="gap-2 text-xs text-muted-foreground/40 hover:text-foreground"
-                >
-                  <ShoppingCart className="h-3.5 w-3.5" />
-                  Get Additional Credits
-                </Button>
-              </div>
+              <Button
+                onClick={() => setShowCreditPurchaseModal(true)}
+                variant="ghost"
+                size="sm"
+                className="gap-2 text-xs text-muted-foreground/40 hover:text-foreground"
+              >
+                <ShoppingCart className="h-3.5 w-3.5" />
+                Get Additional Credits
+              </Button>
             )}
           </div>
         </div>

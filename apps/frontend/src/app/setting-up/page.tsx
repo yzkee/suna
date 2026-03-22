@@ -71,6 +71,8 @@ export default function SettingUpPage() {
   const [instanceModeId, setInstanceModeId] = useState<string | null>(null);
   const [paramsReady, setParamsReady] = useState(false);
   const [mockMode, setMockMode] = useState(false);
+  const [requestedServerType, setRequestedServerType] = useState<string | null>(null);
+  const [requestedLocation, setRequestedLocation] = useState<string | null>(null);
   const mockStartRef = useRef(0);
   const isRunning = useRef(false);
   const runSeqRef = useRef(0);
@@ -89,6 +91,8 @@ export default function SettingUpPage() {
       setInstanceMode(true);
       setInstanceModeId(params.get('sandbox_id'));
     }
+    if (params.get('server_type')) setRequestedServerType(params.get('server_type'));
+    if (params.get('location')) setRequestedLocation(params.get('location'));
     setParamsReady(true);
   }, []);
 
@@ -463,8 +467,11 @@ export default function SettingUpPage() {
         status: string;
         tier: string;
         sandbox: 'created' | 'exists' | 'provisioning' | 'failed' | 'none';
-      }>('/billing/setup/initialize', undefined, {
-        timeout: 30000, // Should return in <2s now, but generous timeout
+      }>('/billing/setup/initialize', {
+        ...(requestedServerType && { server_type: requestedServerType }),
+        ...(requestedLocation && { location: requestedLocation }),
+      }, {
+        timeout: 30000,
       });
 
       // Retry once on transient failure
@@ -479,7 +486,10 @@ export default function SettingUpPage() {
             status: string;
             tier: string;
             sandbox: 'created' | 'exists' | 'provisioning' | 'failed' | 'none';
-          }>('/billing/setup/initialize', undefined, { timeout: 30000 });
+          }>('/billing/setup/initialize', {
+            ...(requestedServerType && { server_type: requestedServerType }),
+            ...(requestedLocation && { location: requestedLocation }),
+          }, { timeout: 30000 });
         }
       }
 
@@ -558,7 +568,7 @@ export default function SettingUpPage() {
         isRunning.current = false;
       }
     }
-  }, [user, isHetznerDefault, pollSandboxReady, pollAdditionalInstanceReady, continueToDashboard, subscriptionSuccess, waitForPaidActivation, instanceMode, instanceModeId]);
+  }, [user, isHetznerDefault, pollSandboxReady, pollAdditionalInstanceReady, continueToDashboard, subscriptionSuccess, waitForPaidActivation, instanceMode, instanceModeId, requestedServerType, requestedLocation]);
 
   useEffect(() => {
     if (!paramsReady || autoStartedRef.current) return;

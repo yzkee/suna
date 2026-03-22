@@ -48,18 +48,19 @@ export default function SubscriptionRequiredPage() {
 
   useEffect(() => {
     if (!isLoadingSubscription && subscriptionData) {
+      // Skip redirect when ?preview=1 is set (for testing)
+      if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1') return;
+
       const hasActiveSubscription = subscriptionData.subscription &&
         subscriptionData.subscription.status === 'active' &&
         !(subscriptionData.subscription as any).cancel_at_period_end;
 
       const hasActiveTrial = subscriptionData.subscription?.is_trial === true;
-      
-      // ✅ Use tier_key for consistency
+
       const tierKey = subscriptionData.subscription?.tier_key || subscriptionData.tier?.name;
       const hasValidTier = tierKey && tierKey !== 'none';
       const isFreeTier = tierKey === 'free';
 
-      // Redirect to dashboard if user has valid subscription/trial/free tier
       if ((hasActiveSubscription && hasValidTier) || (hasActiveTrial && hasValidTier)) {
         router.push('/dashboard');
       } else if (isFreeTier) {
@@ -100,55 +101,43 @@ export default function SubscriptionRequiredPage() {
     (subscriptionData as any)?.trial_status === 'used';
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-muted/20 py-12 px-4">
-      <div className="max-w-6xl mx-auto space-y-8">
-        <div className="text-center space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex-1" />
-            <div className="text-2xl font-medium flex items-center justify-center gap-2">
-              <KortixLogo />
-              <span>{isTrialExpired ? 'Your Trial Has Ended' : 'Subscription Required'}</span>
+    <div className="min-h-screen flex flex-col bg-background">
+      {/* Minimal top bar */}
+      <div className="flex items-center justify-between px-6 py-4 shrink-0">
+        <KortixLogo size={20} className="opacity-50" />
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleLogout}
+          className="gap-2 text-muted-foreground/50 hover:text-foreground"
+        >
+          <LogOut className="h-3.5 w-3.5" />
+          Log Out
+        </Button>
+      </div>
+
+      {/* Full-screen pricing */}
+      <div className="flex-1 flex items-center justify-center">
+        <div className="w-full max-w-5xl mx-auto px-4">
+          <Suspense fallback={
+            <div className="flex items-center justify-center py-24">
+              <Skeleton className="h-[500px] w-full rounded-2xl" />
             </div>
-            <div className="flex-1 flex justify-end">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleLogout}
-                className="gap-2"
-              >
-                <LogOut className="h-4 w-4" />
-                Log Out
-              </Button>
-            </div>
-          </div>
-          <p className="text-md text-muted-foreground max-w-2xl mx-auto">
-            {isTrialExpired
-              ? 'Your 7-day free trial has ended. Choose a plan to continue using Kortix AI.'
-              : 'A subscription is required to use Kortix. Choose the plan that works best for you.'}
-          </p>
+          }>
+            <PricingSection
+              returnUrl={`${typeof window !== 'undefined' ? window.location.origin : ''}/setting-up?subscription=success&session_id={CHECKOUT_SESSION_ID}`}
+              showTitleAndTabs={false}
+              noPadding
+              onSubscriptionUpdate={handleSubscriptionUpdate}
+              onboardingFlow={true}
+            />
+          </Suspense>
         </div>
-        <Suspense fallback={
-          <div className="grid md:grid-cols-3 gap-6">
-            <Skeleton className="h-96 w-full" />
-            <Skeleton className="h-96 w-full" />
-            <Skeleton className="h-96 w-full" />
-          </div>
-        }>
-          <PricingSection
-            returnUrl={`${typeof window !== 'undefined' ? window.location.origin : ''}/setting-up?subscription=success&session_id={CHECKOUT_SESSION_ID}`}
-            showTitleAndTabs={false}
-            onSubscriptionUpdate={handleSubscriptionUpdate}
-            onboardingFlow={true}
-          />
-        </Suspense>
-        <div className="text-center text-sm text-muted-foreground -mt-10">
-          <p>
-            Questions? Contact us at{' '}
-            <a href="mailto:support@kortix.com" className="underline hover:text-primary">
-              support@kortix.com
-            </a>
-          </p>
-        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="text-center text-[12px] text-muted-foreground/30 py-4 shrink-0">
+        Questions? <a href="mailto:support@kortix.com" className="underline hover:text-foreground/50">support@kortix.com</a>
       </div>
     </div>
   );
