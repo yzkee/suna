@@ -1692,13 +1692,15 @@ export function SessionChatInput({
       .filter((a) => a.name.toLowerCase().includes(q))
       .map((a) => ({ kind: 'agent' as const, label: a.name, value: a.name }));
 
-    // Session items: filter by title or changed file paths, exclude current/child/archived
+    // Session items: filter by title, session ID, or changed file paths, exclude current/child/archived
     const sessionItems: MentionItem[] = (allSessions ?? [])
       .filter((s: Session) => {
         if (s.parentID || s.time.archived) return false;
         if (s.id === sessionId) return false;
         const title = (s.title || '').toLowerCase();
         if (title.includes(q)) return true;
+        // Also match by session ID (e.g. @ses_2ec118d4...)
+        if (s.id.toLowerCase().includes(q)) return true;
         // Also match against file paths in summary diffs
         const diffs = s.summary?.diffs;
         if (Array.isArray(diffs)) {
@@ -1711,7 +1713,7 @@ export function SessionChatInput({
         const ago = formatRelativeTime(s.time.updated);
         const files = s.summary?.files;
         const desc = files ? `${ago} - ${files} file${files === 1 ? '' : 's'} changed` : ago;
-        return { kind: 'session' as const, label: s.title, value: s.id, description: desc };
+        return { kind: 'session' as const, label: s.title || s.id, value: s.id, description: desc };
       });
 
     const filteredFiles = q.length > 0

@@ -421,10 +421,12 @@ function HighlightMentions({
 			if (sessionDetected.some((s) => mStart >= s.start && mStart < s.end))
 				continue;
 			const name = match[1];
+			// Treat @ses_<id> tokens as session mentions
+			const type: MentionType = name.startsWith("ses_") ? "session" : agentSet.has(name) ? "agent" : "file";
 			detected.push({
 				start: mStart,
 				end: match.index + match[0].length,
-				type: agentSet.has(name) ? "agent" : "file",
+				type,
 			});
 		}
 		if (detected.length === 0) return [{ text: cleanText, type: undefined }];
@@ -467,8 +469,19 @@ function HighlightMentions({
 						className="text-emerald-500 font-medium cursor-pointer hover:underline"
 						onClick={(e) => {
 							e.stopPropagation();
-							const title = seg.text.replace(/^@/, "");
-							const ref = sessions.find((s) => s.title === title);
+							const raw = seg.text.replace(/^@/, "");
+							// Direct session ID (ses_...) — navigate without title lookup
+							if (raw.startsWith("ses_")) {
+								openTabAndNavigate({
+									id: raw,
+									title: "Session",
+									type: "session",
+									href: `/sessions/${raw}`,
+									serverId: useServerStore.getState().activeServerId,
+								});
+								return;
+							}
+							const ref = sessions.find((s) => s.title === raw);
 							if (ref) {
 								openTabAndNavigate({
 									id: ref.id,
@@ -1421,10 +1434,13 @@ function UserMessageRow({
 		let match: RegExpExecArray | null;
 		while ((match = mentionRegex.exec(text)) !== null) {
 			const mStart = match.index;
+			const token = match[1];
+			// Treat @ses_<id> tokens as session mentions
+			const type: SegType = token.startsWith("ses_") ? "session" : agentSet.has(token) ? "agent" : "file";
 			detected.push({
 				start: mStart,
 				end: match.index + match[0].length,
-				type: agentSet.has(match[1]) ? "agent" : "file",
+				type,
 			});
 		}
 
@@ -1605,27 +1621,38 @@ function UserMessageRow({
 										>
 											{seg.text}
 										</span>
-									) : seg.type === "session" ? (
-										<span
-											key={i}
-											className="text-emerald-500 font-medium cursor-pointer hover:underline"
-											onClick={(e) => {
-												e.stopPropagation();
-												const title = seg.text.replace(/^@/, "");
-												const ref = sessionRefs.find((s) => s.title === title);
-												if (ref) {
-													openTabAndNavigate({
-														id: ref.id,
-														title: ref.title || "Session",
-														type: "session",
-														href: `/sessions/${ref.id}`,
-														serverId: useServerStore.getState().activeServerId,
-													});
-												}
-											}}
-										>
-											{seg.text}
-										</span>
+								) : seg.type === "session" ? (
+									<span
+										key={i}
+										className="text-emerald-500 font-medium cursor-pointer hover:underline"
+										onClick={(e) => {
+											e.stopPropagation();
+											const raw = seg.text.replace(/^@/, "");
+											// Direct session ID (ses_...) — navigate without title lookup
+											if (raw.startsWith("ses_")) {
+												openTabAndNavigate({
+													id: raw,
+													title: "Session",
+													type: "session",
+													href: `/sessions/${raw}`,
+													serverId: useServerStore.getState().activeServerId,
+												});
+												return;
+											}
+											const ref = sessionRefs.find((s) => s.title === raw);
+											if (ref) {
+												openTabAndNavigate({
+													id: ref.id,
+													title: ref.title || "Session",
+													type: "session",
+													href: `/sessions/${ref.id}`,
+													serverId: useServerStore.getState().activeServerId,
+												});
+											}
+										}}
+									>
+										{seg.text}
+									</span>
 									) : (
 										<span
 											key={i}
@@ -4208,7 +4235,20 @@ export function SessionChat({
 			// mentions (e.g. "@Intro message") before the server echoes back.
 			const sessionMentionsForOptimistic = mentions?.filter(
 				(m) => m.kind === "session" && m.value,
-			);
+			) ?? [];
+
+			// Also detect raw @ses_<id> patterns typed directly
+			const rawOptimisticSessionIds: typeof sessionMentionsForOptimistic = [];
+			const rawOptimisticRegex = /@(ses_[A-Za-z0-9]+)/g;
+			let rawOptimisticMatch: RegExpExecArray | null;
+			while ((rawOptimisticMatch = rawOptimisticRegex.exec(text)) !== null) {
+				const rawId = rawOptimisticMatch[1];
+				if (sessionMentionsForOptimistic.some((m) => m.value === rawId)) continue;
+				const found = allSessions?.find((s: any) => s.id === rawId);
+				rawOptimisticSessionIds.push({ kind: "session", label: found?.title || rawId, value: rawId });
+			}
+
+			const allOptimisticSessionMentions = [...sessionMentionsForOptimistic, ...rawOptimisticSessionIds];
 			let optimisticText = text;
 			if (uploadPlans.length > 0) {
 				const optimisticFileRefs = uploadPlans
@@ -4219,11 +4259,8 @@ export function SessionChat({
 					.join("\n");
 				optimisticText = `${optimisticText}\n\n${optimisticFileRefs}`;
 			}
-			if (
-				sessionMentionsForOptimistic &&
-				sessionMentionsForOptimistic.length > 0
-			) {
-				const refs = sessionMentionsForOptimistic
+			if (allOptimisticSessionMentions.length > 0) {
+				const refs = allOptimisticSessionMentions
 					.map((m) => `<session_ref id="${m.value}" title="${m.label}" />`)
 					.join("\n");
 				optimisticText = `${optimisticText}\n\nReferenced sessions (use the session_context tool to fetch details when needed):\n${refs}`;
@@ -4279,12 +4316,33 @@ export function SessionChat({
 				parts[0].text = `${parts[0].text}\n\n${uploadedFileRefs}`;
 			}
 
-			// Append session reference hints for @session mentions
-			const sessionMentions = mentions?.filter(
+			// Append session reference hints for @session mentions.
+			// Merge tracked mentions with any raw @ses_<id> tags typed directly.
+			const trackedSessionMentions = mentions?.filter(
 				(m) => m.kind === "session" && m.value,
-			);
-			if (sessionMentions && sessionMentions.length > 0) {
-				const refs = sessionMentions
+			) ?? [];
+
+			// Detect raw @ses_<id> patterns in the text (e.g. @ses_2ec118d4...)
+			const rawSessionIdMentions: TrackedMention[] = [];
+			const rawSessionIdRegex = /@(ses_[A-Za-z0-9]+)/g;
+			let rawMatch: RegExpExecArray | null;
+			while ((rawMatch = rawSessionIdRegex.exec(parts[0].text)) !== null) {
+				const rawId = rawMatch[1];
+				// Skip if already covered by a tracked mention
+				if (trackedSessionMentions.some((m) => m.value === rawId)) continue;
+				// Look up session by ID
+				const found = allSessions?.find((s: any) => s.id === rawId);
+				if (found) {
+					rawSessionIdMentions.push({ kind: "session", label: found.title || rawId, value: rawId });
+				} else {
+					// Unknown session ID — still include it so the agent can attempt to fetch it
+					rawSessionIdMentions.push({ kind: "session", label: rawId, value: rawId });
+				}
+			}
+
+			const allSessionMentions = [...trackedSessionMentions, ...rawSessionIdMentions];
+			if (allSessionMentions.length > 0) {
+				const refs = allSessionMentions
 					.map((m) => `<session_ref id="${m.value}" title="${m.label}" />`)
 					.join("\n");
 				parts[0].text = `${parts[0].text}\n\nReferenced sessions (use the session_context tool to fetch details when needed):\n${refs}`;
