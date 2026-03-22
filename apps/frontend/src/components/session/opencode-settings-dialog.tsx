@@ -110,9 +110,12 @@ const ACTIONS = ['allow', 'ask', 'deny'] as const;
 // Props
 // ============================================================================
 
+export type OpenCodeSettingsTab = 'general' | 'providers' | 'permissions' | 'mcp';
+
 interface OpenCodeSettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialTab?: OpenCodeSettingsTab;
 }
 
 // ============================================================================
@@ -1026,11 +1029,12 @@ function McpServersSection() {
 export function OpenCodeSettingsDialog({
   open,
   onOpenChange,
+  initialTab = 'general',
 }: OpenCodeSettingsDialogProps) {
   const { data: config, isLoading } = useOpenCodeConfig();
   const updateMutation = useUpdateOpenCodeConfig();
   const [draft, setDraft] = useState<Record<string, unknown>>({});
-  const [activeTab, setActiveTab] = useState<'general' | 'providers' | 'permissions' | 'mcp'>('general');
+  const [activeTab, setActiveTab] = useState<OpenCodeSettingsTab>(initialTab);
   const contentInnerRef = useRef<HTMLDivElement | null>(null);
   const [contentHeight, setContentHeight] = useState<number>(0);
 
@@ -1062,7 +1066,7 @@ export function OpenCodeSettingsDialog({
     if (el) {
       setContentHeight(Math.ceil(el.getBoundingClientRect().height));
     }
-    setActiveTab(value as 'general' | 'providers' | 'permissions' | 'mcp');
+    setActiveTab(value as OpenCodeSettingsTab);
   }, []);
 
   // Reset draft when dialog closes
@@ -1070,13 +1074,18 @@ export function OpenCodeSettingsDialog({
     (nextOpen: boolean) => {
       if (!nextOpen) {
         setDraft({});
-        setActiveTab('general');
+        setActiveTab(initialTab);
         setContentHeight(0);
       }
       onOpenChange(nextOpen);
     },
-    [onOpenChange],
+    [initialTab, onOpenChange],
   );
+
+  useEffect(() => {
+    if (!open) return;
+    setActiveTab(initialTab);
+  }, [initialTab, open]);
 
   useEffect(() => {
     if (!open || isLoading || !config) return;
@@ -1174,7 +1183,7 @@ export function OpenCodeSettingsDialog({
                 )}
 
                 {activeTab === 'mcp' && (
-                  <div className="max-h-[56vh] overflow-y-auto pr-1">
+                  <div className="min-h-0 pr-1" style={{ maxHeight: '62vh', overflowY: 'auto' }}>
                     <McpServersSection />
                   </div>
                 )}

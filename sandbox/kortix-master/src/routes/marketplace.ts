@@ -8,7 +8,7 @@ const marketplaceRouter = new Hono()
 const execFileAsync = promisify(execFile)
 
 const KORTIX_MARKETPLACE_NAMESPACE = 'kortix'
-const KORTIX_MARKETPLACE_REGISTRY_URL = 'https://master.kortix-registry.pages.dev'
+const KORTIX_MARKETPLACE_REGISTRY_URL = 'https://kortix-registry-6om.pages.dev'
 
 function getWorkspacePaths() {
   const workspaceRoot = process.env.KORTIX_WORKSPACE || '/workspace'

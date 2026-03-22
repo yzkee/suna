@@ -1,13 +1,13 @@
 /**
  * Marketplace API — fetches all components from the OCX registry.
  *
- * Registry URL: https://master.kortix-registry.pages.dev
+ * Registry URL: https://kortix-registry-6om.pages.dev
  * - GET /index.json → list of ALL components (skills, agents, tools, etc.)
  * - GET /components/{name}.json → component details
  * - GET /components/{name}/{type}/{name}/SKILL.md → skill content
  */
 
-const REGISTRY_URL = 'https://master.kortix-registry.pages.dev';
+const REGISTRY_URL = 'https://kortix-registry-6om.pages.dev';
 
 export type ComponentType = 'ocx:skill' | 'ocx:agent' | 'ocx:tool' | 'ocx:plugin' | string;
 

@@ -933,19 +933,6 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
             }}
           />
           <CollapsedIconButton
-            icon={<Sparkles className="h-4 w-4" />}
-            label="Marketplace"
-            isActive={pathname === '/marketplace'}
-            onClick={() => {
-              openTabAndNavigate({
-                id: 'marketplace',
-                title: 'Marketplace',
-                type: 'page',
-                href: '/marketplace',
-              });
-            }}
-          />
-          <CollapsedIconButton
             icon={<FolderOpen className="h-4 w-4" />}
             label="Files"
             isActive={pathname === '/files'}
@@ -1019,28 +1006,6 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
               </kbd>
             </button>
 
-            {/* Marketplace */}
-            <button
-              onClick={() => {
-                openTabAndNavigate({
-                  id: 'marketplace',
-                  title: 'Marketplace',
-                  type: 'page',
-                  href: '/marketplace',
-                });
-              }}
-              className={cn(
-                'flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] cursor-pointer',
-                'transition-colors duration-150',
-                pathname === '/marketplace'
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-                  : 'text-sidebar-foreground hover:bg-sidebar-accent',
-              )}
-            >
-              <Sparkles className="h-4 w-4 flex-shrink-0" />
-              <span className="flex-1 text-left">Marketplace</span>
-            </button>
-
             {/* Files */}
             <button
               onClick={() => {
@@ -1081,5 +1046,4 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
     </Sidebar>
   );
 }
-
 

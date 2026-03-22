@@ -12,8 +12,8 @@ Find, evaluate, and install marketplace skills via the Kortix OCX registry.
 ## Registry Endpoint
 
 ```
-https://master.kortix-registry.pages.dev/index.json          # Full index
-https://master.kortix-registry.pages.dev/skills/<name>/SKILL.md  # Individual skill
+https://kortix-registry-6om.pages.dev/index.json          # Full index
+https://kortix-registry-6om.pages.dev/skills/<name>/SKILL.md  # Individual skill
 ```
 
 ---
@@ -29,7 +29,7 @@ ls .opencode/skills/ 2>/dev/null || echo "No skills installed yet"
 ### 2. Fetch the registry
 
 ```bash
-curl -s https://master.kortix-registry.pages.dev/index.json | python3 -c "
+curl -s https://kortix-registry-6om.pages.dev/index.json | python3 -c "
 import json, sys
 for c in json.load(sys.stdin).get('components', []):
     print(f\"  {c['name']:40} {c.get('description','')}\")
@@ -40,7 +40,7 @@ for c in json.load(sys.stdin).get('components', []):
 
 ```bash
 QUERY="browser"
-curl -s https://master.kortix-registry.pages.dev/index.json | python3 -c "
+curl -s https://kortix-registry-6om.pages.dev/index.json | python3 -c "
 import json, sys
 q = '${QUERY}'.lower()
 for c in json.load(sys.stdin).get('components', []):
@@ -52,7 +52,7 @@ for c in json.load(sys.stdin).get('components', []):
 ### 4. Preview before installing
 
 ```bash
-curl -s https://master.kortix-registry.pages.dev/skills/<name>/SKILL.md | head -60
+curl -s https://kortix-registry-6om.pages.dev/skills/<name>/SKILL.md | head -60
 ```
 
 ### 5. Install
