@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ArrowUpRight,
   Blocks,
   Bot,
+  Check,
   Copy,
   FileText,
   FolderOpen,
@@ -25,6 +26,13 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PageHeader } from '@/components/ui/page-header';
 import { WorkspaceItemCard } from '@/components/ui/workspace-item-card';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import { OpenCodeSettingsDialog, type OpenCodeSettingsTab } from '@/components/session/opencode-settings-dialog';
 import {
   useCreateOpenCodeSession,
@@ -107,34 +115,32 @@ const SCOPE_LABEL: Record<ItemScope, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Detail panel — slides in from the right, overlays the list
+// Detail sheet — proper radix Sheet sliding from right
 // ---------------------------------------------------------------------------
 
-function DetailPanel({
+function DetailSheet({
   item,
-  onClose,
+  open,
+  onOpenChange,
 }: {
   item: WorkspaceItem | null;
-  onClose: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const [copied, setCopied] = useState(false);
-  const panelRef = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState<string | null>(null);
 
-  const copy = (text: string) => {
+  const copy = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    setCopied(label);
+    setTimeout(() => setCopied(null), 1500);
   };
 
-  if (!item) return null;
-
-  const kindCfg = KIND_CONFIG[item.kind];
-  const Icon = kindCfg.icon;
+  const kindCfg = item ? KIND_CONFIG[item.kind] : KIND_CONFIG.agent;
 
   const rows: Array<{ label: string; value: string; mono?: boolean }> = [];
   let content: string | null = null;
 
-  if (item.kind === 'agent' && item.raw) {
+  if (item?.kind === 'agent' && item.raw) {
     const a = item.raw as Agent;
     if (a.model) rows.push({ label: 'Model', value: `${a.model.providerID}/${a.model.modelID}`, mono: true });
     rows.push({ label: 'Mode', value: a.mode });
@@ -143,12 +149,12 @@ function DetailPanel({
     if (a.steps !== undefined) rows.push({ label: 'Max Steps', value: String(a.steps) });
     if (a.prompt) content = a.prompt;
   }
-  if (item.kind === 'skill' && item.raw) {
+  if (item?.kind === 'skill' && item.raw) {
     const s = item.raw as Skill;
     rows.push({ label: 'Location', value: s.location, mono: true });
     if (s.content) content = s.content;
   }
-  if (item.kind === 'command' && item.raw) {
+  if (item?.kind === 'command' && item.raw) {
     const c = item.raw as Command;
     if (c.source) rows.push({ label: 'Source', value: c.source });
     if (c.agent) rows.push({ label: 'Agent', value: c.agent });
@@ -156,18 +162,18 @@ function DetailPanel({
     if (c.hints?.length) rows.push({ label: 'Hints', value: c.hints.join(', ') });
     if (c.template) content = c.template;
   }
-  if (item.kind === 'project' && item.raw) {
+  if (item?.kind === 'project' && item.raw) {
     const p = item.raw as Project;
     rows.push({ label: 'ID', value: p.id, mono: true });
     if (p.worktree) rows.push({ label: 'Worktree', value: p.worktree, mono: true });
     if (p.vcs) rows.push({ label: 'VCS', value: p.vcs });
   }
-  if (item.kind === 'tool' && item.raw) {
+  if (item?.kind === 'tool' && item.raw) {
     const t = item.raw as { toolId: string; server?: string };
     rows.push({ label: 'Tool ID', value: t.toolId, mono: true });
     if (t.server) rows.push({ label: 'MCP Server', value: t.server });
   }
-  if (item.kind === 'mcp' && item.raw) {
+  if (item?.kind === 'mcp' && item.raw) {
     const m = item.raw as { serverName: string; status: McpStatus };
     rows.push({ label: 'Server', value: m.serverName });
     rows.push({ label: 'Status', value: m.status.status });
@@ -177,118 +183,110 @@ function DetailPanel({
   }
 
   const contentLabel =
-    item.kind === 'skill'   ? 'SKILL.md' :
-    item.kind === 'command' ? 'template' :
-    item.kind === 'agent'   ? 'system prompt' :
+    item?.kind === 'skill'   ? 'SKILL.md' :
+    item?.kind === 'command' ? 'template' :
+    item?.kind === 'agent'   ? 'system prompt' :
     'content';
 
   return (
-    /* Backdrop */
-    <div
-      className="fixed inset-0 z-40"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      {/* Panel */}
-      <div
-        ref={panelRef}
-        className="absolute right-0 top-0 bottom-0 w-full max-w-xl bg-background border-l border-border/50 flex flex-col shadow-2xl"
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-lg p-0 flex flex-col gap-0 [&>button:last-child]:hidden"
       >
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-border/50 flex-shrink-0">
-          <div className="flex items-start gap-3 min-w-0">
-            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-muted border border-border/50 shrink-0 mt-0.5">
-              <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-            </div>
-            <div className="min-w-0">
-              <h2 className={cn('text-sm font-semibold text-foreground break-all', item.kind === 'command' && 'font-mono')}>
-                {item.name}
-              </h2>
-              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                <Badge variant="secondary" className="text-[10px]">{kindCfg.label}</Badge>
-                <Badge variant="secondary" className="text-[10px]">{SCOPE_LABEL[item.scope]}</Badge>
-                {item.meta && <span className="text-[10px] text-muted-foreground/60">{item.meta}</span>}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => copy(item.name)}
-            >
-              {copied ? 'Copied' : <><Copy className="h-3 w-3" />Copy</>}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-              onClick={onClose}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-
-        {/* Description */}
-        {item.description && (
-          <div className="px-6 py-4 border-b border-border/50 flex-shrink-0">
-            <p className="text-sm text-muted-foreground leading-relaxed">{item.description}</p>
-          </div>
-        )}
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto">
-          {/* Properties */}
-          {rows.length > 0 && (
-            <div className="px-6 py-4 border-b border-border/50">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">Properties</p>
-              <dl className="space-y-2.5">
-                {rows.map((row) => (
-                  <div key={row.label} className="flex gap-4">
-                    <dt className="text-xs text-muted-foreground w-24 shrink-0">{row.label}</dt>
-                    <dd className={cn('text-xs text-foreground break-all leading-relaxed', row.mono && 'font-mono')}>
-                      {row.value}
-                    </dd>
+        {item && (
+          <>
+            {/* Header */}
+            <SheetHeader className="px-6 pt-6 pb-4 border-b border-border/50 gap-0 space-y-0">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <SheetTitle className={cn('text-sm break-all', item.kind === 'command' && 'font-mono')}>
+                    {item.name}
+                  </SheetTitle>
+                  <SheetDescription className="sr-only">
+                    {kindCfg.label} details for {item.name}
+                  </SheetDescription>
+                  <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                    <Badge variant="secondary" className="text-[10px]">{kindCfg.label}</Badge>
+                    <Badge variant="secondary" className="text-[10px]">{SCOPE_LABEL[item.scope]}</Badge>
+                    {item.meta && <span className="text-[10px] text-muted-foreground/50">{item.meta}</span>}
                   </div>
-                ))}
-              </dl>
-            </div>
-          )}
-
-          {/* Content preview */}
-          {content && (
-            <div className="flex flex-col">
-              <div className="flex items-center justify-between px-6 py-3 border-b border-border/50 sticky top-0 bg-background z-10">
-                <div className="flex items-center gap-2">
-                  <FileText className="h-3.5 w-3.5 text-muted-foreground/60" />
-                  <span className="text-xs font-mono text-muted-foreground">{contentLabel}</span>
                 </div>
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
-                  onClick={() => copy(content!)}
+                  className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground shrink-0 gap-1"
+                  onClick={() => copy(item.name, 'name')}
                 >
-                  <Copy className="h-3 w-3" />
+                  {copied === 'name'
+                    ? <><Check className="h-3 w-3" />Copied</>
+                    : <><Copy className="h-3 w-3" />Copy</>
+                  }
                 </Button>
               </div>
-              <pre className="px-6 py-4 text-xs leading-relaxed text-foreground/80 whitespace-pre-wrap font-mono">
-                <code>{content}</code>
-              </pre>
-            </div>
-          )}
+              {item.description && (
+                <p className="text-xs text-muted-foreground leading-relaxed mt-3">{item.description}</p>
+              )}
+            </SheetHeader>
 
-          {/* Fallback if nothing to show */}
-          {rows.length === 0 && !content && (
-            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground/40">
-              <Icon className="h-6 w-6 mb-2" />
-              <p className="text-xs">No additional details</p>
+            {/* Scrollable body */}
+            <div className="flex-1 overflow-y-auto">
+              {/* Properties */}
+              {rows.length > 0 && (
+                <div className="px-6 py-5">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-3">Properties</p>
+                  <div className="space-y-3">
+                    {rows.map((row) => (
+                      <div key={row.label} className="grid grid-cols-[100px_1fr] gap-2">
+                        <span className="text-xs text-muted-foreground">{row.label}</span>
+                        <span className={cn('text-xs text-foreground break-all', row.mono && 'font-mono')}>
+                          {row.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Content preview */}
+              {content && (
+                <>
+                  <div className="flex items-center justify-between px-6 py-3 border-y border-border/50 bg-muted/30">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-3 w-3 text-muted-foreground/50" />
+                      <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">{contentLabel}</span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
+                      onClick={() => copy(content!, 'content')}
+                    >
+                      {copied === 'content'
+                        ? <><Check className="h-2.5 w-2.5" />Copied</>
+                        : <><Copy className="h-2.5 w-2.5" />Copy</>
+                      }
+                    </Button>
+                  </div>
+                  <div className="px-6 py-4">
+                    <pre className="text-xs leading-relaxed text-foreground/80 whitespace-pre-wrap font-mono">
+                      <code>{content}</code>
+                    </pre>
+                  </div>
+                </>
+              )}
+
+              {/* Empty fallback */}
+              {rows.length === 0 && !content && (
+                <div className="flex flex-col items-center justify-center py-20 text-muted-foreground/30">
+                  <p className="text-xs">No additional details</p>
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </div>
-    </div>
+          </>
+        )}
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -711,12 +709,12 @@ export default function WorkspacePage() {
         </div>
       </div>
 
-      {/* Detail panel */}
-      <AnimatePresence>
-        {selectedItem && (
-          <DetailPanel item={selectedItem} onClose={() => setSelectedItem(null)} />
-        )}
-      </AnimatePresence>
+      {/* Detail sheet */}
+      <DetailSheet
+        item={selectedItem}
+        open={Boolean(selectedItem)}
+        onOpenChange={(open) => { if (!open) setSelectedItem(null); }}
+      />
     </>
   );
 }
