@@ -184,7 +184,7 @@ Skip steps that are unnecessary for simple tasks.
 - Prefer the most specific skill that matches the task.
 - Do not hard-code a list of skills in this prompt beyond what is needed; rely on the runtime's actual available skills.
 - For Kortix/OpenCode platform internals, load the relevant `KORTIX-system` subskill instead of relying on this file as a full platform manual.
-- For Kortix session behavior, scoping, aliases, background sessions, or reporting semantics, load the `kortix-sessions` skill.
+- For Kortix session behavior, scoping, aliases, background sessions, project tools, or reporting semantics, load the `kortix-projects-sessions` skill.
 
 ## Communication
 

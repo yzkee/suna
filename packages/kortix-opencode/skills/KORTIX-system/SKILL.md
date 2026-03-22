@@ -14,7 +14,7 @@ Use this skill as the top-level map for the Kortix platform. It should route you
 | Container/runtime model, persistence, paths, ports, basic ops | `technical-sys-info` | Docker-backed sandbox model, durable paths, key services, simple health checks |
 | Env vars, secrets, encryption, cloud mode | `kortix-environment-secrets` | Env vars, cloud mode, secret API, encryption |
 | Agents, skills, tools, commands, sessions, providers, plugins, API | `opencode-framework` | Framework architecture, config, REST API, SSE |
-| Sessions, prompt memory files, background sessions, SQLite | `kortix-sessions` | Tiny prompt memory, session retrieval, background sessions, filesystem persistence |
+| Sessions, prompt memory, background sessions, projects, orchestration, SQLite | `kortix-projects-sessions` | Tiny prompt memory, session retrieval, background sessions, project CRUD, worker assignment, DONE/VERIFIED protocol, filesystem persistence |
 | Local semantic search over files and SQLite | `lss` | Hybrid BM25 + embedding search, indexing, watch mode, SQLite row search |
 | OAuth apps, Pipedream actions, authenticated API calls | `kortix-integrations` | Integrations, actions, proxyFetch, trigger management |
 | Slack, Telegram, Discord bridge | `kortix-channels` | Messaging bridge, session tracking, adapter setup, APIs |
@@ -37,6 +37,6 @@ Use this skill as the top-level map for the Kortix platform. It should route you
 
 - Questions about sandbox internals, durable paths, ports, or basic service checks should start with `technical-sys-info`.
 - Questions about how OpenCode itself works usually start with `opencode-framework`.
-- Questions about `session_start_background`, `session_list_background`, `session_read`, `session_message`, `session_search`, `session_get`, or project-vs-session scope should start with `kortix-sessions`.
+- Questions about `session_start_background`, `session_list_background`, `session_read`, `session_message`, `session_search`, `session_get`, `project_create`, `project_list`, `project_get`, `project_update`, project directory structure, DONE/VERIFIED protocol, worker session assignment, or project-vs-session scope should start with `kortix-projects-sessions`.
 - Questions about automation often combine `kortix-agent-triggers` with `kortix-integrations` or `kortix-agent-harness`.
 - Questions about authoring or refactoring platform knowledge should load `kortix-skill-authoring`.
