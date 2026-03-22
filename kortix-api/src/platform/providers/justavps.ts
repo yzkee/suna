@@ -162,7 +162,7 @@ async function ensureWebhookRegistered(): Promise<void> {
 
   try {
     const existing = await justavpsFetch<{ webhooks: JustAVPSWebhook[] }>('/webhooks');
-    const alreadyRegistered = existing.webhooks?.some((w) => w.url === webhookUrl && w.active);
+    const alreadyRegistered = existing.webhooks?.some((w) => w.url === webhookUrl);
 
     if (alreadyRegistered) {
       console.log('[JUSTAVPS] Webhook already registered');
