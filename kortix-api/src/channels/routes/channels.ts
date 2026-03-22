@@ -8,6 +8,7 @@ import type { AppEnv } from '../../types';
 import type { ChannelAdapter } from '../adapters/adapter';
 import type { ChannelType } from '../types';
 import { resolveAccountId } from '../../shared/resolve-account';
+import { resolveWebhookUrl } from '../lib/webhook-url';
 
 const CHANNEL_TYPES = [
   'telegram',
@@ -47,6 +48,38 @@ const updateChannelSchema = z.object({
 
 export function createChannelsRouter(adapters: Map<ChannelType, ChannelAdapter>): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
+
+  app.get('/webhook-url/:channelType', async (c) => {
+    const userId = c.get('userId') as string;
+    const accountId = await resolveAccountId(userId);
+    const channelType = c.req.param('channelType') as ChannelType;
+    const sandboxExternalId = c.req.query('sandbox_id');
+
+    if (!CHANNEL_TYPES.includes(channelType as any)) {
+      return c.json({ error: `Invalid channel type: ${channelType}` }, 400);
+    }
+
+    let sandboxId: string | null = null;
+    if (sandboxExternalId) {
+      const [match] = await db
+        .select({ sandboxId: sandboxes.sandboxId })
+        .from(sandboxes)
+        .where(and(eq(sandboxes.externalId, sandboxExternalId), eq(sandboxes.accountId, accountId)))
+        .limit(1);
+      sandboxId = match?.sandboxId ?? null;
+    }
+    if (!sandboxId) {
+      const [fallback] = await db
+        .select({ sandboxId: sandboxes.sandboxId })
+        .from(sandboxes)
+        .where(eq(sandboxes.accountId, accountId))
+        .limit(1);
+      sandboxId = fallback?.sandboxId ?? null;
+    }
+
+    const result = await resolveWebhookUrl(sandboxId, channelType);
+    return c.json(result);
+  });
 
   app.post('/', async (c) => {
     const userId = c.get('userId') as string;

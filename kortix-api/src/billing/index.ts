@@ -210,20 +210,22 @@ billingApp.get('/setup/status', async (c: any) => {
   const { sandboxes } = await import('@kortix/db');
   const { eq, and, inArray, desc, sql } = await import('drizzle-orm');
 
-  const [sandbox] = await db
-    .select()
-    .from(sandboxes)
-    .where(and(eq(sandboxes.accountId, accountId), inArray(sandboxes.status, ['active', 'provisioning', 'error'])))
-    .orderBy(
-      sql`case
-        when ${sandboxes.status} = 'active' then 0
-        when ${sandboxes.status} = 'provisioning' then 1
-        else 2
-      end`,
-      desc(sandboxes.updatedAt),
-      desc(sandboxes.createdAt),
-    )
-    .limit(1);
+  const querySandboxId = c.req.query('sandbox_id');
+  const sandboxQuery = querySandboxId
+    ? db.select().from(sandboxes).where(and(eq(sandboxes.sandboxId, querySandboxId), eq(sandboxes.accountId, accountId))).limit(1)
+    : db.select().from(sandboxes)
+        .where(and(eq(sandboxes.accountId, accountId), inArray(sandboxes.status, ['active', 'provisioning', 'error'])))
+        .orderBy(
+          sql`case
+            when ${sandboxes.status} = 'active' then 0
+            when ${sandboxes.status} = 'provisioning' then 1
+            else 2
+          end`,
+          desc(sandboxes.updatedAt),
+          desc(sandboxes.createdAt),
+        )
+        .limit(1);
+  const [sandbox] = await sandboxQuery;
 
   let sandboxState: 'none' | 'provisioning' | 'ready' | 'error' = 'none';
   let stage: string | null = null;
@@ -286,6 +288,7 @@ billingApp.get('/setup/status', async (c: any) => {
     stageMessage,
     machineInfo,
     stages,
+    startedAt: sandbox?.createdAt ? new Date(sandbox.createdAt).toISOString() : null,
   });
 });
 
