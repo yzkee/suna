@@ -82,6 +82,7 @@ export {
   accessRequests,
   // Pool
   poolResources,
+  poolSandboxes,
 } from './schema/kortix';
 
 export type {

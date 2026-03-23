@@ -559,7 +559,7 @@ export const config = {
   },
 
   isPoolEnabled(): boolean {
-    return this.POOL_ENABLED && !!this.POOL_ACCOUNT_ID;
+    return this.POOL_ENABLED;
   },
 
   getPoolProvider(): SandboxProviderName {

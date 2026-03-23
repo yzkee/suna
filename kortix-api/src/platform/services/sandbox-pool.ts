@@ -1,62 +1,34 @@
-import { eq, and, sql, asc } from 'drizzle-orm';
-import { sandboxes, poolResources } from '@kortix/db';
+import { eq, and, sql, asc, lt } from 'drizzle-orm';
+import { sandboxes, poolResources, poolSandboxes } from '@kortix/db';
 import { db } from '../../shared/db';
 import { config, SANDBOX_VERSION } from '../../config';
 import { createApiKey } from '../../repositories/api-keys';
-import {
-  getProvider,
-  type ProviderName,
-} from '../providers';
+import { getProvider, type ProviderName } from '../providers';
 
-export interface PoolResourceRow {
-  id: string;
-  provider: string;
-  serverType: string;
-  location: string;
-  desiredCount: number;
-  enabled: boolean;
-  createdAt: Date;
-  updatedAt: Date;
+const POOL_ACCOUNT_PLACEHOLDER = '00000000-0000-0000-0000-000000000000';
+
+export type PoolResourceRow = typeof poolResources.$inferSelect;
+export type PoolSandboxRow = typeof poolSandboxes.$inferSelect;
+
+// ─── Status ──────────────────────────────────────────────────────────────────
+
+export async function getPoolStatus() {
+  const resources = await db.select().from(poolResources);
+
+  const inventory = await db
+    .select({ status: poolSandboxes.status })
+    .from(poolSandboxes)
+    .where(sql`${poolSandboxes.status} IN ('ready', 'provisioning')`);
+
+  const ready = inventory.filter((r) => r.status === 'ready').length;
+  const provisioning = inventory.filter((r) => r.status === 'provisioning').length;
+
+  return { resources, ready, provisioning };
 }
 
-export interface PoolStatus {
-  enabled: boolean;
-  available: number;
-  provisioning: number;
-  resources: PoolResourceRow[];
-}
+// ─── Resources CRUD ──────────────────────────────────────────────────────────
 
-export interface PoolClaimResult {
-  sandbox: typeof sandboxes.$inferSelect;
-  serviceKey: string;
-}
-
-async function countPool(): Promise<{ available: number; provisioning: number }> {
-  const rows = await db
-    .select({ status: sandboxes.status })
-    .from(sandboxes)
-    .where(
-      sql`${sandboxes.status} IN ('pooled', 'provisioning')
-        AND (${sandboxes.metadata}->>'poolIntent')::boolean = true`,
-    );
-
-  let available = 0;
-  let provisioning = 0;
-  for (const r of rows) {
-    if (r.status === 'pooled') available++;
-    else if (r.status === 'provisioning') provisioning++;
-  }
-  return { available, provisioning };
-}
-
-async function getEnabledResources(): Promise<PoolResourceRow[]> {
-  return db
-    .select()
-    .from(poolResources)
-    .where(eq(poolResources.enabled, true));
-}
-
-export async function getAllResources(): Promise<PoolResourceRow[]> {
+export async function getAllResources() {
   return db.select().from(poolResources);
 }
 
@@ -65,7 +37,7 @@ export async function createResource(input: {
   serverType: string;
   location: string;
   desiredCount: number;
-}): Promise<PoolResourceRow> {
+}) {
   const [row] = await db
     .insert(poolResources)
     .values({
@@ -73,16 +45,16 @@ export async function createResource(input: {
       serverType: input.serverType,
       location: input.location,
       desiredCount: input.desiredCount,
-      enabled: true,
+    })
+    .onConflictDoUpdate({
+      target: [poolResources.provider, poolResources.serverType, poolResources.location],
+      set: { desiredCount: input.desiredCount, enabled: true, updatedAt: new Date() },
     })
     .returning();
   return row;
 }
 
-export async function updateResource(id: string, input: {
-  desiredCount?: number;
-  enabled?: boolean;
-}): Promise<PoolResourceRow | null> {
+export async function updateResource(id: string, input: { desiredCount?: number; enabled?: boolean }) {
   const [row] = await db
     .update(poolResources)
     .set({ ...input, updatedAt: new Date() })
@@ -91,143 +63,138 @@ export async function updateResource(id: string, input: {
   return row ?? null;
 }
 
-export async function deleteResource(id: string): Promise<boolean> {
-  const result = await db
-    .delete(poolResources)
-    .where(eq(poolResources.id, id))
-    .returning({ id: poolResources.id });
+export async function deleteResource(id: string) {
+  const result = await db.delete(poolResources).where(eq(poolResources.id, id)).returning({ id: poolResources.id });
   return result.length > 0;
 }
 
-export async function getPoolStatus(): Promise<PoolStatus> {
-  const counts = await countPool();
-  const resources = await getAllResources();
-  return {
-    enabled: config.isPoolEnabled(),
-    ...counts,
-    resources,
-  };
+// ─── Inventory ───────────────────────────────────────────────────────────────
+
+export async function listPoolSandboxes(limit = 50) {
+  return db
+    .select()
+    .from(poolSandboxes)
+    .where(sql`${poolSandboxes.status} IN ('ready', 'provisioning')`)
+    .orderBy(asc(poolSandboxes.createdAt))
+    .limit(limit);
 }
+
+// ─── Claim ───────────────────────────────────────────────────────────────────
 
 export async function claimFromPool(
   accountId: string,
   userId: string,
-): Promise<PoolClaimResult | null> {
-  if (!config.isPoolEnabled()) return null;
-
-  const [claimed] = await db
-    .update(sandboxes)
-    .set({
-      accountId,
-      status: 'active',
-      pooledAt: null,
-      lastUsedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(
-      eq(sandboxes.sandboxId, sql`(
-        SELECT sandbox_id FROM kortix.sandboxes
-        WHERE status = 'pooled' AND pooled_at IS NOT NULL
-        ORDER BY pooled_at ASC
-        LIMIT 1
-        FOR UPDATE SKIP LOCKED
-      )`),
+): Promise<{ sandbox: typeof sandboxes.$inferSelect; serviceKey: string } | null> {
+  const [pooled] = await db.execute<PoolSandboxRow>(sql`
+    DELETE FROM kortix.pool_sandboxes
+    WHERE id = (
+      SELECT id FROM kortix.pool_sandboxes
+      WHERE status = 'ready'
+      ORDER BY created_at ASC
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED
     )
-    .returning();
+    RETURNING *
+  `);
 
-  if (!claimed) return null;
+  if (!pooled) return null;
 
   const sandboxKey = await createApiKey({
-    sandboxId: claimed.sandboxId,
+    sandboxId: pooled.id,
     accountId,
     title: 'Sandbox Token',
     type: 'sandbox',
   });
 
-  await injectEnvVars(claimed, sandboxKey.secretKey);
-
-  await db
-    .update(sandboxes)
-    .set({
+  const [sandbox] = await db
+    .insert(sandboxes)
+    .values({
+      accountId,
+      name: `sandbox-${accountId.slice(0, 8)}`,
+      provider: pooled.provider as any,
+      externalId: pooled.externalId,
+      status: 'active',
+      baseUrl: pooled.baseUrl,
       config: { serviceKey: sandboxKey.secretKey },
       metadata: {
-        ...((claimed.metadata as Record<string, unknown>) ?? {}),
-        poolIntent: false,
+        ...((pooled.metadata as Record<string, unknown>) ?? {}),
+        claimedFromPool: true,
         claimedAt: new Date().toISOString(),
-        claimedByAccount: accountId,
+        poolServerType: pooled.serverType,
+        poolLocation: pooled.location,
         provisioningStage: 'services_ready',
       },
-      updatedAt: new Date(),
+      isIncluded: true,
     })
-    .where(eq(sandboxes.sandboxId, claimed.sandboxId));
+    .returning();
 
-  console.log(`[POOL] Claimed sandbox ${claimed.sandboxId} for account ${accountId}`);
+  await injectEnvVars(sandbox, pooled, sandboxKey.secretKey);
 
-  const [updated] = await db
-    .select()
-    .from(sandboxes)
-    .where(eq(sandboxes.sandboxId, claimed.sandboxId))
-    .limit(1);
+  console.log(`[POOL] Claimed pool sandbox ${pooled.id} → user sandbox ${sandbox.sandboxId} for account ${accountId}`);
 
-  return { sandbox: updated, serviceKey: sandboxKey.secretKey };
+  return { sandbox, serviceKey: sandboxKey.secretKey };
 }
 
 async function injectEnvVars(
   sandbox: typeof sandboxes.$inferSelect,
-  newServiceKey: string,
+  pooled: PoolSandboxRow,
+  serviceKey: string,
 ): Promise<void> {
-  const provider = getProvider(sandbox.provider);
-  const endpoint = await provider.resolveEndpoint(sandbox.externalId!);
+  const meta = (pooled.metadata as Record<string, unknown>) ?? {};
+  const proxyToken = meta.justavpsProxyToken as string | undefined;
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (proxyToken) headers['X-Proxy-Token'] = proxyToken;
+  if (serviceKey) headers['Authorization'] = `Bearer ${serviceKey}`;
 
   const envKeys: Record<string, string> = {
     KORTIX_API_URL: config.KORTIX_URL.replace(/\/v1\/router\/?$/, ''),
     ENV_MODE: 'cloud',
-    INTERNAL_SERVICE_KEY: newServiceKey,
-    KORTIX_TOKEN: newServiceKey,
+    INTERNAL_SERVICE_KEY: serviceKey,
+    KORTIX_TOKEN: serviceKey,
     KORTIX_SANDBOX_VERSION: SANDBOX_VERSION,
   };
 
-  const url = `${endpoint.url}/env`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      ...endpoint.headers,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ keys: envKeys }),
-    signal: AbortSignal.timeout(15_000),
-  });
+  const url = `${pooled.baseUrl}/env`;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ keys: envKeys }),
+      signal: AbortSignal.timeout(15_000),
+    });
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    console.error(`[POOL] Failed to inject env vars into sandbox ${sandbox.sandboxId}: ${res.status} ${text.slice(0, 200)}`);
-    throw new Error(`Env var injection failed: ${res.status}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.warn(`[POOL] Env injection returned ${res.status}: ${text.slice(0, 200)}`);
+    } else {
+      console.log(`[POOL] Env vars injected into ${pooled.externalId}`);
+    }
+  } catch (err) {
+    console.warn(`[POOL] Env injection failed for ${pooled.externalId}:`, err);
   }
-
-  console.log(`[POOL] Env vars injected into sandbox ${sandbox.sandboxId}`);
 }
 
-export async function replenishPool(): Promise<{ created: number }> {
-  if (!config.isPoolEnabled()) return { created: 0 };
+// ─── Replenish ───────────────────────────────────────────────────────────────
 
-  const resources = await getEnabledResources();
+export async function replenishPool(): Promise<{ created: number }> {
+  const resources = await db.select().from(poolResources).where(eq(poolResources.enabled, true));
   if (resources.length === 0) return { created: 0 };
 
   let totalCreated = 0;
 
   for (const resource of resources) {
     const existing = await db
-      .select({ status: sandboxes.status })
-      .from(sandboxes)
+      .select({ id: poolSandboxes.id })
+      .from(poolSandboxes)
       .where(
-        sql`(${sandboxes.metadata}->>'poolIntent')::boolean = true
-          AND (${sandboxes.metadata}->>'poolResourceId') = ${resource.id}
-          AND ${sandboxes.status} IN ('pooled', 'provisioning')`,
+        and(
+          eq(poolSandboxes.resourceId, resource.id),
+          sql`${poolSandboxes.status} IN ('ready', 'provisioning')`,
+        ),
       );
 
-    const currentCount = existing.length;
-    const deficit = resource.desiredCount - currentCount;
-
+    const deficit = resource.desiredCount - existing.length;
     if (deficit <= 0) continue;
 
     for (let i = 0; i < deficit; i++) {
@@ -235,204 +202,50 @@ export async function replenishPool(): Promise<{ created: number }> {
         await createPoolSandbox(resource);
         totalCreated++;
       } catch (err) {
-        console.error(`[POOL] Failed to create sandbox for resource ${resource.id} (${resource.provider}/${resource.serverType}/${resource.location}):`, err);
+        console.error(`[POOL] Failed to create for ${resource.provider}/${resource.serverType}/${resource.location}:`, err);
       }
     }
   }
 
-  if (totalCreated > 0) {
-    console.log(`[POOL] Replenished: ${totalCreated} sandboxes created`);
-  }
+  if (totalCreated > 0) console.log(`[POOL] Replenished: ${totalCreated} created`);
   return { created: totalCreated };
 }
 
 async function createPoolSandbox(resource: PoolResourceRow): Promise<void> {
-  const accountId = config.POOL_ACCOUNT_ID;
   const providerName = resource.provider as ProviderName;
   const provider = getProvider(providerName);
 
-  const [sandbox] = await db
-    .insert(sandboxes)
-    .values({
-      accountId,
-      name: `pool-${resource.serverType}-${resource.location}-${Date.now().toString(36)}`,
-      provider: providerName,
-      externalId: '',
-      status: 'provisioning',
-      baseUrl: '',
-      config: {},
-      metadata: {
-        poolIntent: true,
-        poolResourceId: resource.id,
-        poolServerType: resource.serverType,
-        poolLocation: resource.location,
-      },
-      isIncluded: true,
-    })
-    .returning();
-
-  const sandboxKey = await createApiKey({
-    sandboxId: sandbox.sandboxId,
-    accountId,
-    title: 'Pool Sandbox Token',
-    type: 'sandbox',
-  });
-
-  const createOpts = {
-    accountId,
-    userId: accountId,
+  const result = await provider.create({
+    accountId: POOL_ACCOUNT_PLACEHOLDER,
+    userId: POOL_ACCOUNT_PLACEHOLDER,
     name: `pool-${resource.serverType}-${resource.location}`,
-    envVars: { KORTIX_TOKEN: sandboxKey.secretKey },
+    envVars: { KORTIX_TOKEN: `pool_placeholder_${Date.now()}` },
     hetznerServerType: resource.serverType,
     hetznerLocation: resource.location,
-  };
+  });
 
-  try {
-    const result = await provider.create(createOpts);
+  await db.insert(poolSandboxes).values({
+    resourceId: resource.id,
+    provider: providerName,
+    externalId: result.externalId,
+    baseUrl: result.baseUrl || '',
+    serverType: resource.serverType,
+    location: resource.location,
+    status: 'provisioning',
+    metadata: result.metadata,
+  });
 
-    const firstStage = provider.provisioning.stages[0];
-    await db
-      .update(sandboxes)
-      .set({
-        externalId: result.externalId,
-        baseUrl: result.baseUrl || '',
-        config: { serviceKey: sandboxKey.secretKey },
-        metadata: {
-          ...result.metadata,
-          poolIntent: true,
-          poolResourceId: resource.id,
-          poolServerType: resource.serverType,
-          poolLocation: resource.location,
-          provisioningStage: firstStage?.id,
-        },
-        updatedAt: new Date(),
-      })
-      .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
-
-    console.log(`[POOL] Created pool sandbox ${sandbox.sandboxId} (${resource.provider}/${resource.serverType}/${resource.location})`);
-  } catch (err) {
-    await db
-      .update(sandboxes)
-      .set({
-        status: 'error',
-        metadata: {
-          poolIntent: true,
-          poolResourceId: resource.id,
-          provisioningStage: 'error',
-          provisioningError: err instanceof Error ? err.message : String(err),
-        },
-        updatedAt: new Date(),
-      })
-      .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
-    throw err;
-  }
-}
-
-export async function cleanupPool(): Promise<{ cleaned: number }> {
-  if (!config.isPoolEnabled()) return { cleaned: 0 };
-
-  const maxAgeMs = config.POOL_MAX_AGE_HOURS * 60 * 60 * 1000;
-  const cutoff = new Date(Date.now() - maxAgeMs);
-  const provisionTimeout = new Date(Date.now() - 15 * 60 * 1000);
-
-  const stale = await db
-    .select()
-    .from(sandboxes)
-    .where(
-      sql`(${sandboxes.metadata}->>'poolIntent')::boolean = true
-        AND (
-          (${sandboxes.status} = 'pooled' AND ${sandboxes.createdAt} < ${cutoff})
-          OR (${sandboxes.status} = 'provisioning' AND ${sandboxes.createdAt} < ${provisionTimeout} AND ${sandboxes.accountId} = ${config.POOL_ACCOUNT_ID})
-          OR (${sandboxes.status} = 'error' AND ${sandboxes.accountId} = ${config.POOL_ACCOUNT_ID})
-        )`,
-    );
-
-  let cleaned = 0;
-
-  for (const sandbox of stale) {
-    try {
-      if (sandbox.externalId) {
-        const provider = getProvider(sandbox.provider);
-        await provider.remove(sandbox.externalId).catch((err: unknown) => {
-          console.warn(`[POOL] Failed to remove provider resource for ${sandbox.sandboxId}:`, err);
-        });
-      }
-
-      await db
-        .update(sandboxes)
-        .set({ status: 'archived', updatedAt: new Date() })
-        .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
-
-      cleaned++;
-      console.log(`[POOL] Cleaned up stale pool sandbox ${sandbox.sandboxId}`);
-    } catch (err) {
-      console.error(`[POOL] Failed to cleanup ${sandbox.sandboxId}:`, err);
-    }
-  }
-
-  return { cleaned };
-}
-
-export async function drainPool(): Promise<{ drained: number }> {
-  const pooled = await db
-    .select()
-    .from(sandboxes)
-    .where(eq(sandboxes.status, 'pooled'));
-
-  let drained = 0;
-
-  for (const sandbox of pooled) {
-    try {
-      if (sandbox.externalId) {
-        const provider = getProvider(sandbox.provider);
-        await provider.remove(sandbox.externalId).catch(() => {});
-      }
-
-      await db
-        .update(sandboxes)
-        .set({ status: 'archived', updatedAt: new Date() })
-        .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
-
-      drained++;
-    } catch (err) {
-      console.error(`[POOL] Failed to drain ${sandbox.sandboxId}:`, err);
-    }
-  }
-
-  console.log(`[POOL] Drained ${drained} sandboxes`);
-  return { drained };
-}
-
-export async function listPooledSandboxes(limit = 50) {
-  return db
-    .select({
-      id: sandboxes.sandboxId,
-      external_id: sandboxes.externalId,
-      provider: sandboxes.provider,
-      pooled_at: sandboxes.pooledAt,
-      created_at: sandboxes.createdAt,
-      status: sandboxes.status,
-      metadata: sandboxes.metadata,
-    })
-    .from(sandboxes)
-    .where(
-      sql`(${sandboxes.metadata}->>'poolIntent')::boolean = true
-        AND ${sandboxes.status} IN ('pooled', 'provisioning')`,
-    )
-    .orderBy(asc(sandboxes.pooledAt))
-    .limit(limit);
+  console.log(`[POOL] Created pool sandbox (external: ${result.externalId}) for ${resource.serverType}/${resource.location}`);
 }
 
 export async function forceCreatePool(count: number, resourceId?: string): Promise<{ created: number; failed: number }> {
-  if (!config.isPoolEnabled()) return { created: 0, failed: 0 };
-
   let resources: PoolResourceRow[];
   if (resourceId) {
     const [r] = await db.select().from(poolResources).where(eq(poolResources.id, resourceId));
-    if (!r) throw new Error(`Pool resource ${resourceId} not found`);
+    if (!r) throw new Error('Resource not found');
     resources = [r];
   } else {
-    resources = await getEnabledResources();
+    resources = await db.select().from(poolResources).where(eq(poolResources.enabled, true));
   }
 
   if (resources.length === 0) return { created: 0, failed: 0 };
@@ -453,4 +266,87 @@ export async function forceCreatePool(count: number, resourceId?: string): Promi
   }
 
   return { created, failed };
+}
+
+// ─── Cleanup ─────────────────────────────────────────────────────────────────
+
+export async function cleanupPool(): Promise<{ cleaned: number }> {
+  const maxAgeMs = (config.POOL_MAX_AGE_HOURS || 24) * 60 * 60 * 1000;
+  const cutoff = new Date(Date.now() - maxAgeMs);
+  const provisionTimeout = new Date(Date.now() - 15 * 60 * 1000);
+
+  const stale = await db
+    .select()
+    .from(poolSandboxes)
+    .where(
+      sql`${poolSandboxes.status} = 'error'
+        OR (${poolSandboxes.status} = 'ready' AND ${poolSandboxes.createdAt} < ${cutoff})
+        OR (${poolSandboxes.status} = 'provisioning' AND ${poolSandboxes.createdAt} < ${provisionTimeout})`,
+    );
+
+  let cleaned = 0;
+
+  for (const ps of stale) {
+    try {
+      if (ps.externalId) {
+        const provider = getProvider(ps.provider as ProviderName);
+        await provider.remove(ps.externalId).catch(() => {});
+      }
+      await db.delete(poolSandboxes).where(eq(poolSandboxes.id, ps.id));
+      cleaned++;
+    } catch (err) {
+      console.error(`[POOL] Failed to cleanup ${ps.id}:`, err);
+    }
+  }
+
+  if (cleaned > 0) console.log(`[POOL] Cleaned ${cleaned} stale pool sandboxes`);
+  return { cleaned };
+}
+
+export async function drainPool(): Promise<{ drained: number }> {
+  const all = await db.select().from(poolSandboxes);
+  let drained = 0;
+
+  for (const ps of all) {
+    try {
+      if (ps.externalId) {
+        const provider = getProvider(ps.provider as ProviderName);
+        await provider.remove(ps.externalId).catch(() => {});
+      }
+      await db.delete(poolSandboxes).where(eq(poolSandboxes.id, ps.id));
+      drained++;
+    } catch (err) {
+      console.error(`[POOL] Failed to drain ${ps.id}:`, err);
+    }
+  }
+
+  return { drained };
+}
+
+// ─── Webhook routing ─────────────────────────────────────────────────────────
+
+export async function handlePoolWebhook(externalId: string, stage?: string, status?: string): Promise<boolean> {
+  const [poolSandbox] = await db
+    .select()
+    .from(poolSandboxes)
+    .where(eq(poolSandboxes.externalId, externalId))
+    .limit(1);
+
+  if (!poolSandbox) return false;
+
+  if (stage === 'services_ready' || status === 'ready') {
+    await db
+      .update(poolSandboxes)
+      .set({ status: 'ready', readyAt: new Date() })
+      .where(eq(poolSandboxes.id, poolSandbox.id));
+    console.log(`[POOL] Pool sandbox ${poolSandbox.id} → ready`);
+  } else if (status === 'error') {
+    await db
+      .update(poolSandboxes)
+      .set({ status: 'error' })
+      .where(eq(poolSandboxes.id, poolSandbox.id));
+    console.log(`[POOL] Pool sandbox ${poolSandbox.id} → error`);
+  }
+
+  return true;
 }

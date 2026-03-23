@@ -183,6 +183,26 @@ export const poolResources = kortixSchema.table(
   ],
 );
 
+export const poolSandboxes = kortixSchema.table(
+  'pool_sandboxes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    resourceId: uuid('resource_id').references(() => poolResources.id, { onDelete: 'set null' }),
+    provider: sandboxProviderEnum('provider').notNull(),
+    externalId: text('external_id').notNull(),
+    baseUrl: text('base_url').notNull().default(''),
+    serverType: varchar('server_type', { length: 64 }).notNull(),
+    location: varchar('location', { length: 64 }).notNull(),
+    status: varchar('status', { length: 32 }).notNull().default('provisioning'),
+    metadata: jsonb('metadata').default({}).$type<Record<string, unknown>>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    readyAt: timestamp('ready_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('idx_pool_sandboxes_claim').on(table.status, table.createdAt),
+  ],
+);
+
 export const deployments = kortixSchema.table(
   'deployments',
   {
