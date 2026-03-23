@@ -31,11 +31,16 @@ export function ThemePage({ visible, onClose }: ThemePageProps) {
   const [themePreference, setThemePreference] = React.useState<ThemePreference | null>(null);
   const [isTransitioning, setIsTransitioning] = React.useState(false);
   const isMountedRef = React.useRef(true);
+  const transitionTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
   React.useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      if (transitionTimeoutRef.current) {
+        clearTimeout(transitionTimeoutRef.current);
+        transitionTimeoutRef.current = null;
+      }
     };
   }, []);
 
@@ -89,8 +94,14 @@ export function ThemePage({ visible, onClose }: ThemePageProps) {
     await saveThemePreference(preference);
     setColorScheme(preference === 'system' ? 'system' : preference);
     
-    setTimeout(() => {
-      setIsTransitioning(false);
+    if (transitionTimeoutRef.current) {
+      clearTimeout(transitionTimeoutRef.current);
+    }
+    transitionTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current) {
+        setIsTransitioning(false);
+      }
+      transitionTimeoutRef.current = null;
     }, 100);
   }, [themePreference, isTransitioning, setColorScheme]);
   
