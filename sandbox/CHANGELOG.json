@@ -1,5 +1,29 @@
 [
   {
+    "version": "0.8.19",
+    "date": "2026-03-23",
+    "title": "Fix cloud sandbox LLM connection failure and improve OAuth connect UI",
+    "description": "Pool sandboxes were starting OpenCode with placeholder env vars (localhost:8008), causing all LLM calls to fail with 'Unable to connect'. Fixed startup ordering, auto-restart on env injection, and added missing tool proxy URLs for pool sandboxes. Also redesigned the OAuth provider connect UI with step-by-step instructions.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Wait for both KORTIX_TOKEN and KORTIX_API_URL before starting OpenCode in sandbox, preventing fallback to localhost:8008 in cloud mode"
+      },
+      {
+        "type": "fix",
+        "text": "Auto-restart OpenCode when core identity vars (KORTIX_TOKEN, KORTIX_API_URL) change via bulk env injection, so late-arriving pool env updates take effect immediately"
+      },
+      {
+        "type": "fix",
+        "text": "Add missing TAVILY_API_URL, REPLICATE_API_URL, and SERPER_API_URL to pool env injector for parity with Daytona/Hetzner/JustAVPS providers"
+      },
+      {
+        "type": "feature",
+        "text": "Redesign OAuth provider connect UI with numbered step-by-step instructions, prominent 'Open Authorization Page' button, and improved paste flow"
+      }
+    ]
+  },
+  {
     "version": "0.8.18",
     "date": "2026-03-23",
     "title": "Route sandbox tool traffic through Kortix proxy for cloud billing",
