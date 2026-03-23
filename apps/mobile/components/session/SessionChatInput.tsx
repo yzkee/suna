@@ -648,7 +648,7 @@ export function SessionChatInput({
                   <AutoContinueButton
                     isDark={isDark}
                     isActive={!!autocontinueMode}
-                    label={currentAutoAlgorithm?.label || 'Auto'}
+                    label={autocontinueMode ? (currentAutoAlgorithm?.label || 'Auto') : 'Off'}
                     onPress={() => setShowAutoSheet(true)}
                   />
                 )}
@@ -798,7 +798,7 @@ function AutoContinueButton({
         }}
         numberOfLines={1}
       >
-        {isActive ? `Auto · ${label}` : 'Auto'}
+        {label}
       </Text>
       <Ionicons
         name="chevron-down"
