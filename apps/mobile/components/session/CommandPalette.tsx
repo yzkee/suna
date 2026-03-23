@@ -155,6 +155,13 @@ export function CommandPalette({
         onSelect: () => { onPageSelect('page:files'); onClose(); },
       },
       {
+        id: 'page:memory',
+        label: 'Memory',
+        icon: 'hardware-chip-outline',
+        group: 'navigation',
+        onSelect: () => { onPageSelect('page:memory'); onClose(); },
+      },
+      {
         id: 'page:marketplace',
         label: 'Marketplace',
         icon: 'sparkles-outline',
