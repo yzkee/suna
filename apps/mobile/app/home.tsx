@@ -16,6 +16,7 @@ import {
   Alert,
   Animated,
   Platform,
+  StyleSheet,
 } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { Stack, useRouter } from 'expo-router';
@@ -24,6 +25,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColorScheme } from 'nativewind';
 import { Drawer } from 'react-native-drawer-layout';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { BottomSheetModal } from '@gorhom/bottom-sheet';
 
 import { useAuthContext } from '@/contexts';
 import { useSandboxContext } from '@/contexts/SandboxContext';
@@ -45,6 +48,7 @@ import {
 import { useResolvedConfig } from '@/lib/opencode/hooks/use-local-config';
 import { useTabStore, PAGE_TABS } from '@/stores/tab-store';
 import { RightDrawerContent } from '@/components/session/RightDrawerContent';
+import { UserMenuSheet } from '@/components/session/UserMenuSheet';
 import { PlaceholderPage } from '@/components/session/PlaceholderPage';
 import { FilesPage } from '@/components/pages/FilesPage';
 import type { FilesPageRef } from '@/components/pages/FilesPage';
@@ -72,6 +76,9 @@ try {
 } catch {
   // Native module not available — screenshots disabled until rebuild
 }
+
+const THEME_PREFERENCE_KEY = '@theme_preference';
+type ThemePreference = 'light' | 'dark' | 'system';
 
 // ─── Animated collapsible wrapper ────────────────────────────────────────────
 
@@ -226,10 +233,10 @@ function SessionListItem({
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { colorScheme } = useColorScheme();
+  const { colorScheme, setColorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const router = useRouter();
-  const { sandboxUrl, isLoading: sandboxLoading, error: sandboxError } =
+  const { sandboxUrl, sandboxId, isLoading: sandboxLoading, error: sandboxError } =
     useSandboxContext();
 
   // State
@@ -237,6 +244,9 @@ export default function HomeScreen() {
   const [rightDrawerOpen, setRightDrawerOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [pendingFilePath, setPendingFilePath] = useState<string | null>(null);
+  const userMenuSheetRef = useRef<BottomSheetModal>(null);
+  const [sleepOverlayVisible, setSleepOverlayVisible] = useState(false);
+  const [themePreference, setThemePreference] = useState<ThemePreference>('light');
 
   // Files page ref (for BottomBar menu integration)
   const filesPageRef = useRef<FilesPageRef>(null);
@@ -245,6 +255,34 @@ export default function HomeScreen() {
   const [filesShowHidden, setFilesShowHidden] = useState(false);
   const [filesViewMode, setFilesViewMode] = useState<'list' | 'grid'>('list');
   const [filesSelectedName, setFilesSelectedName] = useState<string | null>(null);
+  const { user, signOut, isSigningOut } = useAuthContext();
+  const userEmail = user?.email || '';
+  const userDisplayName = userEmail.split('@')[0] || 'User';
+  const planLabel = 'Self-Hosted';
+  const sandboxLabel = sandboxId || 'Sandbox';
+  const sandboxHost = sandboxUrl ? sandboxUrl.replace(/^https?:\/\//, '') : undefined;
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const saved = await AsyncStorage.getItem(THEME_PREFERENCE_KEY);
+        if (!mounted) return;
+        if (saved === 'light' || saved === 'dark' || saved === 'system') {
+          setThemePreference(saved);
+        } else {
+          setThemePreference(colorScheme === 'dark' ? 'dark' : 'light');
+        }
+      } catch {
+        if (mounted) {
+          setThemePreference(colorScheme === 'dark' ? 'dark' : 'light');
+        }
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [colorScheme]);
 
   // Persisted tab state (survives app restarts)
   const activeSessionId = useTabStore((s) => s.activeSessionId);
@@ -291,7 +329,6 @@ export default function HomeScreen() {
   // Collapsible state
   const [sessionsExpanded, setSessionsExpanded] = useState(true);
   const [archivedExpanded, setArchivedExpanded] = useState(false);
-  const [userMenuExpanded, setUserMenuExpanded] = useState(false);
 
   // Agent/model/variant for dashboard input
   const { data: agents = [] } = useOpenCodeAgents(sandboxUrl);
@@ -457,15 +494,50 @@ export default function HomeScreen() {
     setShowTabsOverview(true);
   }, [activePageId, activeSessionId, setShowTabsOverview]);
 
+  const closeUserMenuSheet = useCallback(() => {
+    userMenuSheetRef.current?.dismiss();
+  }, []);
+
   const handleGoToSettings = useCallback(() => {
+    closeUserMenuSheet();
     setDrawerOpen(false);
     router.push('/(settings)');
-  }, [router]);
+  }, [closeUserMenuSheet, router]);
 
-  const handleGoToUsage = useCallback(() => {
+  const handleManageInstances = useCallback(() => {
+    closeUserMenuSheet();
     setDrawerOpen(false);
-    router.push('/usage');
-  }, [router]);
+    router.push('/(settings)');
+  }, [closeUserMenuSheet, router]);
+
+  const handleAddInstance = useCallback(() => {
+    Alert.alert('Coming soon', 'Instance management is only available on desktop for now.');
+  }, []);
+
+  const handleThemeSelect = useCallback(async (value: ThemePreference) => {
+    setThemePreference(value);
+    try {
+      await AsyncStorage.setItem(THEME_PREFERENCE_KEY, value);
+    } catch {}
+    setColorScheme(value === 'system' ? 'system' : value);
+  }, [setColorScheme]);
+
+  const handleSleep = useCallback(() => {
+    closeUserMenuSheet();
+    setDrawerOpen(false);
+    setSleepOverlayVisible(true);
+  }, [closeUserMenuSheet]);
+
+  const handleWake = useCallback(() => {
+    setSleepOverlayVisible(false);
+  }, []);
+
+  const handleUserMenuOpen = useCallback(() => {
+    setDrawerOpen(false);
+    setTimeout(() => {
+      userMenuSheetRef.current?.present();
+    }, 220);
+  }, []);
 
   const handleSignOut = useCallback(() => {
     if (isSigningOut) return;
@@ -479,8 +551,8 @@ export default function HomeScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
+              closeUserMenuSheet();
               setDrawerOpen(false);
-              setUserMenuExpanded(false);
               await signOut();
             } catch (err: any) {
               log.error('❌ [Home] Sign out failed:', err?.message || err);
@@ -489,37 +561,9 @@ export default function HomeScreen() {
         },
       ],
     );
-  }, [signOut, isSigningOut]);
-
-  const userMenuItems = useMemo(() => [
-    {
-      key: 'settings',
-      label: 'Settings',
-      icon: 'settings-outline',
-      onPress: handleGoToSettings,
-    },
-    {
-      key: 'usage',
-      label: 'Usage',
-      icon: 'bar-chart-outline',
-      onPress: handleGoToUsage,
-    },
-    {
-      key: 'signout',
-      label: isSigningOut ? 'Signing out...' : 'Sign out',
-      icon: 'log-out-outline',
-      onPress: handleSignOut,
-      destructive: true,
-      disabled: isSigningOut,
-    },
-  ], [handleGoToSettings, handleGoToUsage, handleSignOut, isSigningOut]);
+  }, [signOut, isSigningOut, closeUserMenuSheet]);
 
   // ── Drawer content ──
-
-  const { user, signOut, isSigningOut } = useAuthContext();
-  const userEmail = user?.email || '';
-  const userDisplayName = userEmail.split('@')[0] || 'User';
-  const planLabel = 'Self-Hosted';
 
   const renderDrawerContent = useCallback(() => {
     const iconColor = isDark ? '#F8F8F8' : '#121215';
@@ -645,18 +689,18 @@ export default function HomeScreen() {
           </ScrollView>
         )}
 
-        {/* Bottom: user info + menu */}
+        {/* Bottom: user info */}
         <View
           className="border-t border-border px-4 pt-3"
           style={{ paddingBottom: insets.bottom + 8 }}
         >
           <TouchableOpacity
-            onPress={() => setUserMenuExpanded((v) => !v)}
-            activeOpacity={0.7}
+            onPress={handleUserMenuOpen}
+            activeOpacity={0.8}
             className="flex-row items-center"
           >
-            <View className="h-10 w-10 rounded-full bg-muted items-center justify-center mr-3">
-              <Text className="text-sm font-semibold text-muted-foreground uppercase">
+            <View className="h-11 w-11 rounded-full bg-muted items-center justify-center mr-3">
+              <Text className="text-base font-semibold text-muted-foreground uppercase">
                 {userDisplayName.charAt(0)}
               </Text>
             </View>
@@ -668,39 +712,8 @@ export default function HomeScreen() {
                 {planLabel}
               </Text>
             </View>
-            <AnimatedChevron expanded={userMenuExpanded} color={mutedColor} size={18} />
+            <Ionicons name="chevron-up" size={18} color={mutedColor} />
           </TouchableOpacity>
-
-          <AnimatedCollapsible expanded={userMenuExpanded}>
-            <View className="mt-3">
-              {userMenuItems.map((item) => (
-                <TouchableOpacity
-                  key={item.key}
-                  onPress={() => {
-                    if (item.disabled) return;
-                    setUserMenuExpanded(false);
-                    item.onPress?.();
-                  }}
-                  activeOpacity={0.7}
-                  className={`flex-row items-center justify-between px-3 py-2 rounded-2xl mb-2 ${item.destructive ? 'bg-destructive/5' : 'bg-muted/30'}`}
-                >
-                  <View className="flex-row items-center">
-                    <Ionicons
-                      name={item.icon as any}
-                      size={18}
-                      color={item.destructive ? (isDark ? '#f87171' : '#dc2626') : iconColor}
-                    />
-                    <Text
-                      className={`text-sm ml-3 ${item.destructive ? 'text-destructive' : 'text-foreground'}`}
-                    >
-                      {item.label}
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color={mutedColor} />
-                </TouchableOpacity>
-              ))}
-            </View>
-          </AnimatedCollapsible>
         </View>
       </View>
     );
@@ -715,8 +728,7 @@ export default function HomeScreen() {
     activeSessionId,
     userDisplayName,
     planLabel,
-    userMenuExpanded,
-    userMenuItems,
+    handleUserMenuOpen,
     handleNewSession,
     handleSessionPress,
     handleArchive,
@@ -1053,6 +1065,63 @@ export default function HomeScreen() {
           )}
         </Drawer>
       </Drawer>
+
+      <UserMenuSheet
+        ref={userMenuSheetRef}
+        sandboxLabel={sandboxLabel}
+        sandboxHost={sandboxHost}
+        onManageInstances={handleManageInstances}
+        onAddInstance={handleAddInstance}
+        onOpenSettings={handleGoToSettings}
+        onSleep={handleSleep}
+        onSignOut={handleSignOut}
+        onSelectTheme={handleThemeSelect}
+        activeTheme={themePreference}
+        isSigningOut={isSigningOut}
+      />
+
+      {sleepOverlayVisible && (
+        <View
+          style={[
+            StyleSheet.absoluteFillObject,
+            {
+              backgroundColor: isDark ? 'rgba(5,5,12,0.95)' : 'rgba(248,248,255,0.96)',
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingHorizontal: 32,
+            },
+          ]}
+        >
+          <Text style={{ fontSize: 28, fontFamily: 'Roobert-SemiBold', color: isDark ? '#F8FAFC' : '#111827', marginBottom: 12 }}>
+            Resting…
+          </Text>
+          <Text
+            style={{
+              fontSize: 15,
+              color: isDark ? '#CBD5F5' : '#475569',
+              textAlign: 'center',
+              lineHeight: 22,
+            }}
+          >
+            Kortix is paused. Wake it to resume your sessions.
+          </Text>
+          <TouchableOpacity
+            onPress={handleWake}
+            activeOpacity={0.85}
+            style={{
+              marginTop: 28,
+              paddingHorizontal: 36,
+              paddingVertical: 14,
+              borderRadius: 999,
+              backgroundColor: isDark ? '#F8FAFC' : '#111827',
+            }}
+          >
+            <Text style={{ fontSize: 16, fontFamily: 'Roobert-SemiBold', color: isDark ? '#111827' : '#F8FAFC' }}>
+              Wake Up
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Command Palette */}
       <CommandPalette
