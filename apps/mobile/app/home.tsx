@@ -291,6 +291,7 @@ export default function HomeScreen() {
   // Collapsible state
   const [sessionsExpanded, setSessionsExpanded] = useState(true);
   const [archivedExpanded, setArchivedExpanded] = useState(false);
+  const [userMenuExpanded, setUserMenuExpanded] = useState(false);
 
   // Agent/model/variant for dashboard input
   const { data: agents = [] } = useOpenCodeAgents(sandboxUrl);
@@ -461,11 +462,64 @@ export default function HomeScreen() {
     router.push('/(settings)');
   }, [router]);
 
+  const handleGoToUsage = useCallback(() => {
+    setDrawerOpen(false);
+    router.push('/usage');
+  }, [router]);
+
+  const handleSignOut = useCallback(() => {
+    if (isSigningOut) return;
+    Alert.alert(
+      'Sign out',
+      'Sign out of Kortix?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign out',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setDrawerOpen(false);
+              setUserMenuExpanded(false);
+              await signOut();
+            } catch (err: any) {
+              log.error('❌ [Home] Sign out failed:', err?.message || err);
+            }
+          },
+        },
+      ],
+    );
+  }, [signOut, isSigningOut]);
+
+  const userMenuItems = useMemo(() => [
+    {
+      key: 'settings',
+      label: 'Settings',
+      icon: 'settings-outline',
+      onPress: handleGoToSettings,
+    },
+    {
+      key: 'usage',
+      label: 'Usage',
+      icon: 'bar-chart-outline',
+      onPress: handleGoToUsage,
+    },
+    {
+      key: 'signout',
+      label: isSigningOut ? 'Signing out...' : 'Sign out',
+      icon: 'log-out-outline',
+      onPress: handleSignOut,
+      destructive: true,
+      disabled: isSigningOut,
+    },
+  ], [handleGoToSettings, handleGoToUsage, handleSignOut, isSigningOut]);
+
   // ── Drawer content ──
 
-  const { user } = useAuthContext();
+  const { user, signOut, isSigningOut } = useAuthContext();
   const userEmail = user?.email || '';
   const userDisplayName = userEmail.split('@')[0] || 'User';
+  const planLabel = 'Self-Hosted';
 
   const renderDrawerContent = useCallback(() => {
     const iconColor = isDark ? '#F8F8F8' : '#121215';
@@ -591,14 +645,18 @@ export default function HomeScreen() {
           </ScrollView>
         )}
 
-        {/* Bottom: user info */}
+        {/* Bottom: user info + menu */}
         <View
-          className="border-t border-border px-4 py-3"
+          className="border-t border-border px-4 pt-3"
           style={{ paddingBottom: insets.bottom + 8 }}
         >
-          <View className="flex-row items-center">
-            <View className="h-8 w-8 rounded-full bg-muted items-center justify-center mr-3">
-              <Text className="text-xs font-semibold text-muted-foreground uppercase">
+          <TouchableOpacity
+            onPress={() => setUserMenuExpanded((v) => !v)}
+            activeOpacity={0.7}
+            className="flex-row items-center"
+          >
+            <View className="h-10 w-10 rounded-full bg-muted items-center justify-center mr-3">
+              <Text className="text-sm font-semibold text-muted-foreground uppercase">
                 {userDisplayName.charAt(0)}
               </Text>
             </View>
@@ -606,9 +664,43 @@ export default function HomeScreen() {
               <Text className="text-sm text-foreground" numberOfLines={1}>
                 {userDisplayName}
               </Text>
-              <Text className="text-xs text-muted-foreground">Self-Hosted</Text>
+              <Text className="text-xs text-muted-foreground" numberOfLines={1}>
+                {planLabel}
+              </Text>
             </View>
-          </View>
+            <AnimatedChevron expanded={userMenuExpanded} color={mutedColor} size={18} />
+          </TouchableOpacity>
+
+          <AnimatedCollapsible expanded={userMenuExpanded}>
+            <View className="mt-3">
+              {userMenuItems.map((item) => (
+                <TouchableOpacity
+                  key={item.key}
+                  onPress={() => {
+                    if (item.disabled) return;
+                    setUserMenuExpanded(false);
+                    item.onPress?.();
+                  }}
+                  activeOpacity={0.7}
+                  className={`flex-row items-center justify-between px-3 py-2 rounded-2xl mb-2 ${item.destructive ? 'bg-destructive/5' : 'bg-muted/30'}`}
+                >
+                  <View className="flex-row items-center">
+                    <Ionicons
+                      name={item.icon as any}
+                      size={18}
+                      color={item.destructive ? (isDark ? '#f87171' : '#dc2626') : iconColor}
+                    />
+                    <Text
+                      className={`text-sm ml-3 ${item.destructive ? 'text-destructive' : 'text-foreground'}`}
+                    >
+                      {item.label}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={mutedColor} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          </AnimatedCollapsible>
         </View>
       </View>
     );
@@ -622,6 +714,9 @@ export default function HomeScreen() {
     archivedExpanded,
     activeSessionId,
     userDisplayName,
+    planLabel,
+    userMenuExpanded,
+    userMenuItems,
     handleNewSession,
     handleSessionPress,
     handleArchive,
