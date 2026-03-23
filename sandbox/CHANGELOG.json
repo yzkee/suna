@@ -1,5 +1,25 @@
 [
   {
+    "version": "0.8.18",
+    "date": "2026-03-23",
+    "title": "Route sandbox tool traffic through Kortix proxy for cloud billing",
+    "description": "Sandbox tools (web-search, image-search) now route through the Kortix router proxy in cloud mode for centralized billing and API key injection. Self-hosted mode is unchanged — tools hit upstream APIs directly with user-provided keys.",
+    "changes": [
+      {
+        "type": "feature",
+        "text": "Add TAVILY_API_URL, REPLICATE_API_URL, and SERPER_API_URL env var support in sandbox tools so cloud sandboxes route traffic through the Kortix router proxy instead of hitting upstream APIs directly"
+      },
+      {
+        "type": "feature",
+        "text": "Extend proxy auth (tryAuthenticate) to detect Kortix tokens in Authorization: Token prefix (Replicate SDK) and JSON body api_key field (Tavily SDK)"
+      },
+      {
+        "type": "feature",
+        "text": "Inject tool proxy URLs into sandbox env vars during cloud sandbox creation on all providers (Daytona, JustAVPS, Hetzner)"
+      }
+    ]
+  },
+  {
     "version": "0.8.17",
     "date": "2026-03-23",
     "title": "Replace old memory API with MEMORY.md suggestions and harden sandbox routes",
