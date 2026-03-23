@@ -17,12 +17,15 @@ import {
   ScrollView,
   Platform,
   Animated,
+  StyleSheet,
   type NativeSyntheticEvent,
   type TextInputSelectionChangeEventData,
 } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
 import { Ionicons } from '@expo/vector-icons';
+import { Infinity as InfinityIcon, Slash as SlashIcon, Info as InfoIcon } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { Agent, FlatModel, Command } from '@/lib/opencode/hooks/use-opencode-data';
 import type { Session } from '@/lib/platform/types';
@@ -39,6 +42,124 @@ export interface PromptOptions {
 }
 
 export type { TrackedMention } from './useMentions';
+
+// ─── AutoContinue configuration (shared with frontend) ────────────────────────
+
+export type AutoContinueMode = 'autowork' | 'autowork1' | 'autowork2' | 'autowork3' | 'orchestrate';
+
+interface AutoContinueAlgorithm {
+  id: AutoContinueMode;
+  label: string;
+  role: string;
+  description: string;
+  commandName: string;
+  bestFor: string;
+  strengths: string[];
+  weaknesses: string[];
+  howItWorks: string;
+}
+
+const AUTOCONTINUE_ALGORITHMS: AutoContinueAlgorithm[] = [
+  {
+    id: 'autowork',
+    label: 'Kraemer',
+    role: 'Executor',
+    description: 'Fast TDD loop — reliable for clear specs',
+    commandName: 'autowork',
+    bestFor: 'Clear specs, coding tasks, "just build it" work',
+    strengths: [
+      'Reliable and balanced speed/cost',
+      'Solid TDD discipline — writes tests first, implements, verifies',
+      'No overhead from extra validation passes',
+    ],
+    weaknesses: [
+      'Can miss subtle edge cases that need deeper second-pass reasoning',
+      'No adversarial self-review — trusts its own DONE claim',
+    ],
+    howItWorks:
+      'The original autowork algorithm. Runs an autonomous loop where the agent works until it emits DONE, then enters a verification phase where it self-reviews and emits VERIFIED. Simple binary loop — no staged validators, no critic, no phase system.',
+  },
+  {
+    id: 'autowork1',
+    label: 'Kubet',
+    role: 'Validator',
+    description: 'Adversarial review — catches hidden issues',
+    commandName: 'autowork1',
+    bestFor: 'Correctness-critical tasks — ops planning, complex logic, risk analysis',
+    strengths: [
+      'Catches hidden issues through forced adversarial self-review',
+      'Most reliable outcomes across all task types',
+      '3-level validator pipeline ensures nothing slips through',
+      'Async process critic monitors efficiency during work',
+    ],
+    weaknesses: [
+      'Slower and more expensive due to validation passes',
+      'May over-engineer simple tasks that do not need 3 levels of review',
+    ],
+    howItWorks:
+      'After the agent claims DONE, the system drives it through a 3-level validator pipeline. Level 1 (Format) — Are all files valid? Does the build pass? Any syntax errors? Level 2 (Quality) — Do tests pass? Are requirements traced? Any anti-patterns? Level 3 (Top-notch) — Adversarial edge cases, performance review, regression sweep. The agent must pass each level before advancing. An async critic also nudges the agent if it stalls.',
+  },
+  {
+    id: 'autowork2',
+    label: 'Ino',
+    role: 'Decomposer',
+    description: 'Kanban cards — structured per-module work',
+    commandName: 'autowork2',
+    bestFor: 'Multi-domain tasks — investigations, audits, research, modular systems',
+    strengths: [
+      'Strong structured breakdown into discrete work units',
+      'Each card goes through its own review/test cycle',
+      'Thorough coverage of individual domains',
+    ],
+    weaknesses: [
+      'Can underscope if it misses cards for certain requirements',
+      'Integration mistakes between independently built parts',
+      'Most expensive due to per-card overhead',
+    ],
+    howItWorks:
+      'Work is organized as a kanban board with explicit prefixes: [BACKLOG], [IN PROGRESS], [REVIEW], [TESTING], [DONE]. Cards advance sequentially and the system enforces progress markers. After all cards hit [DONE], a final integration check runs.',
+  },
+  {
+    id: 'autowork3',
+    label: 'Saumya',
+    role: 'Architect',
+    description: 'Entropy search — diverge then compress',
+    commandName: 'autowork3',
+    bestFor: 'Design, strategy, architecture — problems with ambiguity',
+    strengths: [
+      'Fastest and cheapest across all tasks',
+      'Produces clean, well-architected solutions',
+      'Genuine strategic exploration — not fake variations',
+    ],
+    weaknesses: [
+      'Implementation detail correctness can slip',
+      'Upfront exploration adds no value on spec-driven tasks',
+      'Tests may validate components without catching integration bugs',
+    ],
+    howItWorks:
+      'Uses five entropy-phased stages: EXPAND (diverge problem framings), BRANCH (crystallize distinct candidates), ATTACK (candidates cross-attack), RANK (score + pick one path), COMPRESS (execute winner with TDD). Phase markers ensure it does not converge early.',
+  },
+  {
+    id: 'orchestrate',
+    label: 'Orchestrate',
+    role: 'Spawner',
+    description: 'Multi-session — parallel workers',
+    commandName: 'orchestrate',
+    bestFor: 'Large tasks that can be parallelized across independent sub-tasks',
+    strengths: [
+      'Parallel execution across multiple sessions',
+      'Great for large codebases with independent modules',
+    ],
+    weaknesses: [
+      'Coordination overhead between sessions',
+      'Not suitable for tightly coupled work',
+    ],
+    howItWorks:
+      'Spawns worker sessions that execute sub-tasks in parallel. The orchestrator decomposes the work, assigns tasks, aggregates results, and ensures alignment across workers.',
+  },
+];
+
+const DEFAULT_AUTOCONTINUE_MODE: AutoContinueMode = 'autowork';
 
 interface SessionChatInputProps {
   onSend: (text: string, options: PromptOptions, mentions?: TrackedMention[]) => void;
@@ -125,6 +246,28 @@ export function SessionChatInput({
     currentSessionId,
     sandboxUrl,
   });
+
+  const [autocontinueMode, setAutocontinueMode] = useState<AutoContinueMode | null>(null);
+  const [showAutoSheet, setShowAutoSheet] = useState(false);
+
+  const availableAutoAlgorithms = useMemo(
+    () =>
+      AUTOCONTINUE_ALGORITHMS.filter((alg) =>
+        Array.isArray(commands) && commands.some((c) => c.name === alg.commandName),
+      ),
+    [commands],
+  );
+
+  const currentAutoAlgorithm = useMemo(
+    () => availableAutoAlgorithms.find((alg) => alg.id === autocontinueMode) || null,
+    [availableAutoAlgorithms, autocontinueMode],
+  );
+
+  useEffect(() => {
+    if (autocontinueMode && !currentAutoAlgorithm) {
+      setAutocontinueMode(null);
+    }
+  }, [autocontinueMode, currentAutoAlgorithm]);
 
   const handleTextChange = useCallback(
     (newText: string) => {
@@ -284,6 +427,19 @@ export function SessionChatInput({
     const trimmed = text.trim();
     if (!trimmed || disabled) return;
 
+    if (autocontinueMode && onCommand) {
+      const alg = AUTOCONTINUE_ALGORITHMS.find((a) => a.id === autocontinueMode);
+      const command = alg && commands.find((c) => c.name === alg.commandName);
+      if (command) {
+        onCommand(command, trimmed || undefined);
+        setText('');
+        setSlashFilter(null);
+        setSlashIndex(0);
+        mention.reset();
+        return;
+      }
+    }
+
     // If the agent is busy and we have an enqueue handler, queue instead of sending
     if (isBusy && onEnqueue) {
       onEnqueue(trimmed);
@@ -301,7 +457,7 @@ export function SessionChatInput({
     onSend(trimmed, options, trackedMentions);
     setText('');
     mention.reset();
-  }, [text, disabled, onSend, agent, modelKey, variant, mention, isBusy, onEnqueue, slashFilter, filteredCommands, slashIndex, handleSelectCommand, stagedCommand, onCommand]);
+  }, [text, disabled, onSend, agent, modelKey, variant, mention, isBusy, onEnqueue, slashFilter, filteredCommands, slashIndex, handleSelectCommand, stagedCommand, onCommand, autocontinueMode, commands]);
 
   // Variant display
   const variantLabel = variant
@@ -446,46 +602,57 @@ export function SessionChatInput({
 
             {/* Toolbar row — inside the input card */}
             <View className="flex-row items-center justify-between py-1.5">
-              {/* Left: config button */}
-              <TouchableOpacity
-                onPress={() => setShowConfigSheet(true)}
-                activeOpacity={0.7}
-                hitSlop={6}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  paddingHorizontal: 10,
-                  paddingVertical: 5,
-                  borderRadius: 20,
-                  backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                }}
-              >
-                <Ionicons
-                  name="options-outline"
-                  size={14}
-                  color={isDark ? '#a1a1aa' : '#71717a'}
-                  style={{ marginRight: 6 }}
-                />
-                <Text
-                  numberOfLines={1}
+              {/* Left: config + AutoContinue */}
+              <View className="flex-row items-center" style={{ gap: 8 }}>
+                <TouchableOpacity
+                  onPress={() => setShowConfigSheet(true)}
+                  activeOpacity={0.7}
+                  hitSlop={6}
                   style={{
-                    fontSize: 12,
-                    fontFamily: 'Roobert-Medium',
-                    color: isDark ? '#a1a1aa' : '#71717a',
-                    maxWidth: 200,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: 20,
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
                   }}
                 >
-                  {agent?.name || 'Agent'}
-                  {model?.modelName ? ` · ${model.modelName}` : ''}
-                  {variant ? ` · ${variantLabel}` : ''}
-                </Text>
-                <Ionicons
-                  name="chevron-down"
-                  size={10}
-                  color={isDark ? '#52525b' : '#a1a1aa'}
-                  style={{ marginLeft: 4 }}
-                />
-              </TouchableOpacity>
+                  <Ionicons
+                    name="options-outline"
+                    size={14}
+                    color={isDark ? '#a1a1aa' : '#71717a'}
+                    style={{ marginRight: 6 }}
+                  />
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      fontSize: 12,
+                      fontFamily: 'Roobert-Medium',
+                      color: isDark ? '#a1a1aa' : '#71717a',
+                      maxWidth: 200,
+                    }}
+                  >
+                    {agent?.name || 'Agent'}
+                    {model?.modelName ? ` · ${model.modelName}` : ''}
+                    {variant ? ` · ${variantLabel}` : ''}
+                  </Text>
+                  <Ionicons
+                    name="chevron-down"
+                    size={10}
+                    color={isDark ? '#52525b' : '#a1a1aa'}
+                    style={{ marginLeft: 4 }}
+                  />
+                </TouchableOpacity>
+
+                {availableAutoAlgorithms.length > 0 && (
+                  <AutoContinueButton
+                    isDark={isDark}
+                    isActive={!!autocontinueMode}
+                    label={currentAutoAlgorithm?.label || 'Auto'}
+                    onPress={() => setShowAutoSheet(true)}
+                  />
+                )}
+              </View>
 
               {/* Right: send/stop/queue */}
               <View className="flex-row items-center" style={{ gap: 8 }}>
@@ -572,7 +739,352 @@ export function SessionChatInput({
           onClose={() => setShowConfigSheet(false)}
         />
       </Modal>
+
+      <AutoContinueSheet
+        visible={showAutoSheet}
+        onClose={() => setShowAutoSheet(false)}
+        selected={autocontinueMode}
+        onSelect={(mode) => setAutocontinueMode(mode)}
+        algorithms={availableAutoAlgorithms}
+        isDark={isDark}
+      />
     </>
+  );
+}
+
+function AutoContinueButton({
+  isDark,
+  isActive,
+  label,
+  onPress,
+}: {
+  isDark: boolean;
+  isActive: boolean;
+  label: string;
+  onPress: () => void;
+}) {
+  const activeBg = isDark ? 'rgba(109,40,217,0.18)' : 'rgba(99,102,241,0.16)';
+  const inactiveBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+  const activeColor = isDark ? '#C4B5FD' : '#4C1D95';
+  const mutedColor = isDark ? '#a1a1aa' : '#71717a';
+
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.8}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 20,
+        backgroundColor: isActive ? activeBg : inactiveBg,
+        borderWidth: isActive ? 1 : 0,
+        borderColor: isActive ? (isDark ? 'rgba(192,132,252,0.4)' : 'rgba(99,102,241,0.4)') : 'transparent',
+      }}
+      hitSlop={6}
+    >
+      {isActive ? (
+        <InfinityIcon color={activeColor} size={14} strokeWidth={2.4} />
+      ) : (
+        <InfinityOffIcon color={mutedColor} size={14} />
+      )}
+      <Text
+        style={{
+          fontSize: 12,
+          fontFamily: 'Roobert-Medium',
+          color: isActive ? (isDark ? '#F8F8F8' : '#1f2937') : mutedColor,
+          marginLeft: 6,
+        }}
+        numberOfLines={1}
+      >
+        {isActive ? `Auto · ${label}` : 'Auto'}
+      </Text>
+      <Ionicons
+        name="chevron-down"
+        size={10}
+        color={isActive ? (isDark ? '#c4b5fd' : '#4c1d95') : mutedColor}
+        style={{ marginLeft: 4 }}
+      />
+    </TouchableOpacity>
+  );
+}
+
+function InfinityOffIcon({ color, size }: { color: string; size: number }) {
+  return (
+    <View style={{ width: size, height: size }}>
+      <InfinityIcon color={color} size={size} strokeWidth={2.4} />
+      <SlashIcon
+        color={color}
+        size={size}
+        strokeWidth={2}
+        style={{ position: 'absolute', left: 0, top: 0 }}
+      />
+    </View>
+  );
+}
+
+interface AutoContinueSheetProps {
+  visible: boolean;
+  onClose: () => void;
+  selected: AutoContinueMode | null;
+  onSelect: (mode: AutoContinueMode | null) => void;
+  algorithms: AutoContinueAlgorithm[];
+  isDark: boolean;
+}
+
+function AutoContinueSheet({
+  visible,
+  onClose,
+  selected,
+  onSelect,
+  algorithms,
+  isDark,
+}: AutoContinueSheetProps) {
+  const insets = useSafeAreaInsets();
+  const [detailAlg, setDetailAlg] = useState<AutoContinueAlgorithm | null>(null);
+  const isActive = selected !== null;
+  const currentAlg = algorithms.find((alg) => alg.id === selected) || null;
+  const defaultMode = useMemo(() => {
+    const preferred = algorithms.find((alg) => alg.id === DEFAULT_AUTOCONTINUE_MODE);
+    return preferred?.id ?? algorithms[0]?.id ?? null;
+  }, [algorithms]);
+
+  if (algorithms.length === 0) return null;
+
+  const muted = isDark ? '#a1a1aa' : '#71717a';
+  const border = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)';
+  const bg = isDark ? '#121215' : '#FFFFFF';
+
+  useEffect(() => {
+    if (!visible) {
+      setDetailAlg(null);
+    }
+  }, [visible]);
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+    >
+      <View style={{ flex: 1, backgroundColor: bg }}>
+        <View style={{ alignItems: 'center', paddingTop: 10, paddingBottom: 6 }}>
+          <View
+            style={{
+              width: 36,
+              height: 5,
+              borderRadius: 3,
+              backgroundColor: isDark ? '#3F3F46' : '#D4D4D8',
+            }}
+          />
+        </View>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 12 }}>
+          <Text style={{ fontSize: 20, fontFamily: 'Roobert-SemiBold', color: isDark ? '#F8F8F8' : '#121215' }}>
+            AutoContinue
+          </Text>
+          <TouchableOpacity onPress={onClose} hitSlop={10}>
+            <Ionicons name="close" size={24} color={muted} />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View>
+            <TouchableOpacity
+              onPress={() => { onSelect(null); onClose(); }}
+              activeOpacity={0.7}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingVertical: 14,
+                paddingHorizontal: 20,
+                backgroundColor: !isActive ? (isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)') : 'transparent',
+              }}
+            >
+              <InfinityOffIcon color={muted} size={18} />
+              <View style={{ marginLeft: 12, flex: 1 }}>
+                <Text style={{ fontSize: 15, fontFamily: 'Roobert-Medium', color: isDark ? '#F8F8F8' : '#121215' }}>
+                  Off
+                </Text>
+                <Text style={{ fontSize: 12, color: muted, marginTop: 2 }}>
+                  Manual — you send each message
+                </Text>
+              </View>
+              {!isActive && <Ionicons name="checkmark" size={18} color={isDark ? '#c4b5fd' : '#4c1d95'} />}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => {
+                if (!isActive && defaultMode) {
+                  onSelect(defaultMode);
+                }
+              }}
+              activeOpacity={0.7}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingVertical: 14,
+                paddingHorizontal: 20,
+                backgroundColor: isActive ? 'rgba(99,102,241,0.08)' : 'transparent',
+              }}
+            >
+              <InfinityIcon color={isActive ? (isDark ? '#c4b5fd' : '#4c1d95') : muted} strokeWidth={2.2} size={18} />
+              <View style={{ marginLeft: 12, flex: 1 }}>
+                <Text style={{ fontSize: 15, fontFamily: 'Roobert-Medium', color: isDark ? '#F8F8F8' : '#121215' }}>
+                  On
+                </Text>
+                <Text style={{ fontSize: 12, color: muted, marginTop: 2 }}>
+                  {isActive && currentAlg
+                    ? `Running ${currentAlg.label}`
+                    : 'Pick an algorithm and the agent will continue on its own'}
+                </Text>
+              </View>
+              {isActive && <Ionicons name="checkmark" size={18} color={isDark ? '#c4b5fd' : '#4c1d95'} />}
+            </TouchableOpacity>
+          </View>
+
+          <View style={{ marginTop: 20, paddingHorizontal: 20 }}>
+            <Text style={{ fontSize: 12, color: muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+              Algorithms
+            </Text>
+          </View>
+
+          {algorithms.map((alg, idx) => {
+            const isSelected = selected === alg.id;
+            return (
+              <TouchableOpacity
+                key={alg.id}
+                onPress={() => {
+                  onSelect(alg.id);
+                  onClose();
+                }}
+                activeOpacity={0.7}
+                style={{
+                  paddingVertical: 14,
+                  paddingHorizontal: 20,
+                  borderBottomWidth: idx < algorithms.length - 1 ? StyleSheet.hairlineWidth : 0,
+                  borderBottomColor: border,
+                  backgroundColor: isSelected ? (isDark ? 'rgba(255,255,255,0.04)' : 'rgba(99,102,241,0.07)') : 'transparent',
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 15, fontFamily: 'Roobert-Medium', color: isDark ? '#F8F8F8' : '#111827' }}>
+                      {alg.label}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: muted, marginTop: 1 }}>
+                      {alg.role}
+                    </Text>
+                    <Text style={{ fontSize: 12, color: isDark ? '#d4d4d8' : '#4b5563', marginTop: 6 }} numberOfLines={1}>
+                      {alg.description}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    hitSlop={10}
+                    onPress={() => setDetailAlg(alg)}
+                    style={{ padding: 6, marginHorizontal: 4 }}
+                  >
+                    <InfoIcon size={18} color={muted} />
+                  </TouchableOpacity>
+                  {isSelected && (
+                    <Ionicons name="checkmark" size={18} color={isDark ? '#C4B5FD' : '#4C1D95'} />
+                  )}
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {detailAlg && (
+          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: bg, zIndex: 50 }]}> 
+            <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: insets.top + 10, paddingHorizontal: 20, paddingBottom: 12 }}>
+              <TouchableOpacity onPress={() => setDetailAlg(null)} hitSlop={12} style={{ marginRight: 12 }}>
+                <Ionicons name="chevron-back" size={22} color={muted} />
+              </TouchableOpacity>
+              <Text style={{ fontSize: 18, fontFamily: 'Roobert-SemiBold', color: isDark ? '#F8F8F8' : '#121215' }}>
+                {detailAlg.label}
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  onSelect(detailAlg.id);
+                  setDetailAlg(null);
+                  onClose();
+                }}
+                style={{ marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                hitSlop={10}
+              >
+                <Text style={{ color: isDark ? '#c4b5fd' : '#4c1d95', fontFamily: 'Roobert-Medium', fontSize: 13 }}>
+                  Use
+                </Text>
+                <Ionicons name="checkmark" size={18} color={isDark ? '#c4b5fd' : '#4c1d95'} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 32 }}
+              showsVerticalScrollIndicator={false}
+            >
+              <Text style={{ color: muted, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+                Role
+              </Text>
+              <Text style={{ fontSize: 14, marginBottom: 16, color: isDark ? '#F8F8F8' : '#121215' }}>
+                {detailAlg.role}
+              </Text>
+
+              <Text style={{ color: muted, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+                Description
+              </Text>
+              <Text style={{ fontSize: 14, color: isDark ? '#d4d4d8' : '#374151', marginBottom: 16 }}>
+                {detailAlg.description}
+              </Text>
+
+              <Text style={{ color: muted, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+                Best for
+              </Text>
+              <Text style={{ fontSize: 14, color: isDark ? '#d4d4d8' : '#374151', marginBottom: 16 }}>
+                {detailAlg.bestFor}
+              </Text>
+
+              <View style={{ flexDirection: 'row', marginTop: 4 }}>
+                <View style={{ flex: 1, marginRight: 12 }}>
+                  <Text style={{ color: muted, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+                    Strengths
+                  </Text>
+                  {detailAlg.strengths.map((s, idx) => (
+                    <Text key={idx} style={{ fontSize: 13, color: isDark ? '#bbf7d0' : '#166534', marginBottom: 6 }}>
+                      • {s}
+                    </Text>
+                  ))}
+                </View>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={{ color: muted, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+                    Weaknesses
+                  </Text>
+                  {detailAlg.weaknesses.map((s, idx) => (
+                    <Text key={idx} style={{ fontSize: 13, color: isDark ? '#fed7aa' : '#9a3412', marginBottom: 6 }}>
+                      • {s}
+                    </Text>
+                  ))}
+                </View>
+              </View>
+
+              <Text style={{ color: muted, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, marginTop: 20, marginBottom: 8 }}>
+                How it works
+              </Text>
+              <Text style={{ fontSize: 13, lineHeight: 20, color: isDark ? '#e4e4e7' : '#1f2937' }}>
+                {detailAlg.howItWorks}
+              </Text>
+            </ScrollView>
+          </View>
+        )}
+      </View>
+    </Modal>
   );
 }
 
@@ -653,10 +1165,6 @@ function SlashCommandSuggestions({
     </View>
   );
 }
-
-// ─── Config Sheet ────────────────────────────────────────────────────────────
-
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type ConfigTab = 'agent' | 'model' | 'thinking';
 
