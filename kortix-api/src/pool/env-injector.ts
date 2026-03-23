@@ -19,12 +19,18 @@ function buildHeaders(metadata: Record<string, unknown>): Record<string, string>
 }
 
 function buildEnvPayload(serviceKey: string): Record<string, string> {
+  const sandboxApiBase = config.KORTIX_URL.replace(/\/v1\/router\/?$/, '');
+  const routerBase = `${sandboxApiBase}/v1/router`;
   return {
-    KORTIX_API_URL: config.KORTIX_URL.replace(/\/v1\/router\/?$/, ''),
+    KORTIX_API_URL: sandboxApiBase,
     ENV_MODE: 'cloud',
     INTERNAL_SERVICE_KEY: serviceKey,
     KORTIX_TOKEN: serviceKey,
     KORTIX_SANDBOX_VERSION: SANDBOX_VERSION,
+    // Route tool SDK traffic through the Kortix router proxy for billing/key injection.
+    TAVILY_API_URL: `${routerBase}/tavily`,
+    REPLICATE_API_URL: `${routerBase}/replicate`,
+    SERPER_API_URL: `${routerBase}/serper`,
   };
 }
 
