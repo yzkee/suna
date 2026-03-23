@@ -30,6 +30,7 @@ import { ensureSchema } from './ensure-schema';
 import { initModelPricing, stopModelPricing } from './router/config/model-pricing';
 import { tunnelApp, wsHandlers as tunnelWsHandlers, startTunnelService, stopTunnelService, getTunnelServiceStatus } from './tunnel';
 import { startSandboxHealthMonitor, stopSandboxHealthMonitor } from './platform/services/sandbox-health';
+import { startAutoReplenish, stopAutoReplenish } from './pool';
 import { accessControlApp } from './access-control';
 import { startAccessControlCache, stopAccessControlCache } from './shared/access-control-cache';
 import { legacyApp } from './legacy';
@@ -528,10 +529,8 @@ ensureSchema()
     startChannelService();
     startDrainer();
     startTunnelService();
+    startAutoReplenish();
 
-    // If local_docker is enabled and we have a DB, ensure the sandbox is registered
-    // and start the health monitor for self-healing connectivity.
-    // Must run AFTER schema push so the sandboxes table exists.
     if (config.isLocalDockerEnabled() && config.DATABASE_URL) {
       ensureLocalSandboxRegistered().catch((err) =>
         console.error('[startup] Failed to register local sandbox:', err),
@@ -541,13 +540,13 @@ ensureSchema()
   })
   .catch(async (err) => {
     console.error('[startup] ensureSchema failed, starting services anyway:', err);
-    schemaReady = true; // Tables may already exist — allow requests through
+    schemaReady = true;
     startAccessControlCache();
     startChannelService();
     startDrainer();
     startTunnelService();
+    startAutoReplenish();
 
-    // Still try to register sandbox even if schema push fails — the table may already exist
     if (config.isLocalDockerEnabled() && config.DATABASE_URL) {
       ensureLocalSandboxRegistered().catch((e) =>
         console.error('[startup] Failed to register local sandbox:', e),
@@ -564,6 +563,7 @@ function shutdown(signal: string) {
   stopModelPricing();
   stopTunnelService();
   stopSandboxHealthMonitor();
+  stopAutoReplenish();
   stopAccessControlCache();
   process.exit(0);
 }

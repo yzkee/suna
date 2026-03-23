@@ -141,6 +141,10 @@ const envSchema = z.object({
   JUSTAVPS_WEBHOOK_SECRET:            optStr,   // HMAC secret for verifying JustAVPS webhook signatures
   JUSTAVPS_WEBHOOK_URL:               optStr,   // URL where JustAVPS should send webhook events (e.g. https://api.kortix.com/v1/platform/webhooks/justavps)
 
+  // ── Sandbox Pool (optional — pre-provision sandboxes for instant claiming) ──
+  POOL_ENABLED:                optBoolFalse,
+  POOL_MAX_AGE_HOURS:          optInt(24),
+
   // ── Sandbox Platform (optional) ──────────────────────────────────────────
   KORTIX_URL:                  optStr,
   ALLOWED_SANDBOX_PROVIDERS:   optStrDefault('local_docker'),
@@ -414,6 +418,10 @@ export const config = {
   JUSTAVPS_WEBHOOK_SECRET: env.JUSTAVPS_WEBHOOK_SECRET,
   JUSTAVPS_WEBHOOK_URL: env.JUSTAVPS_WEBHOOK_URL,
 
+  // ─── Sandbox Pool ─────────────────────────────────────────────────────────
+  POOL_ENABLED: env.POOL_ENABLED,
+  POOL_MAX_AGE_HOURS: env.POOL_MAX_AGE_HOURS,
+
   // ─── Sandbox Provisioning (Platform) ──────────────────────────────────────
   KORTIX_URL: env.KORTIX_URL,
   ALLOWED_SANDBOX_PROVIDERS: allowedProviders,
@@ -536,6 +544,10 @@ export const config = {
 
   isJustAVPSEnabled(): boolean {
     return this.ALLOWED_SANDBOX_PROVIDERS.includes('justavps') && !!this.JUSTAVPS_API_KEY;
+  },
+
+  isPoolEnabled(): boolean {
+    return this.POOL_ENABLED;
   },
 
   /** The first provider in ALLOWED_SANDBOX_PROVIDERS is the default. */

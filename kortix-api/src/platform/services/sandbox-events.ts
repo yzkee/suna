@@ -66,6 +66,11 @@ class SandboxEventBus {
       return;
     }
 
+    // Route to pool_sandboxes first — if it's a pool machine, handle there
+    const pool = await import('../../pool');
+    const handled = await pool.handleWebhook(externalId, data.stage, data.status);
+    if (handled) return;
+
     let sandbox: typeof sandboxes.$inferSelect | undefined;
     for (let attempt = 0; attempt < 5; attempt++) {
       const [row] = await db

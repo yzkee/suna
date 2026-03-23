@@ -378,6 +378,39 @@ export function createCloudSandboxRouter(
         type: 'sandbox',
       });
 
+      // ── Try pool claim first ──────────────────────────────────────────
+      if (config.isPoolEnabled()) {
+        try {
+          const poolMod = await import('../../pool');
+          const claimed = await poolMod.grab({
+            serverType: requestedOrDefaultServerType,
+            location: requestedOrDefaultLocation,
+          });
+          if (claimed) {
+            await db
+              .update(sandboxes)
+              .set({
+                externalId: claimed.externalId,
+                status: 'active',
+                baseUrl: claimed.baseUrl,
+                config: { serviceKey: sandboxKey.secretKey },
+                metadata: claimed.metadata,
+                updatedAt: new Date(),
+              })
+              .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
+
+            console.log(`[PLATFORM] Claiming from pool — injecting env into ${claimed.baseUrl}`);
+            await poolMod.injectEnv(claimed, sandboxKey.secretKey);
+            console.log(`[PLATFORM] Pool claim complete for ${sandbox.sandboxId} (external: ${claimed.externalId})`);
+
+            const [updated] = await db.select().from(sandboxes).where(eq(sandboxes.sandboxId, sandbox.sandboxId));
+            return c.json({ success: true, data: serializeSandbox(updated) }, 201);
+          }
+        } catch (poolErr) {
+          console.warn('[PLATFORM] Pool claim failed, falling back to regular provisioning:', poolErr);
+        }
+      }
+
       const providerCreateInput = {
         accountId,
         userId,

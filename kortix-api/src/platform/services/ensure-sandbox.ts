@@ -9,6 +9,7 @@ import {
 } from '../providers';
 import { config } from '../../config';
 import { checkCredits } from '../../router/services/billing';
+import * as pool from '../../pool';
 
 export interface EnsureSandboxResult {
   row: typeof sandboxes.$inferSelect;
@@ -33,6 +34,9 @@ export async function ensureSandbox(opts: {
 
   const reactivated = await tryReactivateStaleSandbox(accountId);
   if (reactivated) return reactivated;
+
+  const claimed = await tryClaimFromPool(accountId, userId, opts.hetznerServerType, opts.hetznerLocation);
+  if (claimed) return claimed;
 
   await checkProviderCredits(providerName, accountId, opts.isIncluded);
 
@@ -82,6 +86,54 @@ async function tryReactivateStaleSandbox(accountId: string): Promise<EnsureSandb
     return { row: reactivated, created: false };
   } catch (err) {
     console.warn(`[ensureSandbox] Failed to reactivate ${stale.sandboxId}:`, err);
+    return null;
+  }
+}
+
+async function tryClaimFromPool(accountId: string, userId: string, serverType?: string, location?: string): Promise<EnsureSandboxResult | null> {
+  if (!config.isPoolEnabled()) return null;
+
+  try {
+    const claimed = await pool.grab({ serverType, location });
+    if (!claimed) return null;
+
+    const [sandbox] = await db
+      .insert(sandboxes)
+      .values({
+        accountId,
+        name: `sandbox-${accountId.slice(0, 8)}`,
+        provider: claimed.poolSandbox.provider as any,
+        externalId: claimed.externalId,
+        status: 'active',
+        baseUrl: claimed.baseUrl,
+        config: {},
+        metadata: claimed.metadata,
+        isIncluded: true,
+      })
+      .returning();
+
+    const sandboxKey = await createApiKey({
+      sandboxId: sandbox.sandboxId,
+      accountId,
+      title: 'Sandbox Token',
+      type: 'sandbox',
+    });
+
+    await db.update(sandboxes)
+      .set({ config: { serviceKey: sandboxKey.secretKey } })
+      .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
+
+    await pool.injectEnv(claimed, sandboxKey.secretKey);
+
+    console.log(`[ensureSandbox] Claimed from pool → sandbox ${sandbox.sandboxId} for account ${accountId}`);
+
+    pool.replenish().catch((err) => {
+      console.error('[ensureSandbox] Background pool replenishment failed:', err);
+    });
+
+    return { row: sandbox, created: true };
+  } catch (err) {
+    console.warn('[ensureSandbox] Pool claim failed, falling back to regular provisioning:', err);
     return null;
   }
 }
