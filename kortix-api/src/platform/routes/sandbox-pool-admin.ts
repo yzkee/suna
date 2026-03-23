@@ -84,7 +84,7 @@ sandboxPoolAdminApp.get('/stats', async (c) => {
     pool_hit_rate: 0,
     last_replenish_at: null,
     last_cleanup_at: null,
-    config: { min_size: totalDesired, max_size: config.POOL_MAX_SIZE, max_age_hours: config.POOL_MAX_AGE_HOURS },
+    config: { min_size: totalDesired, max_age_hours: config.POOL_MAX_AGE_HOURS },
   });
 });
 

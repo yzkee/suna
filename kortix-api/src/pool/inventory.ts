@@ -122,17 +122,15 @@ export async function destroyOne(ps: PoolSandbox): Promise<void> {
 }
 
 export async function findStale(): Promise<PoolSandbox[]> {
-  const maxAgeMs = (config.POOL_MAX_AGE_HOURS || 24) * 60 * 60 * 1000;
-  const cutoff = new Date(Date.now() - maxAgeMs);
-  const provisionTimeout = new Date(Date.now() - 15 * 60 * 1000);
+  const maxAgeHours = config.POOL_MAX_AGE_HOURS || 24;
 
   return db
     .select()
     .from(poolSandboxes)
     .where(
-      sql`${poolSandboxes.status} = 'error'
-        OR (${poolSandboxes.status} = 'ready' AND ${poolSandboxes.createdAt} < ${cutoff})
-        OR (${poolSandboxes.status} = 'provisioning' AND ${poolSandboxes.createdAt} < ${provisionTimeout})`,
+      sql.raw(`status = 'error'
+        OR (status = 'ready' AND created_at < NOW() - INTERVAL '${maxAgeHours} hours')
+        OR (status = 'provisioning' AND created_at < NOW() - INTERVAL '15 minutes')`),
     );
 }
 

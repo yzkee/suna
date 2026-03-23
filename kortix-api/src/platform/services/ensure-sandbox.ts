@@ -97,13 +97,6 @@ async function tryClaimFromPool(accountId: string, userId: string, serverType?: 
     const claimed = await pool.grab({ serverType, location });
     if (!claimed) return null;
 
-    const sandboxKey = await createApiKey({
-      sandboxId: claimed.poolSandbox.id,
-      accountId,
-      title: 'Sandbox Token',
-      type: 'sandbox',
-    });
-
     const [sandbox] = await db
       .insert(sandboxes)
       .values({
@@ -113,11 +106,22 @@ async function tryClaimFromPool(accountId: string, userId: string, serverType?: 
         externalId: claimed.externalId,
         status: 'active',
         baseUrl: claimed.baseUrl,
-        config: { serviceKey: sandboxKey.secretKey },
+        config: {},
         metadata: claimed.metadata,
         isIncluded: true,
       })
       .returning();
+
+    const sandboxKey = await createApiKey({
+      sandboxId: sandbox.sandboxId,
+      accountId,
+      title: 'Sandbox Token',
+      type: 'sandbox',
+    });
+
+    await db.update(sandboxes)
+      .set({ config: { serviceKey: sandboxKey.secretKey } })
+      .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
 
     await pool.injectEnv(claimed, sandboxKey.secretKey);
 
