@@ -1,5 +1,33 @@
 [
   {
+    "version": "0.8.17",
+    "date": "2026-03-23",
+    "title": "Replace old memory API with MEMORY.md suggestions and harden sandbox routes",
+    "description": "Removes the deprecated sandbox memory management API, adds personalized dashboard suggestions sourced from workspace MEMORY.md, hardens env/proxy behavior, and aligns the sandbox image with in-tree KORTIX-system skills.",
+    "changes": [
+      {
+        "type": "feature",
+        "text": "Add /sessions/suggestions in kortix-master so the dashboard can generate personalized prompts from /workspace/.kortix/MEMORY.md, with fallback defaults when no memory file exists"
+      },
+      {
+        "type": "fix",
+        "text": "Harden /env routes with safe JSON parsing and env-key validation so malformed requests return 400s instead of bubbling into 500s"
+      },
+      {
+        "type": "fix",
+        "text": "Improve proxy connection-refused handling by recognizing more refusal variants and returning a clearer 502 with a hint when nothing is listening on localhost:<port>"
+      },
+      {
+        "type": "improvement",
+        "text": "Stop wiring agent-tunnel as a special Dockerfile symlink and rely on recursive in-tree KORTIX-system skill discovery during sandbox image builds"
+      },
+      {
+        "type": "improvement",
+        "text": "Point the sandbox marketplace route at the new Pages registry endpoint and expand isolated kortix-master E2E fixtures for suggestions, proxy, env, persistence, and security coverage"
+      }
+    ]
+  },
+  {
     "version": "0.8.16",
     "date": "2026-03-21",
     "title": "Fix Telegram DM support, agent-tunnel skill, and file attachments",
