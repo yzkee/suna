@@ -250,14 +250,21 @@ export class JustAVPSProvider implements SandboxProvider {
     const location = opts.hetznerLocation || config.JUSTAVPS_DEFAULT_LOCATION;
 
     const serviceKey = opts.envVars?.KORTIX_TOKEN || '';
+    const apiBase = config.KORTIX_URL.replace(/\/v1\/router\/?$/, '');
+    const routerBase = `${apiBase}/v1/router`;
+
     const envVars: Record<string, string> = {
-      KORTIX_API_URL: config.KORTIX_URL.replace(/\/v1\/router\/?$/, ''),
+      KORTIX_API_URL: apiBase,
       ENV_MODE: 'cloud',
       INTERNAL_SERVICE_KEY: serviceKey,
       KORTIX_TOKEN: serviceKey,
       KORTIX_SANDBOX_VERSION: SANDBOX_VERSION,
       PUID: '1000',
       PGID: '1000',
+      // Route tool SDK traffic through the Kortix router proxy for billing/key injection.
+      TAVILY_API_URL: `${routerBase}/tavily`,
+      REPLICATE_API_URL: `${routerBase}/replicate`,
+      SERPER_API_URL: `${routerBase}/serper`,
       ...opts.envVars,
     };
 

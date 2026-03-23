@@ -48,16 +48,24 @@ export class DaytonaProvider implements SandboxProvider {
     // INTERNAL_SERVICE_KEY (api → sandbox) is the same value so the proxy can auth.
     const serviceKey = opts.envVars?.KORTIX_TOKEN || '';
 
+    // Strip /v1/router suffix — opencode.jsonc appends it already.
+    // KORTIX_URL may be "https://new-api.kortix.com/v1/router" but the
+    // sandbox expects the base: "https://new-api.kortix.com".
+    const sandboxApiBase = config.KORTIX_URL.replace(/\/v1\/router\/?$/, '');
+    const routerBase = `${sandboxApiBase}/v1/router`;
+
     const daytonaSandbox = await daytona.create(
       {
         snapshot,
         envVars: {
-          // Strip /v1/router suffix — opencode.jsonc appends it already.
-          // KORTIX_URL may be "https://new-api.kortix.com/v1/router" but the
-          // sandbox expects the base: "https://new-api.kortix.com".
-          KORTIX_API_URL: config.KORTIX_URL.replace(/\/v1\/router\/?$/, ''),
+          KORTIX_API_URL: sandboxApiBase,
           ENV_MODE: 'cloud',
           INTERNAL_SERVICE_KEY: serviceKey,
+          // Route tool SDK traffic through the Kortix router proxy for billing/key injection.
+          // If not set, sandbox tools fall back to hitting the real upstream APIs directly.
+          TAVILY_API_URL: `${routerBase}/tavily`,
+          REPLICATE_API_URL: `${routerBase}/replicate`,
+          SERPER_API_URL: `${routerBase}/serper`,
           ...opts.envVars,
         },
         autoStopInterval: 15,

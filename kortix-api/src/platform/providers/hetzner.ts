@@ -278,6 +278,8 @@ export class HetznerProvider implements SandboxProvider {
     // KORTIX_TOKEN: sandbox -> API auth
     // INTERNAL_SERVICE_KEY: API proxy -> sandbox auth
     const serviceKey = opts.envVars?.KORTIX_TOKEN || '';
+    const apiBase = config.KORTIX_URL.replace(/\/v1\/router\/?$/, '');
+    const routerBase = `${apiBase}/v1/router`;
 
     const serverName = `kortix-sandbox-${opts.accountId.slice(0, 8)}-${Date.now().toString(36)}`;
 
@@ -286,13 +288,17 @@ export class HetznerProvider implements SandboxProvider {
     // that reads /etc/kortix/env as --env-file. Cloud-init writes the env vars
     // there and starts the service.
     const envVars: Record<string, string> = {
-      KORTIX_API_URL: config.KORTIX_URL.replace(/\/v1\/router\/?$/, ''),
+      KORTIX_API_URL: apiBase,
       ENV_MODE: 'cloud',
       INTERNAL_SERVICE_KEY: serviceKey,
       KORTIX_TOKEN: serviceKey,
       // Pin the sandbox npm package version so startup.sh bootstraps the exact
       // version that matches this API deployment (not "latest" from npm registry).
       KORTIX_SANDBOX_VERSION: SANDBOX_VERSION,
+      // Route tool SDK traffic through the Kortix router proxy for billing/key injection.
+      TAVILY_API_URL: `${routerBase}/tavily`,
+      REPLICATE_API_URL: `${routerBase}/replicate`,
+      SERPER_API_URL: `${routerBase}/serper`,
       ...opts.envVars,
     };
 
