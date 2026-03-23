@@ -74,6 +74,7 @@ export function ThemePage({ visible, onClose }: ThemePageProps) {
   const saveThemePreference = async (preference: ThemePreference) => {
     try {
       await AsyncStorage.setItem(THEME_PREFERENCE_KEY, preference);
+      if (!isMountedRef.current) return;
       setThemePreference(preference);
     } catch {
     }
@@ -90,8 +91,9 @@ export function ThemePage({ visible, onClose }: ThemePageProps) {
     
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setIsTransitioning(true);
-    
+
     await saveThemePreference(preference);
+    if (!isMountedRef.current) return;
     setColorScheme(preference === 'system' ? 'system' : preference);
     
     if (transitionTimeoutRef.current) {
