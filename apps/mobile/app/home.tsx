@@ -245,7 +245,6 @@ export default function HomeScreen() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [pendingFilePath, setPendingFilePath] = useState<string | null>(null);
   const userMenuSheetRef = useRef<BottomSheetModal>(null);
-  const [sleepOverlayVisible, setSleepOverlayVisible] = useState(false);
   const [themePreference, setThemePreference] = useState<ThemePreference>('light');
 
   // Files page ref (for BottomBar menu integration)
@@ -521,16 +520,6 @@ export default function HomeScreen() {
     } catch {}
     setColorScheme(value === 'system' ? 'system' : value);
   }, [setColorScheme]);
-
-  const handleSleep = useCallback(() => {
-    closeUserMenuSheet();
-    setDrawerOpen(false);
-    setSleepOverlayVisible(true);
-  }, [closeUserMenuSheet]);
-
-  const handleWake = useCallback(() => {
-    setSleepOverlayVisible(false);
-  }, []);
 
   const handleUserMenuOpen = useCallback(() => {
     setDrawerOpen(false);
@@ -1073,55 +1062,11 @@ export default function HomeScreen() {
         onManageInstances={handleManageInstances}
         onAddInstance={handleAddInstance}
         onOpenSettings={handleGoToSettings}
-        onSleep={handleSleep}
         onSignOut={handleSignOut}
         onSelectTheme={handleThemeSelect}
         activeTheme={themePreference}
         isSigningOut={isSigningOut}
       />
-
-      {sleepOverlayVisible && (
-        <View
-          style={[
-            StyleSheet.absoluteFillObject,
-            {
-              backgroundColor: isDark ? 'rgba(5,5,12,0.95)' : 'rgba(248,248,255,0.96)',
-              alignItems: 'center',
-              justifyContent: 'center',
-              paddingHorizontal: 32,
-            },
-          ]}
-        >
-          <Text style={{ fontSize: 28, fontFamily: 'Roobert-SemiBold', color: isDark ? '#F8FAFC' : '#111827', marginBottom: 12 }}>
-            Resting…
-          </Text>
-          <Text
-            style={{
-              fontSize: 15,
-              color: isDark ? '#CBD5F5' : '#475569',
-              textAlign: 'center',
-              lineHeight: 22,
-            }}
-          >
-            Kortix is paused. Wake it to resume your sessions.
-          </Text>
-          <TouchableOpacity
-            onPress={handleWake}
-            activeOpacity={0.85}
-            style={{
-              marginTop: 28,
-              paddingHorizontal: 36,
-              paddingVertical: 14,
-              borderRadius: 999,
-              backgroundColor: isDark ? '#F8FAFC' : '#111827',
-            }}
-          >
-            <Text style={{ fontSize: 16, fontFamily: 'Roobert-SemiBold', color: isDark ? '#111827' : '#F8FAFC' }}>
-              Wake Up
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
 
       {/* Command Palette */}
       <CommandPalette

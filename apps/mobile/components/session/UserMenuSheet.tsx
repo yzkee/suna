@@ -1,7 +1,7 @@
 import React, { forwardRef, useMemo } from 'react';
 import { View, TouchableOpacity } from 'react-native';
 import { Text } from '@/components/ui/text';
-import { BottomSheetModal, BottomSheetBackdrop, BottomSheetView } from '@gorhom/bottom-sheet';
+import { BottomSheetModal, BottomSheetBackdrop, BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
 import { useColorScheme } from 'nativewind';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,7 +14,6 @@ interface UserMenuSheetProps {
   onManageInstances: () => void;
   onAddInstance: () => void;
   onOpenSettings: () => void;
-  onSleep: () => void;
   onSignOut: () => void;
   onSelectTheme: (value: ThemeOption) => void;
   activeTheme: ThemeOption;
@@ -28,7 +27,6 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
     onManageInstances,
     onAddInstance,
     onOpenSettings,
-    onSleep,
     onSignOut,
     onSelectTheme,
     activeTheme,
@@ -60,13 +58,16 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
     <BottomSheetModal
       ref={ref}
       index={0}
-      snapPoints={[420]}
+      snapPoints={['85%']}
       enablePanDownToClose
       handleIndicatorStyle={{ backgroundColor: isDark ? '#2F2F35' : '#D1D5DB', width: 36 }}
       backgroundStyle={{ backgroundColor: bgColor, borderRadius: 32 }}
       backdropComponent={renderBackdrop}
     >
-      <BottomSheetView style={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: 24 }}>
+      <BottomSheetScrollView
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: 24 }}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Instances section */}
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
           <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: muted, letterSpacing: 1 }}>
@@ -198,16 +199,6 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
           })}
         </View>
 
-        <TouchableOpacity
-          onPress={onSleep}
-          activeOpacity={0.7}
-          style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10 }}
-        >
-          <Ionicons name="moon-outline" size={20} color={fg} style={{ marginRight: 12 }} />
-          <Text style={{ fontSize: 15, color: fg, flex: 1 }}>Sleep</Text>
-          <Ionicons name="chevron-forward" size={16} color={muted} />
-        </TouchableOpacity>
-
         <View style={{ height: 1, backgroundColor: borderColor, marginVertical: 12 }} />
 
         <TouchableOpacity
@@ -227,7 +218,7 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
             {isSigningOut ? 'Signing out...' : 'Log Out'}
           </Text>
         </TouchableOpacity>
-      </BottomSheetView>
+      </BottomSheetScrollView>
     </BottomSheetModal>
   );
 });
