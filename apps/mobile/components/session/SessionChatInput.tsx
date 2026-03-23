@@ -850,8 +850,6 @@ function AutoContinueSheet({
     return preferred?.id ?? algorithms[0]?.id ?? null;
   }, [algorithms]);
 
-  if (algorithms.length === 0) return null;
-
   const muted = isDark ? '#a1a1aa' : '#71717a';
   const border = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)';
   const bg = isDark ? '#121215' : '#FFFFFF';
@@ -861,6 +859,8 @@ function AutoContinueSheet({
       setDetailAlg(null);
     }
   }, [visible]);
+
+  if (algorithms.length === 0) return null;
 
   return (
     <Modal

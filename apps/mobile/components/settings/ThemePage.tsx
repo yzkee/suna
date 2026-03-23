@@ -31,11 +31,16 @@ export function ThemePage({ visible, onClose }: ThemePageProps) {
   const [themePreference, setThemePreference] = React.useState<ThemePreference | null>(null);
   const [isTransitioning, setIsTransitioning] = React.useState(false);
   const isMountedRef = React.useRef(true);
+  const transitionTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
   React.useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      if (transitionTimeoutRef.current) {
+        clearTimeout(transitionTimeoutRef.current);
+        transitionTimeoutRef.current = null;
+      }
     };
   }, []);
 
@@ -69,6 +74,7 @@ export function ThemePage({ visible, onClose }: ThemePageProps) {
   const saveThemePreference = async (preference: ThemePreference) => {
     try {
       await AsyncStorage.setItem(THEME_PREFERENCE_KEY, preference);
+      if (!isMountedRef.current) return;
       setThemePreference(preference);
     } catch {
     }
@@ -85,12 +91,19 @@ export function ThemePage({ visible, onClose }: ThemePageProps) {
     
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setIsTransitioning(true);
-    
+
     await saveThemePreference(preference);
+    if (!isMountedRef.current) return;
     setColorScheme(preference === 'system' ? 'system' : preference);
     
-    setTimeout(() => {
-      setIsTransitioning(false);
+    if (transitionTimeoutRef.current) {
+      clearTimeout(transitionTimeoutRef.current);
+    }
+    transitionTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current) {
+        setIsTransitioning(false);
+      }
+      transitionTimeoutRef.current = null;
     }, 100);
   }, [themePreference, isTransitioning, setColorScheme]);
   

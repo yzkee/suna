@@ -1,7 +1,7 @@
-import React, { forwardRef, useMemo } from 'react';
-import { View, TouchableOpacity } from 'react-native';
+import React, { forwardRef, useMemo, useState } from 'react';
+import { View, TouchableOpacity, useWindowDimensions } from 'react-native';
 import { Text } from '@/components/ui/text';
-import { BottomSheetModal, BottomSheetBackdrop, BottomSheetView } from '@gorhom/bottom-sheet';
+import { BottomSheetModal, BottomSheetBackdrop, BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
 import { useColorScheme } from 'nativewind';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,7 +14,6 @@ interface UserMenuSheetProps {
   onManageInstances: () => void;
   onAddInstance: () => void;
   onOpenSettings: () => void;
-  onSleep: () => void;
   onSignOut: () => void;
   onSelectTheme: (value: ThemeOption) => void;
   activeTheme: ThemeOption;
@@ -28,7 +27,6 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
     onManageInstances,
     onAddInstance,
     onOpenSettings,
-    onSleep,
     onSignOut,
     onSelectTheme,
     activeTheme,
@@ -37,6 +35,7 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
   ref,
 ) {
   const { colorScheme } = useColorScheme();
+  const { height: screenHeight } = useWindowDimensions();
   const isDark = colorScheme === 'dark';
   const bgColor = isDark ? '#101014' : '#FFFFFF';
   const borderColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
@@ -56,17 +55,33 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
     <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} opacity={0.4} />
   );
 
+  const [contentHeight, setContentHeight] = useState(0);
+  const snapPoints = useMemo(() => {
+    const minHeight = 360;
+    const maxHeight = Math.floor(screenHeight * 0.86);
+    const target = contentHeight > 0 ? Math.ceil(contentHeight + 26) : 420;
+    return [Math.max(minHeight, Math.min(target, maxHeight))];
+  }, [contentHeight, screenHeight]);
+
   return (
     <BottomSheetModal
       ref={ref}
       index={0}
-      snapPoints={[420]}
+      snapPoints={snapPoints}
+      enableDynamicSizing={false}
+      enableOverDrag={false}
       enablePanDownToClose
       handleIndicatorStyle={{ backgroundColor: isDark ? '#2F2F35' : '#D1D5DB', width: 36 }}
       backgroundStyle={{ backgroundColor: bgColor, borderRadius: 32 }}
       backdropComponent={renderBackdrop}
     >
-      <BottomSheetView style={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: 24 }}>
+      <BottomSheetScrollView
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: 24 }}
+        showsVerticalScrollIndicator={false}
+        onContentSizeChange={(_, h) => {
+          setContentHeight((prev) => (Math.abs(prev - h) < 1 ? prev : h));
+        }}
+      >
         {/* Instances section */}
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
           <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: muted, letterSpacing: 1 }}>
@@ -198,16 +213,6 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
           })}
         </View>
 
-        <TouchableOpacity
-          onPress={onSleep}
-          activeOpacity={0.7}
-          style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10 }}
-        >
-          <Ionicons name="moon-outline" size={20} color={fg} style={{ marginRight: 12 }} />
-          <Text style={{ fontSize: 15, color: fg, flex: 1 }}>Sleep</Text>
-          <Ionicons name="chevron-forward" size={16} color={muted} />
-        </TouchableOpacity>
-
         <View style={{ height: 1, backgroundColor: borderColor, marginVertical: 12 }} />
 
         <TouchableOpacity
@@ -227,7 +232,7 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
             {isSigningOut ? 'Signing out...' : 'Log Out'}
           </Text>
         </TouchableOpacity>
-      </BottomSheetView>
+      </BottomSheetScrollView>
     </BottomSheetModal>
   );
 });
