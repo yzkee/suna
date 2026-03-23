@@ -355,7 +355,7 @@ const AnthropicAuthPlugin: Plugin = async (input) => {
             const result = await authorize("max")
             return {
               url: result.url,
-              instructions: "After Claude redirects to localhost, paste the full `http://localhost:.../callback?...` URL here: ",
+              instructions: "Open the link, sign in, then paste the redirect URL (starts with http://localhost) below",
               method: "code" as const,
               callback: async (code: string) => exchange(code, result.verifier, result.state, result.redirectURI),
             }
