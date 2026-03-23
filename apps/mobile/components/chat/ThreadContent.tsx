@@ -1487,11 +1487,7 @@ export const ThreadContent: React.FC<ThreadContentProps> = React.memo(
             return (
               <View key={group.key} className="mb-6">
                 {/* Reasoning section with integrated Kortix icon (like frontend) */}
-                {reasoningSectionElement && (
-                  <View className="mb-2">
-                    {reasoningSectionElement}
-                  </View>
-                )}
+                {reasoningSectionElement}
                 {/* Show agent header only when reasoning section is NOT displayed */}
                 {!reasoningSectionElement && (
                   <View className="mb-3 flex-row items-center">

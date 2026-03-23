@@ -3,8 +3,8 @@
  * Adapted from frontend design with React Native animations
  */
 
-import React, { useState, useRef, useEffect } from 'react';
-import { View, Pressable, LayoutAnimation, Platform, UIManager } from 'react-native';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { View, Pressable, LayoutAnimation, Platform, UIManager, TextStyle } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -19,9 +19,9 @@ import Animated, {
 import { ChevronDown } from 'lucide-react-native';
 import { Text } from '@/components/ui/text';
 import { Icon } from '@/components/ui/icon';
-import { KortixLogo } from '@/components/ui/KortixLogo';
 import { useColorScheme } from 'nativewind';
 import { SelectableMarkdownText } from '@/components/ui/selectable-markdown';
+import { cn } from '@/lib/utils/utils';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -41,6 +41,8 @@ interface ReasoningSectionProps {
   isExpanded?: boolean;
   /** Controlled mode: callback when expanded state changes */
   onExpandedChange?: (expanded: boolean) => void;
+  /** Visual density variant */
+  variant?: 'default' | 'compact';
 }
 
 export function ReasoningSection({
@@ -51,9 +53,23 @@ export function ReasoningSection({
   isPersistedContent = false,
   isExpanded: controlledExpanded,
   onExpandedChange,
+  variant = 'default',
 }: ReasoningSectionProps) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
+  const isCompact = variant === 'compact';
+  const contentStyle = useMemo<TextStyle>(() => ({
+    fontSize: isCompact ? 12 : 13,
+    lineHeight: isCompact ? 18 : 22,
+    color: isDark ? 'rgba(248,248,248,0.55)' : 'rgba(18,18,21,0.55)',
+    fontFamily: 'Roobert-Regular',
+  }), [isCompact, isDark]);
+  const placeholderStyle = useMemo<TextStyle>(() => ({
+    fontSize: isCompact ? 12 : 13,
+    lineHeight: isCompact ? 18 : 20,
+    color: isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)',
+    fontFamily: 'Roobert-Regular',
+  }), [isCompact, isDark]);
 
   // Support both controlled and uncontrolled modes - start collapsed by default
   const [internalExpanded, setInternalExpanded] = useState(false);
@@ -107,27 +123,6 @@ export function ReasoningSection({
     transform: [{ rotate: `${chevronRotation.value}deg` }],
   }));
 
-  // Logo pulse animation when reasoning is active
-  const logoPulse = useSharedValue(1);
-  useEffect(() => {
-    if (shouldShimmer) {
-      logoPulse.value = withRepeat(
-        withSequence(
-          withTiming(0.6, { duration: 800, easing: Easing.inOut(Easing.ease) }),
-          withTiming(1, { duration: 800, easing: Easing.inOut(Easing.ease) })
-        ),
-        -1,
-        false
-      );
-    } else {
-      logoPulse.value = withTiming(1, { duration: 200 });
-    }
-  }, [shouldShimmer]);
-
-  const logoAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: logoPulse.value,
-  }));
-
   // Text shimmer animation
   const textShimmer = useSharedValue(0);
   useEffect(() => {
@@ -160,26 +155,17 @@ export function ReasoningSection({
       entering={FadeIn.duration(150)}
       exiting={FadeOut.duration(150)}
       className="w-full"
+      style={{ marginBottom: isExpanded ? 4 : 0 }}
     >
       {/* Header row: Kortix logo + Toggle button */}
-      <View className="flex-row items-center gap-3">
-        {/* Kortix logo - pulses when reasoning is active */}
-        <Animated.View style={logoAnimatedStyle}>
-          <KortixLogo
-            size={14}
-            variant="logomark"
-            color={isDark ? 'dark' : 'light'}
-          />
-        </Animated.View>
-
-        {/* Show reasoning toggle button */}
+      <View className="flex-row items-center gap-1">
         <Pressable
           onPress={handleToggle}
-          className="flex-row items-center gap-1.5 py-1"
+          className="flex-row items-center gap-1 py-0.5"
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <Animated.View style={textShimmerStyle}>
-            <Text className="font-roobert-medium text-sm text-muted-foreground">
+            <Text className="font-roobert-medium text-[13px] text-muted-foreground/80">
               {isExpanded ? 'Hide Reasoning' : 'Show Reasoning'}
             </Text>
           </Animated.View>
@@ -198,18 +184,24 @@ export function ReasoningSection({
         <Animated.View
           entering={FadeIn.duration(200)}
           exiting={FadeOut.duration(150)}
-          className="mt-1.5 ml-2.5 pl-4"
+          className={cn('mt-1 pl-4', 'ml-0')}
           style={{
             borderLeftWidth: 2,
             borderLeftColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
           }}
         >
           {hasContent ? (
-            <SelectableMarkdownText isDark={isDark}>
+            <SelectableMarkdownText
+              isDark={isDark}
+              style={contentStyle}
+            >
               {displayContent}
             </SelectableMarkdownText>
           ) : (
-            <Text className="text-sm text-muted-foreground">
+            <Text
+              className="text-sm"
+              style={placeholderStyle}
+            >
               Waiting for reasoning content...
             </Text>
           )}
