@@ -153,13 +153,18 @@ envRouter.get('/',
   },
 )
 
+// Keys that require an OpenCode restart when changed (OpenCode reads these once at startup).
+const RESTART_TRIGGER_KEYS = new Set(['KORTIX_TOKEN', 'KORTIX_API_URL'])
+
 // POST /env — set multiple keys at once. { keys: { K: V, ... } }
-// Never restarts services — tools pick up new values via s6 env dir.
+// Most vars are picked up via s6 env dir without restart.
+// Core identity vars (KORTIX_TOKEN, KORTIX_API_URL) trigger an OpenCode restart
+// because OpenCode reads provider config once at startup and never re-reads env.
 envRouter.post('/',
   describeRoute({
     tags: ['Secrets'],
     summary: 'Set multiple secrets',
-    description: 'Bulk-set environment variables. Does NOT restart services — tools pick up values via s6 env dir instantly.',
+    description: 'Bulk-set environment variables. Core vars (KORTIX_TOKEN, KORTIX_API_URL) trigger an OpenCode restart; other vars are picked up via s6 env dir instantly.',
     responses: {
       200: { description: 'Keys updated', content: { 'application/json': { schema: resolver(SetBulkEnvResponse) } } },
       400: { description: 'Invalid body', content: { 'application/json': { schema: resolver(ErrorResponse) } } },
@@ -176,15 +181,24 @@ envRouter.post('/',
         return c.json({ error: 'Request body must contain a "keys" object' }, 400)
       }
       let updated = 0
+      let needsRestart = false
       for (const [key, value] of Object.entries(keys as Record<string, unknown>)) {
         if (typeof value !== 'string') continue
         await secretStore.setEnv(key, value)
         await writeS6Env(key, value)
         await syncSecretToAuth(key, value)  // sync provider keys → auth.json
         updateBootstrapKey(key, value)  // persist core vars for bootstrap recovery
+        if (RESTART_TRIGGER_KEYS.has(key)) needsRestart = true
         updated++
       }
-      return c.json({ ok: true, updated, restarted: false })
+      // Restart OpenCode if core identity vars changed so it picks up the new provider URL/token.
+      if (needsRestart) {
+        console.log('[ENV API] Core var changed — restarting OpenCode to pick up new config')
+        restartServices(['opencode']).catch(err =>
+          console.error('[ENV API] Failed to restart OpenCode after core var change:', err)
+        )
+      }
+      return c.json({ ok: true, updated, restarted: needsRestart })
     } catch (error) {
       console.error('[ENV API] Error setting bulk:', error)
       return c.json({ error: 'Failed to set environment variables' }, 500)
