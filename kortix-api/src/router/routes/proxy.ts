@@ -637,6 +637,21 @@ async function tryAuthenticate(c: any): Promise<AuthResult> {
     throw new HTTPException(401, { message: 'Invalid Kortix token' });
   }
 
+  // --- Mode 1a: Kortix token in Authorization: Token <token> (Replicate SDK) ---
+  // The Replicate SDK uses "Token " prefix instead of "Bearer ".
+  const tokenPrefixed = authHeader?.startsWith('Token ') ? authHeader.slice(6) : undefined;
+  if (tokenPrefixed && isKortixToken(tokenPrefixed) && config.DATABASE_URL) {
+    try {
+      const result = await validateSecretKey(tokenPrefixed);
+      if (result.isValid && result.accountId) {
+        return { isKortixUser: true, accountId: result.accountId };
+      }
+    } catch {
+      // Fall through to reject below
+    }
+    throw new HTTPException(401, { message: 'Invalid Kortix token' });
+  }
+
   // --- Mode 1b: Kortix token in x-api-key header (Anthropic SDK) ---
   // The Anthropic SDK sends the API key via x-api-key instead of Authorization.
   // If the value is a Kortix token, treat it as Mode 1 (Kortix-managed).
@@ -651,6 +666,30 @@ async function tryAuthenticate(c: any): Promise<AuthResult> {
       // Fall through to reject below
     }
     throw new HTTPException(401, { message: 'Invalid Kortix token in x-api-key' });
+  }
+
+  // --- Mode 1c: Kortix token in JSON body field (Tavily SDK) ---
+  // The Tavily SDK sends the API key in the JSON body as "api_key" instead of a header.
+  // Check the body for a Kortix token so sandbox tools can auth through the proxy.
+  if (config.DATABASE_URL && c.req.method === 'POST') {
+    try {
+      const cloned = c.req.raw.clone();
+      const bodyText = await cloned.text();
+      if (bodyText && bodyText.includes('kortix_')) {
+        const json = JSON.parse(bodyText);
+        const bodyApiKey = json?.api_key;
+        if (bodyApiKey && isKortixToken(bodyApiKey)) {
+          const result = await validateSecretKey(bodyApiKey);
+          if (result.isValid && result.accountId) {
+            return { isKortixUser: true, accountId: result.accountId };
+          }
+          throw new HTTPException(401, { message: 'Invalid Kortix token in request body' });
+        }
+      }
+    } catch (e) {
+      if (e instanceof HTTPException) throw e;
+      // Body wasn't JSON or didn't contain api_key — continue
+    }
   }
 
   // --- Mode 2: User's own key + Kortix token in X-Kortix-Token ---
