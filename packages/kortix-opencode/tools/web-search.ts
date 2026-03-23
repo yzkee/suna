@@ -77,10 +77,18 @@ export default tool({
       ),
   },
   async execute(args, _context) {
-    const apiKey = getEnv("TAVILY_API_KEY");
-    if (!apiKey) return "Error: TAVILY_API_KEY not set.";
+    const apiBaseURL = getEnv("TAVILY_API_URL");
+    // When routed through the Kortix proxy (TAVILY_API_URL is set), use KORTIX_TOKEN
+    // for auth — the proxy validates it and injects the real Tavily API key.
+    // When hitting the real Tavily API directly, use the user's own TAVILY_API_KEY.
+    const apiKey = apiBaseURL
+      ? getEnv("KORTIX_TOKEN")
+      : getEnv("TAVILY_API_KEY");
+    if (!apiKey) return apiBaseURL
+      ? "Error: KORTIX_TOKEN not set."
+      : "Error: TAVILY_API_KEY not set.";
 
-    const client = tavily({ apiKey });
+    const client = tavily({ apiKey, ...(apiBaseURL ? { apiBaseURL } : {}) });
     const maxResults = Math.max(1, Math.min(args.num_results ?? 5, 20));
     const topic = (args.topic as "general" | "news" | "finance") ?? "general";
 

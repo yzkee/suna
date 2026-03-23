@@ -2,7 +2,13 @@ import { tool } from "@opencode-ai/plugin";
 import Replicate from "replicate";
 import { getEnv } from "./lib/get-env";
 
-const SERPER_IMAGES_URL = "https://google.serper.dev/images";
+const SERPER_DEFAULT_URL = "https://google.serper.dev";
+
+function getSerperImagesUrl(): string {
+  const override = getEnv("SERPER_API_URL");
+  const base = override || SERPER_DEFAULT_URL;
+  return `${base.replace(/\/+$/, "")}/images`;
+}
 const MOONDREAM_MODEL =
   "lucataco/moondream2:72ccb656353c348c1385df54b237eeb7bfa874bf11486cf0b9473e691b662d31";
 const MOONDREAM_PROMPT =
@@ -82,10 +88,18 @@ async function describeImage(
 }
 
 async function enrichImages(images: EnrichedImage[]): Promise<EnrichedImage[]> {
-  const replicateToken = getEnv("REPLICATE_API_TOKEN");
+  const replicateBaseUrl = getEnv("REPLICATE_API_URL");
+  // When routed through the Kortix proxy (REPLICATE_API_URL is set), use KORTIX_TOKEN
+  // for auth — the proxy validates it and injects the real Replicate API token.
+  const replicateToken = replicateBaseUrl
+    ? getEnv("KORTIX_TOKEN")
+    : getEnv("REPLICATE_API_TOKEN");
   if (!replicateToken || images.length === 0) return images;
 
-  const replicate = new Replicate({ auth: replicateToken });
+  const replicate = new Replicate({
+    auth: replicateToken,
+    ...(replicateBaseUrl ? { baseUrl: replicateBaseUrl } : {}),
+  });
 
   return Promise.all(
     images.map(async (img) => {
@@ -124,8 +138,15 @@ export default tool({
       ),
   },
   async execute(args, _context) {
-    const apiKey = getEnv("SERPER_API_KEY");
-    if (!apiKey) return "Error: SERPER_API_KEY not set.";
+    const serperUrlOverride = getEnv("SERPER_API_URL");
+    // When routed through the Kortix proxy (SERPER_API_URL is set), use KORTIX_TOKEN
+    // for auth — the proxy validates it and injects the real Serper API key.
+    const apiKey = serperUrlOverride
+      ? getEnv("KORTIX_TOKEN")
+      : getEnv("SERPER_API_KEY");
+    if (!apiKey) return serperUrlOverride
+      ? "Error: KORTIX_TOKEN not set."
+      : "Error: SERPER_API_KEY not set.";
 
     const numResults = Math.max(1, Math.min(args.num_results ?? 12, 100));
     const shouldEnrich = args.enrich !== false;
@@ -142,7 +163,7 @@ export default tool({
 
     try {
       if (queries.length === 1) {
-        const res = await fetch(SERPER_IMAGES_URL, {
+        const res = await fetch(getSerperImagesUrl(), {
           method: "POST",
           headers,
           body: JSON.stringify({ q: queries[0], num: numResults }),
@@ -164,7 +185,7 @@ export default tool({
       }
 
       const payload = queries.map((q) => ({ q, num: numResults }));
-      const res = await fetch(SERPER_IMAGES_URL, {
+      const res = await fetch(getSerperImagesUrl(), {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
