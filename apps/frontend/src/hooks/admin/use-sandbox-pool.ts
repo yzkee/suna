@@ -165,9 +165,9 @@ export const useSandboxPoolReplenish = () => {
 export const useSandboxPoolForceCreate = () => {
   const queryClient = useQueryClient();
 
-  return useMutation<ForceCreateResponse, Error, number>({
-    mutationFn: async (count: number) => {
-      const response = await backendApi.post<ForceCreateResponse>('/admin/sandbox-pool/force-create', { count });
+  return useMutation<ForceCreateResponse, Error, { count: number; resource_id?: string }>({
+    mutationFn: async ({ count, resource_id }) => {
+      const response = await backendApi.post<ForceCreateResponse>('/admin/sandbox-pool/force-create', { count, resource_id });
       if (response.error) throw response.error;
       return response.data!;
     },

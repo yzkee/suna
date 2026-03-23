@@ -360,18 +360,14 @@ function PoolTab() {
     (async () => {
       for (const [serverType, count] of entries) {
         try {
-          await createResourceMutation.mutateAsync({
+          const res = await createResourceMutation.mutateAsync({
             provider: 'justavps',
             server_type: serverType,
             location,
             desired_count: count,
           });
-        } catch {
-          // Resource might already exist
-        }
 
-        try {
-          await forceCreateMutation.mutateAsync(count);
+          await forceCreateMutation.mutateAsync({ count, resource_id: res.resource.id });
         } catch (err) {
           toast.error(`Failed to create ${serverType} sandboxes`);
         }
@@ -452,10 +448,10 @@ function PoolTab() {
 
       {/* Replenish Dialog */}
       <Dialog open={replenishOpen} onOpenChange={(open) => { setReplenishOpen(open); if (!open) setQuantities({}); }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-lg max-w-lg">
           <DialogHeader>
             <DialogTitle>Add to Pool</DialogTitle>
-            <DialogDescription>Choose machine sizes and quantities to pre-provision</DialogDescription>
+            <DialogDescription>Choose machine sizes to pre-provision</DialogDescription>
           </DialogHeader>
 
           {/* Region Toggle */}
