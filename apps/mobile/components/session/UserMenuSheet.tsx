@@ -1,5 +1,5 @@
-import React, { forwardRef, useMemo } from 'react';
-import { View, TouchableOpacity } from 'react-native';
+import React, { forwardRef, useMemo, useState } from 'react';
+import { View, TouchableOpacity, useWindowDimensions } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { BottomSheetModal, BottomSheetBackdrop, BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
@@ -35,6 +35,7 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
   ref,
 ) {
   const { colorScheme } = useColorScheme();
+  const { height: screenHeight } = useWindowDimensions();
   const isDark = colorScheme === 'dark';
   const bgColor = isDark ? '#101014' : '#FFFFFF';
   const borderColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
@@ -54,11 +55,21 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
     <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} opacity={0.4} />
   );
 
+  const [contentHeight, setContentHeight] = useState(0);
+  const snapPoints = useMemo(() => {
+    const minHeight = 360;
+    const maxHeight = Math.floor(screenHeight * 0.86);
+    const target = contentHeight > 0 ? Math.ceil(contentHeight + 26) : 420;
+    return [Math.max(minHeight, Math.min(target, maxHeight))];
+  }, [contentHeight, screenHeight]);
+
   return (
     <BottomSheetModal
       ref={ref}
       index={0}
-      snapPoints={['85%']}
+      snapPoints={snapPoints}
+      enableDynamicSizing={false}
+      enableOverDrag={false}
       enablePanDownToClose
       handleIndicatorStyle={{ backgroundColor: isDark ? '#2F2F35' : '#D1D5DB', width: 36 }}
       backgroundStyle={{ backgroundColor: bgColor, borderRadius: 32 }}
@@ -67,6 +78,9 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
       <BottomSheetScrollView
         contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: 24 }}
         showsVerticalScrollIndicator={false}
+        onContentSizeChange={(_, h) => {
+          setContentHeight((prev) => (Math.abs(prev - h) < 1 ? prev : h));
+        }}
       >
         {/* Instances section */}
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
