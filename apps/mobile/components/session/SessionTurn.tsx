@@ -11,6 +11,7 @@ import { useColorScheme } from 'nativewind';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { SelectableMarkdownText } from '@/components/ui/selectable-markdown';
+import { ReasoningSection } from '@/components/chat';
 import ReAnimated, {
   useSharedValue,
   useAnimatedStyle,
@@ -2199,17 +2200,15 @@ export function SessionTurn({
               const rp = part as ReasoningPart;
               if (!rp.text?.trim()) return null;
               return (
-                <View
+                <ReasoningSection
                   key={rp.id}
-                  className="rounded-lg px-3 py-2 mb-2 border-l-2 bg-muted/20 border-border/30"
-                >
-                  <Text
-                    className="text-xs italic text-muted-foreground/65"
-                    numberOfLines={3}
-                  >
-                    {rp.text}
-                  </Text>
-                </View>
+                  content={rp.text}
+                  isStreaming={working}
+                  isReasoningActive={working}
+                  isReasoningComplete={!working}
+                  isPersistedContent
+                  variant="compact"
+                />
               );
             }
             return null;
@@ -2217,7 +2216,7 @@ export function SessionTurn({
 
           {/* Working indicator */}
           {working && visibleParts.length === 0 && (
-            <View className="flex-row items-center py-2">
+            <View className="flex-row items-center py-1.5">
               <View className="h-2 w-2 rounded-full bg-foreground mr-2 animate-pulse" />
               <ShimmerStatusText text={statusText || 'Thinking...'} size="sm" />
             </View>
@@ -2225,7 +2224,7 @@ export function SessionTurn({
 
           {/* Working status when there are already parts */}
           {working && visibleParts.length > 0 && (
-            <View className="flex-row items-center mt-1 mb-1">
+            <View className="flex-row items-center mt-0.5 mb-1">
               <View className="h-1.5 w-1.5 rounded-full bg-foreground mr-1.5" />
               <ShimmerStatusText text={statusText || 'Working...'} size="xs" />
             </View>
@@ -2240,13 +2239,15 @@ export function SessionTurn({
 
           {/* Duration + Actions (when done) */}
           {!working && !!response && (
-            <TurnActions
-              response={response}
-              duration={duration}
-              costInfo={costInfo}
-              isDark={isDark}
-              onFork={lastAssistantMessageId ? () => onFork?.(lastAssistantMessageId) : undefined}
-            />
+            <View style={{ marginTop: -10 }}>
+              <TurnActions
+                response={response}
+                duration={duration}
+                costInfo={costInfo}
+                isDark={isDark}
+                onFork={lastAssistantMessageId ? () => onFork?.(lastAssistantMessageId) : undefined}
+              />
+            </View>
           )}
         </View>
       )}
@@ -2299,18 +2300,18 @@ function TurnActions({
         transform: [{
           translateY: fadeAnim.interpolate({
             inputRange: [0, 1],
-            outputRange: [6, 0],
+            outputRange: [1, 0],
           }),
         }],
         flexDirection: 'row',
         alignItems: 'center',
-        marginTop: 6,
+        marginTop: -2,
         gap: 2,
       }}
     >
       {/* Duration & cost */}
       {duration != null && duration > 0 && (
-        <Text className="text-xs text-muted-foreground/50 mr-2">
+              <Text className="text-xs text-muted-foreground/50 mr-2 mt-0.5">
           {formatDuration(duration)}
           {costInfo ? ` · ${formatCost(costInfo.cost)} · ${formatTokens(costInfo.tokens.input + costInfo.tokens.output)}t` : ''}
         </Text>

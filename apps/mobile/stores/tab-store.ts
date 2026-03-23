@@ -24,6 +24,7 @@ export interface PageTab {
 export const PAGE_TABS: Record<string, PageTab> = {
   'page:files':             { id: 'page:files',             label: 'Files',             icon: 'folder-open-outline' },
   'page:terminal':          { id: 'page:terminal',          label: 'Terminal',          icon: 'terminal-outline' },
+  'page:memory':            { id: 'page:memory',            label: 'Memory',            icon: 'hardware-chip-outline' },
   'page:marketplace':       { id: 'page:marketplace',       label: 'Marketplace',       icon: 'sparkles-outline' },
   'page:workspace':         { id: 'page:workspace',         label: 'Workspace',         icon: 'grid-outline' },
   'page:secrets':           { id: 'page:secrets',           label: 'Secrets Manager',   icon: 'key-outline' },
@@ -52,6 +53,8 @@ interface TabState {
   openTabIds: string[];
   /** List of open page tab IDs */
   openPageIds: string[];
+  /** Combined open tabs (sessions + pages) ordered by when they were opened */
+  openTabOrder: string[];
   /** Navigation history (session IDs, page IDs, and __dashboard__) */
   sessionHistory: string[];
   /** Current position in history */
@@ -75,6 +78,7 @@ export const useTabStore = create<TabState>()(
       activePageId: null,
       openTabIds: [],
       openPageIds: [],
+      openTabOrder: [],
       sessionHistory: [],
       historyIndex: -1,
       showTabsOverview: false,
@@ -105,12 +109,16 @@ export const useTabStore = create<TabState>()(
           const newOpenTabIds = state.openTabIds.includes(sessionId)
             ? state.openTabIds
             : [...state.openTabIds, sessionId];
+          const newOpenTabOrder = state.openTabOrder.includes(sessionId)
+            ? state.openTabOrder
+            : [...state.openTabOrder, sessionId];
 
           return {
             activeSessionId: sessionId,
             activePageId: null,
             showTabsOverview: false,
             openTabIds: newOpenTabIds,
+            openTabOrder: newOpenTabOrder,
             sessionHistory: nextHistory,
             historyIndex: nextIndex,
           };
@@ -122,6 +130,9 @@ export const useTabStore = create<TabState>()(
           const newOpenPageIds = state.openPageIds.includes(pageId)
             ? state.openPageIds
             : [...state.openPageIds, pageId];
+          const newOpenTabOrder = state.openTabOrder.includes(pageId)
+            ? state.openTabOrder
+            : [...state.openTabOrder, pageId];
 
           const currentEntry =
             state.historyIndex >= 0 ? state.sessionHistory[state.historyIndex] : undefined;
@@ -137,6 +148,7 @@ export const useTabStore = create<TabState>()(
             activePageId: pageId,
             showTabsOverview: false,
             openPageIds: newOpenPageIds,
+            openTabOrder: newOpenTabOrder,
             sessionHistory: nextHistory,
             historyIndex: nextIndex,
           };
@@ -145,11 +157,13 @@ export const useTabStore = create<TabState>()(
 
       closeTab: (tabId) => {
         set((state) => {
+          const nextOpenTabOrder = state.openTabOrder.filter((id) => id !== tabId);
           // Page tab
           if (tabId.startsWith('page:')) {
             return {
               openPageIds: state.openPageIds.filter((id) => id !== tabId),
               activePageId: state.activePageId === tabId ? null : state.activePageId,
+              openTabOrder: nextOpenTabOrder,
             };
           }
           // Session tab
@@ -157,6 +171,7 @@ export const useTabStore = create<TabState>()(
             openTabIds: state.openTabIds.filter((id) => id !== tabId),
             activeSessionId:
               state.activeSessionId === tabId ? null : state.activeSessionId,
+            openTabOrder: nextOpenTabOrder,
           };
         });
       },
@@ -167,6 +182,7 @@ export const useTabStore = create<TabState>()(
           openPageIds: [],
           activeSessionId: null,
           activePageId: null,
+          openTabOrder: [],
         });
       },
 
@@ -186,31 +202,39 @@ export const useTabStore = create<TabState>()(
         }
 
         if (entry?.startsWith('page:')) {
-          const { openPageIds } = get();
+          const { openPageIds, openTabOrder } = get();
           const nextOpenPageIds = openPageIds.includes(entry)
             ? openPageIds
             : [...openPageIds, entry];
+          const nextOpenTabOrder = openTabOrder.includes(entry)
+            ? openTabOrder
+            : [...openTabOrder, entry];
           set({
             historyIndex: newIndex,
             activeSessionId: null,
             activePageId: entry,
             openPageIds: nextOpenPageIds,
+            openTabOrder: nextOpenTabOrder,
           });
           return;
         }
 
         if (!entry) return;
 
-        const { openTabIds } = get();
+        const { openTabIds, openTabOrder } = get();
         const nextOpenTabIds = openTabIds.includes(entry)
           ? openTabIds
           : [...openTabIds, entry];
+        const nextOpenTabOrder = openTabOrder.includes(entry)
+          ? openTabOrder
+          : [...openTabOrder, entry];
 
         set({
           historyIndex: newIndex,
           activeSessionId: entry,
           activePageId: null,
           openTabIds: nextOpenTabIds,
+          openTabOrder: nextOpenTabOrder,
         });
       },
 
@@ -230,31 +254,39 @@ export const useTabStore = create<TabState>()(
         }
 
         if (entry?.startsWith('page:')) {
-          const { openPageIds } = get();
+          const { openPageIds, openTabOrder } = get();
           const nextOpenPageIds = openPageIds.includes(entry)
             ? openPageIds
             : [...openPageIds, entry];
+          const nextOpenTabOrder = openTabOrder.includes(entry)
+            ? openTabOrder
+            : [...openTabOrder, entry];
           set({
             historyIndex: newIndex,
             activeSessionId: null,
             activePageId: entry,
             openPageIds: nextOpenPageIds,
+            openTabOrder: nextOpenTabOrder,
           });
           return;
         }
 
         if (!entry) return;
 
-        const { openTabIds } = get();
+        const { openTabIds, openTabOrder } = get();
         const nextOpenTabIds = openTabIds.includes(entry)
           ? openTabIds
           : [...openTabIds, entry];
+        const nextOpenTabOrder = openTabOrder.includes(entry)
+          ? openTabOrder
+          : [...openTabOrder, entry];
 
         set({
           historyIndex: newIndex,
           activeSessionId: entry,
           activePageId: null,
           openTabIds: nextOpenTabIds,
+          openTabOrder: nextOpenTabOrder,
         });
       },
 
@@ -270,6 +302,7 @@ export const useTabStore = create<TabState>()(
         activePageId: state.activePageId,
         openTabIds: state.openTabIds,
         openPageIds: state.openPageIds,
+        openTabOrder: state.openTabOrder,
         sessionHistory: state.sessionHistory,
         historyIndex: state.historyIndex,
       }),
