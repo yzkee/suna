@@ -8,7 +8,7 @@
  * opening the overview), falling back to text previews or icons.
  */
 
-import React, { useCallback, useState, useRef } from 'react';
+import React, { useCallback, useMemo, useState, useRef } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -161,7 +161,33 @@ export function TabsOverview({
   // Combined tab list
   const openPageIds = useTabStore((s) => s.openPageIds);
   const activePageId = useTabStore((s) => s.activePageId);
-  const allTabIds = [...openTabIds, ...openPageIds];
+  const openTabOrder = useTabStore((s) => s.openTabOrder);
+  const allTabIds = useMemo(() => {
+    const openSet = new Set([...openTabIds, ...openPageIds]);
+    if (openSet.size === 0) return [] as string[];
+
+    const orderedIds: string[] = [];
+    const seen = new Set<string>();
+    for (const id of openTabOrder) {
+      if (openSet.has(id) && !seen.has(id)) {
+        orderedIds.push(id);
+        seen.add(id);
+      }
+    }
+
+    if (seen.size === openSet.size) {
+      return orderedIds;
+    }
+
+    for (const id of [...openTabIds, ...openPageIds]) {
+      if (!seen.has(id)) {
+        orderedIds.push(id);
+        seen.add(id);
+      }
+    }
+
+    return orderedIds;
+  }, [openTabIds, openPageIds, openTabOrder]);
   const totalCount = allTabIds.length;
 
   const cardWidth = (width - 48) / 2;
