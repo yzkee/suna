@@ -141,6 +141,16 @@ const envSchema = z.object({
   JUSTAVPS_WEBHOOK_SECRET:            optStr,   // HMAC secret for verifying JustAVPS webhook signatures
   JUSTAVPS_WEBHOOK_URL:               optStr,   // URL where JustAVPS should send webhook events (e.g. https://api.kortix.com/v1/platform/webhooks/justavps)
 
+  // ── Sandbox Pool (optional — pre-provision sandboxes for instant claiming) ──
+  POOL_ENABLED:                optBoolFalse,
+  POOL_ACCOUNT_ID:             optStr,    // system account that owns pooled sandboxes
+  POOL_MIN_SIZE:               optInt(2),
+  POOL_MAX_SIZE:               optInt(10),
+  POOL_MAX_AGE_HOURS:          optInt(24),
+  POOL_PROVIDER:               optStr,    // override default provider for pool (e.g. 'justavps')
+  POOL_SERVER_TYPE:            optStr,    // override server type for pool machines
+  POOL_LOCATION:               optStr,    // override location for pool machines
+
   // ── Sandbox Platform (optional) ──────────────────────────────────────────
   KORTIX_URL:                  optStr,
   ALLOWED_SANDBOX_PROVIDERS:   optStrDefault('local_docker'),
@@ -414,6 +424,16 @@ export const config = {
   JUSTAVPS_WEBHOOK_SECRET: env.JUSTAVPS_WEBHOOK_SECRET,
   JUSTAVPS_WEBHOOK_URL: env.JUSTAVPS_WEBHOOK_URL,
 
+  // ─── Sandbox Pool ─────────────────────────────────────────────────────────
+  POOL_ENABLED: env.POOL_ENABLED,
+  POOL_ACCOUNT_ID: env.POOL_ACCOUNT_ID,
+  POOL_MIN_SIZE: env.POOL_MIN_SIZE,
+  POOL_MAX_SIZE: env.POOL_MAX_SIZE,
+  POOL_MAX_AGE_HOURS: env.POOL_MAX_AGE_HOURS,
+  POOL_PROVIDER: env.POOL_PROVIDER,
+  POOL_SERVER_TYPE: env.POOL_SERVER_TYPE,
+  POOL_LOCATION: env.POOL_LOCATION,
+
   // ─── Sandbox Provisioning (Platform) ──────────────────────────────────────
   KORTIX_URL: env.KORTIX_URL,
   ALLOWED_SANDBOX_PROVIDERS: allowedProviders,
@@ -536,6 +556,14 @@ export const config = {
 
   isJustAVPSEnabled(): boolean {
     return this.ALLOWED_SANDBOX_PROVIDERS.includes('justavps') && !!this.JUSTAVPS_API_KEY;
+  },
+
+  isPoolEnabled(): boolean {
+    return this.POOL_ENABLED && !!this.POOL_ACCOUNT_ID;
+  },
+
+  getPoolProvider(): SandboxProviderName {
+    return (this.POOL_PROVIDER || this.getDefaultProvider()) as SandboxProviderName;
   },
 
   /** The first provider in ALLOWED_SANDBOX_PROVIDERS is the default. */

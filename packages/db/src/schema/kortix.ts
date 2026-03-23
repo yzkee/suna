@@ -164,6 +164,25 @@ export const sandboxes = kortixSchema.table(
   ],
 );
 
+// ─── Pool Resources ─────────────────────────────────────────────────────────
+
+export const poolResources = kortixSchema.table(
+  'pool_resources',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    provider: sandboxProviderEnum('provider').notNull(),
+    serverType: varchar('server_type', { length: 64 }).notNull(),
+    location: varchar('location', { length: 64 }).notNull(),
+    desiredCount: integer('desired_count').notNull().default(2),
+    enabled: boolean('enabled').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_pool_resources_unique').on(table.provider, table.serverType, table.location),
+  ],
+);
+
 export const deployments = kortixSchema.table(
   'deployments',
   {

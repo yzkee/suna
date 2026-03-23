@@ -80,6 +80,8 @@ export {
   platformSettings,
   accessAllowlist,
   accessRequests,
+  // Pool
+  poolResources,
 } from './schema/kortix';
 
 export type {

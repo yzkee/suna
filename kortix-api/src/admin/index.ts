@@ -26,12 +26,16 @@ import { requireAdmin } from '../middleware/require-admin';
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { execSync } from 'child_process';
+import { sandboxPoolAdminApp } from '../platform/routes/sandbox-pool-admin';
 
 export const adminApp = new Hono<AppEnv>();
 
 // ─── Auth ───────────────────────────────────────────────────────────────────
 // All admin routes require a valid Supabase JWT AND admin/super_admin role.
 adminApp.use('/*', supabaseAuth, requireAdmin);
+
+// ─── Pool Management ─────────────────────────────────────────────────────────
+adminApp.route('/sandbox-pool', sandboxPoolAdminApp);
 
 // ─── Helpers (reused from setup module) ─────────────────────────────────────
 

@@ -9,6 +9,7 @@ import {
 } from '../providers';
 import { config } from '../../config';
 import { checkCredits } from '../../router/services/billing';
+import { claimFromPool, replenishPool } from './sandbox-pool';
 
 export interface EnsureSandboxResult {
   row: typeof sandboxes.$inferSelect;
@@ -33,6 +34,9 @@ export async function ensureSandbox(opts: {
 
   const reactivated = await tryReactivateStaleSandbox(accountId);
   if (reactivated) return reactivated;
+
+  const claimed = await tryClaimFromPool(accountId, userId);
+  if (claimed) return claimed;
 
   await checkProviderCredits(providerName, accountId, opts.isIncluded);
 
@@ -82,6 +86,26 @@ async function tryReactivateStaleSandbox(accountId: string): Promise<EnsureSandb
     return { row: reactivated, created: false };
   } catch (err) {
     console.warn(`[ensureSandbox] Failed to reactivate ${stale.sandboxId}:`, err);
+    return null;
+  }
+}
+
+async function tryClaimFromPool(accountId: string, userId: string): Promise<EnsureSandboxResult | null> {
+  if (!config.isPoolEnabled()) return null;
+
+  try {
+    const result = await claimFromPool(accountId, userId);
+    if (!result) return null;
+
+    console.log(`[ensureSandbox] Claimed sandbox ${result.sandbox.sandboxId} from pool for account ${accountId}`);
+
+    replenishPool().catch((err) => {
+      console.error('[ensureSandbox] Background pool replenishment failed:', err);
+    });
+
+    return { row: result.sandbox, created: true };
+  } catch (err) {
+    console.warn('[ensureSandbox] Pool claim failed, falling back to regular provisioning:', err);
     return null;
   }
 }

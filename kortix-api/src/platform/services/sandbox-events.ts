@@ -135,16 +135,32 @@ class SandboxEventBus {
     // Status updates (services_ready, ready, error) — these don't race with stage updates
     if (data.stage === 'services_ready' || data.status === 'ready') {
       if (sandbox.status === 'provisioning') {
-        await db
-          .update(sandboxes)
-          .set({ status: 'active', updatedAt: new Date() } as any)
-          .where(
-            and(
-              eq(sandboxes.sandboxId, sandbox.sandboxId),
-              eq(sandboxes.status, 'provisioning'),
-            ),
-          );
-        console.log(`[SANDBOX-EVENTS] Sandbox ${sandbox.sandboxId} → active`);
+        const meta = (sandbox.metadata as Record<string, unknown>) ?? {};
+        const isPoolMachine = meta.poolIntent === true;
+
+        if (isPoolMachine) {
+          await db
+            .update(sandboxes)
+            .set({ status: 'pooled', pooledAt: new Date(), updatedAt: new Date() } as any)
+            .where(
+              and(
+                eq(sandboxes.sandboxId, sandbox.sandboxId),
+                eq(sandboxes.status, 'provisioning'),
+              ),
+            );
+          console.log(`[SANDBOX-EVENTS] Pool sandbox ${sandbox.sandboxId} → pooled`);
+        } else {
+          await db
+            .update(sandboxes)
+            .set({ status: 'active', updatedAt: new Date() } as any)
+            .where(
+              and(
+                eq(sandboxes.sandboxId, sandbox.sandboxId),
+                eq(sandboxes.status, 'provisioning'),
+              ),
+            );
+          console.log(`[SANDBOX-EVENTS] Sandbox ${sandbox.sandboxId} → active`);
+        }
       }
     }
 
