@@ -106,6 +106,79 @@ async function justavpsFetch<T = any>(
   return res.json() as Promise<T>;
 }
 
+// ─── Auto-resolve latest JustAVPS image ──────────────────────────────────────
+// Images follow the naming convention `kortix-computer-v{semver}`.
+// We query all images, filter to ready ones matching the prefix, and pick the
+// highest version. Result cached 5 min. JUSTAVPS_IMAGE_ID env var is an override.
+
+interface JustAVPSImage {
+  id: string;
+  name: string;
+  status: string;
+  created_at: string;
+}
+
+let cachedImageId: string | null = null;
+let cachedImageExpiry = 0;
+const IMAGE_CACHE_TTL_MS = 5 * 60 * 1000;
+const IMAGE_NAME_PREFIX = 'kortix-computer-v';
+
+function parseSemver(version: string): number[] {
+  return version.split('.').map(Number).filter((n) => !isNaN(n));
+}
+
+function compareSemver(a: number[], b: number[]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const av = a[i] ?? 0;
+    const bv = b[i] ?? 0;
+    if (av !== bv) return av - bv;
+  }
+  return 0;
+}
+
+async function resolveLatestImageId(): Promise<string | null> {
+  // Explicit override always wins
+  if (config.JUSTAVPS_IMAGE_ID) {
+    return config.JUSTAVPS_IMAGE_ID;
+  }
+
+  // Return cached value if still fresh
+  if (cachedImageId && Date.now() < cachedImageExpiry) {
+    return cachedImageId;
+  }
+
+  try {
+    const data = await justavpsFetch<{ images: JustAVPSImage[] }>('/images');
+    const candidates = (data.images || [])
+      .filter((img) => img.status === 'ready' && img.name.startsWith(IMAGE_NAME_PREFIX))
+      .map((img) => ({
+        id: img.id,
+        version: parseSemver(img.name.slice(IMAGE_NAME_PREFIX.length)),
+        name: img.name,
+      }))
+      .sort((a, b) => compareSemver(b.version, a.version)); // highest first
+
+    if (candidates.length > 0) {
+      cachedImageId = candidates[0].id;
+      cachedImageExpiry = Date.now() + IMAGE_CACHE_TTL_MS;
+      console.log(`[JUSTAVPS] Auto-resolved image: ${candidates[0].name} → ${cachedImageId}`);
+      return cachedImageId;
+    }
+
+    console.warn('[JUSTAVPS] No images matching kortix-computer-v* found; provisioning without image_id');
+    return null;
+  } catch (err) {
+    console.warn('[JUSTAVPS] Failed to resolve latest image, falling back to no image_id:', err);
+    return null;
+  }
+}
+
+/** Bust the cached image so the next create picks up a freshly built image. */
+export function invalidateImageCache(): void {
+  cachedImageId = null;
+  cachedImageExpiry = 0;
+}
+
 export interface ServerTypeWithPricing {
   name: string;
   description: string;
@@ -269,7 +342,7 @@ export class JustAVPSProvider implements SandboxProvider {
       docker_image: config.SANDBOX_IMAGE,
     };
 
-    const imageId = config.JUSTAVPS_IMAGE_ID;
+    const imageId = await resolveLatestImageId();
     if (imageId) {
       body.image_id = imageId;
     }

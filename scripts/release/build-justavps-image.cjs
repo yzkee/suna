@@ -283,19 +283,13 @@ async function main() {
       }
     }
 
-    writeEnvValue(API_ENV_PATH, 'JUSTAVPS_IMAGE_ID', readyImage.id)
-    ok(`Updated kortix-api/.env → JUSTAVPS_IMAGE_ID=${readyImage.id}`)
-
-    if (previousImageId && previousImageId !== readyImage.id) {
-      info(`Deleting previously configured image ${previousImageId}...`)
-      await deleteImageIfPresent(previousImageId)
-    }
-
     console.log('')
     console.log(`  ${G}${B}✓ JustAVPS image ready${X}`)
-    console.log(`  ${B}JustAVPS Image ID:${X} ${readyImage.id}`)
-    console.log(`  ${B}Provider Image ID:${X} ${readyImage.provider_image_id}`)
-    console.log(`  ${B}Note:${X} Restart any running kortix-api dev process to pick up the updated env.`)
+    console.log(`  ${B}Image Name:${X}      ${imageName}`)
+    console.log(`  ${B}JustAVPS ID:${X}     ${readyImage.id}`)
+    console.log(`  ${B}Provider ID:${X}     ${readyImage.provider_image_id}`)
+    console.log(`  ${B}Auto-resolve:${X}    The API will auto-pick this as the latest kortix-computer-v* image.`)
+    console.log(`  ${B}Override:${X}        Set JUSTAVPS_IMAGE_ID=${readyImage.id} to pin this version.`)
     console.log('')
   } finally {
     if (machineId) {

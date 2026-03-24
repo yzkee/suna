@@ -120,7 +120,7 @@ const envSchema = z.object({
   // ── JustAVPS — Sandbox provisioning via JustAVPS API (conditional: required if justavps provider enabled) ──
   JUSTAVPS_API_URL:                   optStrDefault('http://localhost:3001'),
   JUSTAVPS_API_KEY:                   optStr,
-  JUSTAVPS_IMAGE_ID:                  optStr,   // JustAVPS image UUID to boot from
+  JUSTAVPS_IMAGE_ID:                  optStr,   // Optional pin — if unset, auto-resolves latest kortix-computer-v* image from JustAVPS
   JUSTAVPS_DEFAULT_LOCATION:          optStrDefault('hel1'),
   JUSTAVPS_DEFAULT_SERVER_TYPE:       optStrDefault('cpx31'),
   JUSTAVPS_PROXY_DOMAIN:              optStrDefault('kortix.cloud'),  // CF Worker proxy domain ({slug}.kortix.cloud)
@@ -229,7 +229,7 @@ function validateEnv(): z.infer<typeof envSchema> {
   // ── Conditional: justavps → need JustAVPS keys ────────────────────────
   if (providers.includes('justavps')) {
     if (!raw.JUSTAVPS_API_KEY) issues.push({ var: 'JUSTAVPS_API_KEY', message: 'Required when ALLOWED_SANDBOX_PROVIDERS includes "justavps"', level: 'error' });
-    if (!raw.JUSTAVPS_IMAGE_ID) issues.push({ var: 'JUSTAVPS_IMAGE_ID', message: 'Optional — without it, provisioning uses docker_image directly (slower cold start)', level: 'warn' });
+    // JUSTAVPS_IMAGE_ID is optional — if unset, the provider auto-resolves the latest kortix-computer-v* image at runtime.
   }
 
   // ── Conditional: Pipedream integration → need credentials ──────────────
