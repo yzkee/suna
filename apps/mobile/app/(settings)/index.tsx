@@ -216,7 +216,7 @@ export default function SettingsScreen() {
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingBottom: insets.bottom + 28 }}
     >
-      <View className="px-5 pt-2 pb-2" style={{ gap: 16 }}>
+      <View className="px-5 pt-1 pb-2" style={{ gap: 18 }}>
         <SettingsGroup title="Preferences" rows={preferenceRows} />
         <SettingsGroup title="Account" rows={accountRows} />
         <SettingsGroup title="Advanced" rows={advancedRows} />
@@ -244,11 +244,11 @@ function SettingsGroup({ title, rows }: { title: string; rows: SettingsRow[] }) 
   if (visibleRows.length === 0) return null;
 
   return (
-    <View>
-      <Text className="mb-2 px-1 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
+    <View className="px-1">
+      <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
         {title}
       </Text>
-      <View className="overflow-hidden rounded-3xl border border-border/40 bg-card/70">
+      <View>
         {visibleRows.map((row, idx) => {
           const { key, ...rowProps } = row;
           return (
@@ -287,7 +287,7 @@ function SettingsItem({
     scale.value = withSpring(1, { damping: 16, stiffness: 420 });
   }, [scale]);
 
-  const iconTint = destructive ? 'text-destructive' : 'text-primary';
+  const iconTint = destructive ? 'text-destructive' : 'text-foreground/80';
   const titleTint = destructive ? 'text-destructive' : 'text-foreground';
 
   return (
@@ -298,13 +298,11 @@ function SettingsItem({
       style={animatedStyle}
       className="active:opacity-90"
     >
-      <View className="px-4 py-3">
+      <View className="py-3.5">
         <View className="flex-row items-center">
-          <View className={`h-10 w-10 items-center justify-center rounded-2xl ${destructive ? 'bg-destructive/10' : 'bg-primary/10'}`}>
-            <Icon as={icon} size={18} className={iconTint} strokeWidth={2.2} />
-          </View>
+          <Icon as={icon} size={18} className={iconTint} strokeWidth={2.2} />
 
-          <View className="ml-3 flex-1">
+          <View className="ml-4 flex-1">
             <View className="flex-row items-center">
               <Text className={`font-roobert-medium text-[15px] ${titleTint}`}>{label}</Text>
               {!!badge && (
@@ -320,7 +318,7 @@ function SettingsItem({
         </View>
       </View>
 
-      {!isLast && <View className="ml-16 h-px bg-border/30" />}
+      {!isLast && <View className="h-px bg-border/35" />}
     </AnimatedPressable>
   );
 }

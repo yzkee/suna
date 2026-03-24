@@ -554,8 +554,10 @@ export default function RootLayout() {
                                   <Stack.Screen
                                     name="(settings)"
                                     options={{
-                                      animation: 'slide_from_right',
+                                      animation: Platform.OS === 'ios' ? 'default' : 'slide_from_right',
                                       gestureEnabled: true,
+                                      fullScreenGestureEnabled: true,
+                                      presentation: 'card',
                                     }}
                                   />
                                   <Stack.Screen
