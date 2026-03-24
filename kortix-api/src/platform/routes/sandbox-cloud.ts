@@ -559,8 +559,13 @@ export function createCloudSandboxRouter(
       // ── Self-healing: if DB says provisioning but JustAVPS says ready, heal the row ──
       if (currentStatus === 'provisioning' && sandbox.externalId && sandbox.provider === 'justavps') {
         try {
-          const { justavpsFetch } = await import('../providers/justavps');
-          const machine = await justavpsFetch<{ status: string; provisioning_stage?: string; ip?: string }>(`/machines/${sandbox.externalId}`);
+          const baseUrl = config.JUSTAVPS_API_URL.replace(/\/$/, '');
+          const res = await fetch(`${baseUrl}/machines/${sandbox.externalId}`, {
+            headers: { 'Authorization': `Bearer ${config.JUSTAVPS_API_KEY}`, 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(10_000),
+          });
+          if (!res.ok) throw new Error(`JustAVPS ${res.status}`);
+          const machine = await res.json() as { status: string; provisioning_stage?: string; ip?: string };
           if (machine.status === 'ready') {
             // JustAVPS says ready but our DB missed the webhook — heal it
             const healedMeta = {
