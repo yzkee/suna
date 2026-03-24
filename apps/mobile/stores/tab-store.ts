@@ -61,6 +61,8 @@ interface TabState {
   historyIndex: number;
   /** Whether the tabs overview grid is shown (not persisted) */
   showTabsOverview: boolean;
+  /** Per-tab ephemeral UI state (scroll positions, view state, etc.) */
+  tabStateById: Record<string, Record<string, unknown>>;
 
   navigateToSession: (sessionId: string | null) => void;
   navigateToPage: (pageId: string) => void;
@@ -69,6 +71,8 @@ interface TabState {
   goBack: () => void;
   goForward: () => void;
   setShowTabsOverview: (show: boolean) => void;
+  setTabState: (tabId: string, patch: Record<string, unknown>) => void;
+  clearTabState: (tabId: string) => void;
 }
 
 export const useTabStore = create<TabState>()(
@@ -82,6 +86,7 @@ export const useTabStore = create<TabState>()(
       sessionHistory: [],
       historyIndex: -1,
       showTabsOverview: false,
+      tabStateById: {},
 
       navigateToSession: (sessionId) => {
         set((state) => {
@@ -158,12 +163,14 @@ export const useTabStore = create<TabState>()(
       closeTab: (tabId) => {
         set((state) => {
           const nextOpenTabOrder = state.openTabOrder.filter((id) => id !== tabId);
+          const { [tabId]: _removed, ...nextTabStateById } = state.tabStateById;
           // Page tab
           if (tabId.startsWith('page:')) {
             return {
               openPageIds: state.openPageIds.filter((id) => id !== tabId),
               activePageId: state.activePageId === tabId ? null : state.activePageId,
               openTabOrder: nextOpenTabOrder,
+              tabStateById: nextTabStateById,
             };
           }
           // Session tab
@@ -172,6 +179,7 @@ export const useTabStore = create<TabState>()(
             activeSessionId:
               state.activeSessionId === tabId ? null : state.activeSessionId,
             openTabOrder: nextOpenTabOrder,
+            tabStateById: nextTabStateById,
           };
         });
       },
@@ -183,6 +191,7 @@ export const useTabStore = create<TabState>()(
           activeSessionId: null,
           activePageId: null,
           openTabOrder: [],
+          tabStateById: {},
         });
       },
 
@@ -293,6 +302,25 @@ export const useTabStore = create<TabState>()(
       setShowTabsOverview: (show) => {
         set({ showTabsOverview: show });
       },
+
+      setTabState: (tabId, patch) => {
+        set((state) => ({
+          tabStateById: {
+            ...state.tabStateById,
+            [tabId]: {
+              ...(state.tabStateById[tabId] || {}),
+              ...patch,
+            },
+          },
+        }));
+      },
+
+      clearTabState: (tabId) => {
+        set((state) => {
+          const { [tabId]: _removed, ...rest } = state.tabStateById;
+          return { tabStateById: rest };
+        });
+      },
     }),
     {
       name: 'kortix-tab-state',
@@ -305,6 +333,7 @@ export const useTabStore = create<TabState>()(
         openTabOrder: state.openTabOrder,
         sessionHistory: state.sessionHistory,
         historyIndex: state.historyIndex,
+        tabStateById: state.tabStateById,
       }),
     },
   ),

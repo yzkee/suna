@@ -78,7 +78,7 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
       <BottomSheetScrollView
         contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: 24 }}
         showsVerticalScrollIndicator={false}
-        onContentSizeChange={(_, h) => {
+        onContentSizeChange={(_: number, h: number) => {
           setContentHeight((prev) => (Math.abs(prev - h) < 1 ? prev : h));
         }}
       >
