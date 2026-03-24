@@ -102,6 +102,7 @@ function InstanceCard({ sandbox, onClick }: { sandbox: SandboxInfo; onClick: () 
         {region && <span>{region.icon} {region.label}</span>}
         {!region && location && <span>{location}</span>}
         {serverType && <span className="font-mono">{serverType}</span>}
+        {sandbox.version && <span className="font-mono">v{sandbox.version}</span>}
       </div>
     </button>
   );
