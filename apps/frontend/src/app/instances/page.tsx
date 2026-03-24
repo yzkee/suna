@@ -104,6 +104,11 @@ function InstanceCard({ sandbox, onClick }: { sandbox: SandboxInfo; onClick: () 
             {serverType && (
               <span className="text-[11px] text-muted-foreground/50 font-mono">{serverType}</span>
             )}
+
+            {/* Version */}
+            {sandbox.version && (
+              <span className="text-[11px] text-muted-foreground/50 font-mono">v{sandbox.version}</span>
+            )}
           </div>
         </div>
 
