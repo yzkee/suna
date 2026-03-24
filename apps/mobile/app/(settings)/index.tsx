@@ -106,7 +106,7 @@ export default function SettingsScreen() {
       key: 'appearance',
       icon: Palette,
       label: 'Appearance',
-      description: 'Theme and language',
+      description: 'Color mode, wallpaper, and palette',
       onPress: () => go('/(settings)/appearance'),
     },
     {
