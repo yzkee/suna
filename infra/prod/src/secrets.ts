@@ -48,12 +48,6 @@ const SECRET_KEYS = [
   "FREESTYLE_API_URL",
   // Scheduler
   "CRON_TICK_SECRET",
-  // Slack
-  "SLACK_CLIENT_ID",
-  "SLACK_CLIENT_SECRET",
-  "SLACK_SIGNING_SECRET",
-  // Channels
-  "CHANNELS_CREDENTIAL_KEY",
   // Admin
   "KORTIX_ADMIN_API_KEY",
   // Internal

@@ -11,7 +11,6 @@ import { BillingError } from './errors';
 import { router } from './router';
 import { billingApp } from './billing';
 import { platformApp } from './platform';
-import { channelsApp, startChannelService, stopChannelService, getChannelServiceStatus } from './channels';
 import { daytonaProxyApp } from './daytona-proxy';
 import { getSandboxBaseUrl, proxyToSandbox } from './daytona-proxy/routes/local-preview';
 import { validateSecretKey } from './repositories/api-keys';
@@ -100,7 +99,6 @@ app.get('/health', (c) => {
     service: 'kortix-api',
     timestamp: new Date().toISOString(),
     env: config.ENV_MODE,
-    channels: getChannelServiceStatus(),
     tunnel: getTunnelServiceStatus(),
   });
 });
@@ -112,7 +110,6 @@ app.get('/v1/health', (c) => {
     service: 'kortix-api',
     timestamp: new Date().toISOString(),
     env: config.ENV_MODE,
-    channels: getChannelServiceStatus(),
     tunnel: getTunnelServiceStatus(),
   });
 });
@@ -247,7 +244,6 @@ if (config.KORTIX_DEPLOYMENTS_ENABLED) {
   app.route('/v1/deployments', deploymentsApp); // /v1/deployments/*
 }
 app.route('/v1/integrations', integrationsApp); // /v1/integrations/*
-app.route('/', channelsApp);                 // /v1/channels/*, /webhooks/*
 
 // Access control — public endpoints for signup gating
 app.route('/v1/access', accessControlApp); // /v1/access/signup-status, /v1/access/check-email, /v1/access/request-access
@@ -504,7 +500,6 @@ ${config.KORTIX_DEPLOYMENTS_ENABLED ? '║    /v1/deployments (deploy lifecycle)
 ║  Supabase:   ${config.SUPABASE_URL ? '✓ Configured'.padEnd(42) : '✗ NOT SET'.padEnd(42)}║
 ║  Stripe:     ${config.STRIPE_SECRET_KEY ? '✓ Configured'.padEnd(42) : '✗ NOT SET'.padEnd(42)}║
 ║  Billing:    ${(config.KORTIX_BILLING_INTERNAL_ENABLED ? 'ENABLED' : 'DISABLED').padEnd(42)}║
-║  Channels:   ${(config.CHANNELS_ENABLED ? 'ENABLED' : 'DISABLED').padEnd(42)}║
 ║  Tunnel:     ${(config.TUNNEL_ENABLED ? 'ENABLED' : 'DISABLED').padEnd(42)}║
 ║  Providers:  ${config.ALLOWED_SANDBOX_PROVIDERS.join(', ').padEnd(42)}║
 ╚═══════════════════════════════════════════════════════════╝
@@ -526,7 +521,6 @@ ensureSchema()
   .then(async () => {
     schemaReady = true;
     startAccessControlCache();
-    startChannelService();
     startDrainer();
     startTunnelService();
     startAutoReplenish();
@@ -542,7 +536,6 @@ ensureSchema()
     console.error('[startup] ensureSchema failed, starting services anyway:', err);
     schemaReady = true;
     startAccessControlCache();
-    startChannelService();
     startDrainer();
     startTunnelService();
     startAutoReplenish();
@@ -558,7 +551,6 @@ ensureSchema()
 // Graceful shutdown
 function shutdown(signal: string) {
   console.log(`\n[${signal}] Shutting down gracefully...`);
-  stopChannelService();
   stopDrainer();
   stopModelPricing();
   stopTunnelService();

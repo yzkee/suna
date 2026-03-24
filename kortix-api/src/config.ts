@@ -70,7 +70,6 @@ const envSchema = z.object({
 
   // ── Internal Deployment Controls (optional, safe defaults for self-hosted) ─
   INTERNAL_KORTIX_ENV:              z.enum(['dev', 'staging', 'prod']).optional().default('dev'),
-  KORTIX_ROUTER_INTERNAL_ENABLED:   optBoolFalse,  // NOTE: currently unused in codebase
   KORTIX_BILLING_INTERNAL_ENABLED:  optBoolFalse,  // NOTE: overridden by ENV_MODE=cloud below
   KORTIX_DEPLOYMENTS_ENABLED:       optBoolFalse,
 
@@ -105,14 +104,11 @@ const envSchema = z.object({
   GEMINI_API_KEY:              optStr,
   GROQ_API_URL:                optUrl('https://api.groq.com/openai/v1'),
   GROQ_API_KEY:                optStr,
-  AWS_BEARER_TOKEN_BEDROCK:    optStr,  // NOTE: currently unused outside config.ts
-
   // ── Billing — Stripe (optional, only for cloud billing) ──────────────────
   STRIPE_SECRET_KEY:           optStr,
   STRIPE_WEBHOOK_SECRET:       optStr,
 
   // ── Billing — RevenueCat (optional) ──────────────────────────────────────
-  REVENUECAT_API_KEY:          optStr,
   REVENUECAT_WEBHOOK_SECRET:   optStr,
 
   // ── Daytona — Sandbox provisioning (conditional: required if daytona provider enabled) ──
@@ -145,7 +141,8 @@ const envSchema = z.object({
   POOL_ENABLED:                optBoolFalse,
   POOL_MAX_AGE_HOURS:          optInt(24),
 
-  // ── Sandbox Platform (optional) ──────────────────────────────────────────
+  // ── Sandbox Platform ──────────────────────────────────────────────────────
+  // KORTIX_URL is auto-derived from PORT if not explicitly set (see validateEnv).
   KORTIX_URL:                  optStr,
   ALLOWED_SANDBOX_PROVIDERS:   optStrDefault('local_docker'),
   SANDBOX_IMAGE:               optStr,  // overridden below if empty
@@ -156,11 +153,6 @@ const envSchema = z.object({
 
   // ── Internal Service Key (auto-generated if missing — never fails) ───────
   INTERNAL_SERVICE_KEY:        optStr,
-
-  // ── Channels (optional) ──────────────────────────────────────────────────
-  CHANNELS_ENABLED:            optBoolTrue,
-  CHANNELS_PUBLIC_URL:         optStr,
-  CHANNELS_CREDENTIAL_KEY:     optStr,
 
   // ── Frontend (optional) ──────────────────────────────────────────────────
   FRONTEND_URL:                optUrl('http://localhost:3000'),
@@ -184,11 +176,6 @@ const envSchema = z.object({
   TUNNEL_RATE_LIMIT_WS_CONNECT:      optInt(5),
   TUNNEL_RATE_LIMIT_PERM_GRANT:      optInt(30),
   TUNNEL_MAX_WS_MESSAGE_SIZE:        optInt(5 * 1024 * 1024),
-
-  // ── Slack (optional) ─────────────────────────────────────────────────────
-  SLACK_CLIENT_ID:             optStr,
-  SLACK_CLIENT_SECRET:         optStr,
-  SLACK_SIGNING_SECRET:        optStr,
 
   // ── Version / GitHub (optional) ───────────────────────────────────────────
   SANDBOX_VERSION:             optStr,  // dev override: skip npm registry lookup for latest version
@@ -276,6 +263,25 @@ function validateEnv(): z.infer<typeof envSchema> {
     if (!raw.STRIPE_WEBHOOK_SECRET) issues.push({ var: 'STRIPE_WEBHOOK_SECRET', message: 'Required when billing is enabled (ENV_MODE=cloud)', level: 'error' });
   }
 
+  // ── Conditional: KORTIX_URL — required for sandbox routing ──────────────
+  // Used by every sandbox provider (local_docker, daytona, hetzner, justavps),
+  // channels webhook URL generation, pool env injection, and sandbox health.
+  // Auto-derive from PORT in local mode if not set — fatal in cloud mode.
+  if (!raw.KORTIX_URL) {
+    const envMode = (raw as any).ENV_MODE || 'local';
+    const port = (raw as any).PORT || '8008';
+    if (envMode === 'cloud') {
+      issues.push({ var: 'KORTIX_URL', message: 'Required in cloud mode — sandbox routing, channels webhooks, and health checks will break', level: 'error' });
+    } else {
+      // Auto-derive for local mode so it "just works"
+      const derived = `http://localhost:${port}/v1/router`;
+      process.env.KORTIX_URL = derived;
+      if (result.success) (result.data as any).KORTIX_URL = derived;
+      console.warn(`[config] KORTIX_URL not set — auto-derived: ${derived}`);
+      issues.push({ var: 'KORTIX_URL', message: `Not set — auto-derived to ${derived} (add to .env to silence this)`, level: 'warn' });
+    }
+  }
+
   // ── Warnings (non-fatal but worth knowing) ─────────────────────────────
   if (!raw.OPENROUTER_API_KEY) {
     issues.push({ var: 'OPENROUTER_API_KEY', message: 'Not set — primary LLM route will fail with silent 401 errors', level: 'warn' });
@@ -338,7 +344,6 @@ export const config = {
 
   // ─── Internal Deployment Controls ─────────────────────────────────────────
   INTERNAL_KORTIX_ENV: env.INTERNAL_KORTIX_ENV as InternalKortixEnv,
-  KORTIX_ROUTER_INTERNAL_ENABLED: env.KORTIX_ROUTER_INTERNAL_ENABLED,
   // Billing is enabled when ENV_MODE is 'cloud' — no separate env var needed.
   KORTIX_BILLING_INTERNAL_ENABLED: env.KORTIX_BILLING_INTERNAL_ENABLED || env.ENV_MODE === 'cloud',
   KORTIX_DEPLOYMENTS_ENABLED: env.KORTIX_DEPLOYMENTS_ENABLED,
@@ -384,14 +389,11 @@ export const config = {
   GEMINI_API_KEY: env.GEMINI_API_KEY,
   GROQ_API_URL: env.GROQ_API_URL,
   GROQ_API_KEY: env.GROQ_API_KEY,
-  AWS_BEARER_TOKEN_BEDROCK: env.AWS_BEARER_TOKEN_BEDROCK,
-
   // ─── Stripe (Billing) ─────────────────────────────────────────────────────
   STRIPE_SECRET_KEY: env.STRIPE_SECRET_KEY,
   STRIPE_WEBHOOK_SECRET: env.STRIPE_WEBHOOK_SECRET,
 
   // ─── RevenueCat (Billing) ─────────────────────────────────────────────────
-  REVENUECAT_API_KEY: env.REVENUECAT_API_KEY,
   REVENUECAT_WEBHOOK_SECRET: env.REVENUECAT_WEBHOOK_SECRET,
 
   // ─── Daytona (Sandbox provisioning + preview proxy) ───────────────────────
@@ -478,11 +480,6 @@ export const config = {
     return process.env.INTERNAL_SERVICE_KEY!;
   },
 
-  // ─── Channels ───────────────────────────────────────────────────────────────
-  CHANNELS_ENABLED: env.CHANNELS_ENABLED,
-  CHANNELS_PUBLIC_URL: env.CHANNELS_PUBLIC_URL,
-  CHANNELS_CREDENTIAL_KEY: env.CHANNELS_CREDENTIAL_KEY,
-
   // ─── Frontend ────────────────────────────────────────────────────────────
   FRONTEND_URL: env.FRONTEND_URL,
 
@@ -505,11 +502,6 @@ export const config = {
   TUNNEL_RATE_LIMIT_WS_CONNECT: env.TUNNEL_RATE_LIMIT_WS_CONNECT,
   TUNNEL_RATE_LIMIT_PERM_GRANT: env.TUNNEL_RATE_LIMIT_PERM_GRANT,
   TUNNEL_MAX_WS_MESSAGE_SIZE: env.TUNNEL_MAX_WS_MESSAGE_SIZE,
-
-  // ─── Slack (Platform App) ─────────────────────────────────────────────────
-  SLACK_CLIENT_ID: env.SLACK_CLIENT_ID,
-  SLACK_CLIENT_SECRET: env.SLACK_CLIENT_SECRET,
-  SLACK_SIGNING_SECRET: env.SLACK_SIGNING_SECRET,
 
   // ─── Version / GitHub ──────────────────────────────────────────────────────
   /** Dev override: force a specific sandbox version (skips release.json). */

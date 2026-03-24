@@ -49,23 +49,6 @@ export const deploymentSourceEnum = kortixSchema.enum('deployment_source', [
   'tar',
 ]);
 
-export const channelTypeEnum = kortixSchema.enum('channel_type', [
-  'telegram',
-  'slack',
-  'discord',
-  'whatsapp',
-  'teams',
-  'voice',
-  'email',
-  'sms',
-]);
-
-export const sessionStrategyEnum = kortixSchema.enum('session_strategy', [
-  'single',
-  'per-thread',
-  'per-user',
-  'per-message',
-]);
 
 export const apiKeyStatusEnum = kortixSchema.enum('api_key_status', [
   'active',
@@ -241,112 +224,7 @@ export const deployments = kortixSchema.table(
   ],
 );
 
-export const channelConfigs = kortixSchema.table(
-  'channel_configs',
-  {
-    channelConfigId: uuid('channel_config_id').defaultRandom().primaryKey(),
-    sandboxId: uuid('sandbox_id')
-      .references(() => sandboxes.sandboxId, { onDelete: 'set null' }),
-    accountId: uuid('account_id').notNull(),
-    channelType: channelTypeEnum('channel_type').notNull(),
-    name: varchar('name', { length: 255 }).notNull(),
-    enabled: boolean('enabled').default(true).notNull(),
-    platformConfig: jsonb('platform_config').default({}).$type<ChannelPlatformConfig>(),
-    sessionStrategy: sessionStrategyEnum('session_strategy').default('per-user').notNull(),
-    systemPrompt: text('system_prompt'),
-    agentName: varchar('agent_name', { length: 255 }),
-    metadata: jsonb('metadata').default({}).$type<Record<string, unknown>>(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('idx_channel_configs_sandbox').on(table.sandboxId),
-    index('idx_channel_configs_account').on(table.accountId),
-    index('idx_channel_configs_type').on(table.channelType),
-    index('idx_channel_configs_enabled').on(table.enabled),
-  ],
-);
 
-export const channelPlatformCredentials = kortixSchema.table(
-  'channel_platform_credentials',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    accountId: uuid('account_id').notNull(),
-    sandboxId: uuid('sandbox_id').references(() => sandboxes.sandboxId, { onDelete: 'set null' }),
-    channelType: channelTypeEnum('channel_type').notNull(),
-    credentials: jsonb('credentials').default({}).$type<Record<string, unknown>>(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('idx_channel_platform_creds_account').on(table.accountId),
-    index('idx_channel_platform_creds_sandbox').on(table.sandboxId),
-  ],
-);
-
-export const channelSessions = kortixSchema.table(
-  'channel_sessions',
-  {
-    channelSessionId: uuid('channel_session_id').defaultRandom().primaryKey(),
-    channelConfigId: uuid('channel_config_id')
-      .notNull()
-      .references(() => channelConfigs.channelConfigId, { onDelete: 'cascade' }),
-    strategyKey: varchar('strategy_key', { length: 512 }).notNull(),
-    sessionId: text('session_id').notNull(),
-    lastUsedAt: timestamp('last_used_at', { withTimezone: true }).defaultNow().notNull(),
-    metadata: jsonb('metadata').default({}).$type<Record<string, unknown>>(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('idx_channel_sessions_config').on(table.channelConfigId),
-    index('idx_channel_sessions_key').on(table.strategyKey),
-  ],
-);
-
-export const channelMessages = kortixSchema.table(
-  'channel_messages',
-  {
-    channelMessageId: uuid('channel_message_id').defaultRandom().primaryKey(),
-    channelConfigId: uuid('channel_config_id')
-      .notNull()
-      .references(() => channelConfigs.channelConfigId, { onDelete: 'cascade' }),
-    direction: varchar('direction', { length: 10 }).notNull(), // 'inbound' | 'outbound'
-    externalId: text('external_id'),
-    sessionId: text('session_id'),
-    chatType: varchar('chat_type', { length: 20 }), // 'dm' | 'group' | 'channel'
-    content: text('content'),
-    attachments: jsonb('attachments').default([]).$type<unknown[]>(),
-    platformUser: jsonb('platform_user').$type<ChannelPlatformUser>(),
-    metadata: jsonb('metadata').default({}).$type<Record<string, unknown>>(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('idx_channel_messages_config').on(table.channelConfigId),
-    index('idx_channel_messages_session').on(table.sessionId),
-    index('idx_channel_messages_created').on(table.createdAt),
-  ],
-);
-
-export const channelIdentityMap = kortixSchema.table(
-  'channel_identity_map',
-  {
-    channelIdentityId: uuid('channel_identity_id').defaultRandom().primaryKey(),
-    channelConfigId: uuid('channel_config_id')
-      .notNull()
-      .references(() => channelConfigs.channelConfigId, { onDelete: 'cascade' }),
-    platformUserId: text('platform_user_id').notNull(),
-    platformUserName: text('platform_user_name'),
-    kortixUserId: uuid('kortix_user_id'),
-    allowed: boolean('allowed').default(true).notNull(),
-    metadata: jsonb('metadata').default({}).$type<Record<string, unknown>>(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('idx_channel_identity_config').on(table.channelConfigId),
-    index('idx_channel_identity_platform_user').on(table.platformUserId),
-  ],
-);
 
 // ─── API Keys (sandbox-scoped) ──────────────────────────────────────────────
 
@@ -534,7 +412,6 @@ export const sandboxesRelations = relations(sandboxes, ({ one, many }) => ({
     references: [accounts.accountId],
   }),
   deployments: many(deployments),
-  channelConfigs: many(channelConfigs),
   apiKeys: many(kortixApiKeys),
   sandboxIntegrationLinks: many(sandboxIntegrations),
 }));
@@ -543,37 +420,6 @@ export const deploymentsRelations = relations(deployments, ({ one }) => ({
   sandbox: one(sandboxes, {
     fields: [deployments.sandboxId],
     references: [sandboxes.sandboxId],
-  }),
-}));
-
-export const channelConfigsRelations = relations(channelConfigs, ({ one, many }) => ({
-  sandbox: one(sandboxes, {
-    fields: [channelConfigs.sandboxId],
-    references: [sandboxes.sandboxId],
-  }),
-  sessions: many(channelSessions),
-  messages: many(channelMessages),
-  identities: many(channelIdentityMap),
-}));
-
-export const channelSessionsRelations = relations(channelSessions, ({ one }) => ({
-  channelConfig: one(channelConfigs, {
-    fields: [channelSessions.channelConfigId],
-    references: [channelConfigs.channelConfigId],
-  }),
-}));
-
-export const channelMessagesRelations = relations(channelMessages, ({ one }) => ({
-  channelConfig: one(channelConfigs, {
-    fields: [channelMessages.channelConfigId],
-    references: [channelConfigs.channelConfigId],
-  }),
-}));
-
-export const channelIdentityMapRelations = relations(channelIdentityMap, ({ one }) => ({
-  channelConfig: one(channelConfigs, {
-    fields: [channelIdentityMap.channelConfigId],
-    references: [channelConfigs.channelConfigId],
   }),
 }));
 
@@ -1027,32 +873,4 @@ export const accessRequests = kortixSchema.table(
   ],
 );
 
-// ─── WoA (Wisdom of Agents) ─────────────────────────────────────────────────
 
-export const woaPostTypeEnum = kortixSchema.enum('woa_post_type', [
-  'question',
-  'solution',
-  'me_too',
-  'update',
-]);
-
-export const woaPosts = kortixSchema.table(
-  'woa_posts',
-  {
-    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
-    hash: varchar('hash', { length: 8 }).notNull().unique(),
-    postType: woaPostTypeEnum('post_type').notNull(),
-    content: text('content').notNull(),
-    refs: text('refs').array().default([]).notNull(),
-    tags: text('tags').array().default([]).notNull(),
-    agentHash: varchar('agent_hash', { length: 16 }).notNull(),
-    context: jsonb('context').$type<Record<string, unknown>>(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('idx_woa_posts_refs').using('gin', table.refs),
-    index('idx_woa_posts_tags').using('gin', table.tags),
-    index('idx_woa_posts_created').on(table.createdAt),
-    index('idx_woa_posts_fts').using('gin', sql`to_tsvector('english', ${table.content})`),
-  ],
-);

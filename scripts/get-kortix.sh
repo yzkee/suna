@@ -210,7 +210,6 @@ POSTGRES_PASSWORD=""
 
 # Generated secrets
 CRON_SECRET=""
-CHANNELS_CREDENTIAL_KEY=""
 INTERNAL_SERVICE_KEY=""
 
 # Computed URLs
@@ -753,7 +752,6 @@ generate_secrets() {
   info "Generating security credentials..."
 
   CRON_SECRET=$(generate_password)
-  CHANNELS_CREDENTIAL_KEY=$(generate_token)
   INTERNAL_SERVICE_KEY=$(generate_token)
   API_KEY_SECRET=$(generate_token)
 
@@ -1281,8 +1279,6 @@ ${supabase_db_env}
       - SANDBOX_NETWORK=${SANDBOX_NETWORK}
       - INTERNAL_SERVICE_KEY=\${INTERNAL_SERVICE_KEY}
       - FRONTEND_URL=\${PUBLIC_URL}
-      - CHANNELS_PUBLIC_URL=\${API_PUBLIC_URL}
-      - CHANNELS_CREDENTIAL_KEY=\${CHANNELS_CREDENTIAL_KEY}
       - API_KEY_SECRET=\${API_KEY_SECRET}
       - CORS_ALLOWED_ORIGINS=\${PUBLIC_URL}
       - SANDBOX_IMAGE=\${SANDBOX_IMAGE}
@@ -1335,7 +1331,6 @@ POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 
 # ─── Security ────────────────────────────────────────────────────────────────
 INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY}
-CHANNELS_CREDENTIAL_KEY=${CHANNELS_CREDENTIAL_KEY}
 API_KEY_SECRET=${API_KEY_SECRET}
 
 # ─── Integrations (Pipedream) ────────────────────────────────────────────────

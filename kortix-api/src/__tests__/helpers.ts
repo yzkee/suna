@@ -15,7 +15,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
-import { createDb, type Database, sandboxes, deployments, channelConfigs, channelSessions, channelMessages, channelIdentityMap, kortixApiKeys } from '@kortix/db';
+import { createDb, type Database, sandboxes, deployments, kortixApiKeys } from '@kortix/db';
 import { BillingError } from '../errors';
 import type { AuthVariables } from '../types';
 
@@ -350,12 +350,6 @@ export function createTestApp(opts: TestAppOptions = {}) {
  */
 export async function cleanupTestData(): Promise<void> {
   const db = getTestDb();
-  // Channel tables (children of channelConfigs, which is child of sandboxes)
-  await db.delete(channelIdentityMap).execute();
-  await db.delete(channelMessages).execute();
-  await db.delete(channelSessions).execute();
-  await db.delete(channelConfigs).execute();
-  // Original tables
   await db.delete(kortixApiKeys).execute();
   await db.delete(deployments).execute();
   await db.delete(sandboxes).execute();
