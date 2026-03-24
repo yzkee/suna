@@ -15,7 +15,7 @@
       },
       {
         "type": "fix",
-        "text": "Add missing TAVILY_API_URL, REPLICATE_API_URL, and SERPER_API_URL to pool env injector for parity with Daytona/Hetzner/JustAVPS providers"
+        "text": "Add missing TAVILY_API_URL, REPLICATE_API_URL, and SERPER_API_URL to pool env injector for parity with all supported sandbox providers"
       },
       {
         "type": "feature",
@@ -39,7 +39,7 @@
       },
       {
         "type": "feature",
-        "text": "Inject tool proxy URLs into sandbox env vars during cloud sandbox creation on all providers (Daytona, JustAVPS, Hetzner)"
+        "text": "Inject tool proxy URLs into sandbox env vars during cloud sandbox creation on all supported providers (Daytona, JustAVPS)"
       }
     ]
   },
@@ -251,11 +251,11 @@
     "version": "0.8.8",
     "date": "2026-03-16",
     "title": "Fix sandbox startup — opencode DB ownership",
-    "description": "Fixes sandbox failing to start on fresh Hetzner snapshots due to opencode SQLite database directory ownership mismatch.",
+    "description": "Fixes sandbox failing to start on fresh cloud images due to opencode SQLite database directory ownership mismatch.",
     "changes": [
       {
         "type": "fix",
-        "text": "Sandbox startup now explicitly sets correct ownership on the opencode data directory before launching s6, preventing 'unable to open database file' errors on fresh Hetzner instances"
+        "text": "Sandbox startup now explicitly sets correct ownership on the opencode data directory before launching s6, preventing 'unable to open database file' errors on fresh cloud images"
       }
     ]
   },
@@ -343,7 +343,7 @@
       },
       {
         "type": "test",
-        "text": "Release verification is stronger with Hetzner snapshot support in ship, a consolidated tests/ layout, and expanded self-hosted Playwright and shell coverage"
+        "text": "Release verification is stronger with automated JustAVPS image seeding in ship, a consolidated tests/ layout, and expanded self-hosted Playwright and shell coverage"
       }
     ]
   },
@@ -659,7 +659,7 @@
       },
       {
         "type": "fix",
-        "text": "Hetzner snapshots now pull the exact release-tagged sandbox image instead of kortix/computer:latest"
+        "text": "Cloud images now pull the exact release-tagged sandbox image instead of kortix/computer:latest"
       }
     ]
   },
@@ -757,7 +757,7 @@
       },
       {
         "type": "fix",
-        "text": "Added retry handling for setup initialization on transient network and 502 errors during Hetzner provisioning"
+        "text": "Added retry handling for setup initialization on transient network and 502 errors during managed VPS provisioning"
       },
       {
         "type": "fix",

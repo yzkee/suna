@@ -22,7 +22,7 @@ daytonaProxyApp.use('/:sandboxId/:port', previewProxyAuth);
 // ── Provider cache ──────────────────────────────────────────────────────────
 // Cache sandbox provider lookups to avoid a DB query on every request.
 // Key: externalId, Value: { provider, expiresAt }
-type CachedProviderName = 'daytona' | 'local_docker' | 'hetzner' | 'justavps';
+type CachedProviderName = 'daytona' | 'local_docker' | 'justavps';
 interface ProviderCacheEntry {
   provider: CachedProviderName;
   baseUrl: string;
@@ -109,7 +109,7 @@ async function resolveProvider(externalId: string): Promise<{ provider: CachedPr
 // When only ONE provider is configured, skip the per-request DB lookup entirely
 // and route all requests to the appropriate handler (same behavior as before).
 
-const enabledCount = [config.isDaytonaEnabled(), config.isLocalDockerEnabled(), config.isHetznerEnabled(), config.isJustAVPSEnabled()].filter(Boolean).length;
+const enabledCount = [config.isDaytonaEnabled(), config.isLocalDockerEnabled(), config.isJustAVPSEnabled()].filter(Boolean).length;
 
 if (enabledCount === 1 && config.isDaytonaEnabled()) {
   // Cloud-only: all requests go to Daytona preview handler
@@ -151,50 +151,6 @@ if (enabledCount === 1 && config.isDaytonaEnabled()) {
   });
 
   daytonaProxyApp.route('/', localOnlyProxy);
-} else if (enabledCount === 1 && config.isHetznerEnabled()) {
-  // Hetzner-only: all requests go through local-preview proxy with base URL from DB
-  // (Hetzner sandboxes have unique IPs, so we still need DB lookup for the base URL)
-  const hetznerOnlyProxy = new Hono();
-
-  hetznerOnlyProxy.all('/:sandboxId/:port/*', async (c) => {
-    const sandboxId = c.req.param('sandboxId');
-    const port = parseInt(c.req.param('port'), 10);
-    if (isNaN(port) || port < 1 || port > 65535) {
-      return c.json({ error: `Invalid port: ${c.req.param('port')}` }, 400);
-    }
-
-    const resolved = await resolveProvider(sandboxId);
-    const baseUrl = resolved?.baseUrl?.replace(/\/$/, '') || '';
-    const serviceKey = resolved?.serviceKey || '';
-    if (!baseUrl) {
-      return c.json({ error: 'Sandbox not found' }, 404);
-    }
-
-    const fullPath = new URL(c.req.url).pathname;
-    const prefix = `/${sandboxId}/${port}`;
-    const idx = fullPath.indexOf(prefix);
-    const remainingPath = idx !== -1 ? fullPath.slice(idx + prefix.length) || '/' : '/';
-
-    const queryString = new URL(c.req.url).search;
-    const method = c.req.method;
-    let body: ArrayBuffer | undefined;
-    if (method !== 'GET' && method !== 'HEAD') {
-      body = await c.req.raw.arrayBuffer();
-    }
-
-    const acceptsSSE = (c.req.header('accept') || '').includes('text/event-stream');
-    const origin = c.req.header('Origin') || '';
-
-    return proxyToSandbox(sandboxId, port, method, remainingPath, queryString, c.req.raw.headers, body, acceptsSSE, origin, baseUrl, serviceKey);
-  });
-
-  hetznerOnlyProxy.all('/:sandboxId/:port', async (c) => {
-    const sandboxId = c.req.param('sandboxId');
-    const port = c.req.param('port');
-    return c.redirect(`/${sandboxId}/${port}/`, 301);
-  });
-
-  daytonaProxyApp.route('/', hetznerOnlyProxy);
 } else if (enabledCount === 1 && config.isJustAVPSEnabled()) {
   // JustAVPS-only: route through CF Worker proxy at {port}--{slug}.kortix.cloud
   const justavpsOnlyProxy = new Hono();
@@ -282,11 +238,6 @@ if (enabledCount === 1 && config.isDaytonaEnabled()) {
 
     if (resolved?.provider === 'local_docker') {
       return proxyToSandbox(sandboxId, port, method, remainingPath, queryString, c.req.raw.headers, body, acceptsSSE, origin);
-    }
-
-    if (resolved?.provider === 'hetzner') {
-      const baseUrl = resolved.baseUrl.replace(/\/$/, '');
-      return proxyToSandbox(sandboxId, port, method, remainingPath, queryString, c.req.raw.headers, body, acceptsSSE, origin, baseUrl, resolved.serviceKey);
     }
 
     if (resolved?.provider === 'justavps') {

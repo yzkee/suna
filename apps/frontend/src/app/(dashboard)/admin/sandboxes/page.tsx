@@ -143,8 +143,8 @@ function SandboxesTab() {
     try {
       await deleteMutation.mutateAsync(confirmDelete.sandboxId);
       toast.success(`Deleted sandbox ${confirmDelete.sandboxId.slice(0, 8)}`, {
-        description: confirmDelete.provider === 'hetzner'
-          ? 'Removed from DB and Hetzner server deleted.'
+        description: confirmDelete.provider === 'justavps'
+          ? 'Removed from DB and JustaVPS machine deleted.'
           : 'Removed from DB.',
       });
       setInfoDialog(null);
@@ -182,9 +182,8 @@ function SandboxesTab() {
           <SelectContent>
             <SelectItem value="all">All providers</SelectItem>
             <SelectItem value="justavps">JustAVPS</SelectItem>
-            <SelectItem value="hetzner">Hetzner</SelectItem>
             <SelectItem value="daytona">Daytona</SelectItem>
-            <SelectItem value="local">Local</SelectItem>
+            <SelectItem value="local_docker">Local</SelectItem>
           </SelectContent>
         </Select>
         <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="h-8 gap-1.5">
@@ -293,7 +292,7 @@ function SandboxesTab() {
             <DialogTitle>Delete Sandbox</DialogTitle>
             <DialogDescription>
               Permanently delete <span className="font-mono text-foreground">{confirmDelete?.sandboxId.slice(0, 8)}</span>
-              {confirmDelete?.provider === 'hetzner' && ' and terminate the Hetzner server'}. This cannot be undone.
+              {confirmDelete?.provider === 'justavps' && ' and terminate the JustaVPS machine'}. This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           {confirmDelete && (

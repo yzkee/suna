@@ -5,7 +5,7 @@ export { SANDBOX_VERSION } from './release';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-export type SandboxProviderName = 'daytona' | 'local_docker' | 'hetzner' | 'justavps';
+export type SandboxProviderName = 'daytona' | 'local_docker' | 'justavps';
 export type InternalKortixEnv = 'dev' | 'staging' | 'prod';
 
 // ─── Zod Helpers ────────────────────────────────────────────────────────────
@@ -117,20 +117,10 @@ const envSchema = z.object({
   DAYTONA_TARGET:              optStr,
   DAYTONA_SNAPSHOT:            optStr,
 
-  // ── Hetzner — Sandbox provisioning (conditional: required if hetzner provider enabled) ──
-  HETZNER_API_KEY:                    optStr,
-  HETZNER_DEFAULT_LOCATION:           optStrDefault('nbg1'),
-  HETZNER_SNAPSHOT_ID:                optStr,   // explicit snapshot ID (overrides description-based lookup)
-  HETZNER_SNAPSHOT_DESCRIPTION:       optStr,   // snapshot description pattern (default from release.json)
-  HETZNER_SNAPSHOT_VERSION_OVERRIDE:  optStr,   // e.g. "0.7.15" — overrides version for snapshot resolution
-  HETZNER_SSH_KEY_ID:                 optStr,
-  HETZNER_DEFAULT_SERVER_TYPE:        optStrDefault('cpx22'),
-
   // ── JustAVPS — Sandbox provisioning via JustAVPS API (conditional: required if justavps provider enabled) ──
   JUSTAVPS_API_URL:                   optStrDefault('http://localhost:3001'),
   JUSTAVPS_API_KEY:                   optStr,
-  JUSTAVPS_SNAPSHOT_ID:               optStr,   // JustAVPS snapshot UUID to boot from
-  JUSTAVPS_PROVIDER:                  optStrDefault('hetzner'),  // underlying provider in JustAVPS
+  JUSTAVPS_IMAGE_ID:                  optStr,   // JustAVPS image UUID to boot from
   JUSTAVPS_DEFAULT_LOCATION:          optStrDefault('hel1'),
   JUSTAVPS_DEFAULT_SERVER_TYPE:       optStrDefault('cpx31'),
   JUSTAVPS_PROXY_DOMAIN:              optStrDefault('kortix.cloud'),  // CF Worker proxy domain ({slug}.kortix.cloud)
@@ -198,7 +188,7 @@ function parseAllowedProviders(raw: string): SandboxProviderName[] {
   const names = raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
   const valid: SandboxProviderName[] = [];
   for (const n of names) {
-    if (n === 'daytona' || n === 'local_docker' || n === 'hetzner' || n === 'justavps') {
+    if (n === 'daytona' || n === 'local_docker' || n === 'justavps') {
       if (!valid.includes(n)) valid.push(n);
     } else {
       console.warn(`[config] Unknown sandbox provider "${n}" in ALLOWED_SANDBOX_PROVIDERS - ignored`);
@@ -236,16 +226,10 @@ function validateEnv(): z.infer<typeof envSchema> {
     if (!raw.DOCKER_HOST) issues.push({ var: 'DOCKER_HOST', message: 'Required when ALLOWED_SANDBOX_PROVIDERS includes "local_docker"', level: 'error' });
   }
 
-  // ── Conditional: hetzner → need Hetzner keys ──────────────────────────
-  if (providers.includes('hetzner')) {
-    if (!raw.HETZNER_API_KEY) issues.push({ var: 'HETZNER_API_KEY', message: 'Required when ALLOWED_SANDBOX_PROVIDERS includes "hetzner"', level: 'error' });
-    // HETZNER_SNAPSHOT_DESCRIPTION falls back to kortix-computer-v{SANDBOX_VERSION} dynamically — no env var needed
-  }
-
   // ── Conditional: justavps → need JustAVPS keys ────────────────────────
   if (providers.includes('justavps')) {
     if (!raw.JUSTAVPS_API_KEY) issues.push({ var: 'JUSTAVPS_API_KEY', message: 'Required when ALLOWED_SANDBOX_PROVIDERS includes "justavps"', level: 'error' });
-    if (!raw.JUSTAVPS_SNAPSHOT_ID) issues.push({ var: 'JUSTAVPS_SNAPSHOT_ID', message: 'Optional — without it, provisioning uses docker_image directly (slower cold start)', level: 'warn' });
+    if (!raw.JUSTAVPS_IMAGE_ID) issues.push({ var: 'JUSTAVPS_IMAGE_ID', message: 'Optional — without it, provisioning uses docker_image directly (slower cold start)', level: 'warn' });
   }
 
   // ── Conditional: Pipedream integration → need credentials ──────────────
@@ -264,7 +248,7 @@ function validateEnv(): z.infer<typeof envSchema> {
   }
 
   // ── Conditional: KORTIX_URL — required for sandbox routing ──────────────
-  // Used by every sandbox provider (local_docker, daytona, hetzner, justavps),
+  // Used by every sandbox provider (local_docker, daytona, justavps),
   // channels webhook URL generation, pool env injection, and sandbox health.
   // Auto-derive from PORT in local mode if not set — fatal in cloud mode.
   if (!raw.KORTIX_URL) {
@@ -402,20 +386,10 @@ export const config = {
   DAYTONA_TARGET: env.DAYTONA_TARGET,
   DAYTONA_SNAPSHOT: env.DAYTONA_SNAPSHOT || releaseManifest.snapshots.daytona,
 
-  // ─── Hetzner (VPS Sandbox provisioning) ──────────────────────────────────
-  HETZNER_API_KEY: env.HETZNER_API_KEY,
-  HETZNER_DEFAULT_LOCATION: env.HETZNER_DEFAULT_LOCATION,
-  HETZNER_SNAPSHOT_ID: env.HETZNER_SNAPSHOT_ID,
-  HETZNER_SNAPSHOT_VERSION_OVERRIDE: env.HETZNER_SNAPSHOT_VERSION_OVERRIDE,
-  HETZNER_SNAPSHOT_DESCRIPTION: env.HETZNER_SNAPSHOT_DESCRIPTION || releaseManifest.snapshots.hetzner,
-  HETZNER_SSH_KEY_ID: env.HETZNER_SSH_KEY_ID,
-  HETZNER_DEFAULT_SERVER_TYPE: env.HETZNER_DEFAULT_SERVER_TYPE,
-
   // ─── JustAVPS (VPS Sandbox provisioning via JustAVPS) ────────────────────
   JUSTAVPS_API_URL: env.JUSTAVPS_API_URL,
   JUSTAVPS_API_KEY: env.JUSTAVPS_API_KEY,
-  JUSTAVPS_SNAPSHOT_ID: env.JUSTAVPS_SNAPSHOT_ID,
-  JUSTAVPS_PROVIDER: env.JUSTAVPS_PROVIDER,
+  JUSTAVPS_IMAGE_ID: env.JUSTAVPS_IMAGE_ID,
   JUSTAVPS_DEFAULT_LOCATION: env.JUSTAVPS_DEFAULT_LOCATION,
   JUSTAVPS_DEFAULT_SERVER_TYPE: env.JUSTAVPS_DEFAULT_SERVER_TYPE,
   JUSTAVPS_PROXY_DOMAIN: env.JUSTAVPS_PROXY_DOMAIN,
@@ -532,10 +506,6 @@ export const config = {
     return this.ALLOWED_SANDBOX_PROVIDERS.includes('local_docker');
   },
 
-  isHetznerEnabled(): boolean {
-    return this.ALLOWED_SANDBOX_PROVIDERS.includes('hetzner') && !!this.HETZNER_API_KEY;
-  },
-
   isJustAVPSEnabled(): boolean {
     return this.ALLOWED_SANDBOX_PROVIDERS.includes('justavps') && !!this.JUSTAVPS_API_KEY;
   },
@@ -544,8 +514,11 @@ export const config = {
     return this.POOL_ENABLED;
   },
 
-  /** The first provider in ALLOWED_SANDBOX_PROVIDERS is the default. */
+  /** Default provider, preferring managed VPS in cloud mode when available. */
   getDefaultProvider(): SandboxProviderName {
+    if (this.ENV_MODE === 'cloud' && this.ALLOWED_SANDBOX_PROVIDERS.includes('justavps')) {
+      return 'justavps';
+    }
     return this.ALLOWED_SANDBOX_PROVIDERS[0] ?? 'local_docker';
   },
 

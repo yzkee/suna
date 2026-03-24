@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto';
 import { eq, and, desc, inArray, sql } from 'drizzle-orm';
 import { sandboxes } from '@kortix/db';
 import { db } from '../../shared/db';
@@ -96,10 +95,6 @@ async function checkProviderCredits(providerName: ProviderName, accountId: strin
   }
 }
 
-/**
- * Always creates a new sandbox — no singleton check.
- * Used by the billing webhook to provision a new instance per subscription.
- */
 export async function createSandbox(opts: {
   accountId: string;
   userId: string;
@@ -112,20 +107,6 @@ export async function createSandbox(opts: {
   return provisionNewSandbox(opts.accountId, opts.userId, providerName, opts);
 }
 
-function buildSandboxName(opts: {
-  accountId: string;
-  sandboxId: string;
-  serverType?: string;
-  location?: string;
-}) {
-  const account = opts.accountId.slice(0, 8);
-  const sandbox = opts.sandboxId.slice(0, 6);
-  const pieces = ['sandbox', account, sandbox];
-  if (opts.serverType) pieces.push(opts.serverType);
-  if (opts.location) pieces.push(opts.location);
-  return pieces.join('-');
-}
-
 async function provisionNewSandbox(
   accountId: string,
   userId: string,
@@ -134,13 +115,13 @@ async function provisionNewSandbox(
 ): Promise<EnsureSandboxResult> {
   const provider = getProvider(providerName);
 
-  const sandbox = await insertProvisioningRow(accountId, providerName, opts);
+  const sandbox = await insertProvisioningRow(accountId, providerName, opts.isIncluded);
   const sandboxKey = await createSandboxApiKey(sandbox.sandboxId, accountId);
 
   const createOpts = {
     accountId,
     userId,
-    name: sandbox.name,
+    name: `sandbox-${accountId.slice(0, 8)}`,
     serverType: opts.serverType,
     location: opts.location,
     envVars: { KORTIX_TOKEN: sandboxKey.secretKey },
@@ -153,25 +134,19 @@ async function provisionNewSandbox(
   return provisionSync(provider, sandbox, sandboxKey.secretKey, createOpts);
 }
 
-async function insertProvisioningRow(
-  accountId: string,
-  providerName: ProviderName,
-  opts: { serverType?: string; location?: string; isIncluded?: boolean },
-) {
-  const sandboxId = randomUUID();
+async function insertProvisioningRow(accountId: string, providerName: ProviderName, isIncluded?: boolean) {
   const [sandbox] = await db
     .insert(sandboxes)
     .values({
-      sandboxId,
       accountId,
-      name: buildSandboxName({ accountId, sandboxId, serverType: opts.serverType, location: opts.location }),
+      name: `sandbox-${accountId.slice(0, 8)}`,
       provider: providerName,
       externalId: '',
       status: 'provisioning',
       baseUrl: '',
       config: {},
       metadata: {},
-      isIncluded: opts.isIncluded ?? false,
+      isIncluded: isIncluded ?? false,
     })
     .returning();
   return sandbox;

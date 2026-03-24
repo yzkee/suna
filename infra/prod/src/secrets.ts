@@ -14,10 +14,6 @@ const SECRET_KEYS = [
   "DAYTONA_SERVER_URL",
   "DAYTONA_TARGET",
   "DAYTONA_SNAPSHOT",
-  // Sandbox Provisioning — Hetzner
-  "HETZNER_API_KEY",
-  "HETZNER_SNAPSHOT_ID",
-  "HETZNER_SNAPSHOT_DESCRIPTION",
   // LLM Providers
   "OPENROUTER_API_KEY",
   "ANTHROPIC_API_KEY",
@@ -48,6 +44,12 @@ const SECRET_KEYS = [
   "FREESTYLE_API_URL",
   // Scheduler
   "CRON_TICK_SECRET",
+  // Slack
+  "SLACK_CLIENT_ID",
+  "SLACK_CLIENT_SECRET",
+  "SLACK_SIGNING_SECRET",
+  // Channels
+  "CHANNELS_CREDENTIAL_KEY",
   // Admin
   "KORTIX_ADMIN_API_KEY",
   // Internal

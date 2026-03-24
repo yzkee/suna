@@ -3,9 +3,8 @@
  * ship.cjs — Kortix release script
  *
  * Usage:
- *   pnpm ship <version>                  Build + push 3 Docker images, build Hetzner snapshot, create GitHub Release
- *   pnpm ship --no-docker <version>      Version bump only, no Docker build or snapshot
- *   pnpm ship --no-hetzner <version>     Skip Hetzner snapshot build
+ *   pnpm ship <version>                  Build + push 3 Docker images, create GitHub Release, seed JustAVPS image
+ *   pnpm ship --no-docker <version>      Version bump only, no Docker build or image seed
  *   pnpm ship --check                Show current state
  *   pnpm ship --dry-run <version>    Validate only, no changes
  *   pnpm ship --help                 Show this help
@@ -15,7 +14,7 @@
  *   2. Bumps versions in release.json, package.json, startup.sh, get-kortix.sh
  *   3. Creates GitHub Release with changelog
  *   4. Builds + pushes 3 Docker images (sandbox, api, frontend)
- *   5. Builds the matching Hetzner snapshot from the pushed sandbox image
+ *   5. Builds the matching JustAVPS image from a temporary machine
  *   6. Commits version bump (you still need to git push)
  *
  * That's it. No npm packages, no OTA tarballs, no staging, no symlinks.
@@ -33,14 +32,13 @@ const PACKAGE_JSON = path.join(SANDBOX_DIR, 'package.json')
 const CHANGELOG_JSON = path.join(SANDBOX_DIR, 'CHANGELOG.json')
 const STARTUP_SH = path.join(SANDBOX_DIR, 'startup.sh')
 const GET_KORTIX = path.join(ROOT, 'scripts', 'get-kortix.sh')
-const BUILD_HETZNER_SNAPSHOT = path.join(ROOT, 'scripts', 'build-hetzner-snapshot.sh')
+const BUILD_JUSTAVPS_IMAGE = path.join(ROOT, 'scripts', 'release', 'build-justavps-image.cjs')
 
 const args = process.argv.slice(2)
 const flags = new Set(args.filter(a => a.startsWith('--')))
 const version = args.find(a => !a.startsWith('--') && /^\d+\.\d+\.\d+$/.test(a))
 
 const DOCKER = !flags.has('--no-docker')
-const HETZNER = DOCKER && !flags.has('--no-hetzner')
 const CHECK = flags.has('--check')
 const HELP = flags.has('--help') || flags.has('-h')
 const DRY = flags.has('--dry-run')
@@ -79,9 +77,8 @@ function runPnpm(args, opts = {}) {
 if (HELP) {
   console.log(`
 Usage:
-  pnpm ship <version>                  Build + push Docker images + Hetzner snapshot
+  pnpm ship <version>                  Build + push Docker images + seed JustAVPS image
   pnpm ship --no-docker <version>      Version bump only
-  pnpm ship --no-hetzner <version>     Skip Hetzner snapshot build
   pnpm ship --check                    Show current state
   pnpm ship --dry-run <version>        Validate only
   pnpm ship --help                     Show this help
@@ -89,7 +86,6 @@ Usage:
 Examples:
   pnpm ship 0.8.0
   pnpm ship --no-docker 0.8.0
-  pnpm ship --no-hetzner 0.8.0
 `)
   process.exit(0)
 }
@@ -120,7 +116,7 @@ if (!version) {
 }
 
 console.log(`\n  ${B}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${X}`)
-console.log(`  ${B}  Ship v${version}${DOCKER ? ' + Docker' : ''}${HETZNER ? ' + Hetzner' : ''}${DRY ? ' [dry-run]' : ''}${X}`)
+console.log(`  ${B}  Ship v${version}${DOCKER ? ' + Docker' : ''}${DRY ? ' [dry-run]' : ''}${X}`)
 console.log(`  ${B}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${X}\n`)
 
 // ── Step 1: Validate ──────────────────────────────────────────────────────
@@ -167,7 +163,6 @@ release.images = {
 }
 release.snapshots = {
   daytona: `kortix-sandbox-v${version}`,
-  hetzner: `kortix-computer-v${version}`,
 }
 fs.writeFileSync(RELEASE_JSON, JSON.stringify(release, null, 2) + '\n')
 ok(`release.json → ${version}`)
@@ -222,7 +217,7 @@ if (!releaseExists) {
 
 fs.rmSync(notesFile, { force: true })
 
-// ── Step 4: Docker + Hetzner ─────────────────────────────────────────────
+// ── Step 4: Docker + JustAVPS image ──────────────────────────────────────
 if (DOCKER) {
   info('Building Docker images...')
 
@@ -262,18 +257,14 @@ if (DOCKER) {
     --push "${ROOT}"`, { stdio: 'inherit' })
   ok(`kortix/kortix-frontend:${version} pushed`)
 
-  if (HETZNER) {
-    info('Building Hetzner snapshot...')
-    if (!fs.existsSync(BUILD_HETZNER_SNAPSHOT)) {
-      fail(`Missing snapshot script: ${BUILD_HETZNER_SNAPSHOT}`)
-    }
-    run(`bash ${JSON.stringify(BUILD_HETZNER_SNAPSHOT)} --yes ${version}`, {
-      stdio: 'inherit',
-    })
-    ok(`Hetzner snapshot kortix-computer-v${version} ready`)
-  } else {
-    warn('Skipping Hetzner snapshot build')
+  info('Seeding JustAVPS image...')
+  if (!fs.existsSync(BUILD_JUSTAVPS_IMAGE)) {
+    fail(`Missing JustAVPS image script: ${BUILD_JUSTAVPS_IMAGE}`)
   }
+  run(`${JSON.stringify(process.execPath)} ${JSON.stringify(BUILD_JUSTAVPS_IMAGE)} --yes ${version}`, {
+    stdio: 'inherit',
+  })
+  ok(`JustAVPS image for v${version} ready`)
 }
 
 // ── Step 5: Commit ────────────────────────────────────────────────────────

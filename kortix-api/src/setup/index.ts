@@ -284,7 +284,8 @@ setupApp.get('/install-status', async (c) => {
     const result = await db.execute(
       sql`SELECT EXISTS(SELECT 1 FROM auth.users LIMIT 1) AS has_users`
     );
-    const row = Array.isArray(result) ? result[0] : result.rows?.[0];
+    const queryResult = result as { rows?: Array<{ has_users?: boolean | 't' | 'f' }> } | Array<{ has_users?: boolean | 't' | 'f' }>;
+    const row = Array.isArray(queryResult) ? queryResult[0] : queryResult.rows?.[0];
     const hasUsers = row?.has_users === true || row?.has_users === 't';
 
     return c.json({ installed: hasUsers });
@@ -308,20 +309,18 @@ setupApp.get('/sandbox-providers', async (c) => {
   const available: string[] = [];
   if (config.isLocalDockerEnabled()) available.push('local_docker');
   if (config.isDaytonaEnabled()) available.push('daytona');
-  if (config.isHetznerEnabled()) available.push('hetzner');
   if (config.isJustAVPSEnabled()) available.push('justavps');
 
   // Provider capabilities — tells the frontend how to handle provisioning UI
   const capabilities: Record<string, { async: boolean; events: boolean; polling: boolean }> = {
     local_docker: { async: false, events: false, polling: true },
     daytona: { async: false, events: false, polling: false },
-    hetzner: { async: false, events: false, polling: false },
     justavps: { async: true, events: true, polling: false },
   };
 
   return c.json({
     providers: available,
-    default: available[0] || 'local_docker',
+    default: available.includes(config.getDefaultProvider()) ? config.getDefaultProvider() : (available[0] || 'local_docker'),
     capabilities: Object.fromEntries(available.map((p) => [p, capabilities[p] || { async: false, events: false, polling: false }])),
   });
 });

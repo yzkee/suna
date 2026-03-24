@@ -233,9 +233,9 @@ Before releasing, add an entry to `packages/sandbox/CHANGELOG.json`:
 ### One-liner
 
 ```bash
-pnpm ship 0.8.0                 # Full release: GitHub Release + Docker images + Hetzner snapshot
-pnpm ship --no-docker 0.8.0     # Skip Docker image rebuild/push and snapshot
-pnpm ship --no-hetzner 0.8.0    # Skip only the Hetzner snapshot
+pnpm ship 0.8.0                 # Full release: GitHub Release + Docker images + JustAVPS image
+pnpm ship --no-docker 0.8.0     # Skip Docker image rebuild/push
+pnpm image 0.8.0                # Rebuild only the JustAVPS image for this version
 ```
 
 ### What `ship` does step by step
@@ -244,15 +244,16 @@ pnpm ship --no-hetzner 0.8.0    # Skip only the Hetzner snapshot
 2. **Bump versions** — updates all 4 version locations (package.json, release.json, startup.sh, get-kortix.sh)
 3. **GitHub Release** — creates `v{version}` release with changelog as notes, or reuses the existing release
 4. **Docker** — `docker buildx build --platform linux/amd64,linux/arm64 --push` for `kortix/computer`, `kortix/kortix-api`, and `kortix/kortix-frontend` unless you pass `--no-docker`
-5. **Hetzner snapshot** — runs `scripts/build-hetzner-snapshot.sh --yes {version}` after the sandbox image is pushed, unless you pass `--no-docker` or `--no-hetzner`
+5. **JustAVPS image** — creates a temporary JustAVPS machine, waits until it is ready, captures a JustAVPS image from it, boots a fresh verification machine from the new image, updates `kortix-api/.env` with `JUSTAVPS_IMAGE_ID`, and deletes both temporary machines
 6. **Commit** — `git commit -m "release: v{version}"` when there are version-bump changes to record (you still run `git push`)
+
+By default the image-builder script uses `nbg1` for the temporary build machine unless you override `JUSTAVPS_IMAGE_BUILD_LOCATION`.
 
 ### After shipping
 
 ```bash
 git push
-# Update your .env if needed:
-#   SANDBOX_VERSION=0.8.0
+# Sync JUSTAVPS_IMAGE_ID from kortix-api/.env into any deployed secrets if needed.
 ```
 
 ### Validate state without shipping
@@ -419,15 +420,14 @@ git push
 ### Release + new Docker image
 
 ```bash
-pnpm ship --no-hetzner 0.8.0
+pnpm ship 0.8.0
 git push
 ```
 
-### Build the Hetzner snapshot manually
+### Rebuild the JustAVPS image only
 
 ```bash
-pnpm snapshot 0.8.0
-git push
+pnpm image 0.8.0
 ```
 
 ### Validate/check state

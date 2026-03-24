@@ -124,9 +124,8 @@ export async function listServerTypes(
   location?: string,
 ): Promise<ServerTypeWithPricing[]> {
   const loc = location || config.JUSTAVPS_DEFAULT_LOCATION;
-  const provider = config.JUSTAVPS_PROVIDER || 'hetzner';
   const data = await justavpsFetch<{ server_types: JustAVPSServerType[] }>(
-    `/server-types?provider=${provider}&region=${loc}`,
+    `/server-types?provider=cloud&region=${loc}`,
   );
 
   return data.server_types
@@ -145,43 +144,6 @@ export async function listServerTypes(
       location: loc,
     }))
     .sort((a, b) => a.priceMonthly - b.priceMonthly);
-}
-
-// ─── Image resolution ─────────────────────────────────────────────────────────
-// Dynamically fetch the latest Kortix image from JustaVPS instead of hardcoding.
-// Falls back to JUSTAVPS_IMAGE_ID env var if set, then to no image (cold docker start).
-
-let cachedImageId: string | null = null;
-let imageCacheTime = 0;
-const IMAGE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
-
-async function resolveImageId(): Promise<string | undefined> {
-  // Prefer explicit env override
-  if (config.JUSTAVPS_IMAGE_ID) return config.JUSTAVPS_IMAGE_ID;
-
-  // Return cached value if fresh
-  if (cachedImageId && Date.now() - imageCacheTime < IMAGE_CACHE_TTL_MS) return cachedImageId;
-
-  try {
-    const data = await justavpsFetch<{ images: Array<{ id: string; name: string; status: string; is_template: boolean }> }>('/images');
-    // Find the latest ready Kortix image (template or snapshot)
-    const kortixImage = data.images
-      ?.filter((img) => img.status === 'ready')
-      .find((img) => /kortix/i.test(img.name));
-
-    if (kortixImage) {
-      cachedImageId = kortixImage.id;
-      imageCacheTime = Date.now();
-      console.log(`[JUSTAVPS] Resolved image: ${kortixImage.name} (${kortixImage.id})`);
-      return kortixImage.id;
-    }
-
-    console.warn('[JUSTAVPS] No Kortix image found in JustaVPS — will use docker_image directly (slower cold start)');
-    return undefined;
-  } catch (err) {
-    console.warn('[JUSTAVPS] Failed to fetch images, falling back to no image:', err instanceof Error ? err.message : err);
-    return undefined;
-  }
 }
 
 let webhookRegistered = false;
@@ -236,7 +198,7 @@ export class JustAVPSProvider implements SandboxProvider {
       { id: 'docker_pulling', progress: 60, message: 'Starting sandbox container...' },
       { id: 'docker_running', progress: 75, message: 'Container started, booting services...' },
       { id: 'services_starting', progress: 85, message: 'Services booting...' },
-      { id: 'services_ready', progress: 92, message: 'Services started, waiting for Kortix to come online...' },
+      { id: 'services_ready', progress: 100, message: 'Ready' },
     ],
   };
 
@@ -283,39 +245,34 @@ export class JustAVPSProvider implements SandboxProvider {
   async create(opts: CreateSandboxOpts): Promise<ProvisionResult> {
     await ensureWebhookRegistered();
 
-    const serverType = opts.hetznerServerType || config.JUSTAVPS_DEFAULT_SERVER_TYPE;
-    const location = opts.hetznerLocation || config.JUSTAVPS_DEFAULT_LOCATION;
+    const serverType = opts.serverType || config.JUSTAVPS_DEFAULT_SERVER_TYPE;
+    const location = opts.location || config.JUSTAVPS_DEFAULT_LOCATION;
 
     const serviceKey = opts.envVars?.KORTIX_TOKEN || '';
-    const apiBase = config.KORTIX_URL.replace(/\/v1\/router\/?$/, '');
-    const routerBase = `${apiBase}/v1/router`;
-
     const envVars: Record<string, string> = {
-      KORTIX_API_URL: apiBase,
+      KORTIX_API_URL: config.KORTIX_URL.replace(/\/v1\/router\/?$/, ''),
       ENV_MODE: 'cloud',
       INTERNAL_SERVICE_KEY: serviceKey,
       KORTIX_TOKEN: serviceKey,
       KORTIX_SANDBOX_VERSION: SANDBOX_VERSION,
       PUID: '1000',
       PGID: '1000',
-      // Route tool SDK traffic through the Kortix router proxy for billing/key injection.
-      TAVILY_API_URL: `${routerBase}/tavily`,
-      REPLICATE_API_URL: `${routerBase}/replicate`,
-      SERPER_API_URL: `${routerBase}/serper`,
       ...opts.envVars,
     };
 
-    const imageId = await resolveImageId();
-
     const body: Record<string, unknown> = {
-      provider: config.JUSTAVPS_PROVIDER || 'hetzner',
+      provider: 'cloud',
       server_type: serverType,
       region: location,
-      name: opts.name,
+      name: `kortix-sandbox-${opts.accountId.slice(0, 8)}-${Date.now().toString(36)}`,
       env_vars: envVars,
       docker_image: config.SANDBOX_IMAGE,
-      ...(imageId ? { image_id: imageId } : {}),
     };
+
+    const imageId = config.JUSTAVPS_IMAGE_ID;
+    if (imageId) {
+      body.image_id = imageId;
+    }
 
     const machine = await justavpsFetch<JustAVPSMachine>('/machines', {
       method: 'POST',
@@ -360,12 +317,13 @@ export class JustAVPSProvider implements SandboxProvider {
   }
 
   async start(externalId: string): Promise<void> {
-    await justavpsFetch(`/machines/${externalId}/reboot`, { method: 'POST' });
-    console.log(`[JUSTAVPS] Rebooted machine ${externalId}`);
+    await justavpsFetch(`/machines/${externalId}/start`, { method: 'POST' });
+    console.log(`[JUSTAVPS] Started machine ${externalId}`);
   }
 
   async stop(externalId: string): Promise<void> {
-    console.log(`[JUSTAVPS] Stop not supported for machine ${externalId} — use remove instead`);
+    await justavpsFetch(`/machines/${externalId}/stop`, { method: 'POST' });
+    console.log(`[JUSTAVPS] Stopped machine ${externalId}`);
   }
 
   async remove(externalId: string): Promise<void> {

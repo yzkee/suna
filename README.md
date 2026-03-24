@@ -18,10 +18,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/kortix-ai/computer/main/scri
 - `pnpm dev:sandbox` — start sandbox with dev bind mounts (hot reload, from `sandbox/`)
 - `pnpm dev:sandbox:build` — rebuild and start the sandbox
 - `pnpm build` — build all packages (`pnpm -r run build`)
-- `pnpm ship <version>` — bump versions, build + push Docker images, build Hetzner snapshot, create GitHub release
+- `pnpm ship <version>` — bump versions, build + push Docker images, seed the JustAVPS image, create GitHub release
 - `pnpm ship --dry-run <version>` — validate without making changes
 - `pnpm ship --check` — show current release state
-- `pnpm snapshot [version]` — build the Hetzner snapshot manually
+- `pnpm image [version]` — build the JustAVPS image from a temporary JustAVPS machine
 - `pnpm nuke` — tear down local Docker environment
 - `pnpm nuke:start` — nuke + restart fresh
 

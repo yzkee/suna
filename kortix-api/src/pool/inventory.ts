@@ -82,8 +82,8 @@ export async function provision(resource: PoolResource): Promise<void> {
     userId: 'pool',
     name: `pool-${resource.serverType}-${resource.location}`,
     envVars: { KORTIX_TOKEN: placeholderToken },
-    hetznerServerType: resource.serverType,
-    hetznerLocation: resource.location,
+    serverType: resource.serverType,
+    location: resource.location,
   });
 
   await db.insert(poolSandboxes).values({

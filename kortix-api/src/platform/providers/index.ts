@@ -1,10 +1,9 @@
 import { config } from '../../config';
 import { DaytonaProvider } from './daytona';
 import { LocalDockerProvider } from './local-docker';
-import { HetznerProvider } from './hetzner';
 import { JustAVPSProvider } from './justavps';
 
-export type ProviderName = 'daytona' | 'local_docker' | 'hetzner' | 'justavps';
+export type ProviderName = 'daytona' | 'local_docker' | 'justavps';
 export type { SandboxProviderName } from '../../config';
 
 export interface CreateSandboxOpts {
@@ -12,8 +11,8 @@ export interface CreateSandboxOpts {
   userId: string;
   name: string;
   envVars?: Record<string, string>;
-  hetznerServerType?: string;
-  hetznerLocation?: string;
+  serverType?: string;
+  location?: string;
 }
 
 export interface ProvisionResult {
@@ -89,12 +88,6 @@ export function getProvider(name: ProviderName): SandboxProvider {
     case 'local_docker':
       provider = new LocalDockerProvider();
       break;
-    case 'hetzner':
-      if (!config.HETZNER_API_KEY) {
-        throw new Error('Hetzner provider is allowed but not configured. Set HETZNER_API_KEY.');
-      }
-      provider = new HetznerProvider();
-      break;
     case 'justavps':
       if (!config.JUSTAVPS_API_KEY) {
         throw new Error('JustAVPS provider is allowed but not configured. Set JUSTAVPS_API_KEY.');
@@ -117,7 +110,6 @@ export function getAvailableProviders(): ProviderName[] {
   const available: ProviderName[] = [];
   if (config.isDaytonaEnabled()) available.push('daytona');
   if (config.isLocalDockerEnabled()) available.push('local_docker');
-  if (config.isHetznerEnabled()) available.push('hetzner');
   if (config.isJustAVPSEnabled()) available.push('justavps');
   return available;
 }

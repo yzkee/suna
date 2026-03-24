@@ -29,7 +29,6 @@ export const sandboxStatusEnum = kortixSchema.enum('sandbox_status', [
 export const sandboxProviderEnum = kortixSchema.enum('sandbox_provider', [
   'daytona',
   'local_docker',
-  'hetzner',
   'justavps',
 ]);
 
@@ -872,5 +871,4 @@ export const accessRequests = kortixSchema.table(
     index('idx_access_requests_status').on(table.status),
   ],
 );
-
 

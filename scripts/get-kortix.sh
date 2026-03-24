@@ -6,7 +6,7 @@
 # ║                                                                            ║
 # ║  Supports two modes (identical stack, different networking):                ║
 # ║    1. Local (laptop/desktop) — HTTP, ports on localhost                     ║
-# ║    2. VPS (Hetzner/EC2/DO)   — Caddy reverse proxy, automatic HTTPS        ║
+# ║    2. VPS / Server           — Caddy reverse proxy, automatic HTTPS        ║
 # ║                                                                            ║
 # ║  Database: Docker Supabase or external (bring your own).                   ║
 # ║                                                                            ║
@@ -505,7 +505,7 @@ prompt_mode() {
   echo "  ${BOLD}Where are you running Kortix?${NC}"
   echo ""
   echo "    ${CYAN}1${NC}) Local machine ${DIM}(laptop/desktop — HTTP on localhost)${NC}"
-  echo "    ${CYAN}2${NC}) VPS / Server  ${DIM}(Hetzner, EC2, DO — HTTPS via Caddy)${NC}"
+  echo "    ${CYAN}2${NC}) VPS / Server  ${DIM}(cloud VM — HTTPS via Caddy)${NC}"
   echo ""
   printf "  Choice [1]: "
   prompt_read mode_choice

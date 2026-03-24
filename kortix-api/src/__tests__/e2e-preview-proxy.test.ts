@@ -123,7 +123,7 @@ mock.module('../config', () => ({
   config: {
     isDaytonaEnabled: () => true,
     isLocalDockerEnabled: () => false,
-    isHetznerEnabled: () => false,
+    isJustAVPSEnabled: () => false,
   },
 }));
 
