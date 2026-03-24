@@ -16,12 +16,12 @@ export default function CareersPage() {
         </Reveal>
         <Reveal delay={0.08}>
           <p className="text-base text-muted-foreground/60 leading-relaxed max-w-xl">
-            We{"'"}re looking for craftsmen. Founders, builders, hackers, artists — people who{"'"}ve felt every edge and corner of something they built and pushed it to the limit. That{"'"}s what makes Kortix. That{"'"}s what we hire for.
+            Founders, builders, hackers, artists, designers, engineers, operators, dreamers, dropouts, autodidacts, obsessives, perfectionists, generalists, polymaths — we don{"'"}t care what you call yourself. We care that you{"'"}ve built something real, felt every edge of it, and couldn{"'"}t stop until it was right.
           </p>
         </Reveal>
         <Reveal delay={0.16}>
           <p className="text-base text-muted-foreground/60 leading-relaxed max-w-xl mt-4">
-            An extremely small, tight-knit team building fully autonomous companies. Everyone here shares the same trait — the innate drive to found, lead, orchestrate, and care about every detail in what they craft.
+            An extremely small, tight-knit team building the operating system for autonomous companies. Everyone here shares the same trait — the innate drive to take chaos and turn it into systems that run themselves.
           </p>
         </Reveal>
 
@@ -39,20 +39,20 @@ export default function CareersPage() {
           </div>
         </Reveal>
 
-        {/* Positions */}
+        {/* Position */}
         <Reveal>
           <div className="mt-14">
             <h2 className="text-xs uppercase tracking-widest text-muted-foreground/40 mb-5">
-              Open Positions
+              Open Position
             </h2>
             <div>
               <p className="text-base font-medium text-foreground/70">
                 Craftsman
               </p>
               <p className="text-base text-muted-foreground/60 leading-relaxed mt-1.5">
-                Founder, engineer, builder — doesn{"'"}t matter what you call it. You{"'"}ve built something from scratch, felt every edge and corner, and pushed it to the limit. You take chaos and turn it into systems that hire, ship, and scale on their own. We don{"'"}t care about titles. We care that you{"'"}re obsessed with making things run themselves.
+                You are what you are. You drive what you must. Independent, founder-type person who falls under the above definition. 
               </p>
-              <p className="text-xs text-muted-foreground/35 mt-2">San Francisco — or the whole wide world, but we{"'"}ll get you here.</p>
+              <p className="text-xs text-muted-foreground/35 mt-2">San Francisco — or anywhere, but we{"'"}ll get you here.</p>
             </div>
           </div>
         </Reveal>

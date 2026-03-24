@@ -3,7 +3,7 @@
 import { ThemeToggle } from '@/components/home/theme-toggle';
 import { siteConfig } from '@/lib/site-config';
 import { cn } from '@/lib/utils';
-import { X, Menu, Power, PowerCircle } from 'lucide-react';
+import { X, Menu } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import Link from 'next/link';
 import { useEffect, useState, useCallback, useRef } from 'react';
@@ -41,28 +41,20 @@ function PowerButton({ href, onClick, label = 'Launch Kortix' }: { href?: string
 
   const inner = (
     <span
-      className={cn(
-        "relative flex items-center justify-center size-[34px] rounded-full border transition-all duration-200 cursor-pointer select-none",
-        "border-foreground/20 bg-background/60",
-        hovered
-          ? "border-foreground/50 shadow-[0_0_0_3px_hsl(var(--foreground)/0.08),0_0_12px_hsl(var(--foreground)/0.12)]"
-          : "shadow-none"
-      )}
+      className="relative flex items-center justify-center size-[42px] rounded-full transition-all duration-200 cursor-pointer select-none"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
       {/* Power icon */}
       <svg
         viewBox="0 0 24 24"
-        className={cn("size-[15px] transition-colors duration-200", hovered ? "text-foreground" : "text-foreground/50")}
+        className={cn("size-[22px] transition-colors duration-200", hovered ? "text-foreground" : "text-foreground/35")}
         fill="none"
         stroke="currentColor"
-        strokeWidth={2}
+        strokeWidth={1.8}
         strokeLinecap="round"
       >
-        {/* Arc */}
         <path d="M7.19 5.54A8 8 0 1 0 16.83 5.5" />
-        {/* Vertical stem */}
         <line x1="12" y1="2" x2="12" y2="12" />
       </svg>
 
@@ -209,7 +201,7 @@ export function Navbar({ isAbsolute = false }: NavbarProps) {
     <header className={cn(
       "w-full px-5 pt-4 transition-all duration-300",
       isAbsolute ? "" : "sticky top-0 z-50",
-      hasScrolled && !isAbsolute && "bg-background/80 backdrop-blur-xl border-b border-border/40 pb-2"
+      hasScrolled && !isAbsolute && "bg-background/80 backdrop-blur-xl pb-2"
     )}>
       <div className="flex items-center justify-between h-[52px]">
         {/* Left — Logo */}
@@ -260,17 +252,19 @@ export function Navbar({ isAbsolute = false }: NavbarProps) {
               Dashboard
             </Link>
           ) : (
-            <Button
+            <button
               onClick={() => {
                 trackCtaSignup();
                 router.push(ctaLink);
               }}
-              variant='outline'
-              className='rounded-full'
-              size='icon'
+              className="flex items-center justify-center size-[38px] rounded-full cursor-pointer transition-opacity text-foreground opacity-80 hover:opacity-100"
+              aria-label="Launch Kortix"
             >
-              <PowerCircle className="size-4" />
-            </Button>
+              <svg viewBox="0 0 24 24" className="size-[20px]" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round">
+                <path d="M7.19 5.54A8 8 0 1 0 16.83 5.5" />
+                <line x1="12" y1="2" x2="12" y2="12" />
+              </svg>
+            </button>
           )}
 
           {/* Mobile Menu Button */}
