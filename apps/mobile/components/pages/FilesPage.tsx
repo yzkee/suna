@@ -62,7 +62,17 @@ import {
   useOpenCodeRenameFile,
 } from '@/lib/files/hooks';
 import type { SandboxFile } from '@/api/types';
-import type { PageTab } from '@/stores/tab-store';
+import { useTabStore, type PageTab } from '@/stores/tab-store';
+
+interface FilesTabState {
+  viewMode?: 'list' | 'grid';
+  showHidden?: boolean;
+  currentPath?: string;
+  selectedFile?: SandboxFile | null;
+  viewerVisible?: boolean;
+  viewerFile?: SandboxFile | null;
+  scrollOffsets?: Record<string, number>;
+}
 
 // Helper functions
 function normalizePath(path: string | null | undefined): string {
@@ -131,25 +141,32 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
   const { sandboxId, sandboxUrl } = useSandboxContext();
+  const setTabState = useTabStore((s) => s.setTabState);
+  const savedTabState = useTabStore((s) => s.tabStateById[page.id] as FilesTabState | undefined);
 
   const fgColor = isDark ? '#F8F8F8' : '#121215';
   const mutedColor = isDark ? '#888' : '#777';
 
   // View mode state
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>(savedTabState?.viewMode ?? 'list');
 
   // Show/hide dotfiles (hidden by default, same as frontend)
-  const [showHidden, setShowHidden] = useState(false);
+  const [showHidden, setShowHidden] = useState(savedTabState?.showHidden ?? false);
 
   // Navigation state
-  const [currentPath, setCurrentPath] = useState('/workspace');
+  const [currentPath, setCurrentPath] = useState(savedTabState?.currentPath ?? '/workspace');
 
   // Viewer state
-  const [viewerVisible, setViewerVisible] = useState(false);
-  const [viewerFile, setViewerFile] = useState<SandboxFile | null>(null);
+  const [viewerVisible, setViewerVisible] = useState(savedTabState?.viewerVisible ?? false);
+  const [viewerFile, setViewerFile] = useState<SandboxFile | null>(savedTabState?.viewerFile ?? null);
 
   // Context-selected file (long-press selects for three-dot menu actions)
-  const [selectedFile, setSelectedFile] = useState<SandboxFile | null>(null);
+  const [selectedFile, setSelectedFile] = useState<SandboxFile | null>(savedTabState?.selectedFile ?? null);
+
+  const [scrollOffsets, setScrollOffsets] = useState<Record<string, number>>(savedTabState?.scrollOffsets ?? {});
+  const listScrollRef = useRef<ScrollView>(null);
+  const gridScrollRef = useRef<ScrollView>(null);
+  const restoredScrollKeysRef = useRef<Record<string, true>>({});
 
   // Create folder / rename bottom sheets
   const createFolderSheetRef = useRef<BottomSheetModal>(null);
@@ -205,6 +222,44 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
 
   // Breadcrumbs
   const breadcrumbs = useMemo(() => getBreadcrumbSegments(currentPath), [currentPath]);
+  const scrollKey = `${viewMode}:${currentPath}`;
+
+  useEffect(() => {
+    setTabState(page.id, {
+      viewMode,
+      showHidden,
+      currentPath,
+      selectedFile,
+      viewerVisible,
+      viewerFile,
+      scrollOffsets,
+    });
+  }, [
+    page.id,
+    setTabState,
+    viewMode,
+    showHidden,
+    currentPath,
+    selectedFile,
+    viewerVisible,
+    viewerFile,
+    scrollOffsets,
+  ]);
+
+  useEffect(() => {
+    const savedOffset = scrollOffsets[scrollKey] ?? 0;
+    if (savedOffset <= 0) return;
+    if (restoredScrollKeysRef.current[scrollKey]) return;
+    const timer = setTimeout(() => {
+      if (viewMode === 'grid') {
+        gridScrollRef.current?.scrollTo({ x: 0, y: savedOffset, animated: false });
+      } else {
+        listScrollRef.current?.scrollTo({ x: 0, y: savedOffset, animated: false });
+      }
+      restoredScrollKeysRef.current[scrollKey] = true;
+    }, 40);
+    return () => clearTimeout(timer);
+  }, [scrollOffsets, scrollKey, viewMode]);
 
   // Separate folders and files, sorted, with dotfile filtering
   const { folders, regularFiles } = useMemo(() => {
@@ -337,6 +392,17 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
     setCurrentPath(normalizePath(path));
     setSelectedFile(null);
   }, []);
+
+  const handleFilesScroll = useCallback(
+    (offsetY: number) => {
+      const y = Math.max(0, Math.floor(offsetY || 0));
+      setScrollOffsets((prev) => {
+        if (Math.abs((prev[scrollKey] ?? 0) - y) < 24) return prev;
+        return { ...prev, [scrollKey]: y };
+      });
+    },
+    [scrollKey],
+  );
 
   const handleOpenPath = useCallback((path: string) => {
     const normalized = normalizePath(path);
@@ -720,6 +786,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
           </View>
         ) : !files || files.length === 0 ? (
           <ScrollView
+            ref={listScrollRef}
             className="flex-1"
             contentContainerStyle={{
               flexGrow: 1,
@@ -728,6 +795,8 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
               paddingHorizontal: 40,
               paddingBottom: 60,
             }}
+            scrollEventThrottle={100}
+            onScroll={(e) => handleFilesScroll(e.nativeEvent.contentOffset.y)}
             refreshControl={
               <RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} />
             }
@@ -818,9 +887,12 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
         ) : viewMode === 'grid' ? (
           /* ── Grid View ── */
           <ScrollView
+            ref={gridScrollRef}
             className="flex-1"
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 20 }}
+            scrollEventThrottle={100}
+            onScroll={(e) => handleFilesScroll(e.nativeEvent.contentOffset.y)}
             refreshControl={
               <RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} />
             }
@@ -913,9 +985,12 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
         ) : (
           /* ── List View ── */
           <ScrollView
+            ref={listScrollRef}
             className="flex-1 px-4 pt-3"
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 20 }}
+            scrollEventThrottle={100}
+            onScroll={(e) => handleFilesScroll(e.nativeEvent.contentOffset.y)}
             refreshControl={
               <RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} />
             }

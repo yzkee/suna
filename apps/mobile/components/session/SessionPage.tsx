@@ -15,6 +15,8 @@ import {
   TouchableOpacity,
   useWindowDimensions,
   Animated,
+  type NativeSyntheticEvent,
+  type NativeScrollEvent,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Text } from '@/components/ui/text';
@@ -67,6 +69,13 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const { sandboxUrl } = useSandboxContext();
   const flatListRef = useRef<FlatList>(null);
+  const setTabState = useTabStore((s) => s.setTabState);
+  const savedSessionState = useTabStore((s) => s.tabStateById[sessionId] as { scrollOffset?: number } | undefined);
+  const savedScrollOffset = typeof savedSessionState?.scrollOffset === 'number'
+    ? savedSessionState.scrollOffset
+    : 0;
+  const lastSavedOffsetRef = useRef(savedScrollOffset);
+  const didRestoreScrollRef = useRef(false);
 
 
 
@@ -407,6 +416,34 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
     prevTurnCount.current = turns.length;
   }, [turns.length]);
 
+  // Restore scroll position when reopening this tab/session.
+  useEffect(() => {
+    if (didRestoreScrollRef.current) return;
+    if (savedScrollOffset <= 0) {
+      didRestoreScrollRef.current = true;
+      return;
+    }
+    if (turns.length === 0) return;
+    const timer = setTimeout(() => {
+      flatListRef.current?.scrollToOffset({
+        offset: savedScrollOffset,
+        animated: false,
+      });
+      didRestoreScrollRef.current = true;
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [savedScrollOffset, turns.length]);
+
+  const handleListScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const offset = Math.max(0, event.nativeEvent.contentOffset.y || 0);
+      if (Math.abs(offset - lastSavedOffsetRef.current) < 24) return;
+      lastSavedOffsetRef.current = offset;
+      setTabState(sessionId, { scrollOffset: offset });
+    },
+    [sessionId, setTabState],
+  );
+
   // Question reply/reject handlers
   const handleQuestionReply = useCallback(
     async (requestId: string, answers: string[][]) => {
@@ -586,6 +623,8 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
           keyExtractor={(item) => item.userMessage.info.id}
           contentContainerStyle={{ paddingTop: 16 }}
           showsVerticalScrollIndicator={false}
+          scrollEventThrottle={100}
+          onScroll={handleListScroll}
           ListHeaderComponent={
             forkParentId ? (
               <ForkBanner

@@ -1,39 +1,48 @@
 import * as React from 'react';
-import { Pressable, View, Alert, ScrollView } from 'react-native';
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withRepeat,
-  withTiming,
-  Easing,
-} from 'react-native-reanimated';
+import { Alert, Pressable, ScrollView, View } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColorScheme } from 'nativewind';
 import { useAuthContext, useLanguage } from '@/contexts';
-import { useRouter } from 'expo-router';
 import { Text } from '@/components/ui/text';
 import { Icon } from '@/components/ui/icon';
 import {
-  User,
-  CreditCard,
-  Moon,
-  Sun,
-  Globe,
-  LogOut,
+  Bell,
   ChevronRight,
+  CreditCard,
   FlaskConical,
+  Globe,
+  Keyboard,
+  LogOut,
+  Palette,
+  Receipt,
   Trash2,
+  User,
+  Users,
+  Volume2,
   Wallet,
   BarChart3,
+  Plug,
 } from 'lucide-react-native';
-import { KortixLoader } from '@/components/ui/kortix-loader';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useAccountDeletionStatus } from '@/hooks/useAccountDeletion';
 import { useUpgradePaywall } from '@/hooks/useUpgradePaywall';
-import { log } from '@/lib/logger';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+type SettingsIcon = typeof User;
+
+interface SettingsRow {
+  key: string;
+  icon: SettingsIcon;
+  label: string;
+  description: string;
+  onPress: () => void;
+  badge?: string;
+  destructive?: boolean;
+  disabled?: boolean;
+}
 
 export default function SettingsScreen() {
   const { colorScheme } = useColorScheme();
@@ -45,245 +54,271 @@ export default function SettingsScreen() {
   const { useNativePaywall, presentUpgradePaywall } = useUpgradePaywall();
   const isGuest = !user;
 
-  const { data: deletionStatus } = useAccountDeletionStatus({
-    enabled: !isGuest,
-  });
+  const { data: deletionStatus } = useAccountDeletionStatus({ enabled: !isGuest });
 
-  const handleName = React.useCallback(() => {
-    log.log('🎯 Name/Profile management pressed');
+  const go = React.useCallback((path: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push('/(settings)/name');
+    router.push(path as any);
   }, [router]);
 
   const handlePlan = React.useCallback(async () => {
-    log.log('🎯 Plan pressed');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
     if (useNativePaywall) {
-      log.log('📱 Using native RevenueCat paywall');
       await presentUpgradePaywall();
-    } else {
-      router.push('/plans');
+      return;
     }
-  }, [useNativePaywall, presentUpgradePaywall, router]);
-
-  const handleBilling = React.useCallback(() => {
-    log.log('🎯 Billing pressed');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push('/billing');
-  }, [router]);
-
-  const handleUsage = React.useCallback(() => {
-    log.log('🎯 Usage pressed');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push('/usage');
-  }, [router]);
-
-  const handleTheme = React.useCallback(() => {
-    log.log('🎯 Theme pressed');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push('/(settings)/theme');
-  }, [router]);
-
-  const handleLanguage = React.useCallback(() => {
-    log.log('🎯 App Language pressed');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push('/(settings)/language');
-  }, [router]);
-
-  const handleBeta = React.useCallback(() => {
-    log.log('🎯 Beta pressed');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push('/(settings)/beta');
-  }, [router]);
-
-  const handleAccountDeletion = React.useCallback(() => {
-    log.log('🎯 Account deletion pressed');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push('/(settings)/account-deletion');
-  }, [router]);
+    router.push('/plans');
+  }, [presentUpgradePaywall, router, useNativePaywall]);
 
   const handleSignOut = React.useCallback(async () => {
     if (isSigningOut) return;
-
-    log.log('🎯 Sign Out pressed');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
     Alert.alert(
       t('settings.signOut'),
       t('auth.signOutConfirm'),
       [
-        {
-          text: t('common.cancel'),
-          style: 'cancel',
-          onPress: () => log.log('❌ Sign out cancelled'),
-        },
+        { text: t('common.cancel'), style: 'cancel' },
         {
           text: t('settings.signOut'),
           style: 'destructive',
           onPress: async () => {
-            log.log('🔐 Signing out...');
             const result = await signOut();
             if (result.success) {
-              log.log('✅ Signed out successfully - Redirecting to auth');
               router.replace('/');
             } else {
-              log.error('❌ Sign out failed:', result.error);
               Alert.alert(t('common.error'), 'Failed to sign out. Please try again.');
             }
           },
         },
       ],
-      { cancelable: true }
+      { cancelable: true },
     );
-  }, [t, signOut, router, isSigningOut]);
+  }, [isSigningOut, router, signOut, t]);
+
+  const preferenceRows: SettingsRow[] = [
+    {
+      key: 'general',
+      icon: User,
+      label: 'General',
+      description: 'Profile details and account controls',
+      onPress: () => go('/(settings)/general'),
+    },
+    {
+      key: 'appearance',
+      icon: Palette,
+      label: 'Appearance',
+      description: 'Theme and language',
+      onPress: () => go('/(settings)/appearance'),
+    },
+    {
+      key: 'sounds',
+      icon: Volume2,
+      label: 'Sounds',
+      description: 'Feedback tones and haptics',
+      onPress: () => go('/(settings)/sounds'),
+    },
+    {
+      key: 'notifications',
+      icon: Bell,
+      label: t('notifications.title', 'Notifications'),
+      description: t('notifications.description', 'Manage how you receive notifications'),
+      onPress: () => go('/(settings)/notifications'),
+    },
+    {
+      key: 'shortcuts',
+      icon: Keyboard,
+      label: 'Shortcuts',
+      description: 'Command shortcuts and gestures',
+      onPress: () => go('/(settings)/shortcuts'),
+    },
+  ];
+
+  const accountRows: SettingsRow[] = [
+    {
+      key: 'plan',
+      icon: CreditCard,
+      label: t('settings.plan', 'Plan'),
+      description: 'Upgrade or manage your plan',
+      onPress: handlePlan,
+    },
+    {
+      key: 'billing',
+      icon: Wallet,
+      label: t('settings.billing', 'Billing'),
+      description: 'Subscription and payment details',
+      onPress: () => go('/billing'),
+    },
+    {
+      key: 'transactions',
+      icon: Receipt,
+      label: 'Transactions',
+      description: 'Billing and credit transaction history',
+      onPress: () => go('/(settings)/transactions'),
+    },
+    {
+      key: 'usage',
+      icon: BarChart3,
+      label: t('settings.usage', 'Usage'),
+      description: 'Token and credit usage analytics',
+      onPress: () => go('/usage'),
+    },
+    {
+      key: 'referrals',
+      icon: Users,
+      label: 'Referrals',
+      description: 'Invite teammates and earn rewards',
+      onPress: () => go('/(settings)/referrals'),
+    },
+  ];
+
+  const advancedRows: SettingsRow[] = [
+    {
+      key: 'integrations',
+      icon: Plug,
+      label: t('integrations.title', 'Integrations'),
+      description: 'Connect external services and MCP tools',
+      onPress: () => go('/(settings)/integrations'),
+    },
+    {
+      key: 'beta',
+      icon: FlaskConical,
+      label: t('settings.beta', 'Beta'),
+      description: 'Experimental features and diagnostics',
+      onPress: () => go('/(settings)/beta'),
+    },
+    {
+      key: 'deletion',
+      icon: Trash2,
+      label: deletionStatus?.has_pending_deletion
+        ? t('accountDeletion.deletionScheduled')
+        : t('accountDeletion.deleteYourAccount'),
+      description: 'Schedule or cancel account deletion',
+      onPress: () => go('/(settings)/account-deletion'),
+      badge: deletionStatus?.has_pending_deletion ? 'Scheduled' : undefined,
+      destructive: true,
+      disabled: isGuest,
+    },
+    {
+      key: 'logout',
+      icon: LogOut,
+      label: t('settings.signOut'),
+      description: 'Sign out from this device',
+      onPress: handleSignOut,
+      destructive: true,
+      disabled: isGuest,
+    },
+  ];
+
+  const subtitleColor = colorScheme === 'dark' ? 'rgba(248,248,248,0.55)' : 'rgba(18,18,21,0.55)';
 
   return (
     <ScrollView
       className="flex-1 bg-background"
       showsVerticalScrollIndicator={false}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
+      contentContainerStyle={{ paddingBottom: insets.bottom + 28 }}
     >
-      <View className="px-6 pt-4">
-        <SettingsItem icon={User} label={t('settings.name')} onPress={handleName} />
-
-        <SettingsItem
-          icon={CreditCard}
-          label={t('settings.plan', 'Plan')}
-          onPress={handlePlan}
-        />
-
-        <SettingsItem
-          icon={Wallet}
-          label={t('settings.billing', 'Billing')}
-          onPress={handleBilling}
-        />
-
-        <SettingsItem
-          icon={BarChart3}
-          label={t('settings.usage', 'Usage')}
-          onPress={handleUsage}
-        />
-
-        <SettingsItem
-          icon={colorScheme === 'dark' ? Sun : Moon}
-          label={t('settings.themeTitle') || 'Theme'}
-          onPress={handleTheme}
-        />
-
-        <SettingsItem icon={Globe} label={t('settings.language')} onPress={handleLanguage} />
-
-        <SettingsItem
-          icon={FlaskConical}
-          label={t('settings.beta') || 'Beta'}
-          onPress={handleBeta}
-        />
+      <View className="px-5 pt-1 pb-2" style={{ gap: 18 }}>
+        <SettingsGroup title="Preferences" rows={preferenceRows} />
+        <SettingsGroup title="Account" rows={accountRows} />
+        <SettingsGroup title="Advanced" rows={advancedRows} />
 
         {!isGuest && (
-          <SettingsItem
-            icon={Trash2}
-            label={
-              deletionStatus?.has_pending_deletion
-                ? t('accountDeletion.deletionScheduled')
-                : t('accountDeletion.deleteYourAccount')
-            }
-            onPress={handleAccountDeletion}
-            showBadge={deletionStatus?.has_pending_deletion}
-          />
-        )}
-        {!isGuest && (
-          <SettingsItem
-            icon={LogOut}
-            label={t('settings.signOut')}
-            onPress={handleSignOut}
-            isLoading={isSigningOut}
-          />
+          <View className="px-1 pt-1">
+            <View className="flex-row items-center">
+              <Icon as={Globe} size={14} className="text-muted-foreground/70" strokeWidth={2} />
+              <Text className="ml-2 text-xs font-roobert-medium text-muted-foreground/80">
+                Logged in as {user?.email || 'user'}
+              </Text>
+            </View>
+            <Text className="mt-1 text-[11px] font-roobert text-muted-foreground/60" style={{ color: subtitleColor }}>
+              Mobile settings mirror frontend sections where features are available.
+            </Text>
+          </View>
         )}
       </View>
     </ScrollView>
   );
 }
 
-interface SettingsItemProps {
-  icon: typeof User;
-  label: string;
-  onPress: () => void;
-  destructive?: boolean;
-  showBadge?: boolean;
-  isLoading?: boolean;
+function SettingsGroup({ title, rows }: { title: string; rows: SettingsRow[] }) {
+  const visibleRows = rows.filter((r) => !r.disabled);
+  if (visibleRows.length === 0) return null;
+
+  return (
+    <View className="px-1">
+      <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
+        {title}
+      </Text>
+      <View>
+        {visibleRows.map((row, idx) => {
+          const { key, ...rowProps } = row;
+          return (
+            <SettingsItem
+              key={key}
+              {...rowProps}
+              isLast={idx === visibleRows.length - 1}
+            />
+          );
+        })}
+      </View>
+    </View>
+  );
 }
 
-const SettingsItem = React.memo(
-  ({
-    icon,
-    label,
-    onPress,
-    destructive = false,
-    showBadge = false,
-    isLoading = false,
-  }: SettingsItemProps) => {
-    const scale = useSharedValue(1);
-    const rotation = useSharedValue(0);
+function SettingsItem({
+  icon,
+  label,
+  description,
+  onPress,
+  badge,
+  destructive = false,
+  isLast = false,
+}: SettingsRow & { isLast?: boolean }) {
+  const scale = useSharedValue(1);
 
-    React.useEffect(() => {
-      if (isLoading) {
-        rotation.value = withRepeat(
-          withTiming(360, { duration: 1000, easing: Easing.linear }),
-          -1,
-          false
-        );
-      } else {
-        rotation.value = 0;
-      }
-    }, [isLoading, rotation]);
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
 
-    const animatedStyle = useAnimatedStyle(() => ({
-      transform: [{ scale: scale.value }],
-      opacity: isLoading ? 0.6 : 1,
-    }));
+  const handlePressIn = React.useCallback(() => {
+    scale.value = withSpring(0.985, { damping: 16, stiffness: 420 });
+  }, [scale]);
 
-    const handlePressIn = React.useCallback(() => {
-      if (!isLoading) {
-        scale.value = withSpring(0.98, { damping: 15, stiffness: 400 });
-      }
-    }, [scale, isLoading]);
+  const handlePressOut = React.useCallback(() => {
+    scale.value = withSpring(1, { damping: 16, stiffness: 420 });
+  }, [scale]);
 
-    const handlePressOut = React.useCallback(() => {
-      if (!isLoading) {
-        scale.value = withSpring(1, { damping: 15, stiffness: 400 });
-      }
-    }, [scale, isLoading]);
+  const iconTint = destructive ? 'text-destructive' : 'text-foreground/80';
+  const titleTint = destructive ? 'text-destructive' : 'text-foreground';
 
-    const iconColor = destructive ? 'text-destructive' : 'text-primary';
-    const textColor = destructive ? 'text-destructive' : 'text-foreground';
+  return (
+    <AnimatedPressable
+      onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      style={animatedStyle}
+      className="active:opacity-90"
+    >
+      <View className="py-3.5">
+        <View className="flex-row items-center">
+          <Icon as={icon} size={18} className={iconTint} strokeWidth={2.2} />
 
-    return (
-      <AnimatedPressable
-        onPress={isLoading ? undefined : onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        disabled={isLoading}
-        style={animatedStyle}
-        className="flex-row items-center justify-between py-4"
-      >
-        <View className="flex-row items-center gap-3">
-          {isLoading ? (
-            <KortixLoader size="small" customSize={20} />
-          ) : (
-            <Icon as={icon} size={20} className={iconColor} strokeWidth={2} />
-          )}
-          <Text className={`font-roobert-medium text-lg ${textColor}`}>{label}</Text>
-          {showBadge && (
-            <View className="rounded-full bg-destructive/20 px-2 py-0.5">
-              <Text className="font-roobert-medium text-xs text-destructive">Scheduled</Text>
+          <View className="ml-4 flex-1">
+            <View className="flex-row items-center">
+              <Text className={`font-roobert-medium text-[15px] ${titleTint}`}>{label}</Text>
+              {!!badge && (
+                <View className="ml-2 rounded-full bg-destructive/15 px-2 py-0.5">
+                  <Text className="text-[10px] font-roobert-medium text-destructive">{badge}</Text>
+                </View>
+              )}
             </View>
-          )}
-        </View>
+            <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">{description}</Text>
+          </View>
 
-        {!destructive && !isLoading && (
-          <Icon as={ChevronRight} size={16} className="text-foreground/40" strokeWidth={2} />
-        )}
-      </AnimatedPressable>
-    );
-  }
-);
+          <Icon as={ChevronRight} size={16} className="text-muted-foreground/50" strokeWidth={2.2} />
+        </View>
+      </View>
+
+      {!isLast && <View className="h-px bg-border/35" />}
+    </AnimatedPressable>
+  );
+}
