@@ -153,7 +153,6 @@ const envSchema = z.object({
   PIPEDREAM_CLIENT_SECRET:     optStr,
   PIPEDREAM_PROJECT_ID:        optStr,
   PIPEDREAM_ENVIRONMENT:       optStrDefault('development'),
-  PIPEDREAM_WEBHOOK_SECRET:    optStr,
 
   // ── Tunnel (optional, all have sane defaults) ────────────────────────────
   TUNNEL_ENABLED:                    optBoolTrue,
@@ -464,7 +463,6 @@ export const config = {
   PIPEDREAM_CLIENT_SECRET: env.PIPEDREAM_CLIENT_SECRET,
   PIPEDREAM_PROJECT_ID: env.PIPEDREAM_PROJECT_ID,
   PIPEDREAM_ENVIRONMENT: env.PIPEDREAM_ENVIRONMENT,
-  PIPEDREAM_WEBHOOK_SECRET: env.PIPEDREAM_WEBHOOK_SECRET,
 
   // ─── Tunnel (Reverse-Tunnel to Local Machine) ──────────────────────────────
   TUNNEL_ENABLED: env.TUNNEL_ENABLED,
