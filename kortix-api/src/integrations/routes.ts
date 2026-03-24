@@ -71,7 +71,7 @@ const updateTriggerSchema = z.object({
 });
 
 const webhookSchema = z.object({
-  account_id: z.string(),
+  account_id: z.string().uuid(),
   app: z.string(),
   app_name: z.string().optional(),
   provider_account_id: z.string(),
@@ -362,6 +362,16 @@ export function createIntegrationsRouter(): Hono<AppEnv> {
   });
 
   app.post('/webhook', async (c) => {
+    // Verify webhook secret if configured (set in Pipedream dashboard as query param).
+    // URL format: https://api.example.com/v1/integrations/webhook?secret=<random>
+    const webhookSecret = config.PIPEDREAM_WEBHOOK_SECRET;
+    if (webhookSecret) {
+      const providedSecret = c.req.query('secret');
+      if (providedSecret !== webhookSecret) {
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
+    }
+
     const body = await c.req.json();
     const parsed = webhookSchema.safeParse(body);
 
