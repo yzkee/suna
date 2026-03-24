@@ -2239,12 +2239,13 @@ export function SessionTurn({
 
           {/* Duration + Actions (when done) */}
           {!working && !!response && (
-            <View style={{ marginTop: -10 }}>
+            <View style={{ marginTop: turnError ? 8 : -10 }}>
               <TurnActions
                 response={response}
                 duration={duration}
                 costInfo={costInfo}
                 isDark={isDark}
+                tightToResponse={!turnError}
                 onFork={lastAssistantMessageId ? () => onFork?.(lastAssistantMessageId) : undefined}
               />
             </View>
@@ -2264,12 +2265,14 @@ function TurnActions({
   duration,
   costInfo,
   isDark,
+  tightToResponse = true,
   onFork,
 }: {
   response: string;
   duration?: number;
   costInfo?: { cost: number; tokens: { input: number; output: number } } | undefined;
   isDark: boolean;
+  tightToResponse?: boolean;
   onFork?: () => void;
 }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -2292,6 +2295,9 @@ function TurnActions({
 
   const mutedColor = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
   const hoverColor = isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.5)';
+  const durationClassName = tightToResponse
+    ? 'text-xs text-muted-foreground/50 mr-2 mt-0.5'
+    : 'text-xs text-muted-foreground/50 mr-2';
 
   return (
     <Animated.View
@@ -2305,13 +2311,13 @@ function TurnActions({
         }],
         flexDirection: 'row',
         alignItems: 'center',
-        marginTop: -2,
+        marginTop: tightToResponse ? -2 : 2,
         gap: 2,
       }}
     >
       {/* Duration & cost */}
       {duration != null && duration > 0 && (
-              <Text className="text-xs text-muted-foreground/50 mr-2 mt-0.5">
+        <Text className={durationClassName}>
           {formatDuration(duration)}
           {costInfo ? ` · ${formatCost(costInfo.cost)} · ${formatTokens(costInfo.tokens.input + costInfo.tokens.output)}t` : ''}
         </Text>
