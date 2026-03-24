@@ -124,6 +124,54 @@ export default function SettingsLayout() {
         }}
       />
       <Stack.Screen
+        name="appearance"
+        options={{
+          header: () => <SubpageHeader title="Appearance" />,
+          headerShown: true,
+        }}
+      />
+      <Stack.Screen
+        name="sounds"
+        options={{
+          header: () => <SubpageHeader title="Sounds" />,
+          headerShown: true,
+        }}
+      />
+      <Stack.Screen
+        name="notifications"
+        options={{
+          header: () => <SubpageHeader title={t('notifications.title', 'Notifications')} />,
+          headerShown: true,
+        }}
+      />
+      <Stack.Screen
+        name="shortcuts"
+        options={{
+          header: () => <SubpageHeader title="Shortcuts" />,
+          headerShown: true,
+        }}
+      />
+      <Stack.Screen
+        name="transactions"
+        options={{
+          header: () => <SubpageHeader title="Transactions" />,
+          headerShown: true,
+        }}
+      />
+      <Stack.Screen
+        name="referrals"
+        options={{
+          header: () => <SubpageHeader title="Referrals" />,
+          headerShown: true,
+        }}
+      />
+      <Stack.Screen
+        name="integrations"
+        options={{
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
         name="beta"
         options={{
           header: () => <SubpageHeader title={t('beta.title')} />,
