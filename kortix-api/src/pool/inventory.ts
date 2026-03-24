@@ -1,4 +1,5 @@
 import { eq, and, asc, sql } from 'drizzle-orm';
+import { randomBytes } from 'crypto';
 import { poolSandboxes } from '@kortix/db';
 import { db } from '../shared/db';
 import { getProvider, type ProviderName } from '../platform/providers';
@@ -75,7 +76,7 @@ export async function grab(opts?: ClaimOpts): Promise<ClaimedSandbox | null> {
 export async function provision(resource: PoolResource): Promise<void> {
   const providerName = resource.provider as ProviderName;
   const provider = getProvider(providerName);
-  const placeholderToken = `pool_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const placeholderToken = `pool_${randomBytes(16).toString('hex')}`;
 
   const result = await provider.create({
     accountId: 'pool',
