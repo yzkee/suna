@@ -3,6 +3,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { useServerStore } from '@/stores/server-store';
+import { getCurrentInstanceIdFromWindow, toInstanceAwarePath } from '@/lib/instance-routes';
 
 // ============================================================================
 // Types
@@ -484,10 +485,11 @@ export function openTabAndNavigate(
 ) {
   useTabStore.getState().openTab(tabInput);
   if (typeof window === 'undefined') return;
+  const href = toInstanceAwarePath(tabInput.href, getCurrentInstanceIdFromWindow());
   if (PRE_MOUNTED_TAB_TYPES.has(tabInput.type)) {
-    window.history.pushState(null, '', tabInput.href);
+    window.history.pushState(null, '', href);
   } else if (router) {
-    router.push(tabInput.href);
+    router.push(href);
   }
 }
 

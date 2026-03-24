@@ -5,9 +5,9 @@ import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { RightSidebarProvider } from '@/components/ui/sidebar-right-provider';
 import { useDeleteOperationEffects } from '@/stores/delete-operation-store';
 import { SubscriptionStoreSync } from '@/stores/subscription-store';
-import { AddInstanceDialog } from '@/components/billing/add-instance-dialog';
+import { NewInstanceModal } from '@/components/billing/pricing/new-instance-modal';
+import { useNewInstanceModalStore } from '@/stores/pricing-modal-store';
 
-// Lazy load the heavy sidebar components
 const SidebarLeft = lazy(() => 
   import('@/components/sidebar/sidebar-left').then(mod => ({ default: mod.SidebarLeft }))
 );
@@ -15,7 +15,6 @@ const SidebarRight = lazy(() =>
   import('@/components/sidebar/sidebar-right').then(mod => ({ default: mod.SidebarRight }))
 );
 
-// Sidebar skeleton for immediate render
 function SidebarSkeleton() {
   return (
     <div className="hidden md:flex w-[280px] flex-col bg-sidebar shrink-0">
@@ -35,10 +34,15 @@ function SidebarSkeleton() {
   );
 }
 
-// Wrapper component to handle delete operation side effects
 function DeleteOperationEffectsWrapper({ children }: { children: React.ReactNode }) {
   useDeleteOperationEffects();
   return <>{children}</>;
+}
+
+/** Store-driven NewInstanceModal — mounted once globally */
+function GlobalNewInstanceModal() {
+  const { isOpen, title, closeNewInstanceModal } = useNewInstanceModalStore();
+  return <NewInstanceModal open={isOpen} onOpenChange={(o) => !o && closeNewInstanceModal()} title={title} />;
 }
 
 interface AppProvidersProps {
@@ -46,15 +50,9 @@ interface AppProvidersProps {
   showSidebar?: boolean;
   defaultSidebarOpen?: boolean;
   sidebarContent?: React.ReactNode;
-  sidebarSiblings?: React.ReactNode; // Components to render as siblings of SidebarInset (e.g., StatusOverlay, FloatingMobileMenuButton)
+  sidebarSiblings?: React.ReactNode;
 }
 
-/**
- * Shared wrapper component that provides common app-level providers:
- * - DeleteOperationEffectsWrapper
- * - SubscriptionStoreSync
- * - SidebarProvider + SidebarLeft + SidebarInset (if showSidebar is true)
- */
 export function AppProviders({ 
   children, 
   showSidebar = true,
@@ -66,14 +64,12 @@ export function AppProviders({
     <DeleteOperationEffectsWrapper>
       <SubscriptionStoreSync>
         {children}
-        <AddInstanceDialog />
+        <GlobalNewInstanceModal />
       </SubscriptionStoreSync>
     </DeleteOperationEffectsWrapper>
   );
 
-  if (!showSidebar) {
-    return content;
-  }
+  if (!showSidebar) return content;
 
   return (
     <SidebarProvider defaultOpen={defaultSidebarOpen}>

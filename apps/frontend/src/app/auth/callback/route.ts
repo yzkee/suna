@@ -156,7 +156,7 @@ export async function GET(request: NextRequest) {
         const { data: sessionData } = await supabase.auth.getSession();
         const accessToken = sessionData?.session?.access_token;
 
-        const billingEnabled = runtimeEnv.BILLING_ENABLED === 'true';
+        const billingEnabled = runtimeEnv.ENV_MODE === 'cloud';
         if (billingEnabled && backendUrl && accessToken) {
           try {
             const accountStateRes = await fetch(`${backendUrl}/v1/billing/account-state`, {

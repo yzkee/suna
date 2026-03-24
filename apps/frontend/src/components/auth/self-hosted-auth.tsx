@@ -119,7 +119,7 @@ function InstallerForm({ onSuccess, onError }: InstallerFormProps) {
 
 /* ─── Install Status Hook ──────────────────────────────────────────────────── */
 
-export type SandboxProviderName = 'local_docker' | 'daytona' | 'hetzner' | 'justavps';
+export type SandboxProviderName = 'local_docker' | 'daytona' | 'justavps';
 
 export function useInstallStatus() {
   const [installed, setInstalled] = useState<boolean | null>(null);
@@ -509,7 +509,7 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
             provisionSandbox(jwt, backendUrl, 'local_docker');
           }
         } else {
-          // Non-local provider (justavps, hetzner, daytona): check for existing sandbox
+          // Non-local provider (justavps, daytona): check for existing sandbox
           // via the generic endpoint, then provision if none exists.
           const res = await fetch(`${backendUrl}/platform/sandbox`, {
             headers: { 'Authorization': `Bearer ${jwt}` },
@@ -552,7 +552,11 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
 
     const registeredId = store.registerOrUpdateSandbox(
       {
-        label: sandbox.name || (isLocal ? 'Local Sandbox' : sandbox.provider === 'hetzner' ? 'Hetzner VPS' : 'Cloud Sandbox'),
+        label: sandbox.name || (isLocal
+          ? 'Local Sandbox'
+          : sandbox.provider === 'justavps'
+            ? 'JustaVPS'
+            : 'Cloud Sandbox'),
         provider: sandbox.provider,
         sandboxId: sandbox.external_id,
         mappedPorts: sandbox.metadata?.mappedPorts,
@@ -806,7 +810,7 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
         }
       }
     } else {
-      // Cloud provider (justavps, hetzner, daytona) — uses generic init
+      // Cloud provider (justavps, daytona) — uses generic init
       try {
         setPullProgress({ progress: 5, message: 'Initializing sandbox...' });
         const initRes = await fetch(`${backendUrl}/platform/init`, {
@@ -1107,19 +1111,19 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
                 </div>
               </button>
             )}
-            {sandboxProviders.includes('hetzner') && (
+            {sandboxProviders.includes('justavps') && (
               <button
                 type="button"
-                onClick={() => handleSandboxProviderSelect('hetzner')}
+                onClick={() => handleSandboxProviderSelect('justavps')}
                 className="flex items-start gap-3 p-3.5 rounded-xl border border-foreground/[0.06] bg-foreground/[0.02] hover:border-foreground/[0.15] hover:bg-foreground/[0.04] transition-all text-left"
               >
                 <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.05]">
                   <Server className="h-4 w-4 text-foreground/40" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <span className="text-[13px] font-medium text-foreground/80">Hetzner VPS</span>
+                  <span className="text-[13px] font-medium text-foreground/80">JustaVPS</span>
                   <p className="text-[11px] text-foreground/35 mt-0.5 leading-relaxed">
-                    Dedicated VPS with full isolation.
+                    Managed VPS provisioning via JustaVPS.
                   </p>
                 </div>
               </button>

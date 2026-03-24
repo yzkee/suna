@@ -4,7 +4,6 @@ import * as React from 'react';
 import {
   Plus,
   Pencil,
-  Trash2,
   Search,
   Check,
   X,
@@ -22,20 +21,25 @@ import {
   Download,
   Globe,
   Server,
+  CalendarX2,
+  Power,
 } from 'lucide-react';
 import { useServerStore, resolveServerUrl, type ServerEntry } from '@/stores/server-store';
+import { buildInstancePath } from '@/lib/instance-routes';
+import { useNewInstanceModalStore } from '@/stores/pricing-modal-store';
 import { useSubscriptionStore } from '@/stores/subscription-store';
 import { useTabStore } from '@/stores/tab-store';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { authenticatedFetch } from '@/lib/auth-token';
-import { createSandbox, ensureSandbox, extractMappedPorts, getSandboxUrl, removeSandbox, setupSSH, type SandboxCreateProgress, type SandboxProviderName, type HetznerServerTypeOption, type ChangelogEntry, type SSHSetupResult } from '@/lib/platform-client';
+import { createSandbox, ensureSandbox, extractMappedPorts, getSandboxUrl, setupSSH, cancelSandbox, reactivateSandbox, listSandboxes, type SandboxCreateProgress, type SandboxProviderName, type SandboxInfo, type ServerTypeOption, type ChangelogEntry, type SSHSetupResult } from '@/lib/platform-client';
 import { toast } from '@/lib/toast';
 import { isBillingEnabled } from '@/lib/config';
 
 import { useSandboxUpdate } from '@/hooks/platform/use-sandbox-update';
-import { useProviders, markSandboxDeleted } from '@/hooks/platform/use-sandbox';
+import { useProviders } from '@/hooks/platform/use-sandbox';
+import { useQuery } from '@tanstack/react-query';
 
 import {
   Dialog,
@@ -44,6 +48,16 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 import { SSHResultView } from './ssh-key-dialog';
 
@@ -266,8 +280,11 @@ function DialogInstanceRow({
   isActive,
   onSelect,
   onEdit,
-  onDelete,
-  isDeleting,
+  onCancel,
+  onReactivate,
+  sandboxInfo,
+  isCancelling,
+  isReactivating,
   sandboxUpdate,
   onVersionDetected,
 }: {
@@ -275,27 +292,55 @@ function DialogInstanceRow({
   isActive: boolean;
   onSelect: () => void;
   onEdit?: () => void;
-  onDelete?: () => void;
-  isDeleting?: boolean;
+  onCancel?: () => void;
+  onReactivate?: () => void;
+  sandboxInfo?: SandboxInfo;
+  isCancelling?: boolean;
+  isReactivating?: boolean;
   sandboxUpdate?: SandboxUpdateInfo;
   onVersionDetected?: (version: string) => void;
 }) {
-  const [confirmDelete, setConfirmDelete] = React.useState(false);
   const resolvedUrl = resolveServerUrl(server);
-  const { status, version } = useConnectionStatus(resolvedUrl, true);
+  const displayUrl = resolvedUrl.replace(/^https?:\/\//, '');
+  const hasCustomLabel = server.label && server.label !== displayUrl;
+
+  // DB status is the source of truth. Only run health checks when sandbox is active.
+  const dbStatus = sandboxInfo?.status;
+  const isDbActive = !dbStatus || dbStatus === 'active';
+  const { status: connStatus, version } = useConnectionStatus(resolvedUrl, isDbActive);
+
+  const isCancelledAtPeriodEnd = sandboxInfo?.cancel_at_period_end ?? false;
+  const cancelAt = sandboxInfo?.cancel_at ?? null;
+  const isPaidVps = server.provider === 'justavps' && Boolean(sandboxInfo?.stripe_subscription_id || sandboxInfo?.stripe_subscription_item_id);
 
   // Report version back to parent when detected
   React.useEffect(() => {
     if (version && onVersionDetected) onVersionDetected(version);
   }, [version, onVersionDetected]);
-  const displayUrl = resolvedUrl.replace(/^https?:\/\//, '');
-  const hasCustomLabel = server.label && server.label !== displayUrl;
 
-  React.useEffect(() => {
-    if (!confirmDelete) return;
-    const t = setTimeout(() => setConfirmDelete(false), 3000);
-    return () => clearTimeout(t);
-  }, [confirmDelete]);
+  // Derive display status: DB status takes priority, health check only for active sandboxes
+  const displayStatus = React.useMemo(() => {
+    if (dbStatus === 'provisioning') return { label: 'Provisioning...', color: 'text-amber-500', dot: 'checking' as ConnectionStatus };
+    if (dbStatus === 'stopped') return { label: 'Stopped', color: 'text-muted-foreground', dot: 'error' as ConnectionStatus };
+    if (dbStatus === 'error') return { label: 'Error', color: 'text-red-400', dot: 'error' as ConnectionStatus };
+    // active or no sandbox info (custom URL) — use connection health check
+    if (connStatus === 'connected') return { label: 'Connected', color: 'text-emerald-500', dot: 'connected' as ConnectionStatus };
+    if (connStatus === 'error') return { label: 'Unreachable', color: 'text-red-400', dot: 'error' as ConnectionStatus };
+    if (connStatus === 'checking') return { label: 'Connecting...', color: 'text-amber-500', dot: 'checking' as ConnectionStatus };
+    return null;
+  }, [dbStatus, connStatus]);
+
+  // Provider icon
+  const ProviderIcon = server.provider === 'local_docker' ? Container
+    : server.provider === 'daytona' ? Cloud
+    : server.provider === 'justavps' ? Server
+    : Box;
+
+  // Provider badge
+  const providerBadge = server.provider === 'local_docker' ? { label: 'local', cls: 'text-blue-500/70 bg-blue-500/10' }
+    : server.provider === 'justavps' ? { label: 'vps', cls: 'text-orange-500/70 bg-orange-500/10' }
+    : server.provider ? { label: 'cloud', cls: 'text-violet-500/70 bg-violet-500/10' }
+    : null;
 
   return (
     <div
@@ -311,17 +356,9 @@ function DialogInstanceRow({
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
     >
       <div className="px-3.5 py-3">
-        {/* Top line: label/name + badges + actions */}
+        {/* Top line: icon + label + badges */}
         <div className="flex items-center gap-2">
-          {server.provider === 'local_docker' ? (
-            <Container className={cn('h-4 w-4 flex-shrink-0', isActive ? 'text-primary' : 'text-muted-foreground/60')} />
-          ) : server.provider === 'daytona' ? (
-            <Cloud className={cn('h-4 w-4 flex-shrink-0', isActive ? 'text-primary' : 'text-muted-foreground/60')} />
-          ) : server.provider === 'hetzner' ? (
-            <Server className={cn('h-4 w-4 flex-shrink-0', isActive ? 'text-primary' : 'text-muted-foreground/60')} />
-          ) : (
-            <Box className={cn('h-4 w-4 flex-shrink-0', isActive ? 'text-primary' : 'text-muted-foreground/60')} />
-          )}
+          <ProviderIcon className={cn('h-4 w-4 flex-shrink-0', isActive ? 'text-primary' : 'text-muted-foreground/60')} />
           <span className={cn(
             'text-sm leading-tight flex-1 min-w-0 break-all',
             isActive ? 'text-foreground font-semibold' : 'text-foreground/80 font-medium',
@@ -330,16 +367,15 @@ function DialogInstanceRow({
             {hasCustomLabel ? server.label : displayUrl}
           </span>
 
-          {server.provider && (
-            <span className={cn(
-              'px-1.5 py-px text-[9px] font-medium rounded-full uppercase tracking-wider leading-none flex-shrink-0',
-              server.provider === 'local_docker'
-                ? 'text-blue-500/70 bg-blue-500/10'
-                : server.provider === 'hetzner'
-                  ? 'text-orange-500/70 bg-orange-500/10'
-                  : 'text-violet-500/70 bg-violet-500/10',
-            )}>
-              {server.provider === 'local_docker' ? 'local' : server.provider === 'hetzner' ? 'vps' : 'cloud'}
+          {providerBadge && (
+            <span className={cn('px-1.5 py-px text-[9px] font-medium rounded-full uppercase tracking-wider leading-none flex-shrink-0', providerBadge.cls)}>
+              {providerBadge.label}
+            </span>
+          )}
+          {isCancelledAtPeriodEnd && (
+            <span className="flex items-center gap-0.5 px-1.5 py-px text-[9px] font-medium rounded-full uppercase tracking-wider leading-none flex-shrink-0 bg-destructive/10 text-destructive border border-destructive/20">
+              <CalendarX2 className="h-2.5 w-2.5" />
+              Cancelling
             </span>
           )}
           {server.isDefault && (
@@ -350,36 +386,28 @@ function DialogInstanceRow({
           {isActive && <Check className="h-4 w-4 text-primary flex-shrink-0" />}
         </div>
 
-        {/* URL line — only if there's a custom label, show full URL below */}
+        {/* URL — only when label differs from URL */}
         {hasCustomLabel && (
           <p className="mt-1 ml-6 text-xs text-muted-foreground/50 font-mono break-all leading-relaxed">
             {displayUrl}
           </p>
         )}
 
-        {/* Status + version + actions line */}
-        <div className="mt-1.5 ml-6 flex items-center gap-3">
-          {status !== 'unknown' && (
-            <span className={cn(
-              'flex items-center gap-1 text-[10px] font-medium',
-              status === 'connected' && 'text-emerald-500',
-              status === 'error' && 'text-red-400',
-              status === 'checking' && 'text-amber-500',
-            )}>
-              <StatusDot status={status} />
-              {statusLabel[status]}
+        {/* Status + version + actions */}
+        <div className="mt-1.5 ml-6 flex items-center gap-3 flex-wrap">
+          {displayStatus && (
+            <span className={cn('flex items-center gap-1 text-[10px] font-medium', displayStatus.color)}>
+              <StatusDot status={displayStatus.dot} />
+              {displayStatus.label}
             </span>
           )}
 
-          {/* Version badge — from /kortix/health (works for any sandbox) */}
           {version && (
-            <span className="text-[10px] font-mono text-muted-foreground/60">
-              v{version}
-            </span>
+            <span className="text-[10px] font-mono text-muted-foreground/60">v{version}</span>
           )}
 
-          {/* Update button */}
-          {sandboxUpdate && sandboxUpdate.updateAvailable && !sandboxUpdate.isUpdating && (
+          {/* Update available */}
+          {sandboxUpdate?.updateAvailable && !sandboxUpdate.isUpdating && (
             <button
               type="button"
               className="flex items-center gap-1 h-5 px-2 text-[10px] font-medium text-primary bg-primary/10 hover:bg-primary/20 rounded-full transition-colors cursor-pointer"
@@ -390,7 +418,7 @@ function DialogInstanceRow({
             </button>
           )}
 
-          {/* Updating spinner */}
+          {/* Updating */}
           {sandboxUpdate?.isUpdating && (
             <span className="flex items-center gap-1 text-[10px] font-medium text-amber-500">
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -398,8 +426,8 @@ function DialogInstanceRow({
             </span>
           )}
 
-          {/* Changelog preview — what's new */}
-          {sandboxUpdate && sandboxUpdate.updateAvailable && !sandboxUpdate.isUpdating && sandboxUpdate.changelog && (
+          {/* Changelog */}
+          {sandboxUpdate?.updateAvailable && !sandboxUpdate.isUpdating && sandboxUpdate.changelog && (
             <div className="basis-full mt-0.5 text-[10px] text-muted-foreground/70 space-y-0.5 max-w-[280px]">
               <p className="font-medium">{sandboxUpdate.changelog.title}</p>
               <ul className="list-disc list-inside">
@@ -413,61 +441,55 @@ function DialogInstanceRow({
             </div>
           )}
 
-          {/* Spacer */}
           <div className="flex-1" />
 
-          {/* Edit / Delete — visible on hover */}
-          {!confirmDelete && (
-            <div className="flex items-center gap-0.5 opacity-0 group-hover/row:opacity-100 transition-opacity">
-              {!server.isDefault && onEdit && (
-                <button
-                  type="button"
-                  className="p-1.5 rounded-lg hover:bg-muted/80 transition-colors cursor-pointer"
-                  onClick={(e) => { e.stopPropagation(); onEdit(); }}
-                  aria-label="Edit"
-                >
-                  <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                </button>
-              )}
-              {!server.isDefault && onDelete && (
-                <button
-                  type="button"
-                  className="p-1.5 rounded-lg hover:bg-destructive/10 transition-colors cursor-pointer"
-                  onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
-                  aria-label="Delete"
-                >
-                  <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
-                </button>
-              )}
-            </div>
-          )}
-
-          {confirmDelete && (
-            <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+          {/* Hover actions */}
+          <div className="flex items-center gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+            {/* Edit — non-default entries only */}
+            {!server.isDefault && onEdit && (
               <button
                 type="button"
-                disabled={isDeleting}
-                className="h-6 px-2.5 text-[11px] font-medium text-destructive-foreground bg-destructive rounded-md transition-colors cursor-pointer hover:bg-destructive/90 disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={() => { onDelete?.(); setConfirmDelete(false); }}
+                className="p-1.5 rounded-lg hover:bg-muted/80 transition-colors cursor-pointer"
+                onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                aria-label="Edit"
               >
-                {isDeleting ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  'Remove'
-                )}
+                <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
               </button>
-              {!isDeleting && (
-                <button
-                  type="button"
-                  className="p-1 rounded-md hover:bg-muted cursor-pointer"
-                  onClick={() => setConfirmDelete(false)}
-                >
-                  <X className="h-3.5 w-3.5 text-muted-foreground" />
-                </button>
-              )}
-            </div>
-          )}
+            )}
+            {/* Cancel / Reactivate — paid VPS only */}
+            {isPaidVps && isCancelledAtPeriodEnd && (
+              <button
+                type="button"
+                disabled={isReactivating}
+                className="flex items-center gap-1 h-6 px-2 text-[11px] font-medium text-emerald-600 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-md transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={(e) => { e.stopPropagation(); onReactivate?.(); }}
+              >
+                {isReactivating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Power className="h-3 w-3" />}
+                Reactivate
+              </button>
+            )}
+            {isPaidVps && !isCancelledAtPeriodEnd && (
+              <button
+                type="button"
+                disabled={isCancelling}
+                className="flex items-center gap-1 h-6 px-2 text-[11px] font-medium text-muted-foreground/60 hover:text-destructive bg-muted/40 hover:bg-destructive/10 border border-border/30 hover:border-destructive/20 rounded-md transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={(e) => { e.stopPropagation(); onCancel?.(); }}
+              >
+                {isCancelling ? <Loader2 className="h-3 w-3 animate-spin" /> : <CalendarX2 className="h-3 w-3" />}
+                Cancel
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* Cancellation notice */}
+        {isCancelledAtPeriodEnd && (
+          <p className="mt-1.5 ml-6 text-[11px] text-destructive">
+            {cancelAt
+              ? `Ends ${new Date(cancelAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`
+              : 'Cancels at end of billing period'}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -484,7 +506,7 @@ export function InstanceManagerDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { servers, activeServerId, addServer, updateServer, removeServer, setActiveServer } =
+  const { servers, activeServerId, addServer, updateServer, setActiveServer } =
     useServerStore();
   const accountState = useSubscriptionStore((s) => s.accountState);
   const router = useRouter();
@@ -507,6 +529,59 @@ export function InstanceManagerDialog({
   const [copiedField, setCopiedField] = React.useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = React.useState(false);
 
+  // Cancel / reactivate state
+  const [cancellingId, setCancellingId] = React.useState<string | null>(null);
+  const [reactivatingId, setReactivatingId] = React.useState<string | null>(null);
+  const [pendingCancelServer, setPendingCancelServer] = React.useState<ServerEntry | null>(null);
+
+  // Fetch full sandbox list to get cancel_at_period_end / stripe fields
+  const { data: sandboxList } = useQuery({
+    queryKey: ['platform', 'sandbox', 'list'],
+    queryFn: listSandboxes,
+    enabled: open,
+    staleTime: 30_000,
+  });
+
+  function getSandboxInfo(server: ServerEntry): SandboxInfo | undefined {
+    if (!sandboxList) return undefined;
+    if (server.instanceId) {
+      return sandboxList.find((s) => s.sandbox_id === server.instanceId);
+    }
+    if (server.sandboxId) {
+      return sandboxList.find((s) => s.external_id === server.sandboxId || s.sandbox_id === server.sandboxId);
+    }
+    return undefined;
+  }
+
+  async function handleCancelConfirmed() {
+    if (!pendingCancelServer) return;
+    const server = pendingCancelServer;
+    setPendingCancelServer(null);
+    setCancellingId(server.id);
+    try {
+      await cancelSandbox(server.sandboxId);
+      await queryClient.invalidateQueries({ queryKey: ['platform', 'sandbox', 'list'] });
+      toast.success(`${server.label || 'Instance'} scheduled for cancellation`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to schedule cancellation');
+    } finally {
+      setCancellingId(null);
+    }
+  }
+
+  async function handleReactivate(server: ServerEntry) {
+    setReactivatingId(server.id);
+    try {
+      await reactivateSandbox(server.sandboxId);
+      await queryClient.invalidateQueries({ queryKey: ['platform', 'sandbox', 'list'] });
+      toast.success(`${server.label || 'Instance'} reactivated`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to reactivate');
+    } finally {
+      setReactivatingId(null);
+    }
+  }
+
   // Sandbox update state — only used for the cloud sandbox row
   const sandboxUpdate = useSandboxUpdate(sandboxVersion);
 
@@ -515,7 +590,7 @@ export function InstanceManagerDialog({
   const availableProviders = providersInfo?.providers ?? ['local_docker'];
   const hasDaytona = availableProviders.includes('daytona');
   const hasLocalDocker = availableProviders.includes('local_docker');
-  const hasHetzner = availableProviders.includes('hetzner');
+  const hasJustAVPS = availableProviders.includes('justavps');
   const canAddInstances = accountState?.can_add_instances ?? false;
 
   // Form state (for custom URL / edit)
@@ -542,6 +617,9 @@ export function InstanceManagerDialog({
       setSSHResult(null);
       setSSHError(null);
       setShowAdvanced(false);
+      setPendingCancelServer(null);
+      setCancellingId(null);
+      setReactivatingId(null);
 
       try {
         const raw = localStorage.getItem(SSH_META_STORAGE_KEY);
@@ -585,7 +663,7 @@ export function InstanceManagerDialog({
       const newServer = addServer(label, url);
       useTabStore.getState().swapForServer(newServer.id, activeServerId);
       setActiveServer(newServer.id);
-      router.push('/dashboard');
+      router.push(newServer.instanceId ? buildInstancePath(newServer.instanceId, '/dashboard') : '/dashboard');
       onOpenChange(false);
     } else if (mode === 'edit' && editingId) {
       updateServer(editingId, { label: label || url.replace(/^https?:\/\//, ''), url });
@@ -594,22 +672,24 @@ export function InstanceManagerDialog({
     }
   }
 
-  async function handleCreateSandbox(provider: SandboxProviderName, hetznerServerType?: HetznerServerTypeOption) {
+  async function handleCreateSandbox(provider: SandboxProviderName, serverType?: ServerTypeOption) {
     setIsCreatingSandbox(true);
     setCreatingProvider(provider);
     setSandboxError(null);
     setSandboxProgress(null);
-    let hetznerProgressTimer: ReturnType<typeof setInterval> | null = null;
-    if (provider === 'hetzner') {
+    let managedVpsProgressTimer: ReturnType<typeof setInterval> | null = null;
+    const isManagedVpsProvider = provider === 'justavps';
+    const providerLabel = provider === 'justavps' ? 'JustaVPS' : 'Cloud Sandbox';
+    if (isManagedVpsProvider) {
       const startedAt = Date.now();
       const tick = () => {
         const elapsedSec = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
         let progress = 8;
-        let message = 'Allocating Hetzner VPS...';
+        let message = `Allocating ${providerLabel}...`;
 
         if (elapsedSec < 20) {
           progress = 8 + (elapsedSec / 20) * 12;
-          message = 'Allocating Hetzner VPS...';
+          message = `Allocating ${providerLabel}...`;
         } else if (elapsedSec < 90) {
           progress = 20 + ((elapsedSec - 20) / 70) * 35;
           message = 'Provisioning from snapshot (cold starts usually 2-3 min)...';
@@ -629,31 +709,31 @@ export function InstanceManagerDialog({
       };
 
       tick();
-      hetznerProgressTimer = setInterval(tick, 1000);
+      managedVpsProgressTimer = setInterval(tick, 1000);
     }
     try {
       // In cloud mode (billing), use ensureSandbox (idempotent — handles archived → reactivate → create).
       // In self-hosted mode, use createSandbox (explicit creation).
-      const isCloudProvider = provider === 'daytona' || provider === 'hetzner';
+      const isCloudProvider = provider === 'daytona' || isManagedVpsProvider;
       const { sandbox } = isBillingEnabled() && isCloudProvider
-        ? await ensureSandbox({ provider, hetznerServerType })
+        ? await ensureSandbox({ provider, serverType })
         : await createSandbox({
-          provider,
-          hetznerServerType,
-          onProgress: provider === 'local_docker'
-            ? (progress) => {
-              setSandboxProgress(progress);
-              setSandboxError(null);
-            }
-            : undefined,
-        });
+            provider,
+            serverType,
+            onProgress: provider === 'local_docker'
+              ? (progress) => {
+                  setSandboxProgress(progress);
+                  setSandboxError(null);
+                }
+              : undefined,
+          });
 
-      // Hetzner can report as active before services are actually ready.
+      // Managed VPS providers can report as active before services are actually ready.
       // Do not route to dashboard until /kortix/health returns a real version.
-      if (provider === 'hetzner') {
-        if (hetznerProgressTimer) {
-          clearInterval(hetznerProgressTimer);
-          hetznerProgressTimer = null;
+      if (isManagedVpsProvider) {
+        if (managedVpsProgressTimer) {
+          clearInterval(managedVpsProgressTimer);
+          managedVpsProgressTimer = null;
         }
 
         const sandboxUrl = getSandboxUrl(sandbox);
@@ -667,7 +747,7 @@ export function InstanceManagerDialog({
           setSandboxProgress({
             status: 'pulling',
             progress,
-            message: 'Provisioning Hetzner sandbox services and waiting for health... ',
+            message: `Provisioning ${providerLabel} services and waiting for health...`,
           });
 
           try {
@@ -692,17 +772,21 @@ export function InstanceManagerDialog({
         }
 
         if (!readyVersion) {
-          throw new Error('Hetzner VPS created but not ready yet. Please wait a bit and try again.');
+          throw new Error(`${providerLabel} created but not ready yet. Please wait a bit and try again.`);
         }
 
         setSandboxProgress({
           status: 'pulling',
           progress: 100,
-          message: `Provisioning Hetzner sandbox... Connected (${readyVersion})`,
+          message: `Provisioning ${providerLabel}... Connected (${readyVersion})`,
         });
       }
 
-      const label = sandbox.name || (provider === 'local_docker' ? 'Local Sandbox' : provider === 'hetzner' ? 'Hetzner VPS' : 'Cloud Sandbox');
+      const label = sandbox.name || (provider === 'local_docker'
+        ? 'Local Sandbox'
+        : provider === 'justavps'
+          ? 'JustaVPS'
+          : 'Cloud Sandbox');
       const isLocal = sandbox.provider === 'local_docker';
 
       const store = useServerStore.getState();
@@ -714,6 +798,7 @@ export function InstanceManagerDialog({
           label,
           provider: sandbox.provider,
           sandboxId: sandbox.external_id,
+          instanceId: sandbox.sandbox_id,
           mappedPorts: extractMappedPorts(sandbox),
         },
         { autoSwitch: false, isLocal },
@@ -723,7 +808,7 @@ export function InstanceManagerDialog({
       queryClient.invalidateQueries({ queryKey: ['platform', 'sandbox'] });
       useTabStore.getState().swapForServer(serverId, activeServerId);
       setActiveServer(serverId);
-      router.push('/dashboard');
+      router.push(sandbox.sandbox_id ? `/instances/${sandbox.sandbox_id}` : '/dashboard');
       onOpenChange(false);
     } catch (err: any) {
       let message = err?.message || 'Failed to create sandbox';
@@ -744,8 +829,8 @@ export function InstanceManagerDialog({
       }
       setSandboxError(message || null);
     } finally {
-      if (hetznerProgressTimer) {
-        clearInterval(hetznerProgressTimer);
+      if (managedVpsProgressTimer) {
+        clearInterval(managedVpsProgressTimer);
       }
       setIsCreatingSandbox(false);
       setCreatingProvider(null);
@@ -756,48 +841,9 @@ export function InstanceManagerDialog({
     if (id === activeServerId) return;
     useTabStore.getState().swapForServer(id, activeServerId);
     setActiveServer(id);
-    router.push('/dashboard');
-    onOpenChange(false);
-  }
-
-  const [isRemovingSandbox, setIsRemovingSandbox] = React.useState(false);
-
-  async function handleRemove(id: string) {
     const server = servers.find((s) => s.id === id);
-
-    // Cloud or Docker sandbox → destroy the actual VM/container via backend, then remove from store
-    if (server && (server.provider === 'daytona' || server.provider === 'local_docker' || server.provider === 'hetzner')) {
-      setIsRemovingSandbox(true);
-      try {
-        await removeSandbox();
-      } catch (err) {
-        console.error('[InstanceManager] Failed to remove sandbox from backend:', err);
-        // Still remove from local store so user isn't stuck
-      } finally {
-        setIsRemovingSandbox(false);
-      }
-
-      // Tell useSandbox NOT to auto-recreate — user intentionally deleted.
-      markSandboxDeleted();
-
-      // Invalidate the sandbox query so useSandbox() knows the sandbox is gone.
-      // It will refetch, find nothing, and respect the deletion flag (no auto-create).
-      queryClient.invalidateQueries({ queryKey: ['platform', 'sandbox'] });
-    }
-
-    // Remove from local store — removeServer handles fallback to the best
-    // remaining entry and resets userSelected so the next sandbox creation
-    // can auto-switch.
-    const wasActive = id === activeServerId;
-    removeServer(id);
-
-    // Swap tabs if we just deleted the active server.
-    if (wasActive) {
-      const newActiveId = useServerStore.getState().activeServerId;
-      if (newActiveId) {
-        useTabStore.getState().swapForServer(newActiveId, id);
-      }
-    }
+    router.push(server?.instanceId ? `/instances/${server.instanceId}` : '/dashboard');
+    onOpenChange(false);
   }
 
   async function handleGenerateSSH() {
@@ -859,6 +905,7 @@ export function InstanceManagerDialog({
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={cn(
@@ -923,8 +970,11 @@ export function InstanceManagerDialog({
                     isActive={server.id === activeServerId}
                     onSelect={() => handleSelect(server.id)}
                     onEdit={() => startEdit(server)}
-                    onDelete={() => handleRemove(server.id)}
-                    isDeleting={isRemovingSandbox}
+                    onCancel={() => setPendingCancelServer(server)}
+                    onReactivate={() => handleReactivate(server)}
+                    sandboxInfo={getSandboxInfo(server)}
+                    isCancelling={cancellingId === server.id}
+                    isReactivating={reactivatingId === server.id}
                     sandboxUpdate={server.provider === 'daytona' ? sandboxUpdate : undefined}
                     onVersionDetected={server.provider === 'daytona' ? setSandboxVersion : undefined}
                   />
@@ -1055,23 +1105,23 @@ export function InstanceManagerDialog({
                 </button>
               )}
 
-              {!isBillingEnabled() && hasHetzner && (
+              {!isBillingEnabled() && hasJustAVPS && (
                 <button
                   type="button"
-                  onClick={() => handleCreateSandbox('hetzner')}
+                  onClick={() => handleCreateSandbox('justavps')}
                   disabled={isCreatingSandbox}
                   className="flex items-start gap-3 w-full p-3.5 rounded-xl border border-border/50 bg-muted/30 hover:bg-muted/50 hover:border-primary/30 text-left transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-orange-500/10 flex-shrink-0 mt-0.5">
-                    {isCreatingSandbox && creatingProvider === 'hetzner' ? (
+                    {isCreatingSandbox && creatingProvider === 'justavps' ? (
                       <Loader2 className="h-4 w-4 text-orange-500 animate-spin" />
                     ) : (
                       <Server className="h-4 w-4 text-orange-500" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground">Hetzner VPS</p>
-                    <p className="text-xs text-muted-foreground/70 mt-0.5">Create a managed Hetzner sandbox</p>
+                    <p className="text-sm font-medium text-foreground">JustaVPS</p>
+                    <p className="text-xs text-muted-foreground/70 mt-0.5">Create a managed VPS via JustaVPS</p>
                   </div>
                 </button>
               )}
@@ -1104,7 +1154,7 @@ export function InstanceManagerDialog({
               {isBillingEnabled() && canAddInstances && (
                 <button
                   type="button"
-                  onClick={() => window.dispatchEvent(new CustomEvent('open-add-instance-dialog'))}
+                  onClick={() => useNewInstanceModalStore.getState().openNewInstanceModal()}
                   className="flex items-start gap-3 w-full p-3.5 rounded-xl border border-border/50 bg-muted/30 hover:bg-muted/50 hover:border-primary/30 text-left transition-all cursor-pointer"
                 >
                   <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-primary/10 flex-shrink-0 mt-0.5">
@@ -1112,7 +1162,7 @@ export function InstanceManagerDialog({
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-foreground">Add Cloud Instance</p>
-                    <p className="text-xs text-muted-foreground/70 mt-0.5">Select server type and location for an additional Hetzner instance</p>
+                    <p className="text-xs text-muted-foreground/70 mt-0.5">Select server type and location for an additional JustaVPS instance</p>
                   </div>
                 </button>
               )}
@@ -1257,7 +1307,7 @@ export function InstanceManagerDialog({
               <p className="text-xs text-muted-foreground">Generate SSH keys to get setup and connect commands.</p>
             )}
 
-            <div className="flex items-center justify-between pt-1 border-t border-border/30">
+            <div className="flex items-center pt-1 border-t border-border/30">
               <button
                 type="button"
                 className="h-8 px-3 text-sm text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted/60 transition-colors cursor-pointer"
@@ -1301,6 +1351,35 @@ export function InstanceManagerDialog({
         )}
       </DialogContent>
     </Dialog>
+
+    {/* Cancel instance confirm dialog */}
+    <AlertDialog open={!!pendingCancelServer} onOpenChange={(o) => { if (!o) setPendingCancelServer(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Cancel this instance?</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p>Your instance stays active until the end of your billing period. After that:</p>
+              <ul className="list-disc list-inside text-destructive/70 space-y-0.5 text-[13px]">
+                <li>The machine will be <strong>permanently shut down</strong></li>
+                <li>All data on the instance will be <strong>deleted</strong></li>
+              </ul>
+              <p>You can reactivate anytime before the period ends.</p>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Keep Instance</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={handleCancelConfirmed}
+          >
+            Cancel & Schedule Deletion
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }
 
@@ -1309,17 +1388,20 @@ export function InstanceManagerDialog({
 // ============================================================================
 
 export function ServerSelector() {
-  const { servers, activeServerId, setActiveServer } = useServerStore();
+  const { servers, activeServerId } = useServerStore();
   const router = useRouter();
-  const [dialogOpen, setDialogOpen] = React.useState(false);
 
   const visibleServers = servers;
 
   const handleSelect = (id: string) => {
-    if (id === activeServerId) return;
-    useTabStore.getState().swapForServer(id, activeServerId);
-    setActiveServer(id);
-    router.push('/dashboard');
+    const server = servers.find((s) => s.id === id);
+    if (!server?.instanceId) return;
+
+    // Always route through /instances/:id — it's the gatekeeper that decides
+    // active → dashboard, provisioning → progress, error → error. Going
+    // straight to /dashboard bypasses that state machine and can strand the UI
+    // on a half-connected workspace.
+    router.push(`/instances/${server.instanceId}`);
   };
 
   return (
@@ -1333,7 +1415,7 @@ export function ServerSelector() {
           <button
             type="button"
             className="flex items-center gap-1 h-5 px-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground rounded transition-colors cursor-pointer"
-            onClick={() => setDialogOpen(true)}
+            onClick={() => router.push('/instances')}
           >
             <Settings2 className="h-2.5 w-2.5" />
             Manage
@@ -1356,15 +1438,12 @@ export function ServerSelector() {
         <button
           type="button"
           className="flex items-center gap-1.5 mx-1 px-2 py-1.5 rounded-lg text-[11px] text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/40 transition-colors cursor-pointer"
-          onClick={() => setDialogOpen(true)}
+          onClick={() => router.push('/instances')}
         >
           <Plus className="h-3 w-3" />
           Add instance...
         </button>
       </div>
-
-      {/* Instance Manager Dialog */}
-      <InstanceManagerDialog open={dialogOpen} onOpenChange={setDialogOpen} />
     </>
   );
 }

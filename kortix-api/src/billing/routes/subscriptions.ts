@@ -31,6 +31,8 @@ subscriptionsRouter.post('/create-checkout-session', async (c) => {
     cancelUrl: body.cancel_url,
     commitmentType: body.commitment_type,
     locale: body.locale,
+    serverType: body.server_type,
+    location: body.location,
   });
 
   return c.json(result);

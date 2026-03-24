@@ -2,7 +2,7 @@
   "name": "kortix",
   "private": true,
   "scripts": {
-    "dev": "pnpm --filter Kortix-Computer-Frontend dev & pnpm --filter kortix-api dev",
+    "dev": "pnpm --filter Kortix-Computer-Frontend dev & pnpm --filter kortix-api dev & pnpm stripe:listen",
     "dev:frontend": "pnpm --filter Kortix-Computer-Frontend dev",
     "dev:api": "pnpm --filter kortix-api dev",
     "dev:sandbox": "docker compose -f sandbox/docker/docker-compose.yml -f sandbox/docker/docker-compose.dev.yml up",

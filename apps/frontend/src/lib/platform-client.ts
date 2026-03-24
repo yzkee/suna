@@ -8,7 +8,6 @@
  *   GET  /platform/sandbox/list        — list all sandboxes
  *   POST /platform/sandbox/stop       — stop the active sandbox
  *   POST /platform/sandbox/restart    — restart the active sandbox
- *   DELETE /platform/sandbox           — remove/archive the active sandbox
  *
  * In production: https://api.kortix.com/v1/platform/*  (base URL includes /v1)
  * In local:      http://localhost:8008/v1/platform/*  (base URL includes /v1)
@@ -73,8 +72,8 @@ function getPlatformUrl(): string {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type SandboxProviderName = 'daytona' | 'local_docker' | 'hetzner' | 'justavps';
-export type HetznerServerTypeOption = string;
+export type SandboxProviderName = 'daytona' | 'local_docker' | 'justavps';
+export type ServerTypeOption = string;
 
 export interface SandboxCreateProgress {
   status: 'pulling';
@@ -91,6 +90,11 @@ export interface SandboxInfo {
   status: string;
   version?: string | null;
   metadata?: Record<string, unknown>;
+  is_included?: boolean;
+  stripe_subscription_id?: string | null;
+  stripe_subscription_item_id?: string | null;
+  cancel_at_period_end?: boolean;
+  cancel_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -209,14 +213,14 @@ export async function getProviders(): Promise<ProvidersInfo> {
  */
 export async function ensureSandbox(opts?: {
   provider?: SandboxProviderName;
-  hetznerServerType?: HetznerServerTypeOption;
+  serverType?: ServerTypeOption;
 }): Promise<{ sandbox: SandboxInfo; created: boolean }> {
   const result = await platformFetch<SandboxInfo>('/platform/init', {
     method: 'POST',
     body: opts
       ? JSON.stringify({
           ...(opts.provider ? { provider: opts.provider } : {}),
-          ...(opts.hetznerServerType ? { hetznerServerType: opts.hetznerServerType } : {}),
+          ...(opts.serverType ? { serverType: opts.serverType } : {}),
         })
       : undefined,
   });
@@ -258,7 +262,7 @@ export async function getSandbox(): Promise<SandboxInfo | null> {
  */
 export async function createSandbox(opts?: {
   provider?: SandboxProviderName;
-  hetznerServerType?: HetznerServerTypeOption;
+  serverType?: ServerTypeOption;
   name?: string;
   onProgress?: (progress: SandboxCreateProgress) => void;
 }): Promise<{ sandbox: SandboxInfo }> {
@@ -343,7 +347,7 @@ export async function createSandbox(opts?: {
     method: 'POST',
     body: JSON.stringify({
       ...(opts?.provider ? { provider: opts.provider } : {}),
-      ...(opts?.hetznerServerType ? { hetznerServerType: opts.hetznerServerType } : {}),
+      ...(opts?.serverType ? { serverType: opts.serverType } : {}),
       ...(opts?.name ? { name: opts.name } : {}),
     }),
   });
@@ -359,15 +363,19 @@ export async function createSandbox(opts?: {
  * List all sandboxes for the user's account.
  */
 export async function listSandboxes(): Promise<SandboxInfo[]> {
-  const result = await platformFetch<SandboxInfo[]>('/platform/sandbox/list', {
-    method: 'GET',
-  });
+  try {
+    const result = await platformFetch<SandboxInfo[]>('/platform/sandbox/list', {
+      method: 'GET',
+    });
 
-  if (!result.success || !result.data) {
+    if (!result.success || !result.data) {
+      return [];
+    }
+
+    return result.data;
+  } catch {
     return [];
   }
-
-  return result.data;
 }
 
 /**
@@ -397,16 +405,30 @@ export async function stopSandbox(): Promise<void> {
 }
 
 /**
- * Remove (destroy) the active sandbox.
- * Calls the backend which destroys the Daytona VM and archives the DB row.
+ * Schedule a sandbox for cancellation at end of billing period.
+ * The instance keeps running until then; reactivate to reverse.
  */
-export async function removeSandbox(): Promise<void> {
-  const result = await platformFetch<void>('/platform/sandbox', {
-    method: 'DELETE',
+export async function cancelSandbox(sandboxId?: string): Promise<{ cancel_at: string | null }> {
+  const result = await platformFetch<{ cancel_at: string | null }>('/platform/sandbox/cancel', {
+    method: 'POST',
+    body: sandboxId ? JSON.stringify({ sandbox_id: sandboxId }) : undefined,
   });
-
   if (!result.success) {
-    throw new Error(result.error || 'Failed to remove sandbox');
+    throw new Error(result.error || 'Failed to schedule cancellation');
+  }
+  return (result.data as { cancel_at: string | null }) ?? { cancel_at: null };
+}
+
+/**
+ * Reverse a scheduled cancellation — subscription continues as normal.
+ */
+export async function reactivateSandbox(sandboxId?: string): Promise<void> {
+  const result = await platformFetch<void>('/platform/sandbox/reactivate', {
+    method: 'POST',
+    body: sandboxId ? JSON.stringify({ sandbox_id: sandboxId }) : undefined,
+  });
+  if (!result.success) {
+    throw new Error(result.error || 'Failed to reactivate sandbox');
   }
 }
 

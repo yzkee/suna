@@ -31,6 +31,7 @@ import { useServerStore } from '@/stores/server-store';
 import { childMapByParent } from '@/ui';
 import { getClient } from '@/lib/opencode-sdk';
 import { getFileIcon } from '@/features/files/components/file-icon';
+import { normalizeAppPathname, getCurrentInstanceIdFromPathname, getActiveInstanceIdFromCookie, toInstanceAwarePath } from '@/lib/instance-routes';
 import {
   Tooltip,
   TooltipContent,
@@ -582,7 +583,9 @@ function TabItem({
 // ============================================================================
 
 export function TabBar() {
-  const pathname = usePathname();
+  const rawPathname = usePathname();
+  const pathname = normalizeAppPathname(rawPathname);
+  const currentInstanceId = getCurrentInstanceIdFromPathname(rawPathname) || getActiveInstanceIdFromCookie();
   const scrollRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
 
@@ -814,14 +817,13 @@ export function TabBar() {
   const handleActivate = useCallback(
     (tabId: string, href: string) => {
       setActiveTab(tabId);
-      // All tab types are pre-mounted — use pushState to avoid Next.js unmount/remount.
-      window.history.pushState(null, '', href);
+      window.history.pushState(null, '', toInstanceAwarePath(href, currentInstanceId));
       // Focus the textarea in the activated tab (session or dashboard)
       requestAnimationFrame(() => {
         window.dispatchEvent(new CustomEvent('focus-session-textarea'));
       });
     },
-    [setActiveTab]
+    [setActiveTab, currentInstanceId]
   );
 
   const handleClose = useCallback(
@@ -833,13 +835,13 @@ export function TabBar() {
         const nextTab = useTabStore.getState().tabs[nextTabId];
         if (nextTab) {
           // All tab types are pre-mounted — use pushState to switch without unmounting.
-          window.history.pushState(null, '', nextTab.href);
+          window.history.pushState(null, '', toInstanceAwarePath(nextTab.href, currentInstanceId));
         }
       } else {
-        window.history.pushState(null, '', '/dashboard');
+        window.history.pushState(null, '', toInstanceAwarePath('/dashboard', currentInstanceId));
       }
     },
-    []
+    [currentInstanceId]
   );
 
   const handleContextMenu = useCallback(
@@ -869,11 +871,11 @@ export function TabBar() {
           break;
         case 'closeAll':
           closeAllTabs();
-          window.history.pushState(null, '', '/dashboard');
+          window.history.pushState(null, '', toInstanceAwarePath('/dashboard', currentInstanceId));
           break;
       }
     },
-    [pinTab, handleClose, closeOtherTabs, closeTabsToRight, closeAllTabs]
+    [pinTab, handleClose, closeOtherTabs, closeTabsToRight, closeAllTabs, currentInstanceId]
   );
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
@@ -944,7 +946,7 @@ export function TabBar() {
     /** Navigate to a tab — all types are pre-mounted, so always use pushState */
     const navigateToTab = (tab: Tab) => {
       setActiveTab(tab.id);
-      window.history.pushState(null, '', tab.href);
+      window.history.pushState(null, '', toInstanceAwarePath(tab.href, currentInstanceId));
     };
 
     /** Switch to the tab at the given offset from the active tab (+1 = next, -1 = prev) */
@@ -967,7 +969,7 @@ export function TabBar() {
       if (modHeld && !modOther && !e.shiftKey && !e.altKey && e.code === 'KeyT') {
         e.preventDefault();
         setActiveTab('page:/dashboard');
-        window.history.pushState(null, '', '/dashboard');
+        window.history.pushState(null, '', toInstanceAwarePath('/dashboard', currentInstanceId));
         return;
       }
 
@@ -1042,7 +1044,7 @@ export function TabBar() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [setActiveTab, handleClose, tabSwitchModifier]);
+  }, [setActiveTab, handleClose, tabSwitchModifier, currentInstanceId]);
 
   // Scroll active tab into view when it changes
   useEffect(() => {
@@ -1084,8 +1086,8 @@ export function TabBar() {
 
   const handleNewTab = useCallback(() => {
     setActiveTab(DASHBOARD_TAB_ID);
-    window.history.pushState(null, '', '/dashboard');
-  }, [setActiveTab]);
+    window.history.pushState(null, '', toInstanceAwarePath('/dashboard', currentInstanceId));
+  }, [setActiveTab, currentInstanceId]);
 
   // Always render the bar so the bg-sidebar strip above the content curve is consistent
   if (orderedTabs.length === 0) {

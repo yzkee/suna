@@ -490,7 +490,7 @@ export async function verifyOtp(prevState: any, formData: FormData) {
 
   // For new cloud users with no plan yet, send them to /subscription first.
   const runtimeEnv = getServerPublicEnv();
-  const billingEnabled = runtimeEnv.BILLING_ENABLED === 'true';
+  const billingEnabled = runtimeEnv.ENV_MODE === 'cloud';
   let finalDestination = returnUrl || '/dashboard';
 
   if (billingEnabled && isNewUser && data.session?.access_token) {

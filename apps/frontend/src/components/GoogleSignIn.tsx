@@ -72,7 +72,7 @@ export default function GoogleSignIn({ returnUrl, referralCode }: GoogleSignInPr
       disabled={isLoading}
       variant="outline"
       size="lg"
-      className="w-full h-12"
+      className="w-full h-11 rounded-xl"
       type="button"
     >
       {isLoading ? (

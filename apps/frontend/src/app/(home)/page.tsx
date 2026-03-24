@@ -7,7 +7,7 @@ import { ArrowRight, Check, Copy, Globe, Smartphone, Bot, Sparkles, Terminal, Za
 import { Button } from '@/components/ui/button';
 import { trackCtaSignup } from '@/lib/analytics/gtm';
 import { motion, useScroll, useTransform } from 'framer-motion';
-import { PlanSelectionModal } from '@/components/billing/pricing/plan-selection-modal';
+import { NewInstanceModal as PlanSelectionModal } from '@/components/billing/pricing/new-instance-modal';
 import { GithubButton } from '@/components/home/github-button';
 import Image from 'next/image';
 
@@ -268,37 +268,34 @@ export default function Home() {
           <h2 className="text-2xl sm:text-3xl font-semibold text-foreground tracking-tight mb-3">
             The Kortix
           </h2>
-          <p className="text-base text-muted-foreground leading-relaxed max-w-2xl mb-4">
-            A cognitive architecture for long-horizon autonomous work. The Kortix is an orchestrator and worker in one — it plans, delegates, executes, verifies, and only stops when the job is done.
-          </p>
-          <p className="text-sm text-muted-foreground/50 leading-relaxed max-w-2xl mb-12">
-            Full long-term memory. Automatic short-term memory management. Built-in autowork loops with self-verification. Every agent ships with a battle-tested autonomous harness that makes it capable from day one.
+          <p className="text-base text-muted-foreground leading-relaxed max-w-2xl mb-12">
+            A cognitive architecture that plans, executes, verifies, and only stops when the job is done. Persistent memory, autonomous work loops, and universal connectivity — all wired together.
           </p>
 
           <div className="flex flex-col gap-4">
             <FeatureItem
               title="Autowork"
-              desc="Autonomous work loops that run until the task is done and verified. Self-correcting, self-recovering, persistent across sessions. Agents don't stop — they finish."
+              desc="Autonomous loops that run until the task is done. Self-correcting, persistent across sessions."
             />
             <FeatureItem
-              title="Full LTM & STM"
-              desc="Long-term memory with semantic search across all sessions. Automatic short-term memory management. Every decision, pattern, and context is retained and retrievable."
+              title="Long-term memory"
+              desc="Semantic search across all sessions. Every decision, pattern, and context is retained."
             />
             <FeatureItem
-              title="Autonomous agent harness"
-              desc="Every agent ships with a production-grade harness — identity, permissions, tools, triggers, skills, commands, and memory. Wired together. Autonomous by default."
+              title="Always on"
+              desc="A persistent computer that never sleeps. Agents run on schedules, triggers, and events — 24/7."
             />
             <FeatureItem
               title="Prebuilt agents & skills"
-              desc="Ships with prebuilt agents, coding skills, browser automation, research, integrations, document generation, and more. Powerful out of the box — extensible to anything."
+              desc="Coding, browser automation, research, document generation, and more — powerful out of the box."
             />
             <FeatureItem
               title="Agent builder"
-              desc="Design custom agents with their own identity, tool access, triggers, and composed skill sets. Or let the harness builder skill create them for you."
+              desc="Design custom agents with their own identity, tools, triggers, and skills."
             />
             <FeatureItem
               title="Open source"
-              desc="Elastic 2.0 licensed. Self-host on your own infrastructure, inspect every line, or use the cloud. The full system — no feature gates."
+              desc="Elastic 2.0 licensed. Self-host or use the cloud. The full system — no feature gates."
             />
           </div>
         </section>
@@ -393,102 +390,40 @@ export default function Home() {
           </div>
         </section>
 
-        {/* ═══════════════ WHY AGI OS? ═══════════════ */}
-        <section className="max-w-3xl mx-auto px-6 py-20 sm:py-28">
-          <h2 className="text-2xl sm:text-3xl font-semibold text-foreground tracking-tight mb-3">
-            Why &ldquo;AGI OS&rdquo;?
-          </h2>
-          <p className="text-base text-muted-foreground leading-relaxed max-w-2xl mb-12">
-            Because it&apos;s a 24/7 always-on computer where AI does the work. A persistent substrate where agents run continuously, connect to anything, and share a single source of truth.
-          </p>
-
-          <div className="flex flex-col gap-4">
-            <FeatureItem
-              title="Always on, always running"
-              desc="A persistent computer that never sleeps. Agents output tokens 24/7 — on schedules, on triggers, on events. Your autonomous workforce runs while you don't."
-            />
-            <FeatureItem
-              title="Universal connectivity"
-              desc="Connect and listen to any third-party system in real time. MCP servers, REST APIs, OAuth, webhooks, CLI tools. If it has an interface, Kortix talks to it."
-            />
-            <FeatureItem
-              title="Single source of truth"
-              desc="All knowledge, all context, all memory lives on one computer. No fragmentation across tools. Every agent shares the same persistent substrate — searchable, shareable, always available."
-            />
-            <FeatureItem
-              title="Context orchestration"
-              desc="One computer orchestrating all context. Agents carry forward decisions, learnings, and state across every interaction, every session, every project. Nothing is ever lost."
-            />
-          </div>
-        </section>
-
-        {/* ═══════════════ THE COMPANY OS ═══════════════ */}
-        <section className="max-w-3xl mx-auto px-6 py-20 sm:py-28">
-          <h2 className="text-2xl sm:text-3xl font-semibold text-foreground tracking-tight mb-3">
-            The autonomous company OS
-          </h2>
-          <p className="text-base text-muted-foreground leading-relaxed max-w-2xl mb-12">
-            Built to run companies with AI — today and tomorrow. Kortix is the foundation for autonomous operations. Deploy agents as specialists across every function of your business. Self-running. Self-evolving. With you in or out of the loop.
-          </p>
-
-          <div className="flex flex-col gap-4">
-            <FeatureItem
-              title="Agents as employees"
-              desc="Deploy specialists that handle support, sales, engineering, finance, and ops. Each with their own tools, memory, and expertise. They learn, they improve, they deliver."
-            />
-            <FeatureItem
-              title="Always improving"
-              desc="Agents learn from every interaction. Long-term memory means the system gets smarter, faster, and more capable over time. Institutional knowledge that never walks out the door."
-            />
-            <FeatureItem
-              title="Human in the loop — or not"
-              desc="Stay involved when you want oversight. Step away when you don't. Kortix works either way. Approve critical decisions, or let agents handle everything autonomously."
-            />
-          </div>
-        </section>
-
         {/* ═══════════════ CTA ═══════════════ */}
-        <section className="max-w-3xl mx-auto px-6 py-20 sm:py-28">
-          <div className="rounded-2xl border border-border/50 bg-card/30 p-8 sm:p-12 text-center">
-            <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-foreground mb-4">
-              Ready to launch your AGI OS?
-            </h2>
-            <p className="text-base text-muted-foreground/70 leading-relaxed max-w-md mx-auto mb-8">
-              Open source, self-hosted, free forever. Or use the cloud — $0 to start.
-            </p>
+        <section className="max-w-3xl mx-auto px-6 pt-20 pb-32 sm:pt-28 sm:pb-40 flex flex-col items-center text-center">
+          <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-foreground">
+            Start building.
+          </h2>
+          <p className="mt-3 text-base text-muted-foreground/60 max-w-sm">
+            Free and open source. Self-host or use the cloud.
+          </p>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-              <Button
-                size="lg"
-                className="h-12 px-8 text-sm rounded-full"
-                onClick={() => { trackCtaSignup(); setLaunchOpen(true); }}
-              >
-                Get Started
-                <ArrowRight className="ml-1.5 size-3.5" />
-              </Button>
-              <GithubButton size="lg" className="h-12" />
-            </div>
-
-            <div className="mt-6">
-              <button
-                onClick={handleCopy}
-                className="group inline-flex items-center gap-2.5 h-9 px-4 rounded-lg bg-foreground/[0.03] border border-foreground/[0.08] hover:bg-foreground/[0.06] hover:border-foreground/[0.12] transition-colors cursor-pointer"
-              >
-                <span className="font-mono text-[11px] text-muted-foreground/35 select-none">$</span>
-                <code className="text-[11px] font-mono text-foreground/70 tracking-tight">{INSTALL_CMD}</code>
-                <div className="pl-2.5 border-l border-foreground/[0.08]">
-                  {copied
-                    ? <Check className="size-3 text-green-500" />
-                    : <Copy className="size-3 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors" />
-                  }
-                </div>
-              </button>
-            </div>
+          <div className="mt-8 flex items-center gap-3">
+            <Button
+              size="lg"
+              className="h-11 px-7 text-sm rounded-full"
+              onClick={() => { trackCtaSignup(); setLaunchOpen(true); }}
+            >
+              Get Started
+              <ArrowRight className="ml-1.5 size-3.5" />
+            </Button>
+            <GithubButton size="lg" className="h-11" />
           </div>
 
-          <p className="mt-10 text-sm text-muted-foreground/40 text-center">
-            The operating system for autonomous companies. It grows with you.
-          </p>
+          <button
+            onClick={handleCopy}
+            className="group mt-5 inline-flex items-center gap-2.5 h-9 px-4 rounded-lg bg-foreground/[0.03] border border-foreground/[0.08] hover:bg-foreground/[0.06] hover:border-foreground/[0.12] transition-colors cursor-pointer"
+          >
+            <span className="font-mono text-[11px] text-muted-foreground/35 select-none">$</span>
+            <code className="text-[11px] font-mono text-foreground/70 tracking-tight">{INSTALL_CMD}</code>
+            <div className="pl-2.5 border-l border-foreground/[0.08]">
+              {copied
+                ? <Check className="size-3 text-green-500" />
+                : <Copy className="size-3 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors" />
+              }
+            </div>
+          </button>
         </section>
 
         </motion.div>

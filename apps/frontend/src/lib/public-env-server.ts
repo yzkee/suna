@@ -13,7 +13,6 @@ export function getServerPublicEnv(): PublicRuntimeEnv {
     SUPABASE_URL: read('SUPABASE_URL') || process.env.SUPABASE_PUBLIC_URL || process.env.SUPABASE_URL,
     SUPABASE_ANON_KEY: read('SUPABASE_ANON_KEY') || process.env.SUPABASE_ANON_KEY,
     BACKEND_URL: read('BACKEND_URL') || process.env.BACKEND_URL,
-    BILLING_ENABLED: read('BILLING_ENABLED') || 'false',
     ENV_MODE: read('ENV_MODE') || 'local',
     APP_URL: read('APP_URL') || process.env.PUBLIC_URL,
   })

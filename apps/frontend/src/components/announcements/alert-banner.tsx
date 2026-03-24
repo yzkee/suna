@@ -4,6 +4,7 @@ import { X, ExternalLink, LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePathname } from 'next/navigation';
+import { normalizeAppPathname } from '@/lib/instance-routes';
 
 export type AlertBannerVariant = 'warning' | 'error' | 'info';
 
@@ -54,7 +55,7 @@ export function AlertBanner({
 }: AlertBannerProps) {
   const [isDismissed, setIsDismissed] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
-  const pathname = usePathname();
+  const pathname = normalizeAppPathname(usePathname());
   const isDashboardPage = pathname?.startsWith('/dashboard') || pathname?.startsWith('/agents') || pathname?.startsWith('/workspace') || pathname?.startsWith('/projects') || pathname?.startsWith('/settings') || pathname === '/';
 
   const storageKey = `alert-dismissed-${dismissKey}`;

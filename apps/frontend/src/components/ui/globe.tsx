@@ -105,7 +105,8 @@ export function Globe({
     window.addEventListener("resize", onResize)
     onResize()
 
-    const globe = createGlobe(canvasRef.current!, {
+    if (!canvasRef.current) return;
+    const globe = createGlobe(canvasRef.current, {
       ...config,
       phi: phiRef.current,
       theta: thetaRef.current,
@@ -142,8 +143,6 @@ export function Globe({
       globeRef.current = null
       window.removeEventListener("resize", onResize)
     }
-  // Only recreate globe when config identity changes (not phi/theta)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rs, config])
 
   return (

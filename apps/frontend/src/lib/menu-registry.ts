@@ -121,7 +121,6 @@ export type SettingsTabId =
   | 'appearance'
   | 'sounds'
   | 'notifications'
-  | 'plan'
   | 'billing'
   | 'transactions'
   | 'referrals'
@@ -669,17 +668,6 @@ export const menuRegistry: MenuItemDef[] = [
   // ACCOUNT — open settings modal to billing-related tabs
   // ──────────────────────────────────────────────────────────────────────────
   {
-    id: 'account-plan',
-    label: 'Plan',
-    icon: Zap,
-    group: 'account',
-    showIn: ['commandPalette', 'userMenu'],
-    kind: 'action',
-    actionId: 'openPlan',
-    keywords: 'plan subscription upgrade pricing tier free pro',
-    requiresBilling: true,
-  },
-  {
     id: 'account-billing',
     label: 'Billing',
     icon: CreditCard,
@@ -962,7 +950,6 @@ export function getPreferenceTabs(): SettingsTab[] {
 /** Account tabs for the settings modal */
 export function getAccountTabs(billingEnabled: boolean): SettingsTab[] {
   const items: SettingsTab[] = [
-    { id: 'plan', label: 'Plan', icon: Zap },
     { id: 'billing', label: 'Billing', icon: CreditCard },
     { id: 'transactions', label: 'Transactions', icon: Receipt },
   ];

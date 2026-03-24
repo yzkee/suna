@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { normalizeAppPathname } from '@/lib/instance-routes';
 import {
   Loader2,
   MessageCircle,
@@ -118,7 +119,7 @@ export function CommandPalette() {
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = normalizeAppPathname(usePathname());
   const currentSessionId = useMemo(() => {
     const match = pathname?.match(/^\/sessions\/([^/]+)/);
     return match ? match[1] : null;

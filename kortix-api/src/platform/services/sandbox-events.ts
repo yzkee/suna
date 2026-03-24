@@ -66,10 +66,10 @@ class SandboxEventBus {
       return;
     }
 
-    // Route to pool_sandboxes first — if it's a pool machine, handle there
-    const pool = await import('../../pool');
-    const handled = await pool.handleWebhook(externalId, data.stage, data.status);
-    if (handled) return;
+    // Skip test/dummy events immediately
+    if (!externalId || externalId === '00000000-0000-0000-0000-000000000000' || payload.event === 'machine.test') {
+      return;
+    }
 
     let sandbox: typeof sandboxes.$inferSelect | undefined;
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -137,8 +137,11 @@ class SandboxEventBus {
         );
     }
 
-    // Status updates (services_ready, ready, error) — these don't race with stage updates
-    if (data.stage === 'services_ready' || data.status === 'ready') {
+    // Only provider-confirmed "ready" should flip the sandbox active.
+    // services_ready means the VM boot flow finished, but port 8000 / Kortix
+    // may still be starting. The billing/setup/status endpoint performs the
+    // final /kortix/health check before marking active.
+    if (data.status === 'ready') {
       if (sandbox.status === 'provisioning') {
         await db
           .update(sandboxes)

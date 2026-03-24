@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { eq, and, desc, inArray, sql } from 'drizzle-orm';
 import { sandboxes } from '@kortix/db';
 import { db } from '../../shared/db';
@@ -9,7 +10,6 @@ import {
 } from '../providers';
 import { config } from '../../config';
 import { checkCredits } from '../../router/services/billing';
-import * as pool from '../../pool';
 
 export interface EnsureSandboxResult {
   row: typeof sandboxes.$inferSelect;
@@ -20,8 +20,8 @@ export async function ensureSandbox(opts: {
   accountId: string;
   userId: string;
   provider?: ProviderName;
-  hetznerServerType?: string;
-  hetznerLocation?: string;
+  serverType?: string;
+  location?: string;
   isIncluded?: boolean;
 }): Promise<EnsureSandboxResult> {
   const { accountId, userId } = opts;
@@ -34,9 +34,6 @@ export async function ensureSandbox(opts: {
 
   const reactivated = await tryReactivateStaleSandbox(accountId);
   if (reactivated) return reactivated;
-
-  const claimed = await tryClaimFromPool(accountId, userId, opts.hetznerServerType, opts.hetznerLocation);
-  if (claimed) return claimed;
 
   await checkProviderCredits(providerName, accountId, opts.isIncluded);
 
@@ -90,80 +87,62 @@ async function tryReactivateStaleSandbox(accountId: string): Promise<EnsureSandb
   }
 }
 
-async function tryClaimFromPool(accountId: string, userId: string, serverType?: string, location?: string): Promise<EnsureSandboxResult | null> {
-  if (!config.isPoolEnabled()) return null;
-
-  try {
-    const claimed = await pool.grab({ serverType, location });
-    if (!claimed) return null;
-
-    const [sandbox] = await db
-      .insert(sandboxes)
-      .values({
-        accountId,
-        name: `sandbox-${accountId.slice(0, 8)}`,
-        provider: claimed.poolSandbox.provider as any,
-        externalId: claimed.externalId,
-        status: 'active',
-        baseUrl: claimed.baseUrl,
-        config: {},
-        metadata: claimed.metadata,
-        isIncluded: true,
-      })
-      .returning();
-
-    const sandboxKey = await createApiKey({
-      sandboxId: sandbox.sandboxId,
-      accountId,
-      title: 'Sandbox Token',
-      type: 'sandbox',
-    });
-
-    await db.update(sandboxes)
-      .set({ config: { serviceKey: sandboxKey.secretKey } })
-      .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
-
-    await pool.injectEnv(claimed, sandboxKey.secretKey);
-
-    console.log(`[ensureSandbox] Claimed from pool → sandbox ${sandbox.sandboxId} for account ${accountId}`);
-
-    pool.replenish().catch((err) => {
-      console.error('[ensureSandbox] Background pool replenishment failed:', err);
-    });
-
-    return { row: sandbox, created: true };
-  } catch (err) {
-    console.warn('[ensureSandbox] Pool claim failed, falling back to regular provisioning:', err);
-    return null;
+async function checkProviderCredits(providerName: ProviderName, accountId: string, isIncluded?: boolean): Promise<void> {
+  if (providerName === 'justavps' && config.KORTIX_BILLING_INTERNAL_ENABLED && !isIncluded) {
+    const creditCheck = await checkCredits(accountId, 0.10);
+    if (!creditCheck.hasCredits) {
+      throw new Error(`Insufficient credits to provision managed VPS: ${creditCheck.message}`);
+    }
   }
 }
 
-async function checkProviderCredits(providerName: ProviderName, accountId: string, isIncluded?: boolean): Promise<void> {
-  if (providerName === 'hetzner' && config.KORTIX_BILLING_INTERNAL_ENABLED && !isIncluded) {
-    const creditCheck = await checkCredits(accountId, 0.10);
-    if (!creditCheck.hasCredits) {
-      throw new Error(`Insufficient credits to provision Hetzner VPS: ${creditCheck.message}`);
-    }
-  }
+/**
+ * Always creates a new sandbox — no singleton check.
+ * Used by the billing webhook to provision a new instance per subscription.
+ */
+export async function createSandbox(opts: {
+  accountId: string;
+  userId: string;
+  provider?: ProviderName;
+  serverType?: string;
+  location?: string;
+  isIncluded?: boolean;
+}): Promise<EnsureSandboxResult> {
+  const providerName = opts.provider || getDefaultProviderName();
+  return provisionNewSandbox(opts.accountId, opts.userId, providerName, opts);
+}
+
+function buildSandboxName(opts: {
+  accountId: string;
+  sandboxId: string;
+  serverType?: string;
+  location?: string;
+}) {
+  const account = opts.accountId.slice(0, 8);
+  const sandbox = opts.sandboxId.slice(0, 6);
+  const pieces = ['sandbox', account, sandbox];
+  if (opts.serverType) pieces.push(opts.serverType);
+  if (opts.location) pieces.push(opts.location);
+  return pieces.join('-');
 }
 
 async function provisionNewSandbox(
   accountId: string,
   userId: string,
   providerName: ProviderName,
-  opts: { hetznerServerType?: string; hetznerLocation?: string; isIncluded?: boolean },
+  opts: { serverType?: string; location?: string; isIncluded?: boolean },
 ): Promise<EnsureSandboxResult> {
   const provider = getProvider(providerName);
 
-  const sandbox = await insertProvisioningRow(accountId, providerName, opts.isIncluded);
+  const sandbox = await insertProvisioningRow(accountId, providerName, opts);
   const sandboxKey = await createSandboxApiKey(sandbox.sandboxId, accountId);
 
   const createOpts = {
     accountId,
     userId,
-    name: `sandbox-${accountId.slice(0, 8)}`,
-    hetznerServerType: opts.hetznerServerType,
-    hetznerLocation: opts.hetznerLocation,
+    name: sandbox.name,
+    serverType: opts.serverType,
+    location: opts.location,
     envVars: { KORTIX_TOKEN: sandboxKey.secretKey },
   };
 
@@ -174,19 +153,25 @@ async function provisionNewSandbox(
   return provisionSync(provider, sandbox, sandboxKey.secretKey, createOpts);
 }
 
-async function insertProvisioningRow(accountId: string, providerName: ProviderName, isIncluded?: boolean) {
+async function insertProvisioningRow(
+  accountId: string,
+  providerName: ProviderName,
+  opts: { serverType?: string; location?: string; isIncluded?: boolean },
+) {
+  const sandboxId = randomUUID();
   const [sandbox] = await db
     .insert(sandboxes)
     .values({
+      sandboxId,
       accountId,
-      name: `sandbox-${accountId.slice(0, 8)}`,
+      name: buildSandboxName({ accountId, sandboxId, serverType: opts.serverType, location: opts.location }),
       provider: providerName,
       externalId: '',
       status: 'provisioning',
       baseUrl: '',
       config: {},
       metadata: {},
-      isIncluded: isIncluded ?? false,
+      isIncluded: opts.isIncluded ?? false,
     })
     .returning();
   return sandbox;

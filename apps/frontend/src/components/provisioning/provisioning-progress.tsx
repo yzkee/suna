@@ -4,51 +4,38 @@ import { useMemo } from 'react';
 import { CheckCircle2, Loader2 } from 'lucide-react';
 import { AnimatedCircularProgressBar } from '@/components/ui/animated-circular-progress';
 import { TextMorph } from 'torph/react';
+import { featureFlags } from '@/lib/feature-flags';
+import { DinoGame } from '@/components/games/dino-game';
+import { STAGE_LABELS, type ProvisioningStageInfo } from '@/lib/provisioning-stages';
 
-export interface ProvisioningStageInfo {
-  id: string;
-  progress: number;
-  message: string;
-}
+// Re-export the type so existing consumers don't break
+export type { ProvisioningStageInfo } from '@/lib/provisioning-stages';
 
 export interface ProvisioningProgressProps {
   progress: number;
-  phase: 'provisioning' | 'booting';
   stages: ProvisioningStageInfo[] | null;
   currentStage: string | null;
   machineInfo: { ip: string; serverType: string; location: string } | null;
 }
 
-const STAGE_LABELS: Record<string, string> = {
-  server_creating: 'Spinning up your machine',
-  server_created: 'Machine ready, configuring',
-  cloud_init_running: 'Installing dependencies',
-  cloud_init_done: 'Environment configured',
-  docker_pulling: 'Preparing your workspace image',
-  docker_running: 'Starting services',
-  services_starting: 'Almost there',
-  services_ready: 'Finishing up',
-};
-
 export function ProvisioningProgress({
   progress,
-  phase,
   stages,
   currentStage,
   machineInfo,
 }: ProvisioningProgressProps) {
   const stageCount = stages?.length || 0;
   const currentStageIdx = stages?.findIndex((s) => s.id === currentStage) ?? -1;
-  const completedCount = phase === 'booting' ? stageCount : Math.max(0, currentStageIdx);
+  const completedCount = Math.max(0, currentStageIdx);
 
   const stageDisplayText = useMemo(() => {
-    if (phase === 'booting') return 'Starting your workspace';
     if (!currentStage) return 'Preparing your workspace';
     return STAGE_LABELS[currentStage] || 'Preparing your workspace';
-  }, [phase, currentStage]);
+  }, [currentStage]);
 
   return (
     <div className="w-full flex flex-col items-center">
+      {/* Circular progress */}
       <div className="relative" style={{ animation: 'setting-up-fade-in 0.6s ease-out forwards' }}>
         <AnimatedCircularProgressBar
           value={progress}
@@ -63,6 +50,7 @@ export function ProvisioningProgress({
         </div>
       </div>
 
+      {/* Stage list (scrolling) or fallback label */}
       {stages && stages.length > 0 ? (
         <div className="mt-8 w-full max-w-[300px] relative h-[108px]" style={{ overflow: 'hidden', clipPath: 'inset(0)' }}>
           <div className="absolute top-0 left-0 right-0 h-10 bg-gradient-to-b from-background via-background/80 to-transparent z-20 pointer-events-none" />
@@ -73,8 +61,8 @@ export function ProvisioningProgress({
             style={{ transform: `translateY(${36 - completedCount * 36}px)` }}
           >
             {stages.map((ps, i) => {
-              const isDone = i < completedCount || phase === 'booting';
-              const isActive = i === completedCount && phase !== 'booting';
+              const isDone = i < completedCount;
+              const isActive = i === completedCount;
 
               return (
                 <div key={ps.id} className="flex items-center justify-center gap-3 h-9 shrink-0 w-full">
@@ -97,14 +85,6 @@ export function ProvisioningProgress({
                 </div>
               );
             })}
-            {phase === 'booting' && (
-              <div className="flex items-center justify-center gap-3 h-9 shrink-0 w-full">
-                <div className="flex-shrink-0 w-4 h-4 flex items-center justify-center">
-                  <Loader2 className="size-3.5 text-primary animate-spin" />
-                </div>
-                <span className="text-[13px] text-foreground/90 font-medium">Starting workspace...</span>
-              </div>
-            )}
           </div>
         </div>
       ) : (
@@ -121,20 +101,21 @@ export function ProvisioningProgress({
         </>
       )}
 
+      {/* Divider */}
       <div className="mt-6 w-12 h-px bg-foreground/[0.06]" />
 
+      {/* Dot progress indicators */}
       {stageCount > 0 && (
         <div className="mt-6 flex items-center gap-[6px]">
           {stages!.map((ps, i) => {
             const isDone = i < completedCount;
-            const isActive = i === completedCount && phase !== 'booting';
-            const allDone = phase === 'booting';
+            const isActive = i === completedCount;
 
             return (
               <div
                 key={ps.id}
                 className={`rounded-full transition-all duration-700 ease-out ${
-                  isDone || allDone
+                  isDone
                     ? 'h-[5px] w-[5px] bg-primary/50 setting-up-dot-complete'
                     : isActive
                       ? 'h-[7px] w-[7px] bg-primary/80'
@@ -147,6 +128,7 @@ export function ProvisioningProgress({
         </div>
       )}
 
+      {/* Machine info badge */}
       {machineInfo?.ip && (
         <div
           className="mt-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-foreground/[0.03] border border-foreground/[0.06]"
@@ -159,6 +141,16 @@ export function ProvisioningProgress({
               : 'EU'}{' '}
             · {machineInfo.ip}
           </span>
+        </div>
+      )}
+
+      {/* Dino game easter egg */}
+      {featureFlags.enableDinoGame && (
+        <div
+          className="mt-8 w-full max-w-[600px] opacity-0"
+          style={{ animation: 'setting-up-fade-in 2s ease-out 3s forwards' }}
+        >
+          <DinoGame />
         </div>
       )}
     </div>

@@ -52,6 +52,7 @@ export function useOpenCodeEventStream() {
 	const serverVersion = useServerStore((s) => s.serverVersion);
 	const activeServerUrl = useServerStore((s) => s.getActiveServerUrl());
 	const abortRef = useRef<AbortController | null>(null);
+	const isMountRef = useRef(true);
 	const prevServerVersionRef = useRef(serverVersion);
 	const prevServerUrlRef = useRef(activeServerUrl);
 
@@ -141,6 +142,14 @@ export function useOpenCodeEventStream() {
 	})());
 
 	useEffect(() => {
+		// On first mount, always start clean — the provider may have remounted
+		// after navigating from a non-dashboard page (e.g. /instances) where
+		// the server was switched while this component wasn't mounted. The ref
+		// would have been initialized to the post-switch serverVersion so the
+		// isServerSwitch check below would miss the change.
+		const isFirstMount = isMountRef.current;
+		isMountRef.current = false;
+
 		// Only nuke caches on actual server switches (not URL/port updates)
 		const isServerSwitch = prevServerVersionRef.current !== serverVersion;
 		prevServerVersionRef.current = serverVersion;
@@ -151,7 +160,7 @@ export function useOpenCodeEventStream() {
 		// updates. Resetting on every urlVersion change tears down the client
 		// unnecessarily, causing SSE disconnection → reconnection → cache
 		// invalidation cascade that manifests as random loading flashes.
-		if (isServerSwitch) {
+		if (isFirstMount || isServerSwitch) {
 			resetClient();
 			clearConfigOverrides();
 			clearStatuses({});

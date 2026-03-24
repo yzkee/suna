@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { useConnectionToasts } from "@/components/dashboard/connecting-screen";
@@ -13,10 +13,13 @@ import { useSandbox } from "@/hooks/platform/use-sandbox";
 import { useSandboxConnection } from "@/hooks/platform/use-sandbox-connection";
 import { useWebNotifications } from "@/hooks/use-web-notifications";
 import { backendApi } from "@/lib/api-client";
+import { KortixLoader } from "@/components/ui/kortix-loader";
+
 import { featureFlags } from "@/lib/feature-flags";
+import { buildInstancePath, getActiveInstanceIdFromCookie, getCurrentInstanceIdFromPathname } from "@/lib/instance-routes";
 import { cn } from "@/lib/utils";
 import { useSandboxConnectionStore } from "@/stores/sandbox-connection-store";
-import { getActiveOpenCodeUrl, useServerStore } from "@/stores/server-store";
+import { getActiveOpenCodeUrl, useServerStore, switchToInstanceAsync } from "@/stores/server-store";
 import { useTabStore } from "@/stores/tab-store";
 import { AnnouncementDialog } from "../announcements/announcement-dialog";
 import { NovuInboxProvider } from "../notifications/novu-inbox-provider";
@@ -58,6 +61,8 @@ const OnboardingProvider = lazy(() =>
 		default: mod.OnboardingProvider,
 	})),
 );
+
+
 const DashboardPromoBanner = lazy(() =>
 	import("@/components/home/dashboard-promo-banner").then((mod) => ({
 		default: mod.DashboardPromoBanner,
@@ -188,6 +193,20 @@ function DashboardSkeleton() {
 						<div className="h-10 w-64 mx-auto bg-muted/30 rounded animate-pulse" />
 						<div className="h-24 bg-muted/20 rounded-xl animate-pulse" />
 					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function InstanceRouteSyncScreen({ instanceId }: { instanceId: string }) {
+	return (
+		<div className="flex h-full w-full items-center justify-center bg-background">
+			<div className="flex max-w-md flex-col items-center gap-4 px-6 text-center">
+				<KortixLoader size="large" />
+				<div className="space-y-1">
+					<p className="text-sm font-medium text-foreground">Switching instance…</p>
+					<p className="text-xs text-muted-foreground break-all">{instanceId}</p>
 				</div>
 			</div>
 		</div>
@@ -386,6 +405,9 @@ export default function DashboardLayoutContent({
 }: DashboardLayoutContentProps) {
 	const { user, isLoading } = useAuth();
 	const router = useRouter();
+	const pathname = usePathname();
+	const explicitRouteInstanceId = getCurrentInstanceIdFromPathname(pathname);
+	const routeInstanceId = explicitRouteInstanceId || getActiveInstanceIdFromCookie();
 	const { data: systemStatus, isLoading: systemStatusLoading } =
 		useSystemStatusQuery();
 	const maintenanceNotice = systemStatus?.maintenanceNotice;
@@ -397,13 +419,8 @@ export default function DashboardLayoutContent({
 	// Sandbox reachability is handled by ConnectingScreen (overlay, not
 	// early return), which never unmounts children.
 
-	// IMPORTANT: useSandbox() MUST be called here — before the onboardingChecked
-	// guard below. In cloud mode, getActiveServerUrl() returns '' until useSandbox
-	// registers the sandbox in the server store. The onboarding check effect needs
-	// a valid server URL to proceed, so the sandbox must be registered first.
-	// Previously useSandbox() only ran inside SandboxInitProvider which rendered
-	// AFTER the onboardingChecked guard, creating a deadlock: onboarding check
-	// waited for a server URL that could never arrive because useSandbox never ran.
+	// Register the primary sandbox in the server store so the OpenCode SDK can
+	// connect. Must run before the onboarding check.
 	useSandbox();
 
 	const { data: adminRoleData, isLoading: isCheckingAdminRole } =
@@ -428,23 +445,29 @@ export default function DashboardLayoutContent({
 	// Re-runs when the sandbox registers (activeServerId changes) so we get a URL.
 	const activeServerId = useServerStore((s) => s.activeServerId);
 	const [onboardingChecked, setOnboardingChecked] = useState(false);
+	const [routeSyncing, setRouteSyncing] = useState(false);
 
-	// Timeout fallback: if sandbox URL never arrives (provisioning slow/failed),
-	// stop blocking the dashboard after 5 seconds. Without this, users see an
-	// infinite skeleton when getActiveOpenCodeUrl() keeps returning ''.
 	useEffect(() => {
-		if (onboardingChecked) return;
+		setOnboardingChecked(false);
+	}, [routeInstanceId]);
+
+	// Timeout fallback: if sandbox URL never arrives, fail open fast.
+	// We already have a connecting overlay later; don't trap the user in a long skeleton.
+	useEffect(() => {
+		if (onboardingChecked || routeSyncing) return;
 		const timer = setTimeout(() => {
 			if (!onboardingChecked) {
 				console.warn("[layout] Onboarding check timed out — failing open");
 				setOnboardingChecked(true);
 			}
-		}, 5000);
+		}, 1000);
 		return () => clearTimeout(timer);
-	}, [onboardingChecked]);
+	}, [onboardingChecked, routeSyncing]);
 
 	useEffect(() => {
 		const checkOnboarding = async () => {
+			if (routeSyncing) return;
+			const currentInstanceId = routeInstanceId || getActiveInstanceIdFromCookie();
 			const instanceUrl = getActiveOpenCodeUrl();
 			if (!instanceUrl) {
 				// Sandbox URL not known yet — wait for next re-run when it registers
@@ -463,7 +486,12 @@ export default function DashboardLayoutContent({
 				if (data?.ONBOARDING_COMPLETE === 'true') {
 					setOnboardingChecked(true);
 				} else {
-					router.replace("/onboarding");
+					if (currentInstanceId) {
+						router.replace(`/instances/${currentInstanceId}/onboarding`);
+					} else {
+						// No instance context — send to instances page
+						router.replace("/instances");
+					}
 				}
 			} catch {
 				// Unreachable — let through
@@ -472,7 +500,45 @@ export default function DashboardLayoutContent({
 		};
 		checkOnboarding();
 	// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [activeServerId]);
+	}, [activeServerId, routeInstanceId, routeSyncing]);
+
+	// Keep the active server in sync with the current instance.
+	// Source of truth: URL path (/instances/:id/...) OR active-instance cookie
+	// (set by middleware on rewrite). The store MUST point at that instance.
+	useEffect(() => {
+		if (!routeInstanceId || !user) {
+			setRouteSyncing(false);
+			return;
+		}
+
+		// Already pointing at the right instance? Skip.
+		const state = useServerStore.getState();
+		const active = state.servers.find((s) => s.id === state.activeServerId);
+		if (active?.instanceId === routeInstanceId) {
+			setRouteSyncing(false);
+			return;
+		}
+
+		let cancelled = false;
+		setRouteSyncing(true);
+		switchToInstanceAsync(routeInstanceId, { validate: true })
+			.then((result) => {
+				if (cancelled) return;
+				if (!result) {
+					router.replace(`/instances/${routeInstanceId}`);
+					return;
+				}
+				setRouteSyncing(false);
+			})
+			.catch(() => {
+				if (cancelled) return;
+				router.replace(`/instances/${routeInstanceId}`);
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [routeInstanceId, user, router]);
 
 	const isMaintenanceActive = (() => {
 		if (
@@ -502,7 +568,15 @@ export default function DashboardLayoutContent({
 		return now < start && now < end;
 	})();
 
-	if (isLoading || !onboardingChecked) {
+	if (isLoading) {
+		return <DashboardSkeleton />;
+	}
+
+	if (routeSyncing && routeInstanceId) {
+		return <InstanceRouteSyncScreen instanceId={routeInstanceId} />;
+	}
+
+	if (!onboardingChecked) {
 		return <DashboardSkeleton />;
 	}
 
@@ -539,13 +613,14 @@ export default function DashboardLayoutContent({
 					</Suspense>
 				}
 			>
-				<SandboxConnectionProvider />
-				<OpenCodeEventStreamProvider />
-				<WebNotificationProvider />
-				<Suspense fallback={null}>
-					<ConnectingScreen />
-				</Suspense>
-				{/* Fixed overlay banners — outside document flow, won't affect layout */}
+			<SandboxConnectionProvider />
+			<OpenCodeEventStreamProvider />
+			<WebNotificationProvider />
+			<Suspense fallback={null}>
+				<ConnectingScreen />
+			</Suspense>
+
+			{/* Fixed overlay banners — outside document flow, won't affect layout */}
 				<Suspense fallback={null}>
 					<DashboardPromoBanner />
 				</Suspense>

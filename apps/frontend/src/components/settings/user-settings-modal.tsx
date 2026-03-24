@@ -54,7 +54,8 @@ import {
 } from '@/hooks/account/use-account-deletion';
 import { AccountState } from '@/lib/api/billing';
 import { useAuth } from '@/components/AuthProvider';
-import { PlanSelectionModal, PricingSection } from '@/components/billing/pricing';
+import { PricingSection } from '@/components/billing/pricing';
+import { useNewInstanceModalStore } from '@/stores/pricing-modal-store';
 import { CreditBalanceDisplay, CreditPurchaseModal } from '@/components/billing/credit-purchase';
 import { ScheduledDowngradeCard } from '@/components/billing/scheduled-downgrade-card';
 import { 
@@ -88,6 +89,7 @@ import {
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import { getPlanName, getPlanIcon } from '../billing/plan-utils';
 import { TierBadge } from '../billing/tier-badge';
+import { cancelSandbox, reactivateSandbox } from '@/lib/platform-client';
 import { siteConfig } from '@/lib/site-config';
 
 import { formatCredits } from '@kortix/shared';
@@ -135,7 +137,6 @@ export function UserSettingsModal({
     const router = useRouter();
     const isMobile = useIsMobile();
     const [activeTab, setActiveTab] = useState<TabId>(defaultTab);
-    const [showPlanModal, setShowPlanModal] = useState(false);
     const billingActive = isBillingEnabled();
 
     // Tab definitions from the central menu registry (single source of truth)
@@ -155,11 +156,7 @@ export function UserSettingsModal({
     }, [defaultTab]);
 
     const handleTabClick = (tabId: TabId) => {
-        if (tabId === 'plan') {
-            setShowPlanModal(true);
-        } else {
-            setActiveTab(tabId);
-        }
+        setActiveTab(tabId);
     };
 
     return (
@@ -228,7 +225,7 @@ export function UserSettingsModal({
                                 {activeTab === 'sounds' && <SoundsTab />}
                                 {activeTab === 'notifications' && <NotificationsTab />}
                                 {activeTab === 'shortcuts' && <KeyboardShortcutsTab />}
-                                {activeTab === 'billing' && <BillingTab returnUrl={returnUrl} onOpenPlanModal={() => setShowPlanModal(true)} isActive={activeTab === 'billing'} />}
+                                {activeTab === 'billing' && <BillingTab returnUrl={returnUrl} isActive={activeTab === 'billing'} />}
                                 {activeTab === 'transactions' && <TransactionsTab />}
                                 {activeTab === 'referrals' && <ReferralsTab isActive={open && activeTab === 'referrals'} />}
                             </div>
@@ -292,19 +289,14 @@ export function UserSettingsModal({
                             {activeTab === 'sounds' && <SoundsTab />}
                             {activeTab === 'notifications' && <NotificationsTab />}
                             {activeTab === 'shortcuts' && <KeyboardShortcutsTab />}
-                            {activeTab === 'billing' && <BillingTab returnUrl={returnUrl} onOpenPlanModal={() => setShowPlanModal(true)} isActive={activeTab === 'billing'} />}
+                            {activeTab === 'billing' && <BillingTab returnUrl={returnUrl} isActive={activeTab === 'billing'} />}
                             {activeTab === 'transactions' && <TransactionsTab />}
                             {activeTab === 'referrals' && <ReferralsTab isActive={open && activeTab === 'referrals'} />}
                         </div>
                     </div>
                 )}
 
-                {/* Full-screen Plan Selection Modal */}
-                <PlanSelectionModal
-                    open={showPlanModal}
-                    onOpenChange={setShowPlanModal}
-                    returnUrl={returnUrl}
-                />
+
             </DialogContent>
         </Dialog>
     );
@@ -1164,191 +1156,6 @@ function NotificationToggle({ icon: Icon, label, description, enabled, onToggle,
 }
 
 // Billing Tab Component - Usage, credits, subscription management
-// ─── Auto-Topup Section ──────────────────────────────────────────────────────
-
-function AutoTopupSection({ accountState, onRefetch }: { accountState: any; onRefetch: () => void }) {
-    const autoTopup = accountState?.auto_topup;
-    const [enabled, setEnabled] = useState(autoTopup?.enabled ?? false);
-    const [threshold, setThreshold] = useState(String(autoTopup?.threshold ?? 5));
-    const [amount, setAmount] = useState(String(autoTopup?.amount ?? 15));
-    const [saving, setSaving] = useState(false);
-    const [openingPortal, setOpeningPortal] = useState(false);
-    const [hasPaymentMethod, setHasPaymentMethod] = useState<boolean | null>(null);
-    const [hasDefaultPaymentMethod, setHasDefaultPaymentMethod] = useState<boolean | null>(null);
-    const [error, setError] = useState<string | null>(null);
-    const [success, setSuccess] = useState(false);
-
-    // Sync from server
-    useEffect(() => {
-        if (autoTopup) {
-            setEnabled(autoTopup.enabled);
-            setThreshold(String(autoTopup.threshold));
-            setAmount(String(autoTopup.amount));
-        }
-    }, [autoTopup]);
-
-    useEffect(() => {
-        let active = true;
-        const loadSetupStatus = async () => {
-            try {
-                const { getAutoTopupSetupStatus } = await import('@/lib/api/billing');
-                const status = await getAutoTopupSetupStatus();
-                if (active) {
-                    setHasPaymentMethod(status.has_payment_method);
-                    setHasDefaultPaymentMethod(status.has_default_payment_method);
-                }
-            } catch {
-                if (active) {
-                    setHasPaymentMethod(null);
-                    setHasDefaultPaymentMethod(null);
-                }
-            }
-        };
-        loadSetupStatus();
-        return () => {
-            active = false;
-        };
-    }, []);
-
-    const handleSetupDefaultPaymentMethod = async () => {
-        setError(null);
-        setOpeningPortal(true);
-        try {
-            const { createPortalSession } = await import('@/lib/api/billing');
-            const { portal_url } = await createPortalSession({
-                return_url: typeof window !== 'undefined' ? window.location.href : '/',
-            });
-            if (typeof window !== 'undefined') {
-                window.location.href = portal_url;
-            }
-        } catch (err: any) {
-            setError(err?.message ?? 'Failed to open billing portal');
-            setOpeningPortal(false);
-        }
-    };
-
-    const handleSave = async () => {
-        setError(null);
-        setSuccess(false);
-        const t = Number(threshold);
-        const a = Number(amount);
-        if (enabled) {
-            if (t < 5) { setError('Threshold must be at least $5'); return; }
-            if (a < 15) { setError('Reload amount must be at least $15'); return; }
-            if (a < t * 2) { setError(`Reload amount must be at least 2x threshold ($${t * 2})`); return; }
-        }
-        setSaving(true);
-        try {
-            const { configureAutoTopup } = await import('@/lib/api/billing');
-            await configureAutoTopup({ enabled, threshold: t, amount: a });
-            setSuccess(true);
-            onRefetch();
-            setTimeout(() => setSuccess(false), 2000);
-        } catch (err: any) {
-            setError(err?.message ?? 'Failed to save');
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    return (
-        <div className="space-y-3 pt-6 border-t border-border/50">
-            <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium">Auto Credit Top-up</h3>
-                <label className="flex items-center gap-2 cursor-pointer">
-                    <span className="text-xs text-muted-foreground">{enabled ? 'On' : 'Off'}</span>
-                    <input
-                        type="checkbox"
-                        checked={enabled}
-                        onChange={(e) => setEnabled(e.target.checked)}
-                        className="w-4 h-4 rounded border-border"
-                    />
-                </label>
-            </div>
-            {enabled && (
-                <div className="space-y-3 pl-0">
-                    {hasPaymentMethod === false && (
-                        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
-                            <p className="text-xs text-amber-200">
-                                No saved payment method found. Add a card to enable auto top-up charges.
-                            </p>
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                className="mt-2"
-                                onClick={handleSetupDefaultPaymentMethod}
-                                disabled={openingPortal}
-                            >
-                                {openingPortal ? 'Opening billing portal...' : 'Set up default payment method'}
-                            </Button>
-                        </div>
-                    )}
-                    {hasPaymentMethod === true && hasDefaultPaymentMethod === false && (
-                        <div className="rounded-md border border-border bg-muted/30 p-3">
-                            <p className="text-xs text-muted-foreground">
-                                You have a saved card. Optional: set a default payment method for predictable auto top-up charges.
-                            </p>
-                            <Button
-                                size="sm"
-                                variant="ghost"
-                                className="mt-2 h-7 px-2"
-                                onClick={handleSetupDefaultPaymentMethod}
-                                disabled={openingPortal}
-                            >
-                                {openingPortal ? 'Opening billing portal...' : 'Set default payment method'}
-                            </Button>
-                        </div>
-                    )}
-                    <div>
-                        <label className="text-xs text-muted-foreground block mb-1">
-                            When credit balance goes below (minimum $5)
-                        </label>
-                        <div className="flex items-center gap-1">
-                            <span className="text-sm text-muted-foreground">$</span>
-                            <input
-                                type="number"
-                                min={5}
-                                value={threshold}
-                                onChange={(e) => setThreshold(e.target.value)}
-                                className="w-24 h-8 rounded border border-border bg-background px-2 text-sm"
-                            />
-                        </div>
-                    </div>
-                    <div>
-                        <label className="text-xs text-muted-foreground block mb-1">
-                            Reload amount (minimum $15)
-                        </label>
-                        <div className="flex items-center gap-1">
-                            <span className="text-sm text-muted-foreground">$</span>
-                            <input
-                                type="number"
-                                min={15}
-                                value={amount}
-                                onChange={(e) => setAmount(e.target.value)}
-                                className="w-24 h-8 rounded border border-border bg-background px-2 text-sm"
-                            />
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-1">
-                            If your current balance is already at or below the threshold, you will be charged immediately.
-                        </p>
-                    </div>
-                    {error && <p className="text-xs text-destructive">{error}</p>}
-                    {success && <p className="text-xs text-green-500">Saved!</p>}
-                </div>
-            )}
-            <Button
-                size="sm"
-                variant="outline"
-                onClick={handleSave}
-                disabled={saving || (enabled && hasPaymentMethod === false)}
-                className="w-full sm:w-auto"
-            >
-                {saving ? 'Saving...' : 'Save Auto Top-up Settings'}
-            </Button>
-        </div>
-    );
-}
-
 // ─── Instances Section ───────────────────────────────────────────────────────
 
 function InstancesSection({ accountState, onRefetch }: { accountState: any; onRefetch: () => void }) {
@@ -1357,15 +1164,25 @@ function InstancesSection({ accountState, onRefetch }: { accountState: any; onRe
     const [deleting, setDeleting] = useState<string | null>(null);
     const { servers, activeServerId, setActiveServer } = useServerStore();
 
-    const handleDelete = async (sandboxId: string) => {
-        if (!confirm('Are you sure you want to delete this instance? This cannot be undone.')) return;
-        setDeleting(sandboxId);
+    const handleCancel = async (sandboxId: string) => {
         try {
-            const { deleteInstance } = await import('@/lib/api/billing');
-            await deleteInstance(sandboxId);
+            setDeleting(sandboxId);
+            await cancelSandbox(sandboxId);
             onRefetch();
         } catch (err) {
-            console.error('Failed to delete instance:', err);
+            console.error('Failed to cancel instance subscription:', err);
+        } finally {
+            setDeleting(null);
+        }
+    };
+
+    const handleReactivate = async (sandboxId: string) => {
+        try {
+            setDeleting(sandboxId);
+            await reactivateSandbox(sandboxId);
+            onRefetch();
+        } catch (err) {
+            console.error('Failed to reactivate instance subscription:', err);
         } finally {
             setDeleting(null);
         }
@@ -1373,7 +1190,7 @@ function InstancesSection({ accountState, onRefetch }: { accountState: any; onRe
 
     const handleSwitch = (inst: any) => {
         // Find the server entry in the store that corresponds to this sandbox's external_id
-        // The store uses external_id (Hetzner server ID) as sandboxId
+        // The store uses external_id (provider machine ID) as sandboxId
         const entry = servers.find((s) => s.sandboxId === inst.external_id);
         if (entry) {
             setActiveServer(entry.id);
@@ -1388,9 +1205,7 @@ function InstancesSection({ accountState, onRefetch }: { accountState: any; onRe
                     <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => {
-                            window.dispatchEvent(new CustomEvent('open-add-instance-dialog'));
-                        }}
+                        onClick={() => useNewInstanceModalStore.getState().openNewInstanceModal()}
                     >
                         <Plus className="h-3.5 w-3.5 mr-1" />
                         Add Instance
@@ -1409,11 +1224,11 @@ function InstancesSection({ accountState, onRefetch }: { accountState: any; onRe
                                 <div className="space-y-0.5">
                                     <div className="flex items-center gap-2">
                                         <span className="text-sm font-medium">{inst.name}</span>
-                                        {inst.is_included && (
-                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">Included</span>
-                                        )}
                                         {isActive && (
                                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-600 font-medium">Active</span>
+                                        )}
+                                        {inst.cancel_at_period_end && (
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-destructive/10 text-destructive font-medium">Cancelling</span>
                                         )}
                                         <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                                             inst.status === 'active' ? 'bg-green-500/10 text-green-500' :
@@ -1450,20 +1265,31 @@ function InstancesSection({ accountState, onRefetch }: { accountState: any; onRe
                                             size="sm"
                                             variant="outline"
                                             className="h-7 px-2 text-xs"
-                                            onClick={() => window.dispatchEvent(new CustomEvent('open-add-instance-dialog'))}
+                                            onClick={() => useNewInstanceModalStore.getState().openNewInstanceModal()}
                                         >
                                             Retry
                                         </Button>
                                     )}
-                                    {!inst.is_included && (
+                                    {Boolean(inst.stripe_subscription_id || inst.stripe_subscription_item_id) && !inst.cancel_at_period_end && (
                                         <Button
                                             size="sm"
                                             variant="ghost"
                                             className="text-destructive hover:text-destructive h-7 px-2"
-                                            onClick={() => handleDelete(inst.sandbox_id)}
+                                            onClick={() => handleCancel(inst.sandbox_id)}
                                             disabled={deleting === inst.sandbox_id}
                                         >
-                                            {deleting === inst.sandbox_id ? '...' : 'Remove'}
+                                            {deleting === inst.sandbox_id ? '...' : 'Cancel'}
+                                        </Button>
+                                    )}
+                                    {Boolean(inst.stripe_subscription_id || inst.stripe_subscription_item_id) && inst.cancel_at_period_end && (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 px-2 text-xs"
+                                            onClick={() => handleReactivate(inst.sandbox_id)}
+                                            disabled={deleting === inst.sandbox_id}
+                                        >
+                                            {deleting === inst.sandbox_id ? '...' : 'Reactivate'}
                                         </Button>
                                     )}
                                 </div>
@@ -1478,7 +1304,7 @@ function InstancesSection({ accountState, onRefetch }: { accountState: any; onRe
 
 // ─── Billing Tab ─────────────────────────────────────────────────────────────
 
-function BillingTab({ returnUrl, onOpenPlanModal, isActive }: { returnUrl: string; onOpenPlanModal: () => void; isActive: boolean }) {
+function BillingTab({ returnUrl, isActive }: { returnUrl: string; isActive: boolean }) {
     const { session, isLoading: authLoading } = useAuth();
     const [showCreditPurchaseModal, setShowCreditPurchaseModal] = useState(false);
     const [showCancelDialog, setShowCancelDialog] = useState(false);
@@ -1797,26 +1623,7 @@ function BillingTab({ returnUrl, onOpenPlanModal, isActive }: { returnUrl: strin
                         Get Additional Credits
                     </Button>
                 )}
-                {planName && (
-                    hasScheduledChange ? (
-                        <Button
-                            variant="outline"
-                            className="h-10 w-full sm:w-auto border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 text-sm"
-                            disabled
-                        >
-                            <CalendarClock className="h-4 w-4 mr-2 flex-shrink-0" />
-                            <span className="truncate">Downgrade Scheduled</span>
-                        </Button>
-                    ) : (
-                        <Button
-                            onClick={onOpenPlanModal}
-                            variant="outline"
-                            className="h-10 w-full sm:w-auto"
-                        >
-                            Change Plan
-                        </Button>
-                    )
-                )}
+
             </div>
 
             {/* Commitment or Cancellation Alerts */}
@@ -1858,12 +1665,6 @@ function BillingTab({ returnUrl, onOpenPlanModal, isActive }: { returnUrl: strin
                         )}
                     </AlertDescription>
                 </Alert>
-            )}
-
-            {/* Help Link - Subtle */}
-            {/* ── Auto-Topup Section ─────────────────────────────────────── */}
-            {!isFreeTier && (
-                <AutoTopupSection accountState={accountState} onRefetch={refetchSubscription} />
             )}
 
             {/* ── Instances Section ───────────────────────────────────────── */}

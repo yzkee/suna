@@ -71,7 +71,7 @@ const envSchema = z.object({
   // ── Internal Deployment Controls (optional, safe defaults for self-hosted) ─
   INTERNAL_KORTIX_ENV:              z.enum(['dev', 'staging', 'prod']).optional().default('dev'),
   KORTIX_ROUTER_INTERNAL_ENABLED:   optBoolFalse,  // NOTE: currently unused in codebase
-  KORTIX_BILLING_INTERNAL_ENABLED:  optBoolFalse,
+  KORTIX_BILLING_INTERNAL_ENABLED:  optBoolFalse,  // NOTE: overridden by ENV_MODE=cloud below
   KORTIX_DEPLOYMENTS_ENABLED:       optBoolFalse,
 
   // ── Search Providers (optional — features degrade gracefully) ────────────
@@ -270,9 +270,10 @@ function validateEnv(): z.infer<typeof envSchema> {
   }
 
   // ── Conditional: Billing enabled → need Stripe keys ────────────────────
-  if ((raw as any).KORTIX_BILLING_INTERNAL_ENABLED === 'true' || (raw as any).KORTIX_BILLING_INTERNAL_ENABLED === true) {
-    if (!raw.STRIPE_SECRET_KEY)    issues.push({ var: 'STRIPE_SECRET_KEY',    message: 'Required when KORTIX_BILLING_INTERNAL_ENABLED is true', level: 'error' });
-    if (!raw.STRIPE_WEBHOOK_SECRET) issues.push({ var: 'STRIPE_WEBHOOK_SECRET', message: 'Required when KORTIX_BILLING_INTERNAL_ENABLED is true', level: 'error' });
+  const billingWillBeEnabled = (raw as any).KORTIX_BILLING_INTERNAL_ENABLED === 'true' || (raw as any).KORTIX_BILLING_INTERNAL_ENABLED === true || (raw as any).ENV_MODE === 'cloud';
+  if (billingWillBeEnabled) {
+    if (!raw.STRIPE_SECRET_KEY)    issues.push({ var: 'STRIPE_SECRET_KEY',    message: 'Required when billing is enabled (ENV_MODE=cloud)', level: 'error' });
+    if (!raw.STRIPE_WEBHOOK_SECRET) issues.push({ var: 'STRIPE_WEBHOOK_SECRET', message: 'Required when billing is enabled (ENV_MODE=cloud)', level: 'error' });
   }
 
   // ── Warnings (non-fatal but worth knowing) ─────────────────────────────
@@ -338,7 +339,8 @@ export const config = {
   // ─── Internal Deployment Controls ─────────────────────────────────────────
   INTERNAL_KORTIX_ENV: env.INTERNAL_KORTIX_ENV as InternalKortixEnv,
   KORTIX_ROUTER_INTERNAL_ENABLED: env.KORTIX_ROUTER_INTERNAL_ENABLED,
-  KORTIX_BILLING_INTERNAL_ENABLED: env.KORTIX_BILLING_INTERNAL_ENABLED,
+  // Billing is enabled when ENV_MODE is 'cloud' — no separate env var needed.
+  KORTIX_BILLING_INTERNAL_ENABLED: env.KORTIX_BILLING_INTERNAL_ENABLED || env.ENV_MODE === 'cloud',
   KORTIX_DEPLOYMENTS_ENABLED: env.KORTIX_DEPLOYMENTS_ENABLED,
 
   // ─── Database ──────────────────────────────────────────────────────────────

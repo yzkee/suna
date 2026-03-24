@@ -4,6 +4,13 @@ import type { NextRequest } from 'next/server';
 import { locales, defaultLocale, type Locale } from '@/i18n/config';
 import { detectBestLocaleFromHeaders } from '@/lib/utils/geo-detection-server';
 import { KORTIX_SUPABASE_AUTH_COOKIE } from '@/lib/supabase/constants';
+import {
+  ACTIVE_INSTANCE_COOKIE,
+  buildInstancePath,
+  extractInstanceRoute,
+  isInstanceDetailPath,
+  isInstanceScopedAppPath,
+} from '@/lib/instance-routes';
 
 // Marketing pages that support locale routing for SEO (/de, /it, etc.)
 const MARKETING_ROUTES = [
@@ -51,7 +58,7 @@ const PUBLIC_ROUTES = [
 const BILLING_ROUTES = [
   '/activate-trial',
   '/subscription',
-  '/setting-up',
+  '/instances',
 ];
 
 // Routes that require authentication and active subscription
@@ -61,6 +68,7 @@ const PROTECTED_ROUTES = [
   '/marketplace',
   '/skills',
   '/projects',
+  '/p',
   '/workspace',
   '/settings',
   // Tab-only routes (no dedicated page.tsx in earlier versions — now have one)
@@ -81,6 +89,7 @@ const PROTECTED_ROUTES = [
   '/changelog',
   '/admin',
   '/legacy',
+  '/onboarding',
 ];
 
 // App store links for mobile redirect
@@ -100,7 +109,14 @@ function detectMobilePlatformFromUA(userAgent: string | null): 'ios' | 'android'
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-
+  const instanceRoute = extractInstanceRoute(pathname);
+  const isInstanceDetailRoute = isInstanceDetailPath(pathname);
+  // Only treat as instance-scoped if the inner path is in INSTANCE_SCOPED_ROUTES.
+  // Routes with dedicated files under /instances/[id]/ (like /onboarding) are NOT
+  // instance-scoped — they handle their own routing via Next.js dynamic segments.
+  const isInstanceScopedRoute = !!instanceRoute && !!instanceRoute.innerPath && isInstanceScopedAppPath(instanceRoute.innerPath);
+  const effectivePathname = isInstanceScopedRoute ? instanceRoute.innerPath : pathname;
+  const activeInstanceId = request.cookies.get(ACTIVE_INSTANCE_COOKIE)?.value || null;
 
   // 🚀 HYPER-FAST: Mobile app store redirect for /milano, /berlin, and /app
   // This runs at the edge before ANY page rendering
@@ -117,7 +133,8 @@ export async function middleware(request: NextRequest) {
 
   // Block access to WIP /thread/new route - redirect to dashboard
   if (pathname.includes('/thread/new')) {
-    return NextResponse.redirect(new URL('/dashboard', request.url));
+    const target = activeInstanceId ? buildInstancePath(activeInstanceId, '/dashboard') : '/instances';
+    return NextResponse.redirect(new URL(target, request.url));
   }
   
   // Skip middleware for static files and API routes
@@ -263,7 +280,8 @@ export async function middleware(request: NextRequest) {
   // to /dashboard. This avoids the old client-side redirect chain that caused
   // a white flash (render null → useAuth resolves → router.replace → skeleton).
   if (pathname === '/' && user) {
-    return NextResponse.redirect(new URL('/dashboard', request.url));
+    const target = activeInstanceId ? buildInstancePath(activeInstanceId, '/dashboard') : '/instances';
+    return NextResponse.redirect(new URL(target, request.url));
   }
 
   // Auto-redirect based on geo-detection for marketing pages
@@ -329,107 +347,38 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(url);
     }
 
-    // Skip billing checks when billing is not enabled (self-hosted deployments).
-    // Onboarding enforcement is handled client-side in layout-content.tsx.
-    const billingEnabled = (process.env.KORTIX_PUBLIC_BILLING_ENABLED || process.env.NEXT_PUBLIC_BILLING_ENABLED) === 'true';
-    if (!billingEnabled) {
+    // ── Instance-scoped routes (/instances/:id/dashboard, etc.) ──────────
+    // Rewrite to the bare app route and set the active-instance cookie.
+    // Works for both cloud and local mode.
+    if (isInstanceScopedRoute && instanceRoute?.instanceId) {
+      const rewriteUrl = request.nextUrl.clone();
+      rewriteUrl.pathname = effectivePathname;
+      const response = NextResponse.rewrite(rewriteUrl);
+      response.cookies.set(ACTIVE_INSTANCE_COOKIE, instanceRoute.instanceId, { path: '/', sameSite: 'lax' });
+      return response;
+    }
+
+    // ── Instance detail pages (/instances, /instances/:id, /instances/:id/onboarding) ──
+    if (isInstanceDetailRoute || pathname === '/instances') {
+      return supabaseResponse;
+    }
+    if (instanceRoute?.instanceId && instanceRoute.innerPath === '/onboarding') {
+      supabaseResponse.cookies.set(ACTIVE_INSTANCE_COOKIE, instanceRoute.instanceId, { path: '/', sameSite: 'lax' });
       return supabaseResponse;
     }
 
-    // Skip billing checks for billing-related routes
+    // ── Bare app routes (/dashboard, /files, ...) ────────────────────────
+    // Redirect to the instance-scoped version if we know which instance,
+    // otherwise send to /instances to pick one.
+    if (isInstanceScopedAppPath(pathname)) {
+      const url = request.nextUrl.clone();
+      url.pathname = activeInstanceId ? buildInstancePath(activeInstanceId, pathname) : '/instances';
+      return NextResponse.redirect(url);
+    }
+
+    // ── Billing-related routes (subscription, activate-trial, etc.) ──────
     if (BILLING_ROUTES.some(route => pathname.startsWith(route))) {
       return supabaseResponse;
-    }
-
-    // Only check billing for protected routes that require active subscription
-    // Calls the backend API (which has direct DB access) instead of querying
-    // Supabase PostgREST — PostgREST only exposes whitelisted schemas.
-    if (PROTECTED_ROUTES.some(route => pathname.startsWith(route))) {
-      // If user is coming from Stripe checkout with subscription=success, allow access
-      // The webhook might not have processed yet
-      const subscriptionSuccess = request.nextUrl.searchParams.get('subscription') === 'success';
-      if (subscriptionSuccess && pathname === '/dashboard') {
-        return supabaseResponse;
-      }
-
-      // Get the user's session token to authenticate with the backend
-      const { data: { session } } = await supabase.auth.getSession();
-      const accessToken = session?.access_token;
-
-      const backendUrl = process.env.BACKEND_URL || process.env.KORTIX_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || '';
-      if (!backendUrl || !accessToken) {
-        // Can't reach backend — let the request through, client-side will handle it
-        return supabaseResponse;
-      }
-
-      try {
-        // NEXT_PUBLIC_BACKEND_URL may already include /v1 (e.g. https://api.kortix.com/v1)
-        const apiBase = backendUrl.replace(/\/v1\/?$/, '');
-        const accountStateRes = await fetch(`${apiBase}/v1/billing/account-state`, {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          signal: AbortSignal.timeout(5000),
-        });
-
-        if (!accountStateRes.ok) {
-          // Backend error (not network) — redirect to setting-up as fallback
-          const url = request.nextUrl.clone();
-          url.pathname = '/setting-up';
-          return NextResponse.redirect(url);
-        }
-
-        const accountState = await accountStateRes.json() as {
-          subscription?: { tier_key?: string; status?: string };
-          credits?: { can_run?: boolean };
-          tier?: { name?: string };
-        };
-
-        const tierKey = accountState?.subscription?.tier_key || accountState?.tier?.name || '';
-        const hasPaidTier = tierKey && tierKey !== 'none' && tierKey !== 'free';
-        const hasFreeTier = tierKey === 'free';
-        const isActive = accountState?.subscription?.status === 'active' || accountState?.subscription?.status === 'trialing';
-
-        if (hasPaidTier || isActive) {
-          return supabaseResponse;
-        }
-
-        if (hasFreeTier) {
-          try {
-            const serversRes = await fetch(`${apiBase}/v1/servers`, {
-              headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-              },
-              signal: AbortSignal.timeout(5000),
-            });
-
-            if (serversRes.ok) {
-              const servers = await serversRes.json() as Array<{ id: string }>;
-              if (Array.isArray(servers) && servers.length > 0) {
-                return supabaseResponse;
-              }
-            }
-          } catch {
-            // Fall through to setup redirect.
-          }
-
-          const url = request.nextUrl.clone();
-          url.pathname = '/setting-up';
-          return NextResponse.redirect(url);
-        }
-
-        // No subscription at all — redirect to plan selection first.
-        const url = request.nextUrl.clone();
-        url.pathname = '/subscription';
-        return NextResponse.redirect(url);
-      } catch {
-        // Network error / timeout — redirect to plan selection as fallback
-        const url = request.nextUrl.clone();
-        url.pathname = '/subscription';
-        return NextResponse.redirect(url);
-      }
     }
 
     return supabaseResponse;

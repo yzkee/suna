@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSandboxConnectionStore } from '@/stores/sandbox-connection-store';
-import { useServerStore } from '@/stores/server-store';
+import { resolveServerUrl, useServerStore } from '@/stores/server-store';
 import { KortixLoader } from '@/components/ui/kortix-loader';
-import { InstanceManagerDialog } from '@/components/sidebar/server-selector';
+import { useRouter } from 'next/navigation';
 import {
   WifiOff,
   RefreshCw,
@@ -30,66 +30,58 @@ export function ConnectingScreen() {
   const wasConnected = useSandboxConnectionStore((s) => s.wasConnected);
   const reconnectAttempts = useSandboxConnectionStore((s) => s.reconnectAttempts);
   const disconnectedAt = useSandboxConnectionStore((s) => s.disconnectedAt);
-  const lastConnectedAt = useSandboxConnectionStore((s) => s.lastConnectedAt);
   const activeServerId = useServerStore((s) => s.activeServerId);
   const servers = useServerStore((s) => s.servers);
   const activeServer = servers.find((s) => s.id === activeServerId);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const router = useRouter();
 
   // Don't show anything until the first health check completes
   if (!initialCheckDone) return null;
   if (status === 'connected') return null;
 
   const serverLabel = activeServer?.label || 'Instance';
-  const serverUrl = activeServer?.url?.replace(/^https?:\/\//, '') || '';
+  const serverUrl = activeServer ? resolveServerUrl(activeServer).replace(/^https?:\/\//, '') : '';
 
   // If the user was previously connected — show a non-blocking top banner
   if (wasConnected) {
     return (
-      <>
-        <ReconnectBanner
-          serverLabel={serverLabel}
-          serverUrl={serverUrl}
-          reconnectAttempts={reconnectAttempts}
-          disconnectedAt={disconnectedAt}
-          status={status}
-          onSwitchInstance={() => setDialogOpen(true)}
-        />
-        <InstanceManagerDialog open={dialogOpen} onOpenChange={setDialogOpen} />
-      </>
+      <ReconnectBanner
+        serverLabel={serverLabel}
+        serverUrl={serverUrl}
+        reconnectAttempts={reconnectAttempts}
+        disconnectedAt={disconnectedAt}
+        status={status}
+        onSwitchInstance={() => router.push('/instances')}
+      />
     );
   }
 
   // First-time connection — full-screen blocking overlay
   return (
-    <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-6 max-w-md px-8 text-center">
-          {status === 'connecting' && (
-            <FirstConnectState label={serverLabel} url={serverUrl} />
-          )}
-          {status === 'unreachable' && (
-            <UnreachableState
-              label={serverLabel}
-              url={serverUrl}
-              reconnectAttempts={reconnectAttempts}
-              provider={activeServer?.provider}
-            />
-          )}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background">
+      <div className="flex flex-col items-center gap-6 max-w-md px-8 text-center">
+        {status === 'connecting' && (
+          <FirstConnectState label={serverLabel} url={serverUrl} />
+        )}
+        {status === 'unreachable' && (
+          <UnreachableState
+            label={serverLabel}
+            url={serverUrl}
+            reconnectAttempts={reconnectAttempts}
+            provider={activeServer?.provider}
+          />
+        )}
 
-          <button
-            type="button"
-            onClick={() => setDialogOpen(true)}
-            className="flex items-center gap-2 h-9 px-4 text-sm font-medium text-foreground bg-muted/60 hover:bg-muted border border-border/50 rounded-lg transition-colors cursor-pointer"
-          >
-            <ArrowLeftRight className="h-3.5 w-3.5" />
-            Switch Instance
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => router.push('/instances')}
+          className="flex items-center gap-2 h-9 px-4 text-sm font-medium text-foreground bg-muted/60 hover:bg-muted border border-border/50 rounded-lg transition-colors cursor-pointer"
+        >
+          <ArrowLeftRight className="h-3.5 w-3.5" />
+          Switch Instance
+        </button>
       </div>
-
-      <InstanceManagerDialog open={dialogOpen} onOpenChange={setDialogOpen} />
-    </>
+    </div>
   );
 }
 
@@ -193,9 +185,6 @@ function FirstConnectState({ label, url }: { label: string; url: string }) {
         {url && (
           <p className="text-sm text-muted-foreground font-mono">{url}</p>
         )}
-        <p className="text-sm text-muted-foreground/70">
-          Setting up your environment...
-        </p>
       </div>
     </>
   );

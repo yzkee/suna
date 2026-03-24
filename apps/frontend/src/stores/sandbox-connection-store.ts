@@ -94,7 +94,7 @@ export function setSandboxStatus(next: SandboxConnectionStatus) {
 		if (!state.disconnectedAt) {
 			updates.disconnectedAt = Date.now();
 		}
-		logger.error("Sandbox became unreachable", {
+		logger.warn("Sandbox became unreachable", {
 			failCount: state.failCount,
 			reconnectAttempts: state.reconnectAttempts,
 			wasConnected: state.wasConnected,
@@ -130,6 +130,26 @@ export function resetSandboxFail() {
 	const { failCount } = useSandboxConnectionStore.getState();
 	if (failCount === 0) return; // no-op — avoids unnecessary re-renders
 	useSandboxConnectionStore.setState({ failCount: 0 });
+}
+
+/**
+ * Full reset for server switches — clears ALL connection state so the new
+ * instance starts fresh. Without this, `wasConnected` from a previous instance
+ * leaks into the new one, causing wrong thresholds and stale UI.
+ */
+export function resetForServerSwitch() {
+	useSandboxConnectionStore.setState({
+		status: "connecting",
+		failCount: 0,
+		initialCheckDone: false,
+		wasConnected: false,
+		reconnectAttempts: 0,
+		disconnectedAt: null,
+		sandboxVersion: null,
+		openCodeVersion: null,
+		healthy: null,
+	});
+	saveWasConnected(false);
 }
 
 export function setSandboxVersion(version: string | null) {

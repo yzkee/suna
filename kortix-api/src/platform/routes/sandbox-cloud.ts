@@ -615,6 +615,113 @@ export function createCloudSandboxRouter(
     }
   });
 
+  // ─── GET /:id/status ───────────────────────────────────────────────────
+  // Single-instance provisioning status. Replaces the old billing/setup/status.
+  // Returns status, provisioning stage/progress, machine info, and health.
+
+  router.get('/:id/status', async (c) => {
+    const userId = c.get('userId');
+    const sandboxId = c.req.param('id');
+
+    try {
+      const accountId = await resolveAccountId(userId);
+
+      const [sandbox] = await db
+        .select()
+        .from(sandboxes)
+        .where(and(eq(sandboxes.sandboxId, sandboxId), eq(sandboxes.accountId, accountId)))
+        .limit(1);
+
+      if (!sandbox) {
+        return c.json({ status: 'not_found' }, 404);
+      }
+
+      const meta = (sandbox.metadata as Record<string, unknown>) ?? {};
+      let status: 'provisioning' | 'active' | 'error' | 'stopped' | 'archived' = sandbox.status as any;
+      let stage: string | null = (meta.provisioningStage as string) ?? null;
+      let stageProgress: number | null = null;
+      let stageMessage: string | null = (meta.provisioningMessage as string) ?? null;
+      let stages: Array<{ id: string; progress: number; message: string }> | null = null;
+
+      // Provisioning timeout: 15 min with no update → error
+      if (status === 'provisioning') {
+        const updatedAt = sandbox.updatedAt ? new Date(sandbox.updatedAt).getTime() : 0;
+        if (updatedAt > 0 && Date.now() - updatedAt > 15 * 60 * 1000) {
+          status = 'error';
+        }
+      }
+
+      // Get provider provisioning stages + progress
+      if (status === 'provisioning' && sandbox.provider) {
+        try {
+          const provider = getProvider(sandbox.provider as ProviderName);
+          const provStatus = await provider.getProvisioningStatus(sandbox.sandboxId);
+          if (provStatus?.error) status = 'error';
+          if (provStatus) {
+            stage = provStatus.stage;
+            stageProgress = provStatus.progress;
+            stageMessage = provStatus.message;
+          }
+          if (provider.provisioning?.stages) {
+            stages = provider.provisioning.stages;
+          }
+
+          // Final health gate: only flip active when /kortix/health succeeds
+          if (sandbox.externalId && sandbox.baseUrl) {
+            try {
+              const res = await fetch(`${sandbox.baseUrl.replace(/\/$/, '')}/kortix/health`, {
+                signal: AbortSignal.timeout(5000),
+              });
+              const body = await res.json().catch(() => null) as { version?: string; status?: string } | null;
+              const version = typeof body?.version === 'string' ? body.version : '';
+
+              if (res.ok && version && version !== '0.0.0') {
+                status = 'active';
+                stage = 'services_ready';
+                stageProgress = 100;
+                stageMessage = 'Ready';
+                // Persist the active status
+                if (sandbox.status !== 'active') {
+                  await db
+                    .update(sandboxes)
+                    .set({ status: 'active', updatedAt: new Date() })
+                    .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
+                }
+              } else if (res.status === 503 || body?.status === 'starting') {
+                stage = 'services_ready';
+                stageProgress = Math.max(stageProgress ?? 0, 92);
+                stageMessage = 'Services started, waiting for Kortix to come online...';
+              }
+            } catch {
+              // Health check failed — sandbox not reachable yet
+            }
+          }
+        } catch {
+          // Provider lookup failed
+        }
+      }
+
+      const machineInfo = (meta.publicIp || meta.serverType || meta.location)
+        ? { ip: (meta.publicIp as string) || '', serverType: (meta.serverType as string) || '', location: (meta.location as string) || '' }
+        : null;
+
+      return c.json({
+        sandbox_id: sandbox.sandboxId,
+        status,
+        stage,
+        stageProgress,
+        stageMessage,
+        machineInfo,
+        stages,
+        error: status === 'error' ? ((meta.provisioningError as string) || 'Provisioning failed') : null,
+        startedAt: sandbox.createdAt ? new Date(sandbox.createdAt).toISOString() : null,
+      });
+    } catch (err) {
+      console.error('[SANDBOX-CLOUD] status error:', err);
+      return c.json({ status: 'error', error: 'Failed to get sandbox status' }, 500);
+    }
+  });
+
   // ─── POST /stop ────────────────────────────────────────────────────────
   // Stop the user's active sandbox.
 
@@ -799,6 +906,41 @@ export function createCloudSandboxRouter(
     } catch (err) {
       console.error('[SANDBOX-CLOUD] remove error:', err);
       return c.json({ success: false, error: 'Failed to remove sandbox' }, 500);
+    }
+  });
+
+  // ─── POST /reactivate ──────────────────────────────────────────────────
+  router.post('/reactivate', async (c) => {
+    const userId = c.get('userId');
+    try {
+      const accountId = await resolveAccountId(userId);
+      const body = await c.req.json().catch(() => ({}));
+      const sandboxId = body?.sandbox_id as string | undefined;
+      const query = sandboxId
+        ? and(eq(sandboxes.accountId, accountId), eq(sandboxes.sandboxId, sandboxId), sql`${sandboxes.status} != 'archived'`)
+        : and(eq(sandboxes.accountId, accountId), sql`${sandboxes.status} != 'archived'`);
+      const [sandbox] = await db.select().from(sandboxes).where(query).limit(1);
+      if (!sandbox) return c.json({ success: false, error: 'No sandbox found' }, 404);
+
+      const existingMeta = (sandbox.metadata as Record<string, unknown> | null) ?? {};
+      const isCancelling = Boolean(sandbox.cancelAtPeriodEnd || ((existingMeta.cancel_at_period_end as boolean) ?? false));
+      if (!isCancelling) return c.json({ success: false, error: 'Not scheduled for cancellation' }, 400);
+
+      const { cancel_at_period_end: _a, cancel_at: _b, ...cleanMeta } = existingMeta as any;
+      const stripeSubId = sandbox.stripeSubscriptionId || (existingMeta.stripe_subscription_id as string | undefined);
+      if (stripeSubId && config.KORTIX_BILLING_INTERNAL_ENABLED) {
+        try {
+          const { getStripe } = await import('../../shared/stripe');
+          await getStripe().subscriptions.update(stripeSubId, { cancel_at_period_end: false });
+        } catch (err) {
+          console.warn('[PLATFORM] Could not reverse Stripe cancellation:', err);
+        }
+      }
+      await db.update(sandboxes).set({ metadata: cleanMeta, cancelAtPeriodEnd: false, cancelAt: null, updatedAt: new Date() }).where(eq(sandboxes.sandboxId, sandbox.sandboxId));
+      return c.json({ success: true });
+    } catch (err) {
+      console.error('[SANDBOX-CLOUD] reactivate error:', err);
+      return c.json({ success: false, error: 'Failed to reactivate' }, 500);
     }
   });
 

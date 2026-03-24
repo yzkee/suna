@@ -1,7 +1,15 @@
 'use client';
 
+/**
+ * PricingSection — inline (non-modal) version of the Kortix Computer checkout.
+ * Used on /subscription and /pricing pages.
+ *
+ * Delegates all machine-selection + checkout logic to CheckoutModal's shared
+ * internals, but rendered inline (side-by-side Globe + plan details).
+ */
+
 import React, { useState, useCallback } from 'react';
-import { Check, ShoppingCart, Loader2 } from 'lucide-react';
+import { Check, ShoppingCart, Loader2, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { createCheckoutSession } from '@/lib/api/billing';
@@ -16,6 +24,7 @@ import { INSTANCE_CONFIG } from '@/components/instance/config';
 import { getSizeLabel, formatMemory, formatDisk } from '@/components/instance/size-picker';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useServerTypes } from '@/hooks/instance/use-server-types';
+import type { ServerType } from '@/lib/api/billing';
 
 interface PricingSectionProps {
   returnUrl?: string;
@@ -41,6 +50,15 @@ const INCLUDED = [
   'Unlimited agents & workflows',
 ];
 
+/** Prefer 4-core (Medium) type; fall back to API default, then first. */
+function pickDefaultType(types: ServerType[], apiDefault?: string): string | null {
+  if (!types.length) return null;
+  const medium = types.find((t) => t.cores === 4);
+  if (medium) return medium.name;
+  const apiMatch = apiDefault ? types.find((t) => t.name === apiDefault) : null;
+  return apiMatch?.name ?? types[0].name;
+}
+
 export function PricingSection({
   returnUrl = typeof window !== 'undefined' ? window.location.href : '/',
   showTitleAndTabs = true,
@@ -63,7 +81,7 @@ export function PricingSection({
   const [selectedMachine, setSelectedMachine] = useState<string | null>(null);
 
   const { data: serverTypesData, isLoading: typesLoading } = useServerTypes(location);
-  const serverTypes = serverTypesData?.serverTypes ?? [];
+  const serverTypes = React.useMemo(() => serverTypesData?.serverTypes ?? [], [serverTypesData?.serverTypes]);
 
   const isCurrent = accountState?.subscription?.tier_key === 'pro';
 
@@ -75,14 +93,14 @@ export function PricingSection({
     if (serverTypesData.defaultLocation !== location) {
       setLocation(serverTypesData.defaultLocation);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverTypesData?.defaultLocation]);
 
-  // Auto-select default server type whenever server types change
+  // Auto-select preferred type (4-core Medium) when server types load
   React.useEffect(() => {
-    if (serverTypes.length === 0) return;
-    const defaultName = serverTypesData?.defaultServerType;
-    const match = defaultName ? serverTypes.find((t) => t.name === defaultName) : null;
-    setSelectedMachine(match?.name || serverTypes[0].name);
+    if (!serverTypes.length) return;
+    const preferred = pickDefaultType(serverTypes, serverTypesData?.defaultServerType);
+    setSelectedMachine(preferred);
   }, [serverTypes, serverTypesData?.defaultServerType]);
 
   const handleSelect = useCallback(async () => {
@@ -125,7 +143,8 @@ export function PricingSection({
     );
   }
 
-  const hasScheduledChange = accountState?.subscription.has_scheduled_change && accountState?.subscription.scheduled_change;
+  const hasScheduledChange =
+    accountState?.subscription.has_scheduled_change && accountState?.subscription.scheduled_change;
   const includedType = serverTypes.find((t) => t.name === selectedMachine) || serverTypes[0] || null;
 
   return (
@@ -181,33 +200,80 @@ export function PricingSection({
             <span className="text-sm text-muted-foreground/40">/month</span>
           </div>
 
-          {/* Included machine */}
-          {typesLoading ? (
-            <div className="mb-6 flex items-center gap-3.5 px-3 py-2.5 rounded-xl border border-border/40">
-              <Skeleton className="w-11 h-11 rounded-lg" />
-              <div className="flex-1 space-y-1.5">
-                <Skeleton className="h-4 w-16" />
-                <Skeleton className="h-3 w-28" />
+          {/* Machine size selector */}
+          <div className="mb-6">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/40 mb-2">
+              Choose your machine
+            </p>
+            {typesLoading ? (
+              <div className="space-y-2">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="flex items-center gap-3.5 px-3 py-2.5 rounded-xl border border-border/40">
+                    <Skeleton className="w-11 h-11 rounded-lg shrink-0" />
+                    <div className="flex-1 space-y-1.5">
+                      <Skeleton className="h-4 w-16" />
+                      <Skeleton className="h-3 w-28" />
+                    </div>
+                    <Skeleton className="h-4 w-14" />
+                  </div>
+                ))}
               </div>
-              <Skeleton className="h-4 w-14" />
-            </div>
-          ) : includedType ? (
-            <div className="mb-6 flex items-center gap-3.5 px-3 py-2.5 rounded-xl border border-border/40 bg-muted/20">
-              <div className="shrink-0 w-11 h-11 rounded-lg border bg-foreground text-background flex flex-col items-center justify-center">
-                <span className="text-[15px] font-bold tabular-nums leading-none">{includedType.cores}</span>
-                <span className="text-[8px] font-medium opacity-60 mt-0.5">vCPU</span>
+            ) : serverTypes.length > 0 ? (
+              <div className="space-y-1.5">
+                {serverTypes.map((t) => {
+                  const isSelected = selectedMachine === t.name;
+                  const label = getSizeLabel(t.cores);
+
+                  return (
+                    <button
+                      key={t.name}
+                      type="button"
+                      onClick={() => setSelectedMachine(t.name)}
+                      className={cn(
+                        'flex items-center gap-3.5 w-full px-3 py-2.5 rounded-xl border text-left transition-all cursor-pointer',
+                        isSelected
+                          ? 'border-foreground/20 bg-foreground/[0.04] shadow-sm'
+                          : 'border-border/40 hover:bg-muted/40 hover:border-border/60',
+                      )}
+                    >
+                      {/* Radio */}
+                      <div className={cn(
+                        'size-4 rounded-full border-[1.5px] flex items-center justify-center shrink-0 transition-colors',
+                        isSelected ? 'border-foreground bg-foreground' : 'border-border/60',
+                      )}>
+                        {isSelected && <Check className="size-2.5 text-background" />}
+                      </div>
+
+                      {/* Core count badge */}
+                      <div className={cn(
+                        'shrink-0 w-11 h-11 rounded-lg border flex flex-col items-center justify-center',
+                        isSelected ? 'bg-foreground text-background' : 'bg-muted/60 text-foreground/70',
+                      )}>
+                        <span className="text-[15px] font-bold tabular-nums leading-none">{t.cores}</span>
+                        <span className="text-[8px] font-medium opacity-60 mt-0.5">vCPU</span>
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[13px] font-semibold text-foreground">{label}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground/60">
+                          <span>{formatMemory(t.memory)} RAM</span>
+                          <span className="text-muted-foreground/20">·</span>
+                          <span>{formatDisk(t.disk)} SSD</span>
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 text-right">
+                        <span className="text-[14px] font-semibold tabular-nums tracking-tight text-foreground">${t.priceMonthlyMarkup.toFixed(2)}</span>
+                        <span className="text-[11px] text-muted-foreground/40">/mo</span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
-              <div className="flex-1 min-w-0">
-                <span className="text-[13px] font-semibold text-foreground">{getSizeLabel(includedType.cores)}</span>
-                <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground/60">
-                  <span>{formatMemory(includedType.memory)} RAM</span>
-                  <span className="text-muted-foreground/20">{'\u00B7'}</span>
-                  <span>{formatDisk(includedType.disk)} SSD</span>
-                </div>
-              </div>
-              <span className="text-[12px] font-medium text-primary/70 shrink-0">Included</span>
-            </div>
-          ) : null}
+            ) : null}
+          </div>
 
           {/* Features */}
           <div className="border-t border-border/30 pt-5 mb-8">
@@ -234,7 +300,10 @@ export function PricingSection({
               ) : isCurrent ? (
                 'Current Plan'
               ) : (
-                'Get Your Kortix'
+                <>
+                  Get Your Kortix
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </>
               )}
             </Button>
 

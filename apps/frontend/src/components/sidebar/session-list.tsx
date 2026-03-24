@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback, startTransition, useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { normalizeAppPathname, getActiveInstanceIdFromCookie, buildInstancePath } from '@/lib/instance-routes';
 import {
   MoreHorizontal,
   Trash2,
@@ -430,7 +431,7 @@ interface SessionListProps {
 
 export function SessionList({ projectId }: SessionListProps = {}) {
   const { isMobile, state, setOpenMobile } = useSidebar();
-  const pathname = usePathname();
+  const pathname = normalizeAppPathname(usePathname());
   const router = useRouter();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState<{ id: string; name: string } | null>(null);
@@ -722,14 +723,15 @@ export function SessionList({ projectId }: SessionListProps = {}) {
     // deletion so the route-sync effect in TabBar doesn't re-open the tab
     // (which would cause an infinite setState loop).
     const tabState = useTabStore.getState();
+    const fallback = buildInstancePath(getActiveInstanceIdFromCookie() || '', '/dashboard');
     if (tabState.tabs[sessionToDelete.id]) {
       const nextTabId = tabState.closeTab(sessionToDelete.id);
       if (isActive) {
         const nextTab = nextTabId ? useTabStore.getState().tabs[nextTabId] : null;
-        router.push(nextTab?.href || '/dashboard');
+        router.push(nextTab?.href || fallback);
       }
     } else if (isActive) {
-      router.push('/dashboard');
+      router.push(fallback);
     }
 
     deleteSession(sessionToDelete.id);

@@ -8,7 +8,7 @@ import { ArrowRight, Check, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { trackCtaSignup } from '@/lib/analytics/gtm';
 import { motion, useScroll, useTransform, useSpring } from 'framer-motion';
-import { PlanSelectionModal } from '@/components/billing/pricing/plan-selection-modal';
+import { NewInstanceModal as PlanSelectionModal } from '@/components/billing/pricing/new-instance-modal';
 import { CtaSection } from '@/components/home/cta-section';
 import { OSSCard } from '@/app/(home)/oss-card';
 import Image from 'next/image';

@@ -18,7 +18,6 @@ const Analytics = lazy(() => import('@vercel/analytics/react').then(mod => ({ de
 const SpeedInsights = lazy(() => import('@vercel/speed-insights/next').then(mod => ({ default: mod.SpeedInsights })));
 const GoogleTagManager = lazy(() => import('@next/third-parties/google').then(mod => ({ default: mod.GoogleTagManager })));
 const PostHogIdentify = lazy(() => import('@/components/posthog-identify').then(mod => ({ default: mod.PostHogIdentify })));
-const PlanSelectionModal = lazy(() => import('@/components/billing/pricing/plan-selection-modal').then(mod => ({ default: mod.PlanSelectionModal })));
 const AnnouncementDialog = lazy(() => import('@/components/announcements/announcement-dialog').then(mod => ({ default: mod.AnnouncementDialog })));
 const RouteChangeTracker = lazy(() => import('@/components/analytics/route-change-tracker').then(mod => ({ default: mod.RouteChangeTracker })));
 const AuthEventTracker = lazy(() => import('@/components/analytics/auth-event-tracker').then(mod => ({ default: mod.AuthEventTracker })));
@@ -132,6 +131,7 @@ export default function RootLayout({
               (function() {
                 window.dataLayer = window.dataLayer || [];
                 var pathname = window.location.pathname;
+                pathname = pathname.replace(/^\/instances\/[^/]+/, '') || '/';
                 
                 // Get language from localStorage, cookie, or default to 'en'
                 var lang = 'en';
@@ -263,9 +263,6 @@ export default function RootLayout({
                   {children}
                 </IntegrationConnectProvider>
                 <Toaster />
-                <Suspense fallback={null}>
-                  <PlanSelectionModal />
-                </Suspense>
               </ReactQueryProvider>
             </I18nProvider>
           </AuthProvider>

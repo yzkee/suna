@@ -147,6 +147,43 @@ export async function listServerTypes(
     .sort((a, b) => a.priceMonthly - b.priceMonthly);
 }
 
+// ─── Image resolution ─────────────────────────────────────────────────────────
+// Dynamically fetch the latest Kortix image from JustaVPS instead of hardcoding.
+// Falls back to JUSTAVPS_IMAGE_ID env var if set, then to no image (cold docker start).
+
+let cachedImageId: string | null = null;
+let imageCacheTime = 0;
+const IMAGE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
+
+async function resolveImageId(): Promise<string | undefined> {
+  // Prefer explicit env override
+  if (config.JUSTAVPS_IMAGE_ID) return config.JUSTAVPS_IMAGE_ID;
+
+  // Return cached value if fresh
+  if (cachedImageId && Date.now() - imageCacheTime < IMAGE_CACHE_TTL_MS) return cachedImageId;
+
+  try {
+    const data = await justavpsFetch<{ images: Array<{ id: string; name: string; status: string; is_template: boolean }> }>('/images');
+    // Find the latest ready Kortix image (template or snapshot)
+    const kortixImage = data.images
+      ?.filter((img) => img.status === 'ready')
+      .find((img) => /kortix/i.test(img.name));
+
+    if (kortixImage) {
+      cachedImageId = kortixImage.id;
+      imageCacheTime = Date.now();
+      console.log(`[JUSTAVPS] Resolved image: ${kortixImage.name} (${kortixImage.id})`);
+      return kortixImage.id;
+    }
+
+    console.warn('[JUSTAVPS] No Kortix image found in JustaVPS — will use docker_image directly (slower cold start)');
+    return undefined;
+  } catch (err) {
+    console.warn('[JUSTAVPS] Failed to fetch images, falling back to no image:', err instanceof Error ? err.message : err);
+    return undefined;
+  }
+}
+
 let webhookRegistered = false;
 
 async function ensureWebhookRegistered(): Promise<void> {
@@ -199,7 +236,7 @@ export class JustAVPSProvider implements SandboxProvider {
       { id: 'docker_pulling', progress: 60, message: 'Starting sandbox container...' },
       { id: 'docker_running', progress: 75, message: 'Container started, booting services...' },
       { id: 'services_starting', progress: 85, message: 'Services booting...' },
-      { id: 'services_ready', progress: 100, message: 'Ready' },
+      { id: 'services_ready', progress: 92, message: 'Services started, waiting for Kortix to come online...' },
     ],
   };
 
@@ -268,19 +305,17 @@ export class JustAVPSProvider implements SandboxProvider {
       ...opts.envVars,
     };
 
+    const imageId = await resolveImageId();
+
     const body: Record<string, unknown> = {
       provider: config.JUSTAVPS_PROVIDER || 'hetzner',
       server_type: serverType,
       region: location,
-      name: `kortix-sandbox-${opts.accountId.slice(0, 8)}-${Date.now().toString(36)}`,
+      name: opts.name,
       env_vars: envVars,
       docker_image: config.SANDBOX_IMAGE,
+      ...(imageId ? { image_id: imageId } : {}),
     };
-
-    const snapshotId = config.JUSTAVPS_SNAPSHOT_ID;
-    if (snapshotId) {
-      body.image_id = snapshotId;
-    }
 
     const machine = await justavpsFetch<JustAVPSMachine>('/machines', {
       method: 'POST',

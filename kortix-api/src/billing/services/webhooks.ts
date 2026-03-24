@@ -23,6 +23,11 @@ import { cancelFreeSubscriptionForUpgrade } from './subscriptions';
 
 // ─── Stripe Webhook Processing ──────────────────────────────────────────────
 
+// Simple in-memory dedup for Stripe webhook events.
+// Stripe CLI + configured endpoints can deliver the same event twice.
+const processedEvents = new Set<string>();
+const DEDUP_MAX = 500;
+
 export async function processStripeWebhook(rawBody: string, signature: string) {
   const stripe = getStripe();
 
@@ -31,6 +36,17 @@ export async function processStripeWebhook(rawBody: string, signature: string) {
     event = stripe.webhooks.constructEvent(rawBody, signature, config.STRIPE_WEBHOOK_SECRET);
   } catch (err) {
     throw new WebhookError(`Signature verification failed: ${(err as Error).message}`);
+  }
+
+  // Deduplicate: skip if we already processed this exact event
+  if (processedEvents.has(event.id)) {
+    console.log(`[Webhook] Skipping duplicate ${event.type} (${event.id})`);
+    return;
+  }
+  processedEvents.add(event.id);
+  if (processedEvents.size > DEDUP_MAX) {
+    const first = processedEvents.values().next().value;
+    if (first) processedEvents.delete(first);
   }
 
   console.log(`[Webhook] Processing ${event.type} (${event.id})`);
@@ -127,16 +143,12 @@ async function handleSubscriptionCheckout(session: Stripe.Checkout.Session, acco
     : session.subscription?.id;
   if (!subscriptionId) return;
 
-  const existingAccount = await getCreditAccount(accountId);
-  const oldFreeSubFromDb =
-    existingAccount?.tier === 'free' && existingAccount?.stripeSubscriptionId
-      ? existingAccount.stripeSubscriptionId
-      : null;
-
   const tier = getTier(tierKey);
   const commitmentType = session.metadata?.commitment_type;
   const isYearly = commitmentType === 'yearly' || commitmentType === 'yearly_commitment';
 
+  // Ensure credit account exists (for credits system — separate from instance billing).
+  // Use the latest subscription ID so account-state reflects a paid tier.
   await upsertCreditAccount(accountId, {
     tier: tierKey,
     provider: 'stripe',
@@ -145,16 +157,13 @@ async function handleSubscriptionCheckout(session: Stripe.Checkout.Session, acco
     planType: isYearly ? 'yearly' : 'monthly',
     commitmentType: commitmentType === 'yearly_commitment' ? commitmentType : null,
     ...(isYearly ? { nextCreditGrant: calculateNextCreditGrant(new Date()).toISOString() } : {}),
+    // Auto-topup on by default: charge $20 when balance drops below $5
+    autoTopupEnabled: true,
+    autoTopupThreshold: '5',
+    autoTopupAmount: '20',
   });
 
-  // Cancel the old free subscription BEFORE granting credits.
-  // This ensures the free sub is always cancelled even if grantCredits fails.
-  const previousSubscriptionId =
-    session.metadata?.previous_subscription_id ?? oldFreeSubFromDb;
-  if (previousSubscriptionId && previousSubscriptionId !== subscriptionId) {
-    await cancelFreeSubscriptionForUpgrade(previousSubscriptionId, accountId);
-  }
-
+  // Grant tier credits if applicable (credits system, separate from instances)
   if (tier.monthlyCredits > 0) {
     await grantCredits(
       accountId,
@@ -166,6 +175,7 @@ async function handleSubscriptionCheckout(session: Stripe.Checkout.Session, acco
     );
   }
 
+  // Upsert Stripe customer record
   if (session.customer) {
     const customerId = typeof session.customer === 'string' ? session.customer : session.customer.id;
     await upsertCustomer({
@@ -177,7 +187,29 @@ async function handleSubscriptionCheckout(session: Stripe.Checkout.Session, acco
     });
   }
 
-  console.log(`[Webhook] Subscription checkout: ${tierKey} for ${accountId}`);
+  // ── Provision instance (1 subscription = 1 instance) ───────────────────
+  // The checkout metadata carries server_type + location for provisioning.
+  const serverType = session.metadata?.server_type;
+  const location = session.metadata?.location;
+
+  if (serverType) {
+    try {
+      const { provisionSandboxFromCheckout } = await import('../../platform/services/sandbox-provisioner');
+      await provisionSandboxFromCheckout({
+        accountId,
+        subscriptionId,
+        serverType,
+        location: location || undefined,
+        tierKey,
+      });
+      console.log(`[Webhook] Instance provisioning started for ${accountId} (type=${serverType}, loc=${location})`);
+    } catch (err) {
+      console.error(`[Webhook] Failed to provision instance for ${accountId}:`, err);
+      // Don't throw — the subscription is valid, provisioning can be retried.
+    }
+  }
+
+  console.log(`[Webhook] Subscription checkout: ${tierKey} for ${accountId} (sub=${subscriptionId})`);
 }
 
 async function handleSubscriptionChange(subscription: Stripe.Subscription) {
@@ -267,28 +299,54 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     accountId = customer.accountId;
   }
 
-  const account = await getCreditAccount(accountId);
-  if (account?.stripeSubscriptionId && account.stripeSubscriptionId !== subscription.id) {
-    console.log(`[Webhook] handleSubscriptionDeleted: skipping revert for stale subscription ${subscription.id} for ${accountId} (current: ${account.stripeSubscriptionId})`);
-    return;
-  }
-
-  await revertToFree(accountId);
+  await revertToFree(accountId, subscription.id);
 }
 
-async function revertToFree(accountId: string) {
-  await updateCreditAccount(accountId, {
-    tier: 'free',
-    stripeSubscriptionStatus: 'canceled',
-    scheduledTierChange: null,
-    scheduledTierChangeDate: null,
-    scheduledPriceId: null,
-    commitmentType: null,
-    commitmentEndDate: null,
-    paymentStatus: 'active',
-  });
+async function revertToFree(accountId: string, subscriptionId?: string) {
+  // Archive the sandbox tied to this subscription (1 sub = 1 instance).
+  if (subscriptionId) {
+    try {
+      const { archiveSandboxBySubscription } = await import('../../platform/services/sandbox-provisioner');
+      await archiveSandboxBySubscription(accountId, subscriptionId);
+      console.log(`[Webhook] Archived sandbox for subscription ${subscriptionId}`);
+    } catch (err) {
+      console.error(`[Webhook] Failed to archive sandbox for sub ${subscriptionId}:`, err);
+    }
+  }
 
-  console.log(`[Webhook] Subscription cancelled, reverted to free: ${accountId}`);
+  // Check if the user still has other active subscriptions.
+  // If so, keep the highest tier. Otherwise revert to free.
+  const { db } = await import('../../shared/db');
+  const { sandboxes } = await import('@kortix/db');
+  const { eq, and, inArray } = await import('drizzle-orm');
+
+  const activeSandboxes = await db
+    .select()
+    .from(sandboxes)
+    .where(
+      and(
+        eq(sandboxes.accountId, accountId),
+        inArray(sandboxes.status, ['active', 'provisioning']),
+      ),
+    )
+    .limit(1);
+
+  if (activeSandboxes.length === 0) {
+    // No more active instances — revert to free tier
+    await updateCreditAccount(accountId, {
+      tier: 'free',
+      stripeSubscriptionStatus: 'canceled',
+      scheduledTierChange: null,
+      scheduledTierChangeDate: null,
+      scheduledPriceId: null,
+      commitmentType: null,
+      commitmentEndDate: null,
+      paymentStatus: 'active',
+    });
+    console.log(`[Webhook] No active instances left, reverted to free: ${accountId}`);
+  } else {
+    console.log(`[Webhook] Subscription deleted but ${activeSandboxes.length} active instance(s) remain for ${accountId}`);
+  }
 }
 
 async function handleInvoicePaid(invoice: Stripe.Invoice) {
@@ -506,6 +564,10 @@ async function handleRevenueCatPurchase(accountId: string, event: any) {
     revenuecatProductId: productId,
     revenuecatCustomerId: event.subscriber_id ?? null,
     stripeSubscriptionId: null,
+    // Auto-topup on by default: charge $20 when balance drops below $5
+    autoTopupEnabled: true,
+    autoTopupThreshold: '5',
+    autoTopupAmount: '20',
   });
 
   if (tier.monthlyCredits > 0) {

@@ -8,6 +8,7 @@ import { getCustomerByAccountId, upsertCustomer } from '../repositories/customer
 import { BillingError, SubscriptionError } from '../../errors';
 import { getTier, isUpgrade, isDowngrade, getMonthlyCredits, resolvePriceId } from './tiers';
 import { grantCredits, resetExpiringCredits } from './credits';
+import Stripe from 'stripe';
 
 export async function getOrCreateStripeCustomer(
   accountId: string,
@@ -33,6 +34,33 @@ export async function getOrCreateStripeCustomer(
   return customer.id;
 }
 
+async function getUsableCustomerPaymentMethod(customerId: string): Promise<string | null> {
+  const stripe = getStripe();
+  try {
+    let defaultPaymentMethodId: string | null = null;
+    const stripeCustomer = await stripe.customers.retrieve(customerId);
+    if (!('deleted' in stripeCustomer) || !stripeCustomer.deleted) {
+      const defaultPm = stripeCustomer.invoice_settings?.default_payment_method;
+      if (typeof defaultPm === 'string') {
+        defaultPaymentMethodId = defaultPm;
+      } else if (defaultPm && typeof defaultPm === 'object' && 'id' in defaultPm) {
+        defaultPaymentMethodId = defaultPm.id;
+      }
+    }
+
+    const methods = await stripe.paymentMethods.list({
+      customer: customerId,
+      type: 'card',
+      limit: 1,
+    });
+
+    return defaultPaymentMethodId ?? methods.data[0]?.id ?? null;
+  } catch (err) {
+    console.warn(`[Billing] Could not resolve saved payment method for customer ${customerId}:`, err);
+    return null;
+  }
+}
+
 export async function createCheckoutSession(params: {
   accountId: string;
   email: string;
@@ -41,30 +69,12 @@ export async function createCheckoutSession(params: {
   cancelUrl: string;
   commitmentType?: string;
   locale?: string;
+  serverType?: string;
+  location?: string;
 }) {
-  const { accountId, email, tierKey, successUrl, cancelUrl, commitmentType, locale } = params;
+  const { accountId, email, tierKey, successUrl, cancelUrl, commitmentType, locale, serverType, location } = params;
   const tier = getTier(tierKey);
   if (tier.name === 'none') throw new BillingError('Invalid tier');
-
-  const account = await getCreditAccount(accountId);
-  const currentTier = account?.tier ?? 'free';
-
-  if (currentTier === tierKey) {
-    return { status: 'no_change' as const, message: 'Already on this tier' };
-  }
-
-  if (account?.stripeSubscriptionId && currentTier !== 'free' && isUpgrade(currentTier, tierKey)) {
-    return handleUpgrade(accountId, account.stripeSubscriptionId, tierKey, commitmentType);
-  }
-
-  if (account?.stripeSubscriptionId && isDowngrade(currentTier, tierKey)) {
-    return scheduleDowngrade(accountId, tierKey, commitmentType);
-  }
-
-  const previousFreeSubscriptionId =
-    currentTier === 'free' && account?.stripeSubscriptionId
-      ? account.stripeSubscriptionId
-      : undefined;
 
   const customerId = await getOrCreateStripeCustomer(accountId, email);
   const stripe = getStripe();
@@ -72,6 +82,73 @@ export async function createCheckoutSession(params: {
   const priceId = resolvePriceId(tierKey, commitmentType);
   if (!priceId) throw new BillingError('No price configured for this tier');
 
+  const metadata = {
+    account_id: accountId,
+    tier_key: tierKey,
+    commitment_type: commitmentType ?? 'monthly',
+    ...(serverType ? { server_type: serverType } : {}),
+    ...(location ? { location } : {}),
+  };
+
+  // If the customer already has a saved card, create and charge the subscription
+  // directly. No hosted Checkout page for repeat instance purchases.
+  const savedPaymentMethodId = await getUsableCustomerPaymentMethod(customerId);
+  if (savedPaymentMethodId) {
+    try {
+      const subscription = await stripe.subscriptions.create({
+        customer: customerId,
+        items: [{ price: priceId }],
+        collection_method: 'charge_automatically',
+        default_payment_method: savedPaymentMethodId,
+        payment_behavior: 'error_if_incomplete',
+        payment_settings: { save_default_payment_method: 'on_subscription' },
+        metadata,
+      });
+
+      if (subscription.status === 'active' || subscription.status === 'trialing') {
+        await upsertCreditAccount(accountId, {
+          tier: tierKey,
+          provider: 'stripe',
+          stripeSubscriptionId: subscription.id,
+          stripeSubscriptionStatus: subscription.status,
+          paymentStatus: 'active',
+          // Auto-topup on by default: charge $20 when balance drops below $5
+          autoTopupEnabled: true,
+          autoTopupThreshold: '5',
+          autoTopupAmount: '20',
+        });
+
+        await upsertCustomer({
+          accountId,
+          id: customerId,
+          email,
+          provider: 'stripe',
+          active: true,
+        });
+
+        if (serverType) {
+          const { provisionSandboxFromCheckout } = await import('../../platform/services/sandbox-provisioner');
+          await provisionSandboxFromCheckout({
+            accountId,
+            subscriptionId: subscription.id,
+            serverType,
+            location: location || undefined,
+            tierKey,
+          });
+        }
+
+        return {
+          status: 'subscription_created' as const,
+          subscription_id: subscription.id,
+          message: 'Instance purchase successful',
+        };
+      }
+    } catch (err) {
+      console.warn(`[Billing] Direct subscription creation failed for ${accountId}, falling back to Checkout:`, err instanceof Error ? err.message : err);
+    }
+  }
+
+  // Fallback: hosted Checkout for first purchase / no saved card / SCA-required payment
   const session = await stripe.checkout.sessions.create({
     customer: customerId,
     mode: 'subscription',
@@ -80,18 +157,12 @@ export async function createCheckoutSession(params: {
     cancel_url: cancelUrl,
     allow_promotion_codes: true,
     payment_method_collection: 'always',
-    subscription_data: {
-      metadata: {
-        account_id: accountId,
-        tier_key: tierKey,
-        commitment_type: commitmentType ?? 'monthly',
-        ...(previousFreeSubscriptionId ? { previous_subscription_id: previousFreeSubscriptionId } : {}),
-      },
-    },
+    subscription_data: { metadata },
     metadata: {
       account_id: accountId,
       tier_key: tierKey,
-      ...(previousFreeSubscriptionId ? { previous_subscription_id: previousFreeSubscriptionId } : {}),
+      ...(serverType ? { server_type: serverType } : {}),
+      ...(location ? { location } : {}),
     },
     ...(locale ? { locale: locale as any } : {}),
   });
