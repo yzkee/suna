@@ -362,16 +362,6 @@ export function createIntegrationsRouter(): Hono<AppEnv> {
   });
 
   app.post('/webhook', async (c) => {
-    // Verify webhook secret if configured. The secret is passed as a query param
-    // in the webhook_uri we send to Pipedream when creating connect tokens.
-    const webhookSecret = config.PIPEDREAM_WEBHOOK_SECRET;
-    if (webhookSecret) {
-      const providedSecret = c.req.query('secret');
-      if (providedSecret !== webhookSecret) {
-        return c.json({ error: 'Unauthorized' }, 401);
-      }
-    }
-
     const body = await c.req.json();
     const parsed = webhookSchema.safeParse(body);
 
@@ -380,6 +370,21 @@ export function createIntegrationsRouter(): Hono<AppEnv> {
     }
 
     const { account_id, app, app_name, provider_account_id, scopes, status } = parsed.data;
+
+    // Verify HMAC signature if PIPEDREAM_WEBHOOK_SECRET is configured.
+    // The sig is HMAC(secret, account_id) — stateless, per-user verification.
+    // We created this sig when issuing the connect token and passed it in webhook_uri.
+    const webhookSecret = config.PIPEDREAM_WEBHOOK_SECRET;
+    if (webhookSecret) {
+      const { createHmac, timingSafeEqual } = await import('crypto');
+      const providedSig = c.req.query('sig') || '';
+      const expectedSig = createHmac('sha256', webhookSecret).update(account_id).digest('hex');
+      const sigValid = providedSig.length === expectedSig.length
+        && timingSafeEqual(Buffer.from(providedSig, 'hex'), Buffer.from(expectedSig, 'hex'));
+      if (!sigValid) {
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
+    }
 
     try {
       const provider = createAuthProvider();

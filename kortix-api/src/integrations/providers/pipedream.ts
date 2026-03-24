@@ -133,13 +133,21 @@ export class PipedreamProvider implements AuthProvider {
     }
 
     // Pass webhook_uri so Pipedream notifies us on connection success/error.
-    // Include secret query param for verification if configured.
+    // We HMAC-sign the account_id with our secret to create a per-user token.
+    // The webhook handler recomputes the HMAC from the body's account_id and verifies it.
+    // Stateless, per-user, can't be replayed for a different account.
     const { config: appConfig } = await import('../../config');
     const kortixUrl = appConfig.KORTIX_URL;
     if (kortixUrl) {
-      const webhookSecret = appConfig.PIPEDREAM_WEBHOOK_SECRET;
       const webhookBase = `${kortixUrl.replace(/\/+$/, '')}/v1/integrations/webhook`;
-      body.webhook_uri = webhookSecret ? `${webhookBase}?secret=${webhookSecret}` : webhookBase;
+      const webhookSecret = appConfig.PIPEDREAM_WEBHOOK_SECRET;
+      if (webhookSecret) {
+        const { createHmac } = await import('crypto');
+        const sig = createHmac('sha256', webhookSecret).update(accountId).digest('hex');
+        body.webhook_uri = `${webhookBase}?sig=${sig}`;
+      } else {
+        body.webhook_uri = webhookBase;
+      }
     }
 
     const token = await this.getApiToken();
