@@ -9,6 +9,7 @@ import {
 } from './repository';
 import { transformThread, transformMessages } from './transformer';
 import { writeSessionToSandbox } from './sandbox-writer';
+import { transferFiles } from './file-transfer';
 import type { MigrationResult } from './types';
 
 export const legacyApp = new Hono();
@@ -71,10 +72,30 @@ legacyApp.post('/threads/:threadId/migrate', async (c: any) => {
   const realSessionId = await writeSessionToSandbox(sandboxExternalId, session, messages, parts);
   await markThreadMigrated(threadId, realSessionId);
 
+  // Transfer files from old Daytona sandbox to new sandbox
+  let filesTransferred = false;
+  let fileCount = 0;
+  let filesErrors: string[] = [];
+
+  if (thread.project_id) {
+    try {
+      const fileResult = await transferFiles(thread.project_id, sandboxExternalId);
+      filesTransferred = fileResult.transferred;
+      fileCount = fileResult.fileCount;
+      filesErrors = fileResult.errors;
+    } catch (err: any) {
+      console.error(`[legacy] File transfer failed for thread ${threadId}:`, err.message);
+      filesErrors = [`File transfer error: ${err.message}`];
+    }
+  }
+
   const result: MigrationResult = {
     sessionId: realSessionId,
     messagesImported: messages.length,
     partsImported: parts.length,
+    filesTransferred,
+    fileCount,
+    filesErrors,
   };
 
   return c.json(result);
@@ -127,6 +148,22 @@ legacyApp.post('/migrate-all', async (c: any) => {
         const { messages, parts } = transformMessages(session, legacyMessages);
         const realSessionId = await writeSessionToSandbox(sandboxExternalId, session, messages, parts);
         await markThreadMigrated(thread.thread_id, realSessionId);
+
+        // Transfer files for this thread's project
+        if (thread.project_id) {
+          try {
+            const fileResult = await transferFiles(thread.project_id, sandboxExternalId);
+            if (fileResult.transferred) {
+              console.log(`[legacy] Transferred ${fileResult.fileCount} files for ${thread.thread_id}`);
+            }
+            if (fileResult.errors.length > 0) {
+              job.errors.push(`${thread.thread_id}: file errors: ${fileResult.errors.join(', ')}`);
+            }
+          } catch (fileErr: any) {
+            job.errors.push(`${thread.thread_id}: file transfer error: ${fileErr.message}`);
+          }
+        }
+
         job.completed++;
         console.log(`[legacy] Migrated ${job.completed}/${job.total}: ${thread.thread_id}`);
       } catch (err: any) {
