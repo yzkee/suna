@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { eq, sql, and } from 'drizzle-orm';
 import { sandboxes } from '@kortix/db';
 import { db } from '../../shared/db';
+import * as pool from '../../pool';
 
 export interface SandboxProvisionEvent {
   sandboxId: string;
@@ -70,6 +71,9 @@ class SandboxEventBus {
     if (!externalId || externalId === '00000000-0000-0000-0000-000000000000' || payload.event === 'machine.test') {
       return;
     }
+
+    const handled = await pool.handleWebhook(externalId, data.stage, data.status);
+    if (handled) return;
 
     let sandbox: typeof sandboxes.$inferSelect | undefined;
     for (let attempt = 0; attempt < 5; attempt++) {
