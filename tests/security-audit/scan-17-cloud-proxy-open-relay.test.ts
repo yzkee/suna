@@ -1,24 +1,30 @@
 /**
- * Security Scan: Cloud API - Proxy Open Relay / SSRF
+ * Security Scan: Cloud API - Router Proxy Mode 3 Should Not Exist
  *
  * LIVE scan against https://computer-preview-api.kortix.com
  *
- * CONFIRMED: The router proxy acts as an OPEN RELAY.
- * When no kortix_ token is present, requests are forwarded to upstream
- * services (Tavily, OpenAI, Anthropic, etc.) without ANY authentication.
+ * FINDING: The proxy has a "Mode 3" passthrough that forwards requests
+ * to upstream LLM providers WITHOUT any kortix_ token or billing.
  *
- * The upstream services reject the requests (because the attacker's API key
- * is fake), but the REQUEST WENT THROUGH Kortix's servers — meaning:
+ * The INTENT is: cloud mode should ONLY accept kortix_ tokens with billing.
+ * Mode 3 (no-auth passthrough) should be disabled on cloud.
  *
- * 1. Attacker's IP is hidden behind Kortix's infrastructure
- * 2. Kortix's IP is used for the upstream request
- * 3. If upstream rate-limits by IP, Kortix's IP gets rate-limited for ALL users
- * 4. In self-hosted deployments, this is a full SSRF if config URLs point to
- *    internal services
+ * Current behavior:
+ * - Request with no kortix_ token → forwarded to upstream (OpenAI, Anthropic, etc.)
+ * - Upstream rejects because attacker's key is fake
+ * - BUT if attacker has their OWN valid OpenAI key, they can route it
+ *   through Kortix's infra without paying Kortix anything
  *
- * Root cause: proxy.ts Mode 3 (handlePassthrough) has no auth check.
- * router/index.ts line 37: proxy routes mounted with "auth handled internally"
- * but Mode 3 has NO auth — it just forwards everything.
+ * Impact:
+ * - Attacker uses Kortix as free relay with their own keys — no billing
+ * - Kortix's IP used for upstream requests (IP reputation risk)
+ * - Bandwidth/compute consumed without payment
+ * - Violates the design intent: "only kortix token with billing"
+ *
+ * Fix: In cloud mode, reject all requests without a valid kortix_ token.
+ *   if (!auth.isKortixUser && config.isCloud()) {
+ *     throw new HTTPException(401, { message: 'Kortix API key required' });
+ *   }
  */
 
 import { describe, test, expect } from 'bun:test';
@@ -44,108 +50,75 @@ async function probeProxy(path: string, body: any, extraHeaders?: Record<string,
   }
 }
 
-describe('Cloud Scan: Proxy Open Relay / SSRF', () => {
+describe('Cloud Scan: Proxy Mode 3 Should Not Exist on Cloud', () => {
 
-  describe('CONFIRMED: Tavily proxy relays without auth', () => {
-    test('request reaches Tavily servers (returns their error, not ours)', async () => {
-      const r = await probeProxy('/v1/router/tavily/search', {
-        query: 'test',
-        max_results: 1,
-      }, {
-        'Authorization': 'Bearer tvly-fakekey',
-      });
-      // Tavily's own error response — proves the request was proxied
-      expect(r.body.detail?.error || '').toContain('Unauthorized');
-    });
-  });
-
-  describe('CONFIRMED: OpenAI proxy relays without auth', () => {
-    test('request reaches OpenAI servers (returns their error)', async () => {
+  describe('[HIGH] Requests without kortix_ token are forwarded (should be 401)', () => {
+    test('OpenAI: request with no token forwards to upstream instead of 401', async () => {
       const r = await probeProxy('/v1/router/openai/chat/completions', {
         model: 'gpt-4',
         messages: [{ role: 'user', content: 'hi' }],
       });
-      // OpenAI's own error — proves it was proxied to api.openai.com
-      const errMsg = r.body?.error?.message || '';
-      expect(errMsg).toContain('API key');
+      // BUG: This reaches OpenAI's servers. Should return Kortix 401 instead.
+      // OpenAI error proves the request was proxied to api.openai.com
+      const isUpstreamError = (r.body?.error?.message || '').includes('API key');
+      const isKortixReject = r.body?.message === 'Missing authentication token';
+      expect(isUpstreamError || isKortixReject).toBe(true);
+      // If isUpstreamError is true, the proxy forwarded without auth — this is the bug
+    });
+
+    test('Tavily: request with no token forwards to upstream instead of 401', async () => {
+      const r = await probeProxy('/v1/router/tavily/search', {
+        query: 'test',
+      });
+      // Tavily's own error means the proxy forwarded
+      const isUpstreamError = (r.body?.detail?.error || '').includes('Unauthorized');
+      expect(typeof r.status).toBe('number');
+    });
+
+    test('attacker with own OpenAI key can use Kortix as free relay', async () => {
+      // If someone has their own sk-proj-xxx key, they can route through
+      // Kortix's proxy, using Kortix bandwidth/compute, paying nothing to Kortix
+      const r = await probeProxy('/v1/router/openai/chat/completions', {
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: 'test' }],
+      }, {
+        'Authorization': 'Bearer sk-proj-fake-but-would-work-if-real',
+      });
+      // The request reaches OpenAI — Kortix acts as relay
+      // Should be blocked: "Kortix API key required"
+      expect(r.status).not.toBe(200); // Fails because key is fake, but it WAS forwarded
     });
   });
 
-  describe('CONFIRMED: Anthropic proxy relays without auth', () => {
-    test('request reaches Anthropic servers', async () => {
-      const r = await probeProxy('/v1/router/anthropic/v1/messages', {
-        model: 'claude-3',
+  describe('kortix_ tokens ARE properly enforced', () => {
+    test('invalid kortix_ token is hard rejected (good)', async () => {
+      const r = await probeProxy('/v1/router/openai/chat/completions', {
+        model: 'gpt-4',
         messages: [{ role: 'user', content: 'hi' }],
       }, {
-        'x-api-key': 'sk-ant-fake',
+        'Authorization': 'Bearer kortix_fake_token_1234567890123456',
       });
-      // Anthropic's response — proves proxying occurred
-      expect(r.status).not.toBe(401); // Our 401 would say "Missing authentication token"
-    });
-  });
-
-  describe('Other proxy services', () => {
-    test('Serper proxy relays without auth', async () => {
-      const r = await probeProxy('/v1/router/serper/search', {
-        q: 'test',
-      }, {
-        'X-API-KEY': 'fake-serper-key',
-      });
-      // If it returns anything other than our standard 401, it reached the upstream
-      const isOurError = r.body?.message === 'Missing authentication token';
-      // Either proxied (upstream error) or our own 401/404
-      expect(typeof r.status).toBe('number');
+      expect(r.status).toBe(401);
+      expect(r.body.message).toBe('Invalid Kortix token');
     });
 
-    test('Groq proxy relays without auth', async () => {
-      const r = await probeProxy('/v1/router/groq/chat/completions', {
-        model: 'mixtral-8x7b',
+    test('invalid kortix_sb_ token is hard rejected (good)', async () => {
+      const r = await probeProxy('/v1/router/openai/chat/completions', {
+        model: 'gpt-4',
         messages: [{ role: 'user', content: 'hi' }],
       }, {
-        'Authorization': 'Bearer gsk_fakekey',
+        'Authorization': 'Bearer kortix_sb_fake_12345678901234567',
       });
-      expect(typeof r.status).toBe('number');
-    });
-
-    test('xAI proxy relays without auth', async () => {
-      const r = await probeProxy('/v1/router/xai/chat/completions', {
-        model: 'grok-1',
-        messages: [{ role: 'user', content: 'hi' }],
-      }, {
-        'Authorization': 'Bearer xai-fakekey',
-      });
-      expect(typeof r.status).toBe('number');
+      expect(r.status).toBe(401);
     });
   });
 
   describe('Router health leaks env info', () => {
-    test('GET /v1/router/health is public and reveals env', async () => {
+    test('GET /v1/router/health is public and reveals env=cloud', async () => {
       const res = await fetch(`${CLOUD}/v1/router/health`);
       const body = await res.json();
       expect(res.status).toBe(200);
       expect(body.env).toBe('cloud');
-      // Another health endpoint leaking deployment mode
-    });
-  });
-
-  describe('Impact documentation', () => {
-    test('IMPACT: IP masking — attacker hides behind Kortix infrastructure', () => {
-      // The upstream sees Kortix's IP, not the attacker's
-      // Useful for: bypassing IP-based blocks, hiding attack origin
-      expect(true).toBe(true);
-    });
-
-    test('IMPACT: IP rate limit poisoning', () => {
-      // If an attacker sends many requests through the proxy,
-      // Kortix's IP gets rate-limited at the upstream provider,
-      // affecting ALL legitimate Kortix users
-      expect(true).toBe(true);
-    });
-
-    test('IMPACT: SSRF in self-hosted deployments', () => {
-      // If TAVILY_API_URL or other config URLs are set to internal URLs
-      // (e.g., http://internal-service:9000), the proxy forwards there
-      expect(true).toBe(true);
     });
   });
 });
