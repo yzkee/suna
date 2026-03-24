@@ -1,19 +1,24 @@
 import * as React from 'react';
-import { Alert, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { Alert, Pressable, ScrollView, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColorScheme } from 'nativewind';
 import { Text } from '@/components/ui/text';
 import { Icon } from '@/components/ui/icon';
-import { Camera, Check, ChevronRight, Globe, Mail, Trash2, User } from 'lucide-react-native';
+import { Camera, ChevronRight, Globe, Mail, Trash2, User } from 'lucide-react-native';
 import { useAuthContext, useLanguage } from '@/contexts';
 import { supabase } from '@/api/supabase';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { ProfilePicture } from '@/components/settings/ProfilePicture';
 import { useAccountDeletionStatus } from '@/hooks/useAccountDeletion';
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetView, type BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
-import { KortixLoader } from '@/components/ui';
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetTextInput,
+  BottomSheetView,
+  type BottomSheetBackdropProps,
+} from '@gorhom/bottom-sheet';
 
 export default function GeneralSettingsScreen() {
   const router = useRouter();
@@ -21,6 +26,8 @@ export default function GeneralSettingsScreen() {
   const { colorScheme } = useColorScheme();
   const { user } = useAuthContext();
   const { t } = useLanguage();
+  const isDark = colorScheme === 'dark';
+  const fgColor = isDark ? '#f8f8f8' : '#121215';
 
   const currentName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || '';
   const currentAvatar = user?.user_metadata?.avatar_url || '';
@@ -33,6 +40,8 @@ export default function GeneralSettingsScreen() {
   const editProfileSheetRef = React.useRef<BottomSheetModal>(null);
   const snapPoints = React.useMemo(() => [280], []);
   const { data: deletionStatus } = useAccountDeletionStatus({ enabled: !!user });
+  const trimmedEditName = editName.trim();
+  const canSaveName = trimmedEditName.length > 0 && trimmedEditName !== displayName.trim();
 
   React.useEffect(() => {
     setDisplayName(currentName);
@@ -162,7 +171,7 @@ export default function GeneralSettingsScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
       >
-        <View className="px-5 pt-1" style={{ gap: 16 }}>
+        <View className="px-5 pt-1" style={{ gap: 18 }}>
         <View className="items-center pt-1">
           <Pressable
             onPress={pickAndUploadAvatar}
@@ -186,8 +195,8 @@ export default function GeneralSettingsScreen() {
           </Text>
         </View>
 
-        <View>
-          <Text className="mb-2 px-1 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
+        <View className="px-1">
+          <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
             Profile
           </Text>
           <View>
@@ -216,8 +225,8 @@ export default function GeneralSettingsScreen() {
           </View>
         </View>
 
-        <View>
-          <Text className="mb-2 px-1 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
+        <View className="px-1">
+          <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
             Account
           </Text>
           <GeneralRow
@@ -241,44 +250,99 @@ export default function GeneralSettingsScreen() {
         snapPoints={snapPoints}
         enablePanDownToClose
         backdropComponent={renderBackdrop}
-        handleIndicatorStyle={{ backgroundColor: colorScheme === 'dark' ? '#3f3f46' : '#d4d4d8', width: 36 }}
-        backgroundStyle={{ backgroundColor: colorScheme === 'dark' ? '#121215' : '#FFFFFF', borderRadius: 28 }}
+        keyboardBehavior="interactive"
+        keyboardBlurBehavior="restore"
+        android_keyboardInputMode="adjustResize"
+        handleIndicatorStyle={{
+          backgroundColor: isDark ? '#3F3F46' : '#D4D4D8',
+          width: 36,
+          height: 5,
+          borderRadius: 3,
+        }}
+        backgroundStyle={{
+          backgroundColor: isDark ? '#161618' : '#FFFFFF',
+          borderTopLeftRadius: 24,
+          borderTopRightRadius: 24,
+        }}
       >
-        <BottomSheetView style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: insets.bottom + 16 }}>
-          <Text className="text-[22px] font-roobert-medium text-foreground">Edit Profile</Text>
-          <Text className="mt-1 text-xs font-roobert text-muted-foreground">Set your display name</Text>
+        <BottomSheetView
+          style={{
+            paddingHorizontal: 24,
+            paddingTop: 8,
+            paddingBottom: Math.max(insets.bottom, 20) + 16,
+          }}
+        >
+          <Text className="text-lg font-roobert-semibold" style={{ color: fgColor }}>
+            Edit Profile
+          </Text>
+          <Text
+            className="mt-0.5 text-xs font-roobert"
+            style={{
+              color: isDark ? 'rgba(248, 248, 248, 0.4)' : 'rgba(18, 18, 21, 0.4)',
+            }}
+          >
+            Set your display name
+          </Text>
 
-          <View className="mt-4 rounded-2xl border border-border/40 bg-card/60 px-4 py-2.5">
-            <TextInput
-              value={editName}
-              onChangeText={setEditName}
-              placeholder={t('nameEdit.yourNamePlaceholder')}
-              placeholderTextColor={colorScheme === 'dark' ? '#71717A' : '#A1A1AA'}
-              className="font-roobert-medium text-[17px] text-foreground"
-              autoCapitalize="words"
-              autoCorrect={false}
-              maxLength={100}
-              editable={!isSavingName}
-              returnKeyType="done"
-              onSubmitEditing={handleSaveName}
-            />
-          </View>
+          <BottomSheetTextInput
+            value={editName}
+            onChangeText={setEditName}
+            placeholder={t('nameEdit.yourNamePlaceholder')}
+            placeholderTextColor={isDark ? 'rgba(248, 248, 248, 0.25)' : 'rgba(18, 18, 21, 0.3)'}
+            autoCapitalize="words"
+            autoCorrect={false}
+            maxLength={100}
+            editable={!isSavingName}
+            returnKeyType="done"
+            onSubmitEditing={handleSaveName}
+            style={{
+              marginTop: 16,
+              marginBottom: 20,
+              backgroundColor: isDark
+                ? 'rgba(248, 248, 248, 0.06)'
+                : 'rgba(18, 18, 21, 0.04)',
+              borderWidth: 1,
+              borderColor: isDark
+                ? 'rgba(248, 248, 248, 0.1)'
+                : 'rgba(18, 18, 21, 0.08)',
+              borderRadius: 14,
+              paddingHorizontal: 16,
+              paddingVertical: 14,
+              fontSize: 16,
+              fontFamily: 'Roobert',
+              color: fgColor,
+            }}
+          />
 
           <Pressable
             onPress={handleSaveName}
-            disabled={isSavingName || editName.trim() === displayName.trim() || editName.trim().length === 0}
-            className={`mt-4 flex-row items-center justify-center rounded-2xl py-3 ${
-              isSavingName || editName.trim() === displayName.trim() || editName.trim().length === 0
-                ? 'bg-muted/60'
-                : 'bg-primary'
-            }`}
+            disabled={!canSaveName || isSavingName}
+            style={{
+              backgroundColor: canSaveName
+                ? isDark
+                  ? '#f8f8f8'
+                  : '#121215'
+                : isDark
+                  ? 'rgba(248, 248, 248, 0.08)'
+                  : 'rgba(18, 18, 21, 0.06)',
+              borderRadius: 14,
+              paddingVertical: 15,
+              alignItems: 'center',
+              opacity: canSaveName ? 1 : 0.5,
+            }}
           >
-            {isSavingName ? (
-              <KortixLoader size="small" forceTheme={colorScheme === 'dark' ? 'dark' : 'light'} />
-            ) : (
-              <Icon as={Check} size={16} className="text-primary-foreground" strokeWidth={2.4} />
-            )}
-            <Text className="ml-2 font-roobert-medium text-sm text-primary-foreground">
+            <Text
+              className="text-[15px] font-roobert-semibold"
+              style={{
+                color: canSaveName
+                  ? isDark
+                    ? '#121215'
+                    : '#f8f8f8'
+                  : isDark
+                    ? 'rgba(248, 248, 248, 0.3)'
+                    : 'rgba(18, 18, 21, 0.3)',
+              }}
+            >
               {isSavingName ? t('nameEdit.saving') : t('nameEdit.saveChanges')}
             </Text>
           </Pressable>
@@ -308,25 +372,28 @@ function GeneralRow({
   showDivider?: boolean;
 }) {
   return (
-    <Pressable onPress={onPress} disabled={!onPress} className="py-3.5 active:opacity-85">
-      <View className="flex-row items-center">
-        <Icon as={icon} size={18} className={destructive ? 'text-destructive' : 'text-foreground/80'} strokeWidth={2.2} />
-        <View className="ml-4 flex-1">
-          <View className="flex-row items-center">
-            <Text className={`font-roobert-medium text-[15px] ${destructive ? 'text-destructive' : 'text-foreground'}`}>
-              {title}
-            </Text>
-            {!!badge && (
-              <View className="ml-2 rounded-full bg-destructive/15 px-2 py-0.5">
-                <Text className="text-[10px] font-roobert-medium text-destructive">{badge}</Text>
-              </View>
-            )}
+    <Pressable onPress={onPress} disabled={!onPress} className="active:opacity-85">
+      <View className="py-3.5">
+        <View className="flex-row items-center">
+          <Icon as={icon} size={18} className={destructive ? 'text-destructive' : 'text-foreground/80'} strokeWidth={2.2} />
+          <View className="ml-4 flex-1">
+            <View className="flex-row items-center">
+              <Text className={`font-roobert-medium text-[15px] ${destructive ? 'text-destructive' : 'text-foreground'}`}>
+                {title}
+              </Text>
+              {!!badge && (
+                <View className="ml-2 rounded-full bg-destructive/15 px-2 py-0.5">
+                  <Text className="text-[10px] font-roobert-medium text-destructive">{badge}</Text>
+                </View>
+              )}
+            </View>
+            <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">{description}</Text>
           </View>
-          <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">{description}</Text>
+          {!hideChevron && <Icon as={ChevronRight} size={16} className="text-muted-foreground/50" strokeWidth={2.2} />}
         </View>
-        {!hideChevron && <Icon as={ChevronRight} size={16} className="text-muted-foreground/50" strokeWidth={2.2} />}
       </View>
-      {showDivider && <View className="mt-3.5 h-px bg-border/35" />}
+
+      {showDivider && <View className="h-px bg-border/35" />}
     </Pressable>
   );
 }
