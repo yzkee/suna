@@ -19,8 +19,7 @@ export default function HomeLayout({
         <Navbar isAbsolute={isHomePage} />
       </div>
       {children}
-      {/* Hide footer on home pages (have their own CTA) */}
-      {!isHomePage && <SimpleFooter />}
+      <SimpleFooter />
     </div>
   );
 }

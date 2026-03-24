@@ -744,13 +744,13 @@ function LoginContent() {
                       {!referralCodeParam && <input type="hidden" name="referralCode" value={referralCode} />}
 
                       {/* GDPR consent */}
-                      <div className="flex items-start gap-2.5 pt-0.5">
+                      <div className="flex items-center gap-2.5 pt-0.5">
                         <Checkbox
                           id="gdprConsent"
                           checked={acceptedTerms}
                           onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
                           required
-                          className="h-[14px] w-[14px] mt-[3px] rounded-[4px]"
+                          className="h-[14px] w-[14px] rounded-[4px] shrink-0"
                         />
                         <label htmlFor="gdprConsent" className="text-[11px] leading-[1.6] text-foreground/30 cursor-pointer select-none">
                           I agree to the{' '}
@@ -787,7 +787,7 @@ function LoginContent() {
                         <button
                           type="button"
                           onClick={() => setShowReferralDialog(true)}
-                          className="text-[11px] text-foreground/20 hover:text-foreground/40 transition-colors"
+                          className="text-[11px] text-foreground/20 hover:text-foreground/40 transition-colors cursor-pointer"
                         >
                           Have a referral code?
                         </button>
