@@ -252,7 +252,6 @@ export function NewInstanceModal({ open, onOpenChange, returnUrl, title }: NewIn
   }, []);
 
   const handleCta = useCallback(async () => {
-    if (!selected) return;
     if (!isAuthenticated) { window.location.href = '/auth?mode=signup'; return; }
     try {
       setIsLoading(true);
@@ -264,11 +263,11 @@ export function NewInstanceModal({ open, onOpenChange, returnUrl, title }: NewIn
         success_url: `${base}${sep}location=${encodeURIComponent(location)}`,
         cancel_url: window.location.href,
         commitment_type: 'monthly',
-        server_type: selected,
+        ...(selected ? { server_type: selected } : {}),
         location,
       });
       if (response.url || response.checkout_url) { window.location.href = response.url || response.checkout_url!; return; }
-      if (response.status === 'subscription_created') {
+      if (response.status === 'subscription_created' || response.status === 'no_change') {
         toast.success(response.message || 'Instance purchase successful');
         onOpenChange(false);
         window.location.href = '/instances';
@@ -337,16 +336,19 @@ export function NewInstanceModal({ open, onOpenChange, returnUrl, title }: NewIn
                 ))}
               </ul>
             </div>
-            {/* Machine picker */}
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/40 mb-2">Choose your machine</p>
-              {error && (
-                <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 mb-3">
-                  <p className="text-[13px] text-destructive">{error}</p>
-                </div>
-              )}
-              <MachinePicker types={serverTypes} selected={selected} onSelect={setSelected} isLoading={typesLoading} />
-            </div>
+            {/* Error */}
+            {error && (
+              <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3">
+                <p className="text-[13px] text-destructive">{error}</p>
+              </div>
+            )}
+            {/* Machine picker — only shown when types are available */}
+            {(typesLoading || serverTypes.length > 0) && (
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/40 mb-2">Choose your machine</p>
+                <MachinePicker types={serverTypes} selected={selected} onSelect={setSelected} isLoading={typesLoading} />
+              </div>
+            )}
           </div>
 
           {/* Footer */}
@@ -363,7 +365,7 @@ export function NewInstanceModal({ open, onOpenChange, returnUrl, title }: NewIn
                 )}
                 <p className="text-[11px] text-muted-foreground/30">No commitment · Cancel anytime</p>
               </div>
-              <Button size="lg" className="h-12 px-10 text-sm rounded-xl font-medium" disabled={isLoading || !selected} onClick={handleCta}>
+              <Button size="lg" className="h-12 px-10 text-sm rounded-xl font-medium" disabled={isLoading} onClick={handleCta}>
                 {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><span>Create Instance</span><ArrowRight className="h-4 w-4 ml-2" /></>}
               </Button>
             </div>

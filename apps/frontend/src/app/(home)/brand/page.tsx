@@ -103,7 +103,7 @@ export default function BrandPage() {
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-medium tracking-tight text-foreground mb-5">
             Kortix Identity
           </h1>
-          <p className="text-base md:text-lg text-foreground/40 max-w-lg leading-relaxed">
+          <p className="text-base md:text-lg text-muted-foreground/60 max-w-lg leading-relaxed">
             Logo assets, color palette, typography, components, and usage rules
             for representing Kortix consistently.
           </p>
@@ -150,7 +150,7 @@ export default function BrandPage() {
         <section id="logos" className="py-20 md:py-28">
           <SectionLabel number="01" />
           <h2 className="text-2xl md:text-3xl font-medium tracking-tight mb-3">Logo</h2>
-          <p className="text-sm text-foreground/40 max-w-lg mb-12 leading-relaxed">
+          <p className="text-sm text-muted-foreground/60 max-w-lg mb-12 leading-relaxed">
             Three forms — the symbol, the logomark, and the full lockup.
             Each available in black and white. Always use the provided files.
           </p>
@@ -190,13 +190,13 @@ export default function BrandPage() {
           {/* Symbol deep dive */}
           <div className="mt-20 grid md:grid-cols-2 gap-12 items-center">
             <div>
-              <h3 className="text-base font-medium tracking-tight mb-3 text-foreground/80">The Symbol</h3>
-              <p className="text-sm text-foreground/35 leading-relaxed mb-4">
+              <h3 className="text-base font-medium tracking-tight mb-3 text-foreground/70">The Symbol</h3>
+              <p className="text-sm text-muted-foreground/60 leading-relaxed mb-4">
                 Derived from the letter K, the Kortix symbol abstracts connectivity
                 and intelligence into a geometric mark. The interlocking shapes represent
                 convergence — AI and human intent meeting.
               </p>
-              <p className="text-sm text-foreground/35 leading-relaxed">
+              <p className="text-sm text-muted-foreground/60 leading-relaxed">
                 Use it as a favicon, app icon, or whenever the full wordmark
                 isn&apos;t practical. Never stretch, rotate, or recolor it.
               </p>
@@ -212,7 +212,7 @@ export default function BrandPage() {
         <section id="colors" className="py-20 md:py-28 border-t border-foreground/[0.06]">
           <SectionLabel number="02" />
           <h2 className="text-2xl md:text-3xl font-medium tracking-tight mb-3">Colors</h2>
-          <p className="text-sm text-foreground/40 max-w-lg mb-14 leading-relaxed">
+          <p className="text-sm text-muted-foreground/60 max-w-lg mb-14 leading-relaxed">
             Black and white is the foundation. Each UI theme pairs the neutral base
             with exactly one accent color — used for primary actions, focus rings, and charts.
           </p>
@@ -275,7 +275,7 @@ export default function BrandPage() {
         <section id="typography" className="py-20 md:py-28 border-t border-foreground/[0.06]">
           <SectionLabel number="03" />
           <h2 className="text-2xl md:text-3xl font-medium tracking-tight mb-3">Typography</h2>
-          <p className="text-sm text-foreground/40 max-w-lg mb-14 leading-relaxed">
+          <p className="text-sm text-muted-foreground/60 max-w-lg mb-14 leading-relaxed">
             Roobert — a geometric sans-serif. Clean proportions, modern feel.
             Roobert Mono for code and data. Font-medium (500) is the brand weight.
           </p>
@@ -335,7 +335,7 @@ export default function BrandPage() {
         <section id="components" className="py-20 md:py-28 border-t border-foreground/[0.06]">
           <SectionLabel number="04" />
           <h2 className="text-2xl md:text-3xl font-medium tracking-tight mb-3">Components</h2>
-          <p className="text-sm text-foreground/40 max-w-lg mb-14 leading-relaxed">
+          <p className="text-sm text-muted-foreground/60 max-w-lg mb-14 leading-relaxed">
             Live rendered components from the design system. All elements use the active
             theme&apos;s accent color for primary states.
           </p>
@@ -603,7 +603,7 @@ export default function BrandPage() {
         <section id="radius" className="py-20 md:py-28 border-t border-foreground/[0.06]">
           <SectionLabel number="05" />
           <h2 className="text-2xl md:text-3xl font-medium tracking-tight mb-3">Radius &amp; Spacing</h2>
-          <p className="text-sm text-foreground/40 max-w-lg mb-14 leading-relaxed">
+          <p className="text-sm text-muted-foreground/60 max-w-lg mb-14 leading-relaxed">
             A consistent radius hierarchy creates visual harmony. The base radius is 0.625rem (10px).
           </p>
 
@@ -655,7 +655,7 @@ export default function BrandPage() {
         <section id="clearspace" className="py-20 md:py-28 border-t border-foreground/[0.06]">
           <SectionLabel number="06" />
           <h2 className="text-2xl md:text-3xl font-medium tracking-tight mb-3">Clear Space &amp; Sizing</h2>
-          <p className="text-sm text-foreground/40 max-w-lg mb-14 leading-relaxed">
+          <p className="text-sm text-muted-foreground/60 max-w-lg mb-14 leading-relaxed">
             The minimum clear space equals the height of one K-bar in the symbol, applied on all sides.
           </p>
 
@@ -700,7 +700,7 @@ export default function BrandPage() {
         <section id="guidelines" className="py-20 md:py-28 border-t border-foreground/[0.06]">
           <SectionLabel number="07" />
           <h2 className="text-2xl md:text-3xl font-medium tracking-tight mb-3">Usage</h2>
-          <p className="text-sm text-foreground/40 max-w-lg mb-14 leading-relaxed">
+          <p className="text-sm text-muted-foreground/60 max-w-lg mb-14 leading-relaxed">
             Follow these rules to keep the Kortix brand consistent across all touchpoints.
           </p>
 

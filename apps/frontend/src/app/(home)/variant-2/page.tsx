@@ -4,13 +4,15 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import { BackgroundAALChecker } from '@/components/auth/background-aal-checker';
-import { ArrowRight, Check, Copy } from 'lucide-react';
+import { ArrowRight, Check, Copy, Globe, Smartphone, Bot, Sparkles, Terminal, Zap, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { trackCtaSignup } from '@/lib/analytics/gtm';
 import { motion, useScroll, useTransform, useSpring } from 'framer-motion';
-import { NewInstanceModal as PlanSelectionModal } from '@/components/billing/pricing/new-instance-modal';
-import { CtaSection } from '@/components/home/cta-section';
-import { OSSCard } from '@/app/(home)/oss-card';
+import { createCheckoutSession } from '@/lib/api/billing';
+import { isBillingEnabled } from '@/lib/config';
+import { toast } from '@/lib/toast';
+import { Reveal } from '@/components/home/reveal';
+import { GithubButton } from '@/components/home/github-button';
 import Image from 'next/image';
 import dynamic from 'next/dynamic';
 
@@ -23,47 +25,11 @@ const INSTALL_CMD = 'curl -fsSL https://kortix.com/install | bash';
 
 // ─── Reusable Components ────────────────────────────────
 
-function Reveal({
-  children,
-  className = '',
-  delay = 0,
-}: {
-  children: React.ReactNode;
-  className?: string;
-  delay?: number;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(
-      ([e]) => { if (e.isIntersecting) { setVisible(true); obs.disconnect(); } },
-      { threshold: 0.15, rootMargin: '0px 0px -50px 0px' },
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
-
-  return (
-    <motion.div
-      ref={ref}
-      initial={{ opacity: 0, y: 30, filter: 'blur(8px)' }}
-      animate={visible ? { opacity: 1, y: 0, filter: 'blur(0px)' } : {}}
-      transition={{ duration: 1.0, delay, ease: [0.16, 1, 0.3, 1] }}
-      className={className}
-    >
-      {children}
-    </motion.div>
-  );
-}
-
 export default function Variant2Home() {
   const router = useRouter();
   const { user, isLoading } = useAuth();
   const [copied, setCopied] = useState(false);
-  const [launchOpen, setLaunchOpen] = useState(false);
+  const [launching, setLaunching] = useState(false);
   const [isMachineOn, setIsMachineOn] = useState(false);
 
   const heroRef = useRef<HTMLDivElement>(null);
@@ -97,6 +63,46 @@ export default function Variant2Home() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, []);
+
+  /** Go straight to Stripe checkout — no intermediate modal. */
+  const handleLaunch = useCallback(async () => {
+    trackCtaSignup();
+
+    if (!user) {
+      window.location.href = '/auth?mode=signup';
+      return;
+    }
+
+    if (!isBillingEnabled()) {
+      window.location.href = '/instances';
+      return;
+    }
+
+    try {
+      setLaunching(true);
+      const successUrl = `${window.location.origin}/instances?subscription=success`;
+      const response = await createCheckoutSession({
+        tier_key: 'pro',
+        success_url: successUrl,
+        cancel_url: window.location.href,
+        commitment_type: 'monthly',
+      });
+      if (response.url || response.checkout_url) {
+        window.location.href = response.url || response.checkout_url!;
+        return;
+      }
+      if (response.status === 'subscription_created' || response.status === 'no_change') {
+        window.location.href = '/instances';
+        return;
+      }
+      if (response.message) toast.success(response.message);
+      window.location.href = '/instances';
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to start checkout');
+    } finally {
+      setLaunching(false);
+    }
+  }, [user]);
 
   return (
     <BackgroundAALChecker>
@@ -142,10 +148,14 @@ export default function Variant2Home() {
               <Button
                 size="lg"
                 className="h-14 px-10 text-base rounded-full transition-all"
-                onClick={() => { trackCtaSignup(); setLaunchOpen(true); }}
+                disabled={launching}
+                onClick={handleLaunch}
               >
-                Launch Kortix
-                <ArrowRight className="ml-2 size-4" />
+                {launching ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Redirecting...</>
+                ) : (
+                  <>Launch Kortix<ArrowRight className="ml-2 size-4" /></>
+                )}
               </Button>
 
               <div className="flex flex-col items-center gap-3 w-full">
@@ -184,52 +194,34 @@ export default function Variant2Home() {
         {/* ═══════════════ CONTENT — below the hero ═══════════════ */}
         <div className="relative z-20 bg-background">
 
-          {/* ── The Shift ── */}
-          <div className="max-w-3xl mx-auto px-6 pt-24 sm:pt-32 pb-20 sm:pb-28">
+          {/* ── Intro ── */}
+          <div className="max-w-3xl mx-auto px-6 pt-24 sm:pt-32 pb-10 sm:pb-14">
             <Reveal>
-              <p className="text-2xl sm:text-3xl md:text-4xl font-medium leading-snug tracking-tight">
-                A 24/7 computer for your agents.
-                <br />
-                <span className="text-muted-foreground/50">Not a chat interface.</span>
+              <p className="text-2xl sm:text-3xl md:text-4xl font-medium text-foreground leading-snug tracking-tight">
+                One machine. All your tools. Agents that run themselves.
               </p>
             </Reveal>
             <Reveal delay={0.1}>
-              <p className="mt-6 text-base sm:text-lg text-muted-foreground leading-relaxed max-w-2xl">
-                Kortix is a persistent Linux machine you own. Add agents, skills, tools, and full projects. Connect all your data sources. Then let your agents run continuously — triggered by schedules, webhooks, or events — while you focus on what matters.
+              <p className="mt-4 text-base sm:text-lg text-muted-foreground/60 leading-relaxed max-w-2xl">
+                A Kortix is a cloud computer where AI agents do the actual work of running a company. You connect your tools, define your agents, set their schedules and triggers — and the machine operates whether you&apos;re there or not. Persistent memory that compounds. A workforce that never stops.
               </p>
-            </Reveal>
-            <Reveal delay={0.2}>
-              <div className="mt-8 flex items-center gap-2.5">
-                <span className="text-[11px] text-muted-foreground/40">Powered by</span>
-                <a
-                  href="https://opencode.ai"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 opacity-50 hover:opacity-80 transition-opacity"
-                >
-                  <Image src="/provider-icons/opencode.svg" alt="OpenCode" width={14} height={14} className="size-3.5 dark:invert" />
-                  <span className="text-[11px] font-medium text-foreground tracking-tight">OpenCode</span>
-                </a>
-              </div>
             </Reveal>
           </div>
 
           {/* ── Showcase ── */}
-          <div className="border-t border-border/30 py-20 sm:py-28 overflow-hidden">
-            <div className="max-w-3xl mx-auto px-6 mb-12">
+          <div className="border-t border-border/30 py-10 sm:py-14 overflow-hidden">
+            <div className="max-w-3xl mx-auto px-6 mb-8">
               <Reveal>
-                <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground/40 font-medium">What it makes</span>
-                <h2 className="mt-4 text-2xl sm:text-3xl md:text-4xl font-medium tracking-tight">
+                <h2 className="text-2xl sm:text-3xl font-medium tracking-tight text-foreground">
                   Real outputs. <span className="text-muted-foreground/50">Not suggestions.</span>
                 </h2>
               </Reveal>
               <Reveal delay={0.1}>
-                <p className="mt-4 text-base text-muted-foreground leading-relaxed max-w-xl">
-                  Give the agent a goal. It figures out the steps, executes them, and delivers a finished result — not a draft, not a plan, not a prompt for you to run yourself.
+                <p className="mt-2 text-base text-muted-foreground/60 leading-relaxed max-w-xl">
+                  Give an agent a goal. It plans, executes, self-verifies, and delivers a finished result. That&apos;s autowork.
                 </p>
               </Reveal>
             </div>
-
             <div className="flex gap-5 px-6 overflow-x-auto pb-4" style={{ scrollbarWidth: 'none' }}>
               {[
                 { src: '/showcase/data/dashboard.png', width: 1386, height: 836, label: 'Company Performance Dashboard', prompt: '"Analyse all sales data and build me a dashboard"' },
@@ -252,8 +244,8 @@ export default function Variant2Home() {
                     </div>
                   </div>
                   <div className="mt-2.5 px-0.5">
-                    <div className="text-sm font-medium text-foreground/65 tracking-tight">{label}</div>
-                    <div className="mt-1 text-[10px] text-muted-foreground/35 font-mono">{prompt}</div>
+                    <div className="text-sm font-medium text-foreground/70 tracking-tight">{label}</div>
+                    <div className="mt-1 text-[10px] text-muted-foreground/40 font-mono">{prompt}</div>
                   </div>
                 </Reveal>
               ))}
@@ -261,37 +253,34 @@ export default function Variant2Home() {
             </div>
           </div>
 
-          {/* ── How it works ── */}
+          {/* ── The system + terminal mockup ── */}
           <div className="border-t border-border/30">
-            <div className="max-w-7xl mx-auto px-6 py-20 sm:py-28 grid lg:grid-cols-2 gap-16 lg:gap-24 items-center">
+            <div className="max-w-7xl mx-auto px-6 py-10 sm:py-14 grid lg:grid-cols-2 gap-16 lg:gap-24 items-center">
               <div>
                 <Reveal>
-                  <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground/40 font-medium">How it works</span>
-                  <h2 className="mt-4 text-2xl sm:text-3xl md:text-4xl font-medium tracking-tight mb-5">
-                    You give the goal.
-                    <br />
-                    <span className="text-muted-foreground/50">The agent handles everything else.</span>
+                  <h2 className="text-2xl sm:text-3xl font-medium tracking-tight text-foreground mb-2">
+                    The system
                   </h2>
                 </Reveal>
                 <Reveal delay={0.1}>
-                  <p className="text-base text-muted-foreground leading-relaxed mb-10">
-                    Kortix runs a full execution loop: plan, execute, observe, adapt. It has access to every tool a developer does — and uses them the same way.
+                  <p className="text-base text-muted-foreground/60 leading-relaxed mb-8">
+                    Kortix runs on <a href="https://opencode.ai" target="_blank" rel="noopener noreferrer" className="hover:text-foreground/80 transition-colors">OpenCode</a>, an open foundation for building knowledge work agents, with the Kortix cognitive architecture layered on top. Everything is just files.
                   </p>
                 </Reveal>
                 <Reveal delay={0.2}>
                   <div className="flex flex-col gap-4">
                     {[
-                      ['Shell & code', 'Runs bash, Python, Node — any language, any command'],
-                      ['Real browser', 'Navigates, clicks, scrapes, fills forms with your own logged-in sessions'],
-                      ['Your integrations', 'Calls Gmail, Slack, GitHub, Stripe, Notion, or any API you connect'],
-                      ['Filesystem', 'Reads and writes files, git commits, exports PDFs, sends emails'],
-                      ['Persistent memory', 'Remembers past sessions, decisions, and context across every run'],
+                      ['Agents', 'Markdown files with identity, permissions, tools, and triggers. Each one a specialist.'],
+                      ['Skills', '60+ knowledge packs — coding, browser automation, deep research, legal writing, spreadsheets.'],
+                      ['Autowork', 'Autonomous execution loop. Works until done, self-verifies, only stops when correct.'],
+                      ['Triggers', 'Cron schedules and webhooks in agent frontmatter. The machine works while you sleep.'],
+                      ['Memory', 'Persistent, filesystem-based, semantic-searchable. The longer it runs, the smarter it gets.'],
                     ].map(([title, desc]) => (
                       <div key={title} className="flex items-start gap-3">
                         <div className="mt-[7px] size-1 rounded-full bg-foreground/25 shrink-0" />
                         <div>
-                          <span className="text-sm font-medium text-foreground/75">{title}</span>
-                          <span className="text-sm text-muted-foreground/55"> — {desc}</span>
+                          <span className="text-sm font-medium text-foreground/70">{title}</span>
+                          <span className="text-sm text-muted-foreground/60"> — {desc}</span>
                         </div>
                       </div>
                     ))}
@@ -346,9 +335,9 @@ export default function Variant2Home() {
             </div>
           </div>
 
-          {/* ── Always on ── */}
+          {/* ── Always on + agent status table ── */}
           <div className="border-t border-border/30">
-            <div className="max-w-7xl mx-auto px-6 py-20 sm:py-28 grid lg:grid-cols-2 gap-16 lg:gap-24 items-center">
+            <div className="max-w-7xl mx-auto px-6 py-10 sm:py-14 grid lg:grid-cols-2 gap-16 lg:gap-24 items-center">
               <Reveal>
                 <div className="rounded-2xl overflow-hidden border border-border/40 bg-card/20 font-mono">
                   <div className="bg-muted/10 border-b border-border/30 px-4 py-3 flex items-center justify-between">
@@ -392,29 +381,28 @@ export default function Variant2Home() {
 
               <div>
                 <Reveal>
-                  <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground/40 font-medium">Always on</span>
-                  <h2 className="mt-4 text-2xl sm:text-3xl md:text-4xl font-medium tracking-tight mb-5">
-                    A workforce, <span className="text-muted-foreground/50">not a tool.</span>
+                  <h2 className="text-2xl sm:text-3xl font-medium tracking-tight text-foreground mb-2">
+                    Deploy and check in
                   </h2>
                 </Reveal>
                 <Reveal delay={0.1}>
-                  <p className="text-base text-muted-foreground leading-relaxed mb-10">
-                    You don&apos;t open Kortix to ask it things. You deploy agents that run continuously — handling support tickets, monitoring data, sending reports, recruiting candidates. You check in when you want.
+                  <p className="text-base text-muted-foreground/60 leading-relaxed mb-8">
+                    Your agents run 24/7. Triggers fire them on schedule. Autowork keeps them going until the job is verified done. You check in from anywhere — whenever you want.
                   </p>
                 </Reveal>
                 <Reveal delay={0.2}>
                   <div className="flex flex-col gap-4">
                     {[
-                      ['Cron triggers', 'Schedule any task at any interval — hourly, daily, weekly'],
+                      ['Cron triggers', 'Schedule any agent at any interval — hourly, daily, weekly'],
                       ['Event webhooks', 'React to external events the moment they happen'],
-                      ['Parallel agents', 'Multiple agents working simultaneously, independently'],
-                      ['Morning briefings', 'Wake up to a summary of what happened overnight'],
+                      ['Orchestration', 'One agent delegates to many. Parallel sub-agents, background sessions.'],
+                      ['Channels', 'Talk to agents from Slack, Telegram, Discord, web, or mobile'],
                     ].map(([title, desc]) => (
                       <div key={title} className="flex items-start gap-3">
                         <div className="mt-[7px] size-1 rounded-full bg-foreground/25 shrink-0" />
                         <div>
-                          <span className="text-sm font-medium text-foreground/75">{title}</span>
-                          <span className="text-sm text-muted-foreground/55"> — {desc}</span>
+                          <span className="text-sm font-medium text-foreground/70">{title}</span>
+                          <span className="text-sm text-muted-foreground/60"> — {desc}</span>
                         </div>
                       </div>
                     ))}
@@ -424,18 +412,17 @@ export default function Variant2Home() {
             </div>
           </div>
 
-          {/* ── Ownership ── */}
+          {/* ── Ownership + filesystem tree ── */}
           <div className="border-t border-border/30">
-            <div className="max-w-3xl mx-auto px-6 py-20 sm:py-28">
+            <div className="max-w-3xl mx-auto px-6 py-10 sm:py-14">
               <Reveal>
-                <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground/40 font-medium">Ownership</span>
-                <h2 className="mt-4 text-2xl sm:text-3xl md:text-4xl font-medium tracking-tight mb-5">
-                  Your data. Your machine. <span className="text-muted-foreground/50">Your agents.</span>
+                <h2 className="text-2xl sm:text-3xl font-medium tracking-tight text-foreground mb-2">
+                  Everything is files
                 </h2>
               </Reveal>
               <Reveal delay={0.1}>
-                <p className="text-base text-muted-foreground leading-relaxed mb-14 max-w-2xl">
-                  Everything lives on the filesystem you own — sessions, memories, credentials, agent configs, browser profiles. Human-readable, git-trackable, SSH-accessible. No vendor lock-in. No hidden cloud state. One persistent volume.
+                <p className="text-base text-muted-foreground/60 leading-relaxed mb-10 max-w-2xl">
+                  Agents, skills, memory, credentials, browser profiles — all on the filesystem you own. Human-readable, git-trackable, SSH-accessible.
                 </p>
               </Reveal>
 
@@ -455,12 +442,12 @@ export default function Variant2Home() {
                         { name: 'Linear', tag: 'MCP' },
                       ].map(({ name, tag }) => (
                         <div key={name} className="flex items-center justify-between py-1.5">
-                          <span className="text-sm text-foreground/65 font-medium">{name}</span>
+                          <span className="text-sm text-foreground/70 font-medium">{name}</span>
                           <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/35 bg-muted/20 px-2 py-0.5 rounded-md">{tag}</span>
                         </div>
                       ))}
                       <div className="pt-2 text-[10px] text-muted-foreground/30 text-center border-t border-border/20">
-                        + 500 apps via OAuth · MCP servers · SSH keys · env vars
+                        3,000+ via OAuth · MCP · REST · CLI · env vars
                       </div>
                     </div>
                   </div>
@@ -500,27 +487,42 @@ export default function Variant2Home() {
             </div>
           </div>
 
-          {/* ── Open Source + CTA ── */}
-          <div className="border-t border-border/30">
-            <div className="max-w-3xl mx-auto px-6 py-20 sm:py-28 space-y-12">
-              <Reveal>
-                <OSSCard />
-              </Reveal>
-              <Reveal delay={0.1}>
-                <CtaSection onLaunch={() => setLaunchOpen(true)} />
-              </Reveal>
-              <Reveal delay={0.2}>
-                <p className="text-sm text-muted-foreground/40 text-center pb-4">
-                  A company in a computer. It grows with you.
-                </p>
-              </Reveal>
-            </div>
-          </div>
+          {/* ── CTA ── */}
+          <Reveal>
+            <section className="max-w-3xl mx-auto px-6 py-14 sm:py-16 border-t border-border/30 flex flex-col items-center gap-4">
+              <div className="flex items-center gap-3">
+                <Button
+                  size="lg"
+                  className="h-11 px-7 text-sm rounded-full"
+                  disabled={launching}
+                  onClick={handleLaunch}
+                >
+                  {launching ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Redirecting...</>
+                  ) : (
+                    <>Get Started<ArrowRight className="ml-1.5 size-3.5" /></>
+                  )}
+                </Button>
+                <GithubButton size="lg" className="h-11" />
+              </div>
+              <button
+                onClick={handleCopy}
+                className="group inline-flex items-center gap-2.5 h-9 px-4 rounded-lg bg-foreground/[0.03] border border-foreground/[0.08] hover:bg-foreground/[0.06] hover:border-foreground/[0.12] transition-colors cursor-pointer"
+              >
+                <span className="font-mono text-[11px] text-muted-foreground/35 select-none">$</span>
+                <code className="text-[11px] font-mono text-foreground/70 tracking-tight">{INSTALL_CMD}</code>
+                <div className="pl-2.5 border-l border-foreground/[0.08]">
+                  {copied
+                    ? <Check className="size-3 text-green-500" />
+                    : <Copy className="size-3 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors" />
+                  }
+                </div>
+              </button>
+            </section>
+          </Reveal>
 
         </div>
       </div>
-
-      <PlanSelectionModal open={launchOpen} onOpenChange={(open) => !open && setLaunchOpen(false)} />
     </BackgroundAALChecker>
   );
 }

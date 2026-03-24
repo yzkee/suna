@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Loader2 } from "lucide-react";
 import { trackCtaSignup } from "@/lib/analytics/gtm";
 import { useState, useCallback } from "react";
 import { Check, Copy } from "lucide-react";
@@ -7,7 +7,7 @@ import { GithubButton } from "./github-button";
 
 const INSTALL_CMD = 'curl -fsSL https://kortix.com/install | bash';
 
-export function CtaSection({ onLaunch }: { onLaunch: () => void }) {
+export function CtaSection({ onLaunch, launching = false }: { onLaunch: () => void | Promise<void>; launching?: boolean }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(() => {
@@ -30,13 +30,21 @@ export function CtaSection({ onLaunch }: { onLaunch: () => void }) {
             <Button
               size="lg"
               className="h-12 px-8 text-base rounded-full transition-all w-full sm:w-auto"
+              disabled={launching}
               onClick={() => {
                 trackCtaSignup();
                 onLaunch();
               }}
             >
-              Get Started Now
-              <ArrowRight className="ml-2 size-4" />
+              {launching ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />Redirecting...
+                </>
+              ) : (
+                <>
+                  Get Started Now<ArrowRight className="ml-2 size-4" />
+                </>
+              )}
             </Button>
             <GithubButton size="lg" className="h-12" />
           </div>
