@@ -10,6 +10,7 @@ import { signUp, verifyOtp, requestAccess, signInWithPassword } from './actions'
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Mail, MailCheck, Clock, ExternalLink, ChevronRight } from 'lucide-react';
 import { KortixLoader } from '@/components/ui/kortix-loader';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { useAuth } from '@/components/AuthProvider';
 import { useAuthMethodTracking } from '@/stores/auth-tracking';
 import { toast } from '@/lib/toast';
@@ -151,7 +152,8 @@ function LoginContent() {
   const searchParams = useSearchParams();
   const { user, isLoading } = useAuth();
   const mode = searchParams.get('mode');
-  const returnUrl = searchParams.get('returnUrl') || searchParams.get('redirect');
+  const rawReturnUrl = searchParams.get('returnUrl') || searchParams.get('redirect');
+  const returnUrl = rawReturnUrl?.match(/^\/instances\/[^/]+/) ? '/instances' : rawReturnUrl;
   const message = searchParams.get('message');
   const isExpired = searchParams.get('expired') === 'true';
   const expiredEmail = searchParams.get('email') || '';
@@ -187,13 +189,14 @@ function LoginContent() {
   const [newCodeSent, setNewCodeSent] = useState(false);
   const [autoSendingCode, setAutoSendingCode] = useState(false);
   const [autoSendError, setAutoSendError] = useState(false);
+  const [showOtpModal, setShowOtpModal] = useState(false);
   const autoSendAttempted = useRef(false);
 
   useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     if (!isLoading && user) {
-      router.replace(returnUrl || '/dashboard');
+      router.replace(returnUrl || '/instances');
     }
   }, [user, isLoading, router, returnUrl]);
 
@@ -252,7 +255,7 @@ function LoginContent() {
     markEmailAsUsed();
     const email = formData.get('email') as string;
     setRegistrationEmail(email);
-    const finalReturnUrl = returnUrl || '/dashboard';
+    const finalReturnUrl = returnUrl || '/instances';
     formData.append('returnUrl', finalReturnUrl);
     formData.append('origin', isElectron() ? getAuthOrigin() : window.location.origin);
     formData.append('acceptedTerms', acceptedTerms.toString());
@@ -281,7 +284,7 @@ function LoginContent() {
   };
 
   const handlePasswordAuth = async (prevState: unknown, formData: FormData) => {
-    formData.append('returnUrl', returnUrl || '/dashboard');
+    formData.append('returnUrl', returnUrl || '/instances');
     const result = await signInWithPassword(prevState, formData);
     if (result && typeof result === 'object') {
       if ('message' in result) {
@@ -298,11 +301,11 @@ function LoginContent() {
   };
 
   const handleVerifyOtp = async (prevState: unknown, formData: FormData) => {
-    const email = expiredEmailState || formData.get('email') as string;
+    const email = expiredEmailState || registrationEmail || formData.get('email') as string;
     if (!email) { toast.error(t('pleaseEnterValidEmail')); return {}; }
     formData.set('email', email);
     formData.set('token', otpCode);
-    formData.set('returnUrl', returnUrl || '/dashboard');
+    formData.set('returnUrl', returnUrl || '/instances');
     const result = await verifyOtp(prevState, formData);
     if (result && typeof result === 'object') {
       if ('message' in result) {
@@ -380,6 +383,12 @@ function LoginContent() {
               </a>
             )}
             <button
+              onClick={() => { setOtpCode(''); setShowOtpModal(true); }}
+              className="text-[12px] text-foreground/30 hover:text-foreground/50 transition-colors text-center"
+            >
+              Or <span className="underline underline-offset-2">enter 6-digit code</span>
+            </button>
+            <button
               onClick={() => setRegistrationSuccess(false)}
               className="text-[12px] text-foreground/30 hover:text-foreground/50 transition-colors text-center"
             >
@@ -387,6 +396,34 @@ function LoginContent() {
             </button>
           </div>
         </div>
+
+        {/* OTP verification modal */}
+        <Dialog open={showOtpModal} onOpenChange={setShowOtpModal}>
+          <DialogContent className="!max-w-[300px] sm:!max-w-[300px] p-5 gap-0 rounded-2xl" hideCloseButton aria-describedby="otp-modal-desc">
+            <DialogTitle className="text-[14px] font-medium text-foreground/70 text-center">
+              Enter code
+            </DialogTitle>
+            <DialogDescription id="otp-modal-desc" className="sr-only">
+              Enter the 6-digit verification code from your email
+            </DialogDescription>
+            <form className="w-full space-y-2.5 mt-3">
+              <Input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                autoFocus
+                placeholder="000000"
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="h-11 text-center text-[18px] font-mono tracking-[0.3em] bg-foreground/[0.03] border-foreground/[0.08] rounded-xl shadow-none focus-visible:border-foreground/20 transition-colors"
+              />
+              <SubmitButton formAction={handleVerifyOtp} className="w-full h-10 text-[13px] font-medium rounded-xl shadow-none" pendingText="Verifying…" disabled={otpCode.length !== 6}>
+                Verify
+              </SubmitButton>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
@@ -784,7 +821,8 @@ function SelfHostedLoginContent() {
   const searchParams = useSearchParams();
   const { user, isLoading } = useAuth();
   const { installed, loading: statusLoading } = useInstallStatus();
-  const returnUrl = searchParams.get('returnUrl') || searchParams.get('redirect');
+  const rawReturnUrl = searchParams.get('returnUrl') || searchParams.get('redirect');
+  const returnUrl = rawReturnUrl?.match(/^\/instances\/[^/]+/) ? '/instances' : rawReturnUrl;
   const [phase, setPhase] = useState<'lock' | 'form'>('lock');
 
   // After auth, redirect to /instances. The /instances page handles
