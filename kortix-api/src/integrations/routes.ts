@@ -362,6 +362,16 @@ export function createIntegrationsRouter(): Hono<AppEnv> {
   });
 
   app.post('/webhook', async (c) => {
+    // Verify webhook secret if configured. The secret is passed as a query param
+    // in the webhook_uri we send to Pipedream when creating connect tokens.
+    const webhookSecret = config.PIPEDREAM_WEBHOOK_SECRET;
+    if (webhookSecret) {
+      const providedSecret = c.req.query('secret');
+      if (providedSecret !== webhookSecret) {
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
+    }
+
     const body = await c.req.json();
     const parsed = webhookSchema.safeParse(body);
 

@@ -132,6 +132,16 @@ export class PipedreamProvider implements AuthProvider {
       body.app_slug = app;
     }
 
+    // Pass webhook_uri so Pipedream notifies us on connection success/error.
+    // Include secret query param for verification if configured.
+    const { config: appConfig } = await import('../../config');
+    const kortixUrl = appConfig.KORTIX_URL;
+    if (kortixUrl) {
+      const webhookSecret = appConfig.PIPEDREAM_WEBHOOK_SECRET;
+      const webhookBase = `${kortixUrl.replace(/\/+$/, '')}/v1/integrations/webhook`;
+      body.webhook_uri = webhookSecret ? `${webhookBase}?secret=${webhookSecret}` : webhookBase;
+    }
+
     const token = await this.getApiToken();
     const res = await fetch(`${this.baseUrl}/v1/connect/${this.projectId}/tokens`, {
       method: 'POST',
