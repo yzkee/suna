@@ -528,6 +528,116 @@ export function createCloudSandboxRouter(
     }
   });
 
+  // ─── GET /:sandboxId/status ─────────────────────────────────────────────
+  // Provisioning status for frontend poller (useSandboxPoller).
+
+  router.get('/:sandboxId/status', async (c) => {
+    const userId = c.get('userId');
+    const sandboxId = c.req.param('sandboxId');
+
+    try {
+      const accountId = await resolveAccountId(userId);
+
+      const [sandbox] = await db
+        .select()
+        .from(sandboxes)
+        .where(
+          and(
+            eq(sandboxes.accountId, accountId),
+            eq(sandboxes.sandboxId, sandboxId),
+          ),
+        )
+        .limit(1);
+
+      if (!sandbox) {
+        return c.json({ status: 'not_found', error: 'Sandbox not found' }, 404);
+      }
+
+      let metadata = (sandbox.metadata as Record<string, unknown> | null) ?? {};
+      let currentStatus = sandbox.status;
+
+      // ── Self-healing: if DB says provisioning but JustAVPS says ready, heal the row ──
+      if (currentStatus === 'provisioning' && sandbox.externalId && sandbox.provider === 'justavps') {
+        try {
+          const { justavpsFetch } = await import('../providers/justavps');
+          const machine = await justavpsFetch<{ status: string; provisioning_stage?: string; ip?: string }>(`/machines/${sandbox.externalId}`);
+          if (machine.status === 'ready') {
+            // JustAVPS says ready but our DB missed the webhook — heal it
+            const healedMeta = {
+              ...metadata,
+              provisioningStage: 'services_ready',
+              provisioningMessage: 'All services are up',
+              ...(machine.ip ? { publicIp: machine.ip } : {}),
+            };
+            await db
+              .update(sandboxes)
+              .set({ status: 'active', metadata: healedMeta, updatedAt: new Date() })
+              .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
+            currentStatus = 'active';
+            metadata = healedMeta;
+            console.log(`[SANDBOX-STATUS] Self-healed sandbox ${sandbox.sandboxId} from provisioning → active (JustAVPS machine ${sandbox.externalId} was already ready)`);
+          } else if (machine.provisioning_stage) {
+            // Update local metadata from JustAVPS so progress reflects reality
+            const updatedMeta = {
+              ...metadata,
+              provisioningStage: machine.provisioning_stage,
+              ...(machine.ip ? { publicIp: machine.ip } : {}),
+            };
+            await db
+              .update(sandboxes)
+              .set({ metadata: updatedMeta, updatedAt: new Date() })
+              .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
+            metadata = updatedMeta;
+          }
+        } catch (healErr) {
+          // Non-fatal — fall through to return whatever DB has
+          console.warn(`[SANDBOX-STATUS] Self-heal check failed for ${sandbox.sandboxId}:`, healErr);
+        }
+      }
+
+      const provisioningStage = (metadata.provisioningStage as string) ?? null;
+      const provisioningMessage = (metadata.provisioningMessage as string) ?? null;
+      const publicIp = (metadata.publicIp as string) ?? null;
+      const serverType = (metadata.serverType as string) ?? null;
+      const location = (metadata.location as string) ?? null;
+
+      // Map sandbox DB status to the poller's expected shape
+      const stageMap: Record<string, number> = {
+        server_creating: 10,
+        server_created: 25,
+        cloud_init_running: 40,
+        cloud_init_done: 55,
+        docker_pulling: 65,
+        docker_running: 80,
+        services_starting: 90,
+        services_ready: 100,
+      };
+
+      let stageProgress: number | null = null;
+      if (currentStatus === 'active') {
+        stageProgress = 100;
+      } else if (currentStatus === 'provisioning') {
+        stageProgress = provisioningStage ? (stageMap[provisioningStage] ?? 20) : 8;
+      } else if (currentStatus === 'error') {
+        stageProgress = 0;
+      }
+
+      return c.json({
+        status: currentStatus,
+        stage: provisioningStage,
+        stageProgress,
+        stageMessage: provisioningMessage,
+        machineInfo: publicIp ? { ip: publicIp, serverType: serverType ?? '', location: location ?? '' } : null,
+        stages: null,
+        error: currentStatus === 'error' ? ((metadata.errorMessage as string) ?? 'Provisioning failed') : null,
+        startedAt: sandbox.createdAt?.toISOString() ?? null,
+      });
+    } catch (err) {
+      console.error('[SANDBOX-CLOUD] status error:', err);
+      return c.json({ status: 'error', error: 'Failed to get sandbox status' }, 500);
+    }
+  });
+
   // ─── GET /list ─────────────────────────────────────────────────────────
   // List all sandboxes for the account (all statuses).
 

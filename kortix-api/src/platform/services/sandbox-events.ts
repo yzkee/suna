@@ -139,8 +139,8 @@ class SandboxEventBus {
 
     // Only provider-confirmed "ready" should flip the sandbox active.
     // services_ready means the VM boot flow finished, but port 8000 / Kortix
-    // may still be starting. The billing/setup/status endpoint performs the
-    // final /kortix/health check before marking active.
+    // may still be starting. The GET /platform/sandbox/:id/status endpoint
+    // surfaces progress; the sandbox becomes active once the provider confirms ready.
     if (data.status === 'ready') {
       if (sandbox.status === 'provisioning') {
         await db

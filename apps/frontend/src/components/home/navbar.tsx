@@ -228,7 +228,7 @@ export function Navbar({ isAbsolute = false }: NavbarProps) {
         </nav>
 
         {/* Right — Actions */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           {/* GitHub stars (hidden on mobile) */}
           <a
             href="https://github.com/kortix-ai/suna"

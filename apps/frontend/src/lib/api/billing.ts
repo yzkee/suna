@@ -144,9 +144,9 @@ export interface CreateCheckoutSessionRequest {
   referral_id?: string;
   commitment_type?: 'monthly' | 'yearly' | 'yearly_commitment';
   locale?: string;
-  /** Instance provisioning: Hetzner server type (e.g. 'cpx21') */
+  /** Instance provisioning: managed VPS server type (e.g. 'cpx21') */
   server_type?: string;
-  /** Instance provisioning: Hetzner location (e.g. 'nbg1') */
+  /** Instance provisioning: managed VPS location (e.g. 'nbg1') */
   location?: string;
 }
 

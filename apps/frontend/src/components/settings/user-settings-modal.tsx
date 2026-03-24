@@ -1307,7 +1307,6 @@ function InstancesSection({ accountState, onRefetch }: { accountState: any; onRe
 function BillingTab({ returnUrl, isActive }: { returnUrl: string; isActive: boolean }) {
     const { session, isLoading: authLoading } = useAuth();
     const [showCreditPurchaseModal, setShowCreditPurchaseModal] = useState(false);
-    const [showCancelDialog, setShowCancelDialog] = useState(false);
     const queryClient = useQueryClient();
 
     const billingActive = isBillingEnabled();
@@ -1343,8 +1342,7 @@ function BillingTab({ returnUrl, isActive }: { returnUrl: string; isActive: bool
     const commitmentInfo = accountState?.subscription.commitment;
 
     const createPortalSessionMutation = useCreatePortalSession();
-    const cancelSubscriptionMutation = useCancelSubscription();
-    const reactivateSubscriptionMutation = useReactivateSubscription();
+
 
     const planName = accountStateSelectors.planName(accountState);
     const planIcon = getPlanIcon(planName, !billingActive);
@@ -1462,14 +1460,7 @@ function BillingTab({ returnUrl, isActive }: { returnUrl: string; isActive: bool
         createPortalSessionMutation.mutate({ return_url: returnUrl });
     };
 
-    const handleCancel = () => {
-        setShowCancelDialog(false);
-        cancelSubscriptionMutation.mutate(undefined);
-    };
 
-    const handleReactivate = () => {
-        reactivateSubscriptionMutation.mutate();
-    };
 
     const isLoading = isLoadingSubscription || authLoading;
     const error = subscriptionError ? (subscriptionError instanceof Error ? subscriptionError.message : 'Failed to load subscription data') : null;
@@ -1648,24 +1639,7 @@ function BillingTab({ returnUrl, isActive }: { returnUrl: string; isActive: bool
                 />
             )}
 
-            {isCancelled && (
-                <Alert variant="destructive" className="rounded-[18px]">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertDescription>
-                        Your subscription will be cancelled on {getEffectiveCancellationDate()}
-                        {!isCancelled && (
-                            <Button
-                                onClick={handleReactivate}
-                                variant="outline"
-                                size="sm"
-                                className="ml-4"
-                            >
-                                Reactivate
-                            </Button>
-                        )}
-                    </AlertDescription>
-                </Alert>
-            )}
+
 
             {/* ── Instances Section ───────────────────────────────────────── */}
             {!isFreeTier && (
@@ -1683,59 +1657,7 @@ function BillingTab({ returnUrl, isActive }: { returnUrl: string; isActive: bool
                 </Button>
             </div>
 
-            {/* Cancel Plan Button - Subtle Placement */}
-            {!isFreeTier && !isCancelled && (
-                <div className="flex justify-center">
-                    <Button
-                        onClick={() => setShowCancelDialog(true)}
-                        variant="ghost"
-                        size="sm"
-                        className="text-muted-foreground hover:text-destructive h-auto p-2 text-xs"
-                    >
-                        Cancel Plan
-                    </Button>
-                </div>
-            )}
-
-            {isCancelled && (
-                <div className="flex justify-center">
-                    <Button
-                        onClick={handleReactivate}
-                        disabled={reactivateSubscriptionMutation.isPending}
-                        variant="outline"
-                        size="sm"
-                    >
-                        <RotateCcw className="h-3.5 w-3.5 mr-2" />
-                        {reactivateSubscriptionMutation.isPending ? 'Reactivating...' : 'Reactivate Subscription'}
-                    </Button>
-                </div>
-            )}
-            <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
-                <DialogContent className="max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>Cancel Subscription</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                        <p className="text-sm text-muted-foreground">
-                            Are you sure you want to cancel your subscription? You'll continue to have access until{' '}
-                            {accountState?.subscription.current_period_end && formatDateFlexible(accountState.subscription.current_period_end)}.
-                        </p>
-                        <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
-                            <Button variant="outline" onClick={() => setShowCancelDialog(false)} className="w-full sm:w-auto">
-                                Keep Subscription
-                            </Button>
-                            <Button 
-                                variant="destructive" 
-                                onClick={handleCancel} 
-                                disabled={cancelSubscriptionMutation.isPending}
-                                className="w-full sm:w-auto"
-                            >
-                                {cancelSubscriptionMutation.isPending ? 'Cancelling...' : 'Cancel Plan'}
-                            </Button>
-                        </div>
-                    </div>
-                </DialogContent>
-            </Dialog>
+            {/* Per-instance cancel is in the InstancesSection above */}
             <CreditPurchaseModal
                 open={showCreditPurchaseModal}
                 onOpenChange={setShowCreditPurchaseModal}
