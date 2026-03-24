@@ -12,7 +12,7 @@
  * FINDINGS:
  *
  * [HIGH] POST /v1/setup/bootstrap-owner — PUBLIC on cloud
- *   - Leaks owner email: "Owner already exists (vawido8581@exespay.com)"
+ *   - Leaks owner email: "Owner already exists (<redacted>)"
  *   - Can reset wizard state for existing owner
  *   - Should be disabled or removed in cloud mode
  *
