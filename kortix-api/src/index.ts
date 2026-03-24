@@ -251,8 +251,10 @@ app.route('/v1/access', accessControlApp); // /v1/access/signup-status, /v1/acce
 // Legacy thread migration — authenticated endpoints
 app.route('/v1/legacy', legacyApp); // /v1/legacy/threads, /v1/legacy/threads/:id/migrate
 
-// Setup — install-status is public (needed before any user exists), rest requires auth.
-app.route('/v1/setup', setupApp);          // /v1/setup/install-status (public), rest (auth inside router)
+// Setup — local/self-hosted only. Disabled in cloud mode (not needed, exposes admin surface).
+if (config.isLocal()) {
+  app.route('/v1/setup', setupApp);        // /v1/setup/install-status (public), rest (auth inside router)
+}
 app.route('/v1/admin', adminApp);          // /v1/admin/api/sandboxes, /v1/admin/api/env, /v1/admin/api/health, etc.
 
 // OAuth2 provider — public token endpoint, auth on authorize/consent
