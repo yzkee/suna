@@ -5,7 +5,7 @@ import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Icon } from '@/components/ui/icon';
-import { ArrowLeft } from 'lucide-react-native';
+import { ChevronLeft } from 'lucide-react-native';
 import { Text } from '@/components/ui/text';
 import { useLanguage } from '@/contexts';
 import * as Haptics from 'expo-haptics';
@@ -21,20 +21,22 @@ function SettingsIndexHeader({ title }: { title: string }) {
   };
 
   return (
-    <View className="px-5 pb-3 flex-row items-center gap-2 bg-background" style={{ paddingTop: topPadding }}>
+    <View className="px-5 pb-3 flex-row items-center gap-2 bg-background" style={{ paddingTop: topPadding, minHeight: 56 }}>
       <Pressable
         onPress={handlePress}
         className="w-8 h-8 items-center justify-center"
         hitSlop={8}
       >
-        <Icon
-          as={ArrowLeft}
-          size={24}
-          className="text-foreground"
-          strokeWidth={2}
-        />
+        <View className="mt-0.5">
+          <Icon
+            as={ChevronLeft}
+            size={20}
+            className="text-foreground"
+            strokeWidth={2.2}
+          />
+        </View>
       </Pressable>
-      <Text className="text-[28px] font-roobert-medium text-foreground tracking-tight">
+      <Text className="text-xl leading-6 font-roobert-medium text-foreground tracking-tight">
         {title}
       </Text>
     </View>
@@ -52,20 +54,22 @@ function SubpageHeader({ title }: { title: string }) {
   };
 
   return (
-    <View className="px-5 pb-3 flex-row items-center gap-2 bg-background" style={{ paddingTop: topPadding }}>
+    <View className="px-5 pb-3 flex-row items-center gap-2 bg-background" style={{ paddingTop: topPadding, minHeight: 56 }}>
       <Pressable
         onPress={handlePress}
         className="w-8 h-8 items-center justify-center"
         hitSlop={8}
       >
-        <Icon
-          as={ArrowLeft}
-          size={24}
-          className="text-foreground"
-          strokeWidth={2}
-        />
+        <View className="mt-0.5">
+          <Icon
+            as={ChevronLeft}
+            size={20}
+            className="text-foreground"
+            strokeWidth={2.2}
+          />
+        </View>
       </Pressable>
-      <Text className="text-[28px] font-roobert-medium text-foreground tracking-tight">
+      <Text className="text-xl leading-6 font-roobert-medium text-foreground tracking-tight">
         {title}
       </Text>
     </View>
