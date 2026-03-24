@@ -99,8 +99,8 @@ export default function SettingsScreen() {
       key: 'general',
       icon: User,
       label: 'General',
-      description: 'Profile and account basics',
-      onPress: () => go('/(settings)/name'),
+      description: 'Profile details and account controls',
+      onPress: () => go('/(settings)/general'),
     },
     {
       key: 'appearance',

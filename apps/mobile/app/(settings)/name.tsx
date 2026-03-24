@@ -117,14 +117,14 @@ export default function NameEditScreen() {
       contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
       keyboardShouldPersistTaps="handled"
     >
-      <View className="px-6 pb-8">
-        <View className="mb-8 items-center pt-8">
+      <View className="px-5 pb-8">
+        <View className="mb-6 items-center pt-3">
           <ProfilePicture
             imageUrl={user?.user_metadata?.avatar_url}
-            size={24}
+            size={16}
             fallbackText={name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'}
           />
-          <View className="mt-6 w-full">
+          <View className="mt-4 w-full">
             <TextInput
               value={name}
               onChangeText={(text) => {
@@ -133,7 +133,7 @@ export default function NameEditScreen() {
               }}
               placeholder={t('nameEdit.yourNamePlaceholder')}
               placeholderTextColor={colorScheme === 'dark' ? '#71717A' : '#A1A1AA'}
-              className="text-3xl font-roobert-semibold text-foreground text-center tracking-tight"
+              className="text-[34px] font-roobert-semibold text-foreground text-center tracking-tight"
               editable={!isLoading}
               maxLength={100}
               autoCapitalize="words"
@@ -141,7 +141,7 @@ export default function NameEditScreen() {
               returnKeyType="done"
               onSubmitEditing={handleSave}
             />
-            <Text className="text-sm font-roobert text-muted-foreground text-center mt-2">
+            <Text className="text-xs font-roobert text-muted-foreground text-center mt-1.5">
               {t('nameEdit.displayName')}
             </Text>
           </View>
@@ -157,16 +157,14 @@ export default function NameEditScreen() {
         )}
 
         <View className="mb-6">
-          <View className="bg-primary/5 rounded-3xl p-5">
+          <View className="bg-card/70 rounded-3xl border border-border/40 p-4">
             <View className="flex-row items-center gap-3">
-              <View className="h-11 w-11 rounded-full bg-primary/10 items-center justify-center">
-                <Icon as={Mail} size={20} className="text-primary" strokeWidth={2.5} />
-              </View>
+              <Icon as={Mail} size={18} className="text-foreground/70" strokeWidth={2.3} />
               <View className="flex-1">
                 <Text className="text-xs font-roobert-medium text-muted-foreground mb-1">
                   {t('nameEdit.emailAddress')}
                 </Text>
-                <Text className="text-sm font-roobert-semibold text-foreground">
+                <Text className="text-[15px] font-roobert-medium text-foreground">
                   {user?.email || t('nameEdit.notAvailable')}
                 </Text>
               </View>

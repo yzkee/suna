@@ -119,6 +119,13 @@ export default function SettingsLayout() {
         }}
       />
       <Stack.Screen
+        name="general"
+        options={{
+          header: () => <SubpageHeader title="General" />,
+          headerShown: true,
+        }}
+      />
+      <Stack.Screen
         name="name"
         options={{
           header: () => <SubpageHeader title={t('nameEdit.title')} />,
