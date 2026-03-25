@@ -161,8 +161,10 @@ export default function InstanceDetailPage() {
           const res = await authenticatedFetch(`${url}/global/health`, {
             signal: AbortSignal.timeout(5_000),
           });
-          if (res.ok || res.status === 503) {
-            // 503 = Kortix Master is running but OpenCode still starting — close enough
+          if (res.ok || res.status === 503 || res.status === 401) {
+            // 503 = Kortix Master is running but OpenCode still starting
+            // 401 = services are up but auth token not yet accepted
+            // Either way, the service is reachable — move on.
             servicesReady = true;
             break;
           }
