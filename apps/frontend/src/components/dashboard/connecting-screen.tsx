@@ -9,24 +9,23 @@ import {
   WifiOff,
   RefreshCw,
   ArrowLeftRight,
+  Server,
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 
 /**
  * ConnectingScreen — overlay shown when the active instance is not reachable.
  *
- * Two modes:
+ * Three visual modes:
  *   1. **First connection** (never connected before) — full-screen blocking overlay
- *      with spinner. User can still switch instances.
- *   2. **Reconnecting** (was connected, then lost connection) — non-blocking banner
- *      at the top of the screen. User can continue using the app (read cached data,
- *      switch instances, etc.) while reconnection happens in the background.
- *
- * Shows reconnect attempt count, time since disconnect, and auto-retry status.
+ *      with spinner + "Connecting to …". User can still switch instances.
+ *   2. **Unreachable** (first connection failed after threshold) — full-screen blocking
+ *      overlay with diagnostics, retry counter, and Docker-specific help.
+ *   3. **Reconnecting** (was connected, then lost connection) — non-blocking floating
+ *      pill at bottom-right so users can keep working.
  */
 export function ConnectingScreen() {
   const status = useSandboxConnectionStore((s) => s.status);
-  const initialCheckDone = useSandboxConnectionStore((s) => s.initialCheckDone);
   const wasConnected = useSandboxConnectionStore((s) => s.wasConnected);
   const reconnectAttempts = useSandboxConnectionStore((s) => s.reconnectAttempts);
   const disconnectedAt = useSandboxConnectionStore((s) => s.disconnectedAt);
@@ -35,36 +34,32 @@ export function ConnectingScreen() {
   const activeServer = servers.find((s) => s.id === activeServerId);
   const router = useRouter();
 
-  // Don't show anything until the first health check completes
-  if (!initialCheckDone) return null;
   if (status === 'connected') return null;
 
   const serverLabel = activeServer?.label || 'Instance';
   const serverUrl = activeServer ? resolveServerUrl(activeServer).replace(/^https?:\/\//, '') : '';
+  const handleSwitch = () => router.push('/instances');
 
-  // If the user was previously connected — show a non-blocking top banner
+  // ── Reconnecting (was connected before) → lightweight pill ──
   if (wasConnected) {
     return (
-      <ReconnectBanner
-        serverLabel={serverLabel}
-        serverUrl={serverUrl}
-        reconnectAttempts={reconnectAttempts}
+      <ReconnectPill
         disconnectedAt={disconnectedAt}
-        status={status}
-        onSwitchInstance={() => router.push('/instances')}
+        onSwitchInstance={handleSwitch}
       />
     );
   }
 
-  // First-time connection — full-screen blocking overlay
+  // ── First connection or unreachable → full-screen overlay ──
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background">
-      <div className="flex flex-col items-center gap-6 max-w-md px-8 text-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background animate-in fade-in duration-200">
+      <div className="flex flex-col items-center gap-6 max-w-md w-full px-8 text-center">
+
         {status === 'connecting' && (
-          <FirstConnectState label={serverLabel} url={serverUrl} />
+          <FirstConnectContent label={serverLabel} url={serverUrl} />
         )}
         {status === 'unreachable' && (
-          <UnreachableState
+          <UnreachableContent
             label={serverLabel}
             url={serverUrl}
             reconnectAttempts={reconnectAttempts}
@@ -74,8 +69,8 @@ export function ConnectingScreen() {
 
         <button
           type="button"
-          onClick={() => router.push('/instances')}
-          className="flex items-center gap-2 h-9 px-4 text-sm font-medium text-foreground bg-muted/60 hover:bg-muted border border-border/50 rounded-lg transition-colors cursor-pointer"
+          onClick={handleSwitch}
+          className="flex items-center gap-2 h-9 px-4 text-sm font-medium text-foreground/80 hover:text-foreground bg-muted/50 hover:bg-muted border border-border/40 rounded-lg transition-all cursor-pointer"
         >
           <ArrowLeftRight className="h-3.5 w-3.5" />
           Switch Instance
@@ -85,14 +80,13 @@ export function ConnectingScreen() {
   );
 }
 
-// ── Reconnect toast hook (mounted alongside the screen) ──
+// ── Toast hook (mounted alongside the screen) ──────────────────────────────
 
 export function useConnectionToasts() {
   const status = useSandboxConnectionStore((s) => s.status);
   const wasConnected = useSandboxConnectionStore((s) => s.wasConnected);
   const initialCheckDone = useSandboxConnectionStore((s) => s.initialCheckDone);
 
-  // Track previous status to detect transitions
   const prevStatusRef = useRef<SandboxConnectionStatus | null>(null);
 
   useEffect(() => {
@@ -101,21 +95,14 @@ export function useConnectionToasts() {
     const prev = prevStatusRef.current;
     prevStatusRef.current = status;
 
-    // Skip the very first status (no transition yet)
     if (prev === null) return;
 
-    // Connected -> unreachable: show disconnect toast
     if (prev === 'connected' && (status === 'unreachable' || status === 'connecting') && wasConnected) {
-      toast.error('Instance connection lost. Reconnecting...', {
-        duration: 4000,
-      });
+      toast.error('Instance connection lost. Reconnecting…', { duration: 4000 });
     }
 
-    // Unreachable/connecting -> connected: show recovery toast
     if ((prev === 'unreachable' || prev === 'connecting') && status === 'connected' && wasConnected) {
-      toast.success('Instance reconnected!', {
-        duration: 3000,
-      });
+      toast.success('Instance reconnected!', { duration: 3000 });
     }
   }, [status, wasConnected, initialCheckDone]);
 }
@@ -123,75 +110,39 @@ export function useConnectionToasts() {
 type SandboxConnectionStatus = 'connecting' | 'connected' | 'unreachable';
 
 // ============================================================================
-// Sub-components
+// Full-screen sub-components
 // ============================================================================
 
-/** Non-blocking floating pill shown at bottom-right when reconnecting */
-function ReconnectBanner({
-  serverLabel,
-  serverUrl,
-  reconnectAttempts,
-  disconnectedAt,
-  status,
-  onSwitchInstance,
-}: {
-  serverLabel: string;
-  serverUrl: string;
-  reconnectAttempts: number;
-  disconnectedAt: number | null;
-  status: SandboxConnectionStatus;
-  onSwitchInstance: () => void;
-}) {
-  const elapsed = useElapsedTime(disconnectedAt);
-
-  return (
-    <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-2 fade-in duration-200">
-      <div className="flex items-center gap-2.5 pl-3 pr-1.5 py-1.5 bg-background/95 backdrop-blur-xl border border-border/60 rounded-full shadow-lg">
-        {/* Pulsing dot */}
-        <span className="relative flex h-2 w-2 flex-shrink-0">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-500" />
-        </span>
-
-        {/* Label */}
-        <span className="text-xs text-muted-foreground whitespace-nowrap">
-          Reconnecting
-          {elapsed && <span className="text-muted-foreground/50"> · {elapsed}</span>}
-        </span>
-
-        {/* Switch button */}
-        <button
-          type="button"
-          onClick={onSwitchInstance}
-          className="flex items-center gap-1 h-6 px-2.5 text-[11px] font-medium text-foreground bg-muted/60 hover:bg-muted rounded-full transition-colors cursor-pointer"
-        >
-          <ArrowLeftRight className="h-2.5 w-2.5" />
-          Switch
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/** Full-screen state for first connection */
-function FirstConnectState({ label, url }: { label: string; url: string }) {
+/** Connecting state — spinner + server label */
+function FirstConnectContent({ label, url }: { label: string; url: string }) {
   return (
     <>
-      <KortixLoader size="large" />
+      {/* Icon ring */}
+      <div className="relative">
+        <div className="absolute -inset-3 rounded-full bg-primary/5 animate-pulse" />
+        <div className="relative flex items-center justify-center w-16 h-16 rounded-full bg-muted/50 border border-border/40">
+          <Server className="w-6 h-6 text-muted-foreground/70" />
+        </div>
+      </div>
+
       <div className="space-y-2">
         <h2 className="text-lg font-semibold text-foreground">
           Connecting to {label}
         </h2>
         {url && (
-          <p className="text-sm text-muted-foreground font-mono">{url}</p>
+          <p className="text-[13px] text-muted-foreground/60 font-mono truncate max-w-xs mx-auto">
+            {url}
+          </p>
         )}
       </div>
+
+      <KortixLoader size="small" />
     </>
   );
 }
 
-/** Full-screen state when unreachable on first connect */
-function UnreachableState({
+/** Unreachable state — diagnostics + retry counter */
+function UnreachableContent({
   label,
   url,
   reconnectAttempts,
@@ -206,38 +157,44 @@ function UnreachableState({
 
   return (
     <>
-      <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-muted/50 border border-border/50">
-        <WifiOff className="w-8 h-8 text-muted-foreground/60" />
+      {/* Icon */}
+      <div className="flex items-center justify-center w-16 h-16 rounded-full bg-destructive/10 border border-destructive/20">
+        <WifiOff className="w-6 h-6 text-destructive/60" />
       </div>
+
       <div className="space-y-2">
         <h2 className="text-lg font-semibold text-foreground">
           {isLocalDocker ? 'Local Sandbox Unreachable' : 'Instance Unreachable'}
         </h2>
         {url && (
-          <p className="text-sm text-muted-foreground font-mono">{url}</p>
+          <p className="text-[13px] text-muted-foreground/60 font-mono truncate max-w-xs mx-auto">
+            {url}
+          </p>
         )}
-        <p className="text-sm text-muted-foreground/70">
+        <p className="text-sm text-muted-foreground/70 leading-relaxed max-w-sm mx-auto">
           {isLocalDocker ? (
             <>
               Unable to reach the local Docker sandbox.
-              Make sure Docker is running and the container has started.
+              {' '}Make sure Docker is running and the container has started.
             </>
           ) : (
             <>
               Unable to reach <span className="font-medium text-foreground/80">{label}</span>.
-              It may be starting up or temporarily unavailable.
+              {' '}It may be starting up or temporarily unavailable.
             </>
           )}
         </p>
       </div>
-      <div className="flex items-center gap-3 text-xs text-muted-foreground/60">
+
+      {/* Retry indicator */}
+      <div className="flex items-center gap-3 text-xs text-muted-foreground/50">
         <span className="flex items-center gap-1.5">
           <RefreshCw className="w-3 h-3 animate-spin" />
-          Retrying automatically...
+          Retrying automatically
         </span>
         {reconnectAttempts > 0 && (
-          <span className="px-1.5 py-0.5 bg-muted/40 rounded text-[10px] font-mono">
-            Attempt {reconnectAttempts}
+          <span className="px-2 py-0.5 bg-muted/40 rounded-full text-[10px] font-mono tabular-nums">
+            attempt {reconnectAttempts}
           </span>
         )}
       </div>
@@ -245,9 +202,50 @@ function UnreachableState({
   );
 }
 
+// ============================================================================
+// Non-blocking reconnect pill
+// ============================================================================
+
+/** Floating pill at bottom-right when reconnecting after a previous connection */
+function ReconnectPill({
+  disconnectedAt,
+  onSwitchInstance,
+}: {
+  disconnectedAt: number | null;
+  onSwitchInstance: () => void;
+}) {
+  const elapsed = useElapsedTime(disconnectedAt);
+
+  return (
+    <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-3 fade-in duration-300">
+      <div className="flex items-center gap-2.5 pl-3 pr-1.5 py-1.5 bg-background/95 backdrop-blur-xl border border-border/50 rounded-full shadow-lg shadow-black/5">
+        {/* Pulsing dot */}
+        <span className="relative flex h-2 w-2 flex-shrink-0">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-500" />
+        </span>
+
+        <span className="text-xs text-muted-foreground whitespace-nowrap">
+          Reconnecting
+          {elapsed && <span className="text-muted-foreground/40"> · {elapsed}</span>}
+        </span>
+
+        <button
+          type="button"
+          onClick={onSwitchInstance}
+          className="flex items-center gap-1 h-6 px-2.5 text-[11px] font-medium text-foreground bg-muted/50 hover:bg-muted rounded-full transition-colors cursor-pointer"
+        >
+          <ArrowLeftRight className="h-2.5 w-2.5" />
+          Switch
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Utility hook ──
 
-/** Returns a human-readable elapsed time string, updating every second */
+/** Human-readable elapsed time string, updating every second */
 function useElapsedTime(since: number | null): string | null {
   const [now, setNow] = useState(Date.now());
 

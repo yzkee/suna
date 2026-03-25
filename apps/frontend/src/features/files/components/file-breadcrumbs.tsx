@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
   ChevronRight,
   ChevronLeft,
@@ -27,9 +27,10 @@ export function FileBreadcrumbs() {
 
   // Split the path into segments
   const isRoot = currentPath === '/' || currentPath === '.' || currentPath === '';
-  const segments = isRoot
-    ? []
-    : currentPath.split('/').filter(Boolean);
+  const segments = useMemo(
+    () => (isRoot ? [] : currentPath.split('/').filter(Boolean)),
+    [isRoot, currentPath],
+  );
 
   // Start editing on double-click
   const handleDoubleClick = useCallback(() => {

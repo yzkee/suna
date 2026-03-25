@@ -14,7 +14,6 @@ import { useSandboxConnection } from "@/hooks/platform/use-sandbox-connection";
 import { useWebNotifications } from "@/hooks/use-web-notifications";
 import { backendApi } from "@/lib/api-client";
 import { KortixLoader } from "@/components/ui/kortix-loader";
-
 import { featureFlags } from "@/lib/feature-flags";
 import { buildInstancePath, getActiveInstanceIdFromCookie, getCurrentInstanceIdFromPathname } from "@/lib/instance-routes";
 import { cn } from "@/lib/utils";
@@ -171,44 +170,11 @@ const DesktopTabContent = lazy(() =>
 	})),
 );
 
-// Skeleton shell that renders immediately for FCP
+// Minimal full-viewport loading state shown while auth / onboarding resolves.
 function DashboardSkeleton() {
 	return (
-		<div className="flex h-full w-full bg-background">
-			{/* Sidebar skeleton */}
-			<div className="hidden md:flex w-[280px] flex-col bg-sidebar">
-				<div className="p-4 space-y-4">
-					<div className="h-8 w-32 bg-muted/40 rounded animate-pulse" />
-					<div className="space-y-2">
-						{[1, 2, 3].map((i) => (
-							<div key={i} className="h-10 bg-muted/30 rounded animate-pulse" />
-						))}
-					</div>
-				</div>
-			</div>
-			{/* Main content skeleton */}
-			<div className="flex-1 flex flex-col">
-				<div className="flex-1 flex items-center justify-center">
-					<div className="w-full max-w-3xl px-4 space-y-6">
-						<div className="h-10 w-64 mx-auto bg-muted/30 rounded animate-pulse" />
-						<div className="h-24 bg-muted/20 rounded-xl animate-pulse" />
-					</div>
-				</div>
-			</div>
-		</div>
-	);
-}
-
-function InstanceRouteSyncScreen({ instanceId }: { instanceId: string }) {
-	return (
-		<div className="flex h-full w-full items-center justify-center bg-background">
-			<div className="flex max-w-md flex-col items-center gap-4 px-6 text-center">
-				<KortixLoader size="large" />
-				<div className="space-y-1">
-					<p className="text-sm font-medium text-foreground">Switching instance…</p>
-					<p className="text-xs text-muted-foreground break-all">{instanceId}</p>
-				</div>
-			</div>
+		<div className="fixed inset-0 flex items-center justify-center bg-background">
+			<KortixLoader size="medium" />
 		</div>
 	);
 }
@@ -570,10 +536,6 @@ export default function DashboardLayoutContent({
 
 	if (isLoading) {
 		return <DashboardSkeleton />;
-	}
-
-	if (routeSyncing && routeInstanceId) {
-		return <InstanceRouteSyncScreen instanceId={routeInstanceId} />;
 	}
 
 	if (!onboardingChecked) {
