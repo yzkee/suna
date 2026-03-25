@@ -16,6 +16,21 @@ export interface EnsureSandboxResult {
   created: boolean;
 }
 
+/**
+ * Generate a unique sandbox name: sandbox-{accountPrefix}-{N}
+ * Counts all existing sandboxes for the account to pick the next number.
+ */
+export async function generateSandboxName(accountId: string, customName?: string): Promise<string> {
+  if (customName) return customName;
+  const prefix = `sandbox-${accountId.slice(0, 8)}`;
+  const count = await db
+    .select()
+    .from(sandboxes)
+    .where(eq(sandboxes.accountId, accountId))
+    .then((rows) => rows.length);
+  return count > 0 ? `${prefix}-${count + 1}` : prefix;
+}
+
 export async function ensureSandbox(opts: {
   accountId: string;
   userId: string;
@@ -109,11 +124,12 @@ async function tryClaimFromPool(
     const claimed = await pool.grab({ serverType: opts.serverType, location: opts.location });
     if (!claimed) return null;
 
+    const name = await generateSandboxName(accountId);
     const [row] = await db
       .insert(sandboxes)
       .values({
         accountId,
-        name: `sandbox-${accountId.slice(0, 8)}`,
+        name,
         provider: claimed.poolSandbox.provider,
         externalId: claimed.externalId,
         status: 'active',
@@ -181,7 +197,7 @@ async function provisionNewSandbox(
   const createOpts = {
     accountId,
     userId,
-    name: `sandbox-${accountId.slice(0, 8)}`,
+    name: sandbox.name,
     serverType: opts.serverType,
     location: opts.location,
     envVars: { KORTIX_TOKEN: sandboxKey.secretKey },
@@ -195,11 +211,12 @@ async function provisionNewSandbox(
 }
 
 async function insertProvisioningRow(accountId: string, providerName: ProviderName, isIncluded?: boolean) {
+  const name = await generateSandboxName(accountId);
   const [sandbox] = await db
     .insert(sandboxes)
     .values({
       accountId,
-      name: `sandbox-${accountId.slice(0, 8)}`,
+      name,
       provider: providerName,
       externalId: '',
       status: 'provisioning',
