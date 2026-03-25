@@ -3,7 +3,7 @@
 import { ThemeToggle } from '@/components/home/theme-toggle';
 import { siteConfig } from '@/lib/site-config';
 import { cn } from '@/lib/utils';
-import { X, Menu } from 'lucide-react';
+import { X, Menu, Type, Layers } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import Link from 'next/link';
 import { useEffect, useState, useCallback, useRef } from 'react';
@@ -16,6 +16,17 @@ import { AppDownloadQR } from '@/components/common/app-download-qr';
 import { isMobileDevice } from '@/lib/utils/is-mobile-device';
 import { Button } from '@/components/ui/button';
 import { useGitHubStars } from '@/hooks/utils/use-github-stars';
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSub,
+  ContextMenuSubTrigger,
+  ContextMenuSubContent,
+  ContextMenuSeparator,
+} from '@/components/ui/context-menu';
+
 
 // Apple logo SVG
 function AppleLogo({ className }: { className?: string }) {
@@ -204,10 +215,60 @@ export function Navbar({ isAbsolute = false }: NavbarProps) {
       hasScrolled && !isAbsolute && "bg-background/80 backdrop-blur-xl pb-2"
     )}>
       <div className="flex items-center justify-between h-[52px]">
-        {/* Left — Logo */}
-        <Link href="/" className="flex items-center shrink-0">
-          <KortixLogo size={18} variant='logomark' />
-        </Link>
+        {/* Left — Logo (right-click for brand assets) */}
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <Link href="/" className="flex items-center shrink-0">
+              <KortixLogo size={18} variant='logomark' />
+            </Link>
+          </ContextMenuTrigger>
+          <ContextMenuContent className="w-48">
+            <ContextMenuSub>
+              <ContextMenuSubTrigger className="gap-2 text-[13px]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/kortix-symbol.svg" alt="" className="h-3 w-auto shrink-0 dark:invert" />
+                Download symbol
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent className="w-40">
+                {[
+                  { label: 'Black · SVG', href: '/brandkit/Logo/Brandmark/SVG/Brandmark Black.svg', file: 'kortix-symbol-black.svg' },
+                  { label: 'Black · PNG', href: '/brandkit/Logo/Brandmark/PNG/Brandmark Black.png', file: 'kortix-symbol-black.png' },
+                  { label: 'White · SVG', href: '/brandkit/Logo/Brandmark/SVG/Brandmark White.svg', file: 'kortix-symbol-white.svg' },
+                  { label: 'White · PNG', href: '/brandkit/Logo/Brandmark/PNG/Brandmark White.png', file: 'kortix-symbol-white.png' },
+                ].map((d) => (
+                  <ContextMenuItem key={d.file} onClick={() => { const a = document.createElement('a'); a.href = d.href; a.download = d.file; a.click(); }} className="text-[13px] cursor-pointer">
+                    {d.label}
+                  </ContextMenuItem>
+                ))}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+            <ContextMenuSub>
+              <ContextMenuSubTrigger className="gap-2 text-[13px]">
+                <Type className="size-3.5 shrink-0" />
+                Download wordmark
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent className="w-40">
+                {[
+                  { label: 'Black · SVG', href: '/brandkit/Logo/Wordmark/SVG/Wordmark Black.svg', file: 'kortix-wordmark-black.svg' },
+                  { label: 'Black · PNG', href: '/brandkit/Logo/Wordmark/PNG/Wordmark Black.png', file: 'kortix-wordmark-black.png' },
+                  { label: 'White · SVG', href: '/brandkit/Logo/Wordmark/SVG/Wordmark White.svg', file: 'kortix-wordmark-white.svg' },
+                  { label: 'White · PNG', href: '/brandkit/Logo/Wordmark/PNG/Wordmark White.png', file: 'kortix-wordmark-white.png' },
+                ].map((d) => (
+                  <ContextMenuItem key={d.file} onClick={() => { const a = document.createElement('a'); a.href = d.href; a.download = d.file; a.click(); }} className="text-[13px] cursor-pointer">
+                    {d.label}
+                  </ContextMenuItem>
+                ))}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+            <ContextMenuItem
+              onClick={() => router.push('/brand')}
+              className="gap-2 text-[13px] cursor-pointer"
+            >
+              <Layers className="size-3.5 shrink-0" />
+              Brand assets
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
 
         {/* Center — Nav Links (desktop only) */}
         <nav className="hidden md:flex items-center justify-center gap-1 absolute left-1/2 -translate-x-1/2">
