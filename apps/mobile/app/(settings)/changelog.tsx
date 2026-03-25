@@ -231,13 +231,17 @@ function VersionCard({
   isDark: boolean;
 }) {
   const borderColor = isLatest
-    ? isDark ? 'rgba(99,102,241,0.3)' : 'rgba(99,102,241,0.2)'
+    ? isDark ? 'rgba(219,39,119,0.35)' : 'rgba(219,39,119,0.25)'
     : isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.08)';
+
+  const bgColor = isLatest
+    ? isDark ? 'rgba(219,39,119,0.04)' : 'rgba(219,39,119,0.02)'
+    : undefined;
 
   return (
     <View
       className="rounded-2xl border px-4 pt-4 pb-3"
-      style={{ borderColor }}
+      style={{ borderColor, backgroundColor: bgColor }}
     >
       {/* Version header */}
       <View className="flex-row items-center mb-2">

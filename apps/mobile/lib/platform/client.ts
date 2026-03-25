@@ -333,7 +333,14 @@ export async function getLatestSandboxVersion(): Promise<SandboxVersionInfo> {
     headers: { Accept: 'application/json' },
   });
   if (!res.ok) throw new Error(`Version check failed: ${res.status}`);
-  return res.json();
+  const data = await res.json();
+  // Handle nested response: { data: { version, changelog } } or direct { version, changelog }
+  const info = data?.data ?? data;
+  return {
+    version: info.version,
+    channel: info.channel,
+    changelog: info.changelog ?? null,
+  };
 }
 
 export async function getFullChangelog(): Promise<ChangelogEntry[]> {
