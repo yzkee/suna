@@ -858,7 +858,8 @@ export function InstanceManagerDialog({
     setSSHError(null);
     setSSHResult(null);
     try {
-      const result = await setupSSH();
+      const activeServer = servers.find((s) => s.id === activeServerId);
+      const result = await setupSSH(activeServer?.instanceId);
       setSSHResult(result);
       const meta: SSHAccessMeta = {
         ssh_command: result.ssh_command,
@@ -1008,13 +1009,12 @@ export function InstanceManagerDialog({
                   New Instance
                 </button>
 
-                {/* SSH shortcut — only for local docker sandboxes */}
-                {servers.some((s) => s.provider === 'local_docker') && (
+                {servers.length > 0 && (
                   <button
                     type="button"
                     onClick={handleGenerateSSH}
                     disabled={isGeneratingSSH}
-                    title="Generate SSH key for Local Docker sandbox"
+                    title="Generate SSH key for sandbox"
                     className="flex items-center justify-center h-9 w-9 text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted/80 border border-border/50 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isGeneratingSSH ? (
@@ -1026,7 +1026,7 @@ export function InstanceManagerDialog({
                 )}
               </div>
 
-              {servers.some((s) => s.provider === 'local_docker') && sshMeta && (
+              {servers.length > 0 && sshMeta && (
                 <div className="rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5 space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-[11px] font-medium text-foreground/80">SSH Access</p>

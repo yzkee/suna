@@ -20,6 +20,10 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { setupSSH, type SSHSetupResult } from '@/lib/platform-client';
+import { getActiveInstanceId, getActiveServer } from '@/stores/server-store';
+import { openTabAndNavigate } from '@/stores/tab-store';
+import { useCreatePty, ptyKeys } from '@/hooks/opencode/use-opencode-pty';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/lib/toast';
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
@@ -84,10 +88,10 @@ function CodeBlock({ children, copyText, copyField, copiedField, onCopy, maxH }:
 }) {
   return (
     <div className="relative group">
-      <pre className={cn(
-        "text-[10.5px] leading-relaxed font-mono bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2.5 pr-10 overflow-x-hidden whitespace-pre-wrap break-all select-all text-zinc-300",
-        maxH && `max-h-[${maxH}] overflow-y-auto`
-      )}>
+      <pre
+        className="text-[10.5px] leading-relaxed font-mono bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2.5 pr-10 overflow-x-hidden whitespace-pre-wrap break-all select-all text-zinc-300 overflow-y-auto"
+        style={maxH ? { maxHeight: maxH } : undefined}
+      >
         {children}
       </pre>
       <CopyButton text={copyText} field={copyField} copiedField={copiedField} onCopy={onCopy} variant="overlay" />
@@ -97,13 +101,15 @@ function CodeBlock({ children, copyText, copyField, copiedField, onCopy, maxH }:
 
 /* ─── Shared SSH result view (used by both dialog and server-selector) ─── */
 
-export function SSHResultView({ sshResult, copiedField, onCopy, onRegenerate, isGenerating, onDownloadKey }: {
+export function SSHResultView({ sshResult, copiedField, onCopy, onRegenerate, isGenerating, onDownloadKey, onOpenTerminal, isOpeningTerminal }: {
   sshResult: SSHSetupResult;
   copiedField: string | null;
   onCopy: (text: string, field: string) => void;
   onRegenerate: () => void;
   isGenerating: boolean;
   onDownloadKey: () => void;
+  onOpenTerminal?: () => void;
+  isOpeningTerminal?: boolean;
 }) {
   const [showDetails, setShowDetails] = useState(false);
   const pk = sshResult.private_key.trim();
@@ -128,13 +134,12 @@ export function SSHResultView({ sshResult, copiedField, onCopy, onRegenerate, is
   return (
     <div className="flex flex-col min-h-0 flex-1 gap-3.5 overflow-y-auto overflow-x-hidden">
 
-      {/* Primary action: one-liner */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium text-foreground/80">Quick setup &amp; connect</p>
           <CopyButton text={setupAndConnect} label="Copy" field="one-liner" copiedField={copiedField} onCopy={onCopy} />
         </div>
-        <CodeBlock copyText={setupAndConnect} copyField="one-liner-block" copiedField={copiedField} onCopy={onCopy}>
+        <CodeBlock copyText={setupAndConnect} copyField="one-liner-block" copiedField={copiedField} onCopy={onCopy} maxH="200px">
           {setupAndConnect}
         </CodeBlock>
         <p className="text-[10px] text-muted-foreground/50">
@@ -142,7 +147,6 @@ export function SSHResultView({ sshResult, copiedField, onCopy, onRegenerate, is
         </p>
       </div>
 
-      {/* Connection info chips */}
       <div className="flex items-center gap-2 text-[10.5px]">
         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-muted/30 border border-border/30 font-mono text-foreground/70">
           <Terminal className="h-3 w-3 text-muted-foreground/50" />
@@ -152,7 +156,6 @@ export function SSHResultView({ sshResult, copiedField, onCopy, onRegenerate, is
         <span className="font-mono text-foreground/70">{sshResult.username}</span>
       </div>
 
-      {/* Reconnect shortcut */}
       <div className="space-y-1.5">
         <p className="text-[11px] text-muted-foreground/60">Reconnect later:</p>
         <div className="flex items-center gap-2">
@@ -163,18 +166,16 @@ export function SSHResultView({ sshResult, copiedField, onCopy, onRegenerate, is
         </div>
       </div>
 
-      {/* VS Code / Cursor shortcut */}
       <div className="rounded-lg border border-border/30 bg-muted/10 px-3 py-2.5 space-y-2">
         <p className="text-[11px] font-medium text-foreground/70">VS Code / Cursor</p>
         <p className="text-[10px] text-muted-foreground/50">
           Add to <span className="font-mono">~/.ssh/config</span>, then connect with <span className="font-mono text-foreground/60">ssh kortix-sandbox</span>:
         </p>
-        <CodeBlock copyText={addConfigCmd} copyField="config-cmd" copiedField={copiedField} onCopy={onCopy}>
+        <CodeBlock copyText={addConfigCmd} copyField="config-cmd" copiedField={copiedField} onCopy={onCopy} maxH="160px">
           {addConfigCmd}
         </CodeBlock>
       </div>
 
-      {/* Collapsible details */}
       <div className="border-t border-border/20 pt-2">
         <button
           type="button"
@@ -214,8 +215,18 @@ export function SSHResultView({ sshResult, copiedField, onCopy, onRegenerate, is
         )}
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-end pt-1 border-t border-border/20">
+      <div className="flex items-center justify-between pt-1 border-t border-border/20">
+        {onOpenTerminal ? (
+          <button
+            type="button"
+            className="h-7 px-3 text-[11px] font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-lg transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+            onClick={onOpenTerminal}
+            disabled={isOpeningTerminal}
+          >
+            {isOpeningTerminal ? <Loader2 className="h-3 w-3 animate-spin" /> : <Terminal className="h-3 w-3" />}
+            Open Web Terminal
+          </button>
+        ) : <div />}
         <button
           type="button"
           className="h-7 px-3 text-[11px] font-medium text-muted-foreground hover:text-foreground bg-muted/30 hover:bg-muted/50 border border-border/30 rounded-lg transition-all cursor-pointer disabled:opacity-50"
@@ -233,10 +244,13 @@ export function SSHResultView({ sshResult, copiedField, onCopy, onRegenerate, is
 
 export function SSHKeyDialog({ open, onOpenChange }: SSHKeyDialogProps) {
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isOpeningTerminal, setIsOpeningTerminal] = useState(false);
   const [sshResult, setSSHResult] = useState<SSHSetupResult | null>(null);
   const [sshMeta, setSSHMeta] = useState<SSHAccessMeta | null>(null);
   const [sshError, setSSHError] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const createPty = useCreatePty();
+  const queryClient = useQueryClient();
 
   React.useEffect(() => {
     if (!open) return;
@@ -255,7 +269,8 @@ export function SSHKeyDialog({ open, onOpenChange }: SSHKeyDialogProps) {
     setSSHError(null);
     setSSHResult(null);
     try {
-      const result = await setupSSH();
+      const instanceId = getActiveInstanceId();
+      const result = await setupSSH(instanceId);
       setSSHResult(result);
       const meta: SSHAccessMeta = {
         ssh_command: result.ssh_command,
@@ -276,6 +291,27 @@ export function SSHKeyDialog({ open, onOpenChange }: SSHKeyDialogProps) {
       setIsGenerating(false);
     }
   }, []);
+
+  const handleOpenTerminal = useCallback(async () => {
+    setIsOpeningTerminal(true);
+    try {
+      const pty = await createPty.mutateAsync({
+        env: { TERM: 'xterm-256color', COLORTERM: 'truecolor' },
+      });
+      await queryClient.invalidateQueries({ queryKey: ptyKeys.listPrefix() });
+      onOpenChange(false);
+      openTabAndNavigate({
+        id: `terminal:${pty.id}`,
+        title: pty.title || pty.command || 'Terminal',
+        type: 'terminal',
+        href: `/terminal/${pty.id}`,
+      });
+    } catch {
+      toast.error('Failed to open terminal');
+    } finally {
+      setIsOpeningTerminal(false);
+    }
+  }, [createPty, queryClient, onOpenChange]);
 
   function copyToClipboard(text: string, field: string) {
     navigator.clipboard.writeText(text);
@@ -312,11 +348,11 @@ export function SSHKeyDialog({ open, onOpenChange }: SSHKeyDialogProps) {
       <DialogContent className="w-[min(92vw,560px)] sm:max-w-lg max-h-[85vh] p-0 gap-0 overflow-hidden flex flex-col">
         <DialogHeader className="px-5 pt-5 pb-3">
           <DialogTitle className="flex items-center gap-2 text-base">
-            <Key className="h-4 w-4" />
-            SSH Access
+            <Terminal className="h-4 w-4" />
+            Terminal Access
           </DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground/60">
-            Connect to your sandbox via terminal or VS Code Remote SSH.
+            Open a web terminal or connect via SSH.
           </DialogDescription>
         </DialogHeader>
 
@@ -330,9 +366,28 @@ export function SSHKeyDialog({ open, onOpenChange }: SSHKeyDialogProps) {
             )}
             <button
               type="button"
+              onClick={handleOpenTerminal}
+              disabled={isOpeningTerminal}
+              className="flex items-center justify-center gap-2 w-full h-10 text-sm font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isOpeningTerminal ? (
+                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Opening...</>
+              ) : (
+                <><Terminal className="h-3.5 w-3.5" /> Open Web Terminal</>
+              )}
+            </button>
+
+            <div className="relative flex items-center gap-3">
+              <div className="flex-1 border-t border-border/30" />
+              <span className="text-[10px] text-muted-foreground/40">or connect via SSH</span>
+              <div className="flex-1 border-t border-border/30" />
+            </div>
+
+            <button
+              type="button"
               onClick={handleGenerate}
               disabled={isGenerating}
-              className="flex items-center justify-center gap-2 w-full h-10 text-sm font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center justify-center gap-2 w-full h-9 text-sm font-medium text-foreground bg-muted/50 hover:bg-muted/80 border border-border/50 rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isGenerating ? (
                 <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating...</>
@@ -371,6 +426,8 @@ export function SSHKeyDialog({ open, onOpenChange }: SSHKeyDialogProps) {
               onRegenerate={handleGenerate}
               isGenerating={isGenerating}
               onDownloadKey={savePrivateKey}
+              onOpenTerminal={handleOpenTerminal}
+              isOpeningTerminal={isOpeningTerminal}
             />
           </div>
         )}
