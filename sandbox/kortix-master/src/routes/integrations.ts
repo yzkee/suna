@@ -6,6 +6,20 @@ import { ErrorResponse } from '../schemas/common'
 
 const integrationsRouter = new Hono()
 
+/**
+ * Build X-Pipedream-* headers from sandbox env vars.
+ * These let the sandbox send its own Pipedream credentials to kortix-api,
+ * which uses them instead of (or as fallback for) its global config.
+ */
+function getPipedreamHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {}
+  if (process.env.PIPEDREAM_CLIENT_ID) headers['x-pipedream-client-id'] = process.env.PIPEDREAM_CLIENT_ID
+  if (process.env.PIPEDREAM_CLIENT_SECRET) headers['x-pipedream-client-secret'] = process.env.PIPEDREAM_CLIENT_SECRET
+  if (process.env.PIPEDREAM_PROJECT_ID) headers['x-pipedream-project-id'] = process.env.PIPEDREAM_PROJECT_ID
+  if (process.env.PIPEDREAM_ENVIRONMENT) headers['x-pipedream-environment'] = process.env.PIPEDREAM_ENVIRONMENT
+  return headers
+}
+
 // NOTE: Per-route auth middleware removed — global auth in index.ts now
 // always enforces INTERNAL_SERVICE_KEY on all routes (auto-generated if not set).
 
@@ -50,6 +64,7 @@ integrationsRouter.post('/token',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
+          ...getPipedreamHeaders(),
         },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(15_000),
@@ -90,6 +105,7 @@ integrationsRouter.post('/proxy',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
+          ...getPipedreamHeaders(),
         },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(30_000),
@@ -127,6 +143,7 @@ integrationsRouter.get('/list',
       const res = await fetch(`${apiUrl}/integrations/list`, {
         headers: {
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
+          ...getPipedreamHeaders(),
         },
         signal: AbortSignal.timeout(15_000),
       })
@@ -171,6 +188,7 @@ integrationsRouter.get('/actions',
       const res = await fetch(`${apiUrl}/integrations/actions?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
+          ...getPipedreamHeaders(),
         },
         signal: AbortSignal.timeout(15_000),
       })
@@ -209,6 +227,7 @@ integrationsRouter.post('/connect',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
+          ...getPipedreamHeaders(),
         },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(15_000),
@@ -252,6 +271,7 @@ integrationsRouter.get('/search-apps',
       const res = await fetch(`${apiUrl}/integrations/search-apps?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
+          ...getPipedreamHeaders(),
         },
         signal: AbortSignal.timeout(15_000),
       })
@@ -290,6 +310,7 @@ integrationsRouter.post('/run-action',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
+          ...getPipedreamHeaders(),
         },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(30_000),
@@ -327,6 +348,7 @@ integrationsRouter.get('/triggers/available', async (c) => {
       const res = await fetch(`${apiUrl}/integrations/triggers/available?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
+          ...getPipedreamHeaders(),
         },
         signal: AbortSignal.timeout(15_000),
       })
@@ -350,6 +372,7 @@ integrationsRouter.post('/triggers/deploy', async (c) => {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
+          ...getPipedreamHeaders(),
         },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(30_000),
@@ -373,6 +396,7 @@ integrationsRouter.get('/triggers/deployed', async (c) => {
       const res = await fetch(`${apiUrl}/integrations/triggers/deployed`, {
         headers: {
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
+          ...getPipedreamHeaders(),
         },
         signal: AbortSignal.timeout(15_000),
       })
@@ -395,6 +419,7 @@ integrationsRouter.delete('/triggers/deployed/:id', async (c) => {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
+          ...getPipedreamHeaders(),
         },
         signal: AbortSignal.timeout(15_000),
       })
@@ -419,6 +444,7 @@ integrationsRouter.put('/triggers/deployed/:id', async (c) => {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
+          ...getPipedreamHeaders(),
         },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(15_000),
