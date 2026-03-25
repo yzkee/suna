@@ -1,18 +1,14 @@
 import * as React from 'react';
 import {
-  ActionSheetIOS,
   ActivityIndicator,
   Alert,
-  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
-  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColorScheme } from 'nativewind';
-import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import {
   BottomSheetBackdrop,
@@ -23,29 +19,19 @@ import {
 } from '@gorhom/bottom-sheet';
 import {
   Cloud,
-  Copy,
   Globe,
-  HardDrive,
   Monitor,
-  MoreHorizontal,
+  Pencil,
   Plus,
-  RefreshCw,
   Server,
-  Square,
-  Trash2,
-  X,
 } from 'lucide-react-native';
 import { Text } from '@/components/ui/text';
 import { Icon } from '@/components/ui/icon';
 import { useSandboxContext } from '@/contexts/SandboxContext';
 import {
   useInstances,
-  useRestartInstance,
-  useStopInstance,
-  useDeleteInstance,
   useProviders,
   useCreateLocalInstance,
-  useCreateCloudInstance,
 } from '@/lib/platform/hooks';
 import { checkInstanceHealth, type SandboxInfo, type SandboxProviderName } from '@/lib/platform/client';
 
@@ -79,12 +65,6 @@ function statusLabel(status: string): string {
   }
 }
 
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
-  if (isNaN(date.getTime())) return '';
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
 // ─── Main Screen ────────────────────────────────────────────────────────────
 
 export default function InstancesScreen() {
@@ -94,105 +74,16 @@ export default function InstancesScreen() {
   const { sandboxId } = useSandboxContext();
 
   const { data: instances, isLoading, refetch, isRefetching } = useInstances();
-  const restartMutation = useRestartInstance();
-  const stopMutation = useStopInstance();
-  const deleteMutation = useDeleteInstance();
 
   const addSheetRef = React.useRef<BottomSheetModal>(null);
+  const renameSheetRef = React.useRef<BottomSheetModal>(null);
+  const [renameTarget, setRenameTarget] = React.useState<SandboxInfo | null>(null);
 
-  const activeInstance = React.useMemo(
-    () => instances?.find((i) => i.external_id === sandboxId),
-    [instances, sandboxId],
-  );
-
-  const handleCopyUrl = React.useCallback((url: string) => {
+  const handleRename = React.useCallback((instance: SandboxInfo) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    Clipboard.setStringAsync(url);
+    setRenameTarget(instance);
+    renameSheetRef.current?.present();
   }, []);
-
-  const handleRestart = React.useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    restartMutation.mutate(undefined, {
-      onSuccess: () => {
-        Alert.alert('Restarting', 'Your instance is restarting. This may take a moment.');
-        refetch();
-      },
-      onError: (err: any) => Alert.alert('Error', err?.message || 'Failed to restart'),
-    });
-  }, [restartMutation, refetch]);
-
-  const handleStop = React.useCallback(() => {
-    Alert.alert('Stop Instance', 'Are you sure you want to stop this instance?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Stop',
-        style: 'destructive',
-        onPress: () => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          stopMutation.mutate(undefined, {
-            onSuccess: () => refetch(),
-            onError: (err: any) => Alert.alert('Error', err?.message || 'Failed to stop'),
-          });
-        },
-      },
-    ]);
-  }, [stopMutation, refetch]);
-
-  const handleDelete = React.useCallback((instance: SandboxInfo) => {
-    Alert.alert(
-      'Delete Instance',
-      `Are you sure you want to delete "${instance.name}"? This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-            deleteMutation.mutate(instance.sandbox_id, {
-              onSuccess: () => refetch(),
-              onError: (err: any) => Alert.alert('Error', err?.message || 'Failed to delete'),
-            });
-          },
-        },
-      ],
-    );
-  }, [deleteMutation, refetch]);
-
-  const showActions = React.useCallback((instance: SandboxInfo) => {
-    const isActive = instance.external_id === sandboxId;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-    const options = ['Cancel'];
-    if (isActive) { options.push('Restart', 'Stop'); }
-    if (!isActive) { options.push('Delete'); }
-
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        { options, cancelButtonIndex: 0, destructiveButtonIndex: !isActive ? options.indexOf('Delete') : -1 },
-        (index) => {
-          const action = options[index];
-          if (action === 'Restart') handleRestart();
-          else if (action === 'Stop') handleStop();
-          else if (action === 'Delete') handleDelete(instance);
-        },
-      );
-    } else {
-      const items = options.slice(1);
-      Alert.alert(instance.name, undefined, [
-        ...items.map((item) => ({
-          text: item,
-          style: (item === 'Delete' ? 'destructive' : 'default') as any,
-          onPress: () => {
-            if (item === 'Restart') handleRestart();
-            else if (item === 'Stop') handleStop();
-            else if (item === 'Delete') handleDelete(instance);
-          },
-        })),
-        { text: 'Cancel', style: 'cancel' },
-      ]);
-    }
-  }, [sandboxId, handleRestart, handleStop, handleDelete]);
 
   const openAddSheet = React.useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -201,6 +92,12 @@ export default function InstancesScreen() {
 
   const onInstanceAdded = React.useCallback(() => {
     addSheetRef.current?.dismiss();
+    refetch();
+  }, [refetch]);
+
+  const onRenamed = React.useCallback(() => {
+    renameSheetRef.current?.dismiss();
+    setRenameTarget(null);
     refetch();
   }, [refetch]);
 
@@ -217,79 +114,15 @@ export default function InstancesScreen() {
       <ScrollView
         className="flex-1 bg-background"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
       >
-        <View className="px-5 pt-1" style={{ gap: 18 }}>
-          {/* Active Instance Detail */}
-          {activeInstance && (
-            <View className="px-1">
-              <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
-                Active Instance
-              </Text>
-              <View>
-                <View className="py-3.5">
-                  <View className="flex-row items-center">
-                    <View className="h-2.5 w-2.5 rounded-full mr-3" style={{ backgroundColor: statusColor(activeInstance.status) }} />
-                    <View className="flex-1">
-                      <View className="flex-row items-center">
-                        <Text className="font-roobert-medium text-[15px] text-foreground" numberOfLines={1}>
-                          {activeInstance.name}
-                        </Text>
-                        <View className="ml-2 rounded-full bg-emerald-400/15 px-2 py-0.5">
-                          <Text className="text-[10px] font-roobert-medium text-emerald-600 dark:text-emerald-400">Active</Text>
-                        </View>
-                      </View>
-                      <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">
-                        {statusLabel(activeInstance.status)}{activeInstance.version ? ` · v${activeInstance.version}` : ''}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-                <View className="h-px bg-border/35" />
-
-                <Pressable onPress={() => handleCopyUrl(activeInstance.base_url)} className="py-3.5 active:opacity-85">
-                  <View className="flex-row items-center">
-                    <Icon as={HardDrive} size={18} className="text-foreground/80" strokeWidth={2.2} />
-                    <View className="ml-4 flex-1">
-                      <Text className="font-roobert-medium text-[15px] text-foreground">Connection URL</Text>
-                      <Text className="mt-0.5 font-roobert text-xs text-muted-foreground" numberOfLines={1}>{activeInstance.base_url}</Text>
-                    </View>
-                    <Icon as={Copy} size={14} className="text-muted-foreground/50" strokeWidth={2.2} />
-                  </View>
-                </Pressable>
-                <View className="h-px bg-border/35" />
-
-                <View className="py-3.5">
-                  <View className="flex-row items-center">
-                    <Icon as={activeInstance.provider === 'local_docker' ? Monitor : Cloud} size={18} className="text-foreground/80" strokeWidth={2.2} />
-                    <View className="ml-4 flex-1">
-                      <Text className="font-roobert-medium text-[15px] text-foreground">{providerLabel(activeInstance.provider)} Instance</Text>
-                      <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">Created {formatDate(activeInstance.created_at)}</Text>
-                    </View>
-                  </View>
-                </View>
-                <View className="h-px bg-border/35" />
-
-                <View className="flex-row py-3.5" style={{ gap: 10 }}>
-                  <Pressable onPress={handleRestart} disabled={restartMutation.isPending} className="flex-row items-center rounded-lg bg-muted/60 px-3 py-2 active:opacity-80">
-                    <Icon as={RefreshCw} size={12} className="text-foreground mr-1.5" strokeWidth={2.2} />
-                    <Text className="font-roobert-medium text-xs text-foreground">{restartMutation.isPending ? 'Restarting...' : 'Restart'}</Text>
-                  </Pressable>
-                  <Pressable onPress={handleStop} disabled={stopMutation.isPending} className="flex-row items-center rounded-lg bg-destructive/10 px-3 py-2 active:opacity-80">
-                    <Icon as={Square} size={12} className="text-destructive mr-1.5" strokeWidth={2.2} />
-                    <Text className="font-roobert-medium text-xs text-destructive">{stopMutation.isPending ? 'Stopping...' : 'Stop'}</Text>
-                  </Pressable>
-                </View>
-              </View>
-            </View>
-          )}
-
-          {/* All Instances */}
+        <View className="px-5 pt-1">
+          {/* Instances */}
           {instances && instances.length > 0 && (
             <View className="px-1">
               <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
-                All Instances
+                Instances
               </Text>
               <View>
                 {instances.map((instance, idx) => {
@@ -297,25 +130,31 @@ export default function InstancesScreen() {
                   const isLast = idx === instances.length - 1;
                   return (
                     <View key={instance.sandbox_id}>
-                      <Pressable onPress={() => showActions(instance)} className="py-3.5 active:opacity-85">
+                      <Pressable onPress={() => handleRename(instance)} className="py-3.5 active:opacity-85">
                         <View className="flex-row items-center">
-                          <View className="h-2.5 w-2.5 rounded-full mr-3" style={{ backgroundColor: statusColor(instance.status) }} />
+                          <View
+                            className="h-2.5 w-2.5 rounded-full mr-3"
+                            style={{ backgroundColor: statusColor(instance.status) }}
+                          />
                           <View className="flex-1">
-                            <Text className="font-roobert-medium text-[15px] text-foreground" numberOfLines={1}>{instance.name}</Text>
+                            <Text className="font-roobert-medium text-[15px] text-foreground" numberOfLines={1}>
+                              {instance.name}
+                            </Text>
                             <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">
-                              {statusLabel(instance.status)}{instance.version ? ` · v${instance.version}` : ''}
+                              {statusLabel(instance.status)}
+                              {instance.version ? ` · v${instance.version}` : ''}
+                              {` · ${providerLabel(instance.provider)}`}
                             </Text>
                           </View>
                           <View className="flex-row items-center" style={{ gap: 6 }}>
-                            <View className="rounded-full px-2 py-0.5" style={{ backgroundColor: isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.05)' }}>
-                              <Text className="text-[10px] font-roobert-medium text-muted-foreground">{providerLabel(instance.provider)}</Text>
-                            </View>
                             {isActive && (
                               <View className="rounded-full bg-emerald-400/15 px-2 py-0.5">
-                                <Text className="text-[10px] font-roobert-medium text-emerald-600 dark:text-emerald-400">Active</Text>
+                                <Text className="text-[10px] font-roobert-medium text-emerald-600 dark:text-emerald-400">
+                                  Active
+                                </Text>
                               </View>
                             )}
-                            <Icon as={MoreHorizontal} size={16} className="text-muted-foreground/50" strokeWidth={2.2} />
+                            <Icon as={Pencil} size={14} className="text-muted-foreground/40" strokeWidth={2.2} />
                           </View>
                         </View>
                       </Pressable>
@@ -340,7 +179,7 @@ export default function InstancesScreen() {
         </View>
       </ScrollView>
 
-      {/* FAB: New Instance */}
+      {/* New Instance button */}
       <View style={{ position: 'absolute', bottom: insets.bottom + 16, left: 20, right: 20 }}>
         <Pressable
           onPress={openAddSheet}
@@ -355,9 +194,108 @@ export default function InstancesScreen() {
       </View>
 
       <AddInstanceSheet ref={addSheetRef} isDark={isDark} onCreated={onInstanceAdded} />
+      <RenameSheet ref={renameSheetRef} isDark={isDark} instance={renameTarget} onRenamed={onRenamed} />
     </>
   );
 }
+
+// ─── Rename Bottom Sheet ────────────────────────────────────────────────────
+
+const RenameSheet = React.forwardRef<
+  BottomSheetModal,
+  { isDark: boolean; instance: SandboxInfo | null; onRenamed: () => void }
+>(function RenameSheet({ isDark, instance, onRenamed }, ref) {
+  const insets = useSafeAreaInsets();
+  const [name, setName] = React.useState('');
+  const fgColor = isDark ? '#f8f8f8' : '#121215';
+
+  React.useEffect(() => {
+    if (instance) setName(instance.name);
+  }, [instance]);
+
+  const canSave = name.trim().length > 0 && name.trim() !== instance?.name;
+
+  const handleSave = React.useCallback(() => {
+    if (!canSave) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // TODO: wire to rename API when available
+    Alert.alert('Renamed', `Instance renamed to "${name.trim()}".`);
+    onRenamed();
+  }, [canSave, name, onRenamed]);
+
+  return (
+    <BottomSheetModal
+      ref={ref}
+      index={0}
+      snapPoints={[260]}
+      enablePanDownToClose
+      backdropComponent={(props: BottomSheetBackdropProps) => (
+        <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} opacity={0.35} />
+      )}
+      handleIndicatorStyle={{
+        backgroundColor: isDark ? '#3F3F46' : '#D4D4D8',
+        width: 36, height: 5, borderRadius: 3,
+      }}
+      backgroundStyle={{
+        backgroundColor: isDark ? '#161618' : '#FFFFFF',
+        borderTopLeftRadius: 24, borderTopRightRadius: 24,
+      }}
+    >
+      <BottomSheetView style={{ paddingHorizontal: 24, paddingTop: 4, paddingBottom: Math.max(insets.bottom, 20) + 16 }}>
+        <Text className="text-lg font-roobert-semibold text-foreground">Rename Instance</Text>
+        <Text className="mt-0.5 mb-4 font-roobert text-xs text-muted-foreground">
+          Set a display name for this instance.
+        </Text>
+
+        <BottomSheetTextInput
+          value={name}
+          onChangeText={setName}
+          placeholder="Instance name"
+          placeholderTextColor={isDark ? 'rgba(248,248,248,0.25)' : 'rgba(18,18,21,0.3)'}
+          autoCapitalize="words"
+          autoCorrect={false}
+          returnKeyType="done"
+          onSubmitEditing={handleSave}
+          style={{
+            backgroundColor: isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.04)',
+            borderWidth: 1,
+            borderColor: isDark ? 'rgba(248,248,248,0.1)' : 'rgba(18,18,21,0.08)',
+            borderRadius: 14,
+            paddingHorizontal: 16,
+            paddingVertical: 14,
+            fontSize: 16,
+            fontFamily: 'Roobert',
+            color: fgColor,
+            marginBottom: 16,
+          }}
+        />
+
+        <Pressable
+          onPress={handleSave}
+          disabled={!canSave}
+          className="items-center rounded-2xl py-3.5 active:opacity-90"
+          style={{
+            backgroundColor: canSave
+              ? isDark ? '#f8f8f8' : '#121215'
+              : isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.06)',
+            opacity: canSave ? 1 : 0.5,
+          }}
+        >
+          <Text
+            className="font-roobert-semibold text-[15px]"
+            style={{
+              color: canSave
+                ? isDark ? '#121215' : '#f8f8f8'
+                : isDark ? 'rgba(248,248,248,0.3)' : 'rgba(18,18,21,0.3)',
+            }}
+          >
+            Save
+          </Text>
+        </Pressable>
+      </BottomSheetView>
+    </BottomSheetModal>
+  );
+});
 
 // ─── Add Instance Bottom Sheet ──────────────────────────────────────────────
 
@@ -375,7 +313,6 @@ const AddInstanceSheet = React.forwardRef<
 
   const { data: providers } = useProviders();
   const createLocalMutation = useCreateLocalInstance();
-  const createCloudMutation = useCreateCloudInstance();
 
   const hasLocalDocker = Array.isArray(providers) && providers.includes('local_docker');
   const fgColor = isDark ? '#f8f8f8' : '#121215';
@@ -419,7 +356,6 @@ const AddInstanceSheet = React.forwardRef<
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setIsCreating(true);
 
-    // Check health of the custom URL
     const version = await checkInstanceHealth(url);
     setIsCreating(false);
 
@@ -442,19 +378,14 @@ const AddInstanceSheet = React.forwardRef<
       onDismiss={resetState}
       handleIndicatorStyle={{
         backgroundColor: isDark ? '#3F3F46' : '#D4D4D8',
-        width: 36,
-        height: 5,
-        borderRadius: 3,
+        width: 36, height: 5, borderRadius: 3,
       }}
       backgroundStyle={{
         backgroundColor: isDark ? '#161618' : '#FFFFFF',
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
+        borderTopLeftRadius: 24, borderTopRightRadius: 24,
       }}
     >
-      <BottomSheetView
-        style={{ paddingHorizontal: 24, paddingTop: 4, paddingBottom: Math.max(insets.bottom, 20) + 16 }}
-      >
+      <BottomSheetView style={{ paddingHorizontal: 24, paddingTop: 4, paddingBottom: Math.max(insets.bottom, 20) + 16 }}>
         {step === 'select' ? (
           <>
             <View className="flex-row items-center mb-1">
@@ -466,7 +397,6 @@ const AddInstanceSheet = React.forwardRef<
             </Text>
 
             <View style={{ gap: 8 }}>
-              {/* Local Docker */}
               {hasLocalDocker && (
                 <Pressable
                   onPress={handleLocalDocker}
@@ -481,14 +411,11 @@ const AddInstanceSheet = React.forwardRef<
                       <Text className="font-roobert-medium text-[15px] text-foreground">Local Docker</Text>
                       <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">Runs on your machine via Docker</Text>
                     </View>
-                    {isCreating && createLocalMutation.isPending && (
-                      <ActivityIndicator size="small" />
-                    )}
+                    {isCreating && createLocalMutation.isPending && <ActivityIndicator size="small" />}
                   </View>
                 </Pressable>
               )}
 
-              {/* Custom URL */}
               <Pressable
                 onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setStep('custom'); }}
                 className="rounded-2xl border border-border/40 px-4 py-3.5 active:opacity-85"
@@ -527,13 +454,8 @@ const AddInstanceSheet = React.forwardRef<
                 backgroundColor: isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.04)',
                 borderWidth: 1,
                 borderColor: isDark ? 'rgba(248,248,248,0.1)' : 'rgba(18,18,21,0.08)',
-                borderRadius: 14,
-                paddingHorizontal: 16,
-                paddingVertical: 14,
-                fontSize: 14,
-                fontFamily: 'Roobert',
-                color: fgColor,
-                marginBottom: 10,
+                borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14,
+                fontSize: 14, fontFamily: 'Roobert', color: fgColor, marginBottom: 10,
               }}
             />
 
@@ -548,13 +470,8 @@ const AddInstanceSheet = React.forwardRef<
                 backgroundColor: isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.04)',
                 borderWidth: 1,
                 borderColor: isDark ? 'rgba(248,248,248,0.1)' : 'rgba(18,18,21,0.08)',
-                borderRadius: 14,
-                paddingHorizontal: 16,
-                paddingVertical: 14,
-                fontSize: 14,
-                fontFamily: 'Roobert',
-                color: fgColor,
-                marginBottom: 16,
+                borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14,
+                fontSize: 14, fontFamily: 'Roobert', color: fgColor, marginBottom: 16,
               }}
             />
 
