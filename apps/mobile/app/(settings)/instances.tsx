@@ -18,6 +18,7 @@ import {
   type BottomSheetBackdropProps,
 } from '@gorhom/bottom-sheet';
 import {
+  Check,
   Cloud,
   Globe,
   Monitor,
@@ -71,13 +72,19 @@ export default function InstancesScreen() {
   const insets = useSafeAreaInsets();
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
-  const { sandboxId } = useSandboxContext();
+  const { sandboxId, switchSandbox } = useSandboxContext();
 
   const { data: instances, isLoading, refetch, isRefetching } = useInstances();
 
   const addSheetRef = React.useRef<BottomSheetModal>(null);
   const renameSheetRef = React.useRef<BottomSheetModal>(null);
   const [renameTarget, setRenameTarget] = React.useState<SandboxInfo | null>(null);
+
+  const handleSelect = React.useCallback((instance: SandboxInfo) => {
+    if (instance.external_id === sandboxId) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    switchSandbox(instance);
+  }, [sandboxId, switchSandbox]);
 
   const handleRename = React.useCallback((instance: SandboxInfo) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -130,7 +137,7 @@ export default function InstancesScreen() {
                   const isLast = idx === instances.length - 1;
                   return (
                     <View key={instance.sandbox_id}>
-                      <Pressable onPress={() => handleRename(instance)} className="py-3.5 active:opacity-85">
+                      <Pressable onPress={() => handleSelect(instance)} className="py-3.5 active:opacity-85">
                         <View className="flex-row items-center">
                           <View
                             className="h-2.5 w-2.5 rounded-full mr-3"
@@ -146,15 +153,17 @@ export default function InstancesScreen() {
                               {` · ${providerLabel(instance.provider)}`}
                             </Text>
                           </View>
-                          <View className="flex-row items-center" style={{ gap: 6 }}>
+                          <View className="flex-row items-center" style={{ gap: 8 }}>
+                            <Pressable
+                              onPress={() => handleRename(instance)}
+                              hitSlop={8}
+                              className="active:opacity-60"
+                            >
+                              <Icon as={Pencil} size={14} className="text-muted-foreground/40" strokeWidth={2.2} />
+                            </Pressable>
                             {isActive && (
-                              <View className="rounded-full bg-emerald-400/15 px-2 py-0.5">
-                                <Text className="text-[10px] font-roobert-medium text-emerald-600 dark:text-emerald-400">
-                                  Active
-                                </Text>
-                              </View>
+                              <Icon as={Check} size={16} className="text-primary" strokeWidth={2.7} />
                             )}
-                            <Icon as={Pencil} size={14} className="text-muted-foreground/40" strokeWidth={2.2} />
                           </View>
                         </View>
                       </Pressable>
