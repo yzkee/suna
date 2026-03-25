@@ -37,6 +37,15 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {
+  DropdownMenuItem,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 
 const DEPLOYMENTS_ENABLED = process.env.NEXT_PUBLIC_KORTIX_DEPLOYMENTS_ENABLED === 'true';
 
@@ -230,48 +239,13 @@ interface TabListDropdownProps {
   tabs: Tab[];
   activeTabId: string | null;
   onActivate: (tabId: string, href: string) => void;
-  onClose: () => void;
-  anchorRef: React.RefObject<HTMLButtonElement | null>;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   getStatus: (sessionId: string) => { isBusy: boolean; pendingCount: number };
 }
 
-function TabListDropdown({ tabs, activeTabId, onActivate, onClose, anchorRef, getStatus }: TabListDropdownProps) {
-  const menuRef = useRef<HTMLDivElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
+function TabListDropdown({ tabs, activeTabId, onActivate, open, onOpenChange, getStatus }: TabListDropdownProps) {
   const [searchQuery, setSearchQuery] = useState('');
-
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (
-        menuRef.current && !menuRef.current.contains(e.target as Node) &&
-        anchorRef.current && !anchorRef.current.contains(e.target as Node)
-      ) {
-        onClose();
-      }
-    };
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('mousedown', handleClick);
-    document.addEventListener('keydown', handleKey);
-    return () => {
-      document.removeEventListener('mousedown', handleClick);
-      document.removeEventListener('keydown', handleKey);
-    };
-  }, [onClose, anchorRef]);
-
-  // Auto-focus the search input
-  useEffect(() => {
-    requestAnimationFrame(() => searchInputRef.current?.focus());
-  }, []);
-
-  const [pos, setPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
-  useEffect(() => {
-    if (anchorRef.current) {
-      const rect = anchorRef.current.getBoundingClientRect();
-      setPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
-    }
-  }, [anchorRef]);
 
   const filteredTabs = useMemo(() => {
     if (!searchQuery.trim()) return tabs;
@@ -279,24 +253,21 @@ function TabListDropdown({ tabs, activeTabId, onActivate, onClose, anchorRef, ge
     return tabs.filter((tab) => tab.title?.toLowerCase().includes(q));
   }, [tabs, searchQuery]);
 
-  // Group tabs by type for visual clarity
   const sessionTabs = filteredTabs.filter((t) => t.type === 'session');
   const otherTabs = filteredTabs.filter((t) => t.type !== 'session');
 
-  const renderTabRow = (tab: Tab) => {
+  const renderTabItem = (tab: Tab) => {
     const Icon = TAB_ICONS[tab.type];
     const isActive = tab.id === activeTabId;
     const { isBusy, pendingCount } = tab.type === 'session' ? getStatus(tab.id) : { isBusy: false, pendingCount: 0 };
     return (
-      <button
+      <DropdownMenuItem
         key={tab.id}
         className={cn(
-          'flex items-center gap-2 w-full px-2.5 py-1.5 text-xs rounded-md transition-colors text-left cursor-pointer',
-          isActive
-            ? 'bg-accent text-accent-foreground font-medium'
-            : 'text-foreground hover:bg-accent/50'
+          'flex items-center mb-1 gap-2 text-xs',
+          isActive && 'bg-accent text-accent-foreground font-medium',
         )}
-        onClick={() => { onActivate(tab.id, tab.href); onClose(); }}
+        onSelect={() => onActivate(tab.id, tab.href)}
       >
         {tab.type === 'session' && (isBusy || pendingCount > 0) ? (
           <div className="relative flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center">
@@ -317,63 +288,72 @@ function TabListDropdown({ tabs, activeTabId, onActivate, onClose, anchorRef, ge
         {isActive && (
           <div className="flex-shrink-0 h-1.5 w-1.5 rounded-full bg-primary" />
         )}
-      </button>
+      </DropdownMenuItem>
     );
   };
 
   return (
-    <div
-      ref={menuRef}
-      className="fixed z-50 min-w-[240px] max-w-[340px] max-h-[460px] rounded-lg border border-border/80 bg-popover/95 backdrop-blur-sm shadow-lg animate-in fade-in-0 zoom-in-95 slide-in-from-top-1 duration-150 flex flex-col"
-      style={{ top: pos.top, right: pos.right }}
-    >
-      {/* Search input */}
-      {tabs.length > 3 && (
-        <div className="px-2 pt-2 pb-1">
-          <input
-            ref={searchInputRef}
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Filter tabs..."
-            className="w-full px-2.5 py-1.5 text-xs rounded-md bg-muted/50 border border-border/50 placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-          />
-        </div>
-      )}
-
-      <div className="overflow-y-auto p-1.5 flex-1">
-        {sessionTabs.length > 0 && (
-          <>
-            {otherTabs.length > 0 && (
-              <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
-                Sessions
-              </div>
-            )}
-            {sessionTabs.map(renderTabRow)}
-          </>
-        )}
-        {otherTabs.length > 0 && (
-          <>
-            {sessionTabs.length > 0 && (
-              <div className="px-2 pt-2 py-1 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
-                Pages
-              </div>
-            )}
-            {otherTabs.map(renderTabRow)}
-          </>
-        )}
-        {filteredTabs.length === 0 && (
-          <div className="px-2 py-4 text-xs text-muted-foreground text-center">
-            No matching tabs
+    <DropdownMenu open={open} onOpenChange={(v) => { if (!v) setSearchQuery(''); onOpenChange(v); }}>
+      <DropdownMenuTrigger asChild>
+        <button
+          className={cn(
+            'flex items-center justify-center w-7 h-7 rounded-md cursor-pointer',
+            'text-muted-foreground/50 hover:text-muted-foreground transition-colors',
+            open && 'text-muted-foreground',
+          )}
+        >
+          <ChevronsUpDown className="h-3 w-3" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[240px] max-w-[340px] max-h-[460px] flex flex-col p-0">
+        {tabs.length > 3 && (
+          <div className="px-2 pt-2 pb-1">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.stopPropagation()}
+              placeholder="Filter tabs..."
+              autoFocus
+              className="w-full px-2.5 py-1.5 text-xs rounded-md bg-muted/50 border border-border/50 placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+            />
           </div>
         )}
-      </div>
 
-      {/* Tab count footer */}
-      <div className="px-2.5 py-1.5 border-t border-border/40 text-[10px] text-muted-foreground/60">
-        {tabs.length} tab{tabs.length !== 1 ? 's' : ''} open
-      </div>
-    </div>
+        <div className="overflow-y-auto p-1 flex-1">
+          {sessionTabs.length > 0 && (
+            <DropdownMenuGroup>
+              {otherTabs.length > 0 && (
+                <DropdownMenuLabel className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider py-1">
+                  Sessions
+                </DropdownMenuLabel>
+              )}
+              {sessionTabs.map(renderTabItem)}
+            </DropdownMenuGroup>
+          )}
+          {sessionTabs.length > 0 && otherTabs.length > 0 && <DropdownMenuSeparator />}
+          {otherTabs.length > 0 && (
+            <DropdownMenuGroup>
+              {sessionTabs.length > 0 && (
+                <DropdownMenuLabel className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider py-1">
+                  Pages
+                </DropdownMenuLabel>
+              )}
+              {otherTabs.map(renderTabItem)}
+            </DropdownMenuGroup>
+          )}
+          {filteredTabs.length === 0 && (
+            <div className="px-2 py-4 text-xs text-muted-foreground text-center">
+              No matching tabs
+            </div>
+          )}
+        </div>
+
+        <div className="px-2.5 py-1.5 border-t border-border/40 text-[10px] text-muted-foreground/60">
+          {tabs.length} tab{tabs.length !== 1 ? 's' : ''} open
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -597,7 +577,6 @@ export function TabBar() {
 
   // Tab list dropdown state
   const [showTabList, setShowTabList] = useState(false);
-  const tabListBtnRef = useRef<HTMLButtonElement>(null);
 
   // Refs for the tab bar container, chrome-style curve elements, and scroll fade
   const tabBarRef = useRef<HTMLDivElement>(null);
@@ -1156,34 +1135,21 @@ export function TabBar() {
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
-                ref={tabListBtnRef}
-                onClick={() => setShowTabList((v) => !v)}
-                className={cn(
-                  'flex items-center justify-center w-7 h-7 rounded-md cursor-pointer',
-                  'text-muted-foreground/50 hover:text-muted-foreground transition-colors',
-                  showTabList && 'text-muted-foreground',
-                )}
-              >
-                <ChevronsUpDown className="h-3 w-3" />
-              </button>
+              <div>
+                <TabListDropdown
+                  tabs={orderedTabs}
+                  activeTabId={activeTabId}
+                  onActivate={handleActivate}
+                  open={showTabList}
+                  onOpenChange={setShowTabList}
+                  getStatus={getStatus}
+                />
+              </div>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">Open tab list</TooltipContent>
           </Tooltip>
         </div>
       </div>
-
-      {/* Tab list dropdown */}
-      {showTabList && (
-        <TabListDropdown
-          tabs={orderedTabs}
-          activeTabId={activeTabId}
-          onActivate={handleActivate}
-          onClose={() => setShowTabList(false)}
-          anchorRef={tabListBtnRef}
-          getStatus={getStatus}
-        />
-      )}
 
       {/* Right-click context menu */}
       {contextMenu && (
