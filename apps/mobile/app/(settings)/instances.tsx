@@ -35,6 +35,7 @@ import {
   useCreateLocalInstance,
 } from '@/lib/platform/hooks';
 import { checkInstanceHealth, type SandboxInfo, type SandboxProviderName } from '@/lib/platform/client';
+import { setInstanceProgress, useInstanceProgress } from '@/stores/instance-progress';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -66,29 +67,6 @@ function statusLabel(status: string): string {
   }
 }
 
-// ─── Shared progress state (survives navigation) ───────────────────────────
-
-type ProgressInfo = { percent: number; message: string } | null;
-let _sharedProgress: ProgressInfo = null;
-const _progressListeners = new Set<(p: ProgressInfo) => void>();
-
-function setSharedProgress(p: ProgressInfo) {
-  _sharedProgress = p;
-  _progressListeners.forEach((fn) => fn(p));
-}
-
-function useSharedProgress(): [ProgressInfo, (p: ProgressInfo) => void] {
-  const [progress, setProgress] = React.useState<ProgressInfo>(_sharedProgress);
-  React.useEffect(() => {
-    const handler = (p: ProgressInfo) => setProgress(p);
-    _progressListeners.add(handler);
-    // Sync on mount in case it changed while unmounted
-    setProgress(_sharedProgress);
-    return () => { _progressListeners.delete(handler); };
-  }, []);
-  return [progress, setSharedProgress];
-}
-
 // ─── Main Screen ────────────────────────────────────────────────────────────
 
 export default function InstancesScreen() {
@@ -102,7 +80,7 @@ export default function InstancesScreen() {
   const addSheetRef = React.useRef<BottomSheetModal>(null);
   const renameSheetRef = React.useRef<BottomSheetModal>(null);
   const [renameTarget, setRenameTarget] = React.useState<SandboxInfo | null>(null);
-  const [creatingProgress, setCreatingProgress] = useSharedProgress();
+  const creatingProgress = useInstanceProgress();
 
   // Auto-poll when any instance is provisioning
   const hasProvisioning = React.useMemo(
@@ -285,7 +263,7 @@ export default function InstancesScreen() {
         </Pressable>
       </View>
 
-      <AddInstanceSheet ref={addSheetRef} isDark={isDark} onCreated={onInstanceAdded} onProgress={setSharedProgress} />
+      <AddInstanceSheet ref={addSheetRef} isDark={isDark} onCreated={onInstanceAdded} onProgress={setInstanceProgress} />
       <RenameSheet ref={renameSheetRef} isDark={isDark} instance={renameTarget} onRenamed={onRenamed} />
     </>
   );
