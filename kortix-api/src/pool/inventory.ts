@@ -1,4 +1,4 @@
-import { eq, and, asc, sql } from 'drizzle-orm';
+import { eq, and, or, asc, lt, sql } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import { poolSandboxes } from '@kortix/db';
 import { db } from '../shared/db';
@@ -88,12 +88,16 @@ export async function grab(opts?: ClaimOpts): Promise<ClaimedSandbox | null> {
 
   console.log(`[POOL] Grabbed ${claimed.id} (${claimed.serverType}/${claimed.location})`);
 
+  // Strip poolPlaceholderToken from metadata — it was used for env injection auth
+  // and must not leak into the user sandbox record.
+  const { poolPlaceholderToken: _, ...cleanMeta } = (claimed.metadata as Record<string, unknown>) ?? {};
+
   return {
     poolSandbox: claimed,
     externalId: claimed.externalId,
     baseUrl: claimed.baseUrl,
     metadata: {
-      ...((claimed.metadata as Record<string, unknown>) ?? {}),
+      ...cleanMeta,
       claimedFromPool: true,
       claimedAt: new Date().toISOString(),
       poolServerType: claimed.serverType,
@@ -147,7 +151,13 @@ export async function findByExternalId(externalId: string): Promise<PoolSandbox 
 export async function destroyOne(ps: PoolSandbox): Promise<void> {
   if (ps.externalId) {
     const provider = getProvider(ps.provider as ProviderName);
-    await provider.remove(ps.externalId).catch(() => {});
+    try {
+      await provider.remove(ps.externalId);
+    } catch (err) {
+      console.error(`[POOL] provider.remove() failed for ${ps.externalId}, keeping record for retry:`, err);
+      await db.update(poolSandboxes).set({ status: 'error' }).where(eq(poolSandboxes.id, ps.id));
+      return;
+    }
   }
   await db.delete(poolSandboxes).where(eq(poolSandboxes.id, ps.id));
 }
@@ -159,9 +169,17 @@ export async function findStale(): Promise<PoolSandbox[]> {
     .select()
     .from(poolSandboxes)
     .where(
-      sql.raw(`status = 'error'
-        OR (status = 'ready' AND created_at < NOW() - INTERVAL '${maxAgeHours} hours')
-        OR (status = 'provisioning' AND created_at < NOW() - INTERVAL '15 minutes')`),
+      or(
+        eq(poolSandboxes.status, 'error'),
+        and(
+          eq(poolSandboxes.status, 'ready'),
+          lt(poolSandboxes.createdAt, sql`NOW() - make_interval(hours => ${maxAgeHours})`),
+        ),
+        and(
+          eq(poolSandboxes.status, 'provisioning'),
+          lt(poolSandboxes.createdAt, sql`NOW() - INTERVAL '15 minutes'`),
+        ),
+      ),
     );
 }
 

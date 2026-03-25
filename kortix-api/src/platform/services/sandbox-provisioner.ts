@@ -54,8 +54,9 @@ export async function provisionSandboxFromCheckout(opts: {
 
     // Try pool claim first
     if (config.isPoolEnabled()) {
+      let claimed: Awaited<ReturnType<typeof pool.grab>> = null;
       try {
-        const claimed = await pool.grab({ serverType, location: location || undefined });
+        claimed = await pool.grab({ serverType, location: location || undefined });
         console.log(`[sandbox-provisioner] Pool grab: ${claimed ? 'CLAIMED ' + claimed.externalId : 'empty'}`);
 
         if (claimed) {
@@ -94,6 +95,16 @@ export async function provisionSandboxFromCheckout(opts: {
         }
       } catch (err) {
         console.warn('[sandbox-provisioner] Pool claim failed, falling back:', err);
+        if (claimed?.externalId) {
+          try {
+            const { getProvider } = await import('../providers');
+            const provider = getProvider(claimed.poolSandbox.provider as any);
+            await provider.remove(claimed.externalId);
+            console.log(`[sandbox-provisioner] Cleaned up orphaned pool sandbox: ${claimed.externalId}`);
+          } catch (cleanupErr) {
+            console.error(`[sandbox-provisioner] Failed to clean up orphaned pool sandbox ${claimed.externalId}:`, cleanupErr);
+          }
+        }
       }
     }
 
