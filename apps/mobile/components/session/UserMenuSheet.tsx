@@ -112,9 +112,9 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
           </View>
 
           {/* Active instance */}
-          <Pressable className="py-3.5 active:opacity-85">
+          <View className="py-3.5">
             <View className="flex-row items-center">
-              <View className="h-2 w-2 rounded-full bg-emerald-400 mr-3" />
+              <View className="h-2.5 w-2.5 rounded-full bg-emerald-400 mr-3" />
               <View className="flex-1">
                 <Text className="font-roobert-medium text-[15px] text-foreground" numberOfLines={1}>
                   {sandboxLabel || 'sandbox'}
@@ -125,8 +125,13 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
                   </Text>
                 )}
               </View>
+              <View className="rounded-full bg-emerald-400/15 px-2 py-0.5">
+                <Text className="text-[10px] font-roobert-medium text-emerald-600 dark:text-emerald-400">
+                  Active
+                </Text>
+              </View>
             </View>
-          </Pressable>
+          </View>
           <View className="h-px bg-border/35" />
 
           {/* Add instance */}
