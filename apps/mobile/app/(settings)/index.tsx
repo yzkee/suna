@@ -11,18 +11,14 @@ import {
   Bell,
   ChevronRight,
   CreditCard,
-  FlaskConical,
   Globe,
   LogOut,
   Palette,
   Receipt,
   Trash2,
   User,
-  Users,
   Volume2,
   Wallet,
-  BarChart3,
-  Plug,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useAccountDeletionStatus } from '@/hooks/useAccountDeletion';
@@ -137,7 +133,7 @@ export default function SettingsScreen() {
       icon: Wallet,
       label: t('settings.billing', 'Billing'),
       description: 'Subscription and payment details',
-      onPress: () => go('/billing'),
+      onPress: () => go('/(settings)/billing'),
     },
     {
       key: 'transactions',
@@ -146,37 +142,9 @@ export default function SettingsScreen() {
       description: 'Billing and credit transaction history',
       onPress: () => go('/(settings)/transactions'),
     },
-    {
-      key: 'usage',
-      icon: BarChart3,
-      label: t('settings.usage', 'Usage'),
-      description: 'Token and credit usage analytics',
-      onPress: () => go('/usage'),
-    },
-    {
-      key: 'referrals',
-      icon: Users,
-      label: 'Referrals',
-      description: 'Invite teammates and earn rewards',
-      onPress: () => go('/(settings)/referrals'),
-    },
   ];
 
   const advancedRows: SettingsRow[] = [
-    {
-      key: 'integrations',
-      icon: Plug,
-      label: t('integrations.title', 'Integrations'),
-      description: 'Connect external services and MCP tools',
-      onPress: () => go('/(settings)/integrations'),
-    },
-    {
-      key: 'beta',
-      icon: FlaskConical,
-      label: t('settings.beta', 'Beta'),
-      description: 'Experimental features and diagnostics',
-      onPress: () => go('/(settings)/beta'),
-    },
     {
       key: 'deletion',
       icon: Trash2,

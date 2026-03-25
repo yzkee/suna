@@ -172,29 +172,16 @@ export default function SettingsLayout() {
         }}
       />
       <Stack.Screen
+        name="billing"
+        options={{
+          header: () => <SubpageHeader title="Billing" />,
+          headerShown: true,
+        }}
+      />
+      <Stack.Screen
         name="transactions"
         options={{
           header: () => <SubpageHeader title="Transactions" />,
-          headerShown: true,
-        }}
-      />
-      <Stack.Screen
-        name="referrals"
-        options={{
-          header: () => <SubpageHeader title="Referrals" />,
-          headerShown: true,
-        }}
-      />
-      <Stack.Screen
-        name="integrations"
-        options={{
-          headerShown: false,
-        }}
-      />
-      <Stack.Screen
-        name="beta"
-        options={{
-          header: () => <SubpageHeader title={t('beta.title')} />,
           headerShown: true,
         }}
       />
