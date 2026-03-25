@@ -13,9 +13,10 @@ const KORTIX_ASSETS: Partial<Record<SoundEvent, AVPlaybackSource>> = {
 };
 
 function resolveAsset(pack: string, event: SoundEvent): AVPlaybackSource | null {
-  if (pack === 'kortix' || pack === 'opencode') {
+  if (pack === 'kortix') {
     return KORTIX_ASSETS[event] ?? KORTIX_ASSETS.completion ?? null;
   }
+  // opencode pack has no files yet — returns null (no sound)
   return null;
 }
 
