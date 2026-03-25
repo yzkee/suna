@@ -42,7 +42,7 @@ export const statusConfig: Record<DeploymentStatus, {
   stopped: { label: 'Stopped', variant: 'secondary', dotColor: 'bg-gray-400' },
 };
 
-const sourceIcons: Record<DeploymentSource, React.ElementType> = {
+const sourceIcons: Record<DeploymentSource, React.ComponentType<{ className?: string }>> = {
   git: GitBranch,
   code: FileCode2,
   files: Files,

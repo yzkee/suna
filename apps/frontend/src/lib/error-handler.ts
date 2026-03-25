@@ -135,7 +135,6 @@ export const handleApiError = (error: any, context?: ErrorContext): void => {
     usePricingModalStore.getState().openPricingModal({ 
       isAlert: true, 
       alertTitle: errorUI.alertTitle,
-      alertSubtitle: errorUI.alertSubtitle
     });
     return;
   }

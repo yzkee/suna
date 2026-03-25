@@ -25,7 +25,7 @@ interface HelpPage {
     description: string;
     url: string;
     category: string;
-    icon: React.ElementType;
+    icon: React.ComponentType<{ className?: string }>;
     keywords?: string[];
 }
 

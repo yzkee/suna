@@ -429,6 +429,18 @@ interface SelfHostedFormProps {
   onWizardStepChange?: (step: number) => void;
 }
 
+/** Static mapping of provisioning stages → progress info (hoisted to module scope to keep hook deps stable). */
+const STAGE_PROGRESS: Record<string, { progress: number; message: string }> = {
+  server_creating: { progress: 10, message: 'Creating server...' },
+  server_created: { progress: 20, message: 'Server created, running cloud-init...' },
+  cloud_init_running: { progress: 35, message: 'Configuring machine...' },
+  cloud_init_done: { progress: 50, message: 'Configuration complete, starting services...' },
+  docker_pulling: { progress: 60, message: 'Starting sandbox container...' },
+  docker_running: { progress: 75, message: 'Sandbox container started, booting services...' },
+  services_starting: { progress: 85, message: 'Services booting...' },
+  services_ready: { progress: 100, message: 'Ready!' },
+};
+
 export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxProviders = ['local_docker'], defaultProvider = 'local_docker', onWizardStepChange }: SelfHostedFormProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -642,21 +654,10 @@ export function SelfHostedForm({ returnUrl, installed, initialStep = 1, sandboxP
   }, [registerSandbox]);
 
   // ── JustAVPS SSE progress tracking ─────────────────────────────────────────
-  const STAGE_PROGRESS: Record<string, { progress: number; message: string }> = {
-    server_creating: { progress: 10, message: 'Creating server...' },
-    server_created: { progress: 20, message: 'Server created, running cloud-init...' },
-    cloud_init_running: { progress: 35, message: 'Configuring machine...' },
-    cloud_init_done: { progress: 50, message: 'Configuration complete, starting services...' },
-    docker_pulling: { progress: 60, message: 'Starting sandbox container...' },
-    docker_running: { progress: 75, message: 'Sandbox container started, booting services...' },
-    services_starting: { progress: 85, message: 'Services booting...' },
-    services_ready: { progress: 100, message: 'Ready!' },
-  };
-
   const pollJustAVPSStatus = useCallback((jwt: string, backendUrl: string, sandboxId: string, sandboxData: any) => {
     const eventSource = new EventSource(
       `${backendUrl}/platform/sandbox/${sandboxId}/provision-stream`,
-      // @ts-expect-error — EventSource doesn't support headers natively
+      // EventSource doesn't support headers natively — using fetch-based polling below
     );
 
     // EventSource doesn't support auth headers. Fall back to polling.

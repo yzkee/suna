@@ -399,7 +399,7 @@ export const useServerStore = create<ServerStore>()(
         const state = get();
         const isSameId = state.activeServerId === id;
 
-        if (isSameId && !options?.force) return; // true no-op — same server, no data change
+        if (isSameId && !(options as { auto?: boolean; force?: boolean } | undefined)?.force) return; // true no-op — same server, no data change
 
         // Force SDK client to recreate for the new server URL
         resetSDKClient();

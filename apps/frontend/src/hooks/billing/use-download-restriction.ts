@@ -73,8 +73,7 @@ export function useDownloadRestriction(options?: UseDownloadRestrictionOptions):
     // Also open the pricing modal
     openPricingModal({
       isAlert: true,
-      alertTitle: 'Upgrade to Download',
-      alertSubtitle: `Export and download features are available on paid plans. Upgrade now to download your ${featureName} and more.`,
+      alertTitle: `Upgrade to download your ${featureName} and more`,
     });
   }, [openPricingModal, options?.featureName]);
 

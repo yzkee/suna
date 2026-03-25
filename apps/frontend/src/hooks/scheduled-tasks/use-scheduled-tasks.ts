@@ -163,10 +163,10 @@ const fetchTriggers = async (): Promise<Trigger[]> => {
   }
   const api = body as ApiListResponse;
   const normalized = api.data.map((trigger) => ({
-    maxRetries: 0,
-    timeoutMs: 300000,
-    metadata: {},
     ...trigger,
+    maxRetries: trigger.maxRetries ?? 0,
+    timeoutMs: trigger.timeoutMs ?? 300000,
+    metadata: trigger.metadata ?? {},
     isActive: trigger.isActive ?? trigger.enabled ?? true,
   }));
   return normalized;

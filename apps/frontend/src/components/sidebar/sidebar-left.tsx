@@ -52,6 +52,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from '@/components/ui/popover';
+
 import {
   Collapsible,
   CollapsibleContent,
@@ -80,7 +81,8 @@ import { useOpenCodePendingStore } from '@/stores/opencode-pending-store';
 import { buildInstancePath, getCurrentInstanceIdFromPathname, getActiveInstanceIdFromCookie, normalizeAppPathname } from '@/lib/instance-routes';
 import { createClient } from '@/lib/supabase/client';
 import { useSandbox } from '@/hooks/platform/use-sandbox';
-import { reactivateSandbox } from '@/lib/platform-client';
+import { reactivateSandbox, listSandboxes } from '@/lib/platform-client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/lib/toast';
 
 // ============================================================================
@@ -714,20 +716,44 @@ function SidebarSections() {
 function ScheduledDeletionCard() {
   const { sandbox, refetch } = useSandbox();
   const [reactivating, setReactivating] = useState(false);
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const servers = useServerStore((s) => s.servers);
+  const queryClient = useQueryClient();
 
-  if (!sandbox?.cancel_at_period_end) return null;
+  const activeServer = servers.find((s) => s.id === activeServerId);
+  const activeInstanceId = activeServer?.instanceId;
 
-  const cancelAt = sandbox.cancel_at ? new Date(sandbox.cancel_at) : null;
+  const { data: sandboxList, refetch: refetchList } = useQuery({
+    queryKey: ['platform', 'sandbox', 'list'],
+    queryFn: listSandboxes,
+    staleTime: 30_000,
+  });
+
+  const activeSandbox = activeInstanceId && sandboxList
+    ? sandboxList.find((s) => s.sandbox_id === activeInstanceId)
+    : sandbox;
+
+  if (!activeSandbox?.cancel_at_period_end) return null;
+
+  const cancelAt = activeSandbox.cancel_at ? new Date(activeSandbox.cancel_at) : null;
   const dateStr = cancelAt
     ? cancelAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     : 'billing period end';
 
+  const sandboxIdToReactivate = activeSandbox.sandbox_id;
+
   const handleReactivate = async () => {
     setReactivating(true);
     try {
-      await reactivateSandbox(sandbox.sandbox_id);
+      await reactivateSandbox(sandboxIdToReactivate);
       toast.success('Instance reactivated');
-      await refetch();
+      // Invalidate all sandbox-related caches so the card disappears
+      await Promise.all([
+        refetch(),
+        refetchList(),
+        queryClient.invalidateQueries({ queryKey: ['platform', 'sandbox'] }),
+        queryClient.invalidateQueries({ queryKey: ['accountState'] }),
+      ]);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to reactivate');
     } finally {
@@ -735,21 +761,23 @@ function ScheduledDeletionCard() {
     }
   };
 
+  const daysLeft = cancelAt ? Math.max(0, Math.ceil((cancelAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : null;
+
   return (
-    <div className="rounded-xl border border-orange-500/15 bg-gradient-to-b from-orange-500/[0.06] to-orange-500/[0.02] px-3.5 py-3">
-      <p className="text-[12px] font-medium text-foreground/80">
-        Instance ending {dateStr}
+    <div className="rounded-xl border border-red-500/30 bg-red-500/5 px-3.5 py-3">
+      <p className="text-[12px] font-medium text-red-600 dark:text-red-400">
+        Subscription cancelled
       </p>
-      <p className="text-[11px] text-muted-foreground/50 mt-1 leading-relaxed">
-        Your workspace and all its data will be permanently deleted when the billing period ends.
+      <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+        This instance will be deleted {daysLeft !== null ? `in ${daysLeft} day${daysLeft === 1 ? '' : 's'}` : `on ${dateStr}`}. All data will be permanently removed.
       </p>
       <button
         type="button"
         disabled={reactivating}
         onClick={handleReactivate}
-        className="mt-2.5 w-full h-7 text-[11px] font-semibold rounded-lg bg-foreground text-background hover:bg-foreground/90 transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
+        className="mt-2.5 w-full h-7 text-[11px] font-medium rounded-lg border border-border bg-background text-foreground hover:bg-muted transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
       >
-        {reactivating ? <><Loader2 className="h-3 w-3 animate-spin" /> Reactivating...</> : 'Keep this instance'}
+        {reactivating ? <><Loader2 className="h-3 w-3 animate-spin" /> Reactivating...</> : 'Reactivate'}
       </button>
     </div>
   );

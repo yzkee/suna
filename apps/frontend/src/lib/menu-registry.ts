@@ -423,10 +423,10 @@ export const menuRegistry: MenuItemDef[] = [
       id: 'deployments',
       label: 'Deployments',
       icon: Rocket,
-      group: 'navigation',
-      subGroup: 'services',
-      showIn: ['commandPalette', 'rightSidebar'],
-      kind: 'navigate',
+      group: 'navigation' as const,
+      subGroup: 'services' as const,
+      showIn: ['commandPalette', 'rightSidebar'] as MenuSurface[],
+      kind: 'navigate' as const,
       href: '/deployments',
     }]
     : []),
@@ -953,9 +953,10 @@ export function getAccountTabs(billingEnabled: boolean): SettingsTab[] {
     { id: 'billing', label: 'Billing', icon: CreditCard },
     { id: 'transactions', label: 'Transactions', icon: Receipt },
   ];
-  if (billingEnabled) {
-    items.push({ id: 'referrals', label: 'Referrals', icon: Users });
-  }
+  // Referrals tab disabled for now
+  // if (billingEnabled) {
+  //   items.push({ id: 'referrals', label: 'Referrals', icon: Users });
+  // }
   // Enrich labels/icons from registry where possible
   return items.map((tab) => {
     const item = menuRegistry.find(

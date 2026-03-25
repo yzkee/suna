@@ -131,7 +131,7 @@ export const DockCard = memo(function DockCard({
 DockCard.displayName = 'DockCard';
 
 interface SystemDockCardProps {
-  icon: React.ElementType;
+  icon: React.ComponentType<{ className?: string }>;
   label: string;
   bgClass: string;
   iconColor: string;

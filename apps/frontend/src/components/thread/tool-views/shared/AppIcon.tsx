@@ -9,7 +9,7 @@ interface AppIconProps {
   appSlug?: string;
   size?: number;
   className?: string;
-  fallbackIcon?: React.ElementType;
+  fallbackIcon?: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
 }
 
 export function AppIcon({ toolCall, appSlug, size = 20, className, fallbackIcon: FallbackIcon = Wrench }: AppIconProps) {

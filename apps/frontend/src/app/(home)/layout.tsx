@@ -2,6 +2,13 @@
 
 import { Navbar } from '@/components/home/navbar';
 import { SimpleFooter } from '@/components/home/simple-footer';
+import { NewInstanceModal } from '@/components/billing/pricing/new-instance-modal';
+import { useNewInstanceModalStore } from '@/stores/pricing-modal-store';
+
+function GlobalNewInstanceModal() {
+  const { isOpen, title, closeNewInstanceModal } = useNewInstanceModalStore();
+  return <NewInstanceModal open={isOpen} onOpenChange={(o) => !o && closeNewInstanceModal()} title={title} />;
+}
 
 export default function HomeLayout({
   children,
@@ -15,6 +22,7 @@ export default function HomeLayout({
       </div>
       {children}
       <SimpleFooter />
+      <GlobalNewInstanceModal />
     </div>
   );
 }

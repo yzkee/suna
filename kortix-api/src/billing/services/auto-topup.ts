@@ -19,8 +19,8 @@ import { BillingError } from '../../errors';
 
 // ─── Validation Constants ────────────────────────────────────────────────────
 
-export const AUTO_TOPUP_MIN_THRESHOLD = 5;    // $5
-export const AUTO_TOPUP_MIN_AMOUNT = 15;      // $15  (minimum allowed when configuring)
+export const AUTO_TOPUP_MIN_THRESHOLD = 1;    // $1
+export const AUTO_TOPUP_MIN_AMOUNT = 1;       // $1
 export const AUTO_TOPUP_DEFAULT_AMOUNT = 20;  // $20  (default for new accounts)
 
 /** Minimum 10 seconds between auto-topup charges to prevent rapid-fire. */
@@ -42,9 +42,6 @@ export function validateAutoTopupConfig(cfg: AutoTopupConfig): string | null {
   }
   if (cfg.amount < AUTO_TOPUP_MIN_AMOUNT) {
     return `Reload amount must be at least $${AUTO_TOPUP_MIN_AMOUNT}`;
-  }
-  if (cfg.amount < cfg.threshold * 2) {
-    return `Reload amount must be at least 2x the threshold ($${cfg.threshold * 2})`;
   }
   return null;
 }

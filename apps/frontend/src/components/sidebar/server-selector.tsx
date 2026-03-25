@@ -216,6 +216,20 @@ type SSHAccessMeta = {
 // Instance row — compact (sidebar inline list)
 // ============================================================================
 
+/** Derive a clean display name from the server entry. */
+function getInstanceName(server: ServerEntry): string {
+  // If there's a custom label that's not a URL, use it
+  const resolvedUrl = resolveServerUrl(server);
+  const displayUrl = resolvedUrl.replace(/^https?:\/\//, '');
+  if (server.label && server.label !== displayUrl) return server.label;
+  // Extract sandbox ID from instanceId or sandboxId
+  const id = server.instanceId || server.sandboxId || '';
+  // "sandbox-2a8b9aab" → "sandbox-2a8b" (short enough to read)
+  if (id.startsWith('sandbox-')) return id.slice(0, 14);
+  if (id.length > 16) return id.slice(0, 12) + '…';
+  return id || displayUrl.split('/')[0];
+}
+
 function CompactInstanceRow({
   server,
   isActive,
@@ -227,16 +241,16 @@ function CompactInstanceRow({
 }) {
   const resolvedUrl = resolveServerUrl(server);
   const { status } = useConnectionStatus(resolvedUrl, isActive);
-  const displayUrl = resolvedUrl.replace(/^https?:\/\//, '');
-  const hasCustomLabel = server.label && server.label !== displayUrl;
+  const name = getInstanceName(server);
+  const provider = server.provider || 'cloud';
 
   return (
     <div
       role="button"
       tabIndex={0}
       className={cn(
-        'w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-all group/row cursor-pointer',
-        isActive ? 'bg-primary/[0.06] dark:bg-primary/[0.08]' : 'hover:bg-muted/50',
+        'w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-left transition-colors cursor-pointer',
+        isActive ? 'bg-foreground/[0.04]' : 'hover:bg-muted/50',
       )}
       onClick={onSelect}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
@@ -244,19 +258,12 @@ function CompactInstanceRow({
       <StatusDot status={isActive ? status : 'unknown'} />
       <div className="flex-1 min-w-0">
         <div className={cn(
-          'truncate text-[11px] leading-tight',
-          isActive ? 'text-foreground font-medium' : 'text-foreground/70',
-          !hasCustomLabel && 'font-mono',
+          'truncate text-xs',
+          isActive ? 'text-foreground font-medium' : 'text-muted-foreground',
         )}>
-          {hasCustomLabel ? server.label : displayUrl}
+          {name}
         </div>
-        {hasCustomLabel && (
-          <div className="truncate text-[9px] text-muted-foreground/50 font-mono leading-tight mt-px">
-            {displayUrl}
-          </div>
-        )}
       </div>
-      {isActive && <Check className="h-3 w-3 text-primary flex-shrink-0" />}
     </div>
   );
 }
@@ -1391,59 +1398,37 @@ export function ServerSelector() {
   const { servers, activeServerId } = useServerStore();
   const router = useRouter();
 
-  const visibleServers = servers;
-
   const handleSelect = (id: string) => {
     const server = servers.find((s) => s.id === id);
     if (!server?.instanceId) return;
-
-    // Always route through /instances/:id — it's the gatekeeper that decides
-    // active → dashboard, provisioning → progress, error → error. Going
-    // straight to /dashboard bypasses that state machine and can strand the UI
-    // on a half-connected workspace.
     router.push(`/instances/${server.instanceId}`);
   };
 
   return (
-    <>
-      <div className="flex flex-col gap-0.5">
-        {/* Header: "Instances" label + Manage button */}
-        <div className="flex items-center justify-between px-2 py-1">
-          <span className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider">
-            Instances
-          </span>
-          <button
-            type="button"
-            className="flex items-center gap-1 h-5 px-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground rounded transition-colors cursor-pointer"
-            onClick={() => router.push('/instances')}
-          >
-            <Settings2 className="h-2.5 w-2.5" />
-            Manage
-          </button>
-        </div>
+    <div className="flex flex-col">
+      {/* Instance list */}
+      <div className="flex flex-col px-1 max-h-[200px] overflow-y-auto">
+        {servers.map((server) => (
+          <CompactInstanceRow
+            key={server.id}
+            server={server}
+            isActive={server.id === activeServerId}
+            onSelect={() => handleSelect(server.id)}
+          />
+        ))}
+      </div>
 
-        {/* Compact instance list */}
-        <div className="flex flex-col gap-px px-1 max-h-[180px] overflow-y-auto">
-          {visibleServers.map((server) => (
-            <CompactInstanceRow
-              key={server.id}
-              server={server}
-              isActive={server.id === activeServerId}
-              onSelect={() => handleSelect(server.id)}
-            />
-          ))}
-        </div>
-
-        {/* Quick add */}
+      {/* Manage */}
+      <div className="px-1 pt-1">
         <button
           type="button"
-          className="flex items-center gap-1.5 mx-1 px-2 py-1.5 rounded-lg text-[11px] text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/40 transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 w-full px-2 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
           onClick={() => router.push('/instances')}
         >
-          <Plus className="h-3 w-3" />
-          Add instance...
+          <Settings2 className="size-3" />
+          Manage instances
         </button>
       </div>
-    </>
+    </div>
   );
 }

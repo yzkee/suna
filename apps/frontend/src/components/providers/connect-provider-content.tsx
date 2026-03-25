@@ -47,7 +47,7 @@ import { opencodeKeys } from '@/hooks/opencode/use-opencode-sessions';
 import type { ProviderListResponse } from '@/hooks/opencode/use-opencode-sessions';
 import { toast } from '@/lib/toast';
 
-const FALLBACK_PROVIDER_CARDS = [] as const;
+const FALLBACK_PROVIDER_CARDS: Array<{ id: string; name: string }> = [];
 
 // =============================================================================
 // Auth method display helpers
@@ -253,7 +253,7 @@ export function ConnectProviderContent({
         setError(err instanceof Error ? err.message : String(err));
       }
     }
-  }, [completeConnection]);
+  }, []);
 
   // --- Submit API key ---
   const handleApiKeySubmit = useCallback(async (e?: React.FormEvent) => {

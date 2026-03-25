@@ -3,14 +3,14 @@
 import { useState, useCallback, useEffect } from 'react';
 import { BackgroundAALChecker } from '@/components/auth/background-aal-checker';
 import { WallpaperBackground } from '@/components/ui/wallpaper-background';
-import { ArrowRight, Check, Copy, Globe, Smartphone, Bot, Sparkles, Terminal, Zap, Loader2, RefreshCw, Brain, GitFork, Blocks } from 'lucide-react';
+import { ArrowRight, Check, Copy, Globe, Smartphone, Bot, Sparkles, Terminal, Zap, RefreshCw, Brain, GitFork, Blocks } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { trackCtaSignup } from '@/lib/analytics/gtm';
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { useAuth } from '@/components/AuthProvider';
-import { createCheckoutSession } from '@/lib/api/billing';
 import { isBillingEnabled } from '@/lib/config';
 import { toast } from '@/lib/toast';
+import { useNewInstanceModalStore } from '@/stores/pricing-modal-store';
 import { Reveal } from '@/components/home/reveal';
 
 const INSTALL_CMD = 'curl -fsSL https://kortix.com/install | bash';
@@ -53,9 +53,9 @@ function ConfigCard({ icon, title, desc }: { icon: React.ReactNode; title: strin
 
 export default function Home() {
   const [copied, setCopied] = useState(false);
-  const [launching, setLaunching] = useState(false);
   const [showFloatingCta, setShowFloatingCta] = useState(false);
   const { user } = useAuth();
+  const openNewInstanceModal = useNewInstanceModalStore((s) => s.openNewInstanceModal);
 
   const { scrollY } = useScroll();
   const drawerRadius = useTransform(scrollY, [200, 600], [24, 0]);
@@ -74,47 +74,18 @@ export default function Home() {
     setTimeout(() => setCopied(false), 2000);
   }, []);
 
-  /** Go straight to Stripe checkout — no intermediate modal. */
-  const handleLaunch = useCallback(async () => {
+  /** Open the machine picker modal — works for both guests and logged-in users. */
+  const handleLaunch = useCallback(() => {
     trackCtaSignup();
 
-    if (!user) {
-      window.location.href = '/auth?mode=signup';
-      return;
-    }
-
     if (!isBillingEnabled()) {
-      // Self-hosted: go straight to instances
+      if (!user) { window.location.href = '/auth?mode=signup'; return; }
       window.location.href = '/instances';
       return;
     }
 
-    try {
-      setLaunching(true);
-      const successUrl = `${window.location.origin}/instances?subscription=success`;
-      const response = await createCheckoutSession({
-        tier_key: 'pro',
-        success_url: successUrl,
-        cancel_url: window.location.href,
-        commitment_type: 'monthly',
-      });
-      if (response.url || response.checkout_url) {
-        window.location.href = response.url || response.checkout_url!;
-        return;
-      }
-      if (response.status === 'subscription_created' || response.status === 'no_change') {
-        // Already subscribed — just go to instances
-        window.location.href = '/instances';
-        return;
-      }
-      if (response.message) toast.success(response.message);
-      window.location.href = '/instances';
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to start checkout');
-    } finally {
-      setLaunching(false);
-    }
-  }, [user]);
+    openNewInstanceModal();
+  }, [user, openNewInstanceModal]);
 
   return (
     <BackgroundAALChecker>
@@ -137,14 +108,9 @@ export default function Home() {
               <Button
                 size="lg"
                 className="h-12 px-8 text-sm rounded-full transition-all"
-                disabled={launching}
                 onClick={handleLaunch}
               >
-                {launching ? (
-                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Redirecting...</>
-                ) : (
-                  <>Launch Your Kortix<ArrowRight className="ml-1.5 size-3.5" /></>
-                )}
+                Launch Your Kortix<ArrowRight className="ml-1.5 size-3.5" />
               </Button>
               <button
                 onClick={handleCopy}
@@ -381,14 +347,9 @@ export default function Home() {
           <Button
             size="sm"
             className="h-8 px-5 text-xs rounded-full font-medium"
-            disabled={launching}
             onClick={handleLaunch}
           >
-            {launching ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <>Launch Your Kortix<ArrowRight className="ml-1.5 size-3" /></>
-            )}
+            Launch Your Kortix<ArrowRight className="ml-1.5 size-3" />
           </Button>
         </div>
       </div>

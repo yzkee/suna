@@ -4,13 +4,12 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import { BackgroundAALChecker } from '@/components/auth/background-aal-checker';
-import { ArrowRight, Check, Copy, Globe, Smartphone, Bot, Sparkles, Terminal, Zap, Loader2 } from 'lucide-react';
+import { ArrowRight, Check, Copy, Globe, Smartphone, Bot, Sparkles, Terminal, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { trackCtaSignup } from '@/lib/analytics/gtm';
 import { motion, useScroll, useTransform, useSpring } from 'framer-motion';
-import { createCheckoutSession } from '@/lib/api/billing';
 import { isBillingEnabled } from '@/lib/config';
-import { toast } from '@/lib/toast';
+import { useNewInstanceModalStore } from '@/stores/pricing-modal-store';
 import { Reveal } from '@/components/home/reveal';
 import { GithubButton } from '@/components/home/github-button';
 import Image from 'next/image';
@@ -29,8 +28,8 @@ export default function Variant2Home() {
   const router = useRouter();
   const { user, isLoading } = useAuth();
   const [copied, setCopied] = useState(false);
-  const [launching, setLaunching] = useState(false);
   const [isMachineOn, setIsMachineOn] = useState(false);
+  const openNewInstanceModal = useNewInstanceModalStore((s) => s.openNewInstanceModal);
 
   const heroRef = useRef<HTMLDivElement>(null);
   const sceneProgressRef = useRef(0);
@@ -64,45 +63,18 @@ export default function Variant2Home() {
     setTimeout(() => setCopied(false), 2000);
   }, []);
 
-  /** Go straight to Stripe checkout — no intermediate modal. */
-  const handleLaunch = useCallback(async () => {
+  /** Open the machine picker modal — works for both guests and logged-in users. */
+  const handleLaunch = useCallback(() => {
     trackCtaSignup();
 
-    if (!user) {
-      window.location.href = '/auth?mode=signup';
-      return;
-    }
-
     if (!isBillingEnabled()) {
+      if (!user) { window.location.href = '/auth?mode=signup'; return; }
       window.location.href = '/instances';
       return;
     }
 
-    try {
-      setLaunching(true);
-      const successUrl = `${window.location.origin}/instances?subscription=success`;
-      const response = await createCheckoutSession({
-        tier_key: 'pro',
-        success_url: successUrl,
-        cancel_url: window.location.href,
-        commitment_type: 'monthly',
-      });
-      if (response.url || response.checkout_url) {
-        window.location.href = response.url || response.checkout_url!;
-        return;
-      }
-      if (response.status === 'subscription_created' || response.status === 'no_change') {
-        window.location.href = '/instances';
-        return;
-      }
-      if (response.message) toast.success(response.message);
-      window.location.href = '/instances';
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to start checkout');
-    } finally {
-      setLaunching(false);
-    }
-  }, [user]);
+    openNewInstanceModal();
+  }, [user, openNewInstanceModal]);
 
   return (
     <BackgroundAALChecker>
@@ -148,14 +120,9 @@ export default function Variant2Home() {
               <Button
                 size="lg"
                 className="h-14 px-10 text-base rounded-full transition-all"
-                disabled={launching}
                 onClick={handleLaunch}
               >
-                {launching ? (
-                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Redirecting...</>
-                ) : (
-                  <>Launch Kortix<ArrowRight className="ml-2 size-4" /></>
-                )}
+                Launch Kortix<ArrowRight className="ml-2 size-4" />
               </Button>
 
               <div className="flex flex-col items-center gap-3 w-full">
@@ -494,14 +461,9 @@ export default function Variant2Home() {
                 <Button
                   size="lg"
                   className="h-11 px-7 text-sm rounded-full"
-                  disabled={launching}
                   onClick={handleLaunch}
                 >
-                  {launching ? (
-                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Redirecting...</>
-                  ) : (
-                    <>Get Started<ArrowRight className="ml-1.5 size-3.5" /></>
-                  )}
+                  Get Started<ArrowRight className="ml-1.5 size-3.5" />
                 </Button>
                 <GithubButton size="lg" className="h-11" />
               </div>

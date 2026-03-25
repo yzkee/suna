@@ -345,8 +345,8 @@ async function parseXlsxToUniverData(arrayBuffer: ArrayBuffer, fileName: string)
       cellData,
       mergeData,
       columnData: Object.keys(columnData).length > 0 ? columnData : undefined,
-      tabColor: (ws.properties as Record<string, unknown>)?.tabColor
-        ? argbToHex((ws.properties as Record<string, { argb?: string }>).tabColor)
+      tabColor: (ws.properties as unknown as Record<string, unknown>)?.tabColor
+        ? argbToHex((ws.properties as unknown as Record<string, { argb?: string }>).tabColor)
         : undefined,
     };
   });
@@ -528,7 +528,7 @@ export function XlsxRenderer({
         // 3. Create an imperatively-managed container (React never touches this)
         const container = document.createElement('div');
         container.style.cssText = 'width:100%;height:100%;';
-        wrapper.appendChild(container);
+        wrapper!.appendChild(container);
 
         // 4. Initialize Univer inside the imperatively-created container
         const { createUniver, LocaleType, mergeLocales } = await import('@univerjs/presets');
@@ -536,7 +536,7 @@ export function XlsxRenderer({
         const sheetsCoreEnUS = (await import('@univerjs/preset-sheets-core/locales/en-US')).default;
 
         if (cancelled) {
-          wrapper.removeChild(container);
+          wrapper!.removeChild(container);
           return;
         }
 
@@ -551,7 +551,7 @@ export function XlsxRenderer({
               toolbar: false,
               contextMenu: true,
               formulaBar: false,
-              footer: true,
+              footer: { sheetBar: true, statisticBar: true },
             }),
           ],
         });
@@ -639,7 +639,7 @@ export function XlsxRenderer({
 
         const container = document.createElement('div');
         container.style.cssText = 'width:100%;height:100%;';
-        wrapper.appendChild(container);
+        wrapper!.appendChild(container);
 
         const { createUniver, LocaleType, mergeLocales } = await import('@univerjs/presets');
         const { UniverSheetsCorePreset } = await import('@univerjs/preset-sheets-core');
@@ -651,7 +651,7 @@ export function XlsxRenderer({
           locale: LocaleType.EN_US,
           locales: { [LocaleType.EN_US]: mergeLocales(sheetsCoreEnUS) },
           presets: [
-            UniverSheetsCorePreset({ container, toolbar: false, contextMenu: true, formulaBar: false, footer: true }),
+            UniverSheetsCorePreset({ container, toolbar: false, contextMenu: true, formulaBar: false, footer: { sheetBar: true, statisticBar: true } }),
           ],
         });
 

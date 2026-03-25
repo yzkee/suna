@@ -149,10 +149,32 @@ export async function createCheckoutSession(params: {
   }
 
   // Fallback: hosted Checkout for first purchase / no saved card / SCA-required payment
+  //
+  // Use price_data with inline product_data so the Stripe Checkout page shows
+  // "Kortix Computer" instead of the generic product name from the dashboard.
+  // We still reference the pre-created price for direct subscription creation above,
+  // but the Checkout page gets a clean display name.
+  const stripePrice = await stripe.prices.retrieve(priceId);
+  const unitAmount = stripePrice.unit_amount!;
+  const interval = stripePrice.recurring?.interval ?? 'month';
+
   const session = await stripe.checkout.sessions.create({
     customer: customerId,
     mode: 'subscription',
-    line_items: [{ price: priceId, quantity: 1 }],
+    line_items: [{
+      price_data: {
+        currency: 'usd',
+        unit_amount: unitAmount,
+        recurring: { interval },
+        product_data: {
+          name: 'Kortix Computer',
+          description: serverType
+            ? `Cloud instance (${serverType}${location ? ` · ${location}` : ''})`
+            : 'Cloud instance + LLM credits',
+        },
+      },
+      quantity: 1,
+    }],
     success_url: successUrl,
     cancel_url: cancelUrl,
     allow_promotion_codes: true,
