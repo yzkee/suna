@@ -170,3 +170,13 @@ export async function stopSandbox(): Promise<void> {
     method: 'POST',
   });
 }
+
+/**
+ * Delete/archive a sandbox by ID.
+ * DELETE /platform/sandbox/:sandboxId
+ */
+export async function deleteSandbox(sandboxId: string): Promise<void> {
+  await platformFetch<void>(`/platform/sandbox/${sandboxId}`, {
+    method: 'DELETE',
+  });
+}

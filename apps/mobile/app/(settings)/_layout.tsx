@@ -186,6 +186,13 @@ export default function SettingsLayout() {
         }}
       />
       <Stack.Screen
+        name="instances"
+        options={{
+          header: () => <SubpageHeader title="Instances" />,
+          headerShown: true,
+        }}
+      />
+      <Stack.Screen
         name="account-deletion"
         options={{
           header: () => <SubpageHeader title={t('accountDeletion.title')} />,
