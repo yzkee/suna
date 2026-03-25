@@ -23,7 +23,8 @@ import {
   type UpdatePhase,
 } from '@/lib/platform-client';
 import { setSandboxVersion } from '@/stores/sandbox-connection-store';
-import { useSandbox } from './use-sandbox';
+import { useServerStore } from '@/stores/server-store';
+import { type SandboxInfo } from '@/lib/platform-client';
 
 export type { UpdatePhase, SandboxUpdateStatus };
 
@@ -31,22 +32,27 @@ export type { UpdatePhase, SandboxUpdateStatus };
 export const PHASE_LABELS: Record<UpdatePhase, string> = {
   idle:         'Idle',
   pulling:      'Downloading update...',
+  patching:     'Preparing update...',
   stopping:     'Stopping sandbox...',
   removing:     'Preparing update...',
   recreating:   'Installing update...',
+  restarting:   'Restarting sandbox...',
+  verifying:    'Verifying update...',
   starting:     'Starting sandbox...',
   health_check: 'Running health checks...',
   complete:     'Update complete',
   failed:       'Update failed',
 };
 
-// Progress percentage for each phase (used for progress bar)
 export const PHASE_PROGRESS: Record<UpdatePhase, number> = {
   idle:         0,
-  pulling:      25,
-  stopping:     50,
+  pulling:      10,
+  patching:     30,
+  stopping:     45,
   removing:     55,
   recreating:   65,
+  restarting:   55,
+  verifying:    80,
   starting:     75,
   health_check: 90,
   complete:     100,
@@ -71,10 +77,26 @@ function isNewerVersion(current: string, latest: string): boolean {
 }
 
 const POLL_INTERVAL_MS = 2_000;
-const TERMINAL_PHASES: UpdatePhase[] = ['complete', 'failed', 'idle'];
+const TERMINAL_PHASES: UpdatePhase[] = ['complete', 'failed'];
 
 export function useSandboxUpdate(currentVersion: string | null) {
-  const { sandbox } = useSandbox();
+  const activeServer = useServerStore((s) => {
+    const entry = s.servers.find((srv) => srv.id === s.activeServerId);
+    return entry ?? null;
+  });
+
+  const sandbox: SandboxInfo | null = activeServer?.instanceId
+    ? {
+        sandbox_id: activeServer.instanceId,
+        external_id: activeServer.sandboxId ?? '',
+        name: activeServer.label,
+        provider: (activeServer.provider ?? 'local_docker') as SandboxInfo['provider'],
+        base_url: activeServer.url,
+        status: 'active',
+        created_at: '',
+        updated_at: '',
+      }
+    : null;
 
   // ── Latest version from platform ────────────────────────────────────────
   const latestQuery = useQuery({
@@ -111,7 +133,7 @@ export function useSandboxUpdate(currentVersion: string | null) {
     if (!pollActiveRef.current) return;
     try {
       // Poll kortix-api for update status (not the sandbox directly)
-      const status = await getSandboxUpdateStatus();
+      const status = await getSandboxUpdateStatus(sandbox ?? undefined);
       setLiveStatus(status);
 
       if (TERMINAL_PHASES.includes(status.phase)) {
@@ -132,7 +154,7 @@ export function useSandboxUpdate(currentVersion: string | null) {
     if (pollActiveRef.current) {
       pollRef.current = setTimeout(pollStatus, POLL_INTERVAL_MS);
     }
-  }, [stopPolling, latestVersion, currentVersion]);
+  }, [stopPolling, latestVersion, currentVersion, sandbox]);
 
   const startPolling = useCallback(() => {
     stopPolling();
@@ -214,6 +236,6 @@ export function useSandboxUpdate(currentVersion: string | null) {
     /** Re-check latest version */
     refetch: () => latestQuery.refetch(),
     /** Reset update status (e.g. after a failed update to allow retry) */
-    resetStatus: resetSandboxUpdateStatus,
+    resetStatus: () => resetSandboxUpdateStatus(sandbox ?? undefined),
   };
 }

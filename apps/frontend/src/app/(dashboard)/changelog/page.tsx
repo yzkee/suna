@@ -1,12 +1,12 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { ArrowDownToLine, Loader2, Sparkles, Bug, Zap, AlertTriangle, ArrowUpCircle, Shield, RefreshCw, Check, Package, Container, Github, Cloud, XCircle } from 'lucide-react';
+import { ArrowDownToLine, Loader2, Sparkles, Bug, Zap, AlertTriangle, Shield, RefreshCw, Check, Package, Container, Github, Cloud } from 'lucide-react';
 import { getFullChangelog, type ChangelogEntry, type ChangelogChange, type ChangelogArtifact } from '@/lib/platform-client';
-import { useGlobalSandboxUpdate, PHASE_LABELS, PHASE_PROGRESS } from '@/hooks/platform/use-global-sandbox-update';
+import { useGlobalSandboxUpdate } from '@/hooks/platform/use-global-sandbox-update';
 import { useSandboxConnectionStore } from '@/stores/sandbox-connection-store';
 import { cn } from '@/lib/utils';
-import type { UpdatePhase } from '@/hooks/platform/use-sandbox-update';
+import { useUpdateDialogStore } from '@/stores/update-dialog-store';
 
 // ─── Change type icons + colors ───────────────────────────────────────────
 
@@ -101,68 +101,6 @@ function ChangelogEntryCard({ entry, isCurrent, isLatest }: { entry: ChangelogEn
   );
 }
 
-// ─── Update Progress UI ───────────────────────────────────────────────────────
-
-function UpdateProgress({
-  phase,
-  phaseLabel,
-  phaseProgress,
-  phaseMessage,
-  latestVersion,
-}: {
-  phase: UpdatePhase;
-  phaseLabel: string;
-  phaseProgress: number;
-  phaseMessage: string;
-  latestVersion: string;
-}) {
-  const isFailed = phase === 'failed';
-  const isRollingBack = (phase as string) === 'rolling_back';
-
-  return (
-    <div className={cn(
-      'mt-4 rounded-xl border p-4 space-y-3',
-      isFailed ? 'border-red-500/20 bg-red-500/[0.02]' : 'border-primary/20 bg-primary/[0.02]',
-    )}>
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {isFailed ? (
-            <XCircle className="h-4 w-4 text-red-400 flex-shrink-0" />
-          ) : (
-            <Loader2 className="h-4 w-4 animate-spin text-primary flex-shrink-0" />
-          )}
-          <span className={cn('text-sm font-medium', isFailed ? 'text-red-400' : 'text-foreground')}>
-            {isFailed ? 'Update failed' : isRollingBack ? 'Rolling back...' : `Updating to v${latestVersion}`}
-          </span>
-        </div>
-        <span className="text-xs font-mono text-muted-foreground">{phaseProgress}%</span>
-      </div>
-
-      {/* Progress bar */}
-      <div className="h-1.5 rounded-full bg-border/50 overflow-hidden">
-        <div
-          className={cn(
-            'h-full rounded-full transition-all duration-700 ease-out',
-            isFailed || isRollingBack ? 'bg-red-400' : 'bg-primary',
-          )}
-          style={{ width: `${phaseProgress}%` }}
-        />
-      </div>
-
-      {/* Phase label + message */}
-      <div className="space-y-0.5">
-        <p className={cn('text-xs font-medium', isFailed ? 'text-red-400' : 'text-foreground/80')}>
-          {phaseLabel}
-        </p>
-        {phaseMessage && phaseMessage !== phaseLabel && (
-          <p className="text-xs text-muted-foreground truncate">{phaseMessage}</p>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export default function ChangelogPage() {
   const { data: changelog, isLoading, error } = useQuery({
     queryKey: ['sandbox', 'changelog'],
@@ -171,14 +109,11 @@ export default function ChangelogPage() {
   });
 
   const currentVersion = useSandboxConnectionStore((s) => s.sandboxVersion);
-  const {
-    updateAvailable, latestVersion, update, isUpdating,
-    phase, phaseLabel, phaseProgress, phaseMessage, updateResult,
-  } = useGlobalSandboxUpdate();
+  const { updateAvailable, latestVersion, isUpdating } = useGlobalSandboxUpdate();
 
-  const showProgress = isUpdating && phase !== 'idle';
-  const showSuccess = updateResult?.success && phase === 'complete';
-  const showError = updateResult && !updateResult.success && phase === 'failed' && !isUpdating;
+  const openDialog = useUpdateDialogStore((s) => s.openDialog);
+
+  const handleUpdate = () => openDialog();
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -197,11 +132,11 @@ export default function ChangelogPage() {
             )}
           </p>
 
-          {/* Update button — only when available and not in progress */}
-          {updateAvailable && !isUpdating && !showSuccess && (
+          {/* Update button */}
+          {updateAvailable && !isUpdating && (
             <div className="mt-4">
               <button
-                onClick={() => update()}
+                onClick={handleUpdate}
                 className="flex items-center gap-2 h-9 px-4 text-sm font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-lg transition-colors cursor-pointer"
               >
                 <ArrowDownToLine className="h-4 w-4" />
@@ -210,38 +145,6 @@ export default function ChangelogPage() {
             </div>
           )}
 
-          {/* Live phase progress */}
-          {showProgress && latestVersion && (
-            <UpdateProgress
-              phase={phase}
-              phaseLabel={phaseLabel}
-              phaseProgress={phaseProgress}
-              phaseMessage={phaseMessage}
-              latestVersion={latestVersion}
-            />
-          )}
-
-          {/* Success state */}
-          {showSuccess && (
-            <div className="mt-4 flex items-center gap-2 text-sm text-emerald-500">
-              <ArrowUpCircle className="h-4 w-4" />
-              Updated to v{updateResult?.currentVersion}. Refresh to see changes.
-            </div>
-          )}
-
-          {/* Failure state */}
-          {showError && (
-            <div className="mt-4 flex items-center gap-2 text-sm text-red-400">
-              <XCircle className="h-4 w-4" />
-              Update failed.{' '}
-              <button
-                onClick={() => update()}
-                className="underline underline-offset-2 hover:text-red-300 transition-colors"
-              >
-                Try again
-              </button>
-            </div>
-          )}
         </div>
 
         {/* Loading */}

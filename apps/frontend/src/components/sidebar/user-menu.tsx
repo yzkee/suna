@@ -30,7 +30,7 @@ import { createClient } from '@/lib/supabase/client';
 import { openTabAndNavigate } from '@/stores/tab-store';
 import { useTheme } from 'next-themes';
 import { isBillingEnabled } from '@/lib/config';
-import { flushSync } from 'react-dom';
+import { transitionFromElement } from '@/lib/view-transition';
 
 import { clearUserLocalStorage } from '@/lib/utils/clear-local-storage';
 import { UserSettingsModal } from '@/components/settings/user-settings-modal';
@@ -79,44 +79,8 @@ export function UserMenu({ user }: UserMenuProps) {
   const handleThemeChange = React.useCallback((newTheme: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-
     if (newTheme === theme) return;
-
-    const button = e.currentTarget as HTMLElement;
-    const { top, left, width, height } = button.getBoundingClientRect();
-    const x = left + width / 2;
-    const y = top + height / 2;
-    const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
-    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-    const maxRadius = Math.hypot(
-      Math.max(x, viewportWidth - x),
-      Math.max(y, viewportHeight - y)
-    );
-
-    if (typeof document.startViewTransition !== 'function') {
-      setTheme(newTheme);
-      return;
-    }
-
-    const transition = document.startViewTransition(() => {
-      flushSync(() => setTheme(newTheme));
-    });
-
-    transition.ready.then(() => {
-      document.documentElement.animate(
-        {
-          clipPath: [
-            `circle(0px at ${x}px ${y}px)`,
-            `circle(${maxRadius}px at ${x}px ${y}px)`,
-          ],
-        },
-        {
-          duration: 400,
-          easing: 'ease-in-out',
-          pseudoElement: '::view-transition-new(root)',
-        }
-      );
-    });
+    transitionFromElement(e.currentTarget as HTMLElement, () => setTheme(newTheme));
   }, [theme, setTheme]);
 
 

@@ -23,6 +23,7 @@ import { useTabStore } from "@/stores/tab-store";
 import { AnnouncementDialog } from "../announcements/announcement-dialog";
 import { NovuInboxProvider } from "../notifications/novu-inbox-provider";
 import { FilePreviewDialog } from "../common/file-preview-dialog";
+import { UpdateDialogProvider } from "@/components/update-dialog-provider";
 
 /** Monitors session status transitions and fires browser notifications. Renders nothing. */
 function WebNotificationProvider() {
@@ -578,6 +579,7 @@ export default function DashboardLayoutContent({
 			<SandboxConnectionProvider />
 			<OpenCodeEventStreamProvider />
 			<WebNotificationProvider />
+			<UpdateDialogProvider />
 			<Suspense fallback={null}>
 				<ConnectingScreen />
 			</Suspense>

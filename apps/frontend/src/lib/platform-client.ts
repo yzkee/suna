@@ -509,15 +509,18 @@ export interface SandboxUpdateResult {
 /**
  * Update phases — Docker image-based flow.
  *
- * The update is coordinated by kortix-api (not the sandbox itself):
- *   pulling → stopping → removing → recreating → health_check → complete
+ * JustAVPS: pulling → patching → stopping → restarting → verifying → complete
+ * Local:    pulling → stopping → removing → recreating → health_check → complete
  */
 export type UpdatePhase =
   | 'idle'
   | 'pulling'
+  | 'patching'
   | 'stopping'
   | 'removing'
   | 'recreating'
+  | 'restarting'
+  | 'verifying'
   | 'starting'
   | 'health_check'
   | 'complete'
@@ -540,7 +543,7 @@ export interface SandboxUpdateStatus {
  * The API tracks the Docker pull + recreate progress.
  */
 export async function getSandboxUpdateStatus(
-  _sandbox?: SandboxInfo,
+  sandbox?: SandboxInfo,
 ): Promise<SandboxUpdateStatus> {
   const token = await getSupabaseAccessToken();
   if (!token) throw new Error('Not authenticated');
@@ -588,7 +591,7 @@ export async function getFullChangelog(): Promise<ChangelogEntry[]> {
  * should poll getSandboxUpdateStatus() for progress.
  */
 export async function triggerSandboxUpdate(
-  _sandbox: SandboxInfo,
+  sandbox: SandboxInfo,
   version: string,
 ): Promise<SandboxUpdateResult> {
   const token = await getSupabaseAccessToken();
@@ -613,7 +616,7 @@ export async function triggerSandboxUpdate(
 /**
  * Reset the update status on kortix-api (e.g. after a failed update to allow retry).
  */
-export async function resetSandboxUpdateStatus(): Promise<void> {
+export async function resetSandboxUpdateStatus(sandbox?: SandboxInfo): Promise<void> {
   const token = await getSupabaseAccessToken();
   if (!token) throw new Error('Not authenticated');
 
