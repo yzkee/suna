@@ -192,31 +192,58 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
         {updateAvailable && latestVersion && (
           <>
             <View className="my-3 h-px bg-border/40" />
-            <View className="px-1">
-              <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
-                Update
-              </Text>
-              <Pressable onPress={onOpenChangelog} className="py-3.5 active:opacity-85">
-                <View className="flex-row items-center">
-                  <Icon as={ArrowDownToLine} size={18} className="text-foreground/80" strokeWidth={2.2} />
-                  <View className="ml-4 flex-1">
+            <View
+              className="rounded-2xl border px-4 py-3.5"
+              style={{
+                borderColor: isDark ? 'rgba(239,68,68,0.2)' : 'rgba(239,68,68,0.15)',
+                backgroundColor: isDark ? 'rgba(239,68,68,0.05)' : 'rgba(239,68,68,0.03)',
+              }}
+            >
+              <View className="flex-row items-center">
+                <View className="h-2.5 w-2.5 rounded-full mr-3" style={{ backgroundColor: '#EF4444' }} />
+                <View className="flex-1">
+                  <View className="flex-row items-center">
                     <Text className="font-roobert-medium text-[15px] text-foreground">
-                      v{latestVersion} available
+                      New Kortix version
                     </Text>
-                    <Text className="mt-0.5 font-roobert text-xs text-muted-foreground" numberOfLines={1}>
-                      {latestChangelog?.changes?.[0]?.text || 'New version available'}
-                    </Text>
+                    <View className="ml-2 rounded-full bg-muted/60 px-1.5 py-0.5">
+                      <Text className="text-[10px] font-roobert-medium text-muted-foreground">v{latestVersion}</Text>
+                    </View>
                   </View>
-                  <View
-                    className="rounded-xl px-2.5 py-1.5"
-                    style={{ backgroundColor: isDark ? '#F8F8F8' : '#121215' }}
-                  >
-                    <Text className={`font-roobert-semibold text-[11px] ${isDark ? 'text-[#121215]' : 'text-[#F8F8F8]'}`}>
-                      Update
-                    </Text>
-                  </View>
+                  {latestChangelog?.changes && latestChangelog.changes.length > 0 && (
+                    <View className="mt-1.5" style={{ gap: 2 }}>
+                      {latestChangelog.changes.slice(0, 4).map((c, i) => (
+                        <Text key={i} className="font-roobert text-xs text-muted-foreground" numberOfLines={1}>
+                          {c.text}
+                        </Text>
+                      ))}
+                      {latestChangelog.changes.length > 4 && (
+                        <Text className="font-roobert text-[11px] text-muted-foreground/60">
+                          +{latestChangelog.changes.length - 4} more
+                        </Text>
+                      )}
+                    </View>
+                  )}
                 </View>
-              </Pressable>
+              </View>
+              <View className="flex-row mt-3" style={{ gap: 8 }}>
+                <Pressable
+                  onPress={onOpenChangelog}
+                  className="flex-row items-center justify-center rounded-xl px-4 py-2 active:opacity-90"
+                  style={{ backgroundColor: isDark ? '#F8F8F8' : '#121215' }}
+                >
+                  <Icon as={ArrowDownToLine} size={13} className={isDark ? 'text-[#121215]' : 'text-[#F8F8F8]'} strokeWidth={2.5} />
+                  <Text className={`ml-1.5 font-roobert-semibold text-xs ${isDark ? 'text-[#121215]' : 'text-[#F8F8F8]'}`}>
+                    Update
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={onOpenChangelog}
+                  className="flex-row items-center justify-center rounded-xl bg-muted/60 px-4 py-2 active:opacity-80"
+                >
+                  <Text className="font-roobert-medium text-xs text-foreground">Details</Text>
+                </Pressable>
+              </View>
             </View>
           </>
         )}
