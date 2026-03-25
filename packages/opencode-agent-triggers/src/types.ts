@@ -126,12 +126,14 @@ export interface MinimalOpenCodeClient {
     log?: (input: { body: { service: string; level: string; message: string } }) => Promise<unknown>
   }
   session: {
-    create: (parameters?: { directory?: string; title?: string }) => Promise<{ data?: { id: string } } | { id: string }>
+    create: (parameters?: { body?: { directory?: string; title?: string } }) => Promise<{ data?: { id: string } } | { id: string }>
     promptAsync: (parameters: {
-      sessionID: string
-      agent?: string
-      model?: { providerID: string; modelID: string }
-      parts: Array<{ type: "text"; text: string }>
+      path?: { id: string }
+      body?: {
+        agent?: string
+        model?: { providerID: string; modelID: string }
+        parts: Array<{ type: "text"; text: string }>
+      }
     }) => Promise<unknown>
   }
 }

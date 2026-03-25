@@ -171,8 +171,10 @@ export class TriggerManager {
 
     if (!sessionId) {
       const created = await this.client.session.create({
-        directory: this.options.directory,
-        title: trigger.name,
+        body: {
+          directory: this.options.directory,
+          title: trigger.name,
+        },
       }) as { data?: { id: string }; id?: string }
       sessionId = created.data?.id ?? created.id
       if (!sessionId) throw new Error("session.create did not return an id")
@@ -180,10 +182,12 @@ export class TriggerManager {
     }
 
     await this.client.session.promptAsync({
-      sessionID: sessionId,
-      agent: trigger.agent_name ?? undefined,
-      model: parseModel(trigger.model_id),
-      parts: [{ type: "text", text: this.buildCronExecutionText(trigger, event) }],
+      path: { id: sessionId },
+      body: {
+        agent: trigger.agent_name ?? undefined,
+        model: parseModel(trigger.model_id),
+        parts: [{ type: "text", text: this.buildCronExecutionText(trigger, event) }],
+      },
     })
 
     return { sessionId, response: { accepted: true } }
@@ -195,8 +199,10 @@ export class TriggerManager {
 
     if (!sessionId) {
       const created = await this.client.session.create({
-        directory: this.options.directory,
-        title: `${route.agentName}:${route.trigger.name}`,
+        body: {
+          directory: this.options.directory,
+          title: `${route.agentName}:${route.trigger.name}`,
+        },
       }) as { data?: { id: string }; id?: string }
       sessionId = created.data?.id ?? created.id
       if (!sessionId) throw new Error("session.create did not return an id")
@@ -206,10 +212,12 @@ export class TriggerManager {
     const bodyText = this.buildExecutionText(route, payload)
 
     await this.client.session.promptAsync({
-      sessionID: sessionId,
-      agent: route.trigger.execution.agentName ?? route.agentName,
-      model: parseModel(route.trigger.execution.modelId),
-      parts: [{ type: "text", text: bodyText }],
+      path: { id: sessionId },
+      body: {
+        agent: route.trigger.execution.agentName ?? route.agentName,
+        model: parseModel(route.trigger.execution.modelId),
+        parts: [{ type: "text", text: bodyText }],
+      },
     })
 
     return { sessionId }
@@ -265,8 +273,10 @@ export class TriggerManager {
 
     if (!sessionId) {
       const created = await this.client.session.create({
-        directory: this.options.directory,
-        title: `${listener.agentName}:${listener.name}`,
+        body: {
+          directory: this.options.directory,
+          title: `${listener.agentName}:${listener.name}`,
+        },
       }) as { data?: { id: string }; id?: string }
       sessionId = created.data?.id ?? created.id
       if (!sessionId) throw new Error("session.create did not return an id")
@@ -274,10 +284,12 @@ export class TriggerManager {
     }
 
     await this.client.session.promptAsync({
-      sessionID: sessionId,
-      agent: listener.executionAgentName ?? listener.agentName,
-      model: parseModel(listener.modelId),
-      parts: [{ type: "text", text: promptText }],
+      path: { id: sessionId },
+      body: {
+        agent: listener.executionAgentName ?? listener.agentName,
+        model: parseModel(listener.modelId),
+        parts: [{ type: "text", text: promptText }],
+      },
     })
 
     // Record event
