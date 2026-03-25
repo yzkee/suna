@@ -2,145 +2,210 @@ import * as React from 'react';
 import { Alert, Linking, Pressable, ScrollView, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColorScheme } from 'nativewind';
+import * as Haptics from 'expo-haptics';
+import {
+  AlertTriangle,
+  Bell,
+  CheckCircle2,
+  ChevronRight,
+  HelpCircle,
+  ShieldCheck,
+  Smartphone,
+  Volume2,
+} from 'lucide-react-native';
 import { Text } from '@/components/ui/text';
 import { Icon } from '@/components/ui/icon';
-import { Bell, Smartphone, Mail, AppWindow, ShieldCheck } from 'lucide-react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Haptics from 'expo-haptics';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { notificationsApi } from '@/lib/notifications/api';
-import { useLanguage } from '@/contexts';
-
-const EMAIL_ENABLED_KEY = '@settings_notifications_email';
-const IN_APP_ENABLED_KEY = '@settings_notifications_in_app';
+import { useNotificationStore, type NotificationPreferences } from '@/stores/notification-store';
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const { colorScheme } = useColorScheme();
-  const { t } = useLanguage();
+  const isDark = colorScheme === 'dark';
   const { expoPushToken } = usePushNotifications();
-  const [emailEnabled, setEmailEnabled] = React.useState(true);
-  const [inAppEnabled, setInAppEnabled] = React.useState(true);
   const [isUnregistering, setIsUnregistering] = React.useState(false);
 
-  React.useEffect(() => {
-    let mounted = true;
-    (async () => {
-      const [emailValue, inAppValue] = await Promise.all([
-        AsyncStorage.getItem(EMAIL_ENABLED_KEY),
-        AsyncStorage.getItem(IN_APP_ENABLED_KEY),
-      ]);
-      if (!mounted) return;
-      setEmailEnabled(emailValue !== 'false');
-      setInAppEnabled(inAppValue !== 'false');
-    })();
-    return () => { mounted = false; };
-  }, []);
+  const preferences = useNotificationStore((s) => s.preferences);
+  const setPreference = useNotificationStore((s) => s.setPreference);
+  const toggleEnabled = useNotificationStore((s) => s.toggleEnabled);
 
-  const persistToggle = React.useCallback(async (key: string, value: boolean) => {
-    await AsyncStorage.setItem(key, value ? 'true' : 'false');
+  const trackOff = isDark ? '#3A3A3C' : '#E5E7EB';
+
+  const handleToggleEnabled = React.useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }, []);
+    toggleEnabled();
+  }, [toggleEnabled]);
+
+  const handleToggle = React.useCallback(<K extends keyof NotificationPreferences>(
+    key: K,
+    value: NotificationPreferences[K],
+  ) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPreference(key, value);
+  }, [setPreference]);
 
   const handleUnregister = React.useCallback(async () => {
     if (!expoPushToken || isUnregistering) return;
     setIsUnregistering(true);
     try {
       await notificationsApi.unregisterDeviceToken(expoPushToken);
-      Alert.alert('Success', t('notifications.deviceUnregisteredSuccess', 'Device unregistered successfully'));
+      Alert.alert('Success', 'Device unregistered successfully');
     } catch (error: any) {
-      Alert.alert('Error', error?.message || t('notifications.deviceUnregistrationFailed', 'Failed to unregister device'));
+      Alert.alert('Error', error?.message || 'Failed to unregister device');
     } finally {
       setIsUnregistering(false);
     }
-  }, [expoPushToken, isUnregistering, t]);
+  }, [expoPushToken, isUnregistering]);
 
   const openSettings = React.useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     Linking.openSettings();
   }, []);
 
-  const trackOff = colorScheme === 'dark' ? '#3A3A3C' : '#E5E7EB';
-
   return (
     <ScrollView
       className="flex-1 bg-background"
       showsVerticalScrollIndicator={false}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
+      contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
     >
-      <View className="px-6 pt-3" style={{ gap: 12 }}>
-        <SwitchRow
-          icon={Mail}
-          title={t('notifications.emailNotifications', 'Email Notifications')}
-          description={t('notifications.emailDescription', 'Receive notifications via email')}
-          value={emailEnabled}
-          onValueChange={async (value) => {
-            setEmailEnabled(value);
-            await persistToggle(EMAIL_ENABLED_KEY, value);
-          }}
-          trackOff={trackOff}
-        />
-
-        <SwitchRow
-          icon={AppWindow}
-          title={t('notifications.inAppNotifications', 'In-App Notifications')}
-          description={t('notifications.inAppDescription', 'See notifications within the app')}
-          value={inAppEnabled}
-          onValueChange={async (value) => {
-            setInAppEnabled(value);
-            await persistToggle(IN_APP_ENABLED_KEY, value);
-          }}
-          trackOff={trackOff}
-        />
-
-        <View className="rounded-3xl border border-border/40 bg-card/70 px-4 py-3">
-          <View className="flex-row items-center">
-            <View className="h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
-              <Icon as={Smartphone} size={18} className="text-primary" strokeWidth={2.2} />
-            </View>
-            <View className="ml-3 flex-1">
-              <Text className="font-roobert-medium text-[15px] text-foreground">
-                {t('notifications.pushNotifications', 'Push Notifications')}
-              </Text>
-              <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">
-                {expoPushToken
-                  ? t('notifications.deviceRegistered', 'This device is registered for push notifications')
-                  : t('notifications.permissionMessage', 'Enable notifications in your device settings')}
-              </Text>
-            </View>
-          </View>
-
-          <View className="mt-3 flex-row" style={{ gap: 10 }}>
-            <Pressable
-              onPress={openSettings}
-              className="rounded-2xl bg-primary/10 px-3 py-2 active:opacity-80"
-            >
-              <Text className="font-roobert-medium text-xs text-primary">
-                {t('notifications.openSettings', 'Open Settings')}
-              </Text>
-            </Pressable>
-            {!!expoPushToken && (
-              <Pressable
-                onPress={handleUnregister}
-                disabled={isUnregistering}
-                className="rounded-2xl bg-destructive/10 px-3 py-2 active:opacity-80"
-              >
-                <Text className="font-roobert-medium text-xs text-destructive">
-                  {isUnregistering
-                    ? 'Unregistering...'
-                    : t('notifications.unregisterDevice', 'Unregister Device')}
+      <View className="px-5 pt-1" style={{ gap: 18 }}>
+        {/* Master Toggle */}
+        <View className="px-1">
+          <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
+            General
+          </Text>
+          <View className="py-3.5">
+            <View className="flex-row items-center">
+              <Icon as={Bell} size={18} className="text-foreground/80" strokeWidth={2.2} />
+              <View className="ml-4 flex-1">
+                <Text className="font-roobert-medium text-[15px] text-foreground">
+                  Enable Notifications
                 </Text>
-              </Pressable>
-            )}
+                <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">
+                  Receive alerts for session events
+                </Text>
+              </View>
+              <Switch
+                value={preferences.enabled}
+                onValueChange={handleToggleEnabled}
+                trackColor={{ false: trackOff, true: '#34C759' }}
+                thumbColor="#FFFFFF"
+                ios_backgroundColor={trackOff}
+              />
+            </View>
           </View>
         </View>
 
-        <View className="rounded-2xl border border-border/40 bg-muted/20 px-4 py-3">
-          <View className="flex-row items-start">
-            <Icon as={ShieldCheck} size={16} className="mt-0.5 text-muted-foreground" strokeWidth={2} />
-            <Text className="ml-2 flex-1 font-roobert text-xs text-muted-foreground">
-              {t('notifications.pushDescription', 'Get notified about worker runs, task completions, and important updates')}
+        {/* Notification Types */}
+        {preferences.enabled && (
+          <View className="px-1">
+            <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
+              Notification Types
             </Text>
+            <View>
+              <ToggleRow
+                icon={CheckCircle2}
+                title="Task Completions"
+                description="When a session finishes its task"
+                value={preferences.onCompletion}
+                onValueChange={(v) => handleToggle('onCompletion', v)}
+                trackOff={trackOff}
+                showDivider
+              />
+              <ToggleRow
+                icon={AlertTriangle}
+                title="Errors"
+                description="When a session encounters an error"
+                value={preferences.onError}
+                onValueChange={(v) => handleToggle('onError', v)}
+                trackOff={trackOff}
+                showDivider
+              />
+              <ToggleRow
+                icon={HelpCircle}
+                title="Questions"
+                description="When Kortix needs your input to continue"
+                value={preferences.onQuestion}
+                onValueChange={(v) => handleToggle('onQuestion', v)}
+                trackOff={trackOff}
+                showDivider
+              />
+              <ToggleRow
+                icon={ShieldCheck}
+                title="Permission Requests"
+                description="When Kortix needs permission to use a tool"
+                value={preferences.onPermission}
+                onValueChange={(v) => handleToggle('onPermission', v)}
+                trackOff={trackOff}
+              />
+            </View>
+          </View>
+        )}
+
+        {/* Behavior */}
+        {preferences.enabled && (
+          <View className="px-1">
+            <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
+              Behavior
+            </Text>
+            <View>
+              <ToggleRow
+                icon={Volume2}
+                title="Notification Sound"
+                description="Play a sound when a notification is sent"
+                value={preferences.playSound}
+                onValueChange={(v) => handleToggle('playSound', v)}
+                trackOff={trackOff}
+              />
+            </View>
+          </View>
+        )}
+
+        {/* Push Notifications */}
+        <View className="px-1">
+          <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
+            Push Notifications
+          </Text>
+          <View>
+            <View className="py-3.5">
+              <View className="flex-row items-center">
+                <Icon as={Smartphone} size={18} className="text-foreground/80" strokeWidth={2.2} />
+                <View className="ml-4 flex-1">
+                  <Text className="font-roobert-medium text-[15px] text-foreground">
+                    Device Status
+                  </Text>
+                  <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">
+                    {expoPushToken
+                      ? 'This device is registered for push notifications'
+                      : 'Enable notifications in your device settings'}
+                  </Text>
+                </View>
+                <Icon as={ChevronRight} size={16} className="text-muted-foreground/50" strokeWidth={2.2} />
+              </View>
+            </View>
+            <View className="h-px bg-border/35" />
+            <View className="flex-row py-3.5" style={{ gap: 10 }}>
+              <Pressable
+                onPress={openSettings}
+                className="rounded-lg bg-muted/60 px-3 py-2 active:opacity-80"
+              >
+                <Text className="font-roobert-medium text-xs text-foreground">
+                  Open Settings
+                </Text>
+              </Pressable>
+              {!!expoPushToken && (
+                <Pressable
+                  onPress={handleUnregister}
+                  disabled={isUnregistering}
+                  className="rounded-lg bg-destructive/10 px-3 py-2 active:opacity-80"
+                >
+                  <Text className="font-roobert-medium text-xs text-destructive">
+                    {isUnregistering ? 'Unregistering...' : 'Unregister Device'}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
           </View>
         </View>
       </View>
@@ -148,13 +213,14 @@ export default function NotificationsScreen() {
   );
 }
 
-function SwitchRow({
+function ToggleRow({
   icon,
   title,
   description,
   value,
   onValueChange,
   trackOff,
+  showDivider = false,
 }: {
   icon: typeof Bell;
   title: string;
@@ -162,25 +228,27 @@ function SwitchRow({
   value: boolean;
   onValueChange: (value: boolean) => void;
   trackOff: string;
+  showDivider?: boolean;
 }) {
   return (
-    <View className="rounded-3xl border border-border/40 bg-card/70 px-4 py-3">
-      <View className="flex-row items-center">
-        <View className="h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
-          <Icon as={icon} size={18} className="text-primary" strokeWidth={2.2} />
+    <>
+      <View className="py-3.5">
+        <View className="flex-row items-center">
+          <Icon as={icon} size={18} className="text-foreground/80" strokeWidth={2.2} />
+          <View className="ml-4 flex-1">
+            <Text className="font-roobert-medium text-[15px] text-foreground">{title}</Text>
+            <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">{description}</Text>
+          </View>
+          <Switch
+            value={value}
+            onValueChange={onValueChange}
+            trackColor={{ false: trackOff, true: '#34C759' }}
+            thumbColor="#FFFFFF"
+            ios_backgroundColor={trackOff}
+          />
         </View>
-        <View className="ml-3 flex-1">
-          <Text className="font-roobert-medium text-[15px] text-foreground">{title}</Text>
-          <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">{description}</Text>
-        </View>
-        <Switch
-          value={value}
-          onValueChange={onValueChange}
-          trackColor={{ false: trackOff, true: '#34C759' }}
-          thumbColor="#FFFFFF"
-          ios_backgroundColor={trackOff}
-        />
       </View>
-    </View>
+      {showDivider && <View className="h-px bg-border/35" />}
+    </>
   );
 }

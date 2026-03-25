@@ -4,10 +4,12 @@
  * 1. After login, calls useSandbox() to ensure user has a sandbox
  * 2. Mounts the SSE event stream once sandbox is ready
  * 3. Passes sandboxUrl down to all children via context
+ * 4. Supports switching to a different sandbox via switchSandbox()
  */
 
-import React, { createContext, useContext, useEffect } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useSandbox } from '@/lib/platform/hooks';
+import { getSandboxUrl, type SandboxInfo } from '@/lib/platform/client';
 import { useOpenCodeEventStream } from '@/lib/opencode/event-stream';
 import { useAuthContext } from '@/contexts/AuthContext';
 import { useSyncStore } from '@/lib/opencode/sync-store';
@@ -18,6 +20,7 @@ interface SandboxContextValue {
   sandboxId: string | undefined;
   isLoading: boolean;
   error: Error | null;
+  switchSandbox: (sandbox: SandboxInfo) => void;
 }
 
 const SandboxContext = createContext<SandboxContextValue>({
@@ -25,6 +28,7 @@ const SandboxContext = createContext<SandboxContextValue>({
   sandboxId: undefined,
   isLoading: false,
   error: null,
+  switchSandbox: () => {},
 });
 
 export function useSandboxContext() {
@@ -39,17 +43,27 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
 
   const { data, isLoading, error } = useSandbox(shouldFetch);
 
-  // Derive values — only expose when authenticated
-  const sandboxUrl = shouldFetch ? data?.sandboxUrl : undefined;
-  const sandboxId = shouldFetch ? data?.sandboxId : undefined;
+  // Override state — when user manually switches sandbox
+  const [override, setOverride] = useState<{ sandboxUrl: string; sandboxId: string } | null>(null);
+
+  const switchSandbox = useCallback((sandbox: SandboxInfo) => {
+    const url = getSandboxUrl(sandbox.external_id);
+    log.log('🔄 [SandboxContext] Switching to sandbox:', sandbox.external_id, '→', url);
+    setOverride({ sandboxUrl: url, sandboxId: sandbox.external_id });
+  }, []);
+
+  // Derive values — override takes precedence
+  const sandboxUrl = override?.sandboxUrl ?? (shouldFetch ? data?.sandboxUrl : undefined);
+  const sandboxId = override?.sandboxId ?? (shouldFetch ? data?.sandboxId : undefined);
 
   // Mount SSE event stream globally (no-ops when sandboxUrl is undefined)
   useOpenCodeEventStream(sandboxUrl);
 
-  // Reset sync store on logout
+  // Reset sync store on logout and clear override
   useEffect(() => {
     if (!isAuthenticated) {
       useSyncStore.getState().reset();
+      setOverride(null);
     }
   }, [isAuthenticated]);
 
@@ -69,6 +83,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
         sandboxId,
         isLoading: shouldFetch ? isLoading : false,
         error: shouldFetch ? (error as Error | null) : null,
+        switchSandbox,
       }}
     >
       {children}

@@ -172,9 +172,9 @@ export default function SettingsLayout() {
         }}
       />
       <Stack.Screen
-        name="shortcuts"
+        name="billing"
         options={{
-          header: () => <SubpageHeader title="Shortcuts" />,
+          header: () => <SubpageHeader title="Billing" />,
           headerShown: true,
         }}
       />
@@ -186,22 +186,9 @@ export default function SettingsLayout() {
         }}
       />
       <Stack.Screen
-        name="referrals"
+        name="instances"
         options={{
-          header: () => <SubpageHeader title="Referrals" />,
-          headerShown: true,
-        }}
-      />
-      <Stack.Screen
-        name="integrations"
-        options={{
-          headerShown: false,
-        }}
-      />
-      <Stack.Screen
-        name="beta"
-        options={{
-          header: () => <SubpageHeader title={t('beta.title')} />,
+          header: () => <SubpageHeader title="Instances" />,
           headerShown: true,
         }}
       />

@@ -170,3 +170,116 @@ export async function stopSandbox(): Promise<void> {
     method: 'POST',
   });
 }
+
+/**
+ * Delete/archive a sandbox by ID.
+ * DELETE /platform/sandbox/:sandboxId
+ */
+export async function deleteSandbox(sandboxId: string): Promise<void> {
+  await platformFetch<void>(`/platform/sandbox/${sandboxId}`, {
+    method: 'DELETE',
+  });
+}
+
+/**
+ * Get available sandbox providers.
+ * GET /platform/providers
+ */
+export async function getProviders(): Promise<string[]> {
+  const result = await platformFetch<any>('/platform/providers', {
+    method: 'GET',
+  });
+  const data = result.data;
+  if (Array.isArray(data)) return data;
+  // Some backends return { providers: [...] }
+  if (data && Array.isArray(data.providers)) return data.providers;
+  return [];
+}
+
+/**
+ * Initialize a local Docker sandbox.
+ * POST /platform/init/local
+ */
+export interface LocalSandboxProgress {
+  status: string;
+  progress: number;
+  message: string;
+}
+
+export async function initLocalSandbox(
+  name?: string,
+  onProgress?: (progress: LocalSandboxProgress) => void,
+): Promise<SandboxInfo> {
+  const token = await getAuthToken();
+  if (!token) throw new Error('Not authenticated');
+
+  onProgress?.({ status: 'starting', progress: 0, message: 'Initializing...' });
+
+  const res = await fetch(`${API_URL}/platform/init/local`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: name ? JSON.stringify({ name }) : undefined,
+  });
+
+  const body = await res.json();
+  if (!res.ok) throw new Error(body?.error || body?.message || 'Failed to init local sandbox');
+
+  // If already ready, return immediately
+  if (body.data?.status === 'ready' || body.data?.status === 'running') {
+    onProgress?.({ status: 'ready', progress: 100, message: 'Connected' });
+    return body.data as SandboxInfo;
+  }
+
+  // Poll for progress
+  for (let i = 0; i < 360; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    const statusRes = await fetch(`${API_URL}/platform/init/local/status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const statusBody = await statusRes.json();
+    const data = statusBody.data;
+    const status = data?.status;
+
+    if (status === 'ready' || status === 'running') {
+      onProgress?.({ status: 'ready', progress: 100, message: 'Connected' });
+      return data as SandboxInfo;
+    }
+    if (status === 'error') {
+      throw new Error(data?.message || 'Local sandbox creation failed');
+    }
+
+    // Report progress from backend or estimate
+    const pct = data?.progress ?? Math.min(Math.round((i / 180) * 95), 95);
+    const msg = data?.message || (i < 10 ? 'Pulling sandbox image...' : 'Setting up sandbox...');
+    onProgress?.({ status: status || 'pulling', progress: pct, message: msg });
+  }
+  throw new Error('Timed out while pulling sandbox image');
+}
+
+/**
+ * Add a custom URL instance to the server store.
+ * POST /platform/sandbox with custom URL.
+ * For now this is a local-only operation — custom URLs are stored on-device.
+ */
+export interface CustomInstance {
+  id: string;
+  label: string;
+  url: string;
+}
+
+export async function checkInstanceHealth(url: string): Promise<string | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${url}/kortix/health`, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.version ?? null;
+  } catch {
+    return null;
+  }
+}

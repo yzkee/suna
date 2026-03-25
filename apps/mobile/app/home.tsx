@@ -506,12 +506,14 @@ export default function HomeScreen() {
   const handleManageInstances = useCallback(() => {
     closeUserMenuSheet();
     setDrawerOpen(false);
-    router.push('/(settings)');
+    router.push('/(settings)/instances');
   }, [closeUserMenuSheet, router]);
 
   const handleAddInstance = useCallback(() => {
-    Alert.alert('Coming soon', 'Instance management is only available on desktop for now.');
-  }, []);
+    closeUserMenuSheet();
+    setDrawerOpen(false);
+    router.push('/(settings)/instances');
+  }, [closeUserMenuSheet, router]);
 
   const handleThemeSelect = useCallback(async (value: ThemePreference) => {
     setThemePreference(value);

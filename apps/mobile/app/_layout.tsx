@@ -21,12 +21,13 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useColorScheme } from 'nativewind';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
-import { Platform, LogBox, AppState, AppStateStatus } from 'react-native';
+import { Platform, LogBox, AppState, AppStateStatus, View } from 'react-native';
 import { configureReanimatedLogger, ReanimatedLogLevel } from 'react-native-reanimated';
 import { supabase } from '@/api/supabase';
 import * as Updates from 'expo-updates';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { log } from '@/lib/logger';
+import { useAppearanceStore } from '@/stores/appearance-store';
 
 const THEME_PREFERENCE_KEY = '@theme_preference';
 
@@ -47,6 +48,7 @@ export {
 
 export default function RootLayout() {
   const { colorScheme, setColorScheme } = useColorScheme();
+  const appearanceThemeId = useAppearanceStore((s) => s.themeId);
   const [i18nInitialized, setI18nInitialized] = useState(false);
   const router = useRouter();
 
@@ -511,6 +513,7 @@ export default function RootLayout() {
   }
 
   const activeColorScheme = colorScheme ?? 'light';
+  const appearanceThemeClass = `theme-${appearanceThemeId}`;
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -528,70 +531,72 @@ export default function RootLayout() {
                           <BottomSheetModalProvider>
                             <ThemeProvider value={NAV_THEME[activeColorScheme]}>
                               <StatusBar style={activeColorScheme === 'dark' ? 'light' : 'dark'} />
-                              <AuthProtection>
-                                <Stack
-                                  screenOptions={{
-                                    headerShown: false,
-                                    animation: 'fade',
-                                  }}
-                                >
-                                  <Stack.Screen name="index" options={{ animation: 'none' }} />
-                                  <Stack.Screen name="setting-up" />
-                                  <Stack.Screen name="onboarding" />
-                                  <Stack.Screen
-                                    name="home"
-                                    options={{
-                                      gestureEnabled: false,
-                                    }}
-                                  />
-                                  <Stack.Screen
-                                    name="auth"
-                                    options={{
-                                      gestureEnabled: false,
+                              <View className={`flex-1 ${appearanceThemeClass}`}>
+                                <AuthProtection>
+                                  <Stack
+                                    screenOptions={{
+                                      headerShown: false,
                                       animation: 'fade',
                                     }}
-                                  />
-                                  <Stack.Screen
-                                    name="(settings)"
-                                    options={{
-                                      animation: Platform.OS === 'ios' ? 'default' : 'slide_from_right',
-                                      gestureEnabled: true,
-                                      fullScreenGestureEnabled: true,
-                                      presentation: 'card',
-                                    }}
-                                  />
-                                  <Stack.Screen
-                                    name="plans"
-                                    options={{
-                                      animation: 'slide_from_right',
-                                      gestureEnabled: true,
-                                    }}
-                                  />
-                                  <Stack.Screen
-                                    name="billing"
-                                    options={{
-                                      animation: 'slide_from_right',
-                                      gestureEnabled: true,
-                                    }}
-                                  />
-                                  <Stack.Screen
-                                    name="usage"
-                                    options={{
-                                      animation: 'slide_from_right',
-                                      gestureEnabled: true,
-                                    }}
-                                  />
-                                  <Stack.Screen name="trigger-detail" />
-                                  <Stack.Screen name="worker-config" />
-                                  <Stack.Screen
-                                    name="share/[threadId]"
-                                    options={{
-                                      animation: 'slide_from_right',
-                                      gestureEnabled: true,
-                                    }}
-                                  />
-                                </Stack>
-                              </AuthProtection>
+                                  >
+                                    <Stack.Screen name="index" options={{ animation: 'none' }} />
+                                    <Stack.Screen name="setting-up" />
+                                    <Stack.Screen name="onboarding" />
+                                    <Stack.Screen
+                                      name="home"
+                                      options={{
+                                        gestureEnabled: false,
+                                      }}
+                                    />
+                                    <Stack.Screen
+                                      name="auth"
+                                      options={{
+                                        gestureEnabled: false,
+                                        animation: 'fade',
+                                      }}
+                                    />
+                                    <Stack.Screen
+                                      name="(settings)"
+                                      options={{
+                                        animation: Platform.OS === 'ios' ? 'default' : 'slide_from_right',
+                                        gestureEnabled: true,
+                                        fullScreenGestureEnabled: true,
+                                        presentation: 'card',
+                                      }}
+                                    />
+                                    <Stack.Screen
+                                      name="plans"
+                                      options={{
+                                        animation: 'slide_from_right',
+                                        gestureEnabled: true,
+                                      }}
+                                    />
+                                    <Stack.Screen
+                                      name="billing"
+                                      options={{
+                                        animation: 'slide_from_right',
+                                        gestureEnabled: true,
+                                      }}
+                                    />
+                                    <Stack.Screen
+                                      name="usage"
+                                      options={{
+                                        animation: 'slide_from_right',
+                                        gestureEnabled: true,
+                                      }}
+                                    />
+                                    <Stack.Screen name="trigger-detail" />
+                                    <Stack.Screen name="worker-config" />
+                                    <Stack.Screen
+                                      name="share/[threadId]"
+                                      options={{
+                                        animation: 'slide_from_right',
+                                        gestureEnabled: true,
+                                      }}
+                                    />
+                                  </Stack>
+                                </AuthProtection>
+                              </View>
                               <PortalHost />
                             </ThemeProvider>
                           </BottomSheetModalProvider>

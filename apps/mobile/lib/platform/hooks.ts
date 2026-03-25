@@ -14,7 +14,14 @@ import {
   ensureSandbox,
   getActiveSandbox,
   getSandboxUrl,
+  listSandboxes,
+  restartSandbox,
+  stopSandbox,
+  deleteSandbox,
+  getProviders,
+  initLocalSandbox,
   type SandboxInfo,
+  type LocalSandboxProgress,
 } from './client';
 import type { Session, SessionMessage, SessionStatusMap } from './types';
 
@@ -23,6 +30,8 @@ import type { Session, SessionMessage, SessionStatusMap } from './types';
 export const platformKeys = {
   all: ['platform'] as const,
   sandbox: () => [...platformKeys.all, 'sandbox'] as const,
+  instances: () => [...platformKeys.all, 'instances'] as const,
+  providers: () => [...platformKeys.all, 'providers'] as const,
   sessions: () => [...platformKeys.all, 'sessions'] as const,
   session: (id: string) => [...platformKeys.sessions(), id] as const,
   sessionMessages: (id: string) => [...platformKeys.session(id), 'messages'] as const,
@@ -379,5 +388,79 @@ export async function forkSession(
   return opencodeFetch<Session>(sandboxUrl, `/session/${sessionId}/fork`, {
     method: 'POST',
     body: JSON.stringify(messageId ? { messageID: messageId } : {}),
+  });
+}
+
+// ─── Instance Management Hooks ──────────────────────────────────────────────
+
+export function useInstances(enabled: boolean = true) {
+  return useQuery({
+    queryKey: platformKeys.instances(),
+    queryFn: listSandboxes,
+    enabled,
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useRestartInstance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: restartSandbox,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: platformKeys.instances() });
+      queryClient.invalidateQueries({ queryKey: platformKeys.sandbox() });
+    },
+  });
+}
+
+export function useStopInstance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: stopSandbox,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: platformKeys.instances() });
+    },
+  });
+}
+
+export function useDeleteInstance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteSandbox,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: platformKeys.instances() });
+      queryClient.invalidateQueries({ queryKey: platformKeys.sandbox() });
+    },
+  });
+}
+
+export function useProviders() {
+  return useQuery({
+    queryKey: platformKeys.providers(),
+    queryFn: getProviders,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useCreateLocalInstance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { name?: string; onProgress?: (p: LocalSandboxProgress) => void }) =>
+      initLocalSandbox(args.name, args.onProgress),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: platformKeys.instances() });
+      queryClient.invalidateQueries({ queryKey: platformKeys.sandbox() });
+    },
+  });
+}
+
+export function useCreateCloudInstance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (provider: 'daytona' | 'hetzner') => ensureSandbox({ provider }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: platformKeys.instances() });
+      queryClient.invalidateQueries({ queryKey: platformKeys.sandbox() });
+    },
   });
 }
