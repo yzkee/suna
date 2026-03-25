@@ -175,24 +175,6 @@ async function handleSubscriptionCheckout(session: Stripe.Checkout.Session, acco
     );
   }
 
-  // Grant one-time $5 machine credit bonus at checkout (non-expiring, idempotent per session)
-  const { MACHINE_CREDIT_BONUS } = await import('./tiers');
-  if (MACHINE_CREDIT_BONUS > 0) {
-    try {
-      await grantCredits(
-        accountId,
-        MACHINE_CREDIT_BONUS,
-        'machine_bonus',
-        `Welcome credit bonus: $${MACHINE_CREDIT_BONUS}`,
-        false, // non-expiring
-        `machine_bonus:checkout:${session.id}`,
-      );
-      console.log(`[Webhook] Granted $${MACHINE_CREDIT_BONUS} machine bonus for ${accountId}`);
-    } catch (err) {
-      console.error(`[Webhook] Failed to grant machine bonus for ${accountId}:`, err);
-    }
-  }
-
   // Upsert Stripe customer record
   if (session.customer) {
     const customerId = typeof session.customer === 'string' ? session.customer : session.customer.id;
@@ -211,6 +193,24 @@ async function handleSubscriptionCheckout(session: Stripe.Checkout.Session, acco
   const location = session.metadata?.location;
 
   if (serverType) {
+    // Grant one-time $5 machine credit bonus (only when paying for a machine)
+    const { MACHINE_CREDIT_BONUS } = await import('./tiers');
+    if (MACHINE_CREDIT_BONUS > 0) {
+      try {
+        await grantCredits(
+          accountId,
+          MACHINE_CREDIT_BONUS,
+          'machine_bonus',
+          `Machine credit bonus: $${MACHINE_CREDIT_BONUS}`,
+          false, // non-expiring
+          `machine_bonus:checkout:${session.id}`,
+        );
+        console.log(`[Webhook] Granted $${MACHINE_CREDIT_BONUS} machine bonus for ${accountId}`);
+      } catch (err) {
+        console.error(`[Webhook] Failed to grant machine bonus for ${accountId}:`, err);
+      }
+    }
+
     try {
       const { provisionSandboxFromCheckout } = await import('../../platform/services/sandbox-provisioner');
       await provisionSandboxFromCheckout({

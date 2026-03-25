@@ -138,11 +138,10 @@ describe('checkout.session.completed', () => {
     expect(upsertCreditAccountCalls[0].accountId).toBe('acc_test_123');
     expect(upsertCreditAccountCalls[0].data.tier).toBe('tier_6_50');
 
-    // tier_grant ($50) + machine_bonus ($5)
-    expect(grantCreditsCalls.length).toBe(2);
+    // Only tier_grant ($50) — no machine bonus since no server_type in metadata
+    expect(grantCreditsCalls.length).toBe(1);
     expect(grantCreditsCalls[0][0]).toBe('acc_test_123');
     expect(grantCreditsCalls[0][1]).toBe(50); // tier_6_50 = $50 monthly credits
-    expect(grantCreditsCalls[1][1]).toBe(5);  // $5 machine bonus
 
     expect(upsertCustomerCalls.length).toBe(1);
   });

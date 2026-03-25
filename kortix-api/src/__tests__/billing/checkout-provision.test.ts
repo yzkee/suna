@@ -206,11 +206,9 @@ describe('checkout.session.completed: backward compatibility', () => {
 
     await processStripeWebhook(JSON.stringify(event), 'sig');
 
-    // Credits granted: tier_grant ($50) + machine_bonus ($5)
-    expect(grantCreditsCalls.length).toBe(2);
+    // Only tier_grant ($50) — no machine bonus since no server_type in metadata
+    expect(grantCreditsCalls.length).toBe(1);
     expect(grantCreditsCalls[0][1]).toBe(50); // tier_6_50 = $50 monthly credits
-    expect(grantCreditsCalls[1][1]).toBe(5);  // $5 machine bonus
-    expect(grantCreditsCalls[1][2]).toBe('machine_bonus');
 
     // Subscription recorded
     expect(upsertCreditAccountCalls.length).toBe(1);
