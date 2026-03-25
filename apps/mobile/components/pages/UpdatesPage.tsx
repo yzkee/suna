@@ -1,5 +1,5 @@
-import React, { useCallback, useRef } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import React, { useCallback, useEffect, useRef } from 'react';
+import { ActivityIndicator, Animated, Easing, Pressable, ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColorScheme } from 'nativewind';
 import { useQuery } from '@tanstack/react-query';
@@ -315,46 +315,86 @@ function UpdatePhaseSteps({ currentPhase, hasError, isDark }: { currentPhase: st
   const currentIdx = PHASE_ORDER.indexOf(currentPhase as UpdatePhase);
 
   return (
-    <View style={{ gap: 2 }}>
+    <View style={{ gap: 0 }}>
       {UPDATE_PHASES.map((step, idx) => {
         const isComplete = currentIdx > idx;
         const isActive = currentIdx === idx && !hasError;
         const isFailed = currentIdx === idx && hasError;
-        const isPending = currentIdx < idx;
 
-        let dotColor = isDark ? 'rgba(248,248,248,0.15)' : 'rgba(18,18,21,0.1)';
-        if (isComplete) dotColor = '#10B981';
-        else if (isActive) dotColor = isDark ? '#F8F8F8' : '#121215';
-        else if (isFailed) dotColor = '#EF4444';
+        const textColor = isComplete
+          ? 'text-emerald-500'
+          : isActive
+          ? 'text-foreground'
+          : isFailed
+          ? 'text-destructive'
+          : 'text-muted-foreground/30';
+
+        const iconColor = isComplete
+          ? '#10B981'
+          : isActive
+          ? isDark ? '#F8F8F8' : '#121215'
+          : isFailed
+          ? '#EF4444'
+          : isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.15)';
 
         return (
-          <View key={step.phase} className="flex-row items-center py-1.5">
-            <View className="w-5 items-center">
+          <View key={step.phase} className="flex-row items-center" style={{ height: 28 }}>
+            <View className="w-5 items-center justify-center">
               {isComplete ? (
-                <Icon as={Check} size={12} style={{ color: '#10B981' }} strokeWidth={2.5} />
+                <Icon as={Check} size={11} style={{ color: '#10B981' }} strokeWidth={3} />
+              ) : isActive ? (
+                <PulsingDot color={iconColor} />
               ) : (
-                <View className="h-2 w-2 rounded-full" style={{ backgroundColor: dotColor }} />
+                <View className="h-1 w-1 rounded-full" style={{ backgroundColor: iconColor }} />
               )}
             </View>
-            <Icon
-              as={step.icon}
-              size={13}
-              className={isComplete ? 'text-emerald-500' : isActive ? 'text-foreground' : isFailed ? 'text-destructive' : 'text-muted-foreground/40'}
-              strokeWidth={2.2}
-            />
             <Text
-              className={`ml-2 font-roobert text-xs ${
-                isComplete ? 'text-emerald-500' : isActive ? 'text-foreground font-roobert-medium' : isFailed ? 'text-destructive' : 'text-muted-foreground/40'
-              }`}
+              className={`font-roobert text-[12px] ${textColor} ${isActive ? 'font-roobert-medium' : ''}`}
             >
               {step.label}
             </Text>
-            {isActive && !hasError && (
-              <ActivityIndicator size={10} style={{ marginLeft: 6 }} color={isDark ? '#F8F8F8' : '#121215'} />
-            )}
           </View>
         );
       })}
+    </View>
+  );
+}
+
+function PulsingDot({ color }: { color: string }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(scale, { toValue: 2.2, duration: 800, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+          Animated.timing(opacity, { toValue: 0, duration: 800, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+        ]),
+        Animated.parallel([
+          Animated.timing(scale, { toValue: 1, duration: 0, useNativeDriver: true }),
+          Animated.timing(opacity, { toValue: 1, duration: 0, useNativeDriver: true }),
+        ]),
+      ]),
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [scale, opacity]);
+
+  return (
+    <View style={{ width: 8, height: 8, alignItems: 'center', justifyContent: 'center' }}>
+      <Animated.View
+        style={{
+          position: 'absolute',
+          width: 6,
+          height: 6,
+          borderRadius: 3,
+          backgroundColor: color,
+          opacity,
+          transform: [{ scale }],
+        }}
+      />
+      <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: color }} />
     </View>
   );
 }
