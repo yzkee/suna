@@ -40,10 +40,6 @@ export function createConnectionsRouter(): Hono {
 
     console.log(`[TUNNEL][GET /connections] found ${connections.length} connections`, connections.map(c => ({ tunnelId: c.tunnelId, accountId: c.accountId })));
 
-    // Also log all tunnel connections in the DB for debugging
-    const allConnections = await db.select({ tunnelId: tunnelConnections.tunnelId, accountId: tunnelConnections.accountId }).from(tunnelConnections);
-    console.log(`[TUNNEL][GET /connections] ALL tunnels in DB:`, allConnections);
-
     const enriched = connections.map((conn) => ({
       ...conn,
       isLive: tunnelRelay.isConnected(conn.tunnelId),

@@ -1,10 +1,8 @@
 import {
   HardDrive,
   Terminal,
-  Globe,
   AppWindow,
   Cpu,
-  Monitor,
   Zap,
   type LucideIcon,
 } from 'lucide-react';
@@ -54,13 +52,6 @@ export const CAPABILITY_REGISTRY: CapabilityInfo[] = [
     hasScopeEditor: true,
   },
   {
-    key: 'network',
-    label: 'Network',
-    description: 'HTTP requests and TCP connections to local services',
-    icon: Globe,
-    hasScopeEditor: true,
-  },
-  {
     key: 'apps',
     label: 'Applications',
     description: 'Launch and interact with local applications',
@@ -72,13 +63,6 @@ export const CAPABILITY_REGISTRY: CapabilityInfo[] = [
     label: 'Hardware',
     description: 'Access hardware information and sensors',
     icon: Cpu,
-    hasScopeEditor: false,
-  },
-  {
-    key: 'desktop',
-    label: 'Desktop',
-    description: 'Screen capture, mouse, and keyboard control',
-    icon: Monitor,
     hasScopeEditor: false,
   },
   {
@@ -103,12 +87,6 @@ export const SCOPE_REGISTRY: ScopeInfo[] = [
   { key: 'files:write',           capability: 'filesystem', label: 'Write files',         description: 'Create and modify local files',                category: 'Filesystem' },
   { key: 'files:delete',          capability: 'filesystem', label: 'Delete files',        description: 'Delete local files and directories',           category: 'Filesystem' },
   { key: 'shell:exec',            capability: 'shell',      label: 'Execute commands',    description: 'Run shell commands in terminal',               category: 'Shell' },
-  { key: 'network:http',          capability: 'network',    label: 'HTTP requests',       description: 'Make HTTP requests to local services',         category: 'Network' },
-  { key: 'network:tcp',           capability: 'network',    label: 'TCP connections',     description: 'Open TCP connections to local ports',          category: 'Network' },
-  { key: 'desktop:screenshot',    capability: 'desktop',    label: 'Screen capture',      description: 'Take screenshots of the desktop',              category: 'Desktop' },
-  { key: 'desktop:input',         capability: 'desktop',    label: 'Mouse & keyboard',    description: 'Control mouse and keyboard',                   category: 'Desktop' },
-  { key: 'desktop:clipboard',     capability: 'desktop',    label: 'Clipboard access',    description: 'Read and write clipboard',                     category: 'Desktop' },
-  { key: 'desktop:accessibility', capability: 'desktop',    label: 'Accessibility tree',  description: 'Read and interact with UI elements',           category: 'Desktop' },
 ];
 
 export interface ExpiryOption {
