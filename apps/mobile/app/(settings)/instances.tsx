@@ -66,6 +66,29 @@ function statusLabel(status: string): string {
   }
 }
 
+// ─── Shared progress state (survives navigation) ───────────────────────────
+
+type ProgressInfo = { percent: number; message: string } | null;
+let _sharedProgress: ProgressInfo = null;
+const _progressListeners = new Set<(p: ProgressInfo) => void>();
+
+function setSharedProgress(p: ProgressInfo) {
+  _sharedProgress = p;
+  _progressListeners.forEach((fn) => fn(p));
+}
+
+function useSharedProgress(): [ProgressInfo, (p: ProgressInfo) => void] {
+  const [progress, setProgress] = React.useState<ProgressInfo>(_sharedProgress);
+  React.useEffect(() => {
+    const handler = (p: ProgressInfo) => setProgress(p);
+    _progressListeners.add(handler);
+    // Sync on mount in case it changed while unmounted
+    setProgress(_sharedProgress);
+    return () => { _progressListeners.delete(handler); };
+  }, []);
+  return [progress, setSharedProgress];
+}
+
 // ─── Main Screen ────────────────────────────────────────────────────────────
 
 export default function InstancesScreen() {
@@ -79,7 +102,18 @@ export default function InstancesScreen() {
   const addSheetRef = React.useRef<BottomSheetModal>(null);
   const renameSheetRef = React.useRef<BottomSheetModal>(null);
   const [renameTarget, setRenameTarget] = React.useState<SandboxInfo | null>(null);
-  const [creatingProgress, setCreatingProgress] = React.useState<{ percent: number; message: string } | null>(null);
+  const [creatingProgress, setCreatingProgress] = useSharedProgress();
+
+  // Auto-poll when any instance is provisioning
+  const hasProvisioning = React.useMemo(
+    () => instances?.some((i) => !['running', 'ready', 'active', 'stopped', 'archived', 'error', 'failed'].includes(i.status)),
+    [instances],
+  );
+  React.useEffect(() => {
+    if (!hasProvisioning) return;
+    const interval = setInterval(() => refetch(), 5000);
+    return () => clearInterval(interval);
+  }, [hasProvisioning, refetch]);
 
   const handleSelect = React.useCallback((instance: SandboxInfo) => {
     if (instance.external_id === sandboxId) return;
@@ -127,84 +161,99 @@ export default function InstancesScreen() {
       >
         <View className="px-5 pt-1">
           {/* Instances */}
-          {instances && instances.length > 0 && (
+          {((instances && instances.length > 0) || creatingProgress) && (
             <View className="px-1">
               <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
                 Instances
               </Text>
               <View>
-                {instances.map((instance, idx) => {
+                {/* Creating row — appears at the top of the list */}
+                {creatingProgress && (
+                  <>
+                    <View className="py-3.5">
+                      <View className="flex-row items-center mb-2">
+                        <View className="h-2.5 w-2.5 rounded-full mr-3" style={{ backgroundColor: '#FBBF24' }} />
+                        <View className="flex-1">
+                          <Text className="font-roobert-medium text-[15px] text-foreground">Local Docker</Text>
+                          <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">
+                            {creatingProgress.message}
+                          </Text>
+                        </View>
+                        <Text className="font-roobert text-xs tabular-nums text-muted-foreground">
+                          {Math.round(creatingProgress.percent)}%
+                        </Text>
+                      </View>
+                      <View
+                        className="h-1.5 rounded-full overflow-hidden"
+                        style={{ backgroundColor: isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.06)' }}
+                      >
+                        <View
+                          className="h-full rounded-full"
+                          style={{
+                            width: `${Math.max(creatingProgress.percent, 2)}%`,
+                            backgroundColor: isDark ? '#F8F8F8' : '#121215',
+                          }}
+                        />
+                      </View>
+                    </View>
+                    {instances && instances.length > 0 && <View className="h-px bg-border/35" />}
+                  </>
+                )}
+
+                {instances?.map((instance, idx) => {
                   const isActive = instance.external_id === sandboxId;
-                  const isLast = idx === instances.length - 1;
+                  const isLast = idx === (instances?.length ?? 0) - 1;
+                  const isProvisioning = !['running', 'ready', 'active', 'stopped', 'archived', 'error', 'failed'].includes(instance.status);
                   return (
                     <View key={instance.sandbox_id}>
-                      <Pressable onPress={() => handleSelect(instance)} className="py-3.5 active:opacity-85">
+                      <Pressable onPress={() => handleSelect(instance)} disabled={isProvisioning} className="py-3.5 active:opacity-85">
                         <View className="flex-row items-center">
                           <View
                             className="h-2.5 w-2.5 rounded-full mr-3"
-                            style={{ backgroundColor: statusColor(instance.status) }}
+                            style={{ backgroundColor: isProvisioning ? '#FBBF24' : statusColor(instance.status) }}
                           />
                           <View className="flex-1">
                             <Text className="font-roobert-medium text-[15px] text-foreground" numberOfLines={1}>
                               {instance.name}
                             </Text>
                             <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">
-                              {statusLabel(instance.status)}
+                              {isProvisioning ? 'Provisioning...' : statusLabel(instance.status)}
                               {instance.version ? ` · v${instance.version}` : ''}
                               {` · ${providerLabel(instance.provider)}`}
                             </Text>
                           </View>
                           <View className="flex-row items-center" style={{ gap: 8 }}>
-                            <Pressable
-                              onPress={() => handleRename(instance)}
-                              hitSlop={8}
-                              className="active:opacity-60"
-                            >
-                              <Icon as={Pencil} size={14} className="text-muted-foreground/40" strokeWidth={2.2} />
-                            </Pressable>
-                            {isActive && (
+                            {!isProvisioning && (
+                              <Pressable
+                                onPress={() => handleRename(instance)}
+                                hitSlop={8}
+                                className="active:opacity-60"
+                              >
+                                <Icon as={Pencil} size={14} className="text-muted-foreground/40" strokeWidth={2.2} />
+                              </Pressable>
+                            )}
+                            {isProvisioning && <ActivityIndicator size="small" />}
+                            {isActive && !isProvisioning && (
                               <Icon as={Check} size={16} className="text-primary" strokeWidth={2.7} />
                             )}
                           </View>
                         </View>
+                        {isProvisioning && (
+                          <View
+                            className="mt-2 h-1 rounded-full overflow-hidden"
+                            style={{ backgroundColor: isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.06)' }}
+                          >
+                            <View
+                              className="h-full rounded-full"
+                              style={{ width: '30%', backgroundColor: '#FBBF24' }}
+                            />
+                          </View>
+                        )}
                       </Pressable>
                       {!isLast && <View className="h-px bg-border/35" />}
                     </View>
                   );
                 })}
-              </View>
-            </View>
-          )}
-
-          {/* Creating progress */}
-          {creatingProgress && (
-            <View className="px-1 mt-4">
-              <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
-                Creating
-              </Text>
-              <View className="py-3.5">
-                <View className="flex-row items-center mb-3">
-                  <View className="h-2.5 w-2.5 rounded-full mr-3" style={{ backgroundColor: '#FBBF24' }} />
-                  <View className="flex-1">
-                    <Text className="font-roobert-medium text-[15px] text-foreground">Local Docker</Text>
-                    <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">{creatingProgress.message}</Text>
-                  </View>
-                  <Text className="font-roobert text-xs tabular-nums text-muted-foreground">
-                    {Math.round(creatingProgress.percent)}%
-                  </Text>
-                </View>
-                <View
-                  className="h-1.5 rounded-full overflow-hidden"
-                  style={{ backgroundColor: isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.06)' }}
-                >
-                  <View
-                    className="h-full rounded-full"
-                    style={{
-                      width: `${Math.max(creatingProgress.percent, 2)}%`,
-                      backgroundColor: isDark ? '#F8F8F8' : '#121215',
-                    }}
-                  />
-                </View>
               </View>
             </View>
           )}
@@ -236,7 +285,7 @@ export default function InstancesScreen() {
         </Pressable>
       </View>
 
-      <AddInstanceSheet ref={addSheetRef} isDark={isDark} onCreated={onInstanceAdded} onProgress={setCreatingProgress} />
+      <AddInstanceSheet ref={addSheetRef} isDark={isDark} onCreated={onInstanceAdded} onProgress={setSharedProgress} />
       <RenameSheet ref={renameSheetRef} isDark={isDark} instance={renameTarget} onRenamed={onRenamed} />
     </>
   );
