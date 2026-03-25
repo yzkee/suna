@@ -37,8 +37,10 @@ KORTIX_LOCAL_IMAGES="${KORTIX_LOCAL_IMAGES:-0}"
 KORTIX_LOCAL_TAG="${KORTIX_LOCAL_TAG:-latest}"
 KORTIX_BUILD_LOCAL_IMAGES="${KORTIX_BUILD_LOCAL_IMAGES:-0}"
 KORTIX_PULL_PARALLELISM="${KORTIX_PULL_PARALLELISM:-4}"
+# Always prefer /dev/tty for interactive reads — critical for
+# `curl URL | bash` where stdin is the pipe, not the terminal.
 TTY_AVAILABLE="0"
-if [ -t 0 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+if [ -r /dev/tty ] && [ -w /dev/tty ]; then
   TTY_AVAILABLE="1"
 fi
 SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
@@ -560,42 +562,9 @@ prompt_database() {
 
 
 # ─── Integrations (Pipedream) ────────────────────────────────────────────────
+# Pipedream creds are optional — the sandbox can send its own via request headers.
 prompt_integrations() {
-  echo "  ${BOLD}Third-Party Integrations ${DIM}(optional)${NC}"
-  echo "  ${DIM}Connect to 3,000+ apps via Pipedream Connect${NC}"
-  echo ""
-  printf "  Configure integrations? ${DIM}[y/${NC}${GREEN}N${NC}${DIM}]${NC}: "
-  prompt_read integ_choice
-
-  case "${integ_choice:-n}" in
-    [yY]*)
-      echo ""
-      printf "    Pipedream Client ID: "
-      prompt_read PIPEDREAM_CLIENT_ID
-      printf "    Pipedream Client Secret: "
-      prompt_read PIPEDREAM_CLIENT_SECRET
-      printf "    Pipedream Project ID ${DIM}(e.g. proj_xxx)${NC}: "
-      prompt_read PIPEDREAM_PROJECT_ID
-      printf "    Pipedream Environment ${DIM}[production]${NC}: "
-      prompt_read pd_env
-      PIPEDREAM_ENVIRONMENT="${pd_env:-production}"
-
-      if [ -n "$PIPEDREAM_CLIENT_ID" ] && [ -n "$PIPEDREAM_CLIENT_SECRET" ] && [ -n "$PIPEDREAM_PROJECT_ID" ]; then
-        INTEGRATION_AUTH_PROVIDER="pipedream"
-        success "Pipedream configured"
-      else
-        warn "Incomplete — integrations will not be available"
-        INTEGRATION_AUTH_PROVIDER="disabled"
-        PIPEDREAM_CLIENT_ID=""; PIPEDREAM_CLIENT_SECRET=""; PIPEDREAM_PROJECT_ID=""; PIPEDREAM_ENVIRONMENT=""
-      fi
-      ;;
-    *)
-      INTEGRATION_AUTH_PROVIDER="disabled"
-      info "Skipping — you can also set PIPEDREAM_* env vars in the sandbox and they'll be used automatically"
-      ;;
-  esac
-
-  echo ""
+  INTEGRATION_AUTH_PROVIDER="pipedream"
 }
 
 
@@ -1175,7 +1144,7 @@ B=$'\033[1m'; D=$'\033[2m'; N=$'\033[0m'
 
 prompt_read() {
   local __var_name="$1"
-  if [ -t 0 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+  if [ -r /dev/tty ] && [ -w /dev/tty ]; then
     IFS= read -r "$__var_name" </dev/tty
   else
     IFS= read -r "$__var_name"
