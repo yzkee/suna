@@ -119,25 +119,19 @@ export async function buildMinimalAccountState(accountId: string): Promise<Accou
     // DB may not be available in local mode
   }
 
-  // Lazy-migrate legacy tier credits: old amounts were higher (40/100/400),
-  // new amounts are lower (20/50/200). Only reset once — when expiring > new amount.
-  if (isLegacyPaidTier(tierName) && tier.monthlyCredits > 0 && credits.monthly > tier.monthlyCredits) {
+  // Legacy tier users get their plan's credit amount set on every load
+  if (isLegacyPaidTier(tierName) && tier.monthlyCredits > 0) {
     try {
       const { resetExpiringCredits } = await import('./credits');
-      await resetExpiringCredits(
-        accountId,
-        tier.monthlyCredits,
-        `Credit migration: ${tierName} → $${tier.monthlyCredits}`,
-      );
+      await resetExpiringCredits(accountId, tier.monthlyCredits, `${tier.displayName}: $${tier.monthlyCredits} credits`);
       const updated = await getCreditSummary(accountId);
       credits.total = updated.total;
       credits.daily = updated.daily;
       credits.monthly = updated.monthly;
       credits.extra = updated.extra;
       credits.canRun = updated.canRun;
-      console.log(`[account-state] Migrated ${accountId} credits: ${credits.monthly} → ${tier.monthlyCredits}`);
     } catch (err) {
-      console.error(`[account-state] Credit migration failed for ${accountId}:`, err);
+      console.error(`[account-state] Credit set failed for ${accountId}:`, err);
     }
   }
 
