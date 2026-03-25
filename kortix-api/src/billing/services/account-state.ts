@@ -119,6 +119,31 @@ export async function buildMinimalAccountState(accountId: string): Promise<Accou
     // DB may not be available in local mode
   }
 
+  // Lazy-migrate legacy tier credits to new amounts on first login
+  if (isLegacyPaidTier(tierName) && tier.monthlyCredits > 0) {
+    const currentExpiring = credits.monthly;
+    if (currentExpiring !== tier.monthlyCredits) {
+      try {
+        const { resetExpiringCredits } = await import('./credits');
+        await resetExpiringCredits(
+          accountId,
+          tier.monthlyCredits,
+          `Credit migration: ${tierName} → $${tier.monthlyCredits}`,
+        );
+        // Re-read credits after migration
+        const updated = await getCreditSummary(accountId);
+        credits.total = updated.total;
+        credits.daily = updated.daily;
+        credits.monthly = updated.monthly;
+        credits.extra = updated.extra;
+        credits.canRun = updated.canRun;
+        console.log(`[account-state] Migrated ${accountId} credits: ${currentExpiring} → ${tier.monthlyCredits}`);
+      } catch (err) {
+        console.error(`[account-state] Credit migration failed for ${accountId}:`, err);
+      }
+    }
+  }
+
   // Legacy paid users with no active machine can claim a free default computer
   const hasActiveMachine = instances.some((i: any) => i.status === 'active' || i.status === 'provisioning');
   const canClaimComputer = isLegacyPaidTier(tierName) && !hasActiveMachine;
