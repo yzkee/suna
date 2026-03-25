@@ -329,19 +329,32 @@ export interface SandboxUpdateStatus {
 }
 
 export async function getLatestSandboxVersion(): Promise<SandboxVersionInfo> {
-  const result = await platformFetch<SandboxVersionInfo>('/platform/sandbox/version/latest', {
-    method: 'GET',
+  const res = await fetch(`${API_URL}/platform/sandbox/version/latest`, {
+    headers: { Accept: 'application/json' },
   });
-  // The API may return the data directly or nested under result.data
-  if (result.data) return result.data;
-  return result as unknown as SandboxVersionInfo;
+  if (!res.ok) throw new Error(`Version check failed: ${res.status}`);
+  return res.json();
 }
 
 export async function getFullChangelog(): Promise<ChangelogEntry[]> {
-  const result = await platformFetch<{ changelog: ChangelogEntry[] }>('/platform/sandbox/version/changelog', {
-    method: 'GET',
-  });
-  return result.data?.changelog ?? [];
+  try {
+    const token = await getAuthToken();
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const res = await fetch(`${API_URL}/platform/sandbox/version/changelog`, { headers });
+    if (!res.ok) throw new Error(`Changelog fetch failed: ${res.status}`);
+    const data = await res.json();
+
+    // Handle various response shapes
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data.changelog)) return data.changelog;
+    if (data.data && Array.isArray(data.data.changelog)) return data.data.changelog;
+    if (data.data && Array.isArray(data.data)) return data.data;
+    return [];
+  } catch {
+    return [];
+  }
 }
 
 export async function triggerSandboxUpdate(version: string): Promise<void> {
