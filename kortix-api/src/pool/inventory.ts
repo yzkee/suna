@@ -34,8 +34,33 @@ export async function countForResource(resourceId: string): Promise<number> {
   return rows.length;
 }
 
-export async function grab(opts?: ClaimOpts): Promise<ClaimedSandbox | null> {
-  const conditions = [eq(poolSandboxes.status, 'ready' as any)];
+async function findCandidate(opts?: ClaimOpts) {
+  const ready = eq(poolSandboxes.status, 'ready' as any);
+
+  if (opts?.serverType && opts?.location) {
+    const [exact] = await db
+      .select()
+      .from(poolSandboxes)
+      .where(and(ready, eq(poolSandboxes.serverType, opts.serverType), eq(poolSandboxes.location, opts.location)))
+      .orderBy(asc(poolSandboxes.createdAt))
+      .limit(1);
+    if (exact) return exact;
+
+    const [sameSize] = await db
+      .select()
+      .from(poolSandboxes)
+      .where(and(ready, eq(poolSandboxes.serverType, opts.serverType)))
+      .orderBy(asc(poolSandboxes.createdAt))
+      .limit(1);
+    if (sameSize) {
+      console.log(`[POOL] No exact match for ${opts.serverType}/${opts.location}, falling back to ${sameSize.serverType}/${sameSize.location}`);
+      return sameSize;
+    }
+
+    return null;
+  }
+
+  const conditions = [ready];
   if (opts?.serverType) conditions.push(eq(poolSandboxes.serverType, opts.serverType));
   if (opts?.location) conditions.push(eq(poolSandboxes.location, opts.location));
 
@@ -46,6 +71,11 @@ export async function grab(opts?: ClaimOpts): Promise<ClaimedSandbox | null> {
     .orderBy(asc(poolSandboxes.createdAt))
     .limit(1);
 
+  return candidate ?? null;
+}
+
+export async function grab(opts?: ClaimOpts): Promise<ClaimedSandbox | null> {
+  const candidate = await findCandidate(opts);
   if (!candidate) return null;
 
   const [claimed] = await db
