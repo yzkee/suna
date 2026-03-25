@@ -36,6 +36,7 @@ import {
 } from '@/lib/platform/hooks';
 import { checkInstanceHealth, type SandboxInfo, type SandboxProviderName } from '@/lib/platform/client';
 import { setInstanceProgress, useInstanceProgress } from '@/stores/instance-progress';
+import { useThemeColors } from '@/lib/theme-colors';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -76,6 +77,7 @@ export default function InstancesScreen() {
   const { sandboxId, switchSandbox } = useSandboxContext();
 
   const { data: instances, isLoading, refetch, isRefetching } = useInstances();
+  const themeColors = useThemeColors();
 
   const addSheetRef = React.useRef<BottomSheetModal>(null);
   const renameSheetRef = React.useRef<BottomSheetModal>(null);
@@ -254,10 +256,10 @@ export default function InstancesScreen() {
         <Pressable
           onPress={openAddSheet}
           className="flex-row items-center justify-center rounded-2xl py-3.5 active:opacity-90"
-          style={{ backgroundColor: isDark ? '#F8F8F8' : '#121215' }}
+          style={{ backgroundColor: themeColors.primary }}
         >
-          <Icon as={Plus} size={16} className={isDark ? 'text-[#121215]' : 'text-[#F8F8F8]'} strokeWidth={2.5} />
-          <Text className={`ml-2 font-roobert-semibold text-[15px] ${isDark ? 'text-[#121215]' : 'text-[#F8F8F8]'}`}>
+          <Icon as={Plus} size={16} style={{ color: themeColors.primaryForeground }} strokeWidth={2.5} />
+          <Text className="ml-2 font-roobert-semibold text-[15px]" style={{ color: themeColors.primaryForeground }}>
             New Instance
           </Text>
         </Pressable>
