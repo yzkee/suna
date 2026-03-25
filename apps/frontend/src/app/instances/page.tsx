@@ -75,6 +75,7 @@ function InstanceCard({ sandbox, onClick }: { sandbox: SandboxInfo; onClick: () 
   const serverType = (meta?.serverType as string) || null;
   const region = getRegionInfo(location);
 
+  
   return (
     <button
       type="button"
