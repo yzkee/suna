@@ -158,12 +158,16 @@ export async function combinedAuth(c: Context, next: Next) {
   }
 
   if (!token) {
-    // Last resort: check query param for preview proxy routes.
+    // Last resort: check query param for preview proxy routes and SSE endpoints.
     // Browser WebSocket API can't set custom headers, so PTY terminals
     // and other WS clients pass the token as ?token=<jwt>.
+    // EventSource (SSE) also can't set headers, so provision-stream uses this.
     const url = new URL(c.req.url);
     const queryToken = url.searchParams.get('token');
-    if (queryToken && c.req.path.startsWith('/v1/p/')) {
+    if (queryToken && (
+      c.req.path.startsWith('/v1/p/') ||
+      c.req.path.includes('/provision-stream')
+    )) {
       token = queryToken;
     }
   }

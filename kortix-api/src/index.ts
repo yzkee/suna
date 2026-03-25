@@ -29,6 +29,7 @@ import { ensureSchema } from './ensure-schema';
 import { initModelPricing, stopModelPricing } from './router/config/model-pricing';
 import { tunnelApp, wsHandlers as tunnelWsHandlers, startTunnelService, stopTunnelService, getTunnelServiceStatus } from './tunnel';
 import { startSandboxHealthMonitor, stopSandboxHealthMonitor } from './platform/services/sandbox-health';
+import { startProvisionPoller, stopProvisionPoller } from './platform/services/sandbox-provision-poller';
 import { startAutoReplenish, stopAutoReplenish } from './pool';
 import { accessControlApp } from './access-control';
 import { startAccessControlCache, stopAccessControlCache } from './shared/access-control-cache';
@@ -533,6 +534,11 @@ ensureSchema()
       );
       startSandboxHealthMonitor();
     }
+
+    // Start provision poller for cloud mode (compensates for broken/missing webhooks)
+    if (config.isJustAVPSEnabled()) {
+      startProvisionPoller();
+    }
   })
   .catch(async (err) => {
     console.error('[startup] ensureSchema failed, starting services anyway:', err);
@@ -548,6 +554,10 @@ ensureSchema()
       );
       startSandboxHealthMonitor();
     }
+
+    if (config.isJustAVPSEnabled()) {
+      startProvisionPoller();
+    }
   });
 
 // Graceful shutdown
@@ -557,6 +567,7 @@ function shutdown(signal: string) {
   stopModelPricing();
   stopTunnelService();
   stopSandboxHealthMonitor();
+  stopProvisionPoller();
   stopAutoReplenish();
   stopAccessControlCache();
   process.exit(0);

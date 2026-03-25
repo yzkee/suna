@@ -105,6 +105,29 @@ export function createCloudSandboxRouter(
 
   const router = new Hono<{ Variables: AuthVariables }>();
 
+  // ── Public routes (no auth required) ──
+
+  router.get('/justavps/server-types', async (c) => {
+    if (!config.isJustAVPSEnabled()) {
+      return c.json({ error: 'JustAVPS provider is not enabled' }, 404);
+    }
+    try {
+      const location = c.req.query('location') || config.JUSTAVPS_DEFAULT_LOCATION;
+      const types = await listJustAVPSServerTypes(location);
+      return c.json({
+        serverTypes: types,
+        location,
+        defaultServerType: config.JUSTAVPS_DEFAULT_SERVER_TYPE,
+        defaultLocation: config.JUSTAVPS_DEFAULT_LOCATION,
+      });
+    } catch (err: any) {
+      console.error('[SANDBOX-CLOUD] justavps server-types error:', err);
+      return c.json({ error: 'Failed to fetch server types' }, 500);
+    }
+  });
+
+  // ── Auth-gated routes ──
+
   if (deps.useAuth) {
     router.use('/*', authMiddleware);
   }
@@ -553,68 +576,13 @@ export function createCloudSandboxRouter(
         return c.json({ status: 'not_found', error: 'Sandbox not found' }, 404);
       }
 
-      let metadata = (sandbox.metadata as Record<string, unknown> | null) ?? {};
-      let currentStatus = sandbox.status;
+      const metadata = (sandbox.metadata as Record<string, unknown> | null) ?? {};
+      const currentStatus = sandbox.status;
 
-      // ── Self-healing: if DB says provisioning but JustAVPS says ready, heal the row ──
-      if (currentStatus === 'provisioning' && sandbox.externalId && sandbox.provider === 'justavps') {
-        try {
-          const baseUrl = config.JUSTAVPS_API_URL.replace(/\/$/, '');
-          const res = await fetch(`${baseUrl}/machines/${sandbox.externalId}`, {
-            headers: { 'Authorization': `Bearer ${config.JUSTAVPS_API_KEY}`, 'Content-Type': 'application/json' },
-            signal: AbortSignal.timeout(10_000),
-          });
-          if (!res.ok) throw new Error(`JustAVPS ${res.status}`);
-          const machine = await res.json() as { status: string; provisioning_stage?: string; ip?: string };
-          if (machine.status === 'ready') {
-            // JustAVPS says ready but our DB missed the webhook — heal it
-            const healedMeta = {
-              ...metadata,
-              provisioningStage: 'services_ready',
-              provisioningMessage: 'All services are up',
-              ...(machine.ip ? { publicIp: machine.ip } : {}),
-            };
-            await db
-              .update(sandboxes)
-              .set({ status: 'active', metadata: healedMeta, updatedAt: new Date() })
-              .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
-            currentStatus = 'active';
-            metadata = healedMeta;
-            console.log(`[SANDBOX-STATUS] Self-healed sandbox ${sandbox.sandboxId} from provisioning → active (JustAVPS machine ${sandbox.externalId} was already ready)`);
-          } else if (machine.status === 'error' || machine.status === 'deleted') {
-            // JustAVPS machine failed or was deleted — mark sandbox as error
-            const errorMeta = {
-              ...metadata,
-              provisioningStage: machine.provisioning_stage || 'error',
-              errorMessage: machine.status === 'deleted'
-                ? 'Machine was deleted by the provider'
-                : `Machine provisioning failed (${machine.provisioning_stage || 'unknown'})`,
-            };
-            await db
-              .update(sandboxes)
-              .set({ status: 'error', metadata: errorMeta, updatedAt: new Date() })
-              .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
-            currentStatus = 'error';
-            metadata = errorMeta;
-            console.log(`[SANDBOX-STATUS] Self-healed sandbox ${sandbox.sandboxId} from provisioning → error (JustAVPS machine ${sandbox.externalId} status: ${machine.status})`);
-          } else if (machine.provisioning_stage) {
-            // Update local metadata from JustAVPS so progress reflects reality
-            const updatedMeta = {
-              ...metadata,
-              provisioningStage: machine.provisioning_stage,
-              ...(machine.ip ? { publicIp: machine.ip } : {}),
-            };
-            await db
-              .update(sandboxes)
-              .set({ metadata: updatedMeta, updatedAt: new Date() })
-              .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
-            metadata = updatedMeta;
-          }
-        } catch (healErr) {
-          // Non-fatal — fall through to return whatever DB has
-          console.warn(`[SANDBOX-STATUS] Self-heal check failed for ${sandbox.sandboxId}:`, healErr);
-        }
-      }
+      // NOTE: Self-healing is now handled by the background provision-poller service
+      // (sandbox-provision-poller.ts) which polls JustAVPS every 8s for all provisioning
+      // sandboxes. This endpoint just reads the DB — no more blocking 5-6s JustAVPS
+      // calls in the hot path.
 
       const provisioningStage = (metadata.provisioningStage as string) ?? null;
       const provisioningMessage = (metadata.provisioningMessage as string) ?? null;
@@ -957,27 +925,6 @@ export function createCloudSandboxRouter(
 
     console.log(`[SANDBOX-CLOUD] Marked sandbox ${sandboxId} as error: ${errorMessage}`);
     return c.json({ success: true });
-  });
-
-  // ── JustAVPS server types ──
-
-  router.get('/justavps/server-types', async (c) => {
-    if (!config.isJustAVPSEnabled()) {
-      return c.json({ error: 'JustAVPS provider is not enabled' }, 404);
-    }
-    try {
-      const location = c.req.query('location') || config.JUSTAVPS_DEFAULT_LOCATION;
-      const types = await listJustAVPSServerTypes(location);
-      return c.json({
-        serverTypes: types,
-        location,
-        defaultServerType: config.JUSTAVPS_DEFAULT_SERVER_TYPE,
-        defaultLocation: config.JUSTAVPS_DEFAULT_LOCATION,
-      });
-    } catch (err: any) {
-      console.error('[SANDBOX-CLOUD] justavps server-types error:', err);
-      return c.json({ error: 'Failed to fetch server types' }, 500);
-    }
   });
 
   return router;

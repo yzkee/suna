@@ -23,7 +23,7 @@ import {
 } from '@/lib/platform-client';
 import { useServerStore } from '@/stores/server-store';
 import { useAuth } from '@/components/AuthProvider';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { getCurrentInstanceIdFromPathname, getActiveInstanceIdFromCookie } from '@/lib/instance-routes';
 
@@ -93,6 +93,9 @@ export function useSandbox() {
   // Register ALL sandboxes in server store whenever primary sandbox loads.
   // Do NOT auto-switch if the user already has an active instance route
   // (e.g. navigated from /instances to /instances/:id/dashboard).
+  // Only fetch the full list once per primary sandbox change (not on every render).
+  const listFetchedForRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!query.data) return;
     const primarySandbox = query.data;
@@ -104,6 +107,10 @@ export function useSandbox() {
     const autoSwitch = !hasExplicitRoute;
 
     registerSandboxServer(primarySandbox, autoSwitch, true);
+
+    // Only fetch the full list once per primary sandbox (not on every query.data update)
+    if (listFetchedForRef.current === primarySandbox.sandbox_id) return;
+    listFetchedForRef.current = primarySandbox.sandbox_id;
 
     // Also register other sandboxes (no auto-switch).
     listSandboxes().then((all) => {

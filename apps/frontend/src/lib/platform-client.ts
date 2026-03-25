@@ -360,6 +360,15 @@ export async function createSandbox(opts?: {
 }
 
 /**
+ * Get a single sandbox by ID from the list.
+ * Avoids fetching the full list when only one sandbox is needed.
+ */
+export async function getSandboxById(sandboxId: string): Promise<SandboxInfo | null> {
+  const all = await listSandboxes();
+  return all.find((s) => s.sandbox_id === sandboxId) ?? null;
+}
+
+/**
  * List all sandboxes for the user's account.
  */
 export async function listSandboxes(): Promise<SandboxInfo[]> {

@@ -181,10 +181,10 @@ export default function InstancesPage() {
     queryFn: listSandboxes,
     enabled: !!user,
     refetchInterval: (query) => {
-      // Poll every 5s if any sandbox is provisioning
+      // Poll every 15s if any sandbox is provisioning (real-time updates happen on the detail page via SSE)
       const data = query.state.data;
-      if (data?.some((s) => s.status === 'provisioning')) return 5000;
-      return 30000;
+      if (data?.some((s) => s.status === 'provisioning')) return 15_000;
+      return 60_000; // 60s when all stable
     },
   });
 
@@ -298,7 +298,7 @@ export default function InstancesPage() {
                 className="gap-1.5"
               >
                 {autoCreating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                {autoCreating ? 'Creating...' : 'New Instance'}
+                {autoCreating ? 'Creating...' : 'New Kortix'}
               </Button>
             )}
           </div>
@@ -338,7 +338,7 @@ export default function InstancesPage() {
               </div>
               <Button onClick={handleCreateInstance} className="gap-1.5">
                 <Plus className="h-3.5 w-3.5" />
-                Create Instance
+                New Kortix
               </Button>
             </div>
           )}
