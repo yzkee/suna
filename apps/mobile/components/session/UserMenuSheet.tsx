@@ -6,7 +6,9 @@ import { BottomSheetModal, BottomSheetBackdrop, BottomSheetScrollView } from '@g
 import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
 import { useColorScheme } from 'nativewind';
 import { useInstanceProgress } from '@/stores/instance-progress';
+import { useGlobalSandboxUpdate } from '@/hooks/useSandboxUpdate';
 import {
+  ArrowDownToLine,
   ChevronRight,
   LogOut,
   Monitor,
@@ -24,6 +26,7 @@ interface UserMenuSheetProps {
   onManageInstances: () => void;
   onAddInstance: () => void;
   onOpenSettings: () => void;
+  onOpenChangelog: () => void;
   onSignOut: () => void;
   onSelectTheme: (value: ThemeOption) => void;
   activeTheme: ThemeOption;
@@ -43,6 +46,7 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
     onManageInstances,
     onAddInstance,
     onOpenSettings,
+    onOpenChangelog,
     onSignOut,
     onSelectTheme,
     activeTheme,
@@ -54,6 +58,7 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
   const { height: screenHeight } = useWindowDimensions();
   const isDark = colorScheme === 'dark';
   const creatingProgress = useInstanceProgress();
+  const { updateAvailable, latestVersion, changelog: latestChangelog } = useGlobalSandboxUpdate();
 
   const renderBackdrop = useMemo(
     () => (props: BottomSheetBackdropProps) => (
@@ -167,6 +172,34 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
                   />
                 </View>
               </View>
+              <View className="h-px bg-border/35" />
+            </>
+          )}
+
+          {/* Update available */}
+          {updateAvailable && latestVersion && (
+            <>
+              <Pressable onPress={onOpenChangelog} className="py-3.5 active:opacity-85">
+                <View className="flex-row items-center">
+                  <View className="h-2.5 w-2.5 rounded-full mr-3" style={{ backgroundColor: '#EF4444' }} />
+                  <View className="flex-1">
+                    <Text className="font-roobert-medium text-[15px] text-foreground">
+                      New version v{latestVersion}
+                    </Text>
+                    <Text className="mt-0.5 font-roobert text-xs text-muted-foreground" numberOfLines={1}>
+                      {latestChangelog?.changes?.[0]?.text || 'Update available'}
+                    </Text>
+                  </View>
+                  <View
+                    className="rounded-xl px-2.5 py-1.5"
+                    style={{ backgroundColor: isDark ? '#F8F8F8' : '#121215' }}
+                  >
+                    <Text className={`font-roobert-semibold text-[11px] ${isDark ? 'text-[#121215]' : 'text-[#F8F8F8]'}`}>
+                      Update
+                    </Text>
+                  </View>
+                </View>
+              </Pressable>
               <View className="h-px bg-border/35" />
             </>
           )}

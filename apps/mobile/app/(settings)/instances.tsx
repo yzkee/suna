@@ -36,6 +36,8 @@ import {
 } from '@/lib/platform/hooks';
 import { checkInstanceHealth, type SandboxInfo, type SandboxProviderName } from '@/lib/platform/client';
 import { setInstanceProgress, useInstanceProgress } from '@/stores/instance-progress';
+import { useGlobalSandboxUpdate } from '@/hooks/useSandboxUpdate';
+import { useRouter } from 'expo-router';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -76,6 +78,8 @@ export default function InstancesScreen() {
   const { sandboxId, switchSandbox } = useSandboxContext();
 
   const { data: instances, isLoading, refetch, isRefetching } = useInstances();
+  const router = useRouter();
+  const { updateAvailable, latestVersion, changelog: latestChangelog } = useGlobalSandboxUpdate();
 
   const addSheetRef = React.useRef<BottomSheetModal>(null);
   const renameSheetRef = React.useRef<BottomSheetModal>(null);
@@ -137,7 +141,41 @@ export default function InstancesScreen() {
         contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
       >
-        <View className="px-5 pt-1">
+        <View className="px-5 pt-1" style={{ gap: 18 }}>
+          {/* Update available banner */}
+          {updateAvailable && latestVersion && (
+            <Pressable
+              onPress={() => router.push('/(settings)/changelog')}
+              className="px-1 active:opacity-85"
+            >
+              <View className="py-3.5">
+                <View className="flex-row items-center">
+                  <View className="h-2.5 w-2.5 rounded-full mr-3" style={{ backgroundColor: '#EF4444' }} />
+                  <View className="flex-1">
+                    <Text className="font-roobert-medium text-[15px] text-foreground">
+                      New Kortix version
+                    </Text>
+                    <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">
+                      v{latestVersion} available
+                      {latestChangelog?.changes?.[0]
+                        ? ` · ${latestChangelog.changes[0].text}`
+                        : ''}
+                    </Text>
+                  </View>
+                  <View
+                    className="rounded-xl px-3 py-1.5"
+                    style={{ backgroundColor: isDark ? '#F8F8F8' : '#121215' }}
+                  >
+                    <Text className={`font-roobert-semibold text-[11px] ${isDark ? 'text-[#121215]' : 'text-[#F8F8F8]'}`}>
+                      Update
+                    </Text>
+                  </View>
+                </View>
+              </View>
+              <View className="h-px bg-border/35" />
+            </Pressable>
+          )}
+
           {/* Instances */}
           {((instances && instances.length > 0) || creatingProgress) && (
             <View className="px-1">

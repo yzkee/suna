@@ -515,6 +515,12 @@ export default function HomeScreen() {
     router.push('/(settings)/instances');
   }, [closeUserMenuSheet, router]);
 
+  const handleOpenChangelog = useCallback(() => {
+    closeUserMenuSheet();
+    setDrawerOpen(false);
+    router.push('/(settings)/changelog');
+  }, [closeUserMenuSheet, router]);
+
   const handleThemeSelect = useCallback(async (value: ThemePreference) => {
     setThemePreference(value);
     try {
@@ -1064,6 +1070,7 @@ export default function HomeScreen() {
         onManageInstances={handleManageInstances}
         onAddInstance={handleAddInstance}
         onOpenSettings={handleGoToSettings}
+        onOpenChangelog={handleOpenChangelog}
         onSignOut={handleSignOut}
         onSelectTheme={handleThemeSelect}
         activeTheme={themePreference}

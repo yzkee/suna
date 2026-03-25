@@ -283,3 +283,84 @@ export async function checkInstanceHealth(url: string): Promise<string | null> {
     return null;
   }
 }
+
+// ─── Sandbox Update API ─────────────────────────────────────────────────────
+
+export interface ChangelogChange {
+  type: 'feature' | 'fix' | 'improvement' | 'breaking' | 'upstream' | 'security' | 'deprecation';
+  text: string;
+}
+
+export interface ChangelogEntry {
+  version: string;
+  date: string;
+  title: string;
+  description: string;
+  changes: ChangelogChange[];
+}
+
+export interface SandboxVersionInfo {
+  version: string;
+  channel?: string;
+  changelog: ChangelogEntry | null;
+}
+
+export type UpdatePhase =
+  | 'idle'
+  | 'pulling'
+  | 'stopping'
+  | 'removing'
+  | 'recreating'
+  | 'starting'
+  | 'health_check'
+  | 'complete'
+  | 'failed';
+
+export interface SandboxUpdateStatus {
+  phase: UpdatePhase;
+  progress: number;
+  message: string;
+  targetVersion: string | null;
+  previousVersion: string | null;
+  currentVersion: string | null;
+  error: string | null;
+  startedAt: string | null;
+  updatedAt: string | null;
+}
+
+export async function getLatestSandboxVersion(): Promise<SandboxVersionInfo> {
+  const result = await platformFetch<SandboxVersionInfo>('/platform/sandbox/version/latest', {
+    method: 'GET',
+  });
+  // The API may return the data directly or nested under result.data
+  if (result.data) return result.data;
+  return result as unknown as SandboxVersionInfo;
+}
+
+export async function getFullChangelog(): Promise<ChangelogEntry[]> {
+  const result = await platformFetch<{ changelog: ChangelogEntry[] }>('/platform/sandbox/version/changelog', {
+    method: 'GET',
+  });
+  return result.data?.changelog ?? [];
+}
+
+export async function triggerSandboxUpdate(version: string): Promise<void> {
+  await platformFetch<void>('/platform/sandbox/update', {
+    method: 'POST',
+    body: JSON.stringify({ version }),
+  });
+}
+
+export async function getSandboxUpdateStatus(): Promise<SandboxUpdateStatus> {
+  const result = await platformFetch<SandboxUpdateStatus>('/platform/sandbox/update/status', {
+    method: 'GET',
+  });
+  if (result.data) return result.data;
+  return result as unknown as SandboxUpdateStatus;
+}
+
+export async function resetSandboxUpdateStatus(): Promise<void> {
+  await platformFetch<void>('/platform/sandbox/update/reset', {
+    method: 'POST',
+  });
+}
