@@ -49,7 +49,9 @@ import { useResolvedConfig } from '@/lib/opencode/hooks/use-local-config';
 import { useTabStore, PAGE_TABS } from '@/stores/tab-store';
 import { RightDrawerContent } from '@/components/session/RightDrawerContent';
 import { UserMenuSheet } from '@/components/session/UserMenuSheet';
+import { useGlobalSandboxUpdate } from '@/hooks/useSandboxUpdate';
 import { PlaceholderPage } from '@/components/session/PlaceholderPage';
+import { UpdatesPage } from '@/components/pages/UpdatesPage';
 import { FilesPage } from '@/components/pages/FilesPage';
 import type { FilesPageRef } from '@/components/pages/FilesPage';
 import { SecretsPage } from '@/components/pages/SecretsPage';
@@ -246,6 +248,7 @@ export default function HomeScreen() {
   const [pendingFilePath, setPendingFilePath] = useState<string | null>(null);
   const userMenuSheetRef = useRef<BottomSheetModal>(null);
   const [themePreference, setThemePreference] = useState<ThemePreference>('light');
+  const { updateAvailable: hasUpdate } = useGlobalSandboxUpdate();
 
   // Files page ref (for BottomBar menu integration)
   const filesPageRef = useRef<FilesPageRef>(null);
@@ -515,6 +518,12 @@ export default function HomeScreen() {
     router.push('/(settings)/instances');
   }, [closeUserMenuSheet, router]);
 
+  const handleOpenChangelog = useCallback(() => {
+    closeUserMenuSheet();
+    setDrawerOpen(false);
+    useTabStore.getState().navigateToPage('page:updates');
+  }, [closeUserMenuSheet]);
+
   const handleThemeSelect = useCallback(async (value: ThemePreference) => {
     setThemePreference(value);
     try {
@@ -690,10 +699,15 @@ export default function HomeScreen() {
             activeOpacity={0.8}
             className="flex-row items-center"
           >
-            <View className="h-11 w-11 rounded-full bg-muted items-center justify-center mr-3">
-              <Text className="text-base font-semibold text-muted-foreground uppercase">
-                {userDisplayName.charAt(0)}
-              </Text>
+            <View className="relative mr-3">
+              <View className="h-11 w-11 rounded-full bg-muted items-center justify-center">
+                <Text className="text-base font-semibold text-muted-foreground uppercase">
+                  {userDisplayName.charAt(0)}
+                </Text>
+              </View>
+              {hasUpdate && (
+                <View className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-red-500 border-2 border-background" />
+              )}
             </View>
             <View className="flex-1">
               <Text className="text-sm text-foreground" numberOfLines={1}>
@@ -719,6 +733,7 @@ export default function HomeScreen() {
     activeSessionId,
     userDisplayName,
     planLabel,
+    hasUpdate,
     handleUserMenuOpen,
     handleNewSession,
     handleSessionPress,
@@ -843,6 +858,15 @@ export default function HomeScreen() {
           /* Active page tab — Marketplace */
           ) : activePageId === 'page:marketplace' && PAGE_TABS[activePageId] && !showTabsOverview ? (
             <MarketplacePage
+              page={PAGE_TABS[activePageId]}
+              onBack={handleBack}
+              onOpenDrawer={handleDrawerOpen}
+              onOpenRightDrawer={handleRightDrawerOpen}
+            />
+
+          /* Active page tab — Updates */
+          ) : activePageId === 'page:updates' && PAGE_TABS[activePageId] && !showTabsOverview ? (
+            <UpdatesPage
               page={PAGE_TABS[activePageId]}
               onBack={handleBack}
               onOpenDrawer={handleDrawerOpen}
@@ -1064,6 +1088,7 @@ export default function HomeScreen() {
         onManageInstances={handleManageInstances}
         onAddInstance={handleAddInstance}
         onOpenSettings={handleGoToSettings}
+        onOpenChangelog={handleOpenChangelog}
         onSignOut={handleSignOut}
         onSelectTheme={handleThemeSelect}
         activeTheme={themePreference}

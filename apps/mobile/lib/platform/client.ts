@@ -283,3 +283,104 @@ export async function checkInstanceHealth(url: string): Promise<string | null> {
     return null;
   }
 }
+
+// ─── Sandbox Update API ─────────────────────────────────────────────────────
+
+export interface ChangelogChange {
+  type: 'feature' | 'fix' | 'improvement' | 'breaking' | 'upstream' | 'security' | 'deprecation';
+  text: string;
+}
+
+export interface ChangelogEntry {
+  version: string;
+  date: string;
+  title: string;
+  description: string;
+  changes: ChangelogChange[];
+}
+
+export interface SandboxVersionInfo {
+  version: string;
+  channel?: string;
+  changelog: ChangelogEntry | null;
+}
+
+export type UpdatePhase =
+  | 'idle'
+  | 'pulling'
+  | 'stopping'
+  | 'removing'
+  | 'recreating'
+  | 'starting'
+  | 'health_check'
+  | 'complete'
+  | 'failed';
+
+export interface SandboxUpdateStatus {
+  phase: UpdatePhase;
+  progress: number;
+  message: string;
+  targetVersion: string | null;
+  previousVersion: string | null;
+  currentVersion: string | null;
+  error: string | null;
+  startedAt: string | null;
+  updatedAt: string | null;
+}
+
+export async function getLatestSandboxVersion(): Promise<SandboxVersionInfo> {
+  const res = await fetch(`${API_URL}/platform/sandbox/version/latest`, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) throw new Error(`Version check failed: ${res.status}`);
+  const data = await res.json();
+  // Handle nested response: { data: { version, changelog } } or direct { version, changelog }
+  const info = data?.data ?? data;
+  return {
+    version: info.version,
+    channel: info.channel,
+    changelog: info.changelog ?? null,
+  };
+}
+
+export async function getFullChangelog(): Promise<ChangelogEntry[]> {
+  try {
+    const token = await getAuthToken();
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const res = await fetch(`${API_URL}/platform/sandbox/version/changelog`, { headers });
+    if (!res.ok) throw new Error(`Changelog fetch failed: ${res.status}`);
+    const data = await res.json();
+
+    // Handle various response shapes
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data.changelog)) return data.changelog;
+    if (data.data && Array.isArray(data.data.changelog)) return data.data.changelog;
+    if (data.data && Array.isArray(data.data)) return data.data;
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+export async function triggerSandboxUpdate(version: string): Promise<void> {
+  await platformFetch<void>('/platform/sandbox/update', {
+    method: 'POST',
+    body: JSON.stringify({ version }),
+  });
+}
+
+export async function getSandboxUpdateStatus(): Promise<SandboxUpdateStatus> {
+  const result = await platformFetch<SandboxUpdateStatus>('/platform/sandbox/update/status', {
+    method: 'GET',
+  });
+  if (result.data) return result.data;
+  return result as unknown as SandboxUpdateStatus;
+}
+
+export async function resetSandboxUpdateStatus(): Promise<void> {
+  await platformFetch<void>('/platform/sandbox/update/reset', {
+    method: 'POST',
+  });
+}
