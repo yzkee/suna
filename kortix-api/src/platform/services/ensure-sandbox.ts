@@ -120,8 +120,9 @@ async function tryClaimFromPool(
   accountId: string,
   opts: { serverType?: string; location?: string; isIncluded?: boolean },
 ): Promise<EnsureSandboxResult | null> {
+  let claimed: Awaited<ReturnType<typeof pool.grab>> = null;
   try {
-    const claimed = await pool.grab({ serverType: opts.serverType, location: opts.location });
+    claimed = await pool.grab({ serverType: opts.serverType, location: opts.location });
     if (!claimed) return null;
 
     const name = await generateSandboxName(accountId);
@@ -158,6 +159,16 @@ async function tryClaimFromPool(
     return { row, created: true };
   } catch (err) {
     console.warn('[ensureSandbox] Pool claim failed, falling back to provisioning:', err);
+    // If we grabbed a sandbox but failed after, try to destroy the orphaned VPS
+    if (claimed?.externalId) {
+      try {
+        const provider = getProvider(claimed.poolSandbox.provider as ProviderName);
+        await provider.remove(claimed.externalId);
+        console.log(`[ensureSandbox] Cleaned up orphaned pool sandbox: ${claimed.externalId}`);
+      } catch (cleanupErr) {
+        console.error(`[ensureSandbox] Failed to clean up orphaned pool sandbox ${claimed.externalId}:`, cleanupErr);
+      }
+    }
     return null;
   }
 }

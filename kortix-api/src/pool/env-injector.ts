@@ -27,7 +27,6 @@ function buildEnvPayload(serviceKey: string): Record<string, string> {
     INTERNAL_SERVICE_KEY: serviceKey,
     KORTIX_TOKEN: serviceKey,
     KORTIX_SANDBOX_VERSION: SANDBOX_VERSION,
-    // Route tool SDK traffic through the Kortix router proxy for billing/key injection.
     TAVILY_API_URL: `${routerBase}/tavily`,
     REPLICATE_API_URL: `${routerBase}/replicate`,
     SERPER_API_URL: `${routerBase}/serper`,
@@ -40,21 +39,17 @@ export async function inject(poolSandbox: PoolSandbox, serviceKey: string): Prom
   const headers = buildHeaders(meta);
   const keys = buildEnvPayload(serviceKey);
 
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ keys }),
-      signal: AbortSignal.timeout(15_000),
-    });
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ keys }),
+    signal: AbortSignal.timeout(15_000),
+  });
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      console.error(`[POOL] Env injection ${res.status} for ${poolSandbox.externalId}: ${text.slice(0, 300)}`);
-    } else {
-      console.log(`[POOL] Env injected into ${poolSandbox.externalId}`);
-    }
-  } catch (err) {
-    console.error(`[POOL] Env injection failed for ${poolSandbox.externalId}:`, err);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Env injection failed (${res.status}) for ${poolSandbox.externalId}: ${text.slice(0, 300)}`);
   }
+
+  console.log(`[POOL] Env injected into ${poolSandbox.externalId}`);
 }

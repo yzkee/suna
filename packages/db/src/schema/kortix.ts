@@ -130,7 +130,6 @@ export const sandboxes = kortixSchema.table(
     baseUrl: text('base_url').notNull(),
     config: jsonb('config').default({}).$type<Record<string, unknown>>(),
     metadata: jsonb('metadata').default({}).$type<Record<string, unknown>>(),
-    pooledAt: timestamp('pooled_at', { withTimezone: true }),
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -142,7 +141,6 @@ export const sandboxes = kortixSchema.table(
     index('idx_sandboxes_account').on(table.accountId),
     index('idx_sandboxes_external_id').on(table.externalId),
     index('idx_sandboxes_status').on(table.status),
-    index('idx_sandboxes_pooled_fifo').on(table.pooledAt),
   ],
 );
 
@@ -182,6 +180,7 @@ export const poolSandboxes = kortixSchema.table(
   },
   (table) => [
     index('idx_pool_sandboxes_claim').on(table.status, table.createdAt),
+    uniqueIndex('idx_pool_sandboxes_external_id_active').on(table.externalId),
   ],
 );
 

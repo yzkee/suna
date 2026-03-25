@@ -1,11 +1,12 @@
 import * as resources from './resources';
 import * as inventory from './inventory';
 import * as envInjector from './env-injector';
+import * as stats from './stats';
 import { start as startAutoReplenish, stop as stopAutoReplenish } from './auto-replenish';
 import type { CreateResult, PoolStatus, ClaimedSandbox, ClaimOpts, ResourceInput, PoolResource } from './types';
 
 export type { PoolResource, PoolSandbox, ClaimedSandbox, ClaimOpts, ResourceInput, PoolStatus, CreateResult } from './types';
-export { resources, inventory, envInjector };
+export { resources, inventory, envInjector, stats };
 export { startAutoReplenish, stopAutoReplenish };
 
 export async function status(): Promise<PoolStatus> {
@@ -17,7 +18,10 @@ export async function status(): Promise<PoolStatus> {
 }
 
 export async function grab(opts?: ClaimOpts): Promise<ClaimedSandbox | null> {
-  return inventory.grab(opts);
+  const start = Date.now();
+  const result = await inventory.grab(opts);
+  if (result) stats.recordClaimed(Date.now() - start);
+  return result;
 }
 
 export async function injectEnv(claimed: ClaimedSandbox, serviceKey: string): Promise<void> {
@@ -45,7 +49,11 @@ export async function replenish(): Promise<{ created: number }> {
     }
   }
 
-  if (totalCreated > 0) console.log(`[POOL] Replenished: ${totalCreated} created`);
+  if (totalCreated > 0) {
+    stats.recordCreated(totalCreated);
+    console.log(`[POOL] Replenished: ${totalCreated} created`);
+  }
+  stats.recordReplenish();
   return { created: totalCreated };
 }
 
@@ -96,7 +104,11 @@ export async function cleanup(): Promise<{ cleaned: number }> {
     }
   }
 
-  if (cleaned > 0) console.log(`[POOL] Cleaned ${cleaned} stale sandboxes`);
+  if (cleaned > 0) {
+    stats.recordExpired(cleaned);
+    console.log(`[POOL] Cleaned ${cleaned} stale sandboxes`);
+  }
+  stats.recordCleanup();
   return { cleaned };
 }
 

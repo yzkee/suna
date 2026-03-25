@@ -73,17 +73,18 @@ sandboxPoolAdminApp.get('/health', async (c) => {
 sandboxPoolAdminApp.get('/stats', async (c) => {
   const s = await pool.status();
   const totalDesired = s.resources.filter((r) => r.enabled).reduce((sum, r) => sum + r.desiredCount, 0);
+  const st = pool.stats.getStats();
 
   return c.json({
     pool_size: s.ready,
     provisioning: s.provisioning,
-    total_created: 0,
-    total_claimed: 0,
-    total_expired: 0,
-    avg_claim_time_ms: 0,
-    pool_hit_rate: 0,
-    last_replenish_at: null,
-    last_cleanup_at: null,
+    total_created: st.totalCreated,
+    total_claimed: st.totalClaimed,
+    total_expired: st.totalExpired,
+    avg_claim_time_ms: st.avgClaimTimeMs,
+    pool_hit_rate: st.poolHitRate,
+    last_replenish_at: st.lastReplenishAt?.toISOString() ?? null,
+    last_cleanup_at: st.lastCleanupAt?.toISOString() ?? null,
     config: { min_size: totalDesired, max_age_hours: config.POOL_MAX_AGE_HOURS },
   });
 });
