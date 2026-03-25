@@ -24,7 +24,6 @@ import {
   BookOpen,
   ExternalLink,
   Loader2,
-  Link,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -36,7 +35,6 @@ import { isBillingEnabled } from '@/lib/config';
 import { getActiveOpenCodeUrl } from '@/stores/server-store';
 import { authenticatedFetch } from '@/lib/auth-token';
 import { cn } from '@/lib/utils';
-import { backendApi } from '@/lib/api-client';
 
 // ─── Step indicator ─────────────────────────────────────────────────────────
 
@@ -351,168 +349,6 @@ function ToolSecretsStep({
   );
 }
 
-// ─── Step 3: Pipedream Integrations ─────────────────────────────────────────
-
-const PIPEDREAM_KEYS = [
-  {
-    key: 'PIPEDREAM_CLIENT_ID',
-    label: 'Client ID',
-    placeholder: 'e.g. z8PKSGuQdorPj4UErE…',
-    secret: false,
-  },
-  {
-    key: 'PIPEDREAM_CLIENT_SECRET',
-    label: 'Client Secret',
-    placeholder: 'e.g. UeZCz2PeNdOeHJfw…',
-    secret: true,
-  },
-  {
-    key: 'PIPEDREAM_PROJECT_ID',
-    label: 'Project ID',
-    placeholder: 'e.g. proj_x9s97z5',
-    secret: false,
-  },
-] as const;
-
-function PipedreamStep({
-  onContinue,
-  onSkip,
-  completing,
-}: {
-  onContinue: () => void;
-  onSkip: () => void;
-  completing?: boolean;
-}) {
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
-
-  const allFilled = PIPEDREAM_KEYS.every((k) => (values[k.key] || '').trim());
-
-  const handleSave = useCallback(async () => {
-    if (!allFilled) {
-      onContinue();
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const keys: Record<string, string> = {
-        INTEGRATION_AUTH_PROVIDER: 'pipedream',
-        PIPEDREAM_ENVIRONMENT: 'production',
-      };
-      for (const k of PIPEDREAM_KEYS) {
-        keys[k.key] = (values[k.key] || '').trim();
-      }
-
-      const result = await backendApi.post('/admin/api/env', { keys });
-      if (!result.success) {
-        console.warn('[Setup] Failed to save Pipedream config:', result.error);
-      }
-      onContinue();
-    } catch (err) {
-      console.warn('[Setup] Failed to save Pipedream config:', err);
-      onContinue();
-    } finally {
-      setSaving(false);
-    }
-  }, [values, allFilled, onContinue]);
-
-  return (
-    <div className="w-full max-w-sm space-y-5">
-      {/* Header */}
-      <div className="text-center space-y-2">
-        <div className="flex items-center justify-center">
-          <div className="h-11 w-11 rounded-full flex items-center justify-center bg-muted/60">
-            <Link className="h-5 w-5 text-muted-foreground/50" />
-          </div>
-        </div>
-        <h2 className="text-[15px] font-medium text-foreground/90">
-          Third-party integrations
-        </h2>
-        <p className="text-[12px] text-muted-foreground/50 leading-relaxed">
-          Connect to 3,000+ apps via{' '}
-          <a
-            href="https://pipedream.com/connect"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline hover:text-muted-foreground/70 transition-colors"
-          >
-            Pipedream Connect
-          </a>
-          . Optional — you can add this later.
-        </p>
-      </div>
-
-      {/* Fields */}
-      <div className="space-y-3">
-        {PIPEDREAM_KEYS.map((field) => (
-          <div key={field.key} className="space-y-1">
-            <label className="text-[12px] font-medium text-foreground/60">
-              {field.label}
-            </label>
-            <Input
-              type={field.secret ? 'password' : 'text'}
-              placeholder={field.placeholder}
-              value={values[field.key] || ''}
-              onChange={(e) =>
-                setValues((prev) => ({ ...prev, [field.key]: e.target.value }))
-              }
-              className="h-9 text-xs font-mono shadow-none bg-foreground/[0.04] border-foreground/[0.08] rounded-lg"
-              autoComplete="off"
-            />
-          </div>
-        ))}
-      </div>
-
-      {/* Actions */}
-      <div className="flex gap-2 pt-1">
-        <Button
-          variant="outline"
-          onClick={onSkip}
-          className="flex-1 h-10 text-[13px] rounded-xl shadow-none border-foreground/[0.08]"
-          disabled={saving || completing}
-        >
-          {completing ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Finishing…
-            </>
-          ) : (
-            'Skip for now'
-          )}
-        </Button>
-        <Button
-          onClick={handleSave}
-          disabled={saving || completing || !allFilled}
-          className="flex-1 h-10 text-[13px] rounded-xl shadow-none"
-        >
-          {saving || completing ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {saving ? 'Saving…' : 'Finishing…'}
-            </>
-          ) : (
-            'Save & finish'
-          )}
-        </Button>
-      </div>
-
-      <p className="text-[11px] text-foreground/25 text-center">
-        Get your credentials at{' '}
-        <a
-          href="https://pipedream.com/connect"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline"
-        >
-          pipedream.com/connect
-        </a>
-        . You can add them later in Settings.
-      </p>
-    </div>
-  );
-}
-
 // ─── Main flow ──────────────────────────────────────────────────────────────
 
 export interface InstanceSetupFlowProps {
@@ -521,7 +357,7 @@ export interface InstanceSetupFlowProps {
 
 export function InstanceSetupFlow({ onComplete }: InstanceSetupFlowProps) {
   const isCloud = isBillingEnabled();
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2>(1);
   const [completing, setCompleting] = useState(false);
 
   const handleProviderContinue = useCallback(() => {
@@ -529,25 +365,13 @@ export function InstanceSetupFlow({ onComplete }: InstanceSetupFlowProps) {
   }, []);
 
   const handleToolKeysDone = useCallback(() => {
-    if (isCloud) {
-      // Cloud mode: skip Pipedream (managed by platform)
-      setCompleting(true);
-      onComplete();
-    } else {
-      setStep(3);
-    }
-  }, [isCloud, onComplete]);
-
-  const handlePipedreamDone = useCallback(() => {
     setCompleting(true);
     onComplete();
   }, [onComplete]);
 
-  const totalSteps = isCloud ? 2 : 3;
-
   const handleStepClick = useCallback(
     (s: number) => {
-      if (s < step) setStep(s as 1 | 2 | 3);
+      if (s < step) setStep(s as 1 | 2);
     },
     [step],
   );
@@ -561,7 +385,7 @@ export function InstanceSetupFlow({ onComplete }: InstanceSetupFlowProps) {
         </p>
       )}
 
-      <StepIndicator currentStep={step} totalSteps={totalSteps} onStepClick={handleStepClick} />
+      <StepIndicator currentStep={step} totalSteps={2} onStepClick={handleStepClick} />
 
       {step === 1 && <ProviderStep onContinue={handleProviderContinue} />}
 
@@ -569,14 +393,6 @@ export function InstanceSetupFlow({ onComplete }: InstanceSetupFlowProps) {
         <ToolSecretsStep
           onContinue={handleToolKeysDone}
           onSkip={handleToolKeysDone}
-          completing={isCloud ? completing : false}
-        />
-      )}
-
-      {step === 3 && !isCloud && (
-        <PipedreamStep
-          onContinue={handlePipedreamDone}
-          onSkip={handlePipedreamDone}
           completing={completing}
         />
       )}

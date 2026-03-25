@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { HTTPException } from 'hono/http-exception';
-import { createAuthProvider } from './providers';
+import { getProviderFromRequest } from './providers';
 import { config } from '../config';
 import { db } from '../shared/db';
 import {
@@ -86,7 +86,7 @@ export function createIntegrationsRouter(): Hono<AppEnv> {
       const query = c.req.query('q');
       const limit = parseInt(c.req.query('limit') || '48', 10);
       const cursor = c.req.query('cursor');
-      const provider = createAuthProvider();
+      const provider = getProviderFromRequest(c);
       const result = await provider.listApps(query, limit, cursor);
       return c.json(result);
     } catch (err) {
@@ -106,7 +106,7 @@ export function createIntegrationsRouter(): Hono<AppEnv> {
     }
 
     try {
-      const provider = createAuthProvider();
+      const provider = getProviderFromRequest(c);
       const result = await provider.createConnectToken(accountId, parsed.data.app);
       return c.json(result);
     } catch (err) {
@@ -133,7 +133,7 @@ export function createIntegrationsRouter(): Hono<AppEnv> {
     }
 
     try {
-      const provider = createAuthProvider();
+      const provider = getProviderFromRequest(c);
       const row = await insertIntegration({
         accountId,
         app: parsed.data.app,
@@ -272,7 +272,7 @@ export function createIntegrationsRouter(): Hono<AppEnv> {
     }
 
     try {
-      const provider = createAuthProvider();
+      const provider = getProviderFromRequest(c);
       await provider.deleteAccount(accountId, row.providerAccountId as string);
     } catch (err) {
       console.error('[INTEGRATIONS] Error revoking on provider:', err);
@@ -341,7 +341,7 @@ export function createIntegrationsRouter(): Hono<AppEnv> {
     }
 
     try {
-      const provider = createAuthProvider();
+      const provider = getProviderFromRequest(c);
       const result = await provider.proxyRequest(accountId, appSlug, {
         method,
         url,
@@ -387,7 +387,7 @@ export function createIntegrationsRouter(): Hono<AppEnv> {
     }
 
     try {
-      const provider = createAuthProvider();
+      const provider = getProviderFromRequest(c);
       const row = await insertIntegration({
         accountId: account_id,
         app,
@@ -492,7 +492,7 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
     }
 
     try {
-      const provider = createAuthProvider();
+      const provider = getProviderFromRequest(c);
       const token = await provider.getAuthToken(accountId, appSlug, linked.providerAccountId);
 
       console.log(`[INTEGRATIONS] Token fetched: app=${appSlug} sandbox=${sandboxId} account=${accountId}`);
@@ -534,7 +534,7 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
     }
 
     try {
-      const provider = createAuthProvider();
+      const provider = getProviderFromRequest(c);
       const result = await provider.proxyRequest(accountId, appSlug, {
         method,
         url,
@@ -610,7 +610,7 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
     const limit = parseInt(c.req.query('limit') || '50', 10);
 
     try {
-      const provider = createAuthProvider();
+      const provider = getProviderFromRequest(c);
       const result = await provider.listActions(appSlug, query, limit);
       return c.json(result);
     } catch (err) {
@@ -636,7 +636,7 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
     const { app: appSlug } = parsed.data;
 
     try {
-      const provider = createAuthProvider();
+      const provider = getProviderFromRequest(c);
       const result = await provider.createConnectToken(accountId, appSlug);
 
       const dashboardUrl = `${config.FRONTEND_URL}/integrations?connect=${encodeURIComponent(appSlug)}&sandbox_id=${encodeURIComponent(sandboxId)}`;
@@ -664,7 +664,7 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
     const limit = parseInt(c.req.query('limit') || '20', 10);
 
     try {
-      const provider = createAuthProvider();
+      const provider = getProviderFromRequest(c);
       const result = await provider.listApps(query, limit);
       return c.json(result);
     } catch (err) {
@@ -697,7 +697,7 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
     }
 
     try {
-      const provider = createAuthProvider();
+      const provider = getProviderFromRequest(c);
       const result = await provider.runAction(accountId, action_key, props, appSlug, linked.providerAccountId);
 
       console.log(`[INTEGRATIONS] Action run: ${action_key} app=${appSlug} sandbox=${sandboxId} success=${result.success}`);
@@ -724,7 +724,7 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
     }
 
     try {
-      const provider = createAuthProvider();
+      const provider = getProviderFromRequest(c);
       if (!provider.listAvailableTriggers) {
         throw new HTTPException(501, { message: 'Provider does not support triggers' });
       }
@@ -763,7 +763,7 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
     }
 
     try {
-      const provider = createAuthProvider();
+      const provider = getProviderFromRequest(c);
       if (!provider.deployTrigger) {
         throw new HTTPException(501, { message: 'Provider does not support triggers' });
       }
@@ -784,7 +784,7 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
     const accountId = c.get('accountId') as string;
 
     try {
-      const provider = createAuthProvider();
+      const provider = getProviderFromRequest(c);
       if (!provider.listDeployedTriggers) {
         throw new HTTPException(501, { message: 'Provider does not support triggers' });
       }
@@ -803,7 +803,7 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
     const deployedTriggerId = c.req.param('id');
 
     try {
-      const provider = createAuthProvider();
+      const provider = getProviderFromRequest(c);
       if (!provider.deleteDeployedTrigger) {
         throw new HTTPException(501, { message: 'Provider does not support triggers' });
       }
@@ -828,7 +828,7 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
     }
 
     try {
-      const provider = createAuthProvider();
+      const provider = getProviderFromRequest(c);
       const method = parsed.data.active ? 'resumeDeployedTrigger' : 'pauseDeployedTrigger';
       if (!provider[method]) {
         throw new HTTPException(501, { message: 'Provider does not support triggers' });

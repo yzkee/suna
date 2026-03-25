@@ -233,12 +233,13 @@ function validateEnv(): z.infer<typeof envSchema> {
     // JUSTAVPS_IMAGE_ID is optional — if unset, the provider auto-resolves the latest kortix-computer-v* image at runtime.
   }
 
-  // ── Conditional: Pipedream integration → need credentials ──────────────
+  // ── Conditional: Pipedream integration → warn if credentials missing ────
+  // Not fatal — requests can provide their own creds via X-Pipedream-* headers.
   const integrationProvider = (raw as any).INTEGRATION_AUTH_PROVIDER || 'pipedream';
   if (integrationProvider === 'pipedream') {
-    if (!raw.PIPEDREAM_CLIENT_ID)     issues.push({ var: 'PIPEDREAM_CLIENT_ID',     message: 'Required when INTEGRATION_AUTH_PROVIDER is "pipedream"', level: 'error' });
-    if (!raw.PIPEDREAM_CLIENT_SECRET) issues.push({ var: 'PIPEDREAM_CLIENT_SECRET', message: 'Required when INTEGRATION_AUTH_PROVIDER is "pipedream"', level: 'error' });
-    if (!raw.PIPEDREAM_PROJECT_ID)    issues.push({ var: 'PIPEDREAM_PROJECT_ID',    message: 'Required when INTEGRATION_AUTH_PROVIDER is "pipedream"', level: 'error' });
+    if (!raw.PIPEDREAM_CLIENT_ID)     issues.push({ var: 'PIPEDREAM_CLIENT_ID',     message: 'Pipedream integrations will only work via request headers (X-Pipedream-Client-Id)', level: 'warn' });
+    if (!raw.PIPEDREAM_CLIENT_SECRET) issues.push({ var: 'PIPEDREAM_CLIENT_SECRET', message: 'Pipedream integrations will only work via request headers (X-Pipedream-Client-Secret)', level: 'warn' });
+    if (!raw.PIPEDREAM_PROJECT_ID)    issues.push({ var: 'PIPEDREAM_PROJECT_ID',    message: 'Pipedream integrations will only work via request headers (X-Pipedream-Project-Id)', level: 'warn' });
   }
 
   // ── Conditional: Billing enabled → need Stripe keys ────────────────────

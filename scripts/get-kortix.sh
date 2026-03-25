@@ -407,6 +407,87 @@ pull_images_parallel() {
     | xargs -r -n1 -P "$KORTIX_PULL_PARALLELISM" docker pull
 }
 
+# Check if VPS ports (80, 443) are free; offer to stop blocking services
+# Usage: check_vps_ports
+# Returns 0 if ports are free (or user freed them), 1 if still blocked
+check_vps_ports() {
+  [ "$DEPLOY_MODE" = "vps" ] 2>/dev/null || return 0
+
+  local blocked=0
+  local -a blocked_ports=()
+  local -a blocking_info=()
+
+  for port in 80 443; do
+    local pinfo
+    pinfo=$(ss -tlnp "sport = :$port" 2>/dev/null | grep -v '^State' | head -1 || true)
+    if [ -n "$pinfo" ]; then
+      blocked=1
+      blocked_ports+=("$port")
+      # Extract process name from ss output (e.g., users:(("nginx",pid=1234,...)))
+      local proc_name
+      proc_name=$(echo "$pinfo" | grep -oP 'users:\(\("\K[^"]+' 2>/dev/null || echo "unknown")
+      blocking_info+=("Port ${port}: ${proc_name}")
+    fi
+  done
+
+  [ $blocked -eq 0 ] && return 0
+
+  echo ""
+  warn "Port conflict detected! Caddy needs ports 80 and 443."
+  for info_line in "${blocking_info[@]}"; do
+    echo "    ${RED}${info_line}${NC}"
+  done
+  echo ""
+
+  # Detect common services and offer to stop them
+  local -a services_to_stop=()
+  for svc in nginx apache2 httpd caddy lighttpd; do
+    if systemctl is-active --quiet "$svc" 2>/dev/null; then
+      services_to_stop+=("$svc")
+    fi
+  done
+
+  if [ ${#services_to_stop[@]} -gt 0 ]; then
+    local svc_list
+    svc_list=$(printf ', %s' "${services_to_stop[@]}")
+    svc_list="${svc_list:2}"  # trim leading ", "
+    printf "  Stop and disable ${BOLD}${svc_list}${NC}? [Y/n]: "
+    prompt_read stop_choice
+    case "${stop_choice:-y}" in
+      [nN]*)
+        warn "Caddy will likely fail to start. Free ports 80/443 manually, then run: kortix restart"
+        return 1
+        ;;
+      *)
+        for svc in "${services_to_stop[@]}"; do
+          systemctl stop "$svc" 2>/dev/null || true
+          systemctl disable "$svc" 2>/dev/null || true
+          success "Stopped and disabled ${svc}"
+        done
+        # Verify ports are now free
+        sleep 1
+        for port in "${blocked_ports[@]}"; do
+          if ss -tlnp "sport = :$port" 2>/dev/null | grep -qv '^State'; then
+            warn "Port ${port} still in use after stopping services."
+            warn "Find what's using it: ss -tlnp 'sport = :${port}'"
+            return 1
+          fi
+        done
+        success "Ports 80/443 are now free"
+        return 0
+        ;;
+    esac
+  else
+    warn "Could not detect a known service to stop automatically."
+    echo "  ${DIM}Find what's using the port:${NC}"
+    echo "    ss -tlnp 'sport = :80'"
+    echo "    ss -tlnp 'sport = :443'"
+    echo ""
+    echo "  ${DIM}Then free the port and run:${NC} kortix restart"
+    return 1
+  fi
+}
+
 # Free ports used by Kortix (local mode)
 # Usage: free_kortix_ports [project_name]
 # If project_name is provided, only cleans containers from that project
@@ -635,10 +716,42 @@ prompt_security() {
 }
 
 # ─── Integrations (Pipedream) ────────────────────────────────────────────────
-# Pipedream is now configured via the setup wizard in the browser (instance setup step 3).
-# The installer just sets sane defaults — the UI handles the rest.
 prompt_integrations() {
-  INTEGRATION_AUTH_PROVIDER="pipedream"
+  echo "  ${BOLD}Third-Party Integrations ${DIM}(optional)${NC}"
+  echo "  ${DIM}Connect to 3,000+ apps via Pipedream Connect${NC}"
+  echo ""
+  printf "  Configure integrations? ${DIM}[y/${NC}${GREEN}N${NC}${DIM}]${NC}: "
+  prompt_read integ_choice
+
+  case "${integ_choice:-n}" in
+    [yY]*)
+      echo ""
+      printf "    Pipedream Client ID: "
+      prompt_read PIPEDREAM_CLIENT_ID
+      printf "    Pipedream Client Secret: "
+      prompt_read PIPEDREAM_CLIENT_SECRET
+      printf "    Pipedream Project ID ${DIM}(e.g. proj_xxx)${NC}: "
+      prompt_read PIPEDREAM_PROJECT_ID
+      printf "    Pipedream Environment ${DIM}[production]${NC}: "
+      prompt_read pd_env
+      PIPEDREAM_ENVIRONMENT="${pd_env:-production}"
+
+      if [ -n "$PIPEDREAM_CLIENT_ID" ] && [ -n "$PIPEDREAM_CLIENT_SECRET" ] && [ -n "$PIPEDREAM_PROJECT_ID" ]; then
+        INTEGRATION_AUTH_PROVIDER="pipedream"
+        success "Pipedream configured"
+      else
+        warn "Incomplete — integrations will not be available"
+        INTEGRATION_AUTH_PROVIDER="disabled"
+        PIPEDREAM_CLIENT_ID=""; PIPEDREAM_CLIENT_SECRET=""; PIPEDREAM_PROJECT_ID=""; PIPEDREAM_ENVIRONMENT=""
+      fi
+      ;;
+    *)
+      INTEGRATION_AUTH_PROVIDER="disabled"
+      info "Skipping — you can also set PIPEDREAM_* env vars in the sandbox and they'll be used automatically"
+      ;;
+  esac
+
+  echo ""
 }
 
 
@@ -1428,6 +1541,57 @@ _free_kortix_ports() {
   [ $freed -eq 1 ] && echo "  ${Y}Freed Kortix ports${N}" || true
 }
 
+# Check VPS ports 80/443 for conflicts before starting Caddy
+_check_vps_ports() {
+  [ "$(_mode)" = "vps" ] || return 0
+
+  local blocked=0
+  for port in 80 443; do
+    if ss -tlnp "sport = :$port" 2>/dev/null | grep -qv '^State'; then
+      blocked=1
+      local proc
+      proc=$(ss -tlnp "sport = :$port" 2>/dev/null | grep -v '^State' | head -1 | grep -oP 'users:\(\("\K[^"]+' 2>/dev/null || echo "unknown")
+      echo "  ${R}Port ${port} in use by: ${proc}${N}"
+    fi
+  done
+
+  [ $blocked -eq 0 ] && return 0
+
+  echo ""
+  # Try to auto-detect and offer to stop common services
+  local -a to_stop=()
+  for svc in nginx apache2 httpd caddy lighttpd; do
+    systemctl is-active --quiet "$svc" 2>/dev/null && to_stop+=("$svc")
+  done
+
+  if [ ${#to_stop[@]} -gt 0 ]; then
+    local svc_list
+    svc_list=$(printf ', %s' "${to_stop[@]}")
+    svc_list="${svc_list:2}"
+    printf "  Stop and disable ${B}${svc_list}${N}? [Y/n]: "
+    prompt_read stop_choice
+    case "${stop_choice:-y}" in
+      [nN]*)
+        echo "  ${Y}Caddy may fail. Free ports 80/443 manually, then: kortix restart${N}"
+        return 1
+        ;;
+      *)
+        for svc in "${to_stop[@]}"; do
+          systemctl stop "$svc" 2>/dev/null || true
+          systemctl disable "$svc" 2>/dev/null || true
+          echo "  ${G}Stopped and disabled ${svc}${N}"
+        done
+        sleep 1
+        ;;
+    esac
+  else
+    echo "  ${Y}Port 80/443 conflict. Find the process:${N}"
+    echo "    ss -tlnp 'sport = :80'"
+    echo "  ${Y}Then free it and run: kortix restart${N}"
+    return 1
+  fi
+}
+
 _sync_supabase_passwords() {
   [ -f "$DIR/.env" ] || return 0
 
@@ -1481,6 +1645,7 @@ _reset_stack() {
   docker rm -f kortix-sandbox 2>/dev/null || true
   docker volume rm kortix-sandbox-data 2>/dev/null || true
   [ "$(_mode)" = "local" ] && _free_kortix_ports
+  _check_vps_ports || true
 
   echo "  ${C}Starting fresh stack...${N}"
   if [ "$(_mode)" = "vps" ]; then
@@ -1495,6 +1660,7 @@ case "${1:-help}" in
   start)
     # Free ports and clean up lingering containers before starting
     [ "$(_mode)" = "local" ] && _free_kortix_ports
+    _check_vps_ports || true
     _sync_supabase_passwords
     if [ "$(_mode)" = "vps" ]; then
       docker compose --profile vps up -d || true
@@ -1516,6 +1682,7 @@ case "${1:-help}" in
     docker compose --profile vps down 2>/dev/null || docker compose down 2>/dev/null || true
     # Free ports and clean up lingering containers before restarting
     [ "$(_mode)" = "local" ] && _free_kortix_ports
+    _check_vps_ports || true
     _sync_supabase_passwords
     if [ "$(_mode)" = "vps" ]; then
       docker compose --profile vps up -d || true
@@ -1551,6 +1718,7 @@ case "${1:-help}" in
     echo "  ${C}Restarting services...${N}"
     # Free ports and clean up lingering containers before updating
     [ "$(_mode)" = "local" ] && _free_kortix_ports
+    _check_vps_ports || true
     _sync_supabase_passwords
     docker compose down 2>/dev/null || true
     docker compose up -d || true
@@ -1682,8 +1850,9 @@ pull_and_start() {
   info "Starting Kortix..."
   echo ""
 
-  # Free ports in local mode to avoid conflicts
+  # Free ports to avoid conflicts
   free_kortix_ports
+  check_vps_ports || true
 
   if [ "$DEPLOY_MODE" = "vps" ]; then
     docker compose --profile vps up -d || true
