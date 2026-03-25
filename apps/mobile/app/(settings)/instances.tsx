@@ -326,7 +326,7 @@ const AddInstanceSheet = React.forwardRef<
   const hasLocalDocker = Array.isArray(providers) && providers.includes('local_docker');
   const fgColor = isDark ? '#f8f8f8' : '#121215';
 
-  const snapPoints = React.useMemo(() => step === 'custom' ? [380] : [320], [step]);
+  const snapPoints = React.useMemo(() => step === 'custom' ? [370] : [260], [step]);
 
   const renderBackdrop = React.useCallback(
     (props: BottomSheetBackdropProps) => (
@@ -394,59 +394,56 @@ const AddInstanceSheet = React.forwardRef<
         borderTopLeftRadius: 24, borderTopRightRadius: 24,
       }}
     >
-      <BottomSheetView style={{ paddingHorizontal: 24, paddingTop: 4, paddingBottom: Math.max(insets.bottom, 20) + 16 }}>
+      <BottomSheetView style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: Math.max(insets.bottom, 20) + 16 }}>
         {step === 'select' ? (
-          <>
-            <View className="flex-row items-center mb-1">
-              <Icon as={Plus} size={18} className="text-foreground mr-2" strokeWidth={2.2} />
-              <Text className="text-lg font-roobert-semibold text-foreground">New Instance</Text>
-            </View>
-            <Text className="mb-5 font-roobert text-xs text-muted-foreground">
+          <View className="px-1">
+            <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
+              New Instance
+            </Text>
+            <Text className="mb-3 font-roobert text-xs text-muted-foreground">
               Choose how to connect.
             </Text>
 
-            <View style={{ gap: 8 }}>
+            <View>
               {hasLocalDocker && (
-                <Pressable
-                  onPress={handleLocalDocker}
-                  disabled={isCreating}
-                  className="rounded-2xl border border-border/40 px-4 py-3.5 active:opacity-85"
-                >
-                  <View className="flex-row items-center">
-                    <View className="h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-                      <Icon as={Monitor} size={18} className="text-primary" strokeWidth={2.2} />
+                <>
+                  <Pressable
+                    onPress={handleLocalDocker}
+                    disabled={isCreating}
+                    className="py-3.5 active:opacity-85"
+                  >
+                    <View className="flex-row items-center">
+                      <Icon as={Monitor} size={18} className="text-foreground/80" strokeWidth={2.2} />
+                      <View className="ml-4 flex-1">
+                        <Text className="font-roobert-medium text-[15px] text-foreground">Local Docker</Text>
+                        <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">Runs on your machine via Docker</Text>
+                      </View>
+                      {isCreating && createLocalMutation.isPending && <ActivityIndicator size="small" />}
                     </View>
-                    <View className="ml-3 flex-1">
-                      <Text className="font-roobert-medium text-[15px] text-foreground">Local Docker</Text>
-                      <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">Runs on your machine via Docker</Text>
-                    </View>
-                    {isCreating && createLocalMutation.isPending && <ActivityIndicator size="small" />}
-                  </View>
-                </Pressable>
+                  </Pressable>
+                  <View className="h-px bg-border/35" />
+                </>
               )}
 
               <Pressable
                 onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setStep('custom'); }}
-                className="rounded-2xl border border-border/40 px-4 py-3.5 active:opacity-85"
+                className="py-3.5 active:opacity-85"
               >
                 <View className="flex-row items-center">
-                  <View className="h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-                    <Icon as={Globe} size={18} className="text-primary" strokeWidth={2.2} />
-                  </View>
-                  <View className="ml-3 flex-1">
+                  <Icon as={Globe} size={18} className="text-foreground/80" strokeWidth={2.2} />
+                  <View className="ml-4 flex-1">
                     <Text className="font-roobert-medium text-[15px] text-foreground">Custom URL</Text>
                     <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">Connect to any Kortix instance by address</Text>
                   </View>
                 </View>
               </Pressable>
             </View>
-          </>
+          </View>
         ) : (
-          <>
-            <View className="flex-row items-center mb-1">
-              <Icon as={Globe} size={18} className="text-foreground mr-2" strokeWidth={2.2} />
-              <Text className="text-lg font-roobert-semibold text-foreground">Custom URL</Text>
-            </View>
+          <View className="px-1">
+            <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
+              Custom URL
+            </Text>
             <Text className="mb-4 font-roobert text-xs text-muted-foreground">
               Enter the address of your Kortix instance.
             </Text>
@@ -510,7 +507,7 @@ const AddInstanceSheet = React.forwardRef<
             <Pressable onPress={() => setStep('select')} className="mt-3 items-center py-2 active:opacity-70">
               <Text className="font-roobert-medium text-sm text-muted-foreground">Back</Text>
             </Pressable>
-          </>
+          </View>
         )}
       </BottomSheetView>
     </BottomSheetModal>
