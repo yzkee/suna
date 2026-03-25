@@ -13,7 +13,6 @@ import {
   CreditCard,
   FlaskConical,
   Globe,
-  Keyboard,
   LogOut,
   Palette,
   Receipt,
@@ -122,13 +121,6 @@ export default function SettingsScreen() {
       label: t('notifications.title', 'Notifications'),
       description: t('notifications.description', 'Manage how you receive notifications'),
       onPress: () => go('/(settings)/notifications'),
-    },
-    {
-      key: 'shortcuts',
-      icon: Keyboard,
-      label: 'Shortcuts',
-      description: 'Command shortcuts and gestures',
-      onPress: () => go('/(settings)/shortcuts'),
     },
   ];
 

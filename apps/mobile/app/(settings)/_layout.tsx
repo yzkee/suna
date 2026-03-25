@@ -172,13 +172,6 @@ export default function SettingsLayout() {
         }}
       />
       <Stack.Screen
-        name="shortcuts"
-        options={{
-          header: () => <SubpageHeader title="Shortcuts" />,
-          headerShown: true,
-        }}
-      />
-      <Stack.Screen
         name="transactions"
         options={{
           header: () => <SubpageHeader title="Transactions" />,
