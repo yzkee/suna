@@ -10,7 +10,7 @@ import { sandboxes } from '@kortix/db';
 import { db } from '../../shared/db';
 import { config } from '../../config';
 import * as pool from '../../pool';
-import { createSandbox } from './ensure-sandbox';
+import { createSandbox, generateSandboxName } from './ensure-sandbox';
 import { createApiKey } from '../../repositories/api-keys';
 
 const provisioningSubscriptions = new Set<string>();
@@ -59,11 +59,12 @@ export async function provisionSandboxFromCheckout(opts: {
         console.log(`[sandbox-provisioner] Pool grab: ${claimed ? 'CLAIMED ' + claimed.externalId : 'empty'}`);
 
         if (claimed) {
+          const name = await generateSandboxName(accountId);
           const [row] = await db
             .insert(sandboxes)
             .values({
               accountId,
-              name: `sandbox-${accountId.slice(0, 8)}`,
+              name,
               provider: claimed.poolSandbox.provider,
               externalId: claimed.externalId,
               status: 'active',

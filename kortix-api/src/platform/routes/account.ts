@@ -25,6 +25,7 @@ import {
 import type { AuthVariables } from '../../types';
 import { resolveAccountId as defaultResolveAccountId } from '../../shared/resolve-account';
 import { config } from '../../config';
+import { generateSandboxName } from '../services/ensure-sandbox';
 
 // ─── Dependency Injection ────────────────────────────────────────────────────
 
@@ -259,6 +260,7 @@ export function createAccountRouter(
       }
 
       const hasImage = await provider.hasImage();
+      const sandboxName = await generateSandboxName(accountId);
 
       if (hasImage) {
         // Image exists — create sandbox row first, then provision
@@ -266,7 +268,7 @@ export function createAccountRouter(
           .insert(sandboxes)
           .values({
             accountId,
-            name: `sandbox-${accountId.slice(0, 8)}`,
+            name: sandboxName,
             provider: 'local_docker',
             externalId: '',
             status: 'provisioning',
@@ -290,7 +292,7 @@ export function createAccountRouter(
           result = await provider.create({
             accountId,
             userId,
-            name: `sandbox-${accountId.slice(0, 8)}`,
+            name: sandboxName,
             envVars: { KORTIX_TOKEN: sandboxKey.secretKey },
           });
         } catch (createErr) {
@@ -335,7 +337,7 @@ export function createAccountRouter(
         .insert(sandboxes)
         .values({
           accountId,
-          name: `sandbox-${accountId.slice(0, 8)}`,
+          name: sandboxName,
           provider: 'local_docker',
           externalId: '',
           status: 'provisioning',
@@ -363,7 +365,7 @@ export function createAccountRouter(
           const result = await provider.create({
             accountId,
             userId,
-            name: `sandbox-${accountId.slice(0, 8)}`,
+            name: sandboxName,
             envVars: { KORTIX_TOKEN: sandboxKey.secretKey },
           });
 

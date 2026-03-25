@@ -28,6 +28,7 @@ import { justavpsFetch, listServerTypes as listJustAVPSServerTypes } from '../pr
 import type { AuthVariables } from '../../types';
 import { resolveAccountId as defaultResolveAccountId } from '../../shared/resolve-account';
 import * as pool from '../../pool';
+import { generateSandboxName } from '../services/ensure-sandbox';
 
 // ─── Dependency Injection ────────────────────────────────────────────────────
 
@@ -223,14 +224,7 @@ export function createCloudSandboxRouter(
         }
       }
 
-      // Count existing sandboxes for naming
-      const existingCount = await db
-        .select()
-        .from(sandboxes)
-        .where(eq(sandboxes.accountId, accountId))
-        .then((rows) => rows.length);
-
-      const sandboxName = customName || `sandbox-${accountId.slice(0, 8)}${existingCount > 0 ? `-${existingCount + 1}` : ''}`;
+      const sandboxName = await generateSandboxName(accountId, customName);
 
       // Managed VPS sandboxes are billed independently as their own Stripe subscriptions.
       if (isManagedVpsProvider(providerName) && config.KORTIX_BILLING_INTERNAL_ENABLED) {
