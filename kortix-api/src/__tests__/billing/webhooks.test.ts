@@ -138,9 +138,11 @@ describe('checkout.session.completed', () => {
     expect(upsertCreditAccountCalls[0].accountId).toBe('acc_test_123');
     expect(upsertCreditAccountCalls[0].data.tier).toBe('tier_6_50');
 
-    expect(grantCreditsCalls.length).toBe(1);
+    // tier_grant ($50) + machine_bonus ($5)
+    expect(grantCreditsCalls.length).toBe(2);
     expect(grantCreditsCalls[0][0]).toBe('acc_test_123');
-    expect(grantCreditsCalls[0][1]).toBe(50); // tier_6_50 now = $50 monthly credits
+    expect(grantCreditsCalls[0][1]).toBe(50); // tier_6_50 = $50 monthly credits
+    expect(grantCreditsCalls[1][1]).toBe(5);  // $5 machine bonus
 
     expect(upsertCustomerCalls.length).toBe(1);
   });
@@ -419,12 +421,14 @@ describe('RevenueCat', () => {
 
     expect(upsertCreditAccountCalls.length).toBe(1);
     expect(upsertCreditAccountCalls[0].data.tier).toBe('pro');
-    // Pro tier has 0 monthly credits — no grant expected
-    expect(grantCreditsCalls.length).toBe(0);
+    // Pro tier has 0 monthly credits, but gets $5 machine bonus
+    expect(grantCreditsCalls.length).toBe(1);
+    expect(grantCreditsCalls[0][1]).toBe(5); // $5 machine bonus
+    expect(grantCreditsCalls[0][2]).toBe('machine_bonus');
     expect(result.event_type).toBe('INITIAL_PURCHASE');
   });
 
-  test('INITIAL_PURCHASE: legacy tier grants credits', async () => {
+  test('INITIAL_PURCHASE: legacy tier grants credits + machine bonus', async () => {
     const body = createMockRevenueCatEvent('INITIAL_PURCHASE', {
       product_id: 'kortix_plus_monthly',
     });
@@ -433,8 +437,10 @@ describe('RevenueCat', () => {
 
     expect(upsertCreditAccountCalls.length).toBe(1);
     expect(upsertCreditAccountCalls[0].data.tier).toBe('tier_2_20');
-    expect(grantCreditsCalls.length).toBe(1);
+    // tier_grant ($20) + machine_bonus ($5)
+    expect(grantCreditsCalls.length).toBe(2);
     expect(grantCreditsCalls[0][1]).toBe(20); // tier_2_20 = $20 monthly credits
+    expect(grantCreditsCalls[1][1]).toBe(5);  // $5 machine bonus
     expect(result.event_type).toBe('INITIAL_PURCHASE');
   });
 

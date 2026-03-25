@@ -175,6 +175,24 @@ async function handleSubscriptionCheckout(session: Stripe.Checkout.Session, acco
     );
   }
 
+  // Grant one-time $5 machine credit bonus at checkout (non-expiring, idempotent per session)
+  const { MACHINE_CREDIT_BONUS } = await import('./tiers');
+  if (MACHINE_CREDIT_BONUS > 0) {
+    try {
+      await grantCredits(
+        accountId,
+        MACHINE_CREDIT_BONUS,
+        'machine_bonus',
+        `Welcome credit bonus: $${MACHINE_CREDIT_BONUS}`,
+        false, // non-expiring
+        `machine_bonus:checkout:${session.id}`,
+      );
+      console.log(`[Webhook] Granted $${MACHINE_CREDIT_BONUS} machine bonus for ${accountId}`);
+    } catch (err) {
+      console.error(`[Webhook] Failed to grant machine bonus for ${accountId}:`, err);
+    }
+  }
+
   // Upsert Stripe customer record
   if (session.customer) {
     const customerId = typeof session.customer === 'string' ? session.customer : session.customer.id;
@@ -578,6 +596,24 @@ async function handleRevenueCatPurchase(accountId: string, event: any) {
       `${tier.displayName} subscription (mobile): ${tier.monthlyCredits} credits`,
       true,
     );
+  }
+
+  // Grant one-time $5 machine credit bonus (non-expiring, idempotent per purchase)
+  const { MACHINE_CREDIT_BONUS } = await import('./tiers');
+  if (MACHINE_CREDIT_BONUS > 0) {
+    try {
+      await grantCredits(
+        accountId,
+        MACHINE_CREDIT_BONUS,
+        'machine_bonus',
+        `Welcome credit bonus: $${MACHINE_CREDIT_BONUS}`,
+        false,
+        `machine_bonus:revenuecat:${accountId}:${productId}`,
+      );
+      console.log(`[RevenueCat] Granted $${MACHINE_CREDIT_BONUS} machine bonus for ${accountId}`);
+    } catch (err) {
+      console.error(`[RevenueCat] Failed to grant machine bonus for ${accountId}:`, err);
+    }
   }
 
   if (oldStripeSubscriptionId) {
