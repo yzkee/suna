@@ -182,6 +182,8 @@ export const useChannels = (sandboxId?: string) => {
     queryFn: () => fetchChannels(sandboxId),
     staleTime: 1 * 60 * 1000,
     refetchInterval: 30 * 1000,
+    retry: false,
+    throwOnError: false,
   });
 };
 
@@ -298,27 +300,12 @@ interface ApiChannelSessionsResponse {
   total: number;
 }
 
-interface ApiChannelSessionResponse {
-  success: boolean;
-  data: ChannelSession | null;
-}
-
 const fetchChannelSessions = async (channelId: string, limit = 50): Promise<ChannelSession[]> => {
   const response = await backendApi.get<ApiChannelSessionsResponse>(
     `/channels/${channelId}/sessions?limit=${limit}`,
   );
   if (!response.success) {
     throw new Error(response.error?.message || 'Failed to fetch channel sessions');
-  }
-  return response.data!.data;
-};
-
-const fetchChannelSession = async (sessionId: string): Promise<ChannelSession | null> => {
-  const response = await backendApi.get<ApiChannelSessionResponse>(
-    `/channels/sessions/${sessionId}`,
-  );
-  if (!response.success) {
-    throw new Error(response.error?.message || 'Failed to fetch channel session');
   }
   return response.data!.data;
 };
@@ -337,19 +324,4 @@ export const useChannelSessions = (channelId: string, limit = 50) => {
   });
 };
 
-/**
- * Reverse lookup: given an OpenCode session ID, return channel context or null.
- * Used to badge channel-sourced sessions in the sidebar and session detail page.
- */
-export const useChannelSession = (sessionId: string) => {
-  return useQuery({
-    queryKey: ['channel-session-by-opencode', sessionId],
-    queryFn: () => fetchChannelSession(sessionId),
-    enabled: !!sessionId,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-    // Don't refetch — channel origin is immutable
-    refetchOnWindowFocus: false,
-    retry: false,
-  });
-};
+

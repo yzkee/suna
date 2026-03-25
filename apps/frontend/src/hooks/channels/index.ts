@@ -9,7 +9,6 @@ export {
   useUnlinkChannel,
   useChannelMessages,
   useChannelSessions,
-  useChannelSession,
   type ChannelConfig,
   type ChannelMessage,
   type ChannelSession,

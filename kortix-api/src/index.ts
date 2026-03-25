@@ -11,8 +11,8 @@ import { BillingError } from './errors';
 import { router } from './router';
 import { billingApp } from './billing';
 import { platformApp } from './platform';
-import { daytonaProxyApp } from './daytona-proxy';
-import { getSandboxBaseUrl, proxyToSandbox } from './daytona-proxy/routes/local-preview';
+import { sandboxProxyApp } from './sandbox-proxy';
+import { getSandboxBaseUrl, proxyToSandbox } from './sandbox-proxy/routes/local-preview';
 import { validateSecretKey } from './repositories/api-keys';
 import { isKortixToken } from './shared/crypto';
 import { getSupabase } from './shared/supabase';
@@ -34,6 +34,7 @@ import { startAutoReplenish, stopAutoReplenish } from './pool';
 import { accessControlApp } from './access-control';
 import { startAccessControlCache, stopAccessControlCache } from './shared/access-control-cache';
 import { legacyApp } from './legacy';
+import { channelsApp } from './channels';
 import { adminApp } from './admin';
 import { oauthApp } from './oauth';
 
@@ -80,7 +81,7 @@ app.use(
   cors({
     origin: corsOrigins,
     allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Kortix-Token', 'X-Api-Key', 'Accept'],
     credentials: true,
   })
 );
@@ -252,6 +253,11 @@ app.route('/v1/access', accessControlApp); // /v1/access/signup-status, /v1/acce
 // Legacy thread migration — authenticated endpoints
 app.route('/v1/legacy', legacyApp); // /v1/legacy/threads, /v1/legacy/threads/:id/migrate
 
+// Channels — Slack/Discord/Telegram channel configs and message history
+app.use('/v1/channels/*', combinedAuth);
+app.use('/v1/channels', combinedAuth);
+app.route('/v1/channels', channelsApp); // /v1/channels, /v1/channels/:id, /v1/channels/:id/messages, etc.
+
 // Setup — local/self-hosted only. Disabled in cloud mode (not needed, exposes admin surface).
 if (config.isLocal()) {
   app.route('/v1/setup', setupApp);        // /v1/setup/install-status (public), rest (auth inside router)
@@ -283,9 +289,10 @@ app.route('/v1/tunnel', tunnelApp);
 // Pattern: /v1/p/{sandboxId}/{port}/* for ALL modes.
 // Cloud:  sandboxId = Daytona external ID → proxied via Daytona SDK
 // Local:  sandboxId = container name (e.g. 'kortix-sandbox') → Docker DNS resolution
+// JustAVPS: sandboxId → CF Worker proxy at {port}--{slug}.kortix.cloud
 // Auth: unified previewProxyAuth (accepts Supabase JWT and kortix_ tokens).
 // MUST be after all explicit routes (wildcard catch-all).
-app.route('/v1/p', daytonaProxyApp);
+app.route('/v1/p', sandboxProxyApp);
 
 // === Error Handling ===
 
@@ -781,7 +788,6 @@ export default {
       }
 
       // ── HTTP/SSE via subdomain — direct proxy, no Hono ───────────────
-      const acceptsSSE = (req.headers.get('accept') || '').includes('text/event-stream');
       const origin = req.headers.get('Origin') || '';
       let body: ArrayBuffer | undefined;
       if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -815,14 +821,14 @@ export default {
             }
             return await proxyToSandbox(
               sandboxId, 8000, req.method, url.pathname, url.search,
-              req.headers, body, acceptsSSE, origin, cfProxyUrl, svcKey, extra,
+              req.headers, body, false, origin, cfProxyUrl, svcKey, extra,
             );
           }
         }
 
         return await proxyToSandbox(
           sandboxId, port, req.method, url.pathname, url.search,
-          req.headers, body, acceptsSSE, origin,
+          req.headers, body, false, origin,
         );
       } catch (error) {
         console.error(`[subdomain-proxy] Error for ${sandboxId}:${port}${url.pathname}: ${error instanceof Error ? error.message : String(error)}`);

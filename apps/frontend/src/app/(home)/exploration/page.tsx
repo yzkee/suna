@@ -114,7 +114,7 @@ function StudyCard({
   id: string;
   name: string;
   thesis: string;
-  rows: [string, string][];
+  rows: string[][];
 }) {
   return (
     <article className="rounded-[28px] border border-border/60 bg-background/80 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.05)] backdrop-blur-xl sm:p-7">

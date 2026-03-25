@@ -1,7 +1,7 @@
 import { eq, and, ne } from 'drizzle-orm';
 import { sandboxes } from '@kortix/db';
 import { db } from '../shared/db';
-import { getSandboxBaseUrl } from '../daytona-proxy/routes/local-preview';
+import { getSandboxBaseUrl } from '../sandbox-proxy/routes/local-preview';
 import { getDaytona, isDaytonaConfigured } from '../shared/daytona';
 import { config } from '../config';
 import type { TransformedSession, TransformedMessage, TransformedPart } from './types';

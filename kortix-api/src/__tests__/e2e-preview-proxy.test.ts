@@ -160,13 +160,13 @@ function mockFetch(url: string | URL | Request, init?: RequestInit): Promise<Res
 
 // ─── Import proxy app AFTER mocks ────────────────────────────────────────────
 
-const { daytonaProxyApp } = await import('../daytona-proxy/index');
+const { sandboxProxyApp } = await import('../sandbox-proxy/index');
 
 // ─── Test app factory ────────────────────────────────────────────────────────
 
 function createProxyTestApp() {
   const app = new Hono();
-  app.route('/v1/p', daytonaProxyApp);
+  app.route('/v1/p', sandboxProxyApp);
 
   app.onError((err, c) => {
     if (err instanceof HTTPException) {

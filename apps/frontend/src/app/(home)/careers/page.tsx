@@ -16,7 +16,7 @@ export default function CareersPage() {
         </Reveal>
         <Reveal delay={0.08}>
           <p className="text-base text-muted-foreground/60 leading-relaxed max-w-xl">
-            Founders, builders, hackers, artists, designers, engineers, operators, dreamers, dropouts, autodidacts, obsessives, perfectionists, generalists, polymaths — we don{"'"}t care what you call yourself. We care that you{"'"}ve built something real, felt every edge of it, and couldn{"'"}t stop until it was right.
+            Founders, builders, hackers, artists, designers, engineers, operators, dreamers, dropouts, autodidacts, obsessives, perfectionists, generalists, polymaths — we don{"'"}t care what you call it. We care that you{"'"}ve built something real, felt every edge of it, and couldn{"'"}t stop until it was right.
           </p>
         </Reveal>
         <Reveal delay={0.16}>
@@ -50,7 +50,7 @@ export default function CareersPage() {
                 Craftsman
               </p>
               <p className="text-base text-muted-foreground/60 leading-relaxed mt-1.5">
-                You are what you are. You drive what you must. Independent, founder-type person who falls under the above definition. 
+                You are what you are. You drive what you must. Independent, founder-type person who falls under the above definition or not.
               </p>
               <p className="text-xs text-muted-foreground/35 mt-2">San Francisco — or anywhere, but we{"'"}ll get you here.</p>
             </div>
