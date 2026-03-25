@@ -119,28 +119,25 @@ export async function buildMinimalAccountState(accountId: string): Promise<Accou
     // DB may not be available in local mode
   }
 
-  // Lazy-migrate legacy tier credits to new amounts on first login
-  if (isLegacyPaidTier(tierName) && tier.monthlyCredits > 0) {
-    const currentExpiring = credits.monthly;
-    if (currentExpiring !== tier.monthlyCredits) {
-      try {
-        const { resetExpiringCredits } = await import('./credits');
-        await resetExpiringCredits(
-          accountId,
-          tier.monthlyCredits,
-          `Credit migration: ${tierName} → $${tier.monthlyCredits}`,
-        );
-        // Re-read credits after migration
-        const updated = await getCreditSummary(accountId);
-        credits.total = updated.total;
-        credits.daily = updated.daily;
-        credits.monthly = updated.monthly;
-        credits.extra = updated.extra;
-        credits.canRun = updated.canRun;
-        console.log(`[account-state] Migrated ${accountId} credits: ${currentExpiring} → ${tier.monthlyCredits}`);
-      } catch (err) {
-        console.error(`[account-state] Credit migration failed for ${accountId}:`, err);
-      }
+  // Lazy-migrate legacy tier credits: old amounts were higher (40/100/400),
+  // new amounts are lower (20/50/200). Only reset once — when expiring > new amount.
+  if (isLegacyPaidTier(tierName) && tier.monthlyCredits > 0 && credits.monthly > tier.monthlyCredits) {
+    try {
+      const { resetExpiringCredits } = await import('./credits');
+      await resetExpiringCredits(
+        accountId,
+        tier.monthlyCredits,
+        `Credit migration: ${tierName} → $${tier.monthlyCredits}`,
+      );
+      const updated = await getCreditSummary(accountId);
+      credits.total = updated.total;
+      credits.daily = updated.daily;
+      credits.monthly = updated.monthly;
+      credits.extra = updated.extra;
+      credits.canRun = updated.canRun;
+      console.log(`[account-state] Migrated ${accountId} credits: ${credits.monthly} → ${tier.monthlyCredits}`);
+    } catch (err) {
+      console.error(`[account-state] Credit migration failed for ${accountId}:`, err);
     }
   }
 
