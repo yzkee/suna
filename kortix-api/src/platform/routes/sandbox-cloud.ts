@@ -581,6 +581,22 @@ export function createCloudSandboxRouter(
             currentStatus = 'active';
             metadata = healedMeta;
             console.log(`[SANDBOX-STATUS] Self-healed sandbox ${sandbox.sandboxId} from provisioning → active (JustAVPS machine ${sandbox.externalId} was already ready)`);
+          } else if (machine.status === 'error' || machine.status === 'deleted') {
+            // JustAVPS machine failed or was deleted — mark sandbox as error
+            const errorMeta = {
+              ...metadata,
+              provisioningStage: machine.provisioning_stage || 'error',
+              errorMessage: machine.status === 'deleted'
+                ? 'Machine was deleted by the provider'
+                : `Machine provisioning failed (${machine.provisioning_stage || 'unknown'})`,
+            };
+            await db
+              .update(sandboxes)
+              .set({ status: 'error', metadata: errorMeta, updatedAt: new Date() })
+              .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
+            currentStatus = 'error';
+            metadata = errorMeta;
+            console.log(`[SANDBOX-STATUS] Self-healed sandbox ${sandbox.sandboxId} from provisioning → error (JustAVPS machine ${sandbox.externalId} status: ${machine.status})`);
           } else if (machine.provisioning_stage) {
             // Update local metadata from JustAVPS so progress reflects reality
             const updatedMeta = {
