@@ -151,15 +151,17 @@ mock.module('../router/services/llm', () => ({
             (completion / 1_000_000) * (modelConfig?.outputPer1M || 0)) * 1.2;
   },
   getAllModels: () => [
-    { id: 'anthropic/claude-sonnet-4.6', object: 'model', owned_by: 'kortix', context_window: 200000, pricing: { input: 3, output: 15 }, tier: 'free' },
-    { id: 'anthropic/claude-opus-4.6', object: 'model', owned_by: 'kortix', context_window: 200000, pricing: { input: 5, output: 25 }, tier: 'paid' },
+    { id: 'minimax/minimax-m2.7', object: 'model', owned_by: 'kortix', context_window: 204800, pricing: { input: 0.30, output: 1.20 }, tier: 'free' },
+    { id: 'z-ai/glm-5-turbo', object: 'model', owned_by: 'kortix', context_window: 202752, pricing: { input: 1.20, output: 4.00 }, tier: 'free' },
+    { id: 'moonshotai/kimi-k2.5', object: 'model', owned_by: 'kortix', context_window: 262144, pricing: { input: 0.45, output: 2.20 }, tier: 'free' },
+    { id: 'minimax/minimax-m2.5', object: 'model', owned_by: 'kortix', context_window: 196608, pricing: { input: 0.20, output: 1.17 }, tier: 'free' },
   ],
   getModel: (id: string) => ({
     openrouterId: id,
-    inputPer1M: id === 'anthropic/claude-sonnet-4.6' ? 3 : 5,
-    outputPer1M: id === 'anthropic/claude-sonnet-4.6' ? 15 : 25,
-    contextWindow: 200000,
-    tier: (id === 'anthropic/claude-sonnet-4.6' ? 'free' : 'paid') as 'free' | 'paid',
+    inputPer1M: id === 'minimax/minimax-m2.7' ? 0.30 : id === 'z-ai/glm-5-turbo' ? 1.20 : id === 'moonshotai/kimi-k2.5' ? 0.45 : 0.20,
+    outputPer1M: id === 'minimax/minimax-m2.7' ? 1.20 : id === 'z-ai/glm-5-turbo' ? 4.00 : id === 'moonshotai/kimi-k2.5' ? 2.20 : 1.17,
+    contextWindow: id === 'minimax/minimax-m2.7' ? 204800 : id === 'z-ai/glm-5-turbo' ? 202752 : id === 'moonshotai/kimi-k2.5' ? 262144 : 196608,
+    tier: 'free' as 'free' | 'paid',
   }),
   resolveOpenRouterId: (id: string) => id,
 }));
@@ -369,16 +371,16 @@ describe('Router: models', () => {
     const body = await res.json();
     expect(body.object).toBe('list');
     expect(Array.isArray(body.data)).toBe(true);
-    expect(body.data.length).toBeGreaterThanOrEqual(2);
+    expect(body.data.length).toBeGreaterThanOrEqual(4);
 
-    const sonnet = body.data.find((m: any) => m.id === 'anthropic/claude-sonnet-4.6');
-    expect(sonnet).toBeDefined();
-    expect(sonnet.tier).toBe('free');
-    expect(sonnet.pricing.input).toBe(3);
+    const minimax27 = body.data.find((m: any) => m.id === 'minimax/minimax-m2.7');
+    expect(minimax27).toBeDefined();
+    expect(minimax27.tier).toBe('free');
+    expect(minimax27.pricing.input).toBe(0.30);
 
-    const opus = body.data.find((m: any) => m.id === 'anthropic/claude-opus-4.6');
-    expect(opus).toBeDefined();
-    expect(opus.tier).toBe('paid');
+    const kimi = body.data.find((m: any) => m.id === 'moonshotai/kimi-k2.5');
+    expect(kimi).toBeDefined();
+    expect(kimi.tier).toBe('free');
   });
 
   test('GET /v1/router/models/:model returns 404 for unknown model', async () => {
@@ -392,7 +394,7 @@ describe('Router: models', () => {
 
   test('GET /v1/router/models/:model works for single-segment model ID', async () => {
     const app = createRouterTestApp();
-    const res = await app.request('/v1/router/models/anthropic%2Fclaude-sonnet-4.6', {
+    const res = await app.request('/v1/router/models/minimax%2Fminimax-m2.7', {
       method: 'GET',
       headers: { Authorization: `Bearer ${TEST_ACCOUNT_ID}` },
     });
@@ -408,7 +410,7 @@ describe('Router: chat/completions (non-streaming)', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TEST_ACCOUNT_ID}` },
       body: JSON.stringify({
-        model: 'anthropic/claude-sonnet-4.6',
+        model: 'minimax/minimax-m2.7',
         messages: [{ role: 'user', content: 'Hello' }],
       }),
     });
@@ -463,7 +465,7 @@ describe('Router: chat/completions (non-streaming)', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TEST_ACCOUNT_ID}` },
       body: JSON.stringify({
-        model: 'anthropic/claude-sonnet-4.6',
+        model: 'minimax/minimax-m2.7',
         messages: [{ role: 'user', content: 'Hello' }],
       }),
     });
@@ -495,7 +497,7 @@ describe('Router: chat/completions (non-streaming)', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TEST_ACCOUNT_ID}` },
       body: JSON.stringify({
-        model: 'anthropic/claude-sonnet-4.6',
+        model: 'minimax/minimax-m2.7',
         messages: [{ role: 'user', content: 'Hello' }],
         temperature: 0.7,
         max_tokens: 1000,
@@ -512,7 +514,7 @@ describe('Router: chat/completions (streaming)', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TEST_ACCOUNT_ID}` },
       body: JSON.stringify({
-        model: 'anthropic/claude-sonnet-4.6',
+        model: 'minimax/minimax-m2.7',
         messages: [{ role: 'user', content: 'Hello' }],
         stream: true,
       }),
@@ -551,7 +553,7 @@ describe('Router: chat/completions (tool support)', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TEST_ACCOUNT_ID}` },
       body: JSON.stringify({
-        model: 'anthropic/claude-sonnet-4.6',
+        model: 'minimax/minimax-m2.7',
         messages: [{ role: 'user', content: 'What is the weather in SF?' }],
         tools,
         tool_choice: 'auto',
@@ -577,7 +579,7 @@ describe('Router: chat/completions (tool support)', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TEST_ACCOUNT_ID}` },
       body: JSON.stringify({
-        model: 'anthropic/claude-sonnet-4.6',
+        model: 'minimax/minimax-m2.7',
         messages,
       }),
     });
@@ -619,7 +621,7 @@ describe('Router: chat/completions (tool support)', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TEST_ACCOUNT_ID}` },
       body: JSON.stringify({
-        model: 'anthropic/claude-sonnet-4.6',
+        model: 'minimax/minimax-m2.7',
         messages: [{ role: 'user', content: 'What is the weather in SF?' }],
         tools: [{ type: 'function', function: { name: 'get_weather', parameters: {} } }],
       }),
@@ -637,7 +639,7 @@ describe('Router: chat/completions (tool support)', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TEST_ACCOUNT_ID}` },
       body: JSON.stringify({
-        model: 'anthropic/claude-sonnet-4.6',
+        model: 'minimax/minimax-m2.7',
         messages: [{ role: 'user', content: 'Hello' }],
         response_format: { type: 'json_object' },
       }),

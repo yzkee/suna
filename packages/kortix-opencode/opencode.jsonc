@@ -2,7 +2,7 @@
   "$schema": "https://opencode.ai/config.json",
   "permission": "allow",
   "autoupdate": false,
-  // "model": "kortix/claude-sonnet",
+  "model": "kortix/minimax-m27",
   "default_agent": "kortix",
   "agent": {
     "build": { "disable": true },
@@ -11,66 +11,39 @@
   "provider": {
     "kortix": {
       "npm": "@ai-sdk/openai-compatible",
+      "env": ["KORTIX_TOKEN", "KORTIX_API_URL"],
       "options": {
         "baseURL": "{env:KORTIX_API_URL}/v1/router",
         "apiKey": "{env:KORTIX_TOKEN}"
       },
       "models": {
-        "claude-sonnet": {
-          "name": "Claude Sonnet 4.6",
-          "id": "anthropic/claude-sonnet-4.6",
+        "minimax-m27": {
+          "name": "MiniMax M2.7",
+          "id": "minimax/minimax-m2.7",
           "family": "kortix",
-          "cost": { "input": 3, "output": 15 },
-          "limit": { "context": 200000, "output": 8192 }
+          "cost": { "input": 0.30, "output": 1.20 },
+          "limit": { "context": 204800, "output": 131072 }
         },
-        "claude-opus": {
-          "name": "Claude Opus 4.6",
-          "id": "anthropic/claude-opus-4.6",
+        "glm-turbo": {
+          "name": "GLM-5 Turbo",
+          "id": "z-ai/glm-5-turbo",
           "family": "kortix",
-          "cost": { "input": 5, "output": 25 },
-          "limit": { "context": 200000, "output": 8192 }
-        },
-        "claude-haiku": {
-          "name": "Claude Haiku 4.5",
-          "id": "anthropic/claude-haiku-4.5",
-          "family": "kortix",
-          "cost": { "input": 0.80, "output": 4 },
-          "limit": { "context": 200000, "output": 8192 }
-        },
-        "gpt-codex": {
-          "name": "GPT-5.3 Codex",
-          "id": "openai/gpt-5.3-codex",
-          "family": "kortix",
-          "cost": { "input": 1.75, "output": 14 },
-          "limit": { "context": 400000, "output": 8192 }
+          "cost": { "input": 1.20, "output": 4.00 },
+          "limit": { "context": 202752, "output": 131072 }
         },
         "kimi": {
           "name": "Kimi K2.5",
           "id": "moonshotai/kimi-k2.5",
           "family": "kortix",
           "cost": { "input": 0.45, "output": 2.20 },
-          "limit": { "context": 262144, "output": 8192 }
-        },
-        "grok-fast": {
-          "name": "Grok 4.1 Fast",
-          "id": "x-ai/grok-4.1-fast",
-          "family": "kortix",
-          "cost": { "input": 0.20, "output": 0.50 },
-          "limit": { "context": 200000, "output": 8192 }
+          "limit": { "context": 262144, "output": 65535 }
         },
         "minimax": {
           "name": "MiniMax M2.5",
           "id": "minimax/minimax-m2.5",
           "family": "kortix",
-          "cost": { "input": 0.295, "output": 1.20 },
-          "limit": { "context": 196608, "output": 8192 }
-        },
-        "glm": {
-          "name": "GLM-5",
-          "id": "z-ai/glm-5",
-          "family": "kortix",
-          "cost": { "input": 0.95, "output": 2.55 },
-          "limit": { "context": 204800, "output": 8192 }
+          "cost": { "input": 0.20, "output": 1.17 },
+          "limit": { "context": 196608, "output": 65536 }
         }
       }
     }
