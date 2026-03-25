@@ -2,60 +2,60 @@
 
 **The Autonomous Company Operating System**
 
-A cloud computer where AI agents run your company. Full Linux sandbox, persistent memory, 78 skills, 3,000+ integrations, cron/webhook triggers, multi-channel access. Agents work 24/7 — code, APIs, documents, infrastructure — whether you're there or not.
+A cloud computer where AI agents run your company. Full Linux sandbox, persistent memory, skills, integrations, cron/webhook triggers, multi-channel access. Agents work 24/7 — code, APIs, documents, infrastructure — whether you're there or not. Everything is linux, bash, files. The agent runtime is [OpenCode](https://github.com/nichochar/opencode).
 
-Everything is files — markdown agents, TypeScript tools, JSON config — git-trackable, grep-searchable. The agent runtime is [OpenCode](https://github.com/nichochar/opencode).
+## Quick Start
+
+Run locally on your laptop or on a VPS/server — the installer handles both.
 
 ```bash
 curl -fsSL https://kortix.com/install | bash
 ```
 
-## Key Internals
+The installer will ask where you're running:
 
-**Agents** — Markdown files. Frontmatter defines model, tools, permissions, triggers. Body is the system prompt. One file = one autonomous worker.
+1. **Local machine** (laptop/desktop) — binds to `localhost`
+2. **VPS / Server** — binds to `0.0.0.0`, accessible over the network
 
-**Skills** — 78 reusable knowledge packs (14 system + 64 domain). Markdown + scripts. Loaded on demand. Covers: coding, browser automation, deep research, legal writing, spreadsheets, presentations, email, finance, compliance, and more.
+Kortix works best when it can run 24/7 — even when your laptop is closed. We recommend a server or VPS: [Kortix Cloud](https://kortix.com/) (managed), your own server, or a VPS from [Hetzner](https://hetzner.com/) or [JustAVPS](https://justavps.com/).
 
-**Plugins** — `opencode-pty` (persistent terminals), `opencode-morph-plugin` (multi-hunk edits), `kortix-orchestrator` (project/session management), `kortix-sessions` (persistence + search), `kortix-continuation` (session resume), `worktree` (git isolation), `anthropic-auth`.
-
-**Triggers** — Cron schedules and webhooks defined in agent frontmatter. Fire agents automatically on time or event.
-
-**Memory** — Filesystem-based in `/workspace/.kortix/`. Four tiers: core (every session), long-term (on demand), episodic (journals), knowledge base. Semantic search via LSS.
-
-**Model Router** — 8 models across 5 providers (Anthropic, OpenAI, xAI, Moonshot, MiniMax, Zhipu). Unified routing through kortix-api.
-
-## Sandbox
-
-Docker container on `linuxserver/webtop:latest`. Multi-stage build (Rust → Alpine). Runs as user `abc` (UID 911) via s6-overlay.
-
-| Service | Port | What |
-|---------|------|------|
-| `kortix-master` | 3456 | Request proxy |
-| `opencode-serve` | 3111 | Agent API |
-| `opencode-web` | 3210 | Web UI |
-| `opencode-channels` | 8000 | Chat bridges |
-| `agent-browser-*` | 9222–9224 | Browser automation |
-| `sshd` | 22 | SSH |
-| KDE/Selkies | 6080 | Desktop stream |
-
-Baked binaries: OpenCode v1.2.25, agent-browser v0.19.0, OCX v2.0.0, LSS v0.5.5.
-
-## Development
-
-Requires: Node.js 20+, pnpm 8+, Bun 1.1+, Docker.
+On any server, just SSH in and run the same install command:
 
 ```bash
-pnpm dev               # Frontend + API
-pnpm dev:frontend      # SolidJS on Vite
-pnpm dev:api           # Hono on Bun
-pnpm dev:sandbox       # Sandbox with hot reload
-pnpm dev:sandbox:build # Rebuild sandbox
-pnpm build             # Build all
-pnpm ship <version>    # Release (bump, Docker, GitHub)
-pnpm nuke              # Tear down Docker
-pnpm nuke:start        # Nuke + restart
+# SSH into your server, then:
+curl -fsSL https://kortix.com/install | bash
 ```
+
+After install, manage everything with the `kortix` CLI:
+
+```
+kortix start       Start all services
+kortix stop        Stop all services
+kortix restart     Restart all services
+kortix logs        Tail logs
+kortix status      Show service status
+kortix update      Pull latest images and restart
+kortix reset       Wipe local data and start fresh
+kortix uninstall   Remove Kortix completely
+```
+
+## DEV Commands
+
+- `curl -fsSL http://localhost:3000/install | bash`
+- `pnpm dev` — start frontend + API in dev mode
+- `pnpm dev:frontend` — start frontend only
+- `pnpm dev:api` — start API only
+- `pnpm dev:sandbox` — start sandbox with dev bind mounts (hot reload, from `sandbox/`)
+- `pnpm dev:sandbox:build` — rebuild and start the sandbox
+- `pnpm build` — build all packages (`pnpm -r run build`)
+- `pnpm ship <version>` — bump versions, build + push Docker images, seed the JustAVPS image, create GitHub release
+- `pnpm ship --dry-run <version>` — validate without making changes
+- `pnpm ship --check` — show current release state
+- `pnpm image [version]` — build the JustAVPS image from a temporary JustAVPS machine
+- `pnpm nuke` — tear down local Docker environment
+- `pnpm nuke:start` — nuke + restart fresh
+
 
 ## License
 
-[Elastic License 2.0](LICENSE) — source-available, self-host or cloud
+See [LICENSE](LICENSE) for details.

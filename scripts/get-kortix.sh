@@ -461,7 +461,8 @@ banner() {
   |_|\_\___/|_|  \__|_/_\_\
 EOF
   echo "${NC}"
-  echo "  ${DIM}One-Click Installer${NC}"
+  echo "  ${DIM}One-Click Installer — run locally or on a VPS/server${NC}"
+  echo "  ${DIM}Cloud: kortix.com | VPS: hetzner.com, justavps.com${NC}"
   echo ""
 }
 
@@ -1468,6 +1469,13 @@ pull_and_start() {
     echo "    ${CYAN}Frontend:${NC}  ${BOLD}13737${NC}"
     echo "    ${CYAN}API:${NC}       ${BOLD}13738${NC}"
     echo "    ${CYAN}Supabase:${NC}  ${BOLD}13740${NC}"
+  fi
+
+  if [ "$DEPLOY_MODE" = "local" ]; then
+    echo ""
+    echo "  ${DIM}For 24/7 operation, we recommend a server/VPS:${NC}"
+    echo "    ${CYAN}Kortix Cloud:${NC}  ${BOLD}https://kortix.com/${NC}     ${DIM}(managed, zero setup)${NC}"
+    echo "    ${CYAN}Get a VPS:${NC}     ${BOLD}https://hetzner.com/${NC}    ${DIM}or${NC} ${BOLD}https://justavps.com/${NC}"
   fi
 
   echo ""
