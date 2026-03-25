@@ -21,6 +21,7 @@ import {
   getProviders,
   initLocalSandbox,
   type SandboxInfo,
+  type LocalSandboxProgress,
 } from './client';
 import type { Session, SessionMessage, SessionStatusMap } from './types';
 
@@ -444,7 +445,8 @@ export function useProviders() {
 export function useCreateLocalInstance() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (name?: string) => initLocalSandbox(name),
+    mutationFn: (args: { name?: string; onProgress?: (p: LocalSandboxProgress) => void }) =>
+      initLocalSandbox(args.name, args.onProgress),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: platformKeys.instances() });
       queryClient.invalidateQueries({ queryKey: platformKeys.sandbox() });

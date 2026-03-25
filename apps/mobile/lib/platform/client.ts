@@ -200,9 +200,20 @@ export async function getProviders(): Promise<string[]> {
  * Initialize a local Docker sandbox.
  * POST /platform/init/local
  */
-export async function initLocalSandbox(name?: string): Promise<SandboxInfo> {
+export interface LocalSandboxProgress {
+  status: string;
+  progress: number;
+  message: string;
+}
+
+export async function initLocalSandbox(
+  name?: string,
+  onProgress?: (progress: LocalSandboxProgress) => void,
+): Promise<SandboxInfo> {
   const token = await getAuthToken();
   if (!token) throw new Error('Not authenticated');
+
+  onProgress?.({ status: 'starting', progress: 0, message: 'Initializing...' });
 
   const res = await fetch(`${API_URL}/platform/init/local`, {
     method: 'POST',
@@ -218,6 +229,7 @@ export async function initLocalSandbox(name?: string): Promise<SandboxInfo> {
 
   // If already ready, return immediately
   if (body.data?.status === 'ready' || body.data?.status === 'running') {
+    onProgress?.({ status: 'ready', progress: 100, message: 'Connected' });
     return body.data as SandboxInfo;
   }
 
@@ -228,13 +240,21 @@ export async function initLocalSandbox(name?: string): Promise<SandboxInfo> {
       headers: { Authorization: `Bearer ${token}` },
     });
     const statusBody = await statusRes.json();
-    const status = statusBody.data?.status;
+    const data = statusBody.data;
+    const status = data?.status;
+
     if (status === 'ready' || status === 'running') {
-      return statusBody.data as SandboxInfo;
+      onProgress?.({ status: 'ready', progress: 100, message: 'Connected' });
+      return data as SandboxInfo;
     }
     if (status === 'error') {
-      throw new Error(statusBody.data?.message || 'Local sandbox creation failed');
+      throw new Error(data?.message || 'Local sandbox creation failed');
     }
+
+    // Report progress from backend or estimate
+    const pct = data?.progress ?? Math.min(Math.round((i / 180) * 95), 95);
+    const msg = data?.message || (i < 10 ? 'Pulling sandbox image...' : 'Setting up sandbox...');
+    onProgress?.({ status: status || 'pulling', progress: pct, message: msg });
   }
   throw new Error('Timed out while pulling sandbox image');
 }

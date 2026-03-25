@@ -319,6 +319,7 @@ const AddInstanceSheet = React.forwardRef<
   const [customUrl, setCustomUrl] = React.useState('');
   const [customLabel, setCustomLabel] = React.useState('');
   const [isCreating, setIsCreating] = React.useState(false);
+  const [progress, setProgress] = React.useState<{ percent: number; message: string } | null>(null);
 
   const { data: providers } = useProviders();
   const createLocalMutation = useCreateLocalInstance();
@@ -326,7 +327,10 @@ const AddInstanceSheet = React.forwardRef<
   const hasLocalDocker = Array.isArray(providers) && providers.includes('local_docker');
   const fgColor = isDark ? '#f8f8f8' : '#121215';
 
-  const snapPoints = React.useMemo(() => step === 'custom' ? [370] : [260], [step]);
+  const snapPoints = React.useMemo(() => {
+    if (isCreating && progress) return [300];
+    return step === 'custom' ? [370] : [260];
+  }, [step, isCreating, progress]);
 
   const renderBackdrop = React.useCallback(
     (props: BottomSheetBackdropProps) => (
@@ -340,22 +344,33 @@ const AddInstanceSheet = React.forwardRef<
     setCustomUrl('');
     setCustomLabel('');
     setIsCreating(false);
+    setProgress(null);
   }, []);
 
   const handleLocalDocker = React.useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setIsCreating(true);
-    createLocalMutation.mutate(undefined, {
-      onSuccess: () => {
-        setIsCreating(false);
-        onCreated();
-        resetState();
+    setProgress({ percent: 0, message: 'Initializing...' });
+    createLocalMutation.mutate(
+      {
+        onProgress: (p) => {
+          setProgress({ percent: p.progress, message: p.message });
+        },
       },
-      onError: (err: any) => {
-        setIsCreating(false);
-        Alert.alert('Error', err?.message || 'Failed to create local instance');
+      {
+        onSuccess: () => {
+          setIsCreating(false);
+          setProgress(null);
+          onCreated();
+          resetState();
+        },
+        onError: (err: any) => {
+          setIsCreating(false);
+          setProgress(null);
+          Alert.alert('Error', err?.message || 'Failed to create local instance');
+        },
       },
-    });
+    );
   }, [createLocalMutation, onCreated, resetState]);
 
   const handleCustomConnect = React.useCallback(async () => {
@@ -382,7 +397,7 @@ const AddInstanceSheet = React.forwardRef<
       ref={ref}
       index={0}
       snapPoints={snapPoints}
-      enablePanDownToClose
+      enablePanDownToClose={!isCreating}
       backdropComponent={renderBackdrop}
       onDismiss={resetState}
       handleIndicatorStyle={{
@@ -395,7 +410,37 @@ const AddInstanceSheet = React.forwardRef<
       }}
     >
       <BottomSheetView style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: Math.max(insets.bottom, 20) + 16 }}>
-        {step === 'select' ? (
+        {isCreating && progress ? (
+          <View className="px-1">
+            <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
+              Creating Instance
+            </Text>
+            <View className="py-4">
+              <View className="flex-row items-center mb-3">
+                <Icon as={Monitor} size={18} className="text-foreground/80" strokeWidth={2.2} />
+                <View className="ml-4 flex-1">
+                  <Text className="font-roobert-medium text-[15px] text-foreground">Local Docker</Text>
+                  <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">{progress.message}</Text>
+                </View>
+                <Text className="font-roobert text-xs tabular-nums text-muted-foreground">
+                  {Math.round(progress.percent)}%
+                </Text>
+              </View>
+              <View
+                className="h-1.5 rounded-full overflow-hidden"
+                style={{ backgroundColor: isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.06)' }}
+              >
+                <View
+                  className="h-full rounded-full"
+                  style={{
+                    width: `${Math.max(progress.percent, 2)}%`,
+                    backgroundColor: isDark ? '#F8F8F8' : '#121215',
+                  }}
+                />
+              </View>
+            </View>
+          </View>
+        ) : step === 'select' ? (
           <View className="px-1">
             <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
               New Instance
