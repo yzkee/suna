@@ -8,7 +8,6 @@ import React from 'react';
 import { View, TouchableOpacity, ScrollView, Text as RNText } from 'react-native';
 import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTabStore } from '@/stores/tab-store';
 import { useGlobalSandboxUpdate } from '@/hooks/useSandboxUpdate';
@@ -66,7 +65,6 @@ export function RightDrawerContent({ onClose }: RightDrawerContentProps) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const { updateAvailable } = useGlobalSandboxUpdate();
 
   const fgColor = isDark ? '#F8F8F8' : '#121215';
@@ -80,8 +78,8 @@ export function RightDrawerContent({ onClose }: RightDrawerContentProps) {
   };
 
   const handleUpdatesPress = () => {
+    useTabStore.getState().navigateToPage('page:updates');
     onClose();
-    setTimeout(() => router.push('/(settings)/changelog'), 200);
   };
 
   return (

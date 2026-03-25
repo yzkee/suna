@@ -38,6 +38,7 @@ export const PAGE_TABS: Record<string, PageTab> = {
   'page:running-services':  { id: 'page:running-services',  label: 'Running Services',  icon: 'pulse-outline' },
   'page:browser':           { id: 'page:browser',           label: 'Browser',           icon: 'compass-outline' },
   'page:agent-browser':     { id: 'page:agent-browser',     label: 'Agent Browser',     icon: 'globe-outline' },
+  'page:updates':           { id: 'page:updates',           label: 'Updates',           icon: 'arrow-down-circle-outline' },
 };
 
 // ---------------------------------------------------------------------------
