@@ -542,8 +542,14 @@ export interface SandboxUpdateStatus {
 export async function getSandboxUpdateStatus(
   _sandbox?: SandboxInfo,
 ): Promise<SandboxUpdateStatus> {
+  const token = await getSupabaseAccessToken();
+  if (!token) throw new Error('Not authenticated');
+
   const res = await fetch(`${getPlatformUrl()}/platform/sandbox/update/status`, {
-    headers: { 'Accept': 'application/json' },
+    headers: {
+      'Accept': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
   });
   if (!res.ok) throw new Error(`Status check failed: ${res.status}`);
   return res.json();
@@ -585,11 +591,15 @@ export async function triggerSandboxUpdate(
   _sandbox: SandboxInfo,
   version: string,
 ): Promise<SandboxUpdateResult> {
+  const token = await getSupabaseAccessToken();
+  if (!token) throw new Error('Not authenticated');
+
   const res = await fetch(`${getPlatformUrl()}/platform/sandbox/update`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
+      'Authorization': `Bearer ${token}`,
     },
     body: JSON.stringify({ version }),
   });
@@ -604,9 +614,15 @@ export async function triggerSandboxUpdate(
  * Reset the update status on kortix-api (e.g. after a failed update to allow retry).
  */
 export async function resetSandboxUpdateStatus(): Promise<void> {
+  const token = await getSupabaseAccessToken();
+  if (!token) throw new Error('Not authenticated');
+
   const res = await fetch(`${getPlatformUrl()}/platform/sandbox/update/reset`, {
     method: 'POST',
-    headers: { 'Accept': 'application/json' },
+    headers: {
+      'Accept': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
   });
   if (!res.ok) throw new Error(`Reset failed: ${res.status}`);
 }
