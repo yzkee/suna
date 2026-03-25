@@ -20,7 +20,7 @@ import {
   resetSandboxUpdateStatus,
 } from '../providers/local-docker';
 import { getProvider, type ProviderName } from '../providers';
-import { supabaseAuth as authMiddleware } from '../../middleware/auth';
+import { combinedAuth as authMiddleware } from '../../middleware/auth';
 import { resolveAccountId } from '../../shared/resolve-account';
 import {
   executeUpdate,
