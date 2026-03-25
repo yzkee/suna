@@ -769,6 +769,9 @@ importers:
       '@react-native-async-storage/async-storage':
         specifier: ^2.2.0
         version: 2.2.0(react-native@0.81.5)
+      '@react-native-community/slider':
+        specifier: ^5.1.2
+        version: 5.1.2
       '@react-native-masked-view/masked-view':
         specifier: ^0.3.2
         version: 0.3.2(react-native@0.81.5)(react@19.1.0)
@@ -1302,22 +1305,19 @@ importers:
   packages/opencode-channels:
     dependencies:
       '@chat-adapter/discord':
-        specifier: ^4.20.2
+        specifier: ^4.15.0
         version: 4.20.2
       '@chat-adapter/slack':
-        specifier: ^4.20.2
+        specifier: ^4.14.0
         version: 4.20.2
       '@chat-adapter/state-memory':
-        specifier: ^4.20.2
-        version: 4.20.2
-      '@chat-adapter/telegram':
-        specifier: ^4.20.2
+        specifier: ^4.14.0
         version: 4.20.2
       '@hono/node-server':
         specifier: ^1.13.0
         version: 1.19.10(hono@4.12.3)
       chat:
-        specifier: ^4.20.2
+        specifier: ^4.14.0
         version: 4.20.2
       hono:
         specifier: ^4.12.0
@@ -3124,15 +3124,6 @@ packages:
   /@chat-adapter/state-memory@4.20.2:
     resolution: {integrity: sha512-4388hp9Wsp87jMgSpkPfN4abflgIgQn5M3MLSDYdU4f20PNKrUkzhb8elkyPmYliF4MInZUau+llc26b7hZsng==}
     dependencies:
-      chat: 4.20.2
-    transitivePeerDependencies:
-      - supports-color
-    dev: false
-
-  /@chat-adapter/telegram@4.20.2:
-    resolution: {integrity: sha512-TiQwGhZIzZmZ7IkSSxzYw95Gw/2GjP8Qu4ingbSp7fN8fUxVyOzaihNU23DCP+JWdHtc7j5uF6kLgvEtF6VXMw==}
-    dependencies:
-      '@chat-adapter/shared': 4.20.2
       chat: 4.20.2
     transitivePeerDependencies:
       - supports-color
@@ -10516,6 +10507,10 @@ packages:
     dependencies:
       merge-options: 3.0.4
       react-native: 0.81.5(@babel/core@7.29.0)(@types/react@18.3.28)(react@19.1.0)
+    dev: false
+
+  /@react-native-community/slider@5.1.2:
+    resolution: {integrity: sha512-UV/MjCyCtSjS5BQDrrGIMmCXm309xEG6XbR0Dj65kzTraJSVDxSjQS2uBUXgX+5SZUOCzCxzv3OufOZBdtQY4w==}
     dev: false
 
   /@react-native-masked-view/masked-view@0.3.2(react-native@0.81.5)(react@19.1.0):
