@@ -511,8 +511,9 @@ export default function HomeScreen() {
 
   const handleAddInstance = useCallback(() => {
     closeUserMenuSheet();
-    Alert.alert('Add Instance', 'New instances can be created from the desktop app. They will appear here automatically.');
-  }, [closeUserMenuSheet]);
+    setDrawerOpen(false);
+    router.push('/(settings)/instances');
+  }, [closeUserMenuSheet, router]);
 
   const handleThemeSelect = useCallback(async (value: ThemePreference) => {
     setThemePreference(value);

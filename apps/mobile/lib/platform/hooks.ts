@@ -18,6 +18,8 @@ import {
   restartSandbox,
   stopSandbox,
   deleteSandbox,
+  getProviders,
+  initLocalSandbox,
   type SandboxInfo,
 } from './client';
 import type { Session, SessionMessage, SessionStatusMap } from './types';
@@ -28,6 +30,7 @@ export const platformKeys = {
   all: ['platform'] as const,
   sandbox: () => [...platformKeys.all, 'sandbox'] as const,
   instances: () => [...platformKeys.all, 'instances'] as const,
+  providers: () => [...platformKeys.all, 'providers'] as const,
   sessions: () => [...platformKeys.all, 'sessions'] as const,
   session: (id: string) => [...platformKeys.sessions(), id] as const,
   sessionMessages: (id: string) => [...platformKeys.session(id), 'messages'] as const,
@@ -423,6 +426,36 @@ export function useDeleteInstance() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: deleteSandbox,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: platformKeys.instances() });
+      queryClient.invalidateQueries({ queryKey: platformKeys.sandbox() });
+    },
+  });
+}
+
+export function useProviders() {
+  return useQuery({
+    queryKey: platformKeys.providers(),
+    queryFn: getProviders,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useCreateLocalInstance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name?: string) => initLocalSandbox(name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: platformKeys.instances() });
+      queryClient.invalidateQueries({ queryKey: platformKeys.sandbox() });
+    },
+  });
+}
+
+export function useCreateCloudInstance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (provider: 'daytona' | 'hetzner') => ensureSandbox({ provider }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: platformKeys.instances() });
       queryClient.invalidateQueries({ queryKey: platformKeys.sandbox() });
