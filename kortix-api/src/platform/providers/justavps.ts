@@ -82,7 +82,7 @@ interface JustAVPSWebhook {
   created_at: string;
 }
 
-async function justavpsFetch<T = any>(
+export async function justavpsFetch<T = any>(
   path: string,
   options: { method?: string; body?: unknown } = {},
 ): Promise<T> {

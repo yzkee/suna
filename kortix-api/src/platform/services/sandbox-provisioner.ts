@@ -8,7 +8,10 @@
 import { eq } from 'drizzle-orm';
 import { sandboxes } from '@kortix/db';
 import { db } from '../../shared/db';
+import { config } from '../../config';
+import * as pool from '../../pool';
 import { createSandbox } from './ensure-sandbox';
+import { createApiKey } from '../../repositories/api-keys';
 
 const provisioningSubscriptions = new Set<string>();
 
@@ -49,6 +52,51 @@ export async function provisionSandboxFromCheckout(opts: {
       return { row: existing, created: false };
     }
 
+    // Try pool claim first
+    if (config.isPoolEnabled()) {
+      try {
+        const claimed = await pool.grab({ serverType, location: location || undefined });
+        console.log(`[sandbox-provisioner] Pool grab: ${claimed ? 'CLAIMED ' + claimed.externalId : 'empty'}`);
+
+        if (claimed) {
+          const [row] = await db
+            .insert(sandboxes)
+            .values({
+              accountId,
+              name: `sandbox-${accountId.slice(0, 8)}`,
+              provider: claimed.poolSandbox.provider,
+              externalId: claimed.externalId,
+              status: 'active',
+              baseUrl: claimed.baseUrl,
+              config: {},
+              metadata: claimed.metadata,
+              isIncluded: false,
+            })
+            .returning();
+
+          const sandboxKey = await createApiKey({
+            sandboxId: row.sandboxId,
+            accountId,
+            title: 'Sandbox Token',
+            type: 'sandbox',
+          });
+
+          await db
+            .update(sandboxes)
+            .set({ config: { serviceKey: sandboxKey.secretKey }, updatedAt: new Date() })
+            .where(eq(sandboxes.sandboxId, row.sandboxId));
+
+          await pool.injectEnv(claimed, sandboxKey.secretKey);
+
+          console.log(`[sandbox-provisioner] Claimed from pool: ${row.sandboxId} (ext: ${claimed.externalId})`);
+          return { row, created: true };
+        }
+      } catch (err) {
+        console.warn('[sandbox-provisioner] Pool claim failed, falling back:', err);
+      }
+    }
+
+    console.log(`[sandbox-provisioner] Provisioning new sandbox for ${accountId} (type=${serverType}, loc=${location})`);
     const result = await createSandbox({
       accountId,
       userId: accountId,

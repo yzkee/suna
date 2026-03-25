@@ -9,6 +9,7 @@ import {
 } from '../providers';
 import { config } from '../../config';
 import { checkCredits } from '../../router/services/billing';
+import * as pool from '../../pool';
 
 export interface EnsureSandboxResult {
   row: typeof sandboxes.$inferSelect;
@@ -35,6 +36,11 @@ export async function ensureSandbox(opts: {
   if (reactivated) return reactivated;
 
   await checkProviderCredits(providerName, accountId, opts.isIncluded);
+
+  if (config.isPoolEnabled()) {
+    const claimed = await tryClaimFromPool(accountId, opts);
+    if (claimed) return claimed;
+  }
 
   return provisionNewSandbox(accountId, userId, providerName, opts);
 }
@@ -95,6 +101,51 @@ async function checkProviderCredits(providerName: ProviderName, accountId: strin
   }
 }
 
+async function tryClaimFromPool(
+  accountId: string,
+  opts: { serverType?: string; location?: string; isIncluded?: boolean },
+): Promise<EnsureSandboxResult | null> {
+  try {
+    const claimed = await pool.grab({ serverType: opts.serverType, location: opts.location });
+    if (!claimed) return null;
+
+    const [row] = await db
+      .insert(sandboxes)
+      .values({
+        accountId,
+        name: `sandbox-${accountId.slice(0, 8)}`,
+        provider: claimed.poolSandbox.provider,
+        externalId: claimed.externalId,
+        status: 'active',
+        baseUrl: claimed.baseUrl,
+        config: {},
+        metadata: claimed.metadata,
+        isIncluded: opts.isIncluded ?? false,
+      })
+      .returning();
+
+    const sandboxKey = await createApiKey({
+      sandboxId: row.sandboxId,
+      accountId,
+      title: 'Sandbox Token',
+      type: 'sandbox',
+    });
+
+    await db
+      .update(sandboxes)
+      .set({ config: { serviceKey: sandboxKey.secretKey }, updatedAt: new Date() })
+      .where(eq(sandboxes.sandboxId, row.sandboxId));
+
+    await pool.injectEnv(claimed, sandboxKey.secretKey);
+
+    console.log(`[ensureSandbox] Claimed from pool: ${row.sandboxId} (ext: ${claimed.externalId})`);
+    return { row, created: true };
+  } catch (err) {
+    console.warn('[ensureSandbox] Pool claim failed, falling back to provisioning:', err);
+    return null;
+  }
+}
+
 export async function createSandbox(opts: {
   accountId: string;
   userId: string;
@@ -104,6 +155,15 @@ export async function createSandbox(opts: {
   isIncluded?: boolean;
 }): Promise<EnsureSandboxResult> {
   const providerName = opts.provider || getDefaultProviderName();
+  const poolEnabled = config.isPoolEnabled();
+  console.log(`[createSandbox] poolEnabled=${poolEnabled}, provider=${providerName}`);
+
+  if (poolEnabled) {
+    const claimed = await tryClaimFromPool(opts.accountId, opts);
+    console.log(`[createSandbox] pool grab result: ${claimed ? 'CLAIMED' : 'null'}`);
+    if (claimed) return claimed;
+  }
+
   return provisionNewSandbox(opts.accountId, opts.userId, providerName, opts);
 }
 
