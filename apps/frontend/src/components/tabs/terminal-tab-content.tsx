@@ -42,7 +42,7 @@ export function TerminalTabContent({ ptyId, tabId, hidden = false }: TerminalTab
     return server?.url ?? s.getActiveServerUrl();
   });
 
-  const { data: ptys, isLoading } = useOpenCodePtyList();
+  const { data: ptys, isLoading, refetch } = useOpenCodePtyList();
   const removePty = useRemovePty();
   const createPty = useCreatePty();
 
@@ -54,6 +54,13 @@ export function TerminalTabContent({ ptyId, tabId, hidden = false }: TerminalTab
   // the newly created PTY (race between POST /pty and GET /pty).
   const hasSeenPty = useRef(false);
   if (pty) hasSeenPty.current = true;
+
+  // If PTY isn't in the list yet (just created), trigger a refetch.
+  useEffect(() => {
+    if (!pty && !hasSeenPty.current && !isLoading) {
+      refetch();
+    }
+  }, [pty, isLoading, refetch]);
 
   // If PTY disappears (killed externally), close the tab — but only if we
   // previously saw it in the list (avoids race on initial mount).
@@ -109,8 +116,9 @@ export function TerminalTabContent({ ptyId, tabId, hidden = false }: TerminalTab
     );
   }
 
-  // Loading
-  if (isLoading) {
+  // Loading — also treat "never seen this PTY yet" as loading to handle the
+  // race between tab navigation and the PTY list refetch after creation.
+  if (isLoading || (!pty && !hasSeenPty.current)) {
     return (
       <div className="h-full w-full flex flex-col items-center justify-center bg-background">
         <CircleDashed className="h-4 w-4 text-muted-foreground animate-spin" />

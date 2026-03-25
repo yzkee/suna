@@ -456,9 +456,10 @@ export interface SSHSetupResult {
  * Generate an SSH keypair and inject it into the active sandbox.
  * Returns the private key and connection details for VS Code Remote SSH.
  */
-export async function setupSSH(): Promise<SSHSetupResult> {
+export async function setupSSH(sandboxId?: string): Promise<SSHSetupResult> {
   const result = await platformFetch<SSHSetupResult>('/platform/sandbox/ssh/setup', {
     method: 'POST',
+    body: JSON.stringify(sandboxId ? { sandboxId } : {}),
   });
 
   if (!result.success || !result.data) {

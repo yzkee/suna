@@ -34,7 +34,7 @@ interface ProviderCacheEntry {
 const providerCache = new Map<string, ProviderCacheEntry>();
 const PROVIDER_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-async function resolveProvider(externalId: string): Promise<{ provider: CachedProviderName; baseUrl: string; serviceKey: string; proxyToken: string; slug: string } | null> {
+export async function resolveProvider(externalId: string): Promise<{ provider: CachedProviderName; baseUrl: string; serviceKey: string; proxyToken: string; slug: string } | null> {
   const cached = providerCache.get(externalId);
   if (cached && Date.now() < cached.expiresAt) {
     return { provider: cached.provider, baseUrl: cached.baseUrl, serviceKey: cached.serviceKey, proxyToken: cached.proxyToken, slug: cached.slug };

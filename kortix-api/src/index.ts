@@ -11,7 +11,7 @@ import { BillingError } from './errors';
 import { router } from './router';
 import { billingApp } from './billing';
 import { platformApp } from './platform';
-import { sandboxProxyApp } from './sandbox-proxy';
+import { sandboxProxyApp, resolveProvider } from './sandbox-proxy';
 import { getSandboxBaseUrl, proxyToSandbox } from './sandbox-proxy/routes/local-preview';
 import { validateSecretKey } from './repositories/api-keys';
 import { isKortixToken } from './shared/crypto';
@@ -594,6 +594,7 @@ const WS_IDLE_TIMEOUT_MS = 5 * 60_000;   // 5min
 
 interface WsProxyData {
   targetUrl: string;
+  upstreamHeaders?: Record<string, string>;
   upstream: WebSocket | null;
   buffered: (string | Buffer | ArrayBuffer)[];
   bufferBytes: number;
@@ -694,8 +695,8 @@ setInterval(() => {
   }
 }, 30 * 60 * 1000);
 
-/** Build WS target URL for a given sandbox/port/path. */
-function buildWsTargetUrl(sandboxId: string, port: number, remainingPath: string, searchParams: URLSearchParams): string {
+/** Build WS target URL for local_docker sandbox. */
+function buildLocalDockerWsTarget(sandboxId: string, port: number, remainingPath: string, searchParams: URLSearchParams): { url: string; headers?: Record<string, string> } {
   const sandboxBaseUrl = getSandboxBaseUrl(sandboxId);
   const wsBase = sandboxBaseUrl.replace('http://', 'ws://').replace('https://', 'wss://');
   const targetPath = port === 8000 ? remainingPath : `/proxy/${port}${remainingPath}`;
@@ -706,7 +707,63 @@ function buildWsTargetUrl(sandboxId: string, port: number, remainingPath: string
     upstreamParams.set('token', config.INTERNAL_SERVICE_KEY);
   }
   const search = upstreamParams.toString() ? `?${upstreamParams.toString()}` : '';
-  return `${wsBase}${targetPath}${search}`;
+  return { url: `${wsBase}${targetPath}${search}` };
+}
+
+/** Build WS target URL for justavps sandbox (routes through CF Worker proxy). */
+function buildJustavpsWsTarget(opts: {
+  port: number;
+  remainingPath: string;
+  slug: string;
+  serviceKey?: string;
+  proxyToken?: string;
+}): { url: string; headers?: Record<string, string> } {
+  const proxyDomain = config.JUSTAVPS_PROXY_DOMAIN;
+  const cfBase = `wss://${opts.port}--${opts.slug}.${proxyDomain}`;
+  const params = new URLSearchParams();
+  if (opts.serviceKey) params.set('token', opts.serviceKey);
+  const search = params.toString() ? `?${params.toString()}` : '';
+  const headers: Record<string, string> = {};
+  if (opts.proxyToken) headers['X-Proxy-Token'] = opts.proxyToken;
+  return { url: `${cfBase}${opts.remainingPath}${search}`, headers };
+}
+
+/**
+ * Resolve the upstream WebSocket target for a sandbox, dispatching by provider.
+ * Each provider builds the URL + auth headers differently.
+ * Add new providers as cases here.
+ */
+function resolveWsTarget(
+  provider: string,
+  opts: {
+    sandboxId: string;
+    port: number;
+    remainingPath: string;
+    searchParams: URLSearchParams;
+    slug?: string;
+    serviceKey?: string;
+    proxyToken?: string;
+  },
+): { url: string; headers?: Record<string, string> } {
+  switch (provider) {
+    case 'justavps':
+      if (!opts.slug) break;
+      return buildJustavpsWsTarget({
+        port: opts.port,
+        remainingPath: opts.remainingPath,
+        slug: opts.slug,
+        serviceKey: opts.serviceKey,
+        proxyToken: opts.proxyToken,
+      });
+
+    // case 'daytona':
+    //   return buildDaytonaWsTarget(...);
+
+    default:
+      break;
+  }
+
+  return buildLocalDockerWsTarget(opts.sandboxId, opts.port, opts.remainingPath, opts.searchParams);
 }
 
 export default {
@@ -772,10 +829,23 @@ export default {
 
       // ── WebSocket upgrade via subdomain ──────────────────────────────
       if (isWsUpgrade) {
-        const targetUrl = buildWsTargetUrl(sandboxId, port, url.pathname, url.searchParams);
+        const resolved = await resolveProvider(sandboxId).catch(() => null);
+        const provider = resolved?.provider ?? 'local_docker';
+
+        const wsTarget = resolveWsTarget(provider, {
+          sandboxId,
+          port,
+          remainingPath: url.pathname,
+          searchParams: url.searchParams,
+          slug: resolved?.slug,
+          serviceKey: resolved?.serviceKey,
+          proxyToken: resolved?.proxyToken,
+        });
+
         const success = server.upgrade(req, {
           data: {
-            targetUrl,
+            targetUrl: wsTarget.url,
+            upstreamHeaders: wsTarget.headers,
             upstream: null,
             buffered: [],
             bufferBytes: 0,
@@ -881,10 +951,11 @@ export default {
       if (success) return undefined;
     }
 
-    // ── Path-based WebSocket proxy (local mode) ──────────────────────────
+    // ── Path-based WebSocket proxy ─────────────────────────────────────────
     // Matches: ws://localhost:8008/v1/p/{sandboxId}/{port}/*
     // Used for OpenCode PTY terminals, SSE-over-WS, etc.
     // Must be handled HERE (at Bun server level) because Hono can't do WS upgrades.
+    // Each provider resolves the upstream WebSocket URL differently.
     if (isWsUpgrade && !config.isDaytonaEnabled()) {
       const wsPathMatch = url.pathname.match(/^\/v1\/p\/([^/]+)\/(\d+)(\/.*)?$/);
       if (wsPathMatch) {
@@ -895,16 +966,27 @@ export default {
         const wsAuthHeader = req.headers.get('Authorization');
         const wsBearerToken = wsAuthHeader?.startsWith('Bearer ') ? wsAuthHeader.slice(7) : null;
         const wsCookieToken = extractCookieToken(req);
-        // Also check query param — browser WebSocket API can't set custom headers,
-        // so the frontend passes the token as ?token=<jwt> (same as tunnel WS).
         const wsQueryToken = url.searchParams.get('token');
         const wsToken = wsBearerToken || wsCookieToken || wsQueryToken;
 
         if (wsToken && (await validatePreviewToken(wsToken))) {
-          const targetUrl = buildWsTargetUrl(wsSandboxId, wsPort, wsRemainingPath, url.searchParams);
+          const resolved = await resolveProvider(wsSandboxId).catch(() => null);
+          const provider = resolved?.provider ?? 'local_docker';
+
+          const wsTarget = resolveWsTarget(provider, {
+            sandboxId: wsSandboxId,
+            port: wsPort,
+            remainingPath: wsRemainingPath,
+            searchParams: url.searchParams,
+            slug: resolved?.slug,
+            serviceKey: resolved?.serviceKey,
+            proxyToken: resolved?.proxyToken,
+          });
+
           const success = server.upgrade(req, {
             data: {
-              targetUrl,
+              targetUrl: wsTarget.url,
+              upstreamHeaders: wsTarget.headers,
               upstream: null,
               buffered: [],
               bufferBytes: 0,
@@ -944,7 +1026,7 @@ export default {
       }, WS_CONNECT_TIMEOUT_MS);
 
       try {
-        const upstream = new WebSocket(ws.data.targetUrl);
+        const upstream = new WebSocket(ws.data.targetUrl, { headers: ws.data.upstreamHeaders || {} } as any);
         ws.data.upstream = upstream;
 
         upstream.addEventListener('open', () => {
