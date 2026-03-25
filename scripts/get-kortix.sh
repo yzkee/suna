@@ -4,9 +4,12 @@
 # ║                                                                            ║
 # ║  curl -fsSL https://kortix.com/install | bash                              ║
 # ║                                                                            ║
-# ║  Supports two modes (identical stack, different networking):                ║
-# ║    1. Local (laptop/desktop) — HTTP, ports on localhost                     ║
-# ║    2. VPS / Server           — Caddy reverse proxy, automatic HTTPS        ║
+# ║  Supports two modes (same stack, different bind address):                  ║
+# ║    1. Local (laptop/desktop) — binds to 127.0.0.1                          ║
+# ║    2. VPS / Server           — binds to 0.0.0.0 (world-accessible)        ║
+# ║                                                                            ║
+# ║  No reverse proxy included. Bring your own Caddy/nginx/Cloudflare if      ║
+# ║  you want HTTPS.                                                           ║
 # ║                                                                            ║
 # ║  Database: Docker Supabase or external (bring your own).                   ║
 # ║                                                                            ║
@@ -186,17 +189,11 @@ SUPABASE_POSTGRES_IMAGE="supabase/postgres:15.8.1.085"
 SUPABASE_GOTRUE_IMAGE="supabase/gotrue:v2.186.0"
 SUPABASE_KONG_IMAGE="kong:2.8.1"
 SUPABASE_REST_IMAGE="postgrest/postgrest:v14.5"
-CADDY_IMAGE="caddy:2-alpine"
 
 # Installer state
 DEPLOY_MODE=""          # "local" or "vps"
 DB_MODE=""              # "docker" or "external"
-DOMAIN=""
-USE_IP_ONLY=""
-ENABLE_AUTH=""
-ENABLE_FIREWALL=""
-ADMIN_USER="admin"
-ADMIN_PASSWORD=""
+SERVER_IP=""
 
 
 # Supabase — generated for docker mode, provided for external
@@ -240,19 +237,6 @@ prompt_read() {
     IFS= read -r "$__var_name" </dev/tty
   else
     IFS= read -r "$__var_name"
-  fi
-}
-
-prompt_read_secret() {
-  local __var_name="$1"
-  if [ "$TTY_AVAILABLE" = "1" ]; then
-    stty -echo </dev/tty
-    IFS= read -r "$__var_name" </dev/tty
-    stty echo </dev/tty
-  else
-    if [ -t 0 ]; then stty -echo; fi
-    IFS= read -r "$__var_name"
-    if [ -t 0 ]; then stty echo; fi
   fi
 }
 
@@ -407,87 +391,6 @@ pull_images_parallel() {
     | xargs -r -n1 -P "$KORTIX_PULL_PARALLELISM" docker pull
 }
 
-# Check if VPS ports (80, 443) are free; offer to stop blocking services
-# Usage: check_vps_ports
-# Returns 0 if ports are free (or user freed them), 1 if still blocked
-check_vps_ports() {
-  [ "$DEPLOY_MODE" = "vps" ] 2>/dev/null || return 0
-
-  local blocked=0
-  local -a blocked_ports=()
-  local -a blocking_info=()
-
-  for port in 80 443; do
-    local pinfo
-    pinfo=$(ss -tlnp "sport = :$port" 2>/dev/null | grep -v '^State' | head -1 || true)
-    if [ -n "$pinfo" ]; then
-      blocked=1
-      blocked_ports+=("$port")
-      # Extract process name from ss output (e.g., users:(("nginx",pid=1234,...)))
-      local proc_name
-      proc_name=$(echo "$pinfo" | grep -oP 'users:\(\("\K[^"]+' 2>/dev/null || echo "unknown")
-      blocking_info+=("Port ${port}: ${proc_name}")
-    fi
-  done
-
-  [ $blocked -eq 0 ] && return 0
-
-  echo ""
-  warn "Port conflict detected! Caddy needs ports 80 and 443."
-  for info_line in "${blocking_info[@]}"; do
-    echo "    ${RED}${info_line}${NC}"
-  done
-  echo ""
-
-  # Detect common services and offer to stop them
-  local -a services_to_stop=()
-  for svc in nginx apache2 httpd caddy lighttpd; do
-    if systemctl is-active --quiet "$svc" 2>/dev/null; then
-      services_to_stop+=("$svc")
-    fi
-  done
-
-  if [ ${#services_to_stop[@]} -gt 0 ]; then
-    local svc_list
-    svc_list=$(printf ', %s' "${services_to_stop[@]}")
-    svc_list="${svc_list:2}"  # trim leading ", "
-    printf "  Stop and disable ${BOLD}${svc_list}${NC}? [Y/n]: "
-    prompt_read stop_choice
-    case "${stop_choice:-y}" in
-      [nN]*)
-        warn "Caddy will likely fail to start. Free ports 80/443 manually, then run: kortix restart"
-        return 1
-        ;;
-      *)
-        for svc in "${services_to_stop[@]}"; do
-          systemctl stop "$svc" 2>/dev/null || true
-          systemctl disable "$svc" 2>/dev/null || true
-          success "Stopped and disabled ${svc}"
-        done
-        # Verify ports are now free
-        sleep 1
-        for port in "${blocked_ports[@]}"; do
-          if ss -tlnp "sport = :$port" 2>/dev/null | grep -qv '^State'; then
-            warn "Port ${port} still in use after stopping services."
-            warn "Find what's using it: ss -tlnp 'sport = :${port}'"
-            return 1
-          fi
-        done
-        success "Ports 80/443 are now free"
-        return 0
-        ;;
-    esac
-  else
-    warn "Could not detect a known service to stop automatically."
-    echo "  ${DIM}Find what's using the port:${NC}"
-    echo "    ss -tlnp 'sport = :80'"
-    echo "    ss -tlnp 'sport = :443'"
-    echo ""
-    echo "  ${DIM}Then free the port and run:${NC} kortix restart"
-    return 1
-  fi
-}
-
 # Free ports used by Kortix (local mode)
 # Usage: free_kortix_ports [project_name]
 # If project_name is provided, only cleans containers from that project
@@ -584,14 +487,24 @@ preflight() {
 prompt_mode() {
   echo "  ${BOLD}Where are you running Kortix?${NC}"
   echo ""
-  echo "    ${CYAN}1${NC}) Local machine ${DIM}(laptop/desktop — HTTP on localhost)${NC}"
-  echo "    ${CYAN}2${NC}) VPS / Server  ${DIM}(cloud VM — HTTPS via Caddy)${NC}"
+  echo "    ${CYAN}1${NC}) Local machine ${DIM}(laptop/desktop — binds to localhost)${NC}"
+  echo "    ${CYAN}2${NC}) VPS / Server  ${DIM}(cloud VM — binds to 0.0.0.0)${NC}"
   echo ""
   printf "  Choice [1]: "
   prompt_read mode_choice
 
   case "${mode_choice:-1}" in
-    2) DEPLOY_MODE="vps" ;;
+    2)
+      DEPLOY_MODE="vps"
+      SERVER_IP=$(get_server_ip)
+      if [ -n "$SERVER_IP" ]; then
+        info "Detected server IP: ${BOLD}${SERVER_IP}${NC}"
+      else
+        printf "  Enter server IP or hostname: "
+        prompt_read SERVER_IP
+        [ -z "$SERVER_IP" ] && fatal "Server IP is required for VPS mode."
+      fi
+      ;;
     *) DEPLOY_MODE="local" ;;
   esac
 
@@ -644,76 +557,7 @@ prompt_database() {
   echo ""
 }
 
-# ─── VPS: Domain Setup ──────────────────────────────────────────────────────
-prompt_domain() {
-  echo "  ${BOLD}Domain Setup${NC}"
-  echo ""
-  echo "    ${CYAN}1${NC}) I have a domain name ${DIM}(automatic HTTPS)${NC}"
-  echo "    ${CYAN}2${NC}) Just use IP address  ${DIM}(self-signed cert, browser warning)${NC}"
-  echo ""
-  printf "  Choice [1]: "
-  prompt_read domain_choice
 
-  case "${domain_choice:-1}" in
-    2)
-      USE_IP_ONLY="yes"
-      local server_ip
-      server_ip=$(get_server_ip)
-      if [ -n "$server_ip" ]; then
-        info "Detected server IP: ${BOLD}${server_ip}${NC}"
-        DOMAIN="$server_ip"
-      else
-        printf "  Enter server IP: "
-        prompt_read DOMAIN
-      fi
-      ;;
-    *)
-      printf "  Enter domain: "
-      prompt_read DOMAIN
-      [ -z "$DOMAIN" ] && fatal "Domain name is required."
-
-      info "Verifying DNS for ${BOLD}${DOMAIN}${NC}..."
-      local resolved_ip server_ip
-      resolved_ip=$(dig +short "$DOMAIN" 2>/dev/null | head -1)
-      server_ip=$(get_server_ip)
-
-      if [ -n "$resolved_ip" ] && [ -n "$server_ip" ]; then
-        if [ "$resolved_ip" = "$server_ip" ]; then
-          success "DNS verified: ${DOMAIN} -> ${resolved_ip}"
-        else
-          warn "DNS resolves to ${resolved_ip} but this server is ${server_ip}"
-          printf "  Continue anyway? [y/N]: "
-          prompt_read dns_continue
-          echo "${dns_continue:-n}" | grep -qi '^y' || fatal "Fix DNS first."
-        fi
-      fi
-      ;;
-  esac
-
-  echo ""
-}
-
-# ─── VPS: Security Options ──────────────────────────────────────────────────
-prompt_security() {
-  echo "  ${BOLD}Security Options${NC}"
-  echo ""
-
-  ENABLE_AUTH="no"
-  info "Password protection disabled (app auth handles access control)"
-
-  if command -v ufw &>/dev/null; then
-    printf "  Firewall (UFW: allow SSH, HTTP, HTTPS only) ${DIM}[${NC}${GREEN}Y${NC}${DIM}/n]${NC}: "
-    prompt_read fw_choice
-    case "${fw_choice:-y}" in
-      [nN]*) ENABLE_FIREWALL="no" ;;
-      *) ENABLE_FIREWALL="yes" ;;
-    esac
-  else
-    ENABLE_FIREWALL="no"
-  fi
-
-  echo ""
-}
 
 # ─── Integrations (Pipedream) ────────────────────────────────────────────────
 prompt_integrations() {
@@ -759,8 +603,8 @@ prompt_integrations() {
 # ─── Compute URLs ────────────────────────────────────────────────────────────
 compute_urls() {
   if [ "$DEPLOY_MODE" = "vps" ]; then
-    PUBLIC_URL="https://${DOMAIN}"
-    API_PUBLIC_URL="https://${DOMAIN}"
+    PUBLIC_URL="http://${SERVER_IP}:13737"
+    API_PUBLIC_URL="http://${SERVER_IP}:13738"
   else
     PUBLIC_URL="http://localhost:13737"
     API_PUBLIC_URL="http://localhost:13738"
@@ -774,11 +618,6 @@ generate_secrets() {
   CRON_SECRET=$(generate_password)
   INTERNAL_SERVICE_KEY=$(generate_token)
   API_KEY_SECRET=$(generate_token)
-
-  if [ "$DEPLOY_MODE" = "vps" ] && [ "$ENABLE_AUTH" = "yes" ]; then
-    ADMIN_PASSWORD=$(generate_password)
-    success "Admin password generated"
-  fi
 
   # Generate Supabase credentials for Docker mode
   if [ "$DB_MODE" = "docker" ]; then
@@ -798,57 +637,7 @@ generate_secrets() {
   echo ""
 }
 
-# ─── Write Caddyfile (VPS mode) ─────────────────────────────────────────────
-write_caddyfile() {
-  local tls_config=""
-  [ "$USE_IP_ONLY" = "yes" ] && tls_config="  tls internal"
 
-  local auth_block=""
-  if [ "$ENABLE_AUTH" = "yes" ]; then
-    local hashed_pw
-    hashed_pw=$(docker run --rm "$CADDY_IMAGE" caddy hash-password --plaintext "$ADMIN_PASSWORD" 2>/dev/null)
-    auth_block="
-    basic_auth {
-      ${ADMIN_USER} ${hashed_pw}
-    }"
-  fi
-
-  local global_block=""
-  [ "$USE_IP_ONLY" = "yes" ] && global_block="{
-  default_sni ${DOMAIN}
-}
-
-"
-
-  cat > "$INSTALL_DIR/Caddyfile" << CADDYEOF
-${global_block}${DOMAIN} {
-${tls_config}
-
-  handle /v1/* {
-    reverse_proxy kortix-api:8008
-  }
-  handle /webhooks/* {
-    reverse_proxy kortix-api:8008
-  }
-  handle /health {
-    reverse_proxy kortix-api:8008
-  }
-
-  handle /auth/v1/* {
-    reverse_proxy supabase-kong:8000
-  }
-  handle /rest/v1/* {
-    reverse_proxy supabase-kong:8000
-  }
-
-  handle {${auth_block}
-    reverse_proxy frontend:3000
-  }
-}
-CADDYEOF
-
-  success "Saved Caddyfile"
-}
 
 # ─── Write Kong Config ──────────────────────────────────────────────────────
 write_kong_config() {
@@ -1041,54 +830,18 @@ KORTIXEOF
 write_compose() {
   info "Writing docker-compose.yml..."
 
-  # Port bindings
-  local frontend_ports api_ports supabase_ports db_ports
-  if [ "$DEPLOY_MODE" = "vps" ]; then
-    frontend_ports='    expose:
-      - "3000"'
-    api_ports='    expose:
-      - "8008"'
-    supabase_ports='    expose:
-      - "8000"'
-    db_ports='    expose:
-      - "5432"'
-  else
-    frontend_ports='    ports:
-      - "13737:3000"'
-    api_ports='    ports:
-      - "13738:8008"'
-    supabase_ports='    ports:
-      - "13740:8000"'
-    db_ports='    ports:
-      - "13741:5432"'
-  fi
+  # Port bindings — local binds to 127.0.0.1, VPS binds to 0.0.0.0
+  local bind_addr="127.0.0.1"
+  [ "$DEPLOY_MODE" = "vps" ] && bind_addr="0.0.0.0"
 
-  # Caddy service (VPS only)
-  local caddy_service=""
-  if [ "$DEPLOY_MODE" = "vps" ]; then
-    caddy_service="
-  caddy:
-    image: ${CADDY_IMAGE}
-    ports:
-      - \"80:80\"
-      - \"443:443\"
-      - \"443:443/udp\"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    depends_on:
-      - frontend
-      - kortix-api
-    restart: unless-stopped
-"
-  fi
-
-  local caddy_volumes=""
-  if [ "$DEPLOY_MODE" = "vps" ]; then
-    caddy_volumes="  caddy-data:
-  caddy-config:"
-  fi
+  local frontend_ports="    ports:
+      - \"${bind_addr}:13737:3000\""
+  local api_ports="    ports:
+      - \"${bind_addr}:13738:8008\""
+  local supabase_ports="    ports:
+      - \"${bind_addr}:13740:8000\""
+  local db_ports="    ports:
+      - \"${bind_addr}:13741:5432\""
 
   # Supabase services (Docker mode only)
   local supabase_services="" supabase_volumes="" api_depends frontend_supabase_env
@@ -1211,29 +964,12 @@ ${supabase_ports}
     #
     # CRITICAL: The server-side SUPABASE_URL MUST match the client-side
     # NEXT_PUBLIC_SUPABASE_URL. The @supabase/ssr library derives cookie
-    # names from the URL hostname. If server uses "supabase-kong" but client
-    # uses "152.53.134.91", the cookie names won't match and auth breaks
-    # (redirect loop after sign-in).
+    # names from the URL hostname. If they differ, auth breaks (redirect loop).
     #
-    # In VPS mode, both use the public HTTPS URL. NODE_TLS_REJECT_UNAUTHORIZED=0
-    # is needed because the server-side calls go through Caddy's self-signed cert
-    # (when using IP-only mode without a real domain).
-    #
-    # In local mode, both use http://localhost:13740 (Kong exposed on host).
-    # The frontend container uses extra_hosts to resolve localhost to the host.
-    if [ "$DEPLOY_MODE" = "local" ]; then
-      frontend_supabase_env="      - KORTIX_PUBLIC_SUPABASE_URL=http://localhost:13740
-      - KORTIX_PUBLIC_SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
-      - KORTIX_PUBLIC_BACKEND_URL=\${API_PUBLIC_URL}/v1
-      - KORTIX_PUBLIC_BILLING_ENABLED=false
-      - KORTIX_PUBLIC_ENV_MODE=local
-      - KORTIX_PUBLIC_APP_URL=\${PUBLIC_URL}
-      - SUPABASE_URL=http://localhost:13740
-      - SUPABASE_SERVER_URL=http://supabase-kong:8000
-      - SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
-      - BACKEND_URL=\${API_PUBLIC_URL}/v1"
-    else
-      frontend_supabase_env="      - KORTIX_PUBLIC_SUPABASE_URL=\${SUPABASE_PUBLIC_URL}
+    # Both modes use the same HTTP-based pattern: Kong is exposed on host port
+    # 13740 via the bind address. The frontend container uses extra_hosts to
+    # resolve localhost to the host gateway.
+    frontend_supabase_env="      - KORTIX_PUBLIC_SUPABASE_URL=\${SUPABASE_PUBLIC_URL}
       - KORTIX_PUBLIC_SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
       - KORTIX_PUBLIC_BACKEND_URL=\${API_PUBLIC_URL}/v1
       - KORTIX_PUBLIC_BILLING_ENABLED=false
@@ -1242,9 +978,7 @@ ${supabase_ports}
       - SUPABASE_URL=\${SUPABASE_PUBLIC_URL}
       - SUPABASE_SERVER_URL=http://supabase-kong:8000
       - SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
-      - BACKEND_URL=\${API_PUBLIC_URL}/v1
-      - NODE_TLS_REJECT_UNAUTHORIZED=0"
-    fi
+      - BACKEND_URL=\${API_PUBLIC_URL}/v1"
 
     supabase_url_env="      - SUPABASE_URL=http://supabase-kong:8000"
     supabase_db_env="      - DATABASE_URL=postgresql://postgres:\${POSTGRES_PASSWORD}@supabase-db:5432/postgres"
@@ -1270,7 +1004,6 @@ ${supabase_ports}
 # Mode: ${DEPLOY_MODE} | Database: ${DB_MODE}
 services:
 ${supabase_services}
-${caddy_service}
   frontend:
     image: ${FRONTEND_IMAGE}
 ${frontend_ports}
@@ -1314,7 +1047,6 @@ ${api_depends}
 
 volumes:
 ${supabase_volumes}
-${caddy_volumes}
 COMPOSE
 
   success "Saved docker-compose.yml"
@@ -1377,17 +1109,13 @@ ENVEOF
 }
 
 write_dev_env_files() {
-  local api_port="8008"
-  local host_supabase_url="${SUPABASE_URL}"
-  local host_database_url="${DATABASE_URL}"
-  local host_docker_host="${DOCKER_HOST:-}"
+  local host_addr="localhost"
+  [ "$DEPLOY_MODE" = "vps" ] && host_addr="${SERVER_IP}"
+  local api_port="13738"
+  local host_supabase_url="http://${host_addr}:13740"
+  local host_database_url="postgresql://postgres:${POSTGRES_PASSWORD}@${host_addr}:13741/postgres"
+  local host_docker_host="$(get_host_docker_socket)"
   local host_sandbox_network="${SANDBOX_NETWORK}"
-  if [ "$DEPLOY_MODE" = "local" ]; then
-    api_port="13738"
-    host_supabase_url="http://localhost:13740"
-    host_database_url="postgresql://postgres:${POSTGRES_PASSWORD}@localhost:13741/postgres"
-    host_docker_host="$(get_host_docker_socket)"
-  fi
 
   cat > "$INSTALL_DIR/.api-dev.env" << ENVEOF
 PORT=${api_port}
@@ -1417,20 +1145,7 @@ ENVEOF
   success "Saved dev env files"
 }
 
-# ─── Write credentials file (VPS mode) ──────────────────────────────────────
-write_credentials() {
-  [ "$DEPLOY_MODE" != "vps" ] || [ "$ENABLE_AUTH" != "yes" ] && return 0
 
-  cat > "$INSTALL_DIR/.credentials" << CREDEOF
-# Kortix — Admin Credentials
-# Generated on $(date -u '+%Y-%m-%d %H:%M:%S UTC')
-URL: https://${DOMAIN}
-Username: ${ADMIN_USER}
-Password: ${ADMIN_PASSWORD}
-CREDEOF
-
-  chmod 600 "$INSTALL_DIR/.credentials"
-}
 
 # ─── Fixup DB init SQL (replace password placeholder) ───────────────────────
 fixup_db_init() {
@@ -1442,19 +1157,6 @@ fixup_db_init() {
   fi
 }
 
-
-
-wait_for_http() {
-  local url="$1"
-  local max_attempts="${2:-120}"
-  local attempts=0
-  while [ $attempts -lt $max_attempts ]; do
-    curl -sf "$url" >/dev/null 2>&1 && return 0
-    sleep 2
-    attempts=$((attempts + 1))
-  done
-  return 1
-}
 
 
 # ─── Write CLI ───────────────────────────────────────────────────────────────
@@ -1541,57 +1243,6 @@ _free_kortix_ports() {
   [ $freed -eq 1 ] && echo "  ${Y}Freed Kortix ports${N}" || true
 }
 
-# Check VPS ports 80/443 for conflicts before starting Caddy
-_check_vps_ports() {
-  [ "$(_mode)" = "vps" ] || return 0
-
-  local blocked=0
-  for port in 80 443; do
-    if ss -tlnp "sport = :$port" 2>/dev/null | grep -qv '^State'; then
-      blocked=1
-      local proc
-      proc=$(ss -tlnp "sport = :$port" 2>/dev/null | grep -v '^State' | head -1 | grep -oP 'users:\(\("\K[^"]+' 2>/dev/null || echo "unknown")
-      echo "  ${R}Port ${port} in use by: ${proc}${N}"
-    fi
-  done
-
-  [ $blocked -eq 0 ] && return 0
-
-  echo ""
-  # Try to auto-detect and offer to stop common services
-  local -a to_stop=()
-  for svc in nginx apache2 httpd caddy lighttpd; do
-    systemctl is-active --quiet "$svc" 2>/dev/null && to_stop+=("$svc")
-  done
-
-  if [ ${#to_stop[@]} -gt 0 ]; then
-    local svc_list
-    svc_list=$(printf ', %s' "${to_stop[@]}")
-    svc_list="${svc_list:2}"
-    printf "  Stop and disable ${B}${svc_list}${N}? [Y/n]: "
-    prompt_read stop_choice
-    case "${stop_choice:-y}" in
-      [nN]*)
-        echo "  ${Y}Caddy may fail. Free ports 80/443 manually, then: kortix restart${N}"
-        return 1
-        ;;
-      *)
-        for svc in "${to_stop[@]}"; do
-          systemctl stop "$svc" 2>/dev/null || true
-          systemctl disable "$svc" 2>/dev/null || true
-          echo "  ${G}Stopped and disabled ${svc}${N}"
-        done
-        sleep 1
-        ;;
-    esac
-  else
-    echo "  ${Y}Port 80/443 conflict. Find the process:${N}"
-    echo "    ss -tlnp 'sport = :80'"
-    echo "  ${Y}Then free it and run: kortix restart${N}"
-    return 1
-  fi
-}
-
 _sync_supabase_passwords() {
   [ -f "$DIR/.env" ] || return 0
 
@@ -1641,18 +1292,13 @@ _reset_stack() {
   fi
 
   echo "  ${C}Stopping and removing stack...${N}"
-  docker compose --profile vps down -v --remove-orphans 2>/dev/null || docker compose down -v --remove-orphans 2>/dev/null || true
+  docker compose down -v --remove-orphans 2>/dev/null || true
   docker rm -f kortix-sandbox 2>/dev/null || true
   docker volume rm kortix-sandbox-data 2>/dev/null || true
   [ "$(_mode)" = "local" ] && _free_kortix_ports
-  _check_vps_ports || true
 
   echo "  ${C}Starting fresh stack...${N}"
-  if [ "$(_mode)" = "vps" ]; then
-    docker compose --profile vps up -d || true
-  else
-    docker compose up -d || true
-  fi
+  docker compose up -d || true
   echo "  ${G}Reset complete.${N}"
 }
 
@@ -1660,35 +1306,24 @@ case "${1:-help}" in
   start)
     # Free ports and clean up lingering containers before starting
     [ "$(_mode)" = "local" ] && _free_kortix_ports
-    _check_vps_ports || true
     _sync_supabase_passwords
-    if [ "$(_mode)" = "vps" ]; then
-      docker compose --profile vps up -d || true
-    else
-      docker compose up -d || true
-    fi
+    docker compose up -d || true
     echo ""
     echo "  ${G}Kortix is running!${N}"
     echo "  Dashboard: ${B}$(_url)${N}"
-    [ -f "$DIR/.credentials" ] && echo "  ${D}Credentials in: ${DIR}/.credentials${N}"
     echo ""
     ;;
   stop)
-    docker compose --profile vps down 2>/dev/null || docker compose down
+    docker compose down
     docker stop kortix-sandbox 2>/dev/null || true
     echo "  ${G}Stopped.${N}"
     ;;
   restart)
-    docker compose --profile vps down 2>/dev/null || docker compose down 2>/dev/null || true
+    docker compose down 2>/dev/null || true
     # Free ports and clean up lingering containers before restarting
     [ "$(_mode)" = "local" ] && _free_kortix_ports
-    _check_vps_ports || true
     _sync_supabase_passwords
-    if [ "$(_mode)" = "vps" ]; then
-      docker compose --profile vps up -d || true
-    else
-      docker compose up -d || true
-    fi
+    docker compose up -d || true
     echo "  ${G}Restarted.${N}"
     ;;
   logs)
@@ -1716,16 +1351,11 @@ case "${1:-help}" in
     fi
     echo ""
     echo "  ${C}Restarting services...${N}"
-    # Free ports and clean up lingering containers before updating
     [ "$(_mode)" = "local" ] && _free_kortix_ports
-    _check_vps_ports || true
     _sync_supabase_passwords
     docker compose down 2>/dev/null || true
     docker compose up -d || true
     echo "  ${G}Updated.${N}"
-    ;;
-  credentials)
-    [ -f "$DIR/.credentials" ] && cat "$DIR/.credentials" || echo "  ${D}No credentials (local mode or auth disabled)${N}"
     ;;
   reset)
     shift
@@ -1738,13 +1368,13 @@ case "${1:-help}" in
     printf "  Delete all data (Docker volumes)? [y/N]: "
     prompt_read del_volumes
     if echo "$del_volumes" | grep -qi '^y'; then
-      docker compose --profile vps down -v --remove-orphans 2>/dev/null || docker compose down -v --remove-orphans 2>/dev/null || true
+      docker compose down -v --remove-orphans 2>/dev/null || true
       docker volume rm kortix-sandbox-data 2>/dev/null || true
       docker volume rm kortix_supabase-db-data 2>/dev/null || true
       docker volume rm supabase_db_kortix-local 2>/dev/null || true
       echo "  ${G}Volumes removed.${N}"
     else
-      docker compose --profile vps down 2>/dev/null || docker compose down 2>/dev/null || true
+      docker compose down 2>/dev/null || true
     fi
     [ -L "/usr/local/bin/kortix" ] && rm -f /usr/local/bin/kortix 2>/dev/null || true
     rm -rf "$DIR"
@@ -1768,7 +1398,6 @@ case "${1:-help}" in
     echo "  ${C}setup${N}         Open sign-in page"
     echo "  ${C}update${N}        Update to the configured release"
     echo "  ${C}reset${N}         Wipe local stack state and recreate it"
-    echo "  ${C}credentials${N}   Show admin credentials (VPS mode)"
     echo "  ${C}uninstall${N}     Remove Kortix completely"
     echo "  ${C}version${N}       Show version"
     echo ""
@@ -1805,18 +1434,6 @@ setup_path() {
   success "Added 'kortix' to PATH (restart terminal or: source $shell_rc)"
 }
 
-# ─── Firewall (VPS) ─────────────────────────────────────────────────────────
-setup_firewall() {
-  [ "$ENABLE_FIREWALL" != "yes" ] && return
-  ufw default deny incoming 2>/dev/null || true
-  ufw default allow outgoing 2>/dev/null || true
-  ufw allow 22/tcp 2>/dev/null || true
-  ufw allow 80/tcp 2>/dev/null || true
-  ufw allow 443/tcp 2>/dev/null || true
-  echo "y" | ufw enable 2>/dev/null || true
-  success "Firewall configured (SSH + HTTP + HTTPS only)"
-}
-
 # ─── Pull & Start ───────────────────────────────────────────────────────────
 pull_and_start() {
   echo ""
@@ -1839,9 +1456,6 @@ pull_and_start() {
     if [ "$DB_MODE" = "docker" ]; then
       images_to_pull+=("$SUPABASE_POSTGRES_IMAGE" "$SUPABASE_GOTRUE_IMAGE" "$SUPABASE_REST_IMAGE" "$SUPABASE_KONG_IMAGE")
     fi
-    if [ "$DEPLOY_MODE" = "vps" ]; then
-      images_to_pull+=("$CADDY_IMAGE")
-    fi
     pull_images_parallel "${images_to_pull[@]}"
     success "Docker images ready"
   fi
@@ -1850,29 +1464,16 @@ pull_and_start() {
   info "Starting Kortix..."
   echo ""
 
-  # Free ports to avoid conflicts
+  # Free ports in local mode to avoid conflicts
   free_kortix_ports
-  check_vps_ports || true
 
-  if [ "$DEPLOY_MODE" = "vps" ]; then
-    docker compose --profile vps up -d || true
-  else
-    docker compose up -d || true
-  fi
+  docker compose up -d || true
 
   # Wait for frontend
-  local attempts=0 check_url max_wait
-  if [ "$DEPLOY_MODE" = "vps" ]; then
-    check_url="https://${DOMAIN}"
-    max_wait=45
-  else
-    check_url="http://localhost:13737"
-    max_wait=30
-  fi
-
+  local attempts=0 max_wait=30
   info "Waiting for services..."
   while [ $attempts -lt $max_wait ]; do
-    curl -sf -k "${check_url}" >/dev/null 2>&1 && break
+    curl -sf "${PUBLIC_URL}" >/dev/null 2>&1 && break
     sleep 2
     attempts=$((attempts + 1))
   done
@@ -1887,21 +1488,17 @@ pull_and_start() {
   if [ "$DEPLOY_MODE" = "local" ]; then
     echo ""
     warm_local_sandbox
-  fi
-
-  if [ "$DEPLOY_MODE" = "vps" ] && [ "$ENABLE_AUTH" = "yes" ]; then
-    echo ""
-    echo "  ${CYAN}Username:${NC}   ${BOLD}${ADMIN_USER}${NC}"
-    echo "  ${CYAN}Password:${NC}   ${BOLD}${ADMIN_PASSWORD}${NC}"
-    echo ""
-    echo "  ${YELLOW}Save these credentials.${NC}"
-    echo "  ${DIM}(Also saved to ${INSTALL_DIR}/.credentials)${NC}"
-  fi
-
-  if [ "$DEPLOY_MODE" = "local" ]; then
     echo ""
     info "Opening sign-in page..."
     open_browser "${PUBLIC_URL}/auth"
+  fi
+
+  if [ "$DEPLOY_MODE" = "vps" ]; then
+    echo ""
+    echo "  ${DIM}Want HTTPS? Point a reverse proxy (Caddy, nginx, Cloudflare) at these ports:${NC}"
+    echo "    ${CYAN}Frontend:${NC}  ${BOLD}13737${NC}"
+    echo "    ${CYAN}API:${NC}       ${BOLD}13738${NC}"
+    echo "    ${CYAN}Supabase:${NC}  ${BOLD}13740${NC}"
   fi
 
   echo ""
@@ -1939,13 +1536,7 @@ main() {
     if [ -z "$answer" ] || ! echo "$answer" | grep -qi '^y'; then
       info "Starting existing installation..."
       cd "$INSTALL_DIR"
-      local existing_mode
-      existing_mode=$(grep -m1 '^DEPLOY_MODE=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2- || echo "local")
-      if [ "$existing_mode" = "vps" ]; then
-        docker compose --profile vps up -d
-      else
-        docker compose up -d
-      fi
+      docker compose up -d
       echo ""
       success "Kortix is running!"
       local existing_url
@@ -1960,7 +1551,7 @@ main() {
     # Without this, old Postgres data retains old passwords while the
     # installer generates new ones, causing supabase-auth to fail with
     # "password authentication failed for user supabase_auth_admin".
-    docker compose --profile vps down -v 2>/dev/null || docker compose down -v 2>/dev/null || true
+    docker compose down -v 2>/dev/null || true
     docker rm -f kortix-sandbox 2>/dev/null || true
     # Also remove any leftover named volumes from previous installs
     docker volume rm kortix_supabase-db-data 2>/dev/null || true
@@ -1973,11 +1564,6 @@ main() {
   prompt_mode
   prompt_database
 
-  if [ "$DEPLOY_MODE" = "vps" ]; then
-    prompt_domain
-    prompt_security
-  fi
-
   compute_urls
 
   # Set SUPABASE_PUBLIC_URL for Docker mode
@@ -1985,17 +1571,12 @@ main() {
     if [ "$DEPLOY_MODE" = "local" ]; then
       SUPABASE_PUBLIC_URL="http://localhost:13740"
     else
-      # VPS: Kong is internal, GoTrue uses the Caddy public URL
-      SUPABASE_PUBLIC_URL="https://${DOMAIN}"
+      SUPABASE_PUBLIC_URL="http://${SERVER_IP}:13740"
     fi
   fi
 
   echo "  ${BOLD}What gets installed:${NC}"
   echo ""
-  if [ "$DEPLOY_MODE" = "vps" ]; then
-    echo "    ${CYAN}Caddy${NC}        ${DIM}HTTPS reverse proxy${NC}"
-    echo "      ${DIM}|${NC}"
-  fi
   if [ "$DB_MODE" = "docker" ]; then
     echo "    ${CYAN}Frontend${NC}  -> ${CYAN}API${NC}  -> ${CYAN}Sandbox${NC}"
     echo "    ${DIM}Dashboard    Router   AI Agent${NC}"
@@ -2021,13 +1602,6 @@ main() {
   write_compose
   write_env
   write_dev_env_files
-  write_credentials
-
-  if [ "$DEPLOY_MODE" = "vps" ]; then
-    write_caddyfile
-    setup_firewall
-  fi
-
   write_cli
   setup_path
   pull_and_start
