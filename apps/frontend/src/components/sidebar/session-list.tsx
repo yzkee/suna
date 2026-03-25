@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback, startTransition, useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { normalizeAppPathname, getActiveInstanceIdFromCookie, buildInstancePath } from '@/lib/instance-routes';
 import {
   MoreHorizontal,
   Trash2,
@@ -62,44 +63,9 @@ import {
 import { useTabStore, openTabAndNavigate } from '@/stores/tab-store';
 import { useServerStore } from '@/stores/server-store';
 import { useSandboxConnectionStore } from '@/stores/sandbox-connection-store';
-import { useChannelSession } from '@/hooks/channels';
-import { SlackIcon } from '@/components/ui/icons/slack';
-import { TelegramIcon } from '@/components/ui/icons/telegram';
-import { DiscordIcon } from '@/components/ui/icons/discord';
-
 import { childMapByParent, sortSessions, allDescendantIds } from '@/ui';
 import type { Session } from '@/hooks/opencode/use-opencode-sessions';
 import Link from 'next/link';
-
-// ── Channel platform badge ─────────────────────────────────────────────────
-
-function ChannelBadge({ sessionId }: { sessionId: string }) {
-  const { data: channelCtx } = useChannelSession(sessionId);
-  if (!channelCtx) return null;
-
-  const platform = channelCtx.platform;
-  const label = channelCtx.channelName || platform;
-
-  let Icon: React.ComponentType<{ className?: string }> | null = null;
-  if (platform === 'slack') Icon = SlackIcon;
-  else if (platform === 'telegram') Icon = TelegramIcon;
-  else if (platform === 'discord') Icon = DiscordIcon;
-
-  if (!Icon) return null;
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="flex-shrink-0 flex items-center justify-center h-4 w-4 opacity-60">
-          <Icon className="h-3 w-3" />
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="right" className="text-xs">
-        Via {label}
-      </TooltipContent>
-    </Tooltip>
-  );
-}
 
 // ============================================================================
 // Session Item (supports depth for tree rendering)
@@ -214,9 +180,6 @@ function SessionItem({
             </TooltipContent>
           </Tooltip>
         )}
-
-        {/* Channel platform badge — only for depth-0 sessions triggered via a channel */}
-        {depth === 0 && <ChannelBadge sessionId={session.id} />}
 
         {/* Title */}
         <span
@@ -430,7 +393,7 @@ interface SessionListProps {
 
 export function SessionList({ projectId }: SessionListProps = {}) {
   const { isMobile, state, setOpenMobile } = useSidebar();
-  const pathname = usePathname();
+  const pathname = normalizeAppPathname(usePathname());
   const router = useRouter();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState<{ id: string; name: string } | null>(null);
@@ -722,14 +685,15 @@ export function SessionList({ projectId }: SessionListProps = {}) {
     // deletion so the route-sync effect in TabBar doesn't re-open the tab
     // (which would cause an infinite setState loop).
     const tabState = useTabStore.getState();
+    const fallback = buildInstancePath(getActiveInstanceIdFromCookie() || '', '/dashboard');
     if (tabState.tabs[sessionToDelete.id]) {
       const nextTabId = tabState.closeTab(sessionToDelete.id);
       if (isActive) {
         const nextTab = nextTabId ? useTabStore.getState().tabs[nextTabId] : null;
-        router.push(nextTab?.href || '/dashboard');
+        router.push(nextTab?.href || fallback);
       }
     } else if (isActive) {
-      router.push('/dashboard');
+      router.push(fallback);
     }
 
     deleteSession(sessionToDelete.id);

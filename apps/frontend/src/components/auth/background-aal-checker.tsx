@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { normalizeAppPathname } from '@/lib/instance-routes';
 import { useGetAAL } from '@/hooks/auth';
 import { useAuth } from '@/components/AuthProvider';
 import { isSelfHosted } from '@/lib/config';
@@ -29,7 +30,7 @@ export function BackgroundAALChecker({
 }: BackgroundAALCheckerProps) {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = normalizeAppPathname(usePathname());
   
   // Only run queries if user is authenticated and check is enabled
   const { data: aalData } = useGetAAL();

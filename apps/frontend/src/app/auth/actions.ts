@@ -33,7 +33,7 @@ export async function signIn(prevState: any, formData: FormData) {
     }
     emailRedirectTo = `kortix://auth/callback${params.toString() ? `?${params.toString()}` : ''}`;
   } else {
-    emailRedirectTo = `${origin}/auth/callback?returnUrl=${encodeURIComponent(returnUrl || '/dashboard')}&email=${encodeURIComponent(normalizedEmail)}${acceptedTerms ? '&terms_accepted=true' : ''}`;
+    emailRedirectTo = `${origin}/auth/callback?returnUrl=${encodeURIComponent(returnUrl || '/instances')}&email=${encodeURIComponent(normalizedEmail)}${acceptedTerms ? '&terms_accepted=true' : ''}`;
   }
 
   const { error } = await supabase.auth.signInWithOtp({
@@ -107,7 +107,7 @@ export async function signUp(prevState: any, formData: FormData) {
     }
     emailRedirectTo = `kortix://auth/callback${params.toString() ? `?${params.toString()}` : ''}`;
   } else {
-    emailRedirectTo = `${origin}/auth/callback?returnUrl=${encodeURIComponent(returnUrl || '/dashboard')}&email=${encodeURIComponent(normalizedEmail)}${acceptedTerms ? '&terms_accepted=true' : ''}`;
+    emailRedirectTo = `${origin}/auth/callback?returnUrl=${encodeURIComponent(returnUrl || '/instances')}&email=${encodeURIComponent(normalizedEmail)}${acceptedTerms ? '&terms_accepted=true' : ''}`;
   }
 
   const { error } = await supabase.auth.signInWithOtp({
@@ -240,7 +240,7 @@ export async function resendMagicLink(prevState: any, formData: FormData) {
     }
     emailRedirectTo = `kortix://auth/callback${params.toString() ? `?${params.toString()}` : ''}`;
   } else {
-    emailRedirectTo = `${origin}/auth/callback?returnUrl=${encodeURIComponent(returnUrl || '/dashboard')}&email=${encodeURIComponent(normalizedEmail)}${acceptedTerms ? '&terms_accepted=true' : ''}`;
+    emailRedirectTo = `${origin}/auth/callback?returnUrl=${encodeURIComponent(returnUrl || '/instances')}&email=${encodeURIComponent(normalizedEmail)}${acceptedTerms ? '&terms_accepted=true' : ''}`;
   }
 
   const { error } = await supabase.auth.signInWithOtp({
@@ -292,7 +292,7 @@ export async function signInWithPassword(prevState: any, formData: FormData) {
   const authEvent = isNewUser ? 'signup' : 'login';
   
   // Return success — let the client redirect after auth state hydrates.
-  const finalReturnUrl = returnUrl || '/dashboard';
+  const finalReturnUrl = returnUrl || '/instances';
   const redirectUrl = new URL(finalReturnUrl, 'http://localhost');
   redirectUrl.searchParams.set('auth_event', authEvent);
   redirectUrl.searchParams.set('auth_method', 'email');
@@ -325,7 +325,7 @@ export async function signUpWithPassword(prevState: any, formData: FormData) {
   const supabase = await createClient();
 
   const baseUrl = origin || getServerPublicEnv().APP_URL || 'http://localhost:3000';
-  const emailRedirectTo = `${baseUrl}/auth/callback?returnUrl=${encodeURIComponent(returnUrl || '/dashboard')}`;
+  const emailRedirectTo = `${baseUrl}/auth/callback?returnUrl=${encodeURIComponent(returnUrl || '/instances')}`;
 
   const { error } = await supabase.auth.signUp({
     email: email.trim().toLowerCase(),
@@ -340,7 +340,7 @@ export async function signUpWithPassword(prevState: any, formData: FormData) {
   }
 
   // Return success - client will handle redirect
-  const finalReturnUrl = returnUrl || '/dashboard';
+  const finalReturnUrl = returnUrl || '/instances';
   redirect(finalReturnUrl);
 }
 
@@ -442,7 +442,7 @@ export async function selfHostedSignIn(_prevState: any, formData: FormData) {
 
   return {
     success: true,
-    redirectTo: returnUrl || '/dashboard',
+    redirectTo: returnUrl || '/instances',
     accessToken: data.session?.access_token || null,
     refreshToken: data.session?.refresh_token || null,
   };
@@ -490,8 +490,8 @@ export async function verifyOtp(prevState: any, formData: FormData) {
 
   // For new cloud users with no plan yet, send them to /subscription first.
   const runtimeEnv = getServerPublicEnv();
-  const billingEnabled = runtimeEnv.BILLING_ENABLED === 'true';
-  let finalDestination = returnUrl || '/dashboard';
+  const billingEnabled = runtimeEnv.ENV_MODE === 'cloud';
+  let finalDestination = returnUrl || '/instances';
 
   if (billingEnabled && isNewUser && data.session?.access_token) {
     try {

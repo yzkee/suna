@@ -1,4 +1,4 @@
-import { sandboxes, deployments, channelConfigs, channelPlatformCredentials, channelSessions, channelMessages, channelIdentityMap, kortixApiKeys, integrations, sandboxIntegrations, serverEntries, accounts, accountMembers, creditAccounts, tunnelConnections, tunnelPermissions, tunnelPermissionRequests, tunnelAuditLogs, woaPosts } from './schema/kortix';
+import { sandboxes, deployments, kortixApiKeys, integrations, sandboxIntegrations, serverEntries, accounts, accountMembers, creditAccounts, tunnelConnections, tunnelPermissions, tunnelPermissionRequests, tunnelAuditLogs } from './schema/kortix';
 import { apiKeys, accountUser } from './schema/public';
 
 // Select types (what you get back from queries)
@@ -11,10 +11,6 @@ export type ApiKey = typeof apiKeys.$inferSelect;
 export type CreditAccount = typeof creditAccounts.$inferSelect;
 /** @deprecated Use AccountMember instead — basejump.account_user is being migrated to kortix.account_members */
 export type AccountUser = typeof accountUser.$inferSelect;
-export type ChannelConfig = typeof channelConfigs.$inferSelect;
-export type ChannelSession = typeof channelSessions.$inferSelect;
-export type ChannelMessage = typeof channelMessages.$inferSelect;
-export type ChannelIdentity = typeof channelIdentityMap.$inferSelect;
 export type KortixApiKey = typeof kortixApiKeys.$inferSelect;
 
 // Insert types (what you pass to inserts)
@@ -22,12 +18,6 @@ export type NewSandbox = typeof sandboxes.$inferInsert;
 export type Deployment = typeof deployments.$inferSelect;
 export type NewDeployment = typeof deployments.$inferInsert;
 export type NewApiKey = typeof apiKeys.$inferInsert;
-export type NewChannelConfig = typeof channelConfigs.$inferInsert;
-export type ChannelPlatformCredential = typeof channelPlatformCredentials.$inferSelect;
-export type NewChannelPlatformCredential = typeof channelPlatformCredentials.$inferInsert;
-export type NewChannelSession = typeof channelSessions.$inferInsert;
-export type NewChannelMessage = typeof channelMessages.$inferInsert;
-export type NewChannelIdentity = typeof channelIdentityMap.$inferInsert;
 export type NewKortixApiKey = typeof kortixApiKeys.$inferInsert;
 export type Integration = typeof integrations.$inferSelect;
 export type NewIntegration = typeof integrations.$inferInsert;
@@ -45,10 +35,6 @@ export type TunnelPermissionRequest = typeof tunnelPermissionRequests.$inferSele
 export type NewTunnelPermissionRequest = typeof tunnelPermissionRequests.$inferInsert;
 export type TunnelAuditLog = typeof tunnelAuditLogs.$inferSelect;
 export type NewTunnelAuditLog = typeof tunnelAuditLogs.$inferInsert;
-
-// WoA
-export type WoaPost = typeof woaPosts.$inferSelect;
-export type NewWoaPost = typeof woaPosts.$inferInsert;
 
 // Aliases
 export type SandboxSelect = Sandbox;

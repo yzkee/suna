@@ -5,7 +5,7 @@ export { SANDBOX_VERSION } from './release';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-export type SandboxProviderName = 'daytona' | 'local_docker' | 'hetzner' | 'justavps';
+export type SandboxProviderName = 'daytona' | 'local_docker' | 'justavps';
 export type InternalKortixEnv = 'dev' | 'staging' | 'prod';
 
 // ─── Zod Helpers ────────────────────────────────────────────────────────────
@@ -70,8 +70,7 @@ const envSchema = z.object({
 
   // ── Internal Deployment Controls (optional, safe defaults for self-hosted) ─
   INTERNAL_KORTIX_ENV:              z.enum(['dev', 'staging', 'prod']).optional().default('dev'),
-  KORTIX_ROUTER_INTERNAL_ENABLED:   optBoolFalse,  // NOTE: currently unused in codebase
-  KORTIX_BILLING_INTERNAL_ENABLED:  optBoolFalse,
+  KORTIX_BILLING_INTERNAL_ENABLED:  optBoolFalse,  // NOTE: overridden by ENV_MODE=cloud below
   KORTIX_DEPLOYMENTS_ENABLED:       optBoolFalse,
 
   // ── Search Providers (optional — features degrade gracefully) ────────────
@@ -105,14 +104,11 @@ const envSchema = z.object({
   GEMINI_API_KEY:              optStr,
   GROQ_API_URL:                optUrl('https://api.groq.com/openai/v1'),
   GROQ_API_KEY:                optStr,
-  AWS_BEARER_TOKEN_BEDROCK:    optStr,  // NOTE: currently unused outside config.ts
-
   // ── Billing — Stripe (optional, only for cloud billing) ──────────────────
   STRIPE_SECRET_KEY:           optStr,
   STRIPE_WEBHOOK_SECRET:       optStr,
 
   // ── Billing — RevenueCat (optional) ──────────────────────────────────────
-  REVENUECAT_API_KEY:          optStr,
   REVENUECAT_WEBHOOK_SECRET:   optStr,
 
   // ── Daytona — Sandbox provisioning (conditional: required if daytona provider enabled) ──
@@ -121,27 +117,22 @@ const envSchema = z.object({
   DAYTONA_TARGET:              optStr,
   DAYTONA_SNAPSHOT:            optStr,
 
-  // ── Hetzner — Sandbox provisioning (conditional: required if hetzner provider enabled) ──
-  HETZNER_API_KEY:                    optStr,
-  HETZNER_DEFAULT_LOCATION:           optStrDefault('nbg1'),
-  HETZNER_SNAPSHOT_ID:                optStr,   // explicit snapshot ID (overrides description-based lookup)
-  HETZNER_SNAPSHOT_DESCRIPTION:       optStr,   // snapshot description pattern (default from release.json)
-  HETZNER_SNAPSHOT_VERSION_OVERRIDE:  optStr,   // e.g. "0.7.15" — overrides version for snapshot resolution
-  HETZNER_SSH_KEY_ID:                 optStr,
-  HETZNER_DEFAULT_SERVER_TYPE:        optStrDefault('cpx22'),
-
   // ── JustAVPS — Sandbox provisioning via JustAVPS API (conditional: required if justavps provider enabled) ──
   JUSTAVPS_API_URL:                   optStrDefault('http://localhost:3001'),
   JUSTAVPS_API_KEY:                   optStr,
-  JUSTAVPS_SNAPSHOT_ID:               optStr,   // JustAVPS snapshot UUID to boot from
-  JUSTAVPS_PROVIDER:                  optStrDefault('hetzner'),  // underlying provider in JustAVPS
+  JUSTAVPS_IMAGE_ID:                  optStr,   // Optional pin — if unset, auto-resolves latest kortix-computer-v* image from JustAVPS
   JUSTAVPS_DEFAULT_LOCATION:          optStrDefault('hel1'),
   JUSTAVPS_DEFAULT_SERVER_TYPE:       optStrDefault('cpx31'),
   JUSTAVPS_PROXY_DOMAIN:              optStrDefault('kortix.cloud'),  // CF Worker proxy domain ({slug}.kortix.cloud)
   JUSTAVPS_WEBHOOK_SECRET:            optStr,   // HMAC secret for verifying JustAVPS webhook signatures
   JUSTAVPS_WEBHOOK_URL:               optStr,   // URL where JustAVPS should send webhook events (e.g. https://api.kortix.com/v1/platform/webhooks/justavps)
 
-  // ── Sandbox Platform (optional) ──────────────────────────────────────────
+  // ── Sandbox Pool (optional — pre-provision sandboxes for instant claiming) ──
+  POOL_ENABLED:                optBoolFalse,
+  POOL_MAX_AGE_HOURS:          optInt(24),
+
+  // ── Sandbox Platform ──────────────────────────────────────────────────────
+  // KORTIX_URL is auto-derived from PORT if not explicitly set (see validateEnv).
   KORTIX_URL:                  optStr,
   ALLOWED_SANDBOX_PROVIDERS:   optStrDefault('local_docker'),
   SANDBOX_IMAGE:               optStr,  // overridden below if empty
@@ -153,11 +144,6 @@ const envSchema = z.object({
   // ── Internal Service Key (auto-generated if missing — never fails) ───────
   INTERNAL_SERVICE_KEY:        optStr,
 
-  // ── Channels (optional) ──────────────────────────────────────────────────
-  CHANNELS_ENABLED:            optBoolTrue,
-  CHANNELS_PUBLIC_URL:         optStr,
-  CHANNELS_CREDENTIAL_KEY:     optStr,
-
   // ── Frontend (optional) ──────────────────────────────────────────────────
   FRONTEND_URL:                optUrl('http://localhost:3000'),
 
@@ -167,6 +153,7 @@ const envSchema = z.object({
   PIPEDREAM_CLIENT_SECRET:     optStr,
   PIPEDREAM_PROJECT_ID:        optStr,
   PIPEDREAM_ENVIRONMENT:       optStrDefault('development'),
+  PIPEDREAM_WEBHOOK_SECRET:    optStr,
 
   // ── Tunnel (optional, all have sane defaults) ────────────────────────────
   TUNNEL_ENABLED:                    optBoolTrue,
@@ -180,11 +167,6 @@ const envSchema = z.object({
   TUNNEL_RATE_LIMIT_WS_CONNECT:      optInt(5),
   TUNNEL_RATE_LIMIT_PERM_GRANT:      optInt(30),
   TUNNEL_MAX_WS_MESSAGE_SIZE:        optInt(5 * 1024 * 1024),
-
-  // ── Slack (optional) ─────────────────────────────────────────────────────
-  SLACK_CLIENT_ID:             optStr,
-  SLACK_CLIENT_SECRET:         optStr,
-  SLACK_SIGNING_SECRET:        optStr,
 
   // ── Version / GitHub (optional) ───────────────────────────────────────────
   SANDBOX_VERSION:             optStr,  // dev override: skip npm registry lookup for latest version
@@ -207,7 +189,7 @@ function parseAllowedProviders(raw: string): SandboxProviderName[] {
   const names = raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
   const valid: SandboxProviderName[] = [];
   for (const n of names) {
-    if (n === 'daytona' || n === 'local_docker' || n === 'hetzner' || n === 'justavps') {
+    if (n === 'daytona' || n === 'local_docker' || n === 'justavps') {
       if (!valid.includes(n)) valid.push(n);
     } else {
       console.warn(`[config] Unknown sandbox provider "${n}" in ALLOWED_SANDBOX_PROVIDERS - ignored`);
@@ -245,16 +227,10 @@ function validateEnv(): z.infer<typeof envSchema> {
     if (!raw.DOCKER_HOST) issues.push({ var: 'DOCKER_HOST', message: 'Required when ALLOWED_SANDBOX_PROVIDERS includes "local_docker"', level: 'error' });
   }
 
-  // ── Conditional: hetzner → need Hetzner keys ──────────────────────────
-  if (providers.includes('hetzner')) {
-    if (!raw.HETZNER_API_KEY) issues.push({ var: 'HETZNER_API_KEY', message: 'Required when ALLOWED_SANDBOX_PROVIDERS includes "hetzner"', level: 'error' });
-    // HETZNER_SNAPSHOT_DESCRIPTION falls back to kortix-computer-v{SANDBOX_VERSION} dynamically — no env var needed
-  }
-
   // ── Conditional: justavps → need JustAVPS keys ────────────────────────
   if (providers.includes('justavps')) {
     if (!raw.JUSTAVPS_API_KEY) issues.push({ var: 'JUSTAVPS_API_KEY', message: 'Required when ALLOWED_SANDBOX_PROVIDERS includes "justavps"', level: 'error' });
-    if (!raw.JUSTAVPS_SNAPSHOT_ID) issues.push({ var: 'JUSTAVPS_SNAPSHOT_ID', message: 'Optional — without it, provisioning uses docker_image directly (slower cold start)', level: 'warn' });
+    // JUSTAVPS_IMAGE_ID is optional — if unset, the provider auto-resolves the latest kortix-computer-v* image at runtime.
   }
 
   // ── Conditional: Pipedream integration → need credentials ──────────────
@@ -266,9 +242,29 @@ function validateEnv(): z.infer<typeof envSchema> {
   }
 
   // ── Conditional: Billing enabled → need Stripe keys ────────────────────
-  if ((raw as any).KORTIX_BILLING_INTERNAL_ENABLED === 'true' || (raw as any).KORTIX_BILLING_INTERNAL_ENABLED === true) {
-    if (!raw.STRIPE_SECRET_KEY)    issues.push({ var: 'STRIPE_SECRET_KEY',    message: 'Required when KORTIX_BILLING_INTERNAL_ENABLED is true', level: 'error' });
-    if (!raw.STRIPE_WEBHOOK_SECRET) issues.push({ var: 'STRIPE_WEBHOOK_SECRET', message: 'Required when KORTIX_BILLING_INTERNAL_ENABLED is true', level: 'error' });
+  const billingWillBeEnabled = (raw as any).KORTIX_BILLING_INTERNAL_ENABLED === 'true' || (raw as any).KORTIX_BILLING_INTERNAL_ENABLED === true || (raw as any).ENV_MODE === 'cloud';
+  if (billingWillBeEnabled) {
+    if (!raw.STRIPE_SECRET_KEY)    issues.push({ var: 'STRIPE_SECRET_KEY',    message: 'Required when billing is enabled (ENV_MODE=cloud)', level: 'error' });
+    if (!raw.STRIPE_WEBHOOK_SECRET) issues.push({ var: 'STRIPE_WEBHOOK_SECRET', message: 'Required when billing is enabled (ENV_MODE=cloud)', level: 'error' });
+  }
+
+  // ── Conditional: KORTIX_URL — required for sandbox routing ──────────────
+  // Used by every sandbox provider (local_docker, daytona, justavps),
+  // channels webhook URL generation, pool env injection, and sandbox health.
+  // Auto-derive from PORT in local mode if not set — fatal in cloud mode.
+  if (!raw.KORTIX_URL) {
+    const envMode = (raw as any).ENV_MODE || 'local';
+    const port = (raw as any).PORT || '8008';
+    if (envMode === 'cloud') {
+      issues.push({ var: 'KORTIX_URL', message: 'Required in cloud mode — sandbox routing, channels webhooks, and health checks will break', level: 'error' });
+    } else {
+      // Auto-derive for local mode so it "just works"
+      const derived = `http://localhost:${port}/v1/router`;
+      process.env.KORTIX_URL = derived;
+      if (result.success) (result.data as any).KORTIX_URL = derived;
+      console.warn(`[config] KORTIX_URL not set — auto-derived: ${derived}`);
+      issues.push({ var: 'KORTIX_URL', message: `Not set — auto-derived to ${derived} (add to .env to silence this)`, level: 'warn' });
+    }
   }
 
   // ── Warnings (non-fatal but worth knowing) ─────────────────────────────
@@ -333,8 +329,8 @@ export const config = {
 
   // ─── Internal Deployment Controls ─────────────────────────────────────────
   INTERNAL_KORTIX_ENV: env.INTERNAL_KORTIX_ENV as InternalKortixEnv,
-  KORTIX_ROUTER_INTERNAL_ENABLED: env.KORTIX_ROUTER_INTERNAL_ENABLED,
-  KORTIX_BILLING_INTERNAL_ENABLED: env.KORTIX_BILLING_INTERNAL_ENABLED,
+  // Billing is enabled when ENV_MODE is 'cloud' — no separate env var needed.
+  KORTIX_BILLING_INTERNAL_ENABLED: env.KORTIX_BILLING_INTERNAL_ENABLED || env.ENV_MODE === 'cloud',
   KORTIX_DEPLOYMENTS_ENABLED: env.KORTIX_DEPLOYMENTS_ENABLED,
 
   // ─── Database ──────────────────────────────────────────────────────────────
@@ -378,14 +374,11 @@ export const config = {
   GEMINI_API_KEY: env.GEMINI_API_KEY,
   GROQ_API_URL: env.GROQ_API_URL,
   GROQ_API_KEY: env.GROQ_API_KEY,
-  AWS_BEARER_TOKEN_BEDROCK: env.AWS_BEARER_TOKEN_BEDROCK,
-
   // ─── Stripe (Billing) ─────────────────────────────────────────────────────
   STRIPE_SECRET_KEY: env.STRIPE_SECRET_KEY,
   STRIPE_WEBHOOK_SECRET: env.STRIPE_WEBHOOK_SECRET,
 
   // ─── RevenueCat (Billing) ─────────────────────────────────────────────────
-  REVENUECAT_API_KEY: env.REVENUECAT_API_KEY,
   REVENUECAT_WEBHOOK_SECRET: env.REVENUECAT_WEBHOOK_SECRET,
 
   // ─── Daytona (Sandbox provisioning + preview proxy) ───────────────────────
@@ -394,25 +387,19 @@ export const config = {
   DAYTONA_TARGET: env.DAYTONA_TARGET,
   DAYTONA_SNAPSHOT: env.DAYTONA_SNAPSHOT || releaseManifest.snapshots.daytona,
 
-  // ─── Hetzner (VPS Sandbox provisioning) ──────────────────────────────────
-  HETZNER_API_KEY: env.HETZNER_API_KEY,
-  HETZNER_DEFAULT_LOCATION: env.HETZNER_DEFAULT_LOCATION,
-  HETZNER_SNAPSHOT_ID: env.HETZNER_SNAPSHOT_ID,
-  HETZNER_SNAPSHOT_VERSION_OVERRIDE: env.HETZNER_SNAPSHOT_VERSION_OVERRIDE,
-  HETZNER_SNAPSHOT_DESCRIPTION: env.HETZNER_SNAPSHOT_DESCRIPTION || releaseManifest.snapshots.hetzner,
-  HETZNER_SSH_KEY_ID: env.HETZNER_SSH_KEY_ID,
-  HETZNER_DEFAULT_SERVER_TYPE: env.HETZNER_DEFAULT_SERVER_TYPE,
-
   // ─── JustAVPS (VPS Sandbox provisioning via JustAVPS) ────────────────────
   JUSTAVPS_API_URL: env.JUSTAVPS_API_URL,
   JUSTAVPS_API_KEY: env.JUSTAVPS_API_KEY,
-  JUSTAVPS_SNAPSHOT_ID: env.JUSTAVPS_SNAPSHOT_ID,
-  JUSTAVPS_PROVIDER: env.JUSTAVPS_PROVIDER,
+  JUSTAVPS_IMAGE_ID: env.JUSTAVPS_IMAGE_ID,
   JUSTAVPS_DEFAULT_LOCATION: env.JUSTAVPS_DEFAULT_LOCATION,
   JUSTAVPS_DEFAULT_SERVER_TYPE: env.JUSTAVPS_DEFAULT_SERVER_TYPE,
   JUSTAVPS_PROXY_DOMAIN: env.JUSTAVPS_PROXY_DOMAIN,
   JUSTAVPS_WEBHOOK_SECRET: env.JUSTAVPS_WEBHOOK_SECRET,
   JUSTAVPS_WEBHOOK_URL: env.JUSTAVPS_WEBHOOK_URL,
+
+  // ─── Sandbox Pool ─────────────────────────────────────────────────────────
+  POOL_ENABLED: env.POOL_ENABLED,
+  POOL_MAX_AGE_HOURS: env.POOL_MAX_AGE_HOURS,
 
   // ─── Sandbox Provisioning (Platform) ──────────────────────────────────────
   KORTIX_URL: env.KORTIX_URL,
@@ -468,11 +455,6 @@ export const config = {
     return process.env.INTERNAL_SERVICE_KEY!;
   },
 
-  // ─── Channels ───────────────────────────────────────────────────────────────
-  CHANNELS_ENABLED: env.CHANNELS_ENABLED,
-  CHANNELS_PUBLIC_URL: env.CHANNELS_PUBLIC_URL,
-  CHANNELS_CREDENTIAL_KEY: env.CHANNELS_CREDENTIAL_KEY,
-
   // ─── Frontend ────────────────────────────────────────────────────────────
   FRONTEND_URL: env.FRONTEND_URL,
 
@@ -482,6 +464,7 @@ export const config = {
   PIPEDREAM_CLIENT_SECRET: env.PIPEDREAM_CLIENT_SECRET,
   PIPEDREAM_PROJECT_ID: env.PIPEDREAM_PROJECT_ID,
   PIPEDREAM_ENVIRONMENT: env.PIPEDREAM_ENVIRONMENT,
+  PIPEDREAM_WEBHOOK_SECRET: env.PIPEDREAM_WEBHOOK_SECRET,
 
   // ─── Tunnel (Reverse-Tunnel to Local Machine) ──────────────────────────────
   TUNNEL_ENABLED: env.TUNNEL_ENABLED,
@@ -495,11 +478,6 @@ export const config = {
   TUNNEL_RATE_LIMIT_WS_CONNECT: env.TUNNEL_RATE_LIMIT_WS_CONNECT,
   TUNNEL_RATE_LIMIT_PERM_GRANT: env.TUNNEL_RATE_LIMIT_PERM_GRANT,
   TUNNEL_MAX_WS_MESSAGE_SIZE: env.TUNNEL_MAX_WS_MESSAGE_SIZE,
-
-  // ─── Slack (Platform App) ─────────────────────────────────────────────────
-  SLACK_CLIENT_ID: env.SLACK_CLIENT_ID,
-  SLACK_CLIENT_SECRET: env.SLACK_CLIENT_SECRET,
-  SLACK_SIGNING_SECRET: env.SLACK_SIGNING_SECRET,
 
   // ─── Version / GitHub ──────────────────────────────────────────────────────
   /** Dev override: force a specific sandbox version (skips release.json). */
@@ -530,16 +508,19 @@ export const config = {
     return this.ALLOWED_SANDBOX_PROVIDERS.includes('local_docker');
   },
 
-  isHetznerEnabled(): boolean {
-    return this.ALLOWED_SANDBOX_PROVIDERS.includes('hetzner') && !!this.HETZNER_API_KEY;
-  },
-
   isJustAVPSEnabled(): boolean {
     return this.ALLOWED_SANDBOX_PROVIDERS.includes('justavps') && !!this.JUSTAVPS_API_KEY;
   },
 
-  /** The first provider in ALLOWED_SANDBOX_PROVIDERS is the default. */
+  isPoolEnabled(): boolean {
+    return this.POOL_ENABLED;
+  },
+
+  /** Default provider, preferring managed VPS in cloud mode when available. */
   getDefaultProvider(): SandboxProviderName {
+    if (this.ENV_MODE === 'cloud' && this.ALLOWED_SANDBOX_PROVIDERS.includes('justavps')) {
+      return 'justavps';
+    }
     return this.ALLOWED_SANDBOX_PROVIDERS[0] ?? 'local_docker';
   },
 

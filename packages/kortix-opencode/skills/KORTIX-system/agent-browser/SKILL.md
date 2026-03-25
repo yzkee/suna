@@ -422,7 +422,7 @@ http://localhost:9224/?session=<session_name>
 Example:
 
 ```bash
-agent-browser open https://console.hetzner.com
+agent-browser open https://app.example.com
 # Then share:
 # http://localhost:9224/?session=kortix
 ```

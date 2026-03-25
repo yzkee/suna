@@ -15,7 +15,6 @@ export interface ReleaseManifest {
   }
   snapshots: {
     daytona: string
-    hetzner: string
   }
 }
 
@@ -43,7 +42,6 @@ function loadReleaseManifest(): ReleaseManifest {
         },
         snapshots: {
           daytona: raw.sandbox.daytonaSnapshot || `kortix-sandbox-v${raw.releaseVersion}`,
-          hetzner: raw.sandbox.hetznerSnapshotDescription || `kortix-computer-v${raw.releaseVersion}`,
         },
       }
     }
@@ -61,7 +59,6 @@ function loadReleaseManifest(): ReleaseManifest {
     },
     snapshots: {
       daytona: 'kortix-sandbox-v0.0.0',
-      hetzner: 'kortix-computer-v0.0.0',
     },
   }
 }

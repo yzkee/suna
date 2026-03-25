@@ -117,7 +117,7 @@ function UpdateProgress({
   latestVersion: string;
 }) {
   const isFailed = phase === 'failed';
-  const isRollingBack = phase === 'rolling_back';
+  const isRollingBack = (phase as string) === 'rolling_back';
 
   return (
     <div className={cn(

@@ -106,10 +106,11 @@ export function useFileRename() {
 
       return { previousData, queryKey };
     },
-    onError: (_err, _vars, context) => {
+    onError: (_err: unknown, _vars: unknown, context: unknown) => {
+      const ctx = context as { previousData?: unknown; queryKey?: unknown[] } | undefined;
       // Rollback on error
-      if (context?.previousData) {
-        queryClient.setQueryData(context.queryKey, context.previousData);
+      if (ctx?.previousData && ctx?.queryKey) {
+        queryClient.setQueryData(ctx.queryKey, ctx.previousData);
       }
     },
     onSettled: () => {

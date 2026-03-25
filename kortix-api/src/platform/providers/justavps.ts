@@ -82,7 +82,7 @@ interface JustAVPSWebhook {
   created_at: string;
 }
 
-async function justavpsFetch<T = any>(
+export async function justavpsFetch<T = any>(
   path: string,
   options: { method?: string; body?: unknown } = {},
 ): Promise<T> {
@@ -106,6 +106,79 @@ async function justavpsFetch<T = any>(
   return res.json() as Promise<T>;
 }
 
+// ─── Auto-resolve latest JustAVPS image ──────────────────────────────────────
+// Images follow the naming convention `kortix-computer-v{semver}`.
+// We query all images, filter to ready ones matching the prefix, and pick the
+// highest version. Result cached 5 min. JUSTAVPS_IMAGE_ID env var is an override.
+
+interface JustAVPSImage {
+  id: string;
+  name: string;
+  status: string;
+  created_at: string;
+}
+
+let cachedImageId: string | null = null;
+let cachedImageExpiry = 0;
+const IMAGE_CACHE_TTL_MS = 5 * 60 * 1000;
+const IMAGE_NAME_PREFIX = 'kortix-computer-v';
+
+function parseSemver(version: string): number[] {
+  return version.split('.').map(Number).filter((n) => !isNaN(n));
+}
+
+function compareSemver(a: number[], b: number[]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const av = a[i] ?? 0;
+    const bv = b[i] ?? 0;
+    if (av !== bv) return av - bv;
+  }
+  return 0;
+}
+
+async function resolveLatestImageId(): Promise<string | null> {
+  // Explicit override always wins
+  if (config.JUSTAVPS_IMAGE_ID) {
+    return config.JUSTAVPS_IMAGE_ID;
+  }
+
+  // Return cached value if still fresh
+  if (cachedImageId && Date.now() < cachedImageExpiry) {
+    return cachedImageId;
+  }
+
+  try {
+    const data = await justavpsFetch<{ images: JustAVPSImage[] }>('/images');
+    const candidates = (data.images || [])
+      .filter((img) => img.status === 'ready' && img.name.startsWith(IMAGE_NAME_PREFIX))
+      .map((img) => ({
+        id: img.id,
+        version: parseSemver(img.name.slice(IMAGE_NAME_PREFIX.length)),
+        name: img.name,
+      }))
+      .sort((a, b) => compareSemver(b.version, a.version)); // highest first
+
+    if (candidates.length > 0) {
+      cachedImageId = candidates[0].id;
+      cachedImageExpiry = Date.now() + IMAGE_CACHE_TTL_MS;
+      console.log(`[JUSTAVPS] Auto-resolved image: ${candidates[0].name} → ${cachedImageId}`);
+      return cachedImageId;
+    }
+
+    console.warn('[JUSTAVPS] No images matching kortix-computer-v* found; provisioning without image_id');
+    return null;
+  } catch (err) {
+    console.warn('[JUSTAVPS] Failed to resolve latest image, falling back to no image_id:', err);
+    return null;
+  }
+}
+
+/** Bust the cached image so the next create picks up a freshly built image. */
+export function invalidateImageCache(): void {
+  cachedImageId = null;
+  cachedImageExpiry = 0;
+}
+
 export interface ServerTypeWithPricing {
   name: string;
   description: string;
@@ -124,9 +197,8 @@ export async function listServerTypes(
   location?: string,
 ): Promise<ServerTypeWithPricing[]> {
   const loc = location || config.JUSTAVPS_DEFAULT_LOCATION;
-  const provider = config.JUSTAVPS_PROVIDER || 'hetzner';
   const data = await justavpsFetch<{ server_types: JustAVPSServerType[] }>(
-    `/server-types?provider=${provider}&region=${loc}`,
+    `/server-types?provider=cloud&region=${loc}`,
   );
 
   return data.server_types
@@ -246,8 +318,8 @@ export class JustAVPSProvider implements SandboxProvider {
   async create(opts: CreateSandboxOpts): Promise<ProvisionResult> {
     await ensureWebhookRegistered();
 
-    const serverType = opts.hetznerServerType || config.JUSTAVPS_DEFAULT_SERVER_TYPE;
-    const location = opts.hetznerLocation || config.JUSTAVPS_DEFAULT_LOCATION;
+    const serverType = opts.serverType || config.JUSTAVPS_DEFAULT_SERVER_TYPE;
+    const location = opts.location || config.JUSTAVPS_DEFAULT_LOCATION;
 
     const serviceKey = opts.envVars?.KORTIX_TOKEN || '';
     const envVars: Record<string, string> = {
@@ -262,7 +334,7 @@ export class JustAVPSProvider implements SandboxProvider {
     };
 
     const body: Record<string, unknown> = {
-      provider: config.JUSTAVPS_PROVIDER || 'hetzner',
+      provider: 'cloud',
       server_type: serverType,
       region: location,
       name: `kortix-sandbox-${opts.accountId.slice(0, 8)}-${Date.now().toString(36)}`,
@@ -270,9 +342,9 @@ export class JustAVPSProvider implements SandboxProvider {
       docker_image: config.SANDBOX_IMAGE,
     };
 
-    const snapshotId = config.JUSTAVPS_SNAPSHOT_ID;
-    if (snapshotId) {
-      body.image_id = snapshotId;
+    const imageId = await resolveLatestImageId();
+    if (imageId) {
+      body.image_id = imageId;
     }
 
     const machine = await justavpsFetch<JustAVPSMachine>('/machines', {
@@ -318,12 +390,13 @@ export class JustAVPSProvider implements SandboxProvider {
   }
 
   async start(externalId: string): Promise<void> {
-    await justavpsFetch(`/machines/${externalId}/reboot`, { method: 'POST' });
-    console.log(`[JUSTAVPS] Rebooted machine ${externalId}`);
+    await justavpsFetch(`/machines/${externalId}/start`, { method: 'POST' });
+    console.log(`[JUSTAVPS] Started machine ${externalId}`);
   }
 
   async stop(externalId: string): Promise<void> {
-    console.log(`[JUSTAVPS] Stop not supported for machine ${externalId} — use remove instead`);
+    await justavpsFetch(`/machines/${externalId}/stop`, { method: 'POST' });
+    console.log(`[JUSTAVPS] Stopped machine ${externalId}`);
   }
 
   async remove(externalId: string): Promise<void> {

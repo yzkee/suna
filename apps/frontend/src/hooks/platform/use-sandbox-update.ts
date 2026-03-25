@@ -161,7 +161,7 @@ export function useSandboxUpdate(currentVersion: string | null) {
     onSuccess: (data) => {
       // The POST returns { started: true } immediately — actual progress comes from polling.
       // If data.started is true, keep polling. If it returned an error, stop.
-      if (!data?.started && data?.success === false) {
+      if (!(data as { started?: boolean })?.started && (data as { success?: boolean })?.success === false) {
         stopPolling();
         setUpdateResult({ success: false, currentVersion: currentVersion ?? '0.0.0' });
       }

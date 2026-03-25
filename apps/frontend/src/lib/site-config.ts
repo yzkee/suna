@@ -1,21 +1,16 @@
-import { pricingTiers, type PricingTier } from '@/lib/pricing-config';
-
-// Re-export for backward compatibility
-export type { PricingTier } from '@/lib/pricing-config';
-
 export const siteConfig = {
   url: process.env.KORTIX_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_URL || 'http://localhost:3000',
   nav: {
     links: [
-      { id: 1, name: 'Computer', href: '/' },
+      { id: 1, name: 'OS', href: '/' },
       { id: 2, name: 'About', href: '/about' },
+      { id: 3, name: 'Careers', href: '/careers' },
     ],
   },
   hero: {
     description:
       'Kortix – open-source platform to build, manage and train your AI Workforce.',
   },
-  cloudPricingItems: pricingTiers,
   footerLinks: [
     {
       title: 'Kortix',

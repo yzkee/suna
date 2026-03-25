@@ -6,7 +6,7 @@
 # ║                                                                            ║
 # ║  Supports two modes (identical stack, different networking):                ║
 # ║    1. Local (laptop/desktop) — HTTP, ports on localhost                     ║
-# ║    2. VPS (Hetzner/EC2/DO)   — Caddy reverse proxy, automatic HTTPS        ║
+# ║    2. VPS / Server           — Caddy reverse proxy, automatic HTTPS        ║
 # ║                                                                            ║
 # ║  Database: Docker Supabase or external (bring your own).                   ║
 # ║                                                                            ║
@@ -28,7 +28,7 @@ fatal()   { error "$*"; exit 1; }
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 INSTALL_DIR="${KORTIX_HOME:-$HOME/.kortix}"
-DEFAULT_KORTIX_VERSION="0.8.16"
+DEFAULT_KORTIX_VERSION="0.8.19"
 KORTIX_VERSION="${KORTIX_VERSION:-$DEFAULT_KORTIX_VERSION}"
 KORTIX_LOCAL_IMAGES="${KORTIX_LOCAL_IMAGES:-0}"
 KORTIX_LOCAL_TAG="${KORTIX_LOCAL_TAG:-latest}"
@@ -210,7 +210,6 @@ POSTGRES_PASSWORD=""
 
 # Generated secrets
 CRON_SECRET=""
-CHANNELS_CREDENTIAL_KEY=""
 INTERNAL_SERVICE_KEY=""
 
 # Computed URLs
@@ -506,7 +505,7 @@ prompt_mode() {
   echo "  ${BOLD}Where are you running Kortix?${NC}"
   echo ""
   echo "    ${CYAN}1${NC}) Local machine ${DIM}(laptop/desktop — HTTP on localhost)${NC}"
-  echo "    ${CYAN}2${NC}) VPS / Server  ${DIM}(Hetzner, EC2, DO — HTTPS via Caddy)${NC}"
+  echo "    ${CYAN}2${NC}) VPS / Server  ${DIM}(cloud VM — HTTPS via Caddy)${NC}"
   echo ""
   printf "  Choice [1]: "
   prompt_read mode_choice
@@ -753,7 +752,6 @@ generate_secrets() {
   info "Generating security credentials..."
 
   CRON_SECRET=$(generate_password)
-  CHANNELS_CREDENTIAL_KEY=$(generate_token)
   INTERNAL_SERVICE_KEY=$(generate_token)
   API_KEY_SECRET=$(generate_token)
 
@@ -1281,8 +1279,6 @@ ${supabase_db_env}
       - SANDBOX_NETWORK=${SANDBOX_NETWORK}
       - INTERNAL_SERVICE_KEY=\${INTERNAL_SERVICE_KEY}
       - FRONTEND_URL=\${PUBLIC_URL}
-      - CHANNELS_PUBLIC_URL=\${API_PUBLIC_URL}
-      - CHANNELS_CREDENTIAL_KEY=\${CHANNELS_CREDENTIAL_KEY}
       - API_KEY_SECRET=\${API_KEY_SECRET}
       - CORS_ALLOWED_ORIGINS=\${PUBLIC_URL}
       - SANDBOX_IMAGE=\${SANDBOX_IMAGE}
@@ -1335,7 +1331,6 @@ POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 
 # ─── Security ────────────────────────────────────────────────────────────────
 INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY}
-CHANNELS_CREDENTIAL_KEY=${CHANNELS_CREDENTIAL_KEY}
 API_KEY_SECRET=${API_KEY_SECRET}
 
 # ─── Integrations (Pipedream) ────────────────────────────────────────────────

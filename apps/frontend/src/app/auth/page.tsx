@@ -6,10 +6,11 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect, Suspense, lazy, useRef, useCallback, useActionState } from 'react';
-import { signUp, verifyOtp, requestAccess } from './actions';
+import { signUp, verifyOtp, requestAccess, signInWithPassword } from './actions';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Mail, MailCheck, Clock, ExternalLink, ChevronRight } from 'lucide-react';
 import { KortixLoader } from '@/components/ui/kortix-loader';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { useAuth } from '@/components/AuthProvider';
 import { useAuthMethodTracking } from '@/stores/auth-tracking';
 import { toast } from '@/lib/toast';
@@ -151,11 +152,13 @@ function LoginContent() {
   const searchParams = useSearchParams();
   const { user, isLoading } = useAuth();
   const mode = searchParams.get('mode');
-  const returnUrl = searchParams.get('returnUrl') || searchParams.get('redirect');
+  const rawReturnUrl = searchParams.get('returnUrl') || searchParams.get('redirect');
+  const returnUrl = rawReturnUrl?.match(/^\/instances\/[^/]+/) ? '/instances' : rawReturnUrl;
   const message = searchParams.get('message');
   const isExpired = searchParams.get('expired') === 'true';
   const expiredEmail = searchParams.get('email') || '';
   const referralCodeParam = searchParams.get('ref') || '';
+  const isPasswordMode = searchParams.get('auth') === 'password';
   const t = useTranslations('auth');
 
   const [phase, setPhase] = useState<AuthPhase>('lock');
@@ -186,13 +189,14 @@ function LoginContent() {
   const [newCodeSent, setNewCodeSent] = useState(false);
   const [autoSendingCode, setAutoSendingCode] = useState(false);
   const [autoSendError, setAutoSendError] = useState(false);
+  const [showOtpModal, setShowOtpModal] = useState(false);
   const autoSendAttempted = useRef(false);
 
   useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     if (!isLoading && user) {
-      router.replace(returnUrl || '/dashboard');
+      router.replace(returnUrl || '/instances');
     }
   }, [user, isLoading, router, returnUrl]);
 
@@ -251,7 +255,7 @@ function LoginContent() {
     markEmailAsUsed();
     const email = formData.get('email') as string;
     setRegistrationEmail(email);
-    const finalReturnUrl = returnUrl || '/dashboard';
+    const finalReturnUrl = returnUrl || '/instances';
     formData.append('returnUrl', finalReturnUrl);
     formData.append('origin', isElectron() ? getAuthOrigin() : window.location.origin);
     formData.append('acceptedTerms', acceptedTerms.toString());
@@ -279,12 +283,29 @@ function LoginContent() {
     return result;
   };
 
+  const handlePasswordAuth = async (prevState: unknown, formData: FormData) => {
+    formData.append('returnUrl', returnUrl || '/instances');
+    const result = await signInWithPassword(prevState, formData);
+    if (result && typeof result === 'object') {
+      if ('message' in result) {
+        toast.error('Sign in failed', { description: result.message as string, duration: 5000 });
+        return {};
+      }
+      if ('success' in result && result.success) {
+        const redirectTo = (result as { redirectTo?: string }).redirectTo || '/dashboard';
+        window.location.href = redirectTo;
+        return result;
+      }
+    }
+    return result;
+  };
+
   const handleVerifyOtp = async (prevState: unknown, formData: FormData) => {
-    const email = expiredEmailState || formData.get('email') as string;
+    const email = expiredEmailState || registrationEmail || formData.get('email') as string;
     if (!email) { toast.error(t('pleaseEnterValidEmail')); return {}; }
     formData.set('email', email);
     formData.set('token', otpCode);
-    formData.set('returnUrl', returnUrl || '/dashboard');
+    formData.set('returnUrl', returnUrl || '/instances');
     const result = await verifyOtp(prevState, formData);
     if (result && typeof result === 'object') {
       if ('message' in result) {
@@ -362,6 +383,12 @@ function LoginContent() {
               </a>
             )}
             <button
+              onClick={() => { setOtpCode(''); setShowOtpModal(true); }}
+              className="text-[12px] text-foreground/30 hover:text-foreground/50 transition-colors text-center"
+            >
+              Or <span className="underline underline-offset-2">enter 6-digit code</span>
+            </button>
+            <button
               onClick={() => setRegistrationSuccess(false)}
               className="text-[12px] text-foreground/30 hover:text-foreground/50 transition-colors text-center"
             >
@@ -369,6 +396,34 @@ function LoginContent() {
             </button>
           </div>
         </div>
+
+        {/* OTP verification modal */}
+        <Dialog open={showOtpModal} onOpenChange={setShowOtpModal}>
+          <DialogContent className="!max-w-[300px] sm:!max-w-[300px] p-5 gap-0 rounded-2xl" hideCloseButton aria-describedby="otp-modal-desc">
+            <DialogTitle className="text-[14px] font-medium text-foreground/70 text-center">
+              Enter code
+            </DialogTitle>
+            <DialogDescription id="otp-modal-desc" className="sr-only">
+              Enter the 6-digit verification code from your email
+            </DialogDescription>
+            <form className="w-full space-y-2.5 mt-3">
+              <Input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                autoFocus
+                placeholder="000000"
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="h-11 text-center text-[18px] font-mono tracking-[0.3em] bg-foreground/[0.03] border-foreground/[0.08] rounded-xl shadow-none focus-visible:border-foreground/20 transition-colors"
+              />
+              <SubmitButton formAction={handleVerifyOtp} className="w-full h-10 text-[13px] font-medium rounded-xl shadow-none" pendingText="Verifying…" disabled={otpCode.length !== 6}>
+                Verify
+              </SubmitButton>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
@@ -615,102 +670,131 @@ function LoginContent() {
               exit={{ opacity: 0, y: 20, scale: 0.97 }}
               transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
             >
-              <div className="bg-background/80 dark:bg-background/75 backdrop-blur-2xl border border-foreground/[0.07] rounded-2xl p-6">
-                {/* Google OAuth */}
-                <div className="mb-4">
-                  <Suspense fallback={<div className="h-10 bg-foreground/[0.04] rounded-xl animate-pulse" />}>
-                    <GoogleSignIn returnUrl={returnUrl || undefined} referralCode={referralCode} />
-                  </Suspense>
-                </div>
+              <div className="bg-background/80 dark:bg-background/75 backdrop-blur-2xl border border-foreground/[0.06] rounded-[20px] px-7 py-8">
+                {/* Shared header */}
+                <p className="text-[11px] text-center text-foreground/30 tracking-[0.2em] uppercase mb-6">
+                  Sign in to Kortix
+                </p>
 
-                {/* Divider */}
-                <div className="relative my-4">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-foreground/[0.07]" />
-                  </div>
-                  <div className="relative flex justify-center text-[11px]">
-                    <span className="px-2.5 bg-background/80 dark:bg-background/75 text-foreground/25 tracking-wide">or email</span>
-                  </div>
-                </div>
-
-                {/* Email form */}
-                <form className="space-y-3">
-                  <Input
-                    id="email"
-                    name="email"
-                    type="email"
-                    placeholder="Email address"
-                    required
-                    autoComplete="email"
-                    className="h-10 text-[14px] bg-foreground/[0.04] border-foreground/[0.07] rounded-xl shadow-none"
-                  />
-
-                  {referralCodeParam && (
-                    <div className="bg-foreground/[0.04] border border-foreground/[0.08] rounded-xl p-2.5">
-                      <p className="text-[11px] text-foreground/40 mb-0.5">Referral Code</p>
-                      <p className="text-sm font-semibold">{referralCode}</p>
-                    </div>
-                  )}
-                  {!referralCodeParam && <input type="hidden" name="referralCode" value={referralCode} />}
-
-                  {/* GDPR */}
-                  <div className="flex items-start gap-2">
-                    <Checkbox
-                      id="gdprConsent"
-                      checked={acceptedTerms}
-                      onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
+                {isPasswordMode ? (
+                  /* ── Password auth (/auth?auth=password) ── */
+                  <form className="space-y-3">
+                    <Input
+                      id="email"
+                      name="email"
+                      type="email"
+                      placeholder="Email"
                       required
-                      className="h-4 w-4 mt-0.5"
+                      autoComplete="email"
+                      className="h-11 text-[14px] bg-foreground/[0.03] border-foreground/[0.08] rounded-xl shadow-none focus-visible:border-foreground/20 transition-colors"
                     />
-                    <label htmlFor="gdprConsent" className="text-[11px] text-foreground/40 leading-relaxed cursor-pointer select-none flex-1">
-                      I accept the{' '}
-                      <a href="https://www.kortix.com/legal?tab=privacy" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-foreground/60">
-                        Privacy Policy
-                      </a>{' '}
-                      and{' '}
-                      <a href="https://www.kortix.com/legal?tab=terms" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-foreground/60">
-                        Terms of Service
-                      </a>
-                    </label>
-                  </div>
-
-                  <div className="relative">
+                    <Input
+                      id="password"
+                      name="password"
+                      type="password"
+                      placeholder="Password"
+                      required
+                      autoComplete="current-password"
+                      className="h-11 text-[14px] bg-foreground/[0.03] border-foreground/[0.08] rounded-xl shadow-none focus-visible:border-foreground/20 transition-colors"
+                    />
                     <SubmitButton
-                      formAction={handleAuth}
-                      className="w-full h-10 text-[13px] rounded-xl shadow-none"
-                      pendingText="Sending…"
-                      disabled={!acceptedTerms}
+                      formAction={handlePasswordAuth}
+                      className="w-full h-11 text-[13px] font-medium rounded-xl shadow-none mt-1"
+                      pendingText="Signing in…"
                     >
-                      Send magic link
+                      Sign in
                     </SubmitButton>
-                    {wasEmailLastMethod && (
-                      <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-background shadow-sm">
-                        <div className="w-full h-full bg-green-500 rounded-full animate-pulse" />
+                  </form>
+                ) : (
+                  /* ── Cloud auth (Google + magic link) ── */
+                  <>
+                    {/* Google OAuth */}
+                    <Suspense fallback={<div className="h-11 bg-foreground/[0.04] rounded-xl animate-pulse" />}>
+                      <GoogleSignIn returnUrl={returnUrl || undefined} referralCode={referralCode} />
+                    </Suspense>
+
+                    {/* Divider */}
+                    <div className="relative my-5">
+                      <div className="absolute inset-0 flex items-center">
+                        <div className="w-full border-t border-foreground/[0.06]" />
+                      </div>
+                      <div className="relative flex justify-center">
+                        <span className="px-3 bg-background/80 dark:bg-background/75 text-[10px] text-foreground/20 tracking-[0.15em] uppercase">or</span>
+                      </div>
+                    </div>
+
+                    {/* Email magic link form */}
+                    <form className="space-y-3">
+                      <Input
+                        id="email"
+                        name="email"
+                        type="email"
+                        placeholder="Email"
+                        required
+                        autoComplete="email"
+                        className="h-11 text-[14px] bg-foreground/[0.03] border-foreground/[0.08] rounded-xl shadow-none focus-visible:border-foreground/20 transition-colors"
+                      />
+
+                      {referralCodeParam && (
+                        <div className="bg-foreground/[0.03] border border-foreground/[0.08] rounded-xl px-3 py-2">
+                          <p className="text-[10px] text-foreground/35 mb-0.5">Referral</p>
+                          <p className="text-[13px] font-semibold">{referralCode}</p>
+                        </div>
+                      )}
+                      {!referralCodeParam && <input type="hidden" name="referralCode" value={referralCode} />}
+
+                      {/* GDPR consent */}
+                      <div className="flex items-center gap-2.5 pt-0.5">
+                        <Checkbox
+                          id="gdprConsent"
+                          checked={acceptedTerms}
+                          onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
+                          required
+                          className="h-[14px] w-[14px] rounded-[4px] shrink-0"
+                        />
+                        <label htmlFor="gdprConsent" className="text-[11px] leading-[1.6] text-foreground/30 cursor-pointer select-none">
+                          I agree to the{' '}
+                          <a href="https://www.kortix.com/legal?tab=privacy" target="_blank" rel="noopener noreferrer" className="text-foreground/45 hover:text-foreground/65 transition-colors">
+                            Privacy Policy
+                          </a>
+                          {' & '}
+                          <a href="https://www.kortix.com/legal?tab=terms" target="_blank" rel="noopener noreferrer" className="text-foreground/45 hover:text-foreground/65 transition-colors">
+                            Terms
+                          </a>
+                        </label>
+                      </div>
+
+                      <div className="relative pt-0.5">
+                        <SubmitButton
+                          formAction={handleAuth}
+                          className="w-full h-11 text-[13px] font-medium rounded-xl shadow-none"
+                          pendingText="Sending…"
+                          disabled={!acceptedTerms}
+                        >
+                          Continue with email
+                        </SubmitButton>
+                        {wasEmailLastMethod && (
+                          <div className="absolute -top-0.5 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-background shadow-sm">
+                            <div className="w-full h-full bg-green-500 rounded-full animate-pulse" />
+                          </div>
+                        )}
+                      </div>
+                    </form>
+
+                    {/* Referral link */}
+                    {!referralCodeParam && (
+                      <div className="flex justify-center mt-4">
+                        <button
+                          type="button"
+                          onClick={() => setShowReferralDialog(true)}
+                          className="text-[11px] text-foreground/20 hover:text-foreground/40 transition-colors cursor-pointer"
+                        >
+                          Have a referral code?
+                        </button>
                       </div>
                     )}
-                  </div>
-                </form>
-
-                {/* Footer */}
-                <div className="flex items-center justify-between mt-4 pt-4 border-t border-foreground/[0.06]">
-                  {!referralCodeParam ? (
-                    <button
-                      type="button"
-                      onClick={() => setShowReferralDialog(true)}
-                      className="text-[11px] text-foreground/30 hover:text-foreground/50 transition-colors"
-                    >
-                      Referral code?
-                    </button>
-                  ) : <span />}
-                  <p className="text-[11px] text-foreground/25">No password needed.</p>
-                  <button
-                    type="button"
-                    onClick={() => setPhase('lock')}
-                    className="text-[11px] text-foreground/25 hover:text-foreground/45 transition-colors"
-                  >
-                    ← Back
-                  </button>
-                </div>
+                  </>
+                )}
               </div>
             </motion.div>
           </motion.div>
@@ -731,200 +815,23 @@ function LoginContent() {
 
 import { isSelfHosted, isBillingEnabled } from '@/lib/config';
 import { SelfHostedForm, useInstallStatus } from '@/components/auth/self-hosted-auth';
-import { createClient as createBrowserSupabaseClient } from '@/lib/supabase/client';
-import { getEnv } from '@/lib/env-config';
 
 function SelfHostedLoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, isLoading } = useAuth();
-  const { installed, loading: statusLoading, sandboxProviders, defaultProvider } = useInstallStatus();
-  const returnUrl = searchParams.get('returnUrl') || searchParams.get('redirect');
+  const { installed, loading: statusLoading } = useInstallStatus();
+  const rawReturnUrl = searchParams.get('returnUrl') || searchParams.get('redirect');
+  const returnUrl = rawReturnUrl?.match(/^\/instances\/[^/]+/) ? '/instances' : rawReturnUrl;
   const [phase, setPhase] = useState<'lock' | 'form'>('lock');
-  const [wizardStepLoading, setWizardStepLoading] = useState(true);
-  const wizardStepRef = useRef(1);
-  const [wizardStep, setWizardStep] = useState(1);
-  /** Whether sandbox status has been checked on page load (for authenticated returning users). */
-  const [sandboxChecked, setSandboxChecked] = useState(false);
 
-  // Fetch wizard step from the backend once the user is authenticated.
-  // This replaces the old sessionStorage approach so the step survives
-  // across login/logout cycles and browser tab closes.
+  // After auth, redirect to /instances. The /instances page handles
+  // sandbox creation, and /instances/[id] handles setup (provider, keys).
   useEffect(() => {
-    if (isLoading || !user) {
-      // Not logged in yet — default to step 1, done loading
-      setWizardStepLoading(false);
-      return;
-    }
-    let cancelled = false;
-    const fetchStep = async () => {
-      try {
-        const backendUrl = getEnv().BACKEND_URL || 'http://localhost:8008/v1';
-        const supabaseClient = createBrowserSupabaseClient();
-        const { data } = await supabaseClient.auth.getSession();
-        const jwt = data.session?.access_token;
-        if (!jwt) { if (!cancelled) setWizardStepLoading(false); return; }
-        const res = await fetch(`${backendUrl}/setup/setup-wizard-step`, {
-          headers: { 'Authorization': `Bearer ${jwt}` },
-        });
-        if (!cancelled && res.ok) {
-          const { step } = await res.json();
-          if (step > 0) {
-            wizardStepRef.current = step;
-            setWizardStep(step);
-          }
-        }
-      } catch {
-        // Failed to fetch — default to step 1
-      }
-      if (!cancelled) setWizardStepLoading(false);
-    };
-    fetchStep();
-    return () => { cancelled = true; };
-  }, [isLoading, user]);
-
-  const handleWizardStepChange = useCallback((step: number) => {
-    wizardStepRef.current = step;
-    setWizardStep(step);
-    // Persist step to backend (fire-and-forget)
-    const backendUrl = getEnv().BACKEND_URL || 'http://localhost:8008/v1';
-    const supabaseClient = createBrowserSupabaseClient();
-    supabaseClient.auth.getSession().then(({ data }) => {
-      const jwt = data.session?.access_token;
-      if (!jwt) return;
-      fetch(`${backendUrl}/setup/setup-wizard-step`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${jwt}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ step }),
-      }).catch(() => {});
-    });
-  }, []);
-
-  // For authenticated users with an existing install, check if sandbox is
-  // actually ready before redirecting. If not ready, drop them into wizard step 2.
-  useEffect(() => {
-    if (isLoading || wizardStepLoading || !user || installed !== true || sandboxChecked) return;
-
-    const checkSandboxReady = async () => {
-      try {
-        const backendUrl = getEnv().BACKEND_URL || 'http://localhost:8008/v1';
-        const supabaseClient = createBrowserSupabaseClient();
-        const { data } = await supabaseClient.auth.getSession();
-        const jwt = data.session?.access_token;
-        if (!jwt) { setSandboxChecked(true); return; }
-
-        // Check sandbox status: use local-specific endpoint for local_docker,
-        // generic sandbox endpoint for cloud providers (justavps, hetzner, etc.)
-        let sandboxIsReady = false;
-        if (defaultProvider === 'local_docker' || !defaultProvider) {
-          const res = await fetch(`${backendUrl}/platform/init/local/status`, {
-            headers: { 'Authorization': `Bearer ${jwt}` },
-          });
-          if (!res.ok) { setSandboxChecked(true); return; }
-          const statusData = await res.json();
-          sandboxIsReady = statusData.status === 'ready';
-          if (!sandboxIsReady) {
-            // Sandbox not ready (error, none, pulling, etc.) — go to wizard step 2
-            handleWizardStepChange(2);
-            setSandboxChecked(true);
-            return;
-          }
-        } else {
-          const res = await fetch(`${backendUrl}/platform/sandbox`, {
-            headers: { 'Authorization': `Bearer ${jwt}` },
-          });
-          if (!res.ok) { setSandboxChecked(true); return; }
-          const result = await res.json();
-          sandboxIsReady = result.success && !!result.data;
-          if (!sandboxIsReady) {
-            handleWizardStepChange(2);
-            setSandboxChecked(true);
-            return;
-          }
-        }
-
-        if (sandboxIsReady) {
-          // Sandbox is provisioned — check if the user already completed
-          // onboarding (existing users). If so, skip ALL wizard steps and
-          // go straight to the dashboard. Without this, returning users see
-          // the provider/tool-keys wizard flash on every login.
-          try {
-            const sandboxUrl = `${backendUrl}/p/kortix-sandbox/8000`;
-            const onboardingRes = await fetch(
-              `${sandboxUrl}/env/ONBOARDING_COMPLETE`,
-              {
-                headers: { 'Authorization': `Bearer ${jwt}` },
-                signal: AbortSignal.timeout(5000),
-              },
-            );
-            if (onboardingRes.ok) {
-              const onboardingData = await onboardingRes.json();
-              if (onboardingData?.ONBOARDING_COMPLETE === 'true') {
-                // Onboarding done — mark setup complete & redirect immediately.
-                // Don't set sandboxChecked (we're navigating away) so other
-                // effects don't race and redirect to /onboarding.
-                sessionStorage.setItem('setup_complete', 'true');
-                window.location.replace(returnUrl || '/dashboard');
-                return;
-              }
-            }
-          } catch {
-            // Sandbox env unreachable — fall through to setup-status check
-          }
-
-          // Not onboarded yet — check DB setup status.
-          // If check fails for any reason, default to showing the wizard
-          // (safer than redirecting to a broken dashboard).
-          let setupComplete = false;
-          try {
-            const setupRes = await fetch(`${backendUrl}/setup/setup-status`, {
-              headers: { 'Authorization': `Bearer ${jwt}` },
-            });
-            if (setupRes.ok) {
-              const setupData = await setupRes.json();
-              setupComplete = !!setupData.complete;
-            }
-          } catch {
-            // Setup status check failed — treat as incomplete
-          }
-
-          if (!setupComplete) {
-            // Setup wizard not complete — drop to step 2 (provider setup)
-            handleWizardStepChange(2);
-            setSandboxChecked(true);
-            return;
-          }
-          sessionStorage.setItem('setup_complete', 'true');
-          setSandboxChecked(true);
-        }
-      } catch {
-        // Network error — allow redirect, dashboard will handle it
-        setSandboxChecked(true);
-      }
-    };
-    checkSandboxReady();
-  }, [isLoading, wizardStepLoading, user, installed, sandboxChecked, handleWizardStepChange, returnUrl]);
-
-  useEffect(() => {
-    if (isLoading || wizardStepLoading || !user || !sandboxChecked) return;
-    // Fresh self-hosted install: do not auto-redirect to onboarding yet.
-    // The installer wizard must complete provider + keys first.
-    if (installed === false) return;
-
-    // If the setup wizard is already complete (DB says so), redirect to
-    // onboarding or dashboard — don't re-show wizard steps the user finished.
-    const setupDone = sessionStorage.getItem('setup_complete') === 'true';
-    if (setupDone) {
-      // Go to /dashboard — the dashboard layout checks ONBOARDING_COMPLETE
-      // and redirects to /onboarding only if needed. Going to /onboarding
-      // directly caused a BIOS boot screen flash on every login for users
-      // who already completed onboarding.
-      window.location.href = returnUrl || '/dashboard';
-      return;
-    }
-    // Setup is not complete yet — stay on the auth wizard and let step 2/3 drive
-    // the transition into onboarding instead of force-redirecting too early.
-  }, [user, isLoading, wizardStepLoading, installed, sandboxChecked, returnUrl, router]);
+    if (isLoading || !user) return;
+    if (installed === false) return; // installer flow handles its own redirect
+    router.replace(returnUrl || '/instances');
+  }, [isLoading, user, installed, returnUrl, router]);
 
   // Keyboard controls: Enter/Space opens form, Escape closes it
   useEffect(() => {
@@ -940,12 +847,7 @@ function SelfHostedLoginContent() {
     return () => window.removeEventListener('keydown', handler);
   }, [phase]);
 
-  // Show loader while data is loading or sandbox status is being checked.
-  // Note: We intentionally do NOT check sessionStorage here to avoid showing
-  // a loader that blocks the wizard completion redirect. The redirect is
-  // handled by the useEffect above which checks sessionStorage and calls
-  // router.push when setup is complete.
-  if (isLoading || wizardStepLoading || statusLoading || (!sandboxChecked && installed !== false && user) || (sandboxChecked && installed !== false && user && wizardStepRef.current <= 1)) {
+  if (isLoading || statusLoading || (user && installed !== false)) {
     return (
       <div className="fixed inset-0 bg-background flex items-center justify-center">
         <KortixLoader size="medium" />
@@ -953,28 +855,7 @@ function SelfHostedLoginContent() {
     );
   }
 
-  // Wizard steps 2+ (provider, tool keys): skip lock screen, show form directly over wallpaper
-  if (wizardStep > 1) {
-    return (
-      <div className="fixed inset-0 overflow-hidden">
-        <WallpaperBackground />
-        <div className="relative z-10 flex h-full items-center justify-center px-4 py-8">
-          <div className="w-full max-w-[400px] max-h-[calc(100vh-4rem)] overflow-y-auto bg-background/75 dark:bg-background/70 backdrop-blur-2xl border border-foreground/[0.08] rounded-2xl p-7">
-            <SelfHostedForm
-              returnUrl={returnUrl}
-              installed={installed}
-              initialStep={(wizardStep as 1 | 2 | 3)}
-              sandboxProviders={sandboxProviders}
-              defaultProvider={defaultProvider}
-              onWizardStepChange={handleWizardStepChange}
-            />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Step 1: Lock screen → frosted glass auth form
+  // Lock screen → frosted glass auth form
   return (
     <div
       className="fixed inset-0 overflow-hidden cursor-pointer"
@@ -1053,10 +934,6 @@ function SelfHostedLoginContent() {
                 <SelfHostedForm
                   returnUrl={returnUrl}
                   installed={installed}
-                  initialStep={(wizardStep as 1 | 2 | 3)}
-                  sandboxProviders={sandboxProviders}
-                  defaultProvider={defaultProvider}
-                  onWizardStepChange={handleWizardStepChange}
                 />
               </div>
             </motion.div>

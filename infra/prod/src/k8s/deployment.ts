@@ -120,7 +120,7 @@ export function createDeployment(args: DeploymentArgs) {
                   { name: "PORT", value: String(appPort) },
                   { name: "ENV_MODE", value: "cloud" },
                   { name: "INTERNAL_KORTIX_ENV", value: "staging" },
-                  { name: "ALLOWED_SANDBOX_PROVIDERS", value: "hetzner" },
+                  { name: "ALLOWED_SANDBOX_PROVIDERS", value: "justavps" },
                   { name: "KORTIX_ROUTER_INTERNAL_ENABLED", value: "true" },
                   { name: "KORTIX_BILLING_INTERNAL_ENABLED", value: "true" },
                   { name: "KORTIX_DEPLOYMENTS_ENABLED", value: "false" },

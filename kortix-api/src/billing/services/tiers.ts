@@ -6,7 +6,7 @@ export const MINIMUM_CREDIT_FOR_RUN = 0.01;
 export const DEFAULT_TOKEN_COST = 0.000002;
 export const CREDITS_PER_DOLLAR = 100;
 
-/** Markup applied to Hetzner prices for additional instances. */
+/** Markup applied to managed VPS prices for additional instances. */
 export const COMPUTE_PRICE_MARKUP = 1.2;
 
 // ─── Tiers ──────────────────────────────────────────────────────────────────
@@ -118,7 +118,7 @@ const STRIPE_PRICES_STAGING: StripePriceConfig = {
 };
 
 function getStripePrices(): StripePriceConfig {
-  return config.INTERNAL_KORTIX_ENV === 'staging' ? STRIPE_PRICES_STAGING : STRIPE_PRICES_PROD;
+  return config.INTERNAL_KORTIX_ENV === 'prod' ? STRIPE_PRICES_PROD : STRIPE_PRICES_STAGING;
 }
 
 export function getProductId(): string {

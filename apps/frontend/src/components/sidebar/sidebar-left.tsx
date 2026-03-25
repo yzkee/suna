@@ -52,6 +52,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from '@/components/ui/popover';
+
 import {
   Collapsible,
   CollapsibleContent,
@@ -72,13 +73,17 @@ import { cn } from '@/lib/utils';
 import { useAdminRole } from '@/hooks/admin';
 import { useDocumentModalStore } from '@/stores/use-document-modal-store';
 import { isBillingEnabled } from '@/lib/config';
-import { useAccountState, accountStateSelectors } from '@/hooks/billing';
-import { getPlanIcon } from '@/components/billing/plan-utils';
+
 import { useCreateOpenCodeSession, useOpenCodeSessions, useOpenCodeProjects } from '@/hooks/opencode/use-opencode-sessions';
 import { openTabAndNavigate } from '@/stores/tab-store';
 import { useServerStore } from '@/stores/server-store';
 import { useOpenCodePendingStore } from '@/stores/opencode-pending-store';
+import { buildInstancePath, getCurrentInstanceIdFromPathname, getActiveInstanceIdFromCookie, normalizeAppPathname } from '@/lib/instance-routes';
 import { createClient } from '@/lib/supabase/client';
+import { useSandbox } from '@/hooks/platform/use-sandbox';
+import { reactivateSandbox, listSandboxes } from '@/lib/platform-client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from '@/lib/toast';
 
 // ============================================================================
 // Floating Mobile Menu Button
@@ -174,7 +179,7 @@ function CollapsedIconButton({ icon, label, onClick, flyoutContent, disabled, is
 
 function SessionsFlyout() {
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = normalizeAppPathname(usePathname());
   const { data: sessions } = useOpenCodeSessions();
   const permissions = useOpenCodePendingStore((s) => s.permissions);
   const questions = useOpenCodePendingStore((s) => s.questions);
@@ -452,15 +457,7 @@ function SidebarUpdateIndicator({ collapsed }: { collapsed: boolean }) {
 }
 
 function UserProfileSection({ user }: { user: { name: string; email: string; avatar: string; isAdmin?: boolean } }) {
-  const billingActive = isBillingEnabled();
-  const { data: accountState } = useAccountState({ enabled: billingActive });
-
-  if (!billingActive) {
-    return <UserMenu user={{ ...user, planName: 'Self-Hosted', planIcon: undefined }} />;
-  }
-
-  const planName = accountStateSelectors.planName(accountState);
-  return <UserMenu user={{ ...user, planName, planIcon: getPlanIcon(planName) ?? undefined }} />;
+  return <UserMenu user={user} />;
 }
 
 // ============================================================================
@@ -470,7 +467,7 @@ function UserProfileSection({ user }: { user: { name: string; email: string; ava
 function SidebarSections() {
   const [legacyOpen, setLegacyOpen] = React.useState(false);
   const { data: legacyData, isLoading: legacyLoading } = useLegacyThreads();
-  const pathname = usePathname();
+  const pathname = normalizeAppPathname(usePathname());
   const { isMobile, setOpenMobile } = useSidebar();
 
   // Projects data — filter out the bare "global" (worktree "/") if a real workspace project exists
@@ -716,11 +713,83 @@ function SidebarSections() {
 // Main Sidebar
 // ============================================================================
 
+function ScheduledDeletionCard() {
+  const { sandbox, refetch } = useSandbox();
+  const [reactivating, setReactivating] = useState(false);
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const servers = useServerStore((s) => s.servers);
+  const queryClient = useQueryClient();
+
+  const activeServer = servers.find((s) => s.id === activeServerId);
+  const activeInstanceId = activeServer?.instanceId;
+
+  const { data: sandboxList, refetch: refetchList } = useQuery({
+    queryKey: ['platform', 'sandbox', 'list'],
+    queryFn: listSandboxes,
+    staleTime: 30_000,
+  });
+
+  const activeSandbox = activeInstanceId && sandboxList
+    ? sandboxList.find((s) => s.sandbox_id === activeInstanceId)
+    : sandbox;
+
+  if (!activeSandbox?.cancel_at_period_end) return null;
+
+  const cancelAt = activeSandbox.cancel_at ? new Date(activeSandbox.cancel_at) : null;
+  const dateStr = cancelAt
+    ? cancelAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    : 'billing period end';
+
+  const sandboxIdToReactivate = activeSandbox.sandbox_id;
+
+  const handleReactivate = async () => {
+    setReactivating(true);
+    try {
+      await reactivateSandbox(sandboxIdToReactivate);
+      toast.success('Instance reactivated');
+      // Invalidate all sandbox-related caches so the card disappears
+      await Promise.all([
+        refetch(),
+        refetchList(),
+        queryClient.invalidateQueries({ queryKey: ['platform', 'sandbox'] }),
+        queryClient.invalidateQueries({ queryKey: ['accountState'] }),
+      ]);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to reactivate');
+    } finally {
+      setReactivating(false);
+    }
+  };
+
+  const daysLeft = cancelAt ? Math.max(0, Math.ceil((cancelAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : null;
+
+  return (
+    <div className="rounded-xl border border-red-500/30 bg-red-500/5 px-3.5 py-3">
+      <p className="text-[12px] font-medium text-red-600 dark:text-red-400">
+        Subscription cancelled
+      </p>
+      <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+        This instance will be deleted {daysLeft !== null ? `in ${daysLeft} day${daysLeft === 1 ? '' : 's'}` : `on ${dateStr}`}. All data will be permanently removed.
+      </p>
+      <button
+        type="button"
+        disabled={reactivating}
+        onClick={handleReactivate}
+        className="mt-2.5 w-full h-7 text-[11px] font-medium rounded-lg border border-border bg-background text-foreground hover:bg-muted transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
+      >
+        {reactivating ? <><Loader2 className="h-3 w-3 animate-spin" /> Reactivating...</> : 'Reactivate'}
+      </button>
+    </div>
+  );
+}
+
 export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { state, setOpen, setOpenMobile } = useSidebar();
   const isMobile = useIsMobile();
   const router = useRouter();
-  const pathname = usePathname();
+  const rawPathname = usePathname();
+  const pathname = normalizeAppPathname(rawPathname);
+  const currentInstanceId = getCurrentInstanceIdFromPathname(rawPathname) || getActiveInstanceIdFromCookie();
   const searchParams = useSearchParams();
 
   // Project filtering for session list removed — projects page merged into workspace
@@ -772,10 +841,10 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
       });
       if (isMobile) setOpenMobile(false);
     } catch {
-      router.push('/dashboard');
+      router.push(currentInstanceId ? buildInstancePath(currentInstanceId, '/dashboard') : '/dashboard');
       if (isMobile) setOpenMobile(false);
     }
-  }, [createSession, router, isMobile, setOpenMobile]);
+  }, [createSession, router, isMobile, setOpenMobile, currentInstanceId]);
 
   useEffect(() => {
     if (isMobile) setOpenMobile(false);
@@ -1037,7 +1106,8 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
       </SidebarContent>
 
       {/* ====== FOOTER ====== */}
-      <SidebarFooter className="px-3 pb-3 pt-0 group-data-[collapsible=icon]:px-0">
+      <SidebarFooter className="px-3 pb-3 pt-0 group-data-[collapsible=icon]:px-0 gap-2">
+        <ScheduledDeletionCard />
         <SidebarUpdateIndicator collapsed={state === 'collapsed'} />
         <UserProfileSection user={user} />
       </SidebarFooter>
@@ -1046,4 +1116,3 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
     </Sidebar>
   );
 }
-

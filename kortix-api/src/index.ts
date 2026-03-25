@@ -11,9 +11,8 @@ import { BillingError } from './errors';
 import { router } from './router';
 import { billingApp } from './billing';
 import { platformApp } from './platform';
-import { channelsApp, startChannelService, stopChannelService, getChannelServiceStatus } from './channels';
-import { daytonaProxyApp } from './daytona-proxy';
-import { getSandboxBaseUrl, proxyToSandbox } from './daytona-proxy/routes/local-preview';
+import { sandboxProxyApp } from './sandbox-proxy';
+import { getSandboxBaseUrl, proxyToSandbox } from './sandbox-proxy/routes/local-preview';
 import { validateSecretKey } from './repositories/api-keys';
 import { isKortixToken } from './shared/crypto';
 import { getSupabase } from './shared/supabase';
@@ -30,9 +29,12 @@ import { ensureSchema } from './ensure-schema';
 import { initModelPricing, stopModelPricing } from './router/config/model-pricing';
 import { tunnelApp, wsHandlers as tunnelWsHandlers, startTunnelService, stopTunnelService, getTunnelServiceStatus } from './tunnel';
 import { startSandboxHealthMonitor, stopSandboxHealthMonitor } from './platform/services/sandbox-health';
+import { startProvisionPoller, stopProvisionPoller } from './platform/services/sandbox-provision-poller';
+import { startAutoReplenish, stopAutoReplenish } from './pool';
 import { accessControlApp } from './access-control';
 import { startAccessControlCache, stopAccessControlCache } from './shared/access-control-cache';
 import { legacyApp } from './legacy';
+import { channelsApp } from './channels';
 import { adminApp } from './admin';
 import { oauthApp } from './oauth';
 
@@ -79,7 +81,7 @@ app.use(
   cors({
     origin: corsOrigins,
     allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Kortix-Token', 'X-Api-Key', 'Accept'],
     credentials: true,
   })
 );
@@ -99,7 +101,6 @@ app.get('/health', (c) => {
     service: 'kortix-api',
     timestamp: new Date().toISOString(),
     env: config.ENV_MODE,
-    channels: getChannelServiceStatus(),
     tunnel: getTunnelServiceStatus(),
   });
 });
@@ -111,7 +112,6 @@ app.get('/v1/health', (c) => {
     service: 'kortix-api',
     timestamp: new Date().toISOString(),
     env: config.ENV_MODE,
-    channels: getChannelServiceStatus(),
     tunnel: getTunnelServiceStatus(),
   });
 });
@@ -246,7 +246,6 @@ if (config.KORTIX_DEPLOYMENTS_ENABLED) {
   app.route('/v1/deployments', deploymentsApp); // /v1/deployments/*
 }
 app.route('/v1/integrations', integrationsApp); // /v1/integrations/*
-app.route('/', channelsApp);                 // /v1/channels/*, /webhooks/*
 
 // Access control — public endpoints for signup gating
 app.route('/v1/access', accessControlApp); // /v1/access/signup-status, /v1/access/check-email, /v1/access/request-access
@@ -254,8 +253,15 @@ app.route('/v1/access', accessControlApp); // /v1/access/signup-status, /v1/acce
 // Legacy thread migration — authenticated endpoints
 app.route('/v1/legacy', legacyApp); // /v1/legacy/threads, /v1/legacy/threads/:id/migrate
 
-// Setup — install-status is public (needed before any user exists), rest requires auth.
-app.route('/v1/setup', setupApp);          // /v1/setup/install-status (public), rest (auth inside router)
+// Channels — Slack/Discord/Telegram channel configs and message history
+app.use('/v1/channels/*', combinedAuth);
+app.use('/v1/channels', combinedAuth);
+app.route('/v1/channels', channelsApp); // /v1/channels, /v1/channels/:id, /v1/channels/:id/messages, etc.
+
+// Setup — local/self-hosted only. Disabled in cloud mode (not needed, exposes admin surface).
+if (config.isLocal()) {
+  app.route('/v1/setup', setupApp);        // /v1/setup/install-status (public), rest (auth inside router)
+}
 app.route('/v1/admin', adminApp);          // /v1/admin/api/sandboxes, /v1/admin/api/env, /v1/admin/api/health, etc.
 
 // OAuth2 provider — public token endpoint, auth on authorize/consent
@@ -283,9 +289,10 @@ app.route('/v1/tunnel', tunnelApp);
 // Pattern: /v1/p/{sandboxId}/{port}/* for ALL modes.
 // Cloud:  sandboxId = Daytona external ID → proxied via Daytona SDK
 // Local:  sandboxId = container name (e.g. 'kortix-sandbox') → Docker DNS resolution
+// JustAVPS: sandboxId → CF Worker proxy at {port}--{slug}.kortix.cloud
 // Auth: unified previewProxyAuth (accepts Supabase JWT and kortix_ tokens).
 // MUST be after all explicit routes (wildcard catch-all).
-app.route('/v1/p', daytonaProxyApp);
+app.route('/v1/p', sandboxProxyApp);
 
 // === Error Handling ===
 
@@ -503,7 +510,6 @@ ${config.KORTIX_DEPLOYMENTS_ENABLED ? '║    /v1/deployments (deploy lifecycle)
 ║  Supabase:   ${config.SUPABASE_URL ? '✓ Configured'.padEnd(42) : '✗ NOT SET'.padEnd(42)}║
 ║  Stripe:     ${config.STRIPE_SECRET_KEY ? '✓ Configured'.padEnd(42) : '✗ NOT SET'.padEnd(42)}║
 ║  Billing:    ${(config.KORTIX_BILLING_INTERNAL_ENABLED ? 'ENABLED' : 'DISABLED').padEnd(42)}║
-║  Channels:   ${(config.CHANNELS_ENABLED ? 'ENABLED' : 'DISABLED').padEnd(42)}║
 ║  Tunnel:     ${(config.TUNNEL_ENABLED ? 'ENABLED' : 'DISABLED').padEnd(42)}║
 ║  Providers:  ${config.ALLOWED_SANDBOX_PROVIDERS.join(', ').padEnd(42)}║
 ╚═══════════════════════════════════════════════════════════╝
@@ -525,45 +531,51 @@ ensureSchema()
   .then(async () => {
     schemaReady = true;
     startAccessControlCache();
-    startChannelService();
     startDrainer();
     startTunnelService();
+    startAutoReplenish();
 
-    // If local_docker is enabled and we have a DB, ensure the sandbox is registered
-    // and start the health monitor for self-healing connectivity.
-    // Must run AFTER schema push so the sandboxes table exists.
     if (config.isLocalDockerEnabled() && config.DATABASE_URL) {
       ensureLocalSandboxRegistered().catch((err) =>
         console.error('[startup] Failed to register local sandbox:', err),
       );
       startSandboxHealthMonitor();
     }
+
+    // Start provision poller for cloud mode (compensates for broken/missing webhooks)
+    if (config.isJustAVPSEnabled()) {
+      startProvisionPoller();
+    }
   })
   .catch(async (err) => {
     console.error('[startup] ensureSchema failed, starting services anyway:', err);
-    schemaReady = true; // Tables may already exist — allow requests through
+    schemaReady = true;
     startAccessControlCache();
-    startChannelService();
     startDrainer();
     startTunnelService();
+    startAutoReplenish();
 
-    // Still try to register sandbox even if schema push fails — the table may already exist
     if (config.isLocalDockerEnabled() && config.DATABASE_URL) {
       ensureLocalSandboxRegistered().catch((e) =>
         console.error('[startup] Failed to register local sandbox:', e),
       );
       startSandboxHealthMonitor();
     }
+
+    if (config.isJustAVPSEnabled()) {
+      startProvisionPoller();
+    }
   });
 
 // Graceful shutdown
 function shutdown(signal: string) {
   console.log(`\n[${signal}] Shutting down gracefully...`);
-  stopChannelService();
   stopDrainer();
   stopModelPricing();
   stopTunnelService();
   stopSandboxHealthMonitor();
+  stopProvisionPoller();
+  stopAutoReplenish();
   stopAccessControlCache();
   process.exit(0);
 }
@@ -776,7 +788,6 @@ export default {
       }
 
       // ── HTTP/SSE via subdomain — direct proxy, no Hono ───────────────
-      const acceptsSSE = (req.headers.get('accept') || '').includes('text/event-stream');
       const origin = req.headers.get('Origin') || '';
       let body: ArrayBuffer | undefined;
       if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -810,14 +821,14 @@ export default {
             }
             return await proxyToSandbox(
               sandboxId, 8000, req.method, url.pathname, url.search,
-              req.headers, body, acceptsSSE, origin, cfProxyUrl, svcKey, extra,
+              req.headers, body, false, origin, cfProxyUrl, svcKey, extra,
             );
           }
         }
 
         return await proxyToSandbox(
           sandboxId, port, req.method, url.pathname, url.search,
-          req.headers, body, acceptsSSE, origin,
+          req.headers, body, false, origin,
         );
       } catch (error) {
         console.error(`[subdomain-proxy] Error for ${sandboxId}:${port}${url.pathname}: ${error instanceof Error ? error.message : String(error)}`);

@@ -1543,3 +1543,19 @@
     right: auto !important;
   }
 }
+
+::view-transition-old(root), ::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+::view-transition-new(root) {
+  filter: blur(20px);
+  animation: view-transition-sharpen 400ms ease-in-out forwards;
+}
+
+@keyframes view-transition-sharpen {
+  0% { filter: blur(20px); }
+  60% { filter: blur(6px); }
+  100% { filter: blur(0px); }
+}

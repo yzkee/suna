@@ -31,6 +31,7 @@ import {
   type MenuItemDef,
   type NavSubGroup,
 } from '@/lib/menu-registry';
+import { normalizeAppPathname } from '@/lib/instance-routes';
 import { useProviderModalStore } from '@/stores/provider-modal-store';
 
 // ============================================================================
@@ -47,7 +48,7 @@ export function SidebarRight() {
   } = useRightSidebar();
 
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = normalizeAppPathname(usePathname());
   const [sshDialogOpen, setSSHDialogOpen] = useState(false);
 
   const { getServiceUrl } = useSandboxProxy();

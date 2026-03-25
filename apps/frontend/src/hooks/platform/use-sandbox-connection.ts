@@ -5,6 +5,7 @@ import { authenticatedFetch, getAuthToken } from "@/lib/auth-token";
 import {
 	incrementSandboxFail,
 	markInitialCheckDone,
+	resetForServerSwitch,
 	resetSandboxFail,
 	setOpenCodeHealth,
 	setSandboxStatus,
@@ -48,24 +49,24 @@ export function useSandboxConnection() {
 
 	const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const abortRef = useRef<AbortController | null>(null);
+	const isMountRef = useRef(true);
 	const prevServerVersionRef = useRef(serverVersion);
 	const portsFetchedRef = useRef(false);
 	const versionFetchedRef = useRef(false);
 
 	useEffect(() => {
+		const isFirstMount = isMountRef.current;
+		isMountRef.current = false;
 		const isServerSwitch = serverVersion !== prevServerVersionRef.current;
 		prevServerVersionRef.current = serverVersion;
 
-		if (isServerSwitch) {
-			const { status } = useSandboxConnectionStore.getState();
-			if (status !== "connected") {
-				setSandboxStatus("connecting");
-			}
+		if (isFirstMount || isServerSwitch) {
+			// Full reset — clears wasConnected, failCount, status, everything.
+			// Each instance starts with a clean slate.
+			resetForServerSwitch();
 			portsFetchedRef.current = false;
 			versionFetchedRef.current = false;
-			setSandboxVersion(null);
 		}
-		resetSandboxFail();
 
 		let alive = true;
 

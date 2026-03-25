@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { normalizeAppPathname } from '@/lib/instance-routes';
 import {
   Loader2,
   MessageCircle,
@@ -50,7 +51,7 @@ import { useCreatePty } from '@/hooks/opencode/use-opencode-pty';
 import { CompactDialog } from '@/components/session/compact-dialog';
 import { DiffDialog } from '@/components/session/diff-dialog';
 import { UserSettingsModal } from '@/components/settings/user-settings-modal';
-import { PlanSelectionModal } from '@/components/billing/pricing';
+import { useNewInstanceModalStore } from '@/stores/pricing-modal-store';
 import { createClient } from '@/lib/supabase/client';
 import { isBillingEnabled } from '@/lib/config';
 import { useTheme } from 'next-themes';
@@ -115,10 +116,10 @@ export function CommandPalette() {
   const [diffOpen, setDiffOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>('general');
-  const [planModalOpen, setPlanModalOpen] = useState(false);
+  const openNewInstanceModal = useNewInstanceModalStore((s) => s.openNewInstanceModal);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = normalizeAppPathname(usePathname());
   const currentSessionId = useMemo(() => {
     const match = pathname?.match(/^\/sessions\/([^/]+)/);
     return match ? match[1] : null;
@@ -462,8 +463,8 @@ export function CommandPalette() {
 
   const handleOpenPlan = useCallback(() => {
     close();
-    setPlanModalOpen(true);
-  }, [close]);
+    openNewInstanceModal();
+  }, [close, openNewInstanceModal]);
 
   const handleLogout = useCallback(async () => {
     close();
@@ -1088,10 +1089,7 @@ export function CommandPalette() {
         onOpenChange={setSettingsOpen}
         defaultTab={settingsTab}
       />
-      <PlanSelectionModal
-        open={planModalOpen}
-        onOpenChange={setPlanModalOpen}
-      />
+
     </>
   );
 }

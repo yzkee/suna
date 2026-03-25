@@ -314,13 +314,8 @@ const PrismaticBurst = ({
       program.uniforms.uResolution.value = [gl.drawingBufferWidth, gl.drawingBufferHeight];
     };
 
-    let ro: ResizeObserver | null = null;
-    if ('ResizeObserver' in window) {
-      ro = new ResizeObserver(resize);
-      ro.observe(container);
-    } else {
-      window.addEventListener('resize', resize);
-    }
+    const ro = new ResizeObserver(resize);
+    ro.observe(container);
     resize();
 
     const onPointer = (e: PointerEvent) => {
@@ -369,7 +364,7 @@ const PrismaticBurst = ({
         }
       }
 
-      renderer.render({ scene: meshRef.current });
+      renderer.render({ scene: meshRef.current as unknown as import('ogl').Transform });
       raf = requestAnimationFrame(update);
     };
     raf = requestAnimationFrame(update);

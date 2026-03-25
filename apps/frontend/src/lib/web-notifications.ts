@@ -18,6 +18,7 @@ import { openTabAndNavigate, useTabStore } from '@/stores/tab-store';
 import { useServerStore } from '@/stores/server-store';
 import { toast as sonnerToast } from 'sonner';
 import { logger } from '@/lib/logger';
+import { normalizeAppPathname } from '@/lib/instance-routes';
 import { playSound } from '@/lib/sounds';
 import type { SoundEvent } from '@/stores/sound-store';
 
@@ -155,7 +156,7 @@ function isViewingSession(sessionId: string): boolean {
   // Since the session ID isn't in the URL, we treat any notification as
   // "current session" when the user is on /onboarding.
   if (typeof window !== 'undefined') {
-    const path = window.location.pathname;
+    const path = normalizeAppPathname(window.location.pathname);
     if (path.includes(sessionId)) return true;
     if (path.startsWith('/onboarding')) return true;
   }

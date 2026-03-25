@@ -52,7 +52,7 @@ type UISourceType = DeploymentSource | 'workspace';
 const sourceTypes: Array<{
   value: UISourceType;
   label: string;
-  icon: React.ElementType;
+  icon: React.ComponentType<{ className?: string }>;
   description: string;
 }> = [
   { value: 'workspace', label: 'Workspace', icon: FolderOpen, description: 'Deploy from your workspace' },

@@ -47,7 +47,7 @@ import { opencodeKeys } from '@/hooks/opencode/use-opencode-sessions';
 import type { ProviderListResponse } from '@/hooks/opencode/use-opencode-sessions';
 import { toast } from '@/lib/toast';
 
-const FALLBACK_PROVIDER_CARDS = [] as const;
+const FALLBACK_PROVIDER_CARDS: Array<{ id: string; name: string }> = [];
 
 // =============================================================================
 // Auth method display helpers
@@ -243,34 +243,17 @@ export function ConnectProviderContent({
         const data = result.data!;
         setOauthUrl(data.url);
 
-        if (data.method === 'code') {
+        if (data.method === 'code' || data.method === 'auto') {
           setOauthMethod('code');
-          setOauthState('complete');
-          window.open(data.url, '_blank');
-        } else if (data.method === 'auto') {
-          setOauthMethod('auto');
           setOauthInstructions(data.instructions || '');
           setOauthState('complete');
-          window.open(data.url, '_blank');
-
-          try {
-            const callbackResult = await client.provider.oauth.callback({
-              providerID,
-              method: index,
-            });
-            if (callbackResult.error) throw callbackResult.error;
-            await completeConnection(providerID);
-          } catch (err) {
-            setOauthState('error');
-            setError(err instanceof Error ? err.message : String(err));
-          }
         }
       } catch (err) {
         setOauthState('error');
         setError(err instanceof Error ? err.message : String(err));
       }
     }
-  }, [completeConnection]);
+  }, []);
 
   // --- Submit API key ---
   const handleApiKeySubmit = useCallback(async (e?: React.FormEvent) => {
@@ -697,17 +680,47 @@ export function ConnectProviderContent({
           )}
 
           {showOAuthCode && (
-            <form onSubmit={handleOAuthCodeSubmit} className="space-y-4 rounded-2xl border border-border/50 bg-muted/20 p-4">
-              <p className="text-sm text-muted-foreground">
-                Visit the{' '}
-                <a href={oauthUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">authorization page</a>
-                {' '}and after it redirects to `localhost`, paste the full redirected URL below to connect {selectedProviderData?.name || view.providerID}.
-              </p>
+            <form onSubmit={handleOAuthCodeSubmit} className="space-y-4 rounded-2xl border border-border/50 bg-muted/20 p-5">
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold text-foreground">
+                  Connect {selectedProviderData?.name || view.providerID}
+                </h3>
+                <div className="space-y-2 text-sm text-muted-foreground">
+                  <div className="flex items-start gap-2">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center mt-0.5">1</span>
+                    <span>Click the button below to open the authorization page</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center mt-0.5">2</span>
+                    <span>Sign in and authorize access</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center mt-0.5">3</span>
+                    <span>After redirect, copy the full URL from your browser&apos;s address bar (starts with <code className="text-xs bg-muted px-1 py-0.5 rounded">http://localhost...</code>)</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center mt-0.5">4</span>
+                    <span>Paste it below and click Connect</span>
+                  </div>
+                </div>
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full h-10 rounded-lg gap-2"
+                onClick={() => window.open(oauthUrl, '_blank')}
+              >
+                <ExternalLink className="h-4 w-4" />
+                Open Authorization Page
+              </Button>
+
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                  {currentMethod ? `${methodLabel(currentMethod)} localhost redirect URL` : 'Localhost redirect URL'}
+                  Paste the redirect URL here
                 </label>
-                <Input placeholder="Paste http://localhost:.../callback?..." type="text" value={oauthCode} onChange={(e) => setOauthCode(e.target.value)} className="h-9 rounded-xl border-border/50 bg-background text-sm" autoFocus />
+                <Input placeholder="http://localhost:.../callback?code=..." type="text" value={oauthCode} onChange={(e) => setOauthCode(e.target.value)} className="h-9 rounded-xl border-border/50 bg-background text-sm" autoFocus />
               </div>
               {error && (
                 <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/5 rounded-lg px-3 py-2">
@@ -715,7 +728,7 @@ export function ConnectProviderContent({
                   <span>{error}</span>
                 </div>
               )}
-              <Button type="submit" disabled={saving} size="sm" className="h-9 px-4 rounded-lg">
+              <Button type="submit" disabled={saving || !oauthCode.trim()} size="sm" className="w-full h-9 rounded-lg">
                 {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Connecting...</> : 'Connect'}
               </Button>
             </form>

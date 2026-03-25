@@ -14,7 +14,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/lib/toast';
-import { siteConfig } from '@/lib/site-config';
+
 import { CREDITS_PER_DOLLAR, dollarsToCredits } from '@kortix/shared';
 import {
   billingApi,
@@ -428,9 +428,8 @@ export const accountStateSelectors = {
     const tierKey = state.subscription.tier_key || state.tier?.name;
     if (!tierKey || tierKey === 'none' || tierKey === 'free') return 'Basic';
     
-    // Use siteConfig to match tier_key to frontend tier names
-    const tier = siteConfig.cloudPricingItems.find(p => p.tierKey === tierKey);
-    return tier?.name || 'Basic';
+    if (tierKey === 'pro') return 'Pro';
+    return 'Basic';
   },
   
   /** Check if on trial */

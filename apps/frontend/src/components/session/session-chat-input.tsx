@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { usePathname } from 'next/navigation';
+import { normalizeAppPathname } from '@/lib/instance-routes';
 import {
   ArrowUp,
   ArrowDown,
@@ -1385,7 +1386,7 @@ export function SessionChatInput({
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [autocontinueMode, setAutocontinueMode] = useState<AutoContinueMode | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
-  const pathname = usePathname();
+  const pathname = normalizeAppPathname(usePathname());
   const isOnboarding = pathname?.startsWith('/onboarding');
   const dragDepthRef = useRef(0);
 

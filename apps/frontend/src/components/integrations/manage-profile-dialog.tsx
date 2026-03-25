@@ -107,6 +107,7 @@ export const ManageProfileDialog = ({
   const handleSaveLabel = async () => {
     if (!connection) return;
     const effectiveLabel = currentLabel;
+    const trimmed = labelValue.trim();
     if (!trimmed || trimmed === effectiveLabel) {
       setEditingLabel(false);
       setLabelValue(effectiveLabel || '');

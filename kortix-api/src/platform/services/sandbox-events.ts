@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { eq, sql, and } from 'drizzle-orm';
 import { sandboxes } from '@kortix/db';
 import { db } from '../../shared/db';
+import * as pool from '../../pool';
 
 export interface SandboxProvisionEvent {
   sandboxId: string;
@@ -65,6 +66,14 @@ class SandboxEventBus {
     if (data.event === 'heartbeat' || payload.event === 'machine.heartbeat') {
       return;
     }
+
+    // Skip test/dummy events immediately
+    if (!externalId || externalId === '00000000-0000-0000-0000-000000000000' || payload.event === 'machine.test') {
+      return;
+    }
+
+    const handled = await pool.handleWebhook(externalId, data.stage, data.status);
+    if (handled) return;
 
     let sandbox: typeof sandboxes.$inferSelect | undefined;
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -132,8 +141,11 @@ class SandboxEventBus {
         );
     }
 
-    // Status updates (services_ready, ready, error) — these don't race with stage updates
-    if (data.stage === 'services_ready' || data.status === 'ready') {
+    // Only provider-confirmed "ready" should flip the sandbox active.
+    // services_ready means the VM boot flow finished, but port 8000 / Kortix
+    // may still be starting. The GET /platform/sandbox/:id/status endpoint
+    // surfaces progress; the sandbox becomes active once the provider confirms ready.
+    if (data.status === 'ready') {
       if (sandbox.status === 'provisioning') {
         await db
           .update(sandboxes)

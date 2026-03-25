@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
     Dialog,
     DialogContent,
@@ -11,13 +11,33 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle } from 'lucide-react';
-import { KortixLoader } from '@/components/ui/kortix-loader';
-import { billingApi } from '@/lib/api/billing';
+import { Switch } from '@/components/ui/switch';
+import { AlertCircle, Loader2, Zap } from 'lucide-react';
+import { billingApi, getAutoTopupSettings, configureAutoTopup, type AutoTopupConfig } from '@/lib/api/billing';
 import { toast } from '@/lib/toast';
-import { formatCredits, dollarsToCredits } from '@kortix/shared';
+import { formatCredits } from '@kortix/shared';
 import { useUserCurrency } from '@/hooks/use-user-currency';
-import { formatPrice, getCurrencySymbol } from '@/lib/utils/currency';
+import { formatPrice } from '@/lib/utils/currency';
+import { cn } from '@/lib/utils';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+
+// ─── Credit packages ────────────────────────────────────────────────────────
+
+interface CreditPackage {
+    credits: number;
+    price: number;
+}
+
+const CREDIT_PACKAGES: CreditPackage[] = [
+    { credits: 1000, price: 10 },
+    { credits: 2500, price: 25 },
+    { credits: 5000, price: 50 },
+    { credits: 10000, price: 100 },
+    { credits: 25000, price: 250 },
+    { credits: 50000, price: 500 },
+];
+
+// ─── Credit Purchase Modal ──────────────────────────────────────────────────
 
 interface CreditPurchaseProps {
     open: boolean;
@@ -27,52 +47,26 @@ interface CreditPurchaseProps {
     onPurchaseComplete?: () => void;
 }
 
-interface CreditPackage {
-    amount: number;
-    credits: number;
-    price: number;
-    popular?: boolean;
-}
-
-const CREDIT_PACKAGES: CreditPackage[] = [
-    { amount: 10, credits: 1000, price: 10 },
-    { amount: 25, credits: 2500, price: 25 },
-    { amount: 50, credits: 5000, price: 50 },
-    { amount: 100, credits: 10000, price: 100, popular: true },
-    { amount: 250, credits: 25000, price: 250 },
-    { amount: 500, credits: 50000, price: 500 },
-];
-
 export function CreditPurchaseModal({
     open,
     onOpenChange,
     currentBalance = 0,
     canPurchase,
-    onPurchaseComplete
+    onPurchaseComplete,
 }: CreditPurchaseProps) {
     const { currency } = useUserCurrency();
-    const symbol = getCurrencySymbol(currency);
     const [selectedPackage, setSelectedPackage] = useState<CreditPackage | null>(null);
-    const [customAmount, setCustomAmount] = useState<string>('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const handlePurchase = async (amount: number) => {
-        if (amount < 10) {
-            setError(`Minimum purchase amount is ${formatPrice(10, currency)}`);
-            return;
-        }
-        if (amount > 5000) {
-            setError(`Maximum purchase amount is ${formatPrice(5000, currency)}`);
-            return;
-        }
+    const handlePurchase = async (pkg: CreditPackage) => {
         setIsProcessing(true);
         setError(null);
         try {
             const response = await billingApi.purchaseCredits({
-                amount: amount,
-                success_url: `${window.location.origin}/dashboard?credit_purchase=success`,
-                cancel_url: `${window.location.origin}/dashboard?credit_purchase=cancelled`
+                amount: pkg.price,
+                success_url: `${window.location.origin}/instances?credit_purchase=success`,
+                cancel_url: window.location.href,
             });
             if (response.checkout_url) {
                 window.location.href = response.checkout_url;
@@ -80,33 +74,11 @@ export function CreditPurchaseModal({
                 throw new Error('No checkout URL received');
             }
         } catch (err: any) {
-            console.error('Credit purchase error:', err);
-            const errorMessage = err.details?.detail || err.message || 'Failed to create checkout session';
-            setError(errorMessage);
-            toast.error(errorMessage);
+            const msg = err.details?.detail || err.message || 'Failed to create checkout session';
+            setError(msg);
+            toast.error(msg);
         } finally {
             setIsProcessing(false);
-        }
-    };
-
-    const handlePackageSelect = (pkg: CreditPackage) => {
-        setSelectedPackage(pkg);
-        setCustomAmount('');
-        setError(null);
-    };
-
-    const handleCustomAmountChange = (value: string) => {
-        setCustomAmount(value);
-        setSelectedPackage(null);
-        setError(null);
-    };
-
-    const handleConfirmPurchase = () => {
-        const amount = selectedPackage ? selectedPackage.amount : parseFloat(customAmount);
-        if (!isNaN(amount)) {
-            handlePurchase(amount);
-        } else {
-            setError('Please select a package or enter a valid amount');
         }
     };
 
@@ -117,19 +89,11 @@ export function CreditPurchaseModal({
                     <DialogHeader>
                         <DialogTitle>Credits Not Available</DialogTitle>
                         <DialogDescription>
-                            Credit purchases are only available for users on the {formatPrice(200, currency)}/month subscription tier.
+                            Credit purchases require an active subscription.
                         </DialogDescription>
                     </DialogHeader>
-                    <Alert>
-                        <AlertCircle className="h-4 w-4" />
-                        <AlertDescription>
-                            Please upgrade your subscription to the {formatPrice(200, currency)}/month tier to unlock credit purchases for unlimited usage.
-                        </AlertDescription>
-                    </Alert>
                     <div className="flex justify-end">
-                        <Button variant="outline" onClick={() => onOpenChange(false)}>
-                            Close
-                        </Button>
+                        <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
                     </div>
                 </DialogContent>
             </Dialog>
@@ -138,67 +102,191 @@ export function CreditPurchaseModal({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-2xl">
+            <DialogContent className="sm:max-w-lg">
                 <DialogHeader>
-                    <DialogTitle>Get additional credits</DialogTitle>
+                    <DialogTitle>Buy Credits</DialogTitle>
                     <DialogDescription>
-                        Add credits to your account for usage beyond your subscription limit.
+                        Purchase credits for LLM usage.
                     </DialogDescription>
                 </DialogHeader>
 
                 {currentBalance > 0 && (
                     <div className="text-sm text-muted-foreground">
-                        Current balance: {formatCredits(currentBalance, { showDecimals: true })}
+                        Current balance: <span className="font-medium text-foreground">${(currentBalance / 100).toFixed(2)}</span>
                     </div>
                 )}
 
-                <div className="space-y-4">
-                    <div>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                            {CREDIT_PACKAGES.map((pkg) => (
-                                <Card
-                                    key={pkg.amount}
-                                    className={`cursor-pointer transition-all ${selectedPackage?.amount === pkg.amount
-                                        ? 'ring-2 ring-border'
-                                        : 'hover:border-border/80'
-                                        }`}
-                                    onClick={() => handlePackageSelect(pkg)}
-                                >
-                                    <CardContent className="p-4 text-center">
-                                        <div className="text-xl font-medium">{formatCredits(pkg.credits)}</div>
-                                        <div className="text-xs text-muted-foreground mt-1">credits for {formatPrice(pkg.price, currency)}</div>
-                                    </CardContent>
-                                </Card>
-                            ))}
-                        </div>
+                {/* Buy credits */}
+                <div>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Buy credits</p>
+                    <div className="grid grid-cols-3 gap-2">
+                        {CREDIT_PACKAGES.map((pkg) => (
+                            <button
+                                key={pkg.price}
+                                type="button"
+                                onClick={() => setSelectedPackage(pkg)}
+                                disabled={isProcessing}
+                                className={cn(
+                                    'rounded-xl border p-3 text-center transition-all cursor-pointer',
+                                    selectedPackage?.price === pkg.price
+                                        ? 'border-foreground bg-foreground/5'
+                                        : 'border-border hover:border-foreground/20',
+                                )}
+                            >
+                                <p className="text-lg font-semibold tabular-nums">${pkg.price}</p>
+                                <p className="text-xs text-muted-foreground">{formatCredits(pkg.credits)} credits</p>
+                            </button>
+                        ))}
                     </div>
-                    {error && (
-                        <Alert variant="destructive">
-                            <AlertCircle className="h-4 w-4" />
-                            <AlertDescription>{error}</AlertDescription>
-                        </Alert>
+                </div>
+
+                {error && (
+                    <Alert variant="destructive">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription>{error}</AlertDescription>
+                    </Alert>
+                )}
+
+                <Button
+                    onClick={() => selectedPackage && handlePurchase(selectedPackage)}
+                    disabled={isProcessing || !selectedPackage}
+                    className="w-full"
+                >
+                    {isProcessing ? (
+                        <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Processing...</>
+                    ) : selectedPackage ? (
+                        `Buy $${selectedPackage.price} in credits`
+                    ) : (
+                        'Select a package'
                     )}
-                </div>
-                <div className="flex justify-center mt-6">
-                    <Button
-                        onClick={handleConfirmPurchase}
-                        disabled={isProcessing || (!selectedPackage && !customAmount)}
-                        className="w-full sm:w-auto min-w-[120px]"
-                    >
-                        {isProcessing ? (
-                            <>
-                                <KortixLoader size="small" className="mr-2" />
-                                Processing...
-                            </>
-                        ) : (
-                            'Continue'
-                        )}
-                    </Button>
-                </div>
+                </Button>
             </DialogContent>
         </Dialog>
     );
 }
+
+// ─── Auto Top-up Modal ──────────────────────────────────────────────────────
+
+export function AutoTopupModal({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+    const queryClient = useQueryClient();
+    const [saving, setSaving] = useState(false);
+    const [dirty, setDirty] = useState(false);
+
+    const { data: config, isLoading } = useQuery({
+        queryKey: ['auto-topup-settings'],
+        queryFn: getAutoTopupSettings,
+        retry: 1,
+        enabled: open,
+    });
+
+    const [enabled, setEnabled] = useState(false);
+    const [threshold, setThreshold] = useState('1000');
+    const [amount, setAmount] = useState('2500');
+
+    useEffect(() => {
+        if (!config) return;
+        setEnabled(config.enabled);
+        setThreshold(String(config.threshold));
+        setAmount(String(config.amount));
+        setDirty(false);
+    }, [config]);
+
+    const handleSave = async () => {
+        const thresholdNum = Math.max(0, parseInt(threshold, 10) || 0);
+        const amountNum = Math.max(1, parseInt(amount, 10) || 1);
+        setSaving(true);
+        try {
+            await configureAutoTopup({ enabled, threshold: thresholdNum, amount: amountNum });
+            queryClient.invalidateQueries({ queryKey: ['auto-topup-settings'] });
+            queryClient.invalidateQueries({ queryKey: ['accountState'] });
+            setDirty(false);
+            toast.success('Auto top-up settings saved');
+        } catch (err: any) {
+            toast.error(err?.message || 'Failed to update auto-topup');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Auto Top-up</DialogTitle>
+                    <DialogDescription>
+                        Automatically purchase credits when your balance gets low.
+                    </DialogDescription>
+                </DialogHeader>
+
+                {isLoading ? (
+                    <div className="flex items-center justify-center py-6">
+                        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        {/* Toggle */}
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <Zap className="size-4 text-muted-foreground" />
+                                <span className="text-sm font-medium">Enable auto top-up</span>
+                            </div>
+                            <Switch checked={enabled} onCheckedChange={(v) => { setEnabled(v); setDirty(true); }} />
+                        </div>
+
+                        {enabled && (
+                            <div className="space-y-4 animate-in fade-in slide-in-from-top-1 duration-150">
+                                {/* Threshold */}
+                                <div>
+                                    <label className="text-sm text-muted-foreground block mb-1.5">When balance drops below</label>
+                                    <div className="relative">
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            step={1}
+                                            value={threshold}
+                                            onChange={(e) => { setThreshold(e.target.value); setDirty(true); }}
+                                            className="w-full h-10 rounded-lg border border-border bg-background pl-7 pr-3 text-sm tabular-nums text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-foreground transition-colors"
+                                            placeholder="5"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Amount */}
+                                <div>
+                                    <label className="text-sm text-muted-foreground block mb-1.5">Automatically purchase</label>
+                                    <div className="relative">
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            step={1}
+                                            value={amount}
+                                            onChange={(e) => { setAmount(e.target.value); setDirty(true); }}
+                                            className="w-full h-10 rounded-lg border border-border bg-background pl-7 pr-3 text-sm tabular-nums text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-foreground transition-colors"
+                                            placeholder="20"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Save */}
+                        <Button
+                            className="w-full"
+                            disabled={saving || !dirty}
+                            onClick={handleSave}
+                        >
+                            {saving ? <><Loader2 className="size-4 animate-spin mr-2" /> Saving...</> : 'Save'}
+                        </Button>
+                    </div>
+                )}
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+// ─── Credit Balance Display ─────────────────────────────────────────────────
 
 export function CreditBalanceDisplay({ balance, canPurchase, onPurchaseClick }: {
     balance: number;
@@ -211,11 +299,7 @@ export function CreditBalanceDisplay({ balance, canPurchase, onPurchaseClick }: 
                 <CardTitle className="text-sm font-medium flex items-center justify-between">
                     <span>Credit Balance</span>
                     {canPurchase && onPurchaseClick && (
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={onPurchaseClick}
-                        >
+                        <Button size="sm" variant="outline" onClick={onPurchaseClick}>
                             Add Credits
                         </Button>
                     )}

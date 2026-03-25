@@ -1,7 +1,7 @@
 import { eq, and, ne } from 'drizzle-orm';
 import { sandboxes } from '@kortix/db';
 import { db } from '../shared/db';
-import { getSandboxBaseUrl } from '../daytona-proxy/routes/local-preview';
+import { getSandboxBaseUrl } from '../sandbox-proxy/routes/local-preview';
 import { getDaytona, isDaytonaConfigured } from '../shared/daytona';
 import { config } from '../config';
 import type { TransformedSession, TransformedMessage, TransformedPart } from './types';
@@ -12,11 +12,12 @@ export async function writeSessionToSandbox(
   messages: TransformedMessage[],
   parts: TransformedPart[],
 ): Promise<string> {
-  const { baseUrl, serviceKey, previewToken } = await resolveSandboxEndpoint(sandboxExternalId);
+  const { baseUrl, serviceKey, previewToken, proxyToken } = await resolveSandboxEndpoint(sandboxExternalId);
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(serviceKey ? { 'Authorization': `Bearer ${serviceKey}` } : {}),
     ...(previewToken ? { 'X-Daytona-Preview-Token': previewToken } : {}),
+    ...(proxyToken ? { 'X-Proxy-Token': proxyToken } : {}),
     'X-Daytona-Skip-Preview-Warning': 'true',
   };
 
@@ -96,7 +97,7 @@ async function executeMigrationSQL(
   }
 }
 
-async function resolveSandboxEndpoint(externalId: string): Promise<{ baseUrl: string; serviceKey: string; previewToken?: string }> {
+export async function resolveSandboxEndpoint(externalId: string): Promise<{ baseUrl: string; serviceKey: string; previewToken?: string; proxyToken?: string }> {
   try {
     const [sandbox] = await db
       .select({ provider: sandboxes.provider, baseUrl: sandboxes.baseUrl, config: sandboxes.config })
@@ -124,6 +125,32 @@ async function resolveSandboxEndpoint(externalId: string): Promise<{ baseUrl: st
           return { baseUrl: previewUrl, serviceKey, previewToken };
         } catch (err) {
           console.warn('[legacy] Daytona preview link failed, using DB baseUrl:', err);
+        }
+      }
+
+      // Non-Daytona sandboxes: resolve the correct proxy URL.
+      // JustAVPS routes through CF Worker; Hetzner/local use baseUrl directly.
+      if (sandbox.provider === 'justavps') {
+        const metaJson = (sandbox.config || {}) as Record<string, unknown>;
+        // metadata is a separate column — re-query for it
+        const [meta] = await db
+          .select({ metadata: sandboxes.metadata })
+          .from(sandboxes)
+          .where(eq(sandboxes.externalId, externalId))
+          .limit(1);
+        const metadata = (meta?.metadata || {}) as Record<string, unknown>;
+        const slug = typeof metadata.justavpsSlug === 'string' ? metadata.justavpsSlug : '';
+        const proxyToken = typeof metadata.justavpsProxyToken === 'string' ? metadata.justavpsProxyToken : '';
+        const proxyDomain = config.JUSTAVPS_PROXY_DOMAIN;
+
+        if (slug && proxyDomain) {
+          const cfProxyUrl = `https://8000--${slug}.${proxyDomain}`;
+          console.log('[legacy] Using JustAVPS CF proxy for', externalId);
+          return {
+            baseUrl: cfProxyUrl,
+            serviceKey,
+            proxyToken: proxyToken || undefined,
+          };
         }
       }
 

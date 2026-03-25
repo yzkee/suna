@@ -21,8 +21,6 @@ export interface SubscriptionTiers {
 // Configuration object
 interface Config {
   SUBSCRIPTION_TIERS: SubscriptionTiers;
-  /** Whether billing/payments are enabled (Stripe, credit tracking, etc.) */
-  BILLING_ENABLED: boolean;
 }
 
 // Tier keys - single source, no environment-specific price IDs
@@ -68,25 +66,19 @@ const TIERS: SubscriptionTiers = {
 
 export const config: Config = {
   SUBSCRIPTION_TIERS: TIERS,
-  BILLING_ENABLED: getEnv().BILLING_ENABLED === 'true',
 };
 
 /**
- * Whether billing (Stripe, credit tracking, download restrictions) is enabled.
- * Self-hosted deployments set NEXT_PUBLIC_BILLING_ENABLED=false (or omit it)
- * to disable all billing UI and restrictions. Defaults to false.
+ * Whether billing (Stripe, credit tracking) is enabled.
+ * True when ENV_MODE is 'cloud'. Self-hosted = everything else.
  */
 export const isBillingEnabled = (): boolean => {
-  return getEnv().BILLING_ENABLED === 'true';
+  return getEnv().ENV_MODE === 'cloud';
 };
 
 /**
  * Whether this is a self-hosted deployment.
  * Self-hosted mode uses email+password auth (no magic links, no OAuth).
- * The first user to sign up becomes the owner.
- *
- * Determined by ENV_MODE: 'cloud' = not self-hosted, anything else = self-hosted.
- * Falls back to billing check for backward compatibility.
  */
 export const isSelfHosted = (): boolean => {
   return !isBillingEnabled();

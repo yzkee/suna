@@ -106,7 +106,10 @@ export interface AccountState {
     server_type: string | null;
     location: string | null;
     is_included: boolean;
+    stripe_subscription_id: string | null;
     stripe_subscription_item_id: string | null;
+    cancel_at_period_end?: boolean;
+    cancel_at?: string | null;
     created_at: string;
   }>;
   can_add_instances?: boolean;
@@ -140,7 +143,11 @@ export interface CreateCheckoutSessionRequest {
   cancel_url: string;
   referral_id?: string;
   commitment_type?: 'monthly' | 'yearly' | 'yearly_commitment';
-  locale?: string; // Locale for Stripe adaptive pricing (e.g., 'en', 'de', 'fr', 'es', 'it')
+  locale?: string;
+  /** Instance provisioning: managed VPS server type (e.g. 'cpx21') */
+  server_type?: string;
+  /** Instance provisioning: managed VPS location (e.g. 'nbg1') */
+  location?: string;
 }
 
 export interface CreateCheckoutSessionResponse {
@@ -148,6 +155,7 @@ export interface CreateCheckoutSessionResponse {
     | 'upgraded'
     | 'downgrade_scheduled'
     | 'checkout_created'
+    | 'subscription_created'
     | 'no_change'
     | 'new'
     | 'updated'
@@ -317,6 +325,71 @@ export interface CheckoutSessionDetails {
   payment_status: string;
 }
 
+function getDefaultAccountState(): AccountState {
+  return {
+    credits: {
+      total: 0,
+      daily: 0,
+      monthly: 0,
+      extra: 0,
+      can_run: false,
+      daily_refresh: null,
+    },
+    subscription: {
+      tier_key: 'none',
+      tier_display_name: 'No Plan',
+      status: 'no_subscription',
+      billing_period: null,
+      provider: 'stripe',
+      subscription_id: null,
+      current_period_end: null,
+      cancel_at_period_end: false,
+      is_trial: false,
+      trial_status: null,
+      trial_ends_at: null,
+      is_cancelled: false,
+      cancellation_effective_date: null,
+      has_scheduled_change: false,
+      scheduled_change: null,
+      commitment: {
+        has_commitment: false,
+        can_cancel: true,
+        commitment_type: null,
+        months_remaining: null,
+        commitment_end_date: null,
+      },
+      can_purchase_credits: false,
+    },
+    models: [],
+    limits: {
+      concurrent_runs: {
+        running_count: 0,
+        limit: 0,
+        can_start: false,
+        tier_name: 'none'
+      },
+      ai_worker_count: {
+        current_count: 0,
+        limit: 0,
+        can_create: false,
+        tier_name: 'none'
+      },
+      custom_mcp_count: {
+        current_count: 0,
+        limit: 0,
+        can_create: false,
+        tier_name: 'none'
+      },
+    },
+    tier: {
+      name: 'none',
+      display_name: 'No Plan',
+      monthly_credits: 0,
+      can_purchase_credits: false,
+    },
+  };
+}
+
 // =============================================================================
 // BILLING API
 // =============================================================================
@@ -331,73 +404,13 @@ export const billingApi = {
     const response = await backendApi.get<AccountState>(`/billing/account-state${params}`, {
       showErrors: false,
     });
-    if (response.error && response.error.status !== 401) {
+    const isGracefulDisabledResponse = response.error?.status === 404
+      && /billing is not enabled/i.test(response.error.message || '');
+    if (response.error && response.error.status !== 401 && !isGracefulDisabledResponse) {
       throw response.error;
     }
     if (response.error) {
-      // Return default state for unauthenticated users
-      return {
-        credits: {
-          total: 0,
-          daily: 0,
-          monthly: 0,
-          extra: 0,
-          can_run: false,
-          daily_refresh: null,
-        },
-        subscription: {
-          tier_key: 'none',
-          tier_display_name: 'No Plan',
-          status: 'no_subscription',
-          billing_period: null,
-          provider: 'stripe',
-          subscription_id: null,
-          current_period_end: null,
-          cancel_at_period_end: false,
-          is_trial: false,
-          trial_status: null,
-          trial_ends_at: null,
-          is_cancelled: false,
-          cancellation_effective_date: null,
-          has_scheduled_change: false,
-          scheduled_change: null,
-          commitment: {
-            has_commitment: false,
-            can_cancel: true,
-            commitment_type: null,
-            months_remaining: null,
-            commitment_end_date: null,
-          },
-          can_purchase_credits: false,
-        },
-        models: [],
-        limits: {
-          concurrent_runs: {
-            running_count: 0,
-            limit: 0,
-            can_start: false,
-            tier_name: 'none'
-          },
-          ai_worker_count: {
-            current_count: 0,
-            limit: 0,
-            can_create: false,
-            tier_name: 'none'
-          },
-          custom_mcp_count: {
-            current_count: 0,
-            limit: 0,
-            can_create: false,
-            tier_name: 'none'
-          },
-        },
-        tier: {
-          name: 'none',
-          display_name: 'No Plan',
-          monthly_credits: 0,
-          can_purchase_credits: false,
-        },
-      };
+      return getDefaultAccountState();
     }
     return response.data!;
   },
@@ -708,8 +721,6 @@ export interface ServerType {
   location: string;
 }
 
-export type HetznerServerType = ServerType & { priceHourly: number };
-
 export interface ServerTypesResponse {
   serverTypes: ServerType[];
   location: string;
@@ -722,26 +733,23 @@ export async function getServerTypes(location?: string): Promise<ServerTypesResp
   const response = await backendApi.get<ServerTypesResponse>(
     `/platform/sandbox/justavps/server-types${params}`
   );
-  if (response.error) throw response.error;
-  return response.data!;
-}
-
-export async function getHetznerServerTypes(location?: string): Promise<{ serverTypes: HetznerServerType[]; location: string }> {
-  const params = location ? `?location=${location}` : '';
-  const response = await backendApi.get<{ serverTypes: HetznerServerType[]; location: string }>(
-    `/platform/sandbox/hetzner/server-types${params}`
-  );
-  if (response.error) throw response.error;
+  if (response.error) {
+    if (response.error.status === 404 && /justavps provider is not enabled/i.test(response.error.message || '')) {
+      return {
+        serverTypes: [],
+        location: location || 'hel1',
+      };
+    }
+    throw response.error;
+  }
   return response.data!;
 }
 
 export interface CreateInstanceRequest {
-  provider: 'hetzner' | 'justavps';
+  provider: 'justavps';
   serverType?: string;
-  hetznerServerType?: string;
   location?: string;
   name?: string;
-  isIncluded?: boolean;
   backgroundProvisioning?: boolean;
 }
 

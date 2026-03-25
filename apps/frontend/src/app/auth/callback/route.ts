@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getServerPublicEnv } from '@/lib/public-env-server'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { ACTIVE_INSTANCE_COOKIE } from '@/lib/instance-routes'
 
 /**
  * Auth Callback Route - Web Handler
@@ -18,7 +19,9 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get('code')
   const token = searchParams.get('token') // Supabase verification token
   const type = searchParams.get('type') // signup, recovery, etc.
-  const next = searchParams.get('returnUrl') || searchParams.get('redirect') || '/dashboard'
+  const rawNext = searchParams.get('returnUrl') || searchParams.get('redirect') || '/instances'
+  // Normalize stale instance-specific URLs to /instances so users pick fresh
+  const next = rawNext.match(/^\/instances\/[^/]+/) ? '/instances' : rawNext
   const termsAccepted = searchParams.get('terms_accepted') === 'true'
   const email = searchParams.get('email') || '' // Email passed from magic link redirect URL
   const runtimeEnv = getServerPublicEnv()
@@ -156,7 +159,7 @@ export async function GET(request: NextRequest) {
         const { data: sessionData } = await supabase.auth.getSession();
         const accessToken = sessionData?.session?.access_token;
 
-        const billingEnabled = runtimeEnv.BILLING_ENABLED === 'true';
+        const billingEnabled = runtimeEnv.ENV_MODE === 'cloud';
         if (billingEnabled && backendUrl && accessToken) {
           try {
             const accountStateRes = await fetch(`${backendUrl}/v1/billing/account-state`, {
@@ -190,6 +193,9 @@ export async function GET(request: NextRequest) {
       redirectUrl.searchParams.set('auth_event', authEvent)
       redirectUrl.searchParams.set('auth_method', authMethod)
       const response = NextResponse.redirect(redirectUrl)
+
+      // Clear stale instance cookie so user picks a fresh instance after login
+      response.cookies.set(ACTIVE_INSTANCE_COOKIE, '', { maxAge: 0, path: '/' })
 
       // Clear referral cookie if it was processed
       if (shouldClearReferralCookie) {

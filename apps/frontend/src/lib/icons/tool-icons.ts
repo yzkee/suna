@@ -3,6 +3,7 @@
  * Uses shared icon keys but resolves to actual React components
  */
 
+import type React from 'react';
 import type { ElementType } from 'react';
 import { getToolIconKey } from '@kortix/shared';
 import type { ToolIconKey } from '@kortix/shared';
@@ -75,9 +76,9 @@ const ICON_MAP: Record<ToolIconKey, ElementType> = {
  * @param toolName - The tool name
  * @returns The React component for the icon
  */
-export function getToolIcon(toolName: string): ElementType {
+export function getToolIcon(toolName: string): React.ComponentType<{ className?: string }> {
   const key = getToolIconKey(toolName);
-  return ICON_MAP[key] ?? Wrench;
+  return (ICON_MAP[key] ?? Wrench) as React.ComponentType<{ className?: string }>;
 }
 
 // Re-export the icon key function for type checking

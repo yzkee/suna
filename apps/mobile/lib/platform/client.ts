@@ -24,7 +24,7 @@ export const SANDBOX_PORTS = {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type SandboxProviderName = 'daytona' | 'local_docker' | 'hetzner';
+export type SandboxProviderName = 'daytona' | 'local_docker' | 'justavps';
 
 export interface SandboxInfo {
   sandbox_id: string;

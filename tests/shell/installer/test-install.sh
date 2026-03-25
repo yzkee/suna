@@ -160,7 +160,7 @@ else
   fail "has secret generation function"
 fi
 
-if grep -q 'API_KEY_SECRET' "$SCRIPT" && grep -q 'CHANNELS_CREDENTIAL_KEY' "$SCRIPT"; then
+if grep -q 'API_KEY_SECRET' "$SCRIPT" && grep -q 'INTERNAL_SERVICE_KEY' "$SCRIPT"; then
   pass "generates service secrets for local install"
 else
   fail "generates service secrets for local install"

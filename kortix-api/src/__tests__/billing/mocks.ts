@@ -29,6 +29,8 @@ export const mockRegistry = {
   grantCredits: null as ((...args: any[]) => Promise<void>) | null,
   resetExpiringCredits: null as ((...args: any[]) => Promise<void>) | null,
 
+  provisionSandboxFromCheckout: null as ((...args: any[]) => Promise<any>) | null,
+
   getActiveDeletionRequest: null as ((id: string) => Promise<any>) | null,
   createDeletionRequest: null as ((...args: any[]) => Promise<any>) | null,
   cancelDeletionRequest: null as ((id: string) => Promise<void>) | null,
@@ -117,6 +119,11 @@ export function registerGlobalMocks() {
   // Other billing test files that need to stub grantCredits/resetExpiringCredits
   // should call registerCreditsMock() separately.
 
+
+  mock.module('../../platform/services/sandbox-provisioner', () => ({
+    provisionSandboxFromCheckout: async (...args: any[]) =>
+      mockRegistry.provisionSandboxFromCheckout ? mockRegistry.provisionSandboxFromCheckout(...args) : undefined,
+  }));
 
   mock.module('../../billing/repositories/account-deletion', () => ({
     getActiveDeletionRequest: async (id: string) =>

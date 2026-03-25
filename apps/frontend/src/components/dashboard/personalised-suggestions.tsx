@@ -50,7 +50,7 @@ interface SuggestionsResponse {
 // Icon map
 // ============================================================================
 
-const iconMap: Record<string, React.ElementType> = {
+const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   code: Code2,
   search: Search,
   git: GitBranch,

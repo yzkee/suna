@@ -1,68 +1,36 @@
 'use client';
 
-import { Suspense, useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { PricingSection } from '@/components/billing/pricing';
-import { Skeleton } from '@/components/ui/skeleton';
+import { useNewInstanceModalStore } from '@/stores/pricing-modal-store';
 import { CreditsExplainedModal } from '@/components/billing/credits-explained-modal';
-
-function PricingSkeleton() {
-  return (
-    <div className="w-full max-w-6xl mx-auto px-6">
-      <div className="grid md:grid-cols-4 gap-6">
-        <Skeleton className="h-96 w-full rounded-2xl" />
-        <Skeleton className="h-96 w-full rounded-2xl col-span-3" />
-      </div>
-    </div>
-  );
-}
+import { Button } from '@/components/ui/button';
+import { ArrowRight } from 'lucide-react';
 
 export default function PricingPage() {
   const [creditsModalOpen, setCreditsModalOpen] = useState(false);
-
-  // Intercept clicks on the credits-explained link
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      const link = target.closest('a[href*="credits-explained"]');
-      if (link) {
-        e.preventDefault();
-        e.stopPropagation();
-        setCreditsModalOpen(true);
-      }
-    };
-
-    document.addEventListener('click', handleClick, true);
-    return () => document.removeEventListener('click', handleClick, true);
-  }, []);
+  const openNewInstanceModal = useNewInstanceModalStore((s) => s.openNewInstanceModal);
 
   return (
     <main className="min-h-screen bg-background">
       <article className="max-w-4xl mx-auto px-6 md:px-10 pt-24 md:pt-28 pb-16">
-        {/* Pricing Section */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
-          className="[&_#pricing]:scale-100 [&_.max-w-6xl]:max-w-full [&_.border-dashed]:hidden [&_#pricing>div]:px-0 [&_#pricing>div>div:first-child]:mb-2"
+          transition={{ duration: 0.5 }}
+          className="text-center space-y-6"
         >
-          <Suspense fallback={<PricingSkeleton />}>
-            <PricingSection
-              returnUrl={typeof window !== 'undefined' ? window.location.href : '/pricing'}
-              showTitleAndTabs={true}
-              customTitle="Choose your plan"
-            />
-          </Suspense>
+          <h1 className="text-4xl font-semibold tracking-tight">Simple pricing</h1>
+          <p className="text-muted-foreground/60 text-lg max-w-xl mx-auto">
+            One machine, one subscription. Priced by the specs you need.
+          </p>
+          <Button size="lg" className="h-12 px-10 rounded-xl" onClick={() => openNewInstanceModal()}>
+            Get Your Kortix <ArrowRight className="ml-2 size-4" />
+          </Button>
         </motion.div>
 
-        {/* Credits Explained Modal */}
-        <CreditsExplainedModal
-          open={creditsModalOpen}
-          onOpenChange={setCreditsModalOpen}
-        />
-
+        <CreditsExplainedModal open={creditsModalOpen} onOpenChange={setCreditsModalOpen} />
       </article>
-
     </main>
   );
 }

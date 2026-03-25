@@ -54,9 +54,8 @@ import {
 } from '@/hooks/account/use-account-deletion';
 import { AccountState } from '@/lib/api/billing';
 import { useAuth } from '@/components/AuthProvider';
-import { PlanSelectionModal, PricingSection } from '@/components/billing/pricing';
-import { CreditBalanceDisplay, CreditPurchaseModal } from '@/components/billing/credit-purchase';
-import { ScheduledDowngradeCard } from '@/components/billing/scheduled-downgrade-card';
+import { useNewInstanceModalStore } from '@/stores/pricing-modal-store';
+import { CreditBalanceDisplay, CreditPurchaseModal, AutoTopupModal } from '@/components/billing/credit-purchase';
 import { 
     useAccountState,
     accountStateKeys,
@@ -86,14 +85,13 @@ import {
     Plus,
 } from 'lucide-react';
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
-import { getPlanName, getPlanIcon } from '../billing/plan-utils';
-import { TierBadge } from '../billing/tier-badge';
-import { siteConfig } from '@/lib/site-config';
+
+import { cancelSandbox, reactivateSandbox } from '@/lib/platform-client';
 
 import { formatCredits } from '@kortix/shared';
 import { LanguageSwitcher } from './language-switcher';
 import { useTranslations } from 'next-intl';
-import { ReferralsTab } from '@/components/referrals/referrals-tab';
+// import { ReferralsTab } from '@/components/referrals/referrals-tab';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Keyboard, CheckCircle2, HelpCircle, ShieldCheck, Volume2, EyeOff, Globe } from 'lucide-react';
 import CreditTransactions from '@/components/billing/credit-transactions';
@@ -115,7 +113,7 @@ type TabId = SettingsTabId;
 interface Tab {
     id: TabId;
     label: string;
-    icon: React.ElementType;
+    icon: React.ComponentType<{ className?: string }>;
     disabled?: boolean;
 }
 
@@ -135,7 +133,6 @@ export function UserSettingsModal({
     const router = useRouter();
     const isMobile = useIsMobile();
     const [activeTab, setActiveTab] = useState<TabId>(defaultTab);
-    const [showPlanModal, setShowPlanModal] = useState(false);
     const billingActive = isBillingEnabled();
 
     // Tab definitions from the central menu registry (single source of truth)
@@ -155,11 +152,7 @@ export function UserSettingsModal({
     }, [defaultTab]);
 
     const handleTabClick = (tabId: TabId) => {
-        if (tabId === 'plan') {
-            setShowPlanModal(true);
-        } else {
-            setActiveTab(tabId);
-        }
+        setActiveTab(tabId);
     };
 
     return (
@@ -228,9 +221,9 @@ export function UserSettingsModal({
                                 {activeTab === 'sounds' && <SoundsTab />}
                                 {activeTab === 'notifications' && <NotificationsTab />}
                                 {activeTab === 'shortcuts' && <KeyboardShortcutsTab />}
-                                {activeTab === 'billing' && <BillingTab returnUrl={returnUrl} onOpenPlanModal={() => setShowPlanModal(true)} isActive={activeTab === 'billing'} />}
+                                {activeTab === 'billing' && <BillingTab returnUrl={returnUrl} isActive={activeTab === 'billing'} />}
                                 {activeTab === 'transactions' && <TransactionsTab />}
-                                {activeTab === 'referrals' && <ReferralsTab isActive={open && activeTab === 'referrals'} />}
+                                {/* {activeTab === 'referrals' && <ReferralsTab isActive={open && activeTab === 'referrals'} />} */}
                             </div>
                         </div>
                     </div>
@@ -292,19 +285,14 @@ export function UserSettingsModal({
                             {activeTab === 'sounds' && <SoundsTab />}
                             {activeTab === 'notifications' && <NotificationsTab />}
                             {activeTab === 'shortcuts' && <KeyboardShortcutsTab />}
-                            {activeTab === 'billing' && <BillingTab returnUrl={returnUrl} onOpenPlanModal={() => setShowPlanModal(true)} isActive={activeTab === 'billing'} />}
+                            {activeTab === 'billing' && <BillingTab returnUrl={returnUrl} isActive={activeTab === 'billing'} />}
                             {activeTab === 'transactions' && <TransactionsTab />}
-                            {activeTab === 'referrals' && <ReferralsTab isActive={open && activeTab === 'referrals'} />}
+                            {/* {activeTab === 'referrals' && <ReferralsTab isActive={open && activeTab === 'referrals'} />} */}
                         </div>
                     </div>
                 )}
 
-                {/* Full-screen Plan Selection Modal */}
-                <PlanSelectionModal
-                    open={showPlanModal}
-                    onOpenChange={setShowPlanModal}
-                    returnUrl={returnUrl}
-                />
+
             </DialogContent>
         </Dialog>
     );
@@ -1131,7 +1119,7 @@ function NotificationsTab() {
 }
 
 interface NotificationToggleProps {
-    icon: React.ElementType;
+    icon: React.ComponentType<{ className?: string }>;
     label: string;
     description: string;
     enabled: boolean;
@@ -1164,306 +1152,96 @@ function NotificationToggle({ icon: Icon, label, description, enabled, onToggle,
 }
 
 // Billing Tab Component - Usage, credits, subscription management
-// ─── Auto-Topup Section ──────────────────────────────────────────────────────
-
-function AutoTopupSection({ accountState, onRefetch }: { accountState: any; onRefetch: () => void }) {
-    const autoTopup = accountState?.auto_topup;
-    const [enabled, setEnabled] = useState(autoTopup?.enabled ?? false);
-    const [threshold, setThreshold] = useState(String(autoTopup?.threshold ?? 5));
-    const [amount, setAmount] = useState(String(autoTopup?.amount ?? 15));
-    const [saving, setSaving] = useState(false);
-    const [openingPortal, setOpeningPortal] = useState(false);
-    const [hasPaymentMethod, setHasPaymentMethod] = useState<boolean | null>(null);
-    const [hasDefaultPaymentMethod, setHasDefaultPaymentMethod] = useState<boolean | null>(null);
-    const [error, setError] = useState<string | null>(null);
-    const [success, setSuccess] = useState(false);
-
-    // Sync from server
-    useEffect(() => {
-        if (autoTopup) {
-            setEnabled(autoTopup.enabled);
-            setThreshold(String(autoTopup.threshold));
-            setAmount(String(autoTopup.amount));
-        }
-    }, [autoTopup]);
-
-    useEffect(() => {
-        let active = true;
-        const loadSetupStatus = async () => {
-            try {
-                const { getAutoTopupSetupStatus } = await import('@/lib/api/billing');
-                const status = await getAutoTopupSetupStatus();
-                if (active) {
-                    setHasPaymentMethod(status.has_payment_method);
-                    setHasDefaultPaymentMethod(status.has_default_payment_method);
-                }
-            } catch {
-                if (active) {
-                    setHasPaymentMethod(null);
-                    setHasDefaultPaymentMethod(null);
-                }
-            }
-        };
-        loadSetupStatus();
-        return () => {
-            active = false;
-        };
-    }, []);
-
-    const handleSetupDefaultPaymentMethod = async () => {
-        setError(null);
-        setOpeningPortal(true);
-        try {
-            const { createPortalSession } = await import('@/lib/api/billing');
-            const { portal_url } = await createPortalSession({
-                return_url: typeof window !== 'undefined' ? window.location.href : '/',
-            });
-            if (typeof window !== 'undefined') {
-                window.location.href = portal_url;
-            }
-        } catch (err: any) {
-            setError(err?.message ?? 'Failed to open billing portal');
-            setOpeningPortal(false);
-        }
-    };
-
-    const handleSave = async () => {
-        setError(null);
-        setSuccess(false);
-        const t = Number(threshold);
-        const a = Number(amount);
-        if (enabled) {
-            if (t < 5) { setError('Threshold must be at least $5'); return; }
-            if (a < 15) { setError('Reload amount must be at least $15'); return; }
-            if (a < t * 2) { setError(`Reload amount must be at least 2x threshold ($${t * 2})`); return; }
-        }
-        setSaving(true);
-        try {
-            const { configureAutoTopup } = await import('@/lib/api/billing');
-            await configureAutoTopup({ enabled, threshold: t, amount: a });
-            setSuccess(true);
-            onRefetch();
-            setTimeout(() => setSuccess(false), 2000);
-        } catch (err: any) {
-            setError(err?.message ?? 'Failed to save');
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    return (
-        <div className="space-y-3 pt-6 border-t border-border/50">
-            <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium">Auto Credit Top-up</h3>
-                <label className="flex items-center gap-2 cursor-pointer">
-                    <span className="text-xs text-muted-foreground">{enabled ? 'On' : 'Off'}</span>
-                    <input
-                        type="checkbox"
-                        checked={enabled}
-                        onChange={(e) => setEnabled(e.target.checked)}
-                        className="w-4 h-4 rounded border-border"
-                    />
-                </label>
-            </div>
-            {enabled && (
-                <div className="space-y-3 pl-0">
-                    {hasPaymentMethod === false && (
-                        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
-                            <p className="text-xs text-amber-200">
-                                No saved payment method found. Add a card to enable auto top-up charges.
-                            </p>
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                className="mt-2"
-                                onClick={handleSetupDefaultPaymentMethod}
-                                disabled={openingPortal}
-                            >
-                                {openingPortal ? 'Opening billing portal...' : 'Set up default payment method'}
-                            </Button>
-                        </div>
-                    )}
-                    {hasPaymentMethod === true && hasDefaultPaymentMethod === false && (
-                        <div className="rounded-md border border-border bg-muted/30 p-3">
-                            <p className="text-xs text-muted-foreground">
-                                You have a saved card. Optional: set a default payment method for predictable auto top-up charges.
-                            </p>
-                            <Button
-                                size="sm"
-                                variant="ghost"
-                                className="mt-2 h-7 px-2"
-                                onClick={handleSetupDefaultPaymentMethod}
-                                disabled={openingPortal}
-                            >
-                                {openingPortal ? 'Opening billing portal...' : 'Set default payment method'}
-                            </Button>
-                        </div>
-                    )}
-                    <div>
-                        <label className="text-xs text-muted-foreground block mb-1">
-                            When credit balance goes below (minimum $5)
-                        </label>
-                        <div className="flex items-center gap-1">
-                            <span className="text-sm text-muted-foreground">$</span>
-                            <input
-                                type="number"
-                                min={5}
-                                value={threshold}
-                                onChange={(e) => setThreshold(e.target.value)}
-                                className="w-24 h-8 rounded border border-border bg-background px-2 text-sm"
-                            />
-                        </div>
-                    </div>
-                    <div>
-                        <label className="text-xs text-muted-foreground block mb-1">
-                            Reload amount (minimum $15)
-                        </label>
-                        <div className="flex items-center gap-1">
-                            <span className="text-sm text-muted-foreground">$</span>
-                            <input
-                                type="number"
-                                min={15}
-                                value={amount}
-                                onChange={(e) => setAmount(e.target.value)}
-                                className="w-24 h-8 rounded border border-border bg-background px-2 text-sm"
-                            />
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-1">
-                            If your current balance is already at or below the threshold, you will be charged immediately.
-                        </p>
-                    </div>
-                    {error && <p className="text-xs text-destructive">{error}</p>}
-                    {success && <p className="text-xs text-green-500">Saved!</p>}
-                </div>
-            )}
-            <Button
-                size="sm"
-                variant="outline"
-                onClick={handleSave}
-                disabled={saving || (enabled && hasPaymentMethod === false)}
-                className="w-full sm:w-auto"
-            >
-                {saving ? 'Saving...' : 'Save Auto Top-up Settings'}
-            </Button>
-        </div>
-    );
-}
-
 // ─── Instances Section ───────────────────────────────────────────────────────
 
 function InstancesSection({ accountState, onRefetch }: { accountState: any; onRefetch: () => void }) {
     const instances = accountState?.instances ?? [];
     const canAddInstances = accountState?.can_add_instances ?? false;
-    const [deleting, setDeleting] = useState<string | null>(null);
+    const [loading, setLoading] = useState<string | null>(null);
     const { servers, activeServerId, setActiveServer } = useServerStore();
 
-    const handleDelete = async (sandboxId: string) => {
-        if (!confirm('Are you sure you want to delete this instance? This cannot be undone.')) return;
-        setDeleting(sandboxId);
-        try {
-            const { deleteInstance } = await import('@/lib/api/billing');
-            await deleteInstance(sandboxId);
-            onRefetch();
-        } catch (err) {
-            console.error('Failed to delete instance:', err);
-        } finally {
-            setDeleting(null);
-        }
+    const handleCancel = async (sandboxId: string) => {
+        setLoading(sandboxId);
+        try { await cancelSandbox(sandboxId); onRefetch(); }
+        catch (err) { console.error('Failed to cancel:', err); }
+        finally { setLoading(null); }
+    };
+
+    const handleReactivate = async (sandboxId: string) => {
+        setLoading(sandboxId);
+        try { await reactivateSandbox(sandboxId); onRefetch(); }
+        catch (err) { console.error('Failed to reactivate:', err); }
+        finally { setLoading(null); }
     };
 
     const handleSwitch = (inst: any) => {
-        // Find the server entry in the store that corresponds to this sandbox's external_id
-        // The store uses external_id (Hetzner server ID) as sandboxId
         const entry = servers.find((s) => s.sandboxId === inst.external_id);
-        if (entry) {
-            setActiveServer(entry.id);
-        }
+        if (entry) setActiveServer(entry.id);
     };
 
     return (
-        <div className="space-y-3 pt-6 border-t border-border/50">
+        <div className="border-t border-border pt-4 space-y-3">
             <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium">Instances</h3>
+                <p className="text-xs uppercase tracking-widest text-muted-foreground">Instances</p>
                 {canAddInstances && (
                     <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => {
-                            window.dispatchEvent(new CustomEvent('open-add-instance-dialog'));
-                        }}
+                        className="h-7 text-xs"
+                        onClick={() => window.location.href = '/instances'}
                     >
-                        <Plus className="h-3.5 w-3.5 mr-1" />
-                        Add Instance
+                        <Plus className="size-3 mr-1" />
+                        New Kortix
                     </Button>
                 )}
             </div>
             {instances.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No instances. {canAddInstances ? 'Click "Add Instance" to create one.' : 'Upgrade to Pro to get a cloud instance.'}</p>
+                <p className="text-xs text-muted-foreground">No instances yet.</p>
             ) : (
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                     {instances.map((inst: any) => {
                         const serverEntry = servers.find((s) => s.sandboxId === inst.external_id);
                         const isActive = serverEntry ? activeServerId === serverEntry.id : false;
+                        const hasSub = Boolean(inst.stripe_subscription_id || inst.stripe_subscription_item_id);
+                        const isCancelling = inst.cancel_at_period_end;
                         return (
-                            <div key={inst.sandbox_id} className={`flex items-center justify-between p-3 rounded-lg border bg-card transition-colors ${isActive ? 'border-primary/40 bg-primary/[0.03]' : 'border-border'}`}>
-                                <div className="space-y-0.5">
+                            <div key={inst.sandbox_id} className={cn(
+                                'flex items-center justify-between py-2.5 px-3 rounded-lg border transition-colors',
+                                isActive ? 'border-foreground/15 bg-foreground/[0.02]' : 'border-border',
+                            )}>
+                                <div className="min-w-0">
                                     <div className="flex items-center gap-2">
-                                        <span className="text-sm font-medium">{inst.name}</span>
-                                        {inst.is_included && (
-                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">Included</span>
+                                        <span className="text-sm font-medium truncate">{inst.name}</span>
+                                        {isCancelling && (
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-600 dark:text-red-400 font-medium shrink-0">Cancelling</span>
                                         )}
-                                        {isActive && (
-                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-600 font-medium">Active</span>
-                                        )}
-                                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                                            inst.status === 'active' ? 'bg-green-500/10 text-green-500' :
-                                            inst.status === 'provisioning' ? 'bg-yellow-500/10 text-yellow-500' :
-                                            inst.status === 'error' ? 'bg-destructive/10 text-destructive' :
-                                            'bg-muted text-muted-foreground'
-                                        }`}>
-                                            {inst.status}
-                                        </span>
                                     </div>
-                                    <div className="text-xs text-muted-foreground">
-                                        {inst.server_type && <span>{inst.server_type}</span>}
-                                        {inst.location && <span> / {inst.location}</span>}
-                                    </div>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                        {inst.server_type}{inst.location ? ` · ${inst.location}` : ''}
+                                    </p>
                                     {inst.status === 'error' && inst.error_message && (
-                                        <div className="text-xs text-destructive mt-1">
-                                            {inst.error_message}
-                                        </div>
+                                        <p className="text-xs text-destructive mt-1">{inst.error_message}</p>
                                     )}
                                 </div>
-                                <div className="flex items-center gap-1.5">
+                                <div className="flex items-center gap-1.5 shrink-0 ml-3">
                                     {inst.status === 'active' && !isActive && serverEntry && (
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            className="h-7 px-2 text-xs"
-                                            onClick={() => handleSwitch(inst)}
-                                        >
+                                        <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={() => handleSwitch(inst)}>
                                             Switch
                                         </Button>
                                     )}
                                     {inst.status === 'error' && (
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            className="h-7 px-2 text-xs"
-                                            onClick={() => window.dispatchEvent(new CustomEvent('open-add-instance-dialog'))}
-                                        >
+                                        <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={() => useNewInstanceModalStore.getState().openNewInstanceModal()}>
                                             Retry
                                         </Button>
                                     )}
-                                    {!inst.is_included && (
-                                        <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            className="text-destructive hover:text-destructive h-7 px-2"
-                                            onClick={() => handleDelete(inst.sandbox_id)}
-                                            disabled={deleting === inst.sandbox_id}
-                                        >
-                                            {deleting === inst.sandbox_id ? '...' : 'Remove'}
+                                    {hasSub && !isCancelling && (
+                                        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive" onClick={() => handleCancel(inst.sandbox_id)} disabled={loading === inst.sandbox_id}>
+                                            {loading === inst.sandbox_id ? '...' : 'Cancel'}
+                                        </Button>
+                                    )}
+                                    {hasSub && isCancelling && (
+                                        <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={() => handleReactivate(inst.sandbox_id)} disabled={loading === inst.sandbox_id}>
+                                            {loading === inst.sandbox_id ? '...' : 'Reactivate'}
                                         </Button>
                                     )}
                                 </div>
@@ -1478,10 +1256,10 @@ function InstancesSection({ accountState, onRefetch }: { accountState: any; onRe
 
 // ─── Billing Tab ─────────────────────────────────────────────────────────────
 
-function BillingTab({ returnUrl, onOpenPlanModal, isActive }: { returnUrl: string; onOpenPlanModal: () => void; isActive: boolean }) {
+function BillingTab({ returnUrl, isActive }: { returnUrl: string; isActive: boolean }) {
     const { session, isLoading: authLoading } = useAuth();
     const [showCreditPurchaseModal, setShowCreditPurchaseModal] = useState(false);
-    const [showCancelDialog, setShowCancelDialog] = useState(false);
+    const [showAutoTopupModal, setShowAutoTopupModal] = useState(false);
     const queryClient = useQueryClient();
 
     const billingActive = isBillingEnabled();
@@ -1517,19 +1295,18 @@ function BillingTab({ returnUrl, onOpenPlanModal, isActive }: { returnUrl: strin
     const commitmentInfo = accountState?.subscription.commitment;
 
     const createPortalSessionMutation = useCreatePortalSession();
-    const cancelSubscriptionMutation = useCancelSubscription();
-    const reactivateSubscriptionMutation = useReactivateSubscription();
+
 
     const planName = accountStateSelectors.planName(accountState);
-    const planIcon = getPlanIcon(planName, !billingActive);
     
     // Get scheduled change from account state
     const hasScheduledChange = accountState?.subscription.has_scheduled_change && accountState?.subscription.scheduled_change;
     const scheduledChange = accountState?.subscription.scheduled_change;
     
     const getFrontendTierName = (tierKey: string) => {
-        const tier = siteConfig.cloudPricingItems.find(p => p.tierKey === tierKey);
-        return tier?.name || tierKey || 'Basic';
+        if (tierKey === 'free') return 'Free';
+        if (tierKey === 'pro') return 'Pro';
+        return tierKey || 'Free';
     };
 
     // Calculate hours until daily refresh
@@ -1636,14 +1413,7 @@ function BillingTab({ returnUrl, onOpenPlanModal, isActive }: { returnUrl: strin
         createPortalSessionMutation.mutate({ return_url: returnUrl });
     };
 
-    const handleCancel = () => {
-        setShowCancelDialog(false);
-        cancelSubscriptionMutation.mutate(undefined);
-    };
 
-    const handleReactivate = () => {
-        reactivateSubscriptionMutation.mutate();
-    };
 
     const isLoading = isLoadingSubscription || authLoading;
     const error = subscriptionError ? (subscriptionError instanceof Error ? subscriptionError.message : 'Failed to load subscription data') : null;
@@ -1695,246 +1465,64 @@ function BillingTab({ returnUrl, onOpenPlanModal, isActive }: { returnUrl: strin
     const canPurchaseCredits = subscription?.can_purchase_credits || false;
 
     return (
-        <div className="p-4 sm:p-6 space-y-6 sm:space-y-8 min-w-0 max-w-full overflow-x-hidden">
-            {/* Header with Plan Badge on Right */}
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 min-w-0">
-                <div className="space-y-1 min-w-0 flex-1">
-                    <h1 className="text-xl sm:text-2xl font-medium tracking-tight">Billing Status</h1>
-                    <p className="text-xs sm:text-sm text-muted-foreground">Manage your credits and subscription</p>
-                </div>
+        <div className="p-4 sm:p-6 space-y-6 min-w-0 max-w-full overflow-x-hidden">
 
-                {/* Plan Badge with Renewal Info - Right aligned */}
-                {!isFreeTier && planName && (
-                    <div className="flex flex-col items-end gap-1">
-                        <div className="flex items-center gap-2">
-                            {planIcon && (
-                                <div className="rounded-full py-0.5 flex items-center justify-center">
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img 
-                                        src={planIcon} 
-                                        alt={planName} 
-                                        className="h-6 w-auto" 
-                                        style={{ height: '24px', width: 'auto' }}
-                                    />
-                                </div>
-                            )}
-                            {accountState?.subscription.current_period_end && !hasScheduledChange && (
-                                <span className="text-xs text-muted-foreground">
-                                    Renews {formatDateFlexible(accountState.subscription.current_period_end)}
-                                </span>
-                            )}
-                        </div>
-                        {/* Scheduled Downgrade Info - inline below plan */}
-                        {hasScheduledChange && scheduledChange && (
-                            <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
-                                <CalendarClock className="h-3 w-3" />
-                                <span>
-                                    Changing to {getFrontendTierName(scheduledChange.target_tier.name)} on{' '}
-                                    {new Date(scheduledChange.effective_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                </span>
-                            </div>
-                        )}
-                    </div>
-                )}
+            {/* ── Header ── */}
+            <div>
+                <h1 className="text-lg font-medium tracking-tight">Billing</h1>
+                <p className="text-sm text-muted-foreground mt-0.5">Credits, instances, and subscription.</p>
             </div>
 
-            {/* Credit Breakdown */}
-            <div className="grid grid-cols-2 gap-2 sm:gap-4">
-                {/* Total Credits — total spendable balance */}
-                <div className="relative overflow-hidden rounded-xl sm:rounded-[18px] border border-border bg-card p-3 sm:p-5">
-                    <div className="flex flex-col gap-1.5 sm:gap-2">
-                        <div className="flex items-center gap-1.5 sm:gap-2">
-                            <Zap className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary flex-shrink-0" />
-                            <span className="text-[10px] sm:text-xs text-muted-foreground truncate">Total Credits</span>
-                        </div>
-                        <div>
-                            <div className="text-base sm:text-xl leading-none font-semibold">{formatCredits(totalCredits)}</div>
-                            {monthlyCredits > 0 && accountState?.subscription.current_period_end && (
-                                <p className="text-[10px] sm:text-[11px] text-muted-foreground mt-1 sm:mt-1.5 truncate">
-                                    {formatCredits(monthlyCredits)} renews {formatDateFlexible(accountState.subscription.current_period_end)}
-                                </p>
-                            )}
-                            {dailyCreditsInfo?.enabled && (
-                                <p className="text-[10px] sm:text-[11px] text-muted-foreground mt-1 sm:mt-1.5 truncate">
-                                    {formatCredits(dailyCredits)} daily · {hoursUntilDailyRefresh !== null ? `${hoursUntilDailyRefresh}h` : 'refreshes daily'}
-                                </p>
-                            )}
-                        </div>
-                    </div>
+            {/* ── Credit Balance ── */}
+            <div>
+                <p className="text-xs uppercase tracking-widest text-muted-foreground mb-3">Credits</p>
+                <div className="flex items-baseline gap-1">
+                    <span className="text-3xl font-medium tabular-nums tracking-tight">${(totalCredits / 100).toFixed(2)}</span>
                 </div>
-
-                {/* Non-expiring Credits — purchased credits */}
-                <div className="relative overflow-hidden rounded-xl sm:rounded-[18px] border border-border bg-card p-3 sm:p-5">
-                    <div className="flex flex-col gap-1.5 sm:gap-2">
-                        <div className="flex items-center gap-1.5 sm:gap-2">
-                            <Infinity className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-muted-foreground flex-shrink-0" />
-                            <span className="text-[10px] sm:text-xs text-muted-foreground truncate">Non-expiring</span>
-                        </div>
-                        <div>
-                            <div className="text-base sm:text-xl leading-none font-semibold">{formatCredits(nonExpiringCredits)}</div>
-                            <p className="text-[10px] sm:text-[11px] text-muted-foreground mt-1 sm:mt-1.5">Never expires</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Action Buttons - Clean Layout */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
-                <Button
-                    onClick={handleManageSubscription}
-                    disabled={createPortalSessionMutation.isPending}
-                    className="h-10 w-full sm:w-auto"
-                >
-                    {createPortalSessionMutation.isPending ? 'Loading...' : 'Manage Subscription'}
-                </Button>
-                {canPurchaseCredits && (
-                    <Button
-                        onClick={() => setShowCreditPurchaseModal(true)}
-                        variant="outline"
-                        className="h-10 w-full sm:w-auto"
-                    >
-                        <ShoppingCart className="h-4 w-4 mr-2" />
-                        Get Additional Credits
-                    </Button>
-                )}
-                {planName && (
-                    hasScheduledChange ? (
-                        <Button
-                            variant="outline"
-                            className="h-10 w-full sm:w-auto border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 text-sm"
-                            disabled
-                        >
-                            <CalendarClock className="h-4 w-4 mr-2 flex-shrink-0" />
-                            <span className="truncate">Downgrade Scheduled</span>
-                        </Button>
-                    ) : (
-                        <Button
-                            onClick={onOpenPlanModal}
-                            variant="outline"
-                            className="h-10 w-full sm:w-auto"
-                        >
-                            Change Plan
-                        </Button>
-                    )
-                )}
-            </div>
-
-            {/* Commitment or Cancellation Alerts */}
-            {commitmentInfo?.has_commitment && (
-                <Alert className="border-blue-500/20 bg-blue-500/5 rounded-[18px]">
-                    <Shield className="h-4 w-4 text-blue-500" />
-                    <AlertDescription>
-                        <strong className="text-sm">Annual Commitment</strong>
-                        <p className="text-sm text-muted-foreground mt-1">
-                            Active until {formatEndDate(commitmentInfo.commitment_end_date || '')}
-                        </p>
-                    </AlertDescription>
-                </Alert>
-            )}
-
-            {hasScheduledChange && scheduledChange && (
-                <ScheduledDowngradeCard
-                    scheduledChange={scheduledChange}
-                    onCancel={() => {
-                        refetchSubscription();
-                    }}
-                />
-            )}
-
-            {isCancelled && (
-                <Alert variant="destructive" className="rounded-[18px]">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertDescription>
-                        Your subscription will be cancelled on {getEffectiveCancellationDate()}
-                        {!isCancelled && (
+                <div className="flex items-center gap-3 mt-3">
+                    {canPurchaseCredits && (
+                        <>
                             <Button
-                                onClick={handleReactivate}
-                                variant="outline"
                                 size="sm"
-                                className="ml-4"
+                                variant="outline"
+                                className="h-8 text-xs"
+                                onClick={() => setShowCreditPurchaseModal(true)}
                             >
-                                Reactivate
+                                Buy Credits
                             </Button>
-                        )}
-                    </AlertDescription>
-                </Alert>
-            )}
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs"
+                                onClick={() => setShowAutoTopupModal(true)}
+                            >
+                                <Zap className="size-3 mr-1.5" />
+                                Auto Top-up
+                            </Button>
+                        </>
+                    )}
+                </div>
+            </div>
 
-            {/* Help Link - Subtle */}
-            {/* ── Auto-Topup Section ─────────────────────────────────────── */}
-            {!isFreeTier && (
-                <AutoTopupSection accountState={accountState} onRefetch={refetchSubscription} />
-            )}
 
-            {/* ── Instances Section ───────────────────────────────────────── */}
+            {/* ── Instances ── */}
             {!isFreeTier && (
                 <InstancesSection accountState={accountState} onRefetch={refetchSubscription} />
             )}
 
-            <div className="flex items-center justify-center pt-6 border-t border-border/50">
+            {/* ── Manage ── */}
+            <div className="border-t border-border pt-4">
                 <Button
-                    variant="link"
-                    onClick={() => window.open('/credits-explained', '_blank')}
-                    className="text-muted-foreground hover:text-foreground h-auto p-0"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs"
+                    onClick={handleManageSubscription}
+                    disabled={createPortalSessionMutation.isPending}
                 >
-                    <Lightbulb className="h-3.5 w-3.5 mr-2" />
-                    <span className="text-sm">Credits explained</span>
+                    {createPortalSessionMutation.isPending ? 'Loading...' : 'Manage on Stripe'}
                 </Button>
             </div>
 
-            {/* Cancel Plan Button - Subtle Placement */}
-            {!isFreeTier && !isCancelled && (
-                <div className="flex justify-center">
-                    <Button
-                        onClick={() => setShowCancelDialog(true)}
-                        variant="ghost"
-                        size="sm"
-                        className="text-muted-foreground hover:text-destructive h-auto p-2 text-xs"
-                    >
-                        Cancel Plan
-                    </Button>
-                </div>
-            )}
-
-            {isCancelled && (
-                <div className="flex justify-center">
-                    <Button
-                        onClick={handleReactivate}
-                        disabled={reactivateSubscriptionMutation.isPending}
-                        variant="outline"
-                        size="sm"
-                    >
-                        <RotateCcw className="h-3.5 w-3.5 mr-2" />
-                        {reactivateSubscriptionMutation.isPending ? 'Reactivating...' : 'Reactivate Subscription'}
-                    </Button>
-                </div>
-            )}
-            <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
-                <DialogContent className="max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>Cancel Subscription</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                        <p className="text-sm text-muted-foreground">
-                            Are you sure you want to cancel your subscription? You'll continue to have access until{' '}
-                            {accountState?.subscription.current_period_end && formatDateFlexible(accountState.subscription.current_period_end)}.
-                        </p>
-                        <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
-                            <Button variant="outline" onClick={() => setShowCancelDialog(false)} className="w-full sm:w-auto">
-                                Keep Subscription
-                            </Button>
-                            <Button 
-                                variant="destructive" 
-                                onClick={handleCancel} 
-                                disabled={cancelSubscriptionMutation.isPending}
-                                className="w-full sm:w-auto"
-                            >
-                                {cancelSubscriptionMutation.isPending ? 'Cancelling...' : 'Cancel Plan'}
-                            </Button>
-                        </div>
-                    </div>
-                </DialogContent>
-            </Dialog>
             <CreditPurchaseModal
                 open={showCreditPurchaseModal}
                 onOpenChange={setShowCreditPurchaseModal}
@@ -1943,6 +1531,10 @@ function BillingTab({ returnUrl, onOpenPlanModal, isActive }: { returnUrl: strin
                 onPurchaseComplete={() => {
                     refetchSubscription();
                 }}
+            />
+            <AutoTopupModal
+                open={showAutoTopupModal}
+                onOpenChange={setShowAutoTopupModal}
             />
         </div>
     );
@@ -1972,9 +1564,9 @@ function TransactionsTab() {
     return (
         <div className="p-4 sm:p-6 pb-12 sm:pb-6 space-y-4 min-w-0 max-w-full overflow-x-hidden">
             <div>
-                <h3 className="text-lg font-semibold mb-0.5">Billing History</h3>
+                <h3 className="text-lg font-medium tracking-tight mb-0.5">History</h3>
                 <p className="text-sm text-muted-foreground">
-                    Paid billing events only — subscription renewals, credit top-ups, auto top-ups, and refunds.
+                    Subscription renewals, credit purchases, auto top-ups, and refunds.
                 </p>
             </div>
             <BillingHistory />

@@ -3,7 +3,7 @@ import { randomBytes } from 'crypto';
 import { execSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { config } from '../../config';
+import { config, SANDBOX_VERSION } from '../../config';
 import { generateSandboxKeyPair } from '../../shared/crypto';
 import type {
   SandboxProvider,
@@ -488,6 +488,7 @@ export class LocalDockerProvider implements SandboxProvider {
         containerId: info.containerId,
         image: info.image,
         mappedPorts: info.mappedPorts,
+        version: SANDBOX_VERSION,
       },
     };
   }

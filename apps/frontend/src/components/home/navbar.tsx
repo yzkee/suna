@@ -3,7 +3,7 @@
 import { ThemeToggle } from '@/components/home/theme-toggle';
 import { siteConfig } from '@/lib/site-config';
 import { cn } from '@/lib/utils';
-import { X, Menu, Power, PowerCircle } from 'lucide-react';
+import { X, Menu, Type, Layers } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import Link from 'next/link';
 import { useEffect, useState, useCallback, useRef } from 'react';
@@ -16,6 +16,17 @@ import { AppDownloadQR } from '@/components/common/app-download-qr';
 import { isMobileDevice } from '@/lib/utils/is-mobile-device';
 import { Button } from '@/components/ui/button';
 import { useGitHubStars } from '@/hooks/utils/use-github-stars';
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSub,
+  ContextMenuSubTrigger,
+  ContextMenuSubContent,
+  ContextMenuSeparator,
+} from '@/components/ui/context-menu';
+
 
 // Apple logo SVG
 function AppleLogo({ className }: { className?: string }) {
@@ -41,28 +52,20 @@ function PowerButton({ href, onClick, label = 'Launch Kortix' }: { href?: string
 
   const inner = (
     <span
-      className={cn(
-        "relative flex items-center justify-center size-[34px] rounded-full border transition-all duration-200 cursor-pointer select-none",
-        "border-foreground/20 bg-background/60",
-        hovered
-          ? "border-foreground/50 shadow-[0_0_0_3px_hsl(var(--foreground)/0.08),0_0_12px_hsl(var(--foreground)/0.12)]"
-          : "shadow-none"
-      )}
+      className="relative flex items-center justify-center size-[42px] rounded-full transition-all duration-200 cursor-pointer select-none"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
       {/* Power icon */}
       <svg
         viewBox="0 0 24 24"
-        className={cn("size-[15px] transition-colors duration-200", hovered ? "text-foreground" : "text-foreground/50")}
+        className={cn("size-[22px] transition-colors duration-200", hovered ? "text-foreground" : "text-foreground/35")}
         fill="none"
         stroke="currentColor"
-        strokeWidth={2}
+        strokeWidth={1.8}
         strokeLinecap="round"
       >
-        {/* Arc */}
         <path d="M7.19 5.54A8 8 0 1 0 16.83 5.5" />
-        {/* Vertical stem */}
         <line x1="12" y1="2" x2="12" y2="12" />
       </svg>
 
@@ -209,13 +212,63 @@ export function Navbar({ isAbsolute = false }: NavbarProps) {
     <header className={cn(
       "w-full px-5 pt-4 transition-all duration-300",
       isAbsolute ? "" : "sticky top-0 z-50",
-      hasScrolled && !isAbsolute && "bg-background/80 backdrop-blur-xl border-b border-border/40 pb-2"
+      hasScrolled && !isAbsolute && "bg-background/80 backdrop-blur-xl pb-2"
     )}>
       <div className="flex items-center justify-between h-[52px]">
-        {/* Left — Logo */}
-        <Link href="/" className="flex items-center shrink-0">
-          <KortixLogo size={18} variant='logomark' />
-        </Link>
+        {/* Left — Logo (right-click for brand assets) */}
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <Link href="/" className="flex items-center shrink-0">
+              <KortixLogo size={18} variant='logomark' />
+            </Link>
+          </ContextMenuTrigger>
+          <ContextMenuContent className="w-48">
+            <ContextMenuSub>
+              <ContextMenuSubTrigger className="gap-2 text-[13px]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/kortix-symbol.svg" alt="" className="h-3 w-auto shrink-0 dark:invert" />
+                Download symbol
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent className="w-40">
+                {[
+                  { label: 'Black · SVG', href: '/brandkit/Logo/Brandmark/SVG/Brandmark Black.svg', file: 'kortix-symbol-black.svg' },
+                  { label: 'Black · PNG', href: '/brandkit/Logo/Brandmark/PNG/Brandmark Black.png', file: 'kortix-symbol-black.png' },
+                  { label: 'White · SVG', href: '/brandkit/Logo/Brandmark/SVG/Brandmark White.svg', file: 'kortix-symbol-white.svg' },
+                  { label: 'White · PNG', href: '/brandkit/Logo/Brandmark/PNG/Brandmark White.png', file: 'kortix-symbol-white.png' },
+                ].map((d) => (
+                  <ContextMenuItem key={d.file} onClick={() => { const a = document.createElement('a'); a.href = d.href; a.download = d.file; a.click(); }} className="text-[13px] cursor-pointer">
+                    {d.label}
+                  </ContextMenuItem>
+                ))}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+            <ContextMenuSub>
+              <ContextMenuSubTrigger className="gap-2 text-[13px]">
+                <Type className="size-3.5 shrink-0" />
+                Download wordmark
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent className="w-40">
+                {[
+                  { label: 'Black · SVG', href: '/brandkit/Logo/Wordmark/SVG/Wordmark Black.svg', file: 'kortix-wordmark-black.svg' },
+                  { label: 'Black · PNG', href: '/brandkit/Logo/Wordmark/PNG/Wordmark Black.png', file: 'kortix-wordmark-black.png' },
+                  { label: 'White · SVG', href: '/brandkit/Logo/Wordmark/SVG/Wordmark White.svg', file: 'kortix-wordmark-white.svg' },
+                  { label: 'White · PNG', href: '/brandkit/Logo/Wordmark/PNG/Wordmark White.png', file: 'kortix-wordmark-white.png' },
+                ].map((d) => (
+                  <ContextMenuItem key={d.file} onClick={() => { const a = document.createElement('a'); a.href = d.href; a.download = d.file; a.click(); }} className="text-[13px] cursor-pointer">
+                    {d.label}
+                  </ContextMenuItem>
+                ))}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+            <ContextMenuItem
+              onClick={() => router.push('/brand')}
+              className="gap-2 text-[13px] cursor-pointer"
+            >
+              <Layers className="size-3.5 shrink-0" />
+              Brand assets
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
 
         {/* Center — Nav Links (desktop only) */}
         <nav className="hidden md:flex items-center justify-center gap-1 absolute left-1/2 -translate-x-1/2">
@@ -236,7 +289,7 @@ export function Navbar({ isAbsolute = false }: NavbarProps) {
         </nav>
 
         {/* Right — Actions */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           {/* GitHub stars (hidden on mobile) */}
           <a
             href="https://github.com/kortix-ai/suna"
@@ -260,17 +313,19 @@ export function Navbar({ isAbsolute = false }: NavbarProps) {
               Dashboard
             </Link>
           ) : (
-            <Button
+            <button
               onClick={() => {
                 trackCtaSignup();
                 router.push(ctaLink);
               }}
-              variant='outline'
-              className='rounded-full'
-              size='icon'
+              className="flex items-center justify-center size-[38px] rounded-full cursor-pointer transition-opacity text-foreground opacity-80 hover:opacity-100"
+              aria-label="Launch Kortix"
             >
-              <PowerCircle className="size-4" />
-            </Button>
+              <svg viewBox="0 0 24 24" className="size-[20px]" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round">
+                <path d="M7.19 5.54A8 8 0 1 0 16.83 5.5" />
+                <line x1="12" y1="2" x2="12" y2="12" />
+              </svg>
+            </button>
           )}
 
           {/* Mobile Menu Button */}

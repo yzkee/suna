@@ -107,7 +107,10 @@ export async function buildMinimalAccountState(accountId: string): Promise<Accou
         location: metadata?.location ?? null,
         error_message: metadata?.errorMessage ?? null,
         is_included: row.isIncluded ?? false,
+        stripe_subscription_id: (row as any).stripeSubscriptionId || (metadata?.stripe_subscription_id as string) || null,
         stripe_subscription_item_id: row.stripeSubscriptionItemId ?? null,
+        cancel_at_period_end: (row as any).cancelAtPeriodEnd || !!(metadata?.cancel_at_period_end),
+        cancel_at: (row as any).cancelAt || (metadata?.cancel_at as string) || null,
         created_at: row.createdAt.toISOString(),
       };
     });

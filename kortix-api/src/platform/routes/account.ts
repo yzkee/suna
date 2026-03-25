@@ -50,6 +50,8 @@ const defaultDeps: AccountRouterDeps = {
 
 function serializeSandbox(row: typeof sandboxes.$inferSelect) {
   const metadata = row.metadata as Record<string, unknown> | null;
+  const cancelAtPeriodEnd = Boolean((metadata?.cancel_at_period_end as boolean) ?? false);
+  const cancelAt = (metadata?.cancel_at as string) ?? null;
   return {
     sandbox_id: row.sandboxId,
     external_id: row.externalId,
@@ -59,6 +61,11 @@ function serializeSandbox(row: typeof sandboxes.$inferSelect) {
     status: row.status,
     version: metadata?.version ?? null,
     metadata: row.metadata,
+    is_included: false,
+    stripe_subscription_id: (metadata?.stripe_subscription_id as string) ?? null,
+    stripe_subscription_item_id: row.stripeSubscriptionItemId ?? null,
+    cancel_at_period_end: cancelAtPeriodEnd,
+    cancel_at: cancelAt,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
   };
@@ -99,14 +106,14 @@ export function createAccountRouter(
     try {
       const body = await c.req.json().catch(() => ({}));
       const requestedProvider = (body?.provider as ProviderName) || undefined;
-      const requestedHetznerServerType = (body?.hetznerServerType as string | undefined) || undefined;
+      const requestedServerType = (body?.serverType as string | undefined) || undefined;
 
       const accountId = await resolveAccountId(userId);
 
-      // In cloud billing mode, managed Hetzner provisioning is paid-only.
+      // In cloud billing mode, managed VPS provisioning is paid-only.
       // Free/new accounts must complete billing setup first (or connect custom instance).
       const targetProvider = requestedProvider || getDefaultProviderName();
-      if (config.KORTIX_BILLING_INTERNAL_ENABLED && targetProvider === 'hetzner') {
+      if (config.KORTIX_BILLING_INTERNAL_ENABLED && targetProvider === 'justavps') {
         const [{ getCreditAccount }, { isPaidTier }] = await Promise.all([
           import('../../billing/repositories/credit-accounts'),
           import('../../billing/services/tiers'),
@@ -131,7 +138,7 @@ export function createAccountRouter(
         accountId,
         userId,
         provider: requestedProvider,
-        hetznerServerType: requestedHetznerServerType,
+        serverType: requestedServerType,
       });
 
       return c.json(
@@ -142,68 +149,6 @@ export function createAccountRouter(
       console.error('[PLATFORM] initAccount error:', err);
       const message = err instanceof Error ? err.message : String(err);
       return c.json({ success: false, error: `Failed to initialize account: ${message}` }, 500);
-    }
-  });
-
-  router.get('/init/status', async (c) => {
-    const userId = c.get('userId');
-
-    try {
-      const accountId = await resolveAccountId(userId);
-
-      const [row] = await db
-        .select()
-        .from(sandboxes)
-        .where(eq(sandboxes.accountId, accountId))
-        .orderBy(desc(sandboxes.createdAt))
-        .limit(1);
-
-      if (!row) {
-        return c.json({ success: true, status: 'none', message: 'No sandbox found' });
-      }
-
-      if (row.status === 'active') {
-        return c.json({ success: true, status: 'ready', data: serializeSandbox(row) });
-      }
-
-      if (row.status === 'error') {
-        const meta = (row.metadata as Record<string, unknown>) ?? {};
-        return c.json({
-          success: true,
-          status: 'error',
-          message: (meta.provisioningError as string) || (meta.provisioningMessage as string) || 'Provisioning failed',
-        });
-      }
-
-      if (row.status === 'provisioning') {
-        const provider = getProvider(row.provider);
-        const provisioningStatus = await provider.getProvisioningStatus(row.sandboxId);
-
-        if (provisioningStatus?.complete) {
-          return c.json({ success: true, status: 'ready', data: serializeSandbox(row) });
-        }
-
-        if (provisioningStatus?.error) {
-          return c.json({
-            success: true,
-            status: 'error',
-            message: provisioningStatus.errorMessage || provisioningStatus.message,
-          });
-        }
-
-        return c.json({
-          success: true,
-          status: 'provisioning',
-          stage: provisioningStatus?.stage || 'creating',
-          progress: provisioningStatus?.progress ?? 10,
-          message: provisioningStatus?.message || 'Provisioning...',
-        });
-      }
-
-      return c.json({ success: true, status: row.status });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return c.json({ success: false, error: message }, 500);
     }
   });
 
@@ -339,7 +284,7 @@ export function createAccountRouter(
           type: 'sandbox',
         });
 
-        let result;
+        let result: Awaited<ReturnType<typeof provider.create>> | null = null;
         let racedWithExistingContainer = false;
         try {
           result = await provider.create({
@@ -368,14 +313,18 @@ export function createAccountRouter(
         const [updated] = await db
           .update(sandboxes)
           .set({
-            externalId: result.externalId,
+            externalId: result!.externalId,
             status: 'active',
-            baseUrl: result.baseUrl,
-            metadata: result.metadata,
+            baseUrl: result!.baseUrl,
+            metadata: result!.metadata,
             updatedAt: new Date(),
           })
           .where(eq(sandboxes.sandboxId, sandbox.sandboxId))
           .returning();
+
+        if (!updated) {
+          return c.json({ success: false, error: 'Failed to persist sandbox state' }, 500);
+        }
 
         console.log(`[PLATFORM] Local sandbox ${sandbox.sandboxId} created for account ${accountId}`);
         return c.json({ success: true, data: serializeSandbox(updated), status: 'ready' }, 201);

@@ -10,8 +10,6 @@ export {
   sandboxStatusEnum,
   deploymentStatusEnum,
   deploymentSourceEnum,
-  channelTypeEnum,
-  sessionStrategyEnum,
   apiKeyStatusEnum,
   apiKeyTypeEnum,
   // Kortix tables — accounts
@@ -23,11 +21,6 @@ export {
   // Kortix tables
   sandboxes,
   deployments,
-  channelConfigs,
-  channelPlatformCredentials,
-  channelSessions,
-  channelMessages,
-  channelIdentityMap,
   kortixApiKeys,
   integrations,
   sandboxIntegrations,
@@ -37,10 +30,6 @@ export {
   // Relations
   sandboxesRelations,
   deploymentsRelations,
-  channelConfigsRelations,
-  channelSessionsRelations,
-  channelMessagesRelations,
-  channelIdentityMapRelations,
   kortixApiKeysRelations,
   integrationsRelations,
   sandboxIntegrationsRelations,
@@ -69,9 +58,6 @@ export {
   oauthAuthorizationCodes,
   oauthAccessTokens,
   oauthRefreshTokens,
-  // WoA
-  woaPostTypeEnum,
-  woaPosts,
   // Platform User Roles
   platformRoleEnum,
   platformUserRoles,
@@ -80,6 +66,9 @@ export {
   platformSettings,
   accessAllowlist,
   accessRequests,
+  // Pool
+  poolResources,
+  poolSandboxes,
 } from './schema/kortix';
 
 export type {
@@ -110,16 +99,6 @@ export type {
   AccountUser,
   NewApiKey,
   SandboxSelect,
-  ChannelConfig,
-  ChannelSession,
-  ChannelMessage,
-  ChannelIdentity,
-  NewChannelConfig,
-  ChannelPlatformCredential,
-  NewChannelPlatformCredential,
-  NewChannelSession,
-  NewChannelMessage,
-  NewChannelIdentity,
   KortixApiKey,
   NewKortixApiKey,
   Integration,
@@ -136,6 +115,4 @@ export type {
   NewTunnelPermissionRequest,
   TunnelAuditLog,
   NewTunnelAuditLog,
-  WoaPost,
-  NewWoaPost,
 } from './types';

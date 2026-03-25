@@ -9,7 +9,6 @@
  *   GET    /list      → List all sandboxes for the account
  *   POST   /stop      → Stop the active sandbox
  *   POST   /restart   → Stop then start the active sandbox
- *   DELETE /          → Archive/remove the active sandbox
  */
 
 import { Hono } from 'hono';
@@ -25,10 +24,10 @@ import {
   type SandboxProvider,
 } from '../providers';
 import { config } from '../../config';
-import { listServerTypes } from '../providers/hetzner';
-import { listServerTypes as listJustAVPSServerTypes } from '../providers/justavps';
+import { justavpsFetch, listServerTypes as listJustAVPSServerTypes } from '../providers/justavps';
 import type { AuthVariables } from '../../types';
 import { resolveAccountId as defaultResolveAccountId } from '../../shared/resolve-account';
+import * as pool from '../../pool';
 
 // ─── Dependency Injection ────────────────────────────────────────────────────
 
@@ -52,6 +51,8 @@ const defaultDeps: SandboxCloudRouterDeps = {
 
 function serializeSandbox(row: typeof sandboxes.$inferSelect) {
   const metadata = row.metadata as Record<string, unknown> | null;
+  const cancelAtPeriodEnd = Boolean((metadata?.cancel_at_period_end as boolean) ?? false);
+  const cancelAt = (metadata?.cancel_at as string) ?? null;
   return {
     sandbox_id: row.sandboxId,
     external_id: row.externalId,
@@ -61,11 +62,38 @@ function serializeSandbox(row: typeof sandboxes.$inferSelect) {
     status: row.status,
     version: metadata?.version ?? null,
     metadata: row.metadata,
-    is_included: row.isIncluded ?? false,
+    is_included: false,
+    stripe_subscription_id: (metadata?.stripe_subscription_id as string) ?? null,
     stripe_subscription_item_id: row.stripeSubscriptionItemId ?? null,
+    cancel_at_period_end: cancelAtPeriodEnd,
+    cancel_at: cancelAt,
     created_at: row.createdAt.toISOString(),
     updated_at: row.updatedAt.toISOString(),
   };
+}
+
+function isManagedVpsProvider(providerName: ProviderName): boolean {
+  return providerName === 'justavps';
+}
+
+function getProviderDefaults() {
+  return {
+    location: config.JUSTAVPS_DEFAULT_LOCATION,
+    serverType: config.JUSTAVPS_DEFAULT_SERVER_TYPE,
+  };
+}
+
+function getProviderDisplayName(providerName: ProviderName): string {
+  switch (providerName) {
+    case 'justavps':
+      return 'JustAVPS';
+    case 'daytona':
+      return 'Daytona';
+    case 'local_docker':
+      return 'Local Docker';
+    default:
+      return providerName;
+  }
 }
 
 // ─── Factory ─────────────────────────────────────────────────────────────────
@@ -77,6 +105,29 @@ export function createCloudSandboxRouter(
   const { db, getProvider, getDefaultProviderName, resolveAccountId } = deps;
 
   const router = new Hono<{ Variables: AuthVariables }>();
+
+  // ── Public routes (no auth required) ──
+
+  router.get('/justavps/server-types', async (c) => {
+    if (!config.isJustAVPSEnabled()) {
+      return c.json({ error: 'JustAVPS provider is not enabled' }, 404);
+    }
+    try {
+      const location = c.req.query('location') || config.JUSTAVPS_DEFAULT_LOCATION;
+      const types = await listJustAVPSServerTypes(location);
+      return c.json({
+        serverTypes: types,
+        location,
+        defaultServerType: config.JUSTAVPS_DEFAULT_SERVER_TYPE,
+        defaultLocation: config.JUSTAVPS_DEFAULT_LOCATION,
+      });
+    } catch (err: any) {
+      console.error('[SANDBOX-CLOUD] justavps server-types error:', err);
+      return c.json({ error: 'Failed to fetch server types' }, 500);
+    }
+  });
+
+  // ── Auth-gated routes ──
 
   if (deps.useAuth) {
     router.use('/*', authMiddleware);
@@ -129,56 +180,43 @@ export function createCloudSandboxRouter(
   });
 
   // ─── POST / ────────────────────────────────────────────────────────────
-  // Create a new sandbox. Pro users can have multiple instances.
-  // The first instance is "included" in the plan; additional ones get a
-  // Stripe subscription item with 1.2x Hetzner pricing.
+  // Create a new sandbox. Managed VPS sandboxes are billed as 1 sandbox ↔ 1 Stripe subscription.
 
   router.post('/', async (c) => {
     const userId = c.get('userId');
+    const userEmail = c.get('userEmail') as string | undefined;
+    let stripeSubscriptionId: string | null = null;
     let stripeSubscriptionItemId: string | null = null;
     let createdSandboxId: string | null = null;
     let createdExternalId: string | null = null;
+    let providerRequested: ProviderName | null = null;
     let providerUsed: ProviderName | null = null;
 
     try {
       const body = await c.req.json().catch(() => ({}));
       const requestedProvider = (body?.provider as ProviderName) || undefined;
-      const requestedHetznerServerType = (body?.serverType as string | undefined) || (body?.hetznerServerType as string | undefined) || undefined;
+      const requestedServerType = (body?.serverType as string | undefined) || undefined;
       const requestedLocation = (body?.location as string | undefined) || undefined;
       const backgroundProvisioning = Boolean(body?.backgroundProvisioning);
       const providerName = requestedProvider || getDefaultProviderName();
+      providerRequested = providerName;
       const customName = body?.name as string | undefined;
-      const isIncluded = Boolean(body?.isIncluded); // only set by setup flow
-      const requestedOrDefaultLocation = requestedLocation || config.HETZNER_DEFAULT_LOCATION;
-      const requestedOrDefaultServerType = requestedHetznerServerType || config.HETZNER_DEFAULT_SERVER_TYPE;
+      const providerDefaults = getProviderDefaults();
+      const requestedOrDefaultLocation = requestedLocation || providerDefaults.location;
+      const requestedOrDefaultServerType = requestedServerType || providerDefaults.serverType;
 
       const accountId = await resolveAccountId(userId);
 
       // Validate server type/location combo early so we return a clear
       // 4xx error instead of failing inside provider create with a generic 500.
-      if (providerName === 'hetzner') {
-        const { listServerTypes: fetchServerTypes } = await import('../providers/hetzner');
-        const availableTypes = await fetchServerTypes(requestedOrDefaultLocation);
+      if (providerName === 'justavps') {
+        const availableTypes = await listJustAVPSServerTypes(requestedOrDefaultLocation);
         const selected = availableTypes.find((st) => st.name === requestedOrDefaultServerType);
         if (!selected) {
           return c.json(
             {
               success: false,
               error: `Server type '${requestedOrDefaultServerType}' is not available in location '${requestedOrDefaultLocation}'`,
-            },
-            400,
-          );
-        }
-      }
-
-      if (providerName === 'justavps' && requestedHetznerServerType) {
-        const availableTypes = await listJustAVPSServerTypes(requestedOrDefaultLocation);
-        const selected = availableTypes.find((st) => st.name === requestedHetznerServerType);
-        if (!selected) {
-          return c.json(
-            {
-              success: false,
-              error: `Server type '${requestedHetznerServerType}' is not available in location '${requestedOrDefaultLocation}'`,
             },
             400,
           );
@@ -194,159 +232,113 @@ export function createCloudSandboxRouter(
 
       const sandboxName = customName || `sandbox-${accountId.slice(0, 8)}${existingCount > 0 ? `-${existingCount + 1}` : ''}`;
 
-      // For additional (non-included) Hetzner instances on paid plans,
-      // create a Stripe subscription item with dynamic pricing.
-      if (!isIncluded && providerName === 'hetzner' && config.KORTIX_BILLING_INTERNAL_ENABLED) {
-        const { getCreditAccount } = await import('../../billing/repositories/credit-accounts');
+      // Managed VPS sandboxes are billed independently as their own Stripe subscriptions.
+      if (isManagedVpsProvider(providerName) && config.KORTIX_BILLING_INTERNAL_ENABLED) {
         const { getCustomerByAccountId } = await import('../../billing/repositories/customers');
-        const { isPaidTier, getComputeProductId, COMPUTE_PRICE_MARKUP } = await import('../../billing/services/tiers');
-        const { listServerTypes: fetchServerTypes } = await import('../providers/hetzner');
+        const { getOrCreateStripeCustomer } = await import('../../billing/services/subscriptions');
+        const { getComputeProductId, COMPUTE_PRICE_MARKUP } = await import('../../billing/services/tiers');
         const { getStripe } = await import('../../shared/stripe');
 
-        const account = await getCreditAccount(accountId);
-        const tierName = account?.tier ?? 'free';
+        const loc = requestedOrDefaultLocation;
+        const serverTypes = await listJustAVPSServerTypes(loc);
+        const selectedType = serverTypes.find((st) => st.name === requestedOrDefaultServerType);
 
-        if (!isPaidTier(tierName)) {
-          return c.json({ success: false, error: 'Additional instances require a paid plan' }, 403);
+        if (!selectedType) {
+          return c.json({ success: false, error: `Server type not found: ${requestedOrDefaultServerType}` }, 400);
         }
 
-        if (account?.stripeSubscriptionId) {
-          // Look up server type price from Hetzner
-          const loc = requestedOrDefaultLocation;
-          const serverTypes = await fetchServerTypes(loc);
-          const selectedType = serverTypes.find((st) => st.name === requestedOrDefaultServerType);
+        const monthlyPrice = Math.round(selectedType.priceMonthly * COMPUTE_PRICE_MARKUP * 100); // cents
 
-          if (!selectedType) {
-            return c.json({ success: false, error: `Server type not found: ${requestedHetznerServerType}` }, 400);
-          }
-
-          const monthlyPrice = Math.round(selectedType.priceMonthly * COMPUTE_PRICE_MARKUP * 100); // cents
-
-          const stripe = getStripe();
-          const customer = await getCustomerByAccountId(accountId);
-          if (!customer) {
+        const stripe = getStripe();
+        let customer = await getCustomerByAccountId(accountId);
+        if (!customer) {
+          if (!userEmail) {
             return c.json({ success: false, error: 'No billing customer found' }, 400);
           }
+          const customerId = await getOrCreateStripeCustomer(accountId, userEmail);
+          customer = { id: customerId } as typeof customer;
+        }
 
-          // ── Payment method check ────────────────────────────────────────────
-          // Verify the Stripe customer has a default payment method before we
-          // create the subscription item (which immediately invoices them).
-          // Better to fail fast here than to provision a server and then have
-          // Stripe mark the subscription past_due because there's no card.
-          let defaultPaymentMethodId: string | null = null;
+        // ── Payment method check ────────────────────────────────────────────
+        let defaultPaymentMethodId: string | null = null;
+        try {
+          const stripeCustomer = await stripe.customers.retrieve(customer.id, {
+            expand: ['invoice_settings.default_payment_method'],
+          });
+          if (!('deleted' in stripeCustomer) || !stripeCustomer.deleted) {
+            const defaultPm = stripeCustomer.invoice_settings?.default_payment_method;
+            if (typeof defaultPm === 'string') {
+              defaultPaymentMethodId = defaultPm;
+            } else if (defaultPm && typeof defaultPm === 'object' && 'id' in defaultPm) {
+              defaultPaymentMethodId = (defaultPm as { id: string }).id;
+            }
+          }
+        } catch (pmErr) {
+          console.warn('[PLATFORM] Could not retrieve customer payment method status:', pmErr);
+        }
+
+        // Fall back to checking if any card is attached
+        if (!defaultPaymentMethodId) {
           try {
-            const stripeCustomer = await stripe.customers.retrieve(customer.id, {
-              expand: ['invoice_settings.default_payment_method'],
+            const methods = await stripe.paymentMethods.list({ customer: customer.id, type: 'card', limit: 1 });
+            defaultPaymentMethodId = methods.data[0]?.id ?? null;
+          } catch {
+            // ignore
+          }
+        }
+
+        if (!defaultPaymentMethodId) {
+          let portalUrl: string | null = null;
+          try {
+            const portalSession = await stripe.billingPortal.sessions.create({
+              customer: customer.id,
+              return_url: `${config.FRONTEND_URL ?? 'https://app.kortix.com'}/subscription`,
             });
-            if (!('deleted' in stripeCustomer) || !stripeCustomer.deleted) {
-              const defaultPm = stripeCustomer.invoice_settings?.default_payment_method;
-              if (typeof defaultPm === 'string') {
-                defaultPaymentMethodId = defaultPm;
-              } else if (defaultPm && typeof defaultPm === 'object' && 'id' in defaultPm) {
-                defaultPaymentMethodId = (defaultPm as { id: string }).id;
-              }
-            }
-          } catch (pmErr) {
-            console.warn('[PLATFORM] Could not retrieve customer payment method status:', pmErr);
+            portalUrl = portalSession.url;
+          } catch {
+            // portal URL generation is best-effort
           }
 
-          // Fall back to checking if any card is attached
-          if (!defaultPaymentMethodId) {
-            try {
-              const methods = await stripe.paymentMethods.list({ customer: customer.id, type: 'card', limit: 1 });
-              defaultPaymentMethodId = methods.data[0]?.id ?? null;
-            } catch {
-              // ignore
-            }
-          }
+          return c.json({
+            success: false,
+            error: 'No payment method on file. Please add a default payment method before creating a machine.',
+            code: 'no_payment_method',
+            portal_url: portalUrl,
+          }, 402);
+        }
 
-          if (!defaultPaymentMethodId) {
-            // Generate a portal session URL so the frontend can direct them
-            // straight to Stripe's payment method setup screen.
-            let portalUrl: string | null = null;
-            try {
-              const portalSession = await stripe.billingPortal.sessions.create({
-                customer: customer.id,
-                return_url: `${config.FRONTEND_URL ?? 'https://app.kortix.com'}/subscription`,
-              });
-              portalUrl = portalSession.url;
-            } catch {
-              // portal URL generation is best-effort
-            }
-
-            return c.json({
-              success: false,
-              error: 'No payment method on file. Please add a default payment method before adding an instance.',
-              code: 'no_payment_method',
-              portal_url: portalUrl,
-            }, 402);
-          }
-
-          // ── Create Stripe subscription item ────────────────────────────────
-          // proration_behavior: 'always_invoice' creates an immediate invoice
-          // for the pro-rated amount. The subscription's default payment method
-          // (or the customer's default) is charged automatically.
-          const subItem = await stripe.subscriptionItems.create({
-            subscription: account.stripeSubscriptionId,
+        // ── Create standalone Stripe subscription for this machine ───────────
+        const subscription = await stripe.subscriptions.create({
+          customer: customer.id,
+          items: [{
             price_data: {
               currency: 'usd',
               product: getComputeProductId(),
               unit_amount: monthlyPrice,
               recurring: { interval: 'month' },
             },
-            quantity: 1,
-            proration_behavior: 'always_invoice',
-            metadata: {
-              type: 'compute_instance',
-              server_type: requestedHetznerServerType || config.HETZNER_DEFAULT_SERVER_TYPE,
-              location: loc,
-              account_id: accountId,
-            },
-          });
+          }],
+          payment_behavior: 'error_if_incomplete',
+          payment_settings: { save_default_payment_method: 'on_subscription' },
+          metadata: {
+            type: 'compute_instance',
+            server_type: requestedOrDefaultServerType,
+            location: loc,
+            account_id: accountId,
+          },
+        });
 
-          stripeSubscriptionItemId = subItem.id;
-          console.log(`[PLATFORM] Created Stripe sub item ${subItem.id} for additional instance (${requestedHetznerServerType}, $${(monthlyPrice / 100).toFixed(2)}/mo)`);
+        stripeSubscriptionId = subscription.id;
+        stripeSubscriptionItemId = subscription.items.data[0]?.id ?? null;
+        console.log(`[PLATFORM] Created Stripe subscription ${subscription.id} for ${providerName} machine (${requestedOrDefaultServerType}, $${(monthlyPrice / 100).toFixed(2)}/mo)`);
 
-          // ── Verify the immediate invoice was paid ──────────────────────────
-          // 'always_invoice' creates an invoice synchronously. Poll it briefly
-          // to confirm payment succeeded before we provision the server.
-          // Stripe usually processes it within a second or two.
-          try {
-            const invoiceList = await stripe.invoices.list({
-              subscription: account.stripeSubscriptionId,
-              limit: 1,
-            });
-            const latestInvoice = invoiceList.data[0];
-            if (latestInvoice && latestInvoice.status === 'open') {
-              // Invoice exists but payment hasn't cleared — pay it now
-              const paid = await stripe.invoices.pay(latestInvoice.id);
-              if (paid.status !== 'paid') {
-                // Roll back the subscription item
-                await stripe.subscriptionItems.del(subItem.id);
-                return c.json({
-                  success: false,
-                  error: 'Payment failed. Please check your payment method and try again.',
-                  code: 'payment_failed',
-                }, 402);
-              }
-            } else if (latestInvoice && latestInvoice.status === 'uncollectible') {
-              await stripe.subscriptionItems.del(subItem.id);
-              return c.json({
-                success: false,
-                error: 'Payment could not be collected. Please update your payment method.',
-                code: 'payment_failed',
-              }, 402);
-            }
-            // status === 'paid' or 'void' or undefined — all fine to proceed
-          } catch (invoiceErr) {
-            console.warn('[PLATFORM] Invoice verification failed (non-fatal, proceeding):', invoiceErr);
-            // Don't block provisioning if invoice check itself errors —
-            // Stripe will handle failed payments via webhook/dunning.
-          }
-        } else {
-          // No Stripe subscription (e.g. manually-granted tier for dev/testing).
-          // Tier check already passed above — skip Stripe item creation and provision directly.
-          console.log('[PLATFORM] No stripeSubscriptionId — skipping Stripe item creation, provisioning directly');
+        if (!['active', 'trialing'].includes(subscription.status)) {
+          await stripe.subscriptions.cancel(subscription.id).catch(() => {});
+          return c.json({
+            success: false,
+            error: 'Payment failed. Please check your payment method and try again.',
+            code: 'payment_failed',
+          }, 402);
         }
       }
 
@@ -363,8 +355,8 @@ export function createCloudSandboxRouter(
           status: 'provisioning',
           baseUrl: '',
           config: {},
-          metadata: {},
-          isIncluded,
+          metadata: stripeSubscriptionId ? { stripe_subscription_id: stripeSubscriptionId } : {},
+          isIncluded: false,
           stripeSubscriptionItemId,
         })
         .returning();
@@ -378,12 +370,58 @@ export function createCloudSandboxRouter(
         type: 'sandbox',
       });
 
+      // ── Try pool claim before provider.create() ──────────────────────────
+      if (config.isPoolEnabled() && isManagedVpsProvider(providerName)) {
+        try {
+          const claimed = await pool.grab({
+            serverType: requestedOrDefaultServerType,
+            location: requestedOrDefaultLocation,
+          });
+
+          if (claimed) {
+            await db
+              .update(sandboxes)
+              .set({
+                externalId: claimed.externalId,
+                status: 'active',
+                baseUrl: claimed.baseUrl,
+                metadata: {
+                  ...((sandbox.metadata as Record<string, unknown>) ?? {}),
+                  ...claimed.metadata,
+                },
+                config: { serviceKey: sandboxKey.secretKey },
+                updatedAt: new Date(),
+              })
+              .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
+
+            await pool.injectEnv(claimed, sandboxKey.secretKey);
+
+            const [updated] = await db
+              .select()
+              .from(sandboxes)
+              .where(eq(sandboxes.sandboxId, sandbox.sandboxId))
+              .limit(1);
+
+            console.log(
+              `[PLATFORM] Claimed from pool: ${sandbox.sandboxId} (ext: ${claimed.externalId}) for account ${accountId}`,
+            );
+
+            return c.json(
+              { success: true, data: serializeSandbox(updated), created: true },
+              201,
+            );
+          }
+        } catch (poolErr) {
+          console.warn('[PLATFORM] Pool claim failed, falling back to provisioning:', poolErr);
+        }
+      }
+
       const providerCreateInput = {
         accountId,
         userId,
         name: sandboxName,
-        hetznerServerType: requestedHetznerServerType,
-        hetznerLocation: requestedLocation,
+        serverType: requestedServerType,
+        location: requestedLocation,
         envVars: {
           KORTIX_TOKEN: sandboxKey.secretKey,
         },
@@ -391,7 +429,7 @@ export function createCloudSandboxRouter(
 
       // Background provisioning mode (used by billing Add Instance flow)
       // returns quickly and continues provisioning asynchronously.
-      if (backgroundProvisioning && (providerName === 'hetzner' || providerName === 'justavps')) {
+      if (backgroundProvisioning && isManagedVpsProvider(providerName)) {
         console.log(`[PLATFORM] Starting background provisioning for sandbox ${sandbox.sandboxId} (${providerName})`);
 
         void (async () => {
@@ -406,7 +444,7 @@ export function createCloudSandboxRouter(
                 externalId: result.externalId,
                 status: 'active',
                 baseUrl: result.baseUrl,
-                metadata: result.metadata,
+                metadata: { ...((sandbox.metadata as Record<string, unknown>) ?? {}), ...result.metadata },
                 config: { serviceKey: sandboxKey.secretKey },
                 updatedAt: new Date(),
               })
@@ -420,12 +458,12 @@ export function createCloudSandboxRouter(
             console.error(`[PLATFORM] Background provisioning failed for sandbox ${sandbox.sandboxId}:`, bgErr);
             const bgMessage = bgErr instanceof Error ? bgErr.message : String(bgErr);
 
-            if (stripeSubscriptionItemId) {
+            if (stripeSubscriptionId) {
               try {
                 const { getStripe } = await import('../../shared/stripe');
                 const stripe = getStripe();
-                await stripe.subscriptionItems.del(stripeSubscriptionItemId);
-                console.log(`[PLATFORM] Rolled back Stripe sub item ${stripeSubscriptionItemId} after background provisioning failure`);
+                await stripe.subscriptions.cancel(stripeSubscriptionId);
+                console.log(`[PLATFORM] Rolled back Stripe subscription ${stripeSubscriptionId} after background provisioning failure`);
 
                 // Keep DB in sync with rollback
                 await db
@@ -433,7 +471,7 @@ export function createCloudSandboxRouter(
                   .set({ stripeSubscriptionItemId: null, updatedAt: new Date() })
                   .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
               } catch (rollbackErr) {
-                console.error(`[PLATFORM] Failed to roll back Stripe sub item ${stripeSubscriptionItemId}:`, rollbackErr);
+                console.error(`[PLATFORM] Failed to roll back Stripe subscription ${stripeSubscriptionId}:`, rollbackErr);
               }
             }
 
@@ -454,8 +492,8 @@ export function createCloudSandboxRouter(
                   metadata: {
                     ...(sandbox.metadata as Record<string, unknown> || {}),
                     errorMessage: bgMessage.includes('server location disabled')
-                      ? 'Selected location is currently disabled by Hetzner. Choose another location.'
-                      : 'Provisioning failed. Please retry or choose a different server/location.',
+                      ? `Selected location is currently disabled by ${getProviderDisplayName(providerName)}. Choose another location.`
+                      : `Provisioning failed via ${getProviderDisplayName(providerName)}. Please retry or choose a different server/location.`,
                     lastProvisioningError: bgMessage.slice(0, 500),
                   },
                   updatedAt: new Date(),
@@ -489,7 +527,7 @@ export function createCloudSandboxRouter(
           externalId: result.externalId,
           status: 'active',
           baseUrl: result.baseUrl,
-          metadata: result.metadata,
+          metadata: { ...((sandbox.metadata as Record<string, unknown>) ?? {}), ...result.metadata },
           config: { serviceKey: sandboxKey.secretKey },
           updatedAt: new Date(),
         })
@@ -506,15 +544,15 @@ export function createCloudSandboxRouter(
         201,
       );
     } catch (err) {
-      // Best-effort rollback for additional-instance Stripe subscription item
-      if (stripeSubscriptionItemId) {
+      // Best-effort rollback for machine Stripe subscription
+      if (stripeSubscriptionId) {
         try {
           const { getStripe } = await import('../../shared/stripe');
           const stripe = getStripe();
-          await stripe.subscriptionItems.del(stripeSubscriptionItemId);
-          console.log(`[PLATFORM] Rolled back Stripe sub item ${stripeSubscriptionItemId} after sandbox create failure`);
+          await stripe.subscriptions.cancel(stripeSubscriptionId);
+          console.log(`[PLATFORM] Rolled back Stripe subscription ${stripeSubscriptionId} after sandbox create failure`);
         } catch (rollbackErr) {
-          console.error(`[PLATFORM] Failed to roll back Stripe sub item ${stripeSubscriptionItemId}:`, rollbackErr);
+          console.error(`[PLATFORM] Failed to roll back Stripe subscription ${stripeSubscriptionId}:`, rollbackErr);
         }
       }
 
@@ -542,14 +580,14 @@ export function createCloudSandboxRouter(
       }
 
       const message = err instanceof Error ? err.message : String(err);
-      if (message.includes('Hetzner API POST /servers returned 422')) {
+      if (message.includes('JustAVPS API POST /machines returned 422')) {
         console.error('[SANDBOX-CLOUD] create validation error:', err);
         return c.json(
           {
             success: false,
             error: message.includes('image disk is bigger than server type disk')
-              ? 'Selected server type is incompatible with the current snapshot size. Choose a larger instance.'
-              : 'Hetzner rejected server creation for this configuration.',
+              ? 'Selected server type is incompatible with the current image size. Choose a larger instance.'
+              : `${getProviderDisplayName(providerRequested || 'justavps')} rejected server creation for this configuration.`,
           },
           400,
         );
@@ -557,6 +595,82 @@ export function createCloudSandboxRouter(
 
       console.error('[SANDBOX-CLOUD] create error:', err);
       return c.json({ success: false, error: 'Failed to create sandbox' }, 500);
+    }
+  });
+
+  // ─── GET /:sandboxId/status ─────────────────────────────────────────────
+  // Provisioning status for frontend poller (useSandboxPoller).
+
+  router.get('/:sandboxId/status', async (c) => {
+    const userId = c.get('userId');
+    const sandboxId = c.req.param('sandboxId');
+
+    try {
+      const accountId = await resolveAccountId(userId);
+
+      const [sandbox] = await db
+        .select()
+        .from(sandboxes)
+        .where(
+          and(
+            eq(sandboxes.accountId, accountId),
+            eq(sandboxes.sandboxId, sandboxId),
+          ),
+        )
+        .limit(1);
+
+      if (!sandbox) {
+        return c.json({ status: 'not_found', error: 'Sandbox not found' }, 404);
+      }
+
+      const metadata = (sandbox.metadata as Record<string, unknown> | null) ?? {};
+      const currentStatus = sandbox.status;
+
+      // NOTE: Self-healing is now handled by the background provision-poller service
+      // (sandbox-provision-poller.ts) which polls JustAVPS every 8s for all provisioning
+      // sandboxes. This endpoint just reads the DB — no more blocking 5-6s JustAVPS
+      // calls in the hot path.
+
+      const provisioningStage = (metadata.provisioningStage as string) ?? null;
+      const provisioningMessage = (metadata.provisioningMessage as string) ?? null;
+      const publicIp = (metadata.publicIp as string) ?? null;
+      const serverType = (metadata.serverType as string) ?? null;
+      const location = (metadata.location as string) ?? null;
+
+      // Map sandbox DB status to the poller's expected shape
+      const stageMap: Record<string, number> = {
+        server_creating: 10,
+        server_created: 25,
+        cloud_init_running: 40,
+        cloud_init_done: 55,
+        docker_pulling: 65,
+        docker_running: 80,
+        services_starting: 90,
+        services_ready: 100,
+      };
+
+      let stageProgress: number | null = null;
+      if (currentStatus === 'active') {
+        stageProgress = 100;
+      } else if (currentStatus === 'provisioning') {
+        stageProgress = provisioningStage ? (stageMap[provisioningStage] ?? 20) : 8;
+      } else if (currentStatus === 'error') {
+        stageProgress = 0;
+      }
+
+      return c.json({
+        status: currentStatus,
+        stage: provisioningStage,
+        stageProgress,
+        stageMessage: provisioningMessage,
+        machineInfo: publicIp ? { ip: publicIp, serverType: serverType ?? '', location: location ?? '' } : null,
+        stages: null,
+        error: currentStatus === 'error' ? ((metadata.errorMessage as string) ?? 'Provisioning failed') : null,
+        startedAt: sandbox.createdAt?.toISOString() ?? null,
+      });
+    } catch (err) {
+      console.error('[SANDBOX-CLOUD] status error:', err);
+      return c.json({ status: 'error', error: 'Failed to get sandbox status' }, 500);
     }
   });
 
@@ -686,86 +800,133 @@ export function createCloudSandboxRouter(
     }
   });
 
-  // ─── DELETE / ──────────────────────────────────────────────────────────
-  // Remove/archive a sandbox. Accepts ?sandbox_id= or removes the first active one.
+  // ─── POST /cancel ──────────────────────────────────────────────────────
+  // Schedule a VPS sandbox for cancellation at end of billing period.
+  // The sandbox's standalone Stripe subscription remains active until period end.
 
-  router.delete('/', async (c) => {
+  router.post('/cancel', async (c) => {
     const userId = c.get('userId');
 
     try {
       const accountId = await resolveAccountId(userId);
-      const sandboxId = c.req.query('sandbox_id');
+      const body = await c.req.json().catch(() => ({}));
+      const sandboxId = body?.sandbox_id as string | undefined;
 
-      let sandbox: typeof sandboxes.$inferSelect | undefined;
+      const query = sandboxId
+        ? and(eq(sandboxes.accountId, accountId), eq(sandboxes.sandboxId, sandboxId), sql`${sandboxes.status} != 'archived'`)
+        : and(eq(sandboxes.accountId, accountId), sql`${sandboxes.status} != 'archived'`);
 
-      if (sandboxId) {
-        // Delete specific sandbox by ID — allow any non-archived status
-        const [row] = await db
-          .select()
-          .from(sandboxes)
-          .where(
-            and(
-              eq(sandboxes.accountId, accountId),
-              eq(sandboxes.sandboxId, sandboxId),
-              sql`${sandboxes.status} != 'archived'`,
-            ),
-          )
-          .limit(1);
-        sandbox = row;
-      } else {
-        // Legacy: delete the first active sandbox
-        const [row] = await db
-          .select()
-          .from(sandboxes)
-          .where(
-            and(
-              eq(sandboxes.accountId, accountId),
-              sql`${sandboxes.status} != 'archived'`,
-            ),
-          )
-          .limit(1);
-        sandbox = row;
-      }
+      const [sandbox] = await db.select().from(sandboxes).where(query).limit(1);
 
       if (!sandbox) {
-        return c.json({ success: false, error: 'No sandbox found to remove' }, 404);
+        return c.json({ success: false, error: 'No sandbox found' }, 404);
       }
 
-      // Remove the Hetzner server (best-effort — never block the DB archival)
-      if (sandbox.externalId) {
-        try {
-          const provider = getProvider(sandbox.provider);
-          await provider.remove(sandbox.externalId);
-        } catch (err) {
-          console.warn(`[PLATFORM] Failed to remove external sandbox ${sandbox.externalId}:`, err);
-        }
+      const existingMeta = (sandbox.metadata as Record<string, unknown> | null) ?? {};
+      const isAlreadyCancelling = Boolean((existingMeta.cancel_at_period_end as boolean) ?? false);
+      const { cancel_at_period_end: _ignoreCancelFlag, cancel_at: _ignoreCancelAt, ...cleanMeta } = existingMeta as Record<string, unknown> & {
+        cancel_at_period_end?: boolean;
+        cancel_at?: string;
+      };
+
+      if (isAlreadyCancelling) {
+        return c.json({ success: false, error: 'Sandbox is already scheduled for cancellation' }, 400);
       }
 
-      // Cancel the Stripe subscription item for paid additional instances
-      if (sandbox.stripeSubscriptionItemId && config.KORTIX_BILLING_INTERNAL_ENABLED) {
+      let cancelAt: string | null = null;
+
+      const stripeSubId = existingMeta.stripe_subscription_id as string | undefined;
+      if (stripeSubId && config.KORTIX_BILLING_INTERNAL_ENABLED) {
         try {
           const { getStripe } = await import('../../shared/stripe');
           const stripe = getStripe();
-          await stripe.subscriptionItems.del(sandbox.stripeSubscriptionItemId, {
-            proration_behavior: 'always_invoice',
+          const sub = await stripe.subscriptions.update(stripeSubId, {
+            cancel_at_period_end: true,
           });
-          console.log(`[PLATFORM] Cancelled Stripe sub item ${sandbox.stripeSubscriptionItemId}`);
+          const periodEnd = (sub as unknown as { current_period_end?: number }).current_period_end;
+          if (periodEnd) {
+            cancelAt = new Date(periodEnd * 1000).toISOString();
+          }
         } catch (err) {
-          console.warn(`[PLATFORM] Failed to cancel Stripe sub item:`, err);
+          console.warn('[PLATFORM] Could not retrieve Stripe period end for cancel:', err);
         }
       }
 
       await db
         .update(sandboxes)
-        .set({ status: 'archived', updatedAt: new Date() })
+        .set({
+          metadata: {
+            ...cleanMeta,
+            cancel_at_period_end: true,
+            ...(cancelAt ? { cancel_at: cancelAt } : {}),
+          },
+          updatedAt: new Date(),
+        })
         .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
 
-      console.log(`[PLATFORM] Removed sandbox ${sandbox.sandboxId} via ${sandbox.provider}`);
+      console.log(`[PLATFORM] Scheduled sandbox ${sandbox.sandboxId} for cancellation`);
+      return c.json({ success: true, cancel_at: cancelAt });
+    } catch (err) {
+      console.error('[SANDBOX-CLOUD] cancel error:', err);
+      return c.json({ success: false, error: 'Failed to schedule cancellation' }, 500);
+    }
+  });
 
+  // ─── POST /reactivate ──────────────────────────────────────────────────
+  // Reverse a scheduled cancellation.
+
+  router.post('/reactivate', async (c) => {
+    const userId = c.get('userId');
+
+    try {
+      const accountId = await resolveAccountId(userId);
+      const body = await c.req.json().catch(() => ({}));
+      const sandboxId = body?.sandbox_id as string | undefined;
+
+      const query = sandboxId
+        ? and(eq(sandboxes.accountId, accountId), eq(sandboxes.sandboxId, sandboxId), sql`${sandboxes.status} != 'archived'`)
+        : and(eq(sandboxes.accountId, accountId), sql`${sandboxes.status} != 'archived'`);
+
+      const [sandbox] = await db.select().from(sandboxes).where(query).limit(1);
+
+      if (!sandbox) {
+        return c.json({ success: false, error: 'No sandbox found' }, 404);
+      }
+
+      const existingMeta = (sandbox.metadata as Record<string, unknown> | null) ?? {};
+      const isCancelling = Boolean((existingMeta.cancel_at_period_end as boolean) ?? false);
+      const { cancel_at_period_end: _ignoreCancelFlag, cancel_at: _ignoreCancelAt, ...cleanMeta } = existingMeta as Record<string, unknown> & {
+        cancel_at_period_end?: boolean;
+        cancel_at?: string;
+      };
+
+      if (!isCancelling) {
+        return c.json({ success: false, error: 'Sandbox is not scheduled for cancellation' }, 400);
+      }
+
+      const stripeSubId = existingMeta.stripe_subscription_id as string | undefined;
+      if (stripeSubId && config.KORTIX_BILLING_INTERNAL_ENABLED) {
+        try {
+          const { getStripe } = await import('../../shared/stripe');
+          const stripe = getStripe();
+          await stripe.subscriptions.update(stripeSubId, {
+            cancel_at_period_end: false,
+          });
+        } catch (err) {
+          console.warn('[PLATFORM] Could not reverse Stripe cancellation for sandbox:', err);
+        }
+      }
+
+      await db
+        .update(sandboxes)
+        .set({ metadata: cleanMeta, updatedAt: new Date() })
+        .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
+
+      console.log(`[PLATFORM] Reactivated sandbox ${sandbox.sandboxId} (cancellation reversed)`);
       return c.json({ success: true });
     } catch (err) {
-      console.error('[SANDBOX-CLOUD] remove error:', err);
-      return c.json({ success: false, error: 'Failed to remove sandbox' }, 500);
+      console.error('[SANDBOX-CLOUD] reactivate error:', err);
+      return c.json({ success: false, error: 'Failed to reactivate sandbox' }, 500);
     }
   });
 
@@ -811,44 +972,6 @@ export function createCloudSandboxRouter(
 
     console.log(`[SANDBOX-CLOUD] Marked sandbox ${sandboxId} as error: ${errorMessage}`);
     return c.json({ success: true });
-  });
-
-  // ── Hetzner server types (public, no auth needed — frontend uses it for tier selection) ──
-
-  router.get('/hetzner/server-types', async (c) => {
-    console.log(`[HETZNER] isEnabled=${config.isHetznerEnabled()} providers=${JSON.stringify(config.ALLOWED_SANDBOX_PROVIDERS)} apiKey=${!!config.HETZNER_API_KEY}`);
-    if (!config.isHetznerEnabled()) {
-      return c.json({ error: 'Hetzner provider is not enabled' }, 404);
-    }
-    try {
-      const location = c.req.query('location') || config.HETZNER_DEFAULT_LOCATION;
-      const types = await listServerTypes(location);
-      return c.json({ serverTypes: types, location });
-    } catch (err: any) {
-      console.error('[SANDBOX-CLOUD] hetzner server-types error:', err);
-      return c.json({ error: 'Failed to fetch server types' }, 500);
-    }
-  });
-
-  // ── JustAVPS server types ──
-
-  router.get('/justavps/server-types', async (c) => {
-    if (!config.isJustAVPSEnabled()) {
-      return c.json({ error: 'JustAVPS provider is not enabled' }, 404);
-    }
-    try {
-      const location = c.req.query('location') || config.JUSTAVPS_DEFAULT_LOCATION;
-      const types = await listJustAVPSServerTypes(location);
-      return c.json({
-        serverTypes: types,
-        location,
-        defaultServerType: config.JUSTAVPS_DEFAULT_SERVER_TYPE,
-        defaultLocation: config.JUSTAVPS_DEFAULT_LOCATION,
-      });
-    } catch (err: any) {
-      console.error('[SANDBOX-CLOUD] justavps server-types error:', err);
-      return c.json({ error: 'Failed to fetch server types' }, 500);
-    }
   });
 
   return router;

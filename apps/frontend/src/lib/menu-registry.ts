@@ -121,7 +121,6 @@ export type SettingsTabId =
   | 'appearance'
   | 'sounds'
   | 'notifications'
-  | 'plan'
   | 'billing'
   | 'transactions'
   | 'referrals'
@@ -424,10 +423,10 @@ export const menuRegistry: MenuItemDef[] = [
       id: 'deployments',
       label: 'Deployments',
       icon: Rocket,
-      group: 'navigation',
-      subGroup: 'services',
-      showIn: ['commandPalette', 'rightSidebar'],
-      kind: 'navigate',
+      group: 'navigation' as const,
+      subGroup: 'services' as const,
+      showIn: ['commandPalette', 'rightSidebar'] as MenuSurface[],
+      kind: 'navigate' as const,
       href: '/deployments',
     }]
     : []),
@@ -669,17 +668,6 @@ export const menuRegistry: MenuItemDef[] = [
   // ACCOUNT — open settings modal to billing-related tabs
   // ──────────────────────────────────────────────────────────────────────────
   {
-    id: 'account-plan',
-    label: 'Plan',
-    icon: Zap,
-    group: 'account',
-    showIn: ['commandPalette', 'userMenu'],
-    kind: 'action',
-    actionId: 'openPlan',
-    keywords: 'plan subscription upgrade pricing tier free pro',
-    requiresBilling: true,
-  },
-  {
     id: 'account-billing',
     label: 'Billing',
     icon: CreditCard,
@@ -786,14 +774,14 @@ export const menuRegistry: MenuItemDef[] = [
   },
   {
     id: 'admin-sandboxes',
-    label: 'Admin: All Sandboxes',
+    label: 'Admin: Sandboxes & Pool',
     icon: Server,
     group: 'admin',
     showIn: ['userMenu', 'commandPalette'],
     kind: 'navigate',
     href: '/admin/sandboxes',
     requiresAdmin: true,
-    keywords: 'admin sandboxes all containers instances',
+    keywords: 'admin sandboxes all containers instances pool warm',
   },
   {
     id: 'admin-analytics',
@@ -846,7 +834,7 @@ export const menuRegistry: MenuItemDef[] = [
     group: 'admin',
     showIn: ['commandPalette'],
     kind: 'navigate',
-    href: '/admin/sandbox-pool',
+    href: '/admin/sandboxes',
     requiresAdmin: true,
     keywords: 'admin sandbox pool warm instances',
   },
@@ -962,13 +950,13 @@ export function getPreferenceTabs(): SettingsTab[] {
 /** Account tabs for the settings modal */
 export function getAccountTabs(billingEnabled: boolean): SettingsTab[] {
   const items: SettingsTab[] = [
-    { id: 'plan', label: 'Plan', icon: Zap },
     { id: 'billing', label: 'Billing', icon: CreditCard },
     { id: 'transactions', label: 'Transactions', icon: Receipt },
   ];
-  if (billingEnabled) {
-    items.push({ id: 'referrals', label: 'Referrals', icon: Users });
-  }
+  // Referrals tab disabled for now
+  // if (billingEnabled) {
+  //   items.push({ id: 'referrals', label: 'Referrals', icon: Users });
+  // }
   // Enrich labels/icons from registry where possible
   return items.map((tab) => {
     const item = menuRegistry.find(

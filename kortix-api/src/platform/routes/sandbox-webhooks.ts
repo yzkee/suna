@@ -11,7 +11,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { sandboxes } from '@kortix/db';
 import { db } from '../../shared/db';
-import { supabaseAuth } from '../../middleware/auth';
+import { combinedAuth } from '../../middleware/auth';
 import { config } from '../../config';
 import { sandboxEventBus, type SandboxProvisionEvent } from '../services/sandbox-events';
 import { resolveAccountId } from '../../shared/resolve-account';
@@ -59,9 +59,9 @@ router.post('/webhooks/justavps', async (c) => {
 
 // ─── GET /sandbox/:id/provision-stream — SSE for frontend (auth required) ──
 
-// Auth sub-router for SSE endpoint
+// Auth sub-router for SSE endpoint (uses combinedAuth for query-param token support — EventSource can't set headers)
 const sseRouter = new Hono<{ Variables: AuthVariables }>();
-sseRouter.use('*', supabaseAuth);
+sseRouter.use('*', combinedAuth);
 sseRouter.get('/:id/provision-stream', async (c) => {
   const sandboxId = c.req.param('id');
   const userId = c.get('userId');

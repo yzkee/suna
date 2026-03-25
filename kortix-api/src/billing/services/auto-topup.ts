@@ -19,8 +19,9 @@ import { BillingError } from '../../errors';
 
 // ─── Validation Constants ────────────────────────────────────────────────────
 
-export const AUTO_TOPUP_MIN_THRESHOLD = 5;    // $5
-export const AUTO_TOPUP_MIN_AMOUNT = 15;      // $15
+export const AUTO_TOPUP_MIN_THRESHOLD = 1;    // $1
+export const AUTO_TOPUP_MIN_AMOUNT = 1;       // $1
+export const AUTO_TOPUP_DEFAULT_AMOUNT = 20;  // $20  (default for new accounts)
 
 /** Minimum 10 seconds between auto-topup charges to prevent rapid-fire. */
 const CHARGE_COOLDOWN_MS = 10_000;
@@ -41,9 +42,6 @@ export function validateAutoTopupConfig(cfg: AutoTopupConfig): string | null {
   }
   if (cfg.amount < AUTO_TOPUP_MIN_AMOUNT) {
     return `Reload amount must be at least $${AUTO_TOPUP_MIN_AMOUNT}`;
-  }
-  if (cfg.amount < cfg.threshold * 2) {
-    return `Reload amount must be at least 2x the threshold ($${cfg.threshold * 2})`;
   }
   return null;
 }
@@ -88,12 +86,12 @@ export async function configureAutoTopup(accountId: string, cfg: AutoTopupConfig
 
 export async function getAutoTopupSettings(accountId: string) {
   const account = await getCreditAccount(accountId);
-  if (!account) return { enabled: false, threshold: AUTO_TOPUP_MIN_THRESHOLD, amount: AUTO_TOPUP_MIN_AMOUNT };
+  if (!account) return { enabled: true, threshold: AUTO_TOPUP_MIN_THRESHOLD, amount: AUTO_TOPUP_DEFAULT_AMOUNT };
 
   return {
     enabled: Boolean(account.autoTopupEnabled),
     threshold: Number(account.autoTopupThreshold) || AUTO_TOPUP_MIN_THRESHOLD,
-    amount: Number(account.autoTopupAmount) || AUTO_TOPUP_MIN_AMOUNT,
+    amount: Number(account.autoTopupAmount) || AUTO_TOPUP_DEFAULT_AMOUNT,
   };
 }
 
@@ -129,7 +127,7 @@ async function tryAutoTopup(accountId: string): Promise<void> {
 
   const balance = Number(account.balance) || 0;
   const threshold = Number(account.autoTopupThreshold) || AUTO_TOPUP_MIN_THRESHOLD;
-  const amount = Number(account.autoTopupAmount) || AUTO_TOPUP_MIN_AMOUNT;
+  const amount = Number(account.autoTopupAmount) || AUTO_TOPUP_DEFAULT_AMOUNT;
 
   if (balance > threshold) return;
 

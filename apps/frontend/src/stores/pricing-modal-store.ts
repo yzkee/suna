@@ -1,43 +1,36 @@
 import { create } from 'zustand';
 import { trackCtaUpgrade } from '@/lib/analytics/gtm';
 
-interface PricingModalState {
+/**
+ * Store for the "New Instance" modal.
+ * Renamed from pricing-modal-store. Same file path kept to avoid mass import changes.
+ */
+
+interface NewInstanceModalState {
   isOpen: boolean;
-  customTitle?: string;
-  isAlert?: boolean;
-  alertTitle?: string;
-  alertSubtitle?: string;
-  returnUrl?: string;
-  openPricingModal: (options?: { title?: string; returnUrl?: string, isAlert?: boolean, alertTitle?: string, alertSubtitle?: string }) => void;
+  title?: string;
+  openNewInstanceModal: (title?: string) => void;
+  closeNewInstanceModal: () => void;
+  // Compat aliases used by old callers
+  openPricingModal: (opts?: { title?: string; isAlert?: boolean; alertTitle?: string }) => void;
   closePricingModal: () => void;
 }
 
-export const usePricingModalStore = create<PricingModalState>((set) => ({
+export const useNewInstanceModalStore = create<NewInstanceModalState>((set) => ({
   isOpen: false,
-  isAlert: false,
-  customTitle: undefined,
-  alertSubtitle: undefined,
-  returnUrl: undefined,
-  openPricingModal: (options) => {
-    // Track cta_upgrade event for GTM/GA4
+  title: undefined,
+  openNewInstanceModal: (title?: string) => {
     trackCtaUpgrade();
-    
-    set({
-      isOpen: true,
-      customTitle: options?.title,
-      isAlert: options?.isAlert || false,
-      alertTitle: options?.alertTitle,
-      alertSubtitle: options?.alertSubtitle,
-      returnUrl: options?.returnUrl,
-    });
+    set({ isOpen: true, title });
   },
-  closePricingModal: () =>
-    set({
-      isOpen: false,
-      customTitle: undefined,
-      isAlert: false,
-      alertTitle: undefined,
-      alertSubtitle: undefined,
-      returnUrl: undefined,
-    }),
+  closeNewInstanceModal: () => set({ isOpen: false, title: undefined }),
+  // Compat
+  openPricingModal: (opts) => {
+    trackCtaUpgrade();
+    set({ isOpen: true, title: opts?.alertTitle || opts?.title });
+  },
+  closePricingModal: () => set({ isOpen: false, title: undefined }),
 }));
+
+// Old name — still imported by ~10 files. Points to the same store.
+export const usePricingModalStore = useNewInstanceModalStore;

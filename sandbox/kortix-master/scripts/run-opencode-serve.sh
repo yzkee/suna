@@ -15,20 +15,29 @@ export PATH="/opt/bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
 # Pick up vars written by kortix-api after container start.
 # On first boot, kortix-api writes the token ~25s after the container starts.
-# Wait up to 60s for it to appear so OpenCode doesn't start without auth.
+# Wait up to 60s for KORTIX_TOKEN and KORTIX_API_URL to appear so OpenCode
+# doesn't start without auth or with the wrong API URL (localhost fallback).
 TOKEN_FILE="/run/s6/container_environment/KORTIX_TOKEN"
-if [ ! -s "$TOKEN_FILE" ]; then
-  echo "[opencode-serve] Waiting for KORTIX_TOKEN to be provisioned..."
+API_URL_FILE="/run/s6/container_environment/KORTIX_API_URL"
+
+if [ ! -s "$TOKEN_FILE" ] || [ ! -s "$API_URL_FILE" ]; then
+  echo "[opencode-serve] Waiting for KORTIX_TOKEN and KORTIX_API_URL to be provisioned..."
   for i in $(seq 1 30); do
-    [ -s "$TOKEN_FILE" ] && break
+    [ -s "$TOKEN_FILE" ] && [ -s "$API_URL_FILE" ] && break
     sleep 2
   done
 fi
 
 [ -s "$TOKEN_FILE" ] && \
   export KORTIX_TOKEN="$(cat "$TOKEN_FILE")"
-[ -f /run/s6/container_environment/KORTIX_API_URL ] && \
-  export KORTIX_API_URL="$(cat /run/s6/container_environment/KORTIX_API_URL)"
+[ -s "$API_URL_FILE" ] && \
+  export KORTIX_API_URL="$(cat "$API_URL_FILE")"
+
+# Safety check: if KORTIX_API_URL is still unset or points to localhost, warn loudly.
+# This catches pool sandboxes where env injection failed or was delayed.
+if [ -z "$KORTIX_API_URL" ] || echo "$KORTIX_API_URL" | grep -q "localhost"; then
+  echo "[opencode-serve] WARNING: KORTIX_API_URL is '${KORTIX_API_URL:-unset}' — LLM calls will fail in cloud mode!"
+fi
 
 cd /workspace
 

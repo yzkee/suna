@@ -15,14 +15,8 @@ const billingApp = new Hono();
 billingApp.route('/webhooks', webhooksRouter);
 
 // Auth for all billing routes except webhooks
-// Note: Hono wildcards only work after '/' (e.g. '/path/*'), NOT as globs (e.g. '/path-*').
-// Using a single catch-all that skips webhook routes (they verify signatures internally).
 billingApp.use('*', async (c, next) => {
   if (c.req.path.includes('/webhooks')) {
-    return next();
-  }
-  // Skip auth for mock provisioning UI testing
-  if (c.req.query('mock') === 'true' && c.req.path.includes('/setup/status')) {
     return next();
   }
   return supabaseAuth(c, next);
@@ -39,9 +33,6 @@ billingApp.use('*', async (c, next) => {
   if (c.req.path.includes('/account-state') || c.req.path.includes('/webhooks')) {
     return next();
   }
-  if (c.req.query('mock') === 'true' && c.req.path.includes('/setup/status')) {
-    return next();
-  }
   if (!config.KORTIX_BILLING_INTERNAL_ENABLED) {
     return c.json({ error: 'Billing is not enabled', billing_disabled: true }, 404);
   }
@@ -50,7 +41,7 @@ billingApp.use('*', async (c, next) => {
 
 // Setup initialize endpoint (requires billing — creates Stripe subscription + sandbox)
 // DESIGN: Returns fast (<2s). Kicks off sandbox provisioning in the background.
-// Frontend polls GET /setup/status for sandbox readiness.
+// Sandbox status is polled via GET /platform/sandbox/:id/status.
 billingApp.post('/setup/initialize', async (c: any) => {
   const userId = c.get('userId') as string;
   const email = c.get('userEmail') as string;
@@ -97,198 +88,28 @@ billingApp.post('/setup/initialize', async (c: any) => {
       planType: 'monthly',
       balance: '0',
       dailyCreditsBalance: '0',
+      // Auto-topup on by default: charge $20 when balance drops below $5
+      autoTopupEnabled: true,
+      autoTopupThreshold: '5',
+      autoTopupAmount: '20',
     });
   }
 
   // ── Step 2: Sandbox provisioning (only for paid plans) ────────────────
   // Free users: no sandbox — they connect their own (BYOC).
-  // Pro users: auto-provision 1x cpx22 in nbg1 (EU Nuremberg) as "included" instance.
+  // Paid users: machine creation is handled explicitly via the checkout / create-machine flow.
   let sandboxStatus: 'created' | 'exists' | 'provisioning' | 'skipped' | 'failed' = 'skipped';
 
-  if (isPaidTier(currentTier)) {
-    sandboxStatus = 'provisioning';
-
-    try {
-      const { ensureSandbox } = await import('../platform/services/ensure-sandbox');
-      const { db } = await import('../shared/db');
-      const { sandboxes } = await import('@kortix/db');
-      const { eq, and } = await import('drizzle-orm');
-
-      const [active] = await db
-        .select()
-        .from(sandboxes)
-        .where(and(eq(sandboxes.accountId, accountId), eq(sandboxes.status, 'active')))
-        .limit(1);
-
-      if (active?.externalId) {
-        sandboxStatus = 'exists';
-        console.log(`[setup/initialize] Sandbox ${active.sandboxId} already active for account ${accountId}`);
-      } else {
-        // Kick off provisioning in background — don't await
-        const defaultProvider = config.ALLOWED_SANDBOX_PROVIDERS.includes('justavps')
-          ? 'justavps' as const
-          : config.ALLOWED_SANDBOX_PROVIDERS.includes('hetzner')
-            ? 'hetzner' as const
-            : config.ALLOWED_SANDBOX_PROVIDERS[0] as any;
-        void ensureSandbox({
-          accountId,
-          userId,
-          provider: defaultProvider,
-          hetznerServerType: requestedServerType || config.JUSTAVPS_DEFAULT_SERVER_TYPE || 'cpx22',
-          hetznerLocation: requestedLocation || config.JUSTAVPS_DEFAULT_LOCATION || config.HETZNER_DEFAULT_LOCATION,
-          isIncluded: true,
-        })
-          .then(({ row, created }) => {
-            console.log(`[setup/initialize] Background: sandbox ${row.sandboxId} ${created ? 'created' : 'exists'} for account ${accountId}`);
-          })
-          .catch((err) => {
-            const msg = err instanceof Error ? err.message : String(err);
-            console.error(`[setup/initialize] Background: sandbox provisioning failed for account ${accountId}:`, msg);
-          });
-        console.log(`[setup/initialize] Kicked off cpx22/${config.HETZNER_DEFAULT_LOCATION} sandbox provisioning for account ${accountId}`);
-      }
-    } catch (err) {
-      sandboxStatus = 'failed';
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[setup/initialize] Failed to start sandbox provisioning for account ${accountId}:`, msg);
-    }
-  } else {
+  if (!isPaidTier(currentTier)) {
     console.log(`[setup/initialize] Free tier — no sandbox provisioning for account ${accountId}`);
+  } else {
+    console.log(`[setup/initialize] Paid tier ready for explicit machine checkout for account ${accountId}`);
   }
 
   return c.json({
     status: subscriptionStatus,
     tier: currentTier,
     sandbox: sandboxStatus,
-  });
-});
-
-// Setup status endpoint — frontend polls this to check sandbox readiness.
-// Returns instantly with the current sandbox state from the DB.
-billingApp.get('/setup/status', async (c: any) => {
-  // Mock mode: simulate provisioning stages over time for UI testing
-  if (c.req.query('mock') === 'true') {
-    const mockStages = [
-      { id: 'server_creating', progress: 10, message: 'Creating server...' },
-      { id: 'server_created', progress: 20, message: 'Server created, running cloud-init...' },
-      { id: 'cloud_init_running', progress: 35, message: 'Configuring machine...' },
-      { id: 'cloud_init_done', progress: 50, message: 'Configuration complete...' },
-      { id: 'docker_pulling', progress: 60, message: 'Pulling sandbox image...' },
-      { id: 'docker_running', progress: 75, message: 'Container started, booting services...' },
-      { id: 'services_starting', progress: 85, message: 'Services booting...' },
-      { id: 'services_ready', progress: 100, message: 'Ready' },
-    ];
-    // Each stage lasts ~5 seconds, full cycle ~40s
-    const mockStart = parseInt(c.req.query('t') || '0') || Math.floor(Date.now() / 1000) - 5;
-    const elapsed = Math.floor(Date.now() / 1000) - mockStart;
-    const stageIdx = Math.min(Math.floor(elapsed / 5), mockStages.length - 1);
-    const current = mockStages[stageIdx];
-    const isReady = stageIdx >= mockStages.length - 1;
-
-    return c.json({
-      subscription: 'ready',
-      sandbox: isReady ? 'ready' : 'provisioning',
-      stage: current.id,
-      stageProgress: current.progress,
-      stageMessage: current.message,
-      machineInfo: stageIdx >= 1 ? { ip: '162.55.217.93', serverType: 'cpx22', location: 'EU (Helsinki)' } : null,
-      stages: mockStages,
-    });
-  }
-
-  const userId = c.get('userId') as string;
-  const { resolveAccountId } = await import('../shared/resolve-account');
-  const { getCreditAccount } = await import('./repositories/credit-accounts');
-  const accountId = await resolveAccountId(userId);
-
-  // Subscription status
-  const account = await getCreditAccount(accountId);
-  const subscriptionReady = !!account?.stripeSubscriptionId;
-
-  // Sandbox status
-  const { db } = await import('../shared/db');
-  const { sandboxes } = await import('@kortix/db');
-  const { eq, and, inArray, desc, sql } = await import('drizzle-orm');
-
-  const querySandboxId = c.req.query('sandbox_id');
-  const sandboxQuery = querySandboxId
-    ? db.select().from(sandboxes).where(and(eq(sandboxes.sandboxId, querySandboxId), eq(sandboxes.accountId, accountId))).limit(1)
-    : db.select().from(sandboxes)
-        .where(and(eq(sandboxes.accountId, accountId), inArray(sandboxes.status, ['active', 'provisioning', 'error'])))
-        .orderBy(
-          sql`case
-            when ${sandboxes.status} = 'active' then 0
-            when ${sandboxes.status} = 'provisioning' then 1
-            else 2
-          end`,
-          desc(sandboxes.updatedAt),
-          desc(sandboxes.createdAt),
-        )
-        .limit(1);
-  const [sandbox] = await sandboxQuery;
-
-  let sandboxState: 'none' | 'provisioning' | 'ready' | 'error' = 'none';
-  let stage: string | null = null;
-  let stageProgress: number | null = null;
-  let stageMessage: string | null = null;
-  let machineInfo: { ip: string; serverType: string; location: string } | null = null;
-  let stages: Array<{ id: string; progress: number; message: string }> | null = null;
-
-  if (sandbox) {
-    if (sandbox.status === 'error') {
-      sandboxState = 'error';
-    } else {
-      sandboxState = sandbox.status === 'active' && sandbox.externalId ? 'ready' : 'provisioning';
-
-      if (sandboxState === 'provisioning') {
-        const updatedAt = sandbox.updatedAt ? new Date(sandbox.updatedAt).getTime() : 0;
-        const provisioningAgeMs = Date.now() - updatedAt;
-        if (updatedAt > 0 && provisioningAgeMs > 15 * 60 * 1000) {
-          sandboxState = 'error';
-        }
-        if (sandboxState === 'provisioning' && sandbox.provider) {
-          try {
-            const { getProvider } = await import('../platform/providers/index');
-            const provider = getProvider(sandbox.provider as any);
-            const provStatus = await provider.getProvisioningStatus(sandbox.sandboxId);
-            if (provStatus?.complete) {
-              sandboxState = 'ready';
-            } else if (provStatus?.error) {
-              sandboxState = 'error';
-            }
-            if (provStatus) {
-              stage = provStatus.stage;
-              stageProgress = provStatus.progress;
-              stageMessage = provStatus.message;
-            }
-            if (provider.provisioning?.stages) {
-              stages = provider.provisioning.stages;
-            }
-          } catch {
-          }
-        }
-      }
-    }
-
-    const meta = (sandbox.metadata as Record<string, unknown>) ?? {};
-    if (meta.publicIp || meta.serverType || meta.location) {
-      machineInfo = {
-        ip: (meta.publicIp as string) || '',
-        serverType: (meta.serverType as string) || '',
-        location: (meta.location as string) || '',
-      };
-    }
-  }
-
-  return c.json({
-    subscription: subscriptionReady ? 'ready' : 'pending',
-    sandbox: sandboxState,
-    stage,
-    stageProgress,
-    stageMessage,
-    machineInfo,
-    stages,
-    startedAt: sandbox?.createdAt ? new Date(sandbox.createdAt).toISOString() : null,
   });
 });
 

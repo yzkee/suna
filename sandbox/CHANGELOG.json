@@ -1,5 +1,77 @@
 [
   {
+    "version": "0.8.19",
+    "date": "2026-03-23",
+    "title": "Fix cloud sandbox LLM connection failure and improve OAuth connect UI",
+    "description": "Pool sandboxes were starting OpenCode with placeholder env vars (localhost:8008), causing all LLM calls to fail with 'Unable to connect'. Fixed startup ordering, auto-restart on env injection, and added missing tool proxy URLs for pool sandboxes. Also redesigned the OAuth provider connect UI with step-by-step instructions.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Wait for both KORTIX_TOKEN and KORTIX_API_URL before starting OpenCode in sandbox, preventing fallback to localhost:8008 in cloud mode"
+      },
+      {
+        "type": "fix",
+        "text": "Auto-restart OpenCode when core identity vars (KORTIX_TOKEN, KORTIX_API_URL) change via bulk env injection, so late-arriving pool env updates take effect immediately"
+      },
+      {
+        "type": "fix",
+        "text": "Add missing TAVILY_API_URL, REPLICATE_API_URL, and SERPER_API_URL to pool env injector for parity with all supported sandbox providers"
+      },
+      {
+        "type": "feature",
+        "text": "Redesign OAuth provider connect UI with numbered step-by-step instructions, prominent 'Open Authorization Page' button, and improved paste flow"
+      }
+    ]
+  },
+  {
+    "version": "0.8.18",
+    "date": "2026-03-23",
+    "title": "Route sandbox tool traffic through Kortix proxy for cloud billing",
+    "description": "Sandbox tools (web-search, image-search) now route through the Kortix router proxy in cloud mode for centralized billing and API key injection. Self-hosted mode is unchanged — tools hit upstream APIs directly with user-provided keys.",
+    "changes": [
+      {
+        "type": "feature",
+        "text": "Add TAVILY_API_URL, REPLICATE_API_URL, and SERPER_API_URL env var support in sandbox tools so cloud sandboxes route traffic through the Kortix router proxy instead of hitting upstream APIs directly"
+      },
+      {
+        "type": "feature",
+        "text": "Extend proxy auth (tryAuthenticate) to detect Kortix tokens in Authorization: Token prefix (Replicate SDK) and JSON body api_key field (Tavily SDK)"
+      },
+      {
+        "type": "feature",
+        "text": "Inject tool proxy URLs into sandbox env vars during cloud sandbox creation on all supported providers (Daytona, JustAVPS)"
+      }
+    ]
+  },
+  {
+    "version": "0.8.17",
+    "date": "2026-03-23",
+    "title": "Replace old memory API with MEMORY.md suggestions and harden sandbox routes",
+    "description": "Removes the deprecated sandbox memory management API, adds personalized dashboard suggestions sourced from workspace MEMORY.md, hardens env/proxy behavior, and aligns the sandbox image with in-tree KORTIX-system skills.",
+    "changes": [
+      {
+        "type": "feature",
+        "text": "Add /sessions/suggestions in kortix-master so the dashboard can generate personalized prompts from /workspace/.kortix/MEMORY.md, with fallback defaults when no memory file exists"
+      },
+      {
+        "type": "fix",
+        "text": "Harden /env routes with safe JSON parsing and env-key validation so malformed requests return 400s instead of bubbling into 500s"
+      },
+      {
+        "type": "fix",
+        "text": "Improve proxy connection-refused handling by recognizing more refusal variants and returning a clearer 502 with a hint when nothing is listening on localhost:<port>"
+      },
+      {
+        "type": "improvement",
+        "text": "Stop wiring agent-tunnel as a special Dockerfile symlink and rely on recursive in-tree KORTIX-system skill discovery during sandbox image builds"
+      },
+      {
+        "type": "improvement",
+        "text": "Point the sandbox marketplace route at the new Pages registry endpoint and expand isolated kortix-master E2E fixtures for suggestions, proxy, env, persistence, and security coverage"
+      }
+    ]
+  },
+  {
     "version": "0.8.16",
     "date": "2026-03-21",
     "title": "Fix Telegram DM support, agent-tunnel skill, and file attachments",
@@ -179,11 +251,11 @@
     "version": "0.8.8",
     "date": "2026-03-16",
     "title": "Fix sandbox startup — opencode DB ownership",
-    "description": "Fixes sandbox failing to start on fresh Hetzner snapshots due to opencode SQLite database directory ownership mismatch.",
+    "description": "Fixes sandbox failing to start on fresh cloud images due to opencode SQLite database directory ownership mismatch.",
     "changes": [
       {
         "type": "fix",
-        "text": "Sandbox startup now explicitly sets correct ownership on the opencode data directory before launching s6, preventing 'unable to open database file' errors on fresh Hetzner instances"
+        "text": "Sandbox startup now explicitly sets correct ownership on the opencode data directory before launching s6, preventing 'unable to open database file' errors on fresh cloud images"
       }
     ]
   },
@@ -271,7 +343,7 @@
       },
       {
         "type": "test",
-        "text": "Release verification is stronger with Hetzner snapshot support in ship, a consolidated tests/ layout, and expanded self-hosted Playwright and shell coverage"
+        "text": "Release verification is stronger with automated JustAVPS image seeding in ship, a consolidated tests/ layout, and expanded self-hosted Playwright and shell coverage"
       }
     ]
   },
@@ -587,7 +659,7 @@
       },
       {
         "type": "fix",
-        "text": "Hetzner snapshots now pull the exact release-tagged sandbox image instead of kortix/computer:latest"
+        "text": "Cloud images now pull the exact release-tagged sandbox image instead of kortix/computer:latest"
       }
     ]
   },
@@ -685,7 +757,7 @@
       },
       {
         "type": "fix",
-        "text": "Added retry handling for setup initialization on transient network and 502 errors during Hetzner provisioning"
+        "text": "Added retry handling for setup initialization on transient network and 502 errors during managed VPS provisioning"
       },
       {
         "type": "fix",

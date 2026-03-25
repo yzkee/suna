@@ -35,6 +35,10 @@ export interface PoolStats {
 export interface PooledSandbox {
   id: string;
   external_id: string;
+  provider: string;
+  status: string;
+  server_type?: string | null;
+  location?: string | null;
   pooled_at: string | null;
   created_at: string | null;
 }
@@ -84,10 +88,22 @@ export interface RemoveResponse {
   failed: Array<{ id: string; error: string }>;
 }
 
+export interface PoolResource {
+  id: string;
+  provider: string;
+  serverType: string;
+  location: string;
+  desiredCount: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 const QUERY_KEYS = {
   health: ['admin-sandbox-pool-health'],
   stats: ['admin-sandbox-pool-stats'],
   list: ['admin-sandbox-pool-list'],
+  resources: ['admin-sandbox-pool-resources'],
 };
 
 export const useSandboxPoolHealth = () => {
@@ -149,9 +165,9 @@ export const useSandboxPoolReplenish = () => {
 export const useSandboxPoolForceCreate = () => {
   const queryClient = useQueryClient();
 
-  return useMutation<ForceCreateResponse, Error, number>({
-    mutationFn: async (count: number) => {
-      const response = await backendApi.post<ForceCreateResponse>('/admin/sandbox-pool/force-create', { count });
+  return useMutation<ForceCreateResponse, Error, { count: number; resource_id?: string }>({
+    mutationFn: async ({ count, resource_id }) => {
+      const response = await backendApi.post<ForceCreateResponse>('/admin/sandbox-pool/force-create', { count, resource_id });
       if (response.error) throw response.error;
       return response.data!;
     },
@@ -191,6 +207,65 @@ export const useSandboxPoolRestart = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.health });
+    },
+  });
+};
+
+export const usePoolResources = () => {
+  return useQuery<{ resources: PoolResource[] }>({
+    queryKey: QUERY_KEYS.resources,
+    queryFn: async () => {
+      const response = await backendApi.get<{ resources: PoolResource[] }>('/admin/sandbox-pool/resources');
+      if (response.error) throw response.error;
+      return response.data!;
+    },
+    staleTime: 10 * 1000,
+  });
+};
+
+export const useCreatePoolResource = () => {
+  const queryClient = useQueryClient();
+  return useMutation<{ resource: PoolResource }, Error, { provider: string; server_type: string; location: string; desired_count: number }>({
+    mutationFn: async (data) => {
+      const response = await backendApi.post<{ resource: PoolResource }>('/admin/sandbox-pool/resources', data);
+      if (response.error) throw response.error;
+      return response.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.resources });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.health });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.stats });
+    },
+  });
+};
+
+export const useUpdatePoolResource = () => {
+  const queryClient = useQueryClient();
+  return useMutation<{ resource: PoolResource }, Error, { id: string; desired_count?: number; enabled?: boolean }>({
+    mutationFn: async ({ id, ...data }) => {
+      const response = await backendApi.patch<{ resource: PoolResource }>(`/admin/sandbox-pool/resources/${id}`, data);
+      if (response.error) throw response.error;
+      return response.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.resources });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.health });
+    },
+  });
+};
+
+export const useDeletePoolResource = () => {
+  const queryClient = useQueryClient();
+  return useMutation<{ success: boolean }, Error, string>({
+    mutationFn: async (id) => {
+      const response = await backendApi.delete<{ success: boolean }>(`/admin/sandbox-pool/resources/${id}`);
+      if (response.error) throw response.error;
+      return response.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.resources });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.health });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.stats });
     },
   });
 };

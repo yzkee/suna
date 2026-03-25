@@ -1,107 +1,83 @@
 'use client';
 
-import { ArrowRight } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import Link from 'next/link';
 import Image from 'next/image';
-
-const openings = [
-  {
-    title: "AI Engineer",
-    location: "Remote",
-    description: "Work on our AI agents — make them reliable, fast, and actually useful. LLM experience required.",
-    href: "/careers/ai-engineer",
-  },
-  {
-    title: "Product / Design Engineer",
-    location: "Remote",
-    description: "Own UX/UI end-to-end. Design it, ship it, iterate on it.",
-    href: "/careers/design-engineer",
-  },
-];
+import { Reveal } from '@/components/home/reveal';
 
 export default function CareersPage() {
   return (
     <main className="min-h-screen bg-background">
-      {/* Hero */}
-      <div className="max-w-2xl mx-auto px-6 pt-24 sm:pt-32 pb-10 sm:pb-12">
-        <p className="text-sm text-muted-foreground/70 mb-4">We{"'"}re hiring</p>
-        <h1 className="text-4xl sm:text-5xl font-medium tracking-tight text-foreground mb-6">
-          Work at Kortix
-        </h1>
-        <p className="text-sm text-muted-foreground/70 leading-relaxed max-w-lg">
-          Small team, high intensity, real ownership. If you{"'"}re good at what
-          you do, we{"'"}d like to talk.
-        </p>
-      </div>
+      <div className="max-w-3xl mx-auto px-6 pt-24 sm:pt-32 pb-24 sm:pb-32">
 
-      {/* Content — matches homepage editorial style */}
-      <div className="max-w-2xl mx-auto px-6 pb-24 sm:pb-32">
-
-        {/* ── The Mantra ── */}
-        <div className="mb-16 flex justify-center">
-          <Image
-            src="/images/careers/shackleton.png"
-            alt="Men wanted for hazardous journey, small wages, bitter cold, long months of complete darkness, constant danger, safe return doubtful, honor and recognition in case of success. — Ernest Shackleton"
-            width={380}
-            height={253}
-            className="rounded-md opacity-80"
-            priority
-          />
-        </div>
-
-        {/* ── Open Positions ── */}
-        <div className="mb-16">
-          <h2 className="text-xs uppercase tracking-widest text-muted-foreground/40 mb-4">
-            Open Positions
-          </h2>
-          <div className="divide-y divide-border/50">
-            {openings.map((job) => (
-              <Link
-                key={job.title}
-                href={job.href}
-                className="group flex items-start justify-between gap-4 py-5 first:pt-0 last:pb-0"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground group-hover:underline underline-offset-4 transition-colors">
-                    {job.title}
-                  </p>
-                  <p className="text-sm text-muted-foreground/70 leading-relaxed mt-1">
-                    {job.description}
-                  </p>
-                  <p className="text-xs text-muted-foreground/40 mt-1.5">
-                    {job.location}
-                  </p>
-                </div>
-                <ArrowRight className="size-4 text-muted-foreground/30 group-hover:text-foreground shrink-0 mt-0.5 transition-colors" />
-              </Link>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Don't See Your Role? ── */}
-        <div className="mb-16">
-          <h2 className="text-xs uppercase tracking-widest text-muted-foreground/40 mb-4">
-            Don{"'"}t See Your Role?
-          </h2>
-          <p className="text-sm text-muted-foreground/70 leading-relaxed mb-4">
-            We{"'"}re always looking for exceptional people. If you{"'"}re passionate
-            about AI and want to build with us, reach out.
+        {/* Hero */}
+        <Reveal>
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-medium tracking-tight text-foreground mb-5">
+            Careers
+          </h1>
+        </Reveal>
+        <Reveal delay={0.08}>
+          <p className="text-base text-muted-foreground/60 leading-relaxed max-w-xl">
+            Founders, builders, hackers, artists, designers, engineers, operators, dreamers, dropouts, autodidacts, obsessives, perfectionists, generalists, polymaths — we don{"'"}t care what you call it. We care that you{"'"}ve built something real, felt every edge of it, and couldn{"'"}t stop until it was right.
           </p>
-          <Button asChild variant="outline" className="h-10 px-5 text-sm rounded-lg shadow-none">
-            <a href="mailto:marko@kortix.com">
-              Get in touch
-              <ArrowRight className="ml-1.5 size-3.5" />
-            </a>
-          </Button>
-        </div>
+        </Reveal>
+        <Reveal delay={0.16}>
+          <p className="text-base text-muted-foreground/60 leading-relaxed max-w-xl mt-4">
+            An extremely small, tight-knit team building the operating system for autonomous companies. Everyone here shares the same trait — the innate drive to take chaos and turn it into systems that run themselves.
+          </p>
+        </Reveal>
 
-        {/* ── Closing ── */}
-        <p className="text-sm text-muted-foreground/40 text-center">
-          Honor and recognition in case of success.
-        </p>
+        {/* Shackleton */}
+        <Reveal delay={0.1}>
+          <div className="mt-14 flex justify-center">
+            <Image
+              src="/images/careers/shackleton.png"
+              alt="Men wanted for hazardous journey, small wages, bitter cold, long months of complete darkness, constant danger, safe return doubtful, honor and recognition in case of success. — Ernest Shackleton"
+              width={380}
+              height={253}
+              className="rounded-md opacity-80"
+              priority
+            />
+          </div>
+        </Reveal>
+
+        {/* Position */}
+        <Reveal>
+          <div className="mt-14">
+            <h2 className="text-xs uppercase tracking-widest text-muted-foreground/40 mb-5">
+              Open Position
+            </h2>
+            <div>
+              <p className="text-base font-medium text-foreground/70">
+                Craftsman
+              </p>
+              <p className="text-base text-muted-foreground/60 leading-relaxed mt-1.5">
+                You are what you are. You drive what you must. Independent, founder-type person who falls under the above definition or not.
+              </p>
+              <p className="text-xs text-muted-foreground/35 mt-2">San Francisco — or anywhere, but we{"'"}ll get you here.</p>
+            </div>
+          </div>
+        </Reveal>
+
+        {/* Contact */}
+        <Reveal>
+          <div className="mt-14 pt-8 border-t border-border/50">
+            <p className="text-base text-muted-foreground/60 leading-relaxed">
+              If this sounds like you, just reach out. I{"'"}m Marko.
+            </p>
+            <div className="flex flex-col gap-1.5 mt-3">
+              <a href="mailto:marko@kortix.ai" className="text-base text-foreground/70 hover:text-foreground underline underline-offset-4 decoration-foreground/20 hover:decoration-foreground/50 transition-colors w-fit">
+                marko@kortix.ai
+              </a>
+              <a href="https://x.com/markokraemer" target="_blank" rel="noopener noreferrer" className="text-base text-foreground/70 hover:text-foreground underline underline-offset-4 decoration-foreground/20 hover:decoration-foreground/50 transition-colors w-fit">
+                @markokraemer
+              </a>
+              <a href="https://linkedin.com/in/markokraemer" target="_blank" rel="noopener noreferrer" className="text-base text-foreground/70 hover:text-foreground underline underline-offset-4 decoration-foreground/20 hover:decoration-foreground/50 transition-colors w-fit">
+                linkedin.com/in/markokraemer
+              </a>
+            </div>
+          </div>
+        </Reveal>
+
       </div>
-
     </main>
   );
 }

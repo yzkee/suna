@@ -198,15 +198,20 @@ function getAdminKeySchema(): Record<string, KeyGroup> {
         { key: 'DAYTONA_TARGET', label: 'Daytona Target' },
       ],
     },
-    hetzner: {
-      title: 'Cloud Provider (Hetzner)',
-      description: 'Hetzner VPS sandbox provisioning.',
+    justavps: {
+      title: 'Cloud Provider (JustAVPS)',
+      description: 'JustAVPS sandbox provisioning.',
       keys: [
-        { key: 'HETZNER_API_KEY', label: 'Hetzner API Key', secret: true },
-        { key: 'HETZNER_SNAPSHOT_VERSION_OVERRIDE', label: 'Snapshot Version Override (e.g. 0.7.15)' },
-        { key: 'HETZNER_DEFAULT_LOCATION', label: 'Default Location' },
-        { key: 'HETZNER_DEFAULT_SERVER_TYPE', label: 'Default Server Type' },
-        { key: 'HETZNER_SSH_KEY_ID', label: 'SSH Key ID' },
+        { key: 'JUSTAVPS_API_URL', label: 'JustAVPS API URL' },
+        { key: 'JUSTAVPS_API_KEY', label: 'JustAVPS API Key', secret: true },
+        { key: 'JUSTAVPS_IMAGE_ID', label: 'Image ID' },
+        { key: 'JUSTAVPS_DEFAULT_LOCATION', label: 'Default Location' },
+        { key: 'JUSTAVPS_DEFAULT_SERVER_TYPE', label: 'Default Server Type' },
+        { key: 'JUSTAVPS_IMAGE_BUILD_LOCATION', label: 'Image Build Location' },
+        { key: 'JUSTAVPS_IMAGE_BUILD_SERVER_TYPE', label: 'Image Build Server Type' },
+        { key: 'JUSTAVPS_PROXY_DOMAIN', label: 'Proxy Domain' },
+        { key: 'JUSTAVPS_WEBHOOK_URL', label: 'Webhook URL' },
+        { key: 'JUSTAVPS_WEBHOOK_SECRET', label: 'Webhook Secret', secret: true },
       ],
     },
     sandbox: {
@@ -411,12 +416,18 @@ adminApp.get('/api/sandboxes', async (c) => {
     const page    = Math.max(1, parseInt(c.req.query('page')  || '1', 10));
     const limit   = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '50', 10)));
     const offset  = (page - 1) * limit;
+    const validStatuses = ['provisioning', 'active', 'stopped', 'archived', 'pooled', 'error'] as const;
+    const validProviders = ['daytona', 'local_docker', 'justavps'] as const;
 
     // Build WHERE conditions
     const conditions = [];
 
-    if (status)   conditions.push(eq(sandboxes.status, status));
-    if (provider) conditions.push(eq(sandboxes.provider, provider));
+    if (validStatuses.includes(status as typeof validStatuses[number])) {
+      conditions.push(eq(sandboxes.status, status as typeof validStatuses[number]));
+    }
+    if (validProviders.includes(provider as typeof validProviders[number])) {
+      conditions.push(eq(sandboxes.provider, provider as typeof validProviders[number]));
+    }
     if (q) {
       conditions.push(or(
         ilike(sandboxes.sandboxId, `%${q}%`),
@@ -489,15 +500,15 @@ adminApp.delete('/api/sandboxes/:id', async (c) => {
     if (!row) return c.json({ error: 'Sandbox not found' }, 404);
 
     // Try to delete from provider
-    if (row.provider === 'hetzner' && row.externalId) {
+    if (row.provider === 'justavps' && row.externalId) {
       try {
         const { config: cfg } = await import('../config');
-        await fetch(`https://api.hetzner.cloud/v1/servers/${row.externalId}`, {
+        await fetch(`${cfg.JUSTAVPS_API_URL.replace(/\/$/, '')}/machines/${row.externalId}`, {
           method: 'DELETE',
-          headers: { Authorization: `Bearer ${cfg.HETZNER_API_KEY}` },
+          headers: { Authorization: `Bearer ${cfg.JUSTAVPS_API_KEY}` },
         });
       } catch (e: any) {
-        console.warn(`[ADMIN] Failed to delete Hetzner server ${row.externalId}: ${e?.message}`);
+        console.warn(`[ADMIN] Failed to delete JustAVPS machine ${row.externalId}: ${e?.message}`);
       }
     }
 
@@ -559,7 +570,6 @@ adminApp.get('/api/status', async (c) => {
     port: config.PORT,
     sandboxVersion: (await import('../config')).SANDBOX_VERSION,
     allowedProviders: config.ALLOWED_SANDBOX_PROVIDERS,
-    channelsEnabled: config.CHANNELS_ENABLED,
     billingEnabled: config.KORTIX_BILLING_INTERNAL_ENABLED,
     daytonaEnabled: config.isDaytonaEnabled(),
     localDockerEnabled: config.isLocalDockerEnabled(),

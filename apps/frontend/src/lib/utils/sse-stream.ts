@@ -77,7 +77,6 @@ export function createSSEStream(options: SSEStreamOptions): SSEStream {
         headers: {
           'Accept': 'text/event-stream',
           'Authorization': `Bearer ${token}`,
-          'Cache-Control': 'no-cache',
         },
         signal: combinedSignal,
         credentials: 'include',

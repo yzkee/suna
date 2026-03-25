@@ -462,6 +462,9 @@ importers:
       docx-preview:
         specifier: ^0.3.7
         version: 0.3.7
+      dotted-map:
+        specifier: ^3.1.0
+        version: 3.1.0
       exceljs:
         specifier: ^4.4.0
         version: 4.4.0
@@ -627,6 +630,9 @@ importers:
       remark-gfm:
         specifier: ^4.0.1
         version: 4.0.1
+      rimraf:
+        specifier: ^6.1.3
+        version: 6.1.3
       server-only:
         specifier: ^0.0.1
         version: 0.0.1
@@ -1246,8 +1252,8 @@ importers:
         specifier: ^0.4.3
         version: 0.4.3(arctic@2.3.4)(hono@4.12.3)
       '@opencode-ai/plugin':
-        specifier: 1.2.27
-        version: 1.2.27
+        specifier: 1.3.2
+        version: 1.3.2
       '@opencode-ai/sdk':
         specifier: ^1.2.25
         version: 1.2.25
@@ -5805,7 +5811,7 @@ packages:
     resolution: {integrity: sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w==}
     engines: {node: '>=18.0.0'}
     dependencies:
-      minipass: 7.1.2
+      minipass: 7.1.3
 
   /@isaacs/string-locale-compare@1.1.0:
     resolution: {integrity: sha512-SQ7Kzhh9+D+ZW9MA0zkYv3VXhIDNx+LzM6EJ+/65I3QY+enU6Itte7E5XX7EWrqLW2FN4n06GWzBnPoC3th2aQ==}
@@ -6698,10 +6704,10 @@ packages:
       zod: 4.1.8
     dev: false
 
-  /@opencode-ai/plugin@1.2.27:
-    resolution: {integrity: sha512-h+8Bw9v9nghMg7T+SUCTzxlIhOrsTqXW7U0HVLGQST5DjbN7uyCUM51roZWZ8LRjGxzbzFhvPnY1bj8i+ioZyw==}
+  /@opencode-ai/plugin@1.3.2:
+    resolution: {integrity: sha512-eT0ZovMCOQlfTdAnfbEWgW343mJ9SHgEVfdiOSX1NMIVXac6hxE2xwUsRVTV3wLvfA6dKZhN800f8wLUEyPlyg==}
     dependencies:
-      '@opencode-ai/sdk': 1.2.27
+      '@opencode-ai/sdk': 1.3.2
       zod: 4.1.8
     dev: false
 
@@ -6717,8 +6723,8 @@ packages:
     resolution: {integrity: sha512-ikuGWob48OM7LTgfXFqGOZKVOqh50FEjvtIBhXGhGowJhifmjZ+xuq/ypP8nPjTwUX73pbu1C3X9ZBWVkCN9mA==}
     dev: false
 
-  /@opencode-ai/sdk@1.2.27:
-    resolution: {integrity: sha512-Wk0o/I+Fo+wE3zgvlJDs8Fb67KlKqX0PrV8dK5adSDkANq6r4Z25zXJg2iOir+a8ntg3rAcpel1OY4FV/TwRUA==}
+  /@opencode-ai/sdk@1.3.2:
+    resolution: {integrity: sha512-u7sXVKn0kyAA5vVVHuHQfq3+3UGWOU1Sh6d/e+aS4zO8AwriTSWNQ9r8Qy5yxBH+PoeOGl5WIVdp+s2Ea2zuAg==}
     dev: false
 
   /@opentelemetry/api-logs@0.207.0:
@@ -14056,6 +14062,31 @@ packages:
       minimatch: 10.2.4
     dev: false
 
+  /@turf/boolean-point-in-polygon@7.3.4:
+    resolution: {integrity: sha512-v/4hfyY90Vz9cDgs2GwjQf+Lft8o7mNCLJOTz/iv8SHAIgMMX0czEoIaNVOJr7tBqPqwin1CGwsncrkf5C9n8Q==}
+    dependencies:
+      '@turf/helpers': 7.3.4
+      '@turf/invariant': 7.3.4
+      '@types/geojson': 7946.0.16
+      point-in-polygon-hao: 1.2.4
+      tslib: 2.8.1
+    dev: false
+
+  /@turf/helpers@7.3.4:
+    resolution: {integrity: sha512-U/S5qyqgx3WTvg4twaH0WxF3EixoTCfDsmk98g1E3/5e2YKp7JKYZdz0vivsS5/UZLJeZDEElOSFH4pUgp+l7g==}
+    dependencies:
+      '@types/geojson': 7946.0.16
+      tslib: 2.8.1
+    dev: false
+
+  /@turf/invariant@7.3.4:
+    resolution: {integrity: sha512-88Eo4va4rce9sNZs6XiMJowWkikM3cS2TBhaCKlU+GFHdNf8PFEpiU42VDU8q5tOF6/fu21Rvlke5odgOGW4AQ==}
+    dependencies:
+      '@turf/helpers': 7.3.4
+      '@types/geojson': 7946.0.16
+      tslib: 2.8.1
+    dev: false
+
   /@tweenjs/tween.js@23.1.3:
     resolution: {integrity: sha512-vJmvvwFxYuGnF2axRtPYocag6Clbb5YS7kLL+SO/TeVFzHqDIWrNKYtcsPMibjDx9O+bu+psAy9NKfWklassUA==}
     dev: false
@@ -18013,7 +18044,7 @@ packages:
       fs-minipass: 3.0.3
       glob: 13.0.6
       lru-cache: 11.2.6
-      minipass: 7.1.2
+      minipass: 7.1.3
       minipass-collect: 2.0.1
       minipass-flush: 1.0.5
       minipass-pipeline: 1.2.4
@@ -19465,6 +19496,14 @@ packages:
   /dotenv@17.2.4:
     resolution: {integrity: sha512-mudtfb4zRB4bVvdj0xRo+e6duH1csJRM8IukBqfTRvHotn9+LBXB8ynAidP9zHqoRC/fsllXgk4kCKlR21fIhw==}
     engines: {node: '>=12'}
+    dev: false
+
+  /dotted-map@3.1.0:
+    resolution: {integrity: sha512-E0z9o5IaTf44FnWHvbyg4QQcBwXgzZJr82HJASWb1dKUCULHfnlWKRpfe5EFHTk/yaoS1sQSLMyMrL6o74/sIw==}
+    engines: {node: '>=18'}
+    dependencies:
+      '@turf/boolean-point-in-polygon': 7.3.4
+      proj4: 2.20.4
     dev: false
 
   /draco3d@1.5.7:
@@ -23585,7 +23624,7 @@ packages:
       '@npmcli/agent': 4.0.0
       cacache: 20.0.3
       http-cache-semantics: 4.2.0
-      minipass: 7.1.2
+      minipass: 7.1.3
       minipass-fetch: 5.0.2
       minipass-flush: 1.0.5
       minipass-pipeline: 1.2.4
@@ -24343,6 +24382,10 @@ packages:
       - supports-color
       - utf-8-validate
 
+  /mgrs@1.0.0:
+    resolution: {integrity: sha512-awNbTOqCxK1DBGjalK3xqWIstBZgN6fxsMSiXLs9/spqWkF2pAhb2rrYCFSsr1/tT7PhcDGjZndG8SWYn0byYA==}
+    dev: false
+
   /micromark-core-commonmark@2.0.3:
     resolution: {integrity: sha512-RDBrHEMSxVFLg6xvnXmb1Ayr2WzLAWjeSATAoxwKYJV94TeNavgoIdA0a9ytzDSVzBy2YKFK+emCPOEibLeCrg==}
     dependencies:
@@ -24744,7 +24787,7 @@ packages:
     resolution: {integrity: sha512-2d0q2a8eCi2IRg/IGubCNRJoYbA1+YPXAzQVRFmB45gdGZafyivnZ5YSEfo3JikbjGxOdntGFvBQGqaSMXlAFQ==}
     engines: {node: ^20.17.0 || >=22.9.0}
     dependencies:
-      minipass: 7.1.2
+      minipass: 7.1.3
       minipass-sized: 2.0.0
       minizlib: 3.1.0
     optionalDependencies:
@@ -24779,10 +24822,6 @@ packages:
       yallist: 4.0.0
     dev: false
 
-  /minipass@7.1.2:
-    resolution: {integrity: sha512-qOOzS1cBTWYF4BH8fVePDBOO9iptMnGUEZwNc/cMWnTV2nVLZ7VoNWEPHkYczZA0pdoA7dl6e7FL659nX9S2aw==}
-    engines: {node: '>=16 || 14 >=14.17'}
-
   /minipass@7.1.3:
     resolution: {integrity: sha512-tEBHqDnIoM/1rXME1zgka9g6Q2lcoCkxHLuc7ODJ5BxbP5d4c2Z5cGgtXAku59200Cx7diuHTOYfSBD8n6mm8A==}
     engines: {node: '>=16 || 14 >=14.17'}
@@ -24791,7 +24830,7 @@ packages:
     resolution: {integrity: sha512-KZxYo1BUkWD2TVFLr0MQoM8vUUigWD3LlD83a/75BqC+4qE0Hb1Vo5v1FgcfaNXvfXzr+5EhQ6ing/CaBijTlw==}
     engines: {node: '>= 18'}
     dependencies:
-      minipass: 7.1.2
+      minipass: 7.1.3
 
   /mitt@3.0.1:
     resolution: {integrity: sha512-vKivATfr97l2/QBCYAkXYDbrIWPM2IIKEl7YPhjCvKlG3kE2gm+uBo6nEXK3M5/Ffh/FLpKExzOQ3JJoJGFKBw==}
@@ -25223,7 +25262,7 @@ packages:
       '@npmcli/redact': 4.0.0
       jsonparse: 1.3.1
       make-fetch-happen: 15.0.4
-      minipass: 7.1.2
+      minipass: 7.1.3
       minipass-fetch: 5.0.2
       minizlib: 3.1.0
       npm-package-arg: 13.0.2
@@ -25501,7 +25540,7 @@ packages:
     peerDependencies:
       typescript: ^5
     dependencies:
-      '@opencode-ai/plugin': 1.2.27
+      '@opencode-ai/plugin': 1.3.2
       '@opencode-ai/sdk': 1.2.25
       bun-pty: 0.4.8
       moment: 2.30.1
@@ -25661,7 +25700,7 @@ packages:
       '@npmcli/run-script': 10.0.4
       cacache: 20.0.3
       fs-minipass: 3.0.3
-      minipass: 7.1.2
+      minipass: 7.1.3
       npm-package-arg: 13.0.2
       npm-packlist: 10.0.4
       npm-pick-manifest: 11.0.3
@@ -25806,7 +25845,7 @@ packages:
     engines: {node: '>=16 || 14 >=14.18'}
     dependencies:
       lru-cache: 10.4.3
-      minipass: 7.1.2
+      minipass: 7.1.3
     dev: false
 
   /path-scurry@2.0.2:
@@ -25914,6 +25953,12 @@ packages:
 
   /po-parser@2.1.1:
     resolution: {integrity: sha512-ECF4zHLbUItpUgE3OTtLKlPjeBN+fKEczj2zYjDfCGOzicNs0GK3Vg2IoAYwx7LH/XYw43fZQP6xnZ4TkNxSLQ==}
+    dev: false
+
+  /point-in-polygon-hao@1.2.4:
+    resolution: {integrity: sha512-x2pcvXeqhRHlNRdhLs/tgFapAbSSe86wa/eqmj1G6pWftbEs5aVRJhRGM6FYSUERKu0PjekJzMq0gsI2XyiclQ==}
+    dependencies:
+      robust-predicates: 3.0.2
     dev: false
 
   /points-on-curve@0.2.0:
@@ -26227,6 +26272,7 @@ packages:
   /process@0.11.10:
     resolution: {integrity: sha512-cdGef/drWFoydD1JsMzuFf8100nZl+GT+yacc2bEced5f9Rjk4z+WtFUTBu9PhOi9j/jfmBPu0mMEY4wIdAF8A==}
     engines: {node: '>= 0.6.0'}
+    requiresBuild: true
     dev: false
 
   /proggy@4.0.0:
@@ -26237,6 +26283,13 @@ packages:
   /progress@2.0.3:
     resolution: {integrity: sha512-7PiHtLll5LdnKIMw100I+8xJXR5gW2QwWYkT6iJva0bXitZKa/XMrSbdmg3r2Xnaidz9Qumd0VPaMrZlF9V9sA==}
     engines: {node: '>=0.4.0'}
+
+  /proj4@2.20.4:
+    resolution: {integrity: sha512-/EEBoXjBw+zW1Lofinw0YFQ4OFOqC6XThnwRAgjEHw8WBN+wSy/6aeqRRdjy4b2igy3X0k3RNDuwcYqcQq7nDw==}
+    dependencies:
+      mgrs: 1.0.0
+      wkt-parser: 1.5.4
+    dev: false
 
   /promise-all-reject-late@1.0.1:
     resolution: {integrity: sha512-vuf0Lf0lOxyQREH7GDIOUMLS7kz+gs8i6B+Yi8dC68a2sychGrHTJYghMBD6k7eUcH0H5P73EckCA48xijWqXw==}
@@ -28020,6 +28073,15 @@ packages:
     dependencies:
       glob: 7.2.3
 
+  /rimraf@6.1.3:
+    resolution: {integrity: sha512-LKg+Cr2ZF61fkcaK1UdkH2yEBBKnYjTyWzTJT6KNPcSPaiT7HSdhtMXQuN5wkTX0Xu72KQ1l8S42rlmexS2hSA==}
+    engines: {node: 20 || >=22}
+    hasBin: true
+    dependencies:
+      glob: 13.0.6
+      package-json-from-dist: 1.0.1
+    dev: false
+
   /robust-predicates@3.0.2:
     resolution: {integrity: sha512-IXgzBWvWQwE6PrDI05OvmXUIruQTcoMDzRsOd5CDvHCVLcLHMTSYvOK5Cm46kWqlV3yAbuSpBZdJ5oP5OUoStg==}
     dev: false
@@ -28645,7 +28707,7 @@ packages:
     resolution: {integrity: sha512-QUiRf1+u9wPTL/76GTYlKttDEBWV1ga9ZXW8BG6kfdeyyM8LGPix9gROyg9V2+P0xNyF3X2Go526xKFdMZrHSQ==}
     engines: {node: ^20.17.0 || >=22.9.0}
     dependencies:
-      minipass: 7.1.2
+      minipass: 7.1.3
     dev: false
 
   /stable-hash@0.0.5:
@@ -29202,7 +29264,7 @@ packages:
     dependencies:
       '@isaacs/fs-minipass': 4.0.1
       chownr: 3.0.0
-      minipass: 7.1.2
+      minipass: 7.1.3
       minizlib: 3.1.0
       yallist: 5.0.0
 
@@ -30266,6 +30328,10 @@ packages:
       isexe: 4.0.0
     dev: false
 
+  /wkt-parser@1.5.4:
+    resolution: {integrity: sha512-heRp3QBynj8SAGepAkE8h2k4KhUGRqzgwlSRgqNhxjmSIeSvE5ZrV8n1uy5jk+iJO2jmfffIwjdAaTirBOOx0A==}
+    dev: false
+
   /wmf@1.0.2:
     resolution: {integrity: sha512-/p9K7bEh0Dj6WbXg4JG0xvLQmIadrner1bi45VMJTfnbVHsc7yIajZyoSoK60/dtVBs12Fm6WkUI5/3WAVsNMw==}
     engines: {node: '>=0.8'}
@@ -30626,7 +30692,7 @@ packages:
     resolution: {directory: packages/opencode-agent-triggers, type: directory}
     name: '@kortix/opencode-agent-triggers'
     dependencies:
-      '@opencode-ai/plugin': 1.2.27
+      '@opencode-ai/plugin': 1.3.2
       croner: 8.1.2
       js-yaml: 4.1.0
     dev: false

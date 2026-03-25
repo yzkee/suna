@@ -31,6 +31,7 @@ import { SpotlightCard } from '@/components/ui/spotlight-card';
 import { Ripple } from '@/components/ui/ripple';
 import { PageHeader } from '@/components/ui/page-header';
 import { useTabStore, openTabAndNavigate, type Tab } from '@/stores/tab-store';
+import { getCurrentInstanceIdFromWindow, toInstanceAwarePath } from '@/lib/instance-routes';
 import { useOpenCodePtyList } from '@/hooks/opencode/use-opencode-pty';
 import { useSandboxServices, type SandboxService } from '@/hooks/use-sandbox-services';
 import { useOpenCodeSessions, type Session } from '@/hooks/opencode/use-opencode-sessions';
@@ -127,7 +128,7 @@ function ServiceCard({ service, index }: { service: RunningService; index: numbe
       const tab = store.tabs[service.tabId];
       if (tab) {
         store.setActiveTab(service.tabId);
-        window.history.pushState(null, '', tab.href);
+        window.history.pushState(null, '', toInstanceAwarePath(tab.href, getCurrentInstanceIdFromWindow()));
         return;
       }
     }

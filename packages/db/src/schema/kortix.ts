@@ -29,7 +29,6 @@ export const sandboxStatusEnum = kortixSchema.enum('sandbox_status', [
 export const sandboxProviderEnum = kortixSchema.enum('sandbox_provider', [
   'daytona',
   'local_docker',
-  'hetzner',
   'justavps',
 ]);
 
@@ -49,23 +48,6 @@ export const deploymentSourceEnum = kortixSchema.enum('deployment_source', [
   'tar',
 ]);
 
-export const channelTypeEnum = kortixSchema.enum('channel_type', [
-  'telegram',
-  'slack',
-  'discord',
-  'whatsapp',
-  'teams',
-  'voice',
-  'email',
-  'sms',
-]);
-
-export const sessionStrategyEnum = kortixSchema.enum('session_strategy', [
-  'single',
-  'per-thread',
-  'per-user',
-  'per-message',
-]);
 
 export const apiKeyStatusEnum = kortixSchema.enum('api_key_status', [
   'active',
@@ -164,6 +146,45 @@ export const sandboxes = kortixSchema.table(
   ],
 );
 
+// ─── Pool Resources ─────────────────────────────────────────────────────────
+
+export const poolResources = kortixSchema.table(
+  'pool_resources',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    provider: sandboxProviderEnum('provider').notNull(),
+    serverType: varchar('server_type', { length: 64 }).notNull(),
+    location: varchar('location', { length: 64 }).notNull(),
+    desiredCount: integer('desired_count').notNull().default(2),
+    enabled: boolean('enabled').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_pool_resources_unique').on(table.provider, table.serverType, table.location),
+  ],
+);
+
+export const poolSandboxes = kortixSchema.table(
+  'pool_sandboxes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    resourceId: uuid('resource_id').references(() => poolResources.id, { onDelete: 'set null' }),
+    provider: sandboxProviderEnum('provider').notNull(),
+    externalId: text('external_id').notNull(),
+    baseUrl: text('base_url').notNull().default(''),
+    serverType: varchar('server_type', { length: 64 }).notNull(),
+    location: varchar('location', { length: 64 }).notNull(),
+    status: varchar('status', { length: 32 }).notNull().default('provisioning'),
+    metadata: jsonb('metadata').default({}).$type<Record<string, unknown>>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    readyAt: timestamp('ready_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('idx_pool_sandboxes_claim').on(table.status, table.createdAt),
+  ],
+);
+
 export const deployments = kortixSchema.table(
   'deployments',
   {
@@ -202,112 +223,7 @@ export const deployments = kortixSchema.table(
   ],
 );
 
-export const channelConfigs = kortixSchema.table(
-  'channel_configs',
-  {
-    channelConfigId: uuid('channel_config_id').defaultRandom().primaryKey(),
-    sandboxId: uuid('sandbox_id')
-      .references(() => sandboxes.sandboxId, { onDelete: 'set null' }),
-    accountId: uuid('account_id').notNull(),
-    channelType: channelTypeEnum('channel_type').notNull(),
-    name: varchar('name', { length: 255 }).notNull(),
-    enabled: boolean('enabled').default(true).notNull(),
-    platformConfig: jsonb('platform_config').default({}).$type<ChannelPlatformConfig>(),
-    sessionStrategy: sessionStrategyEnum('session_strategy').default('per-user').notNull(),
-    systemPrompt: text('system_prompt'),
-    agentName: varchar('agent_name', { length: 255 }),
-    metadata: jsonb('metadata').default({}).$type<Record<string, unknown>>(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('idx_channel_configs_sandbox').on(table.sandboxId),
-    index('idx_channel_configs_account').on(table.accountId),
-    index('idx_channel_configs_type').on(table.channelType),
-    index('idx_channel_configs_enabled').on(table.enabled),
-  ],
-);
 
-export const channelPlatformCredentials = kortixSchema.table(
-  'channel_platform_credentials',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    accountId: uuid('account_id').notNull(),
-    sandboxId: uuid('sandbox_id').references(() => sandboxes.sandboxId, { onDelete: 'set null' }),
-    channelType: channelTypeEnum('channel_type').notNull(),
-    credentials: jsonb('credentials').default({}).$type<Record<string, unknown>>(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('idx_channel_platform_creds_account').on(table.accountId),
-    index('idx_channel_platform_creds_sandbox').on(table.sandboxId),
-  ],
-);
-
-export const channelSessions = kortixSchema.table(
-  'channel_sessions',
-  {
-    channelSessionId: uuid('channel_session_id').defaultRandom().primaryKey(),
-    channelConfigId: uuid('channel_config_id')
-      .notNull()
-      .references(() => channelConfigs.channelConfigId, { onDelete: 'cascade' }),
-    strategyKey: varchar('strategy_key', { length: 512 }).notNull(),
-    sessionId: text('session_id').notNull(),
-    lastUsedAt: timestamp('last_used_at', { withTimezone: true }).defaultNow().notNull(),
-    metadata: jsonb('metadata').default({}).$type<Record<string, unknown>>(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('idx_channel_sessions_config').on(table.channelConfigId),
-    index('idx_channel_sessions_key').on(table.strategyKey),
-  ],
-);
-
-export const channelMessages = kortixSchema.table(
-  'channel_messages',
-  {
-    channelMessageId: uuid('channel_message_id').defaultRandom().primaryKey(),
-    channelConfigId: uuid('channel_config_id')
-      .notNull()
-      .references(() => channelConfigs.channelConfigId, { onDelete: 'cascade' }),
-    direction: varchar('direction', { length: 10 }).notNull(), // 'inbound' | 'outbound'
-    externalId: text('external_id'),
-    sessionId: text('session_id'),
-    chatType: varchar('chat_type', { length: 20 }), // 'dm' | 'group' | 'channel'
-    content: text('content'),
-    attachments: jsonb('attachments').default([]).$type<unknown[]>(),
-    platformUser: jsonb('platform_user').$type<ChannelPlatformUser>(),
-    metadata: jsonb('metadata').default({}).$type<Record<string, unknown>>(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('idx_channel_messages_config').on(table.channelConfigId),
-    index('idx_channel_messages_session').on(table.sessionId),
-    index('idx_channel_messages_created').on(table.createdAt),
-  ],
-);
-
-export const channelIdentityMap = kortixSchema.table(
-  'channel_identity_map',
-  {
-    channelIdentityId: uuid('channel_identity_id').defaultRandom().primaryKey(),
-    channelConfigId: uuid('channel_config_id')
-      .notNull()
-      .references(() => channelConfigs.channelConfigId, { onDelete: 'cascade' }),
-    platformUserId: text('platform_user_id').notNull(),
-    platformUserName: text('platform_user_name'),
-    kortixUserId: uuid('kortix_user_id'),
-    allowed: boolean('allowed').default(true).notNull(),
-    metadata: jsonb('metadata').default({}).$type<Record<string, unknown>>(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('idx_channel_identity_config').on(table.channelConfigId),
-    index('idx_channel_identity_platform_user').on(table.platformUserId),
-  ],
-);
 
 // ─── API Keys (sandbox-scoped) ──────────────────────────────────────────────
 
@@ -495,7 +411,6 @@ export const sandboxesRelations = relations(sandboxes, ({ one, many }) => ({
     references: [accounts.accountId],
   }),
   deployments: many(deployments),
-  channelConfigs: many(channelConfigs),
   apiKeys: many(kortixApiKeys),
   sandboxIntegrationLinks: many(sandboxIntegrations),
 }));
@@ -504,37 +419,6 @@ export const deploymentsRelations = relations(deployments, ({ one }) => ({
   sandbox: one(sandboxes, {
     fields: [deployments.sandboxId],
     references: [sandboxes.sandboxId],
-  }),
-}));
-
-export const channelConfigsRelations = relations(channelConfigs, ({ one, many }) => ({
-  sandbox: one(sandboxes, {
-    fields: [channelConfigs.sandboxId],
-    references: [sandboxes.sandboxId],
-  }),
-  sessions: many(channelSessions),
-  messages: many(channelMessages),
-  identities: many(channelIdentityMap),
-}));
-
-export const channelSessionsRelations = relations(channelSessions, ({ one }) => ({
-  channelConfig: one(channelConfigs, {
-    fields: [channelSessions.channelConfigId],
-    references: [channelConfigs.channelConfigId],
-  }),
-}));
-
-export const channelMessagesRelations = relations(channelMessages, ({ one }) => ({
-  channelConfig: one(channelConfigs, {
-    fields: [channelMessages.channelConfigId],
-    references: [channelConfigs.channelConfigId],
-  }),
-}));
-
-export const channelIdentityMapRelations = relations(channelIdentityMap, ({ one }) => ({
-  channelConfig: one(channelConfigs, {
-    fields: [channelIdentityMap.channelConfigId],
-    references: [channelConfigs.channelConfigId],
   }),
 }));
 
@@ -636,10 +520,10 @@ export const creditAccounts = kortixSchema.table(
     planType: varchar('plan_type', { length: 50 }).default('monthly'),
     stripeSubscriptionStatus: varchar('stripe_subscription_status', { length: 50 }),
     lastDailyRefresh: timestamp('last_daily_refresh', { withTimezone: true, mode: 'string' }),
-    // Auto-topup configuration
-    autoTopupEnabled: boolean('auto_topup_enabled').default(false).notNull(),
+    // Auto-topup configuration — on by default: recharge $20 when balance drops below $5
+    autoTopupEnabled: boolean('auto_topup_enabled').default(true).notNull(),
     autoTopupThreshold: numeric('auto_topup_threshold', { precision: 10, scale: 2 }).default('5').notNull(),
-    autoTopupAmount: numeric('auto_topup_amount', { precision: 10, scale: 2 }).default('15').notNull(),
+    autoTopupAmount: numeric('auto_topup_amount', { precision: 10, scale: 2 }).default('20').notNull(),
     autoTopupLastCharged: timestamp('auto_topup_last_charged', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
@@ -988,32 +872,3 @@ export const accessRequests = kortixSchema.table(
   ],
 );
 
-// ─── WoA (Wisdom of Agents) ─────────────────────────────────────────────────
-
-export const woaPostTypeEnum = kortixSchema.enum('woa_post_type', [
-  'question',
-  'solution',
-  'me_too',
-  'update',
-]);
-
-export const woaPosts = kortixSchema.table(
-  'woa_posts',
-  {
-    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
-    hash: varchar('hash', { length: 8 }).notNull().unique(),
-    postType: woaPostTypeEnum('post_type').notNull(),
-    content: text('content').notNull(),
-    refs: text('refs').array().default([]).notNull(),
-    tags: text('tags').array().default([]).notNull(),
-    agentHash: varchar('agent_hash', { length: 16 }).notNull(),
-    context: jsonb('context').$type<Record<string, unknown>>(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('idx_woa_posts_refs').using('gin', table.refs),
-    index('idx_woa_posts_tags').using('gin', table.tags),
-    index('idx_woa_posts_created').on(table.createdAt),
-    index('idx_woa_posts_fts').using('gin', sql`to_tsvector('english', ${table.content})`),
-  ],
-);

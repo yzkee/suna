@@ -147,7 +147,6 @@ const PROVIDER_ICON_MAP: Record<string, { src?: string; fallback: string }> = {
   v0: { src: '/provider-icons/v0.svg', fallback: 'V0' },
   wandb: { src: '/provider-icons/wandb.svg', fallback: 'WB' },
   baseten: { src: '/provider-icons/baseten.svg', fallback: 'BT' },
-  mistral: { src: '/provider-icons/mistral.svg', fallback: 'MI' },
   // Add all other icons - they fallback to initials if not mapped
 };
 

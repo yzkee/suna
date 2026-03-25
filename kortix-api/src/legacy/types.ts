@@ -96,4 +96,7 @@ export interface MigrationResult {
   sessionId: string;
   messagesImported: number;
   partsImported: number;
+  filesTransferred: boolean;
+  fileCount: number;
+  filesErrors: string[];
 }

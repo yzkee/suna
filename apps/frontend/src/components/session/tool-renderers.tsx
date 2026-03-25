@@ -4917,15 +4917,15 @@ function IntegrationExecTool({ part, defaultOpen, forceOpen, locked }: ToolProps
 		return firstLine.length > 60 ? firstLine.slice(0, 57) + "…" : firstLine;
 	}, [input.code]);
 
-	const result = useMemo(() => {
+	const result = useMemo((): Record<string, unknown> | null => {
 		if (!output) return null;
 		try { return JSON.parse(output); } catch { return null; }
 	}, [output]);
 
-	const success: boolean | undefined = result?.success;
-	const exitCode: number | undefined = result?.exit_code;
-	const stdout: string = result?.stdout || "";
-	const stderr: string = result?.stderr || "";
+	const success = result?.success as boolean | undefined;
+	const exitCode = result?.exit_code as number | undefined;
+	const stdout: string = (result?.stdout as string) || "";
+	const stderr: string = (result?.stderr as string) || "";
 
 	const isOk = success !== false && (exitCode === undefined || exitCode === 0);
 
@@ -4952,17 +4952,17 @@ function IntegrationExecTool({ part, defaultOpen, forceOpen, locked }: ToolProps
 			forceOpen={forceOpen}
 			locked={locked}
 		>
-			{result ? (
-				<div className="space-y-0">
-					{/* Code input */}
-					{input.code && (
-						<div className="px-3 pt-2.5 pb-1">
-							<div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/40 mb-1">Code</div>
-							<div className={`rounded-lg bg-muted/40 border border-border/40 p-2 max-h-[200px] overflow-auto ${MD_FLUSH_CLASSES}`}>
-								<pre className="text-[10px] font-mono text-foreground/80 whitespace-pre-wrap">{input.code as string}</pre>
-							</div>
+		{!!result ? (
+			<div className="space-y-0">
+				{/* Code input */}
+				{!!input.code && (
+					<div className="px-3 pt-2.5 pb-1">
+						<div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/40 mb-1">Code</div>
+						<div className={`rounded-lg bg-muted/40 border border-border/40 p-2 max-h-[200px] overflow-auto ${MD_FLUSH_CLASSES}`}>
+							<pre className="text-[10px] font-mono text-foreground/80 whitespace-pre-wrap">{String(input.code)}</pre>
 						</div>
-					)}
+					</div>
+				)}
 					{/* stdout */}
 					{stdout && (
 						<div className="px-3 pt-1.5 pb-1">

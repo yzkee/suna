@@ -26,7 +26,7 @@ function PasswordAuthContent() {
   // Redirect if already authenticated
   useEffect(() => {
     if (!isLoading && user) {
-      router.push(returnUrl || '/dashboard');
+      router.push(returnUrl || '/instances');
     }
   }, [user, isLoading, router, returnUrl]);
 
@@ -51,7 +51,7 @@ function PasswordAuthContent() {
       }
 
       // If no error, redirect manually (fallback in case server redirect didn't work)
-      const finalReturnUrl = returnUrl || '/dashboard';
+      const finalReturnUrl = returnUrl || '/instances';
       router.push(finalReturnUrl);
       router.refresh();
     } catch (error: any) {
