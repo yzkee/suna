@@ -49,6 +49,7 @@ import { useResolvedConfig } from '@/lib/opencode/hooks/use-local-config';
 import { useTabStore, PAGE_TABS } from '@/stores/tab-store';
 import { RightDrawerContent } from '@/components/session/RightDrawerContent';
 import { UserMenuSheet } from '@/components/session/UserMenuSheet';
+import { useGlobalSandboxUpdate } from '@/hooks/useSandboxUpdate';
 import { PlaceholderPage } from '@/components/session/PlaceholderPage';
 import { FilesPage } from '@/components/pages/FilesPage';
 import type { FilesPageRef } from '@/components/pages/FilesPage';
@@ -246,6 +247,7 @@ export default function HomeScreen() {
   const [pendingFilePath, setPendingFilePath] = useState<string | null>(null);
   const userMenuSheetRef = useRef<BottomSheetModal>(null);
   const [themePreference, setThemePreference] = useState<ThemePreference>('light');
+  const { updateAvailable: hasUpdate } = useGlobalSandboxUpdate();
 
   // Files page ref (for BottomBar menu integration)
   const filesPageRef = useRef<FilesPageRef>(null);
@@ -696,10 +698,15 @@ export default function HomeScreen() {
             activeOpacity={0.8}
             className="flex-row items-center"
           >
-            <View className="h-11 w-11 rounded-full bg-muted items-center justify-center mr-3">
-              <Text className="text-base font-semibold text-muted-foreground uppercase">
-                {userDisplayName.charAt(0)}
-              </Text>
+            <View className="relative mr-3">
+              <View className="h-11 w-11 rounded-full bg-muted items-center justify-center">
+                <Text className="text-base font-semibold text-muted-foreground uppercase">
+                  {userDisplayName.charAt(0)}
+                </Text>
+              </View>
+              {hasUpdate && (
+                <View className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-red-500 border-2 border-background" />
+              )}
             </View>
             <View className="flex-1">
               <Text className="text-sm text-foreground" numberOfLines={1}>
@@ -725,6 +732,7 @@ export default function HomeScreen() {
     activeSessionId,
     userDisplayName,
     planLabel,
+    hasUpdate,
     handleUserMenuOpen,
     handleNewSession,
     handleSessionPress,

@@ -176,18 +176,35 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
             </>
           )}
 
-          {/* Update available */}
-          {updateAvailable && latestVersion && (
-            <>
+          {/* Add instance */}
+          <Pressable
+            onPress={onAddInstance}
+            className="py-3.5 active:opacity-85"
+          >
+            <View className="flex-row items-center">
+              <Icon as={Plus} size={16} className="text-muted-foreground mr-3" strokeWidth={2.2} />
+              <Text className="font-roobert text-[14px] text-muted-foreground">Add instance...</Text>
+            </View>
+          </Pressable>
+        </View>
+
+        {/* Update available */}
+        {updateAvailable && latestVersion && (
+          <>
+            <View className="my-3 h-px bg-border/40" />
+            <View className="px-1">
+              <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
+                Update
+              </Text>
               <Pressable onPress={onOpenChangelog} className="py-3.5 active:opacity-85">
                 <View className="flex-row items-center">
-                  <View className="h-2.5 w-2.5 rounded-full mr-3" style={{ backgroundColor: '#EF4444' }} />
-                  <View className="flex-1">
+                  <Icon as={ArrowDownToLine} size={18} className="text-foreground/80" strokeWidth={2.2} />
+                  <View className="ml-4 flex-1">
                     <Text className="font-roobert-medium text-[15px] text-foreground">
-                      New version v{latestVersion}
+                      v{latestVersion} available
                     </Text>
                     <Text className="mt-0.5 font-roobert text-xs text-muted-foreground" numberOfLines={1}>
-                      {latestChangelog?.changes?.[0]?.text || 'Update available'}
+                      {latestChangelog?.changes?.[0]?.text || 'New version available'}
                     </Text>
                   </View>
                   <View
@@ -200,21 +217,9 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
                   </View>
                 </View>
               </Pressable>
-              <View className="h-px bg-border/35" />
-            </>
-          )}
-
-          {/* Add instance */}
-          <Pressable
-            onPress={onAddInstance}
-            className="py-3.5 active:opacity-85"
-          >
-            <View className="flex-row items-center">
-              <Icon as={Plus} size={16} className="text-muted-foreground mr-3" strokeWidth={2.2} />
-              <Text className="font-roobert text-[14px] text-muted-foreground">Add instance...</Text>
             </View>
-          </Pressable>
-        </View>
+          </>
+        )}
 
         <View className="my-3 h-px bg-border/40" />
 
