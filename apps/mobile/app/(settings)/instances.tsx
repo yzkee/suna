@@ -79,6 +79,7 @@ export default function InstancesScreen() {
   const addSheetRef = React.useRef<BottomSheetModal>(null);
   const renameSheetRef = React.useRef<BottomSheetModal>(null);
   const [renameTarget, setRenameTarget] = React.useState<SandboxInfo | null>(null);
+  const [creatingProgress, setCreatingProgress] = React.useState<{ percent: number; message: string } | null>(null);
 
   const handleSelect = React.useCallback((instance: SandboxInfo) => {
     if (instance.external_id === sandboxId) return;
@@ -175,8 +176,41 @@ export default function InstancesScreen() {
             </View>
           )}
 
+          {/* Creating progress */}
+          {creatingProgress && (
+            <View className="px-1 mt-4">
+              <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
+                Creating
+              </Text>
+              <View className="py-3.5">
+                <View className="flex-row items-center mb-3">
+                  <View className="h-2.5 w-2.5 rounded-full mr-3" style={{ backgroundColor: '#FBBF24' }} />
+                  <View className="flex-1">
+                    <Text className="font-roobert-medium text-[15px] text-foreground">Local Docker</Text>
+                    <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">{creatingProgress.message}</Text>
+                  </View>
+                  <Text className="font-roobert text-xs tabular-nums text-muted-foreground">
+                    {Math.round(creatingProgress.percent)}%
+                  </Text>
+                </View>
+                <View
+                  className="h-1.5 rounded-full overflow-hidden"
+                  style={{ backgroundColor: isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.06)' }}
+                >
+                  <View
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${Math.max(creatingProgress.percent, 2)}%`,
+                      backgroundColor: isDark ? '#F8F8F8' : '#121215',
+                    }}
+                  />
+                </View>
+              </View>
+            </View>
+          )}
+
           {/* Empty state */}
-          {!isLoading && (!instances || instances.length === 0) && (
+          {!isLoading && (!instances || instances.length === 0) && !creatingProgress && (
             <View className="items-center justify-center py-12">
               <Icon as={Server} size={32} className="text-muted-foreground/40" strokeWidth={1.5} />
               <Text className="mt-3 font-roobert-medium text-[15px] text-foreground">No Instances</Text>
@@ -202,7 +236,7 @@ export default function InstancesScreen() {
         </Pressable>
       </View>
 
-      <AddInstanceSheet ref={addSheetRef} isDark={isDark} onCreated={onInstanceAdded} />
+      <AddInstanceSheet ref={addSheetRef} isDark={isDark} onCreated={onInstanceAdded} onProgress={setCreatingProgress} />
       <RenameSheet ref={renameSheetRef} isDark={isDark} instance={renameTarget} onRenamed={onRenamed} />
     </>
   );
@@ -312,8 +346,8 @@ type AddStep = 'select' | 'custom';
 
 const AddInstanceSheet = React.forwardRef<
   BottomSheetModal,
-  { isDark: boolean; onCreated: () => void }
->(function AddInstanceSheet({ isDark, onCreated }, ref) {
+  { isDark: boolean; onCreated: () => void; onProgress: (p: { percent: number; message: string } | null) => void }
+>(function AddInstanceSheet({ isDark, onCreated, onProgress }, ref) {
   const insets = useSafeAreaInsets();
   const [step, setStep] = React.useState<AddStep>('select');
   const [customUrl, setCustomUrl] = React.useState('');
@@ -350,28 +384,34 @@ const AddInstanceSheet = React.forwardRef<
   const handleLocalDocker = React.useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setIsCreating(true);
-    setProgress({ percent: 0, message: 'Initializing...' });
+    const initial = { percent: 0, message: 'Initializing...' };
+    setProgress(initial);
+    onProgress(initial);
     createLocalMutation.mutate(
       {
         onProgress: (p) => {
-          setProgress({ percent: p.progress, message: p.message });
+          const update = { percent: p.progress, message: p.message };
+          setProgress(update);
+          onProgress(update);
         },
       },
       {
         onSuccess: () => {
           setIsCreating(false);
           setProgress(null);
+          onProgress(null);
           onCreated();
           resetState();
         },
         onError: (err: any) => {
           setIsCreating(false);
           setProgress(null);
+          onProgress(null);
           Alert.alert('Error', err?.message || 'Failed to create local instance');
         },
       },
     );
-  }, [createLocalMutation, onCreated, resetState]);
+  }, [createLocalMutation, onCreated, onProgress, resetState]);
 
   const handleCustomConnect = React.useCallback(async () => {
     const url = customUrl.trim();
