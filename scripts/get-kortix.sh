@@ -197,8 +197,7 @@ ENABLE_AUTH=""
 ENABLE_FIREWALL=""
 ADMIN_USER="admin"
 ADMIN_PASSWORD=""
-OWNER_EMAIL="${KORTIX_OWNER_EMAIL:-}"
-OWNER_PASSWORD="${KORTIX_OWNER_PASSWORD:-}"
+
 
 # Supabase — generated for docker mode, provided for external
 SUPABASE_URL=""
@@ -636,105 +635,13 @@ prompt_security() {
 }
 
 # ─── Integrations (Pipedream) ────────────────────────────────────────────────
+# Pipedream is now configured via the setup wizard in the browser (instance setup step 3).
+# The installer just sets sane defaults — the UI handles the rest.
 prompt_integrations() {
-  echo "  ${BOLD}Third-Party Integrations ${DIM}(optional)${NC}"
-  echo "  ${DIM}Connect to 3,000+ apps via Pipedream Connect${NC}"
-  echo ""
-  printf "  Configure integrations? ${DIM}[y/${NC}${GREEN}N${NC}${DIM}]${NC}: "
-  prompt_read integ_choice
-
-  case "${integ_choice:-n}" in
-    [yY]*)
-      echo ""
-      printf "    Pipedream Client ID: "
-      prompt_read PIPEDREAM_CLIENT_ID
-      printf "    Pipedream Client Secret: "
-      prompt_read PIPEDREAM_CLIENT_SECRET
-      printf "    Pipedream Project ID ${DIM}(e.g. proj_xxx)${NC}: "
-      prompt_read PIPEDREAM_PROJECT_ID
-      printf "    Pipedream Environment ${DIM}[production]${NC}: "
-      prompt_read pd_env
-      PIPEDREAM_ENVIRONMENT="${pd_env:-production}"
-
-      if [ -n "$PIPEDREAM_CLIENT_ID" ] && [ -n "$PIPEDREAM_CLIENT_SECRET" ] && [ -n "$PIPEDREAM_PROJECT_ID" ]; then
-        INTEGRATION_AUTH_PROVIDER="pipedream"
-        success "Pipedream configured"
-      else
-        warn "Incomplete — integrations will not be available"
-        INTEGRATION_AUTH_PROVIDER="disabled"
-        PIPEDREAM_CLIENT_ID=""; PIPEDREAM_CLIENT_SECRET=""; PIPEDREAM_PROJECT_ID=""; PIPEDREAM_ENVIRONMENT=""
-      fi
-      ;;
-    *)
-      INTEGRATION_AUTH_PROVIDER="disabled"
-      info "Skipping — add later in ${DIM}~/.kortix/.env${NC}"
-      ;;
-  esac
-
-  echo ""
+  INTEGRATION_AUTH_PROVIDER="pipedream"
 }
 
-prompt_owner_account() {
-  echo "  ${BOLD}Owner Account${NC}"
-  echo "  ${DIM}The initial owner is created by the installer so the frontend can stay focused on sign-in and product onboarding.${NC}"
-  echo ""
 
-  while [ -z "${OWNER_EMAIL// }" ]; do
-    printf "    Owner email: "
-    prompt_read OWNER_EMAIL
-    OWNER_EMAIL="${OWNER_EMAIL#${OWNER_EMAIL%%[![:space:]]*}}"
-    OWNER_EMAIL="${OWNER_EMAIL%${OWNER_EMAIL##*[![:space:]]}}"
-    if [ -z "$OWNER_EMAIL" ]; then
-      warn "Owner email cannot be empty."
-      continue
-    fi
-    case "$OWNER_EMAIL" in
-      *@*.*) ;;
-      *)
-        warn "Owner email must look like a real email address."
-        OWNER_EMAIL=""
-        ;;
-    esac
-  done
-
-  while true; do
-    if [ -z "$OWNER_PASSWORD" ]; then
-      printf "    Owner password: "
-      prompt_read_secret OWNER_PASSWORD
-      echo ""
-    fi
-
-    if [ -z "$OWNER_PASSWORD" ]; then
-      warn "Owner password cannot be empty."
-      continue
-    fi
-
-    if [ ${#OWNER_PASSWORD} -lt 6 ]; then
-      warn "Owner password must be at least 6 characters."
-      OWNER_PASSWORD=""
-      continue
-    fi
-
-    printf "    Confirm password: "
-    prompt_read_secret owner_password_confirm
-    echo ""
-
-    if [ -z "$owner_password_confirm" ]; then
-      warn "Password confirmation cannot be empty."
-      OWNER_PASSWORD=""
-      continue
-    fi
-
-    if [ "$OWNER_PASSWORD" = "$owner_password_confirm" ]; then
-      break
-    fi
-
-    warn "Passwords do not match. Please try again."
-    OWNER_PASSWORD=""
-  done
-
-  echo ""
-}
 
 # ─── Compute URLs ────────────────────────────────────────────────────────────
 compute_urls() {
@@ -1399,20 +1306,9 @@ ENVEOF
 
 # ─── Write credentials file (VPS mode) ──────────────────────────────────────
 write_credentials() {
-  if [ -n "$OWNER_EMAIL" ] && [ -n "$OWNER_PASSWORD" ]; then
-    cat > "$INSTALL_DIR/.credentials" << CREDEOF
-# Kortix — Initial Credentials
-# Generated on $(date -u '+%Y-%m-%d %H:%M:%S UTC')
-URL: ${PUBLIC_URL}
-Email: ${OWNER_EMAIL}
-Password: ${OWNER_PASSWORD}
-CREDEOF
-    chmod 600 "$INSTALL_DIR/.credentials"
-  fi
-
   [ "$DEPLOY_MODE" != "vps" ] || [ "$ENABLE_AUTH" != "yes" ] && return 0
 
-  cat >> "$INSTALL_DIR/.credentials" << CREDEOF
+  cat > "$INSTALL_DIR/.credentials" << CREDEOF
 # Kortix — Admin Credentials
 # Generated on $(date -u '+%Y-%m-%d %H:%M:%S UTC')
 URL: https://${DOMAIN}
@@ -1433,48 +1329,7 @@ fixup_db_init() {
   fi
 }
 
-bootstrap_owner_account() {
-  local bootstrap_url="${API_PUBLIC_URL}/v1/setup/bootstrap-owner"
-  info "Creating initial owner account..."
 
-  # In IP-only mode Caddy uses a self-signed cert; -k is needed to accept it
-  local curl_tls_flag=""
-  [ "$USE_IP_ONLY" = "yes" ] && curl_tls_flag="-k"
-
-  local payload response success_val message attempts=0
-  payload=$(OWNER_EMAIL_VALUE="$OWNER_EMAIL" OWNER_PASSWORD_VALUE="$OWNER_PASSWORD" python3 - <<'PY'
-import json, os
-print(json.dumps({
-  "email": os.environ.get("OWNER_EMAIL_VALUE", ""),
-  "password": os.environ.get("OWNER_PASSWORD_VALUE", ""),
-}))
-PY
-)
-
-  while [ $attempts -lt 30 ]; do
-    response=$(curl $curl_tls_flag -sf -X POST "$bootstrap_url" -H 'Content-Type: application/json' -d "$payload" 2>/dev/null || true)
-    if [ -n "$response" ]; then
-      break
-    fi
-    sleep 2
-    attempts=$((attempts + 1))
-  done
-
-  if [ -z "$response" ]; then
-    warn "Could not reach API for owner bootstrap — frontend will handle signup"
-    return 0
-  fi
-  
-  success_val=$(JSON_RESPONSE="$response" python3 -c 'import json, os; data=json.loads(os.environ.get("JSON_RESPONSE") or "{}"); print("true" if data.get("success") else "false")')
-  message=$(JSON_RESPONSE="$response" python3 -c 'import json, os; data=json.loads(os.environ.get("JSON_RESPONSE") or "{}"); print(data.get("error") or data.get("message") or "")')
-
-  if [ "$success_val" != "true" ]; then
-    warn "Owner bootstrap skipped: ${message:-unknown error}"
-    return 0
-  fi
-
-  success "Initial owner account is ready"
-}
 
 wait_for_http() {
   local url="$1"
@@ -1710,14 +1565,19 @@ case "${1:-help}" in
     ;;
   uninstall)
     echo "  ${C}Stopping services...${N}"
-    docker compose --profile vps down 2>/dev/null || docker compose down 2>/dev/null || true
+    docker stop kortix-sandbox 2>/dev/null || true
+    docker rm -f kortix-sandbox 2>/dev/null || true
     printf "  Delete all data (Docker volumes)? [y/N]: "
     prompt_read del_volumes
-    echo "$del_volumes" | grep -qi '^y' && {
-      docker compose --profile vps down -v 2>/dev/null || docker compose down -v 2>/dev/null || true
-      docker rm -f kortix-sandbox 2>/dev/null || true
+    if echo "$del_volumes" | grep -qi '^y'; then
+      docker compose --profile vps down -v --remove-orphans 2>/dev/null || docker compose down -v --remove-orphans 2>/dev/null || true
+      docker volume rm kortix-sandbox-data 2>/dev/null || true
+      docker volume rm kortix_supabase-db-data 2>/dev/null || true
+      docker volume rm supabase_db_kortix-local 2>/dev/null || true
       echo "  ${G}Volumes removed.${N}"
-    }
+    else
+      docker compose --profile vps down 2>/dev/null || docker compose down 2>/dev/null || true
+    fi
     [ -L "/usr/local/bin/kortix" ] && rm -f /usr/local/bin/kortix 2>/dev/null || true
     rm -rf "$DIR"
     echo "  ${G}Uninstalled.${N}"
@@ -1854,7 +1714,6 @@ pull_and_start() {
   echo "  ${CYAN}Dashboard:${NC}  ${BOLD}${PUBLIC_URL}${NC}"
   echo "  ${CYAN}API:${NC}        ${BOLD}${API_PUBLIC_URL}${NC}"
   echo ""
-  bootstrap_owner_account
 
   if [ "$DEPLOY_MODE" = "local" ]; then
     echo ""
@@ -1877,10 +1736,7 @@ pull_and_start() {
   fi
 
   echo ""
-  echo "  ${BOLD}Next:${NC} Sign in with the owner account below."
-  echo "  ${CYAN}Owner Email:${NC}    ${BOLD}${OWNER_EMAIL}${NC}"
-  echo "  ${CYAN}Owner Password:${NC} ${BOLD}${OWNER_PASSWORD}${NC}"
-
+  echo "  ${BOLD}Next:${NC} Open the dashboard and create your owner account."
   echo ""
   echo "  ${DIM}Commands:${NC}"
   echo "    ${CYAN}kortix start${NC}    Start services"
@@ -1964,8 +1820,6 @@ main() {
       SUPABASE_PUBLIC_URL="https://${DOMAIN}"
     fi
   fi
-
-  prompt_owner_account
 
   echo "  ${BOLD}What gets installed:${NC}"
   echo ""
