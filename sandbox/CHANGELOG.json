@@ -1,5 +1,25 @@
 [
   {
+    "version": "0.8.20",
+    "date": "2026-03-25",
+    "title": "Fix sandbox agent trigger execution for webhook, cron, and event flows",
+    "description": "Restores sandbox trigger execution after agent-trigger sessions were being created without actually receiving their prompt payload. Webhook, cron, and Pipedream/event triggers now dispatch through the OpenCode SDK with the correct session API shape, and regression tests cover all three paths.",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Send agent-trigger session.create calls with the SDK body payload so trigger-created sessions preserve their intended title and directory"
+      },
+      {
+        "type": "fix",
+        "text": "Send webhook, cron, and Pipedream trigger promptAsync calls with SDK-compatible path/body parameters so trigger payloads actually land in the created session"
+      },
+      {
+        "type": "fix",
+        "text": "Add regression coverage for webhook, cron, and Pipedream trigger dispatch so future SDK-shape mismatches fail locally before shipping"
+      }
+    ]
+  },
+  {
     "version": "0.8.19",
     "date": "2026-03-23",
     "title": "Fix cloud sandbox LLM connection failure and improve OAuth connect UI",
