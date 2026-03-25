@@ -140,7 +140,7 @@ describe('checkout.session.completed', () => {
 
     expect(grantCreditsCalls.length).toBe(1);
     expect(grantCreditsCalls[0][0]).toBe('acc_test_123');
-    expect(grantCreditsCalls[0][1]).toBe(100);
+    expect(grantCreditsCalls[0][1]).toBe(50); // tier_6_50 now = $50 monthly credits
 
     expect(upsertCustomerCalls.length).toBe(1);
   });
@@ -347,7 +347,7 @@ describe('invoice.paid (renewal)', () => {
 
     expect(resetExpiringCreditsCalls.length).toBe(1);
     expect(resetExpiringCreditsCalls[0][0]).toBe('acc_test_123');
-    expect(resetExpiringCreditsCalls[0][1]).toBe(100);
+    expect(resetExpiringCreditsCalls[0][1]).toBe(50); // tier_6_50 = $50 monthly credits
   });
 
   test('applies scheduled downgrade before granting', async () => {
@@ -370,7 +370,7 @@ describe('invoice.paid (renewal)', () => {
     expect(downgradeCall.data.scheduledTierChange).toBeNull();
 
     expect(resetExpiringCreditsCalls.length).toBe(1);
-    expect(resetExpiringCreditsCalls[0][1]).toBe(40);
+    expect(resetExpiringCreditsCalls[0][1]).toBe(20); // tier_2_20 = $20 monthly credits
   });
 
   test('does NOT create duplicate ledger entry (only RPC creates it)', async () => {
@@ -418,19 +418,34 @@ describe('RevenueCat', () => {
     const result = await processRevenueCatWebhook(body);
 
     expect(upsertCreditAccountCalls.length).toBe(1);
-    expect(upsertCreditAccountCalls[0].data.tier).toBe('tier_6_50');
+    expect(upsertCreditAccountCalls[0].data.tier).toBe('pro');
+    // Pro tier has 0 monthly credits — no grant expected
+    expect(grantCreditsCalls.length).toBe(0);
+    expect(result.event_type).toBe('INITIAL_PURCHASE');
+  });
+
+  test('INITIAL_PURCHASE: legacy tier grants credits', async () => {
+    const body = createMockRevenueCatEvent('INITIAL_PURCHASE', {
+      product_id: 'kortix_plus_monthly',
+    });
+
+    const result = await processRevenueCatWebhook(body);
+
+    expect(upsertCreditAccountCalls.length).toBe(1);
+    expect(upsertCreditAccountCalls[0].data.tier).toBe('tier_2_20');
     expect(grantCreditsCalls.length).toBe(1);
-    expect(grantCreditsCalls[0][1]).toBe(100);
+    expect(grantCreditsCalls[0][1]).toBe(20); // tier_2_20 = $20 monthly credits
     expect(result.event_type).toBe('INITIAL_PURCHASE');
   });
 
   test('RENEWAL: resets expiring credits', async () => {
+    // Default mock has tier from getCreditAccount, which has tier_6_50
     const body = createMockRevenueCatEvent('RENEWAL');
 
     await processRevenueCatWebhook(body);
 
     expect(resetExpiringCreditsCalls.length).toBe(1);
-    expect(resetExpiringCreditsCalls[0][1]).toBe(100);
+    expect(resetExpiringCreditsCalls[0][1]).toBe(50); // tier_6_50 = $50 monthly credits
   });
 
   test('CANCELLATION: sets cancelled timestamp', async () => {

@@ -113,6 +113,7 @@ export interface AccountState {
     created_at: string;
   }>;
   can_add_instances?: boolean;
+  can_claim_computer?: boolean;
   _cache?: {
     cached: boolean;
     ttl_seconds?: number;
@@ -767,4 +768,11 @@ export async function deleteInstance(sandboxId: string): Promise<{ success: bool
 
 export async function markInstanceError(sandboxId: string, errorMessage: string): Promise<void> {
   await backendApi.post('/platform/sandbox/mark-error', { sandbox_id: sandboxId, error_message: errorMessage }, { showErrors: false, timeout: 10000 });
+}
+
+/** Claim a free default computer for legacy paid users. */
+export async function claimComputer(): Promise<any> {
+  const response = await backendApi.post<any>('/platform/sandbox/claim-computer', {}, { timeout: 60000 });
+  if (response.error) throw response.error;
+  return response.data!;
 }

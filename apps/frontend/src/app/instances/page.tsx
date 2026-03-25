@@ -12,6 +12,8 @@ import {
 } from '@/lib/platform-client';
 import { isBillingEnabled } from '@/lib/config';
 import { useServerStore, type ServerEntry } from '@/stores/server-store';
+import { useAccountState } from '@/hooks/billing/use-account-state';
+import { claimComputer } from '@/lib/api/billing';
 
 import { NewInstanceModal } from '@/components/billing/pricing/new-instance-modal';
 import { Button } from '@/components/ui/button';
@@ -25,6 +27,7 @@ import {
   LogOut,
   AlertCircle,
   ExternalLink,
+  Monitor,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
@@ -167,7 +170,9 @@ export default function InstancesPage() {
   const { servers, activeServerId } = useServerStore();
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [autoCreating, setAutoCreating] = useState(false);
+  const [claiming, setClaiming] = useState(false);
   const isCloud = isBillingEnabled();
+  const { data: accountState, refetch: refetchAccountState } = useAccountState();
 
   // Redirect to auth if not logged in
   useEffect(() => {
@@ -254,6 +259,24 @@ export default function InstancesPage() {
     }
   }
 
+  const handleClaimComputer = async () => {
+    try {
+      setClaiming(true);
+      const result = await claimComputer();
+      refetch();
+      refetchAccountState();
+      if (result?.data?.sandbox_id) {
+        router.push(`/instances/${result.data.sandbox_id}`);
+      }
+    } catch {
+      // Error handled by API client
+    } finally {
+      setClaiming(false);
+    }
+  };
+
+  const canClaimComputer = accountState?.can_claim_computer === true;
+
   const handleLogout = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
@@ -324,8 +347,27 @@ export default function InstancesPage() {
             </div>
           )}
 
+          {/* Claim computer banner for legacy paid users */}
+          {canClaimComputer && !isLoading && (
+            <div className="rounded-xl border border-primary/20 bg-primary/5 p-5 flex items-center gap-4 mb-4">
+              <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-primary/10 flex-shrink-0">
+                <Monitor className="h-6 w-6 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground">Claim Your Computer</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Your plan includes a cloud computer. Claim it now to get started.
+                </p>
+              </div>
+              <Button onClick={handleClaimComputer} disabled={claiming} className="gap-1.5 shrink-0">
+                {claiming ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Monitor className="h-3.5 w-3.5" />}
+                {claiming ? 'Claiming...' : 'Claim Computer'}
+              </Button>
+            </div>
+          )}
+
           {/* Empty state */}
-          {!isLoading && !error && visible.length === 0 && fallbackServers.length === 0 && (
+          {!isLoading && !error && visible.length === 0 && fallbackServers.length === 0 && !canClaimComputer && (
             <div className="rounded-xl border border-dashed border-border/60 bg-muted/10 p-8 flex flex-col items-center gap-4">
               <div className="flex items-center justify-center h-14 w-14 rounded-xl bg-muted/50">
                 <Server className="h-7 w-7 text-muted-foreground/40" />

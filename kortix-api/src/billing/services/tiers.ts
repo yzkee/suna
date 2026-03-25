@@ -6,6 +6,9 @@ export const MINIMUM_CREDIT_FOR_RUN = 0.01;
 export const DEFAULT_TOKEN_COST = 0.000002;
 export const CREDITS_PER_DOLLAR = 100;
 
+/** One-time credit grant per machine provisioned ($5 = 500 display credits). */
+export const MACHINE_CREDIT_BONUS = 5;
+
 /** Markup applied to managed VPS prices for additional instances. */
 export const COMPUTE_PRICE_MARKUP = 1.2;
 
@@ -41,7 +44,7 @@ const TIERS: Record<string, TierConfig> = {
     displayName: 'Pro',
     monthlyPrice: 20,
     yearlyPrice: 0,            // No yearly billing
-    monthlyCredits: 10,        // $10 = 1000 credits
+    monthlyCredits: 0,         // No monthly credits — $5 one-time per machine only
     canPurchaseCredits: true,
     models: ['all'],
     dailyCreditConfig: null,
@@ -50,10 +53,11 @@ const TIERS: Record<string, TierConfig> = {
 
   // ── Legacy tiers (kept for backward compat with existing DB rows) ────────
   // All hidden, resolve to their closest equivalent for display.
-  tier_2_20:      { name: 'tier_2_20',      displayName: 'Plus (Legacy)',       monthlyPrice: 20,   yearlyPrice: 204,   monthlyCredits: 40,   canPurchaseCredits: true, models: ['all'], dailyCreditConfig: null, hidden: true },
-  tier_6_50:      { name: 'tier_6_50',      displayName: 'Pro (Legacy)',        monthlyPrice: 50,   yearlyPrice: 510,   monthlyCredits: 100,  canPurchaseCredits: true, models: ['all'], dailyCreditConfig: null, hidden: true },
+  // Legacy tiers: monthlyCredits = monthlyPrice (1:1 ratio, i.e. $20 plan → $20 credits → 2000 display credits)
+  tier_2_20:      { name: 'tier_2_20',      displayName: 'Plus (Legacy)',       monthlyPrice: 20,   yearlyPrice: 204,   monthlyCredits: 20,   canPurchaseCredits: true, models: ['all'], dailyCreditConfig: null, hidden: true },
+  tier_6_50:      { name: 'tier_6_50',      displayName: 'Pro (Legacy)',        monthlyPrice: 50,   yearlyPrice: 510,   monthlyCredits: 50,   canPurchaseCredits: true, models: ['all'], dailyCreditConfig: null, hidden: true },
   tier_12_100:    { name: 'tier_12_100',    displayName: 'Business (Legacy)',   monthlyPrice: 100,  yearlyPrice: 1020,  monthlyCredits: 100,  canPurchaseCredits: true, models: ['all'], dailyCreditConfig: null, hidden: true },
-  tier_25_200:    { name: 'tier_25_200',    displayName: 'Ultra (Legacy)',      monthlyPrice: 200,  yearlyPrice: 2040,  monthlyCredits: 400,  canPurchaseCredits: true, models: ['all'], dailyCreditConfig: null, hidden: true },
+  tier_25_200:    { name: 'tier_25_200',    displayName: 'Ultra (Legacy)',      monthlyPrice: 200,  yearlyPrice: 2040,  monthlyCredits: 200,  canPurchaseCredits: true, models: ['all'], dailyCreditConfig: null, hidden: true },
   tier_50_400:    { name: 'tier_50_400',    displayName: 'Enterprise (Legacy)', monthlyPrice: 400,  yearlyPrice: 4080,  monthlyCredits: 400,  canPurchaseCredits: true, models: ['all'], dailyCreditConfig: null, hidden: true },
   tier_125_800:   { name: 'tier_125_800',   displayName: 'Scale (Legacy)',      monthlyPrice: 800,  yearlyPrice: 8160,  monthlyCredits: 800,  canPurchaseCredits: true, models: ['all'], dailyCreditConfig: null, hidden: true },
   tier_200_1000:  { name: 'tier_200_1000',  displayName: 'Max (Legacy)',        monthlyPrice: 1000, yearlyPrice: 10200, monthlyCredits: 1000, canPurchaseCredits: true, models: ['all'], dailyCreditConfig: null, hidden: true },
@@ -201,6 +205,13 @@ export function canPurchaseCredits(tierName: string): boolean {
 /** Returns true if the tier is a paid tier (not free/none). */
 export function isPaidTier(tierName: string): boolean {
   return tierName !== 'free' && tierName !== 'none';
+}
+
+/** Legacy paid tiers eligible for the "claim computer" flow. */
+export const LEGACY_PAID_TIERS = ['tier_2_20', 'tier_6_50', 'tier_25_200'] as const;
+
+export function isLegacyPaidTier(tierName: string): boolean {
+  return (LEGACY_PAID_TIERS as readonly string[]).includes(tierName);
 }
 
 export function isModelAllowed(tierName: string, model: string): boolean {

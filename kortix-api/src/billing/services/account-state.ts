@@ -8,6 +8,7 @@ import {
   getDailyCreditConfig,
   isModelAllowed,
   isPaidTier,
+  isLegacyPaidTier,
   MINIMUM_CREDIT_FOR_RUN,
 } from './tiers';
 import { getCreditSummary } from './credits';
@@ -118,6 +119,10 @@ export async function buildMinimalAccountState(accountId: string): Promise<Accou
     // DB may not be available in local mode
   }
 
+  // Legacy paid users with no active machine can claim a free default computer
+  const hasActiveMachine = instances.some((i: any) => i.status === 'active' || i.status === 'provisioning');
+  const canClaimComputer = isLegacyPaidTier(tierName) && !hasActiveMachine;
+
   return {
     credits: {
       total: credits.total,
@@ -156,6 +161,7 @@ export async function buildMinimalAccountState(accountId: string): Promise<Accou
     auto_topup: autoTopup,
     instances,
     can_add_instances: isPaidTier(tierName),
+    can_claim_computer: canClaimComputer,
   };
 }
 
@@ -210,6 +216,7 @@ export function buildLocalAccountState(): AccountStateResponse {
     },
     instances: [],
     can_add_instances: false,
+    can_claim_computer: false,
   };
 }
 

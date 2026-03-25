@@ -133,10 +133,8 @@ describe('checkout.session.completed: instance provisioning', () => {
 
     await processStripeWebhook(JSON.stringify(event), 'sig');
 
-    // Credits were granted (pro tier = 10 credits)
-    expect(grantCreditsCalls.length).toBe(1);
-    expect(grantCreditsCalls[0][0]).toBe('acc_test_123');
-    expect(grantCreditsCalls[0][1]).toBe(10); // pro tier monthlyCredits
+    // Pro tier now has 0 monthly credits — no tier_grant expected
+    expect(grantCreditsCalls.length).toBe(0);
 
     // Provisioning also happened
     expect(provisionCalls.length).toBe(1);
@@ -205,9 +203,9 @@ describe('checkout.session.completed: backward compatibility', () => {
 
     await processStripeWebhook(JSON.stringify(event), 'sig');
 
-    // Credits granted for the legacy tier
+    // Credits granted for the legacy tier (tier_6_50 = $50 monthly credits)
     expect(grantCreditsCalls.length).toBe(1);
-    expect(grantCreditsCalls[0][1]).toBe(100); // tier_6_50 = 100 credits
+    expect(grantCreditsCalls[0][1]).toBe(50); // tier_6_50 now = $50 monthly credits
 
     // Subscription recorded
     expect(upsertCreditAccountCalls.length).toBe(1);

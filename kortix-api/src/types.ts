@@ -216,6 +216,8 @@ export interface AccountStateResponse {
     created_at: string;
   }>;
   can_add_instances: boolean;
+  /** True when a legacy paid user has no active machine and can claim one. */
+  can_claim_computer?: boolean;
 }
 
 export interface ScheduledChange {

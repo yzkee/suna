@@ -78,10 +78,10 @@ describe('processYearlyCreditRotation', () => {
     expect(resetExpiringCreditsCalls.length).toBe(2);
 
     expect(resetExpiringCreditsCalls[0][0]).toBe('acc_yearly_1');
-    expect(resetExpiringCreditsCalls[0][1]).toBe(100);
+    expect(resetExpiringCreditsCalls[0][1]).toBe(50); // tier_6_50 = $50 monthly credits
 
     expect(resetExpiringCreditsCalls[1][0]).toBe('acc_yearly_2');
-    expect(resetExpiringCreditsCalls[1][1]).toBe(400);
+    expect(resetExpiringCreditsCalls[1][1]).toBe(200); // tier_25_200 = $200 monthly credits
   });
 
   test('updates nextCreditGrant to 1 month later', async () => {

@@ -153,46 +153,46 @@ export default function CreditsPage() {
           </div>
 
           <p className="text-muted-foreground leading-relaxed">
-            Credits fall into two categories: expiring and non-expiring. When you run a task, credits are deducted in this priority order: expiring credits first (daily/weekly, then monthly), followed by non-expiring credits.
+            Credits are used to pay for LLM calls and tool usage. You get credits from purchases, auto-topup, and a one-time bonus when you provision a machine.
           </p>
 
           {/* Credit Types Visual Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Daily / Weekly Credits */}
+            {/* Machine Bonus */}
             <Card className="border-blue-500/20 bg-gradient-to-br from-blue-500/5 to-transparent">
               <CardContent className="pt-5">
                 <div className="flex items-center gap-2 mb-3">
                   <RotateCcw className="h-5 w-5 text-blue-500" />
-                  <h3 className="font-semibold text-foreground">Daily / Weekly</h3>
+                  <h3 className="font-semibold text-foreground">Machine Bonus</h3>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Free tier: 300 credits weekly. Paid tiers: 200 credits daily. Use it or lose it—these credits reset and don't roll over.
+                  500 credits ($5) granted one-time when you provision a new cloud computer. These never expire.
                 </p>
               </CardContent>
             </Card>
 
-            {/* Monthly Credits */}
+            {/* Purchased Credits */}
             <Card className="border-orange-500/20 bg-gradient-to-br from-orange-500/5 to-transparent">
               <CardContent className="pt-5">
                 <div className="flex items-center gap-2 mb-3">
                   <Clock className="h-5 w-5 text-orange-500" />
-                  <h3 className="font-semibold text-foreground">Monthly</h3>
+                  <h3 className="font-semibold text-foreground">Purchased</h3>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Included with your subscription plan. Refresh at the start of each billing cycle and don't roll over.
+                  Buy credit packs ($10–$500) or enable auto-topup to never run out. Purchased credits never expire.
                 </p>
               </CardContent>
             </Card>
 
-            {/* Extra Credits */}
+            {/* Legacy Monthly */}
             <Card className="border-border">
               <CardContent className="pt-5">
                 <div className="flex items-center gap-2 mb-3">
                   <Infinity className="h-5 w-5 text-muted-foreground" />
-                  <h3 className="font-semibold text-foreground">Extra</h3>
+                  <h3 className="font-semibold text-foreground">Monthly (Legacy)</h3>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Purchased or promotional credits that never expire. Use them anytime—they're always there when you need them.
+                  Some legacy plans include monthly credits that refresh each billing cycle. These don't roll over.
                 </p>
               </CardContent>
             </Card>
@@ -200,48 +200,24 @@ export default function CreditsPage() {
 
           <div className="space-y-4">
             <div>
-              <h3 className="font-semibold text-foreground mb-3">Expiring credits (Daily/Weekly + Monthly)</h3>
+              <h3 className="font-semibold text-foreground mb-3">How you get credits</h3>
               <div className="space-y-3 text-muted-foreground">
                 <div className="flex items-start gap-3">
                   <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 flex-shrink-0" />
                   <div>
-                    <span className="font-medium text-foreground">Daily/Weekly credits:</span> Free tier gets 300 credits weekly. Paid tiers get 200 credits daily. Check your billing page to see when your next refresh happens. Unused credits don't roll over.
+                    <span className="font-medium text-foreground">Machine bonus:</span> Every new cloud computer comes with 500 credits ($5) as a one-time welcome bonus.
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
                   <div className="w-1.5 h-1.5 rounded-full bg-orange-500 mt-2 flex-shrink-0" />
                   <div>
-                    <span className="font-medium text-foreground">Monthly credits:</span> Your subscription's main credit allocation. These refresh at the start of each billing cycle and don't accumulate—use them within the month.
+                    <span className="font-medium text-foreground">Credit purchases:</span> Buy packs of credits anytime. Available in $10, $25, $50, $100, $250, and $500 denominations.
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
                   <div className="w-1.5 h-1.5 rounded-full bg-primary mt-2 flex-shrink-0" />
                   <div>
-                    <span className="font-medium text-foreground">Promotional credits:</span> Bonus credits from events or referrals with expiration dates. Use them before they expire.
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-border">
-              <h3 className="font-semibold text-foreground mb-3">Non-expiring credits (Extra)</h3>
-              <div className="space-y-3 text-muted-foreground">
-                <div className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-primary mt-2 flex-shrink-0" />
-                  <div>
-                    <span className="font-medium text-foreground">Top-up credits:</span> Additional credits you purchase when needed. These never expire and are available to premium members.
-                  </div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-primary mt-2 flex-shrink-0" />
-                  <div>
-                    <span className="font-medium text-foreground">Promotional grants:</span> Some promotions give credits without expiration dates. These stay in your account forever.
-                  </div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-primary mt-2 flex-shrink-0" />
-                  <div>
-                    <span className="font-medium text-foreground">Free credits:</span> Welcome bonuses and complimentary credits never expire.
+                    <span className="font-medium text-foreground">Auto-topup:</span> Automatically recharge when your balance gets low. Enabled by default — configure threshold and amount in settings.
                   </div>
                 </div>
               </div>
@@ -252,7 +228,7 @@ export default function CreditsPage() {
           <Alert className="border-blue-500/20 bg-blue-500/5">
             <Info className="h-4 w-4" />
             <AlertDescription>
-              <strong>Credit usage priority:</strong> When running tasks, we always use your expiring credits first (daily/weekly → monthly) before touching your extra credits. This ensures you get the most value from all your credits.
+              <strong>Credit usage:</strong> Credits are deducted per LLM token used and per tool call. Costs vary by model — more capable models cost more per token.
             </AlertDescription>
           </Alert>
         </div>
