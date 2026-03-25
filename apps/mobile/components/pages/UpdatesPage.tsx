@@ -1,5 +1,5 @@
-import React from 'react';
-import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import React, { useCallback, useRef } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColorScheme } from 'nativewind';
 import { useQuery } from '@tanstack/react-query';
@@ -21,7 +21,7 @@ import { Text } from '@/components/ui/text';
 import { Icon } from '@/components/ui/icon';
 import { useGlobalSandboxUpdate } from '@/hooks/useSandboxUpdate';
 import { getFullChangelog, type ChangelogChange, type ChangelogEntry } from '@/lib/platform/client';
-import type { PageTab } from '@/stores/tab-store';
+import { useTabStore, type PageTab } from '@/stores/tab-store';
 
 const CHANGE_ICONS: Record<string, typeof Sparkles> = {
   feature: Sparkles,
@@ -70,6 +70,29 @@ export function UpdatesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: U
     resetStatus,
   } = useGlobalSandboxUpdate();
 
+  // Persist scroll position across tab switches
+  const scrollRef = useRef<ScrollView>(null);
+  const savedScrollY = useTabStore((s) => (s.tabStateById[page.id]?.scrollY as number) ?? 0);
+  const scrollYRef = useRef(savedScrollY);
+
+  const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    scrollYRef.current = e.nativeEvent.contentOffset.y;
+  }, []);
+
+  // Save scroll position when unmounting (tab switch)
+  React.useEffect(() => {
+    return () => {
+      useTabStore.getState().setTabState(page.id, { scrollY: scrollYRef.current });
+    };
+  }, [page.id]);
+
+  // Restore scroll position on mount
+  const handleContentSizeChange = useCallback(() => {
+    if (savedScrollY > 0) {
+      scrollRef.current?.scrollTo({ y: savedScrollY, animated: false });
+    }
+  }, [savedScrollY]);
+
   const { data: fullChangelog, isLoading } = useQuery({
     queryKey: ['sandbox', 'changelog'],
     queryFn: getFullChangelog,
@@ -103,9 +126,13 @@ export function UpdatesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: U
       </View>
 
       <ScrollView
+        ref={scrollRef}
         className="flex-1"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+        onScroll={handleScroll}
+        scrollEventThrottle={64}
+        onContentSizeChange={handleContentSizeChange}
       >
         <View className="px-5 pt-2 pb-4">
           {/* Header */}
