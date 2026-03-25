@@ -56,7 +56,7 @@ export default function SandboxPoolAdminPage() {
   };
 
   const handleForceCreate = () => {
-    forceCreateMutation.mutate(createCount, {
+    forceCreateMutation.mutate({ count: createCount }, {
       onSuccess: (data) => {
         toast.success(`Created ${data.created_count}/${data.requested} sandboxes`);
         if (data.failed_count > 0) {

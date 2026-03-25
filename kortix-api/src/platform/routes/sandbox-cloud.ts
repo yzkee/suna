@@ -24,9 +24,10 @@ import {
   type SandboxProvider,
 } from '../providers';
 import { config } from '../../config';
-import { listServerTypes as listJustAVPSServerTypes } from '../providers/justavps';
+import { justavpsFetch, listServerTypes as listJustAVPSServerTypes } from '../providers/justavps';
 import type { AuthVariables } from '../../types';
 import { resolveAccountId as defaultResolveAccountId } from '../../shared/resolve-account';
+import * as pool from '../../pool';
 
 // ─── Dependency Injection ────────────────────────────────────────────────────
 
@@ -346,6 +347,52 @@ export function createCloudSandboxRouter(
         type: 'sandbox',
       });
 
+      // ── Try pool claim before provider.create() ──────────────────────────
+      if (config.isPoolEnabled() && isManagedVpsProvider(providerName)) {
+        try {
+          const claimed = await pool.grab({
+            serverType: requestedOrDefaultServerType,
+            location: requestedOrDefaultLocation,
+          });
+
+          if (claimed) {
+            await db
+              .update(sandboxes)
+              .set({
+                externalId: claimed.externalId,
+                status: 'active',
+                baseUrl: claimed.baseUrl,
+                metadata: {
+                  ...((sandbox.metadata as Record<string, unknown>) ?? {}),
+                  ...claimed.metadata,
+                },
+                config: { serviceKey: sandboxKey.secretKey },
+                updatedAt: new Date(),
+              })
+              .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
+
+            await pool.injectEnv(claimed, sandboxKey.secretKey);
+
+            const [updated] = await db
+              .select()
+              .from(sandboxes)
+              .where(eq(sandboxes.sandboxId, sandbox.sandboxId))
+              .limit(1);
+
+            console.log(
+              `[PLATFORM] Claimed from pool: ${sandbox.sandboxId} (ext: ${claimed.externalId}) for account ${accountId}`,
+            );
+
+            return c.json(
+              { success: true, data: serializeSandbox(updated), created: true },
+              201,
+            );
+          }
+        } catch (poolErr) {
+          console.warn('[PLATFORM] Pool claim failed, falling back to provisioning:', poolErr);
+        }
+      }
+
       const providerCreateInput = {
         accountId,
         userId,
@@ -559,7 +606,6 @@ export function createCloudSandboxRouter(
       // ── Self-healing: if DB says provisioning but JustAVPS says ready, heal the row ──
       if (currentStatus === 'provisioning' && sandbox.externalId && sandbox.provider === 'justavps') {
         try {
-          const { justavpsFetch } = await import('../providers/justavps');
           const machine = await justavpsFetch<{ status: string; provisioning_stage?: string; ip?: string }>(`/machines/${sandbox.externalId}`);
           if (machine.status === 'ready') {
             // JustAVPS says ready but our DB missed the webhook — heal it
