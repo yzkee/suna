@@ -7,32 +7,12 @@ export {
   useToggleChannel,
   useLinkChannel,
   useUnlinkChannel,
-  useChannelMessages,
-  useChannelSessions,
   type ChannelConfig,
-  type ChannelMessage,
-  type ChannelSession,
   type ChannelType,
   type SessionStrategy,
   type CreateChannelData,
   type UpdateChannelData,
 } from './use-channels';
-
-export {
-  usePlatformCredentialStatus,
-  usePlatformCredentialsList,
-  useSavePlatformCredentials,
-  useDeletePlatformCredentials,
-  type PlatformCredentialStatus,
-  type PlatformCredentialEntry,
-} from './use-platform-credentials';
-
-export {
-  useDetectPublicUrl,
-  useGenerateManifest,
-  type DetectUrlResult,
-  type GenerateManifestResult,
-} from './use-slack-wizard';
 
 export {
   useTelegramDetectUrl,
@@ -46,3 +26,10 @@ export {
   type NgrokStatus,
   type NgrokStartResult,
 } from './use-ngrok';
+
+export {
+  useDetectPublicUrl,
+  useGenerateManifest,
+  type DetectUrlResult,
+  type GenerateManifestResult,
+} from './use-slack-wizard';

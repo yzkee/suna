@@ -4,7 +4,6 @@ import { backendApi } from '@/lib/api-client';
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export type ChannelType =
-  | 'opencode'
   | 'telegram'
   | 'slack'
   | 'discord'
@@ -23,7 +22,6 @@ export interface ChannelConfig {
   channelType: ChannelType;
   name: string;
   enabled: boolean;
-  credentials: Record<string, unknown>;
   platformConfig: Record<string, unknown>;
   sessionStrategy: SessionStrategy;
   systemPrompt: string | null;
@@ -34,26 +32,11 @@ export interface ChannelConfig {
   sandbox?: { name: string; status: string };
 }
 
-export interface ChannelMessage {
-  channelMessageId: string;
-  channelConfigId: string;
-  direction: 'inbound' | 'outbound';
-  externalId: string | null;
-  sessionId: string | null;
-  chatType: string | null;
-  content: string | null;
-  attachments: unknown[];
-  platformUser: { id: string; name: string; avatar?: string } | null;
-  metadata: Record<string, unknown>;
-  createdAt: string;
-}
-
 export interface CreateChannelData {
   sandbox_id?: string | null;
   channel_type: ChannelType;
   name: string;
   enabled?: boolean;
-  credentials?: Record<string, unknown>;
   platform_config?: Record<string, unknown>;
   session_strategy?: SessionStrategy;
   system_prompt?: string | null;
@@ -65,7 +48,6 @@ export interface UpdateChannelData {
   sandbox_id?: string | null;
   name?: string;
   enabled?: boolean;
-  credentials?: Record<string, unknown>;
   platform_config?: Record<string, unknown>;
   session_strategy?: SessionStrategy;
   system_prompt?: string | null;
@@ -84,12 +66,6 @@ interface ApiListResponse {
 interface ApiSingleResponse {
   success: boolean;
   data: ChannelConfig;
-}
-
-interface ApiMessagesResponse {
-  success: boolean;
-  data: ChannelMessage[];
-  total: number;
 }
 
 const fetchChannels = async (sandboxId?: string): Promise<ChannelConfig[]> => {
@@ -164,16 +140,6 @@ const unlinkChannel = async (id: string): Promise<ChannelConfig> => {
   return response.data!.data;
 };
 
-const fetchChannelMessages = async (id: string, limit = 50, offset = 0): Promise<ChannelMessage[]> => {
-  const response = await backendApi.get<ApiMessagesResponse>(
-    `/channels/${id}/messages?limit=${limit}&offset=${offset}`,
-  );
-  if (!response.success) {
-    throw new Error(response.error?.message || 'Failed to fetch messages');
-  }
-  return response.data!.data;
-};
-
 // ─── Hooks ──────────────────────────────────────────────────────────────────
 
 export const useChannels = (sandboxId?: string) => {
@@ -198,7 +164,6 @@ export const useChannel = (channelId: string) => {
 
 export const useCreateChannel = () => {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: createChannel,
     onSuccess: () => {
@@ -209,7 +174,6 @@ export const useCreateChannel = () => {
 
 export const useUpdateChannel = () => {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: updateChannel,
     onSuccess: (updated) => {
@@ -221,7 +185,6 @@ export const useUpdateChannel = () => {
 
 export const useDeleteChannel = () => {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: deleteChannel,
     onSuccess: () => {
@@ -232,7 +195,6 @@ export const useDeleteChannel = () => {
 
 export const useToggleChannel = () => {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
       return enabled ? enableChannel(id) : disableChannel(id);
@@ -245,7 +207,6 @@ export const useToggleChannel = () => {
 
 export const useLinkChannel = () => {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: linkChannel,
     onSuccess: (updated) => {
@@ -257,7 +218,6 @@ export const useLinkChannel = () => {
 
 export const useUnlinkChannel = () => {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: unlinkChannel,
     onSuccess: (updated) => {
@@ -266,62 +226,3 @@ export const useUnlinkChannel = () => {
     },
   });
 };
-
-export const useChannelMessages = (channelId: string, limit = 50) => {
-  return useQuery({
-    queryKey: ['channel-messages', channelId, limit],
-    queryFn: () => fetchChannelMessages(channelId, limit),
-    enabled: !!channelId,
-    staleTime: 15 * 1000,
-    refetchInterval: 30 * 1000,
-  });
-};
-
-// ─── Channel Sessions ────────────────────────────────────────────────────────
-
-export interface ChannelSession {
-  channelSessionId: string;
-  channelConfigId: string;
-  sessionId: string;
-  strategyKey: string;
-  lastUsedAt: string;
-  metadata: Record<string, unknown>;
-  createdAt: string;
-  // Enriched from channel config
-  channelType: string;
-  channelName: string;
-  platform: string;
-  sandboxId?: string | null;
-}
-
-interface ApiChannelSessionsResponse {
-  success: boolean;
-  data: ChannelSession[];
-  total: number;
-}
-
-const fetchChannelSessions = async (channelId: string, limit = 50): Promise<ChannelSession[]> => {
-  const response = await backendApi.get<ApiChannelSessionsResponse>(
-    `/channels/${channelId}/sessions?limit=${limit}`,
-  );
-  if (!response.success) {
-    throw new Error(response.error?.message || 'Failed to fetch channel sessions');
-  }
-  return response.data!.data;
-};
-
-/**
- * List all OpenCode sessions triggered via a specific channel.
- * Used in the channel detail dialog "Sessions" tab.
- */
-export const useChannelSessions = (channelId: string, limit = 50) => {
-  return useQuery({
-    queryKey: ['channel-sessions', channelId, limit],
-    queryFn: () => fetchChannelSessions(channelId, limit),
-    enabled: !!channelId,
-    staleTime: 15 * 1000,
-    refetchInterval: 30 * 1000,
-  });
-};
-
-

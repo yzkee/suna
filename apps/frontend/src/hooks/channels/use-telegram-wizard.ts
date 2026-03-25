@@ -137,22 +137,7 @@ export function useTelegramConnect() {
       }
 
       // 3. Set Telegram webhook via Telegram API (from browser)
-      // Resolve the webhook URL from the backend — it returns the correct
-      // URL with proxy token for cloud sandboxes (JustAVPS), or the platform
-      // webhook URL for other providers.
-      let webhookUrl = `${publicUrl}/webhooks/telegram`;
-      try {
-        const activeServer = useServerStore.getState().servers.find(
-          (s) => s.id === useServerStore.getState().activeServerId,
-        );
-        const sandboxParam = activeServer?.sandboxId ? `?sandbox_id=${activeServer.sandboxId}` : '';
-        const urlRes = await backendApi.get(`/channels/webhook-url/telegram${sandboxParam}`);
-        if (urlRes.data?.webhook_url) {
-          webhookUrl = urlRes.data.webhook_url;
-        }
-      } catch {
-        // Fall back to publicUrl-based webhook
-      }
+      const webhookUrl = `${publicUrl}/webhooks/telegram`;
       const whRes = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

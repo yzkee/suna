@@ -20,12 +20,16 @@ import {
 } from 'lucide-react';
 import { useGenerateManifest } from '@/hooks/channels';
 import { useNgrokStatus, useNgrokStart } from '@/hooks/channels';
-import { useSavePlatformCredentials } from '@/hooks/channels';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { authenticatedFetch } from '@/lib/auth-token';
+import { getActiveOpenCodeUrl, useServerStore } from '@/stores/server-store';
+import { backendApi } from '@/lib/api-client';
+import { ensureSandbox } from '@/lib/platform-client';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface SlackSetupWizardProps {
-  onSaved: (publicUrl?: string) => void;
+  onCreated: () => void;
   onBack: () => void;
   sandboxId?: string | null;
 }
@@ -79,8 +83,9 @@ function StepIndicator({ current }: { current: WizardStep }) {
   );
 }
 
-export function SlackSetupWizard({ onSaved, onBack, sandboxId }: SlackSetupWizardProps) {
+export function SlackSetupWizard({ onCreated, onBack }: SlackSetupWizardProps) {
   const [step, setStep] = useState<WizardStep>(1);
+  const queryClient = useQueryClient();
 
   // Step 1 state
   const SLACK_PORT = 8008;
@@ -95,11 +100,10 @@ export function SlackSetupWizard({ onSaved, onBack, sandboxId }: SlackSetupWizar
   const [manifestJson, setManifestJson] = useState('');
   const [copied, setCopied] = useState(false);
 
-  // Step 3 state
-  const [clientId, setClientId] = useState('');
-  const [clientSecret, setClientSecret] = useState('');
+  // Step 3 state — Bot Token + Signing Secret (what the adapter actually needs)
+  const [botToken, setBotToken] = useState('');
   const [signingSecret, setSigningSecret] = useState('');
-  const saveMutation = useSavePlatformCredentials();
+  const [connecting, setConnecting] = useState(false);
 
   // Auto-fill URL when ngrok detected
   useEffect(() => {
@@ -108,7 +112,6 @@ export function SlackSetupWizard({ onSaved, onBack, sandboxId }: SlackSetupWizar
     }
   }, [ngrokQuery.data, publicUrl]);
 
-  // Step 1 handlers
   const handleStartNgrok = async () => {
     try {
       const result = await ngrokStart.mutateAsync({ port: SLACK_PORT });
@@ -129,7 +132,6 @@ export function SlackSetupWizard({ onSaved, onBack, sandboxId }: SlackSetupWizar
     setStep(2);
   };
 
-  // Step 2 handlers
   const handleGenerateManifest = async () => {
     try {
       const result = await generateMutation.mutateAsync({
@@ -152,36 +154,92 @@ export function SlackSetupWizard({ onSaved, onBack, sandboxId }: SlackSetupWizar
     }
   };
 
-  // Step 3 handlers
-  const isCredsValid = clientId.trim() && clientSecret.trim() && signingSecret.trim();
+  const credsValid = botToken.trim().startsWith('xoxb-') && signingSecret.trim().length >= 10;
 
-  const handleSaveCredentials = async () => {
-    if (!isCredsValid) return;
+  const handleConnect = async () => {
+    if (!credsValid) return;
+    setConnecting(true);
+
     try {
-      await saveMutation.mutateAsync({
-        channelType: 'slack',
-        credentials: {
-          clientId: clientId.trim(),
-          clientSecret: clientSecret.trim(),
-          signingSecret: signingSecret.trim(),
-        },
-        sandboxId: sandboxId ?? null,
+      const baseUrl = getActiveOpenCodeUrl();
+      if (!baseUrl) throw new Error('No active instance found');
+
+      // 1. Push env vars to sandbox
+      for (const [key, value] of Object.entries({
+        SLACK_BOT_TOKEN: botToken.trim(),
+        SLACK_SIGNING_SECRET: signingSecret.trim(),
+      })) {
+        const res = await authenticatedFetch(`${baseUrl}/env/${key}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value }),
+        });
+        if (!res.ok) {
+          const err = await res.text().catch(() => 'unknown');
+          throw new Error(`Failed to set ${key}: ${err}`);
+        }
+      }
+
+      // 2. Reload opencode-channels with new credentials
+      const reloadRes = await authenticatedFetch(`${baseUrl}/channels/reload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          credentials: {
+            slack: { botToken: botToken.trim(), signingSecret: signingSecret.trim() },
+          },
+        }),
       });
-      toast.success('Slack credentials saved');
-      onSaved(publicUrl.trim() || undefined);
+      if (!reloadRes.ok) {
+        const err = await reloadRes.text().catch(() => 'unknown');
+        throw new Error(`Failed to reload channels: ${err}`);
+      }
+
+      // 3. Create channel config DB record
+      let sandboxId: string | null = null;
+      try {
+        const result = await ensureSandbox();
+        sandboxId = result.sandbox.sandbox_id;
+      } catch {
+        const store = useServerStore.getState();
+        for (const s of store.servers) {
+          if (s.sandboxId) { sandboxId = s.sandboxId; break; }
+        }
+      }
+
+      try {
+        await backendApi.post('/channels', {
+          sandbox_id: sandboxId,
+          channel_type: 'slack',
+          name: botName.trim() || 'Slack Bot',
+          enabled: true,
+          platform_config: {
+            webhook_url: `${publicUrl.replace(/\/$/, '')}/webhooks/slack/events`,
+            bot_name: botName.trim() || 'Kortix Agent',
+          },
+          session_strategy: 'per-thread',
+        });
+      } catch (err) {
+        console.warn('[slack-wizard] Failed to create channel config (may already exist):', err);
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['channels'] });
+      toast.success('Slack bot connected!');
+      onCreated();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save credentials');
+      toast.error(err instanceof Error ? err.message : 'Failed to connect Slack');
+    } finally {
+      setConnecting(false);
     }
   };
 
-  // Ngrok helpers
   const ngrokInstalled = ngrokQuery.data?.ngrokInstalled ?? false;
 
   return (
     <div>
       <StepIndicator current={step} />
 
-      {/* Step 1: Public URL */}
+      {/* ── Step 1: Public URL ──────────────────────────────────────────────── */}
       {step === 1 && (
         <div className="space-y-4 px-6 pb-6">
           <p className="text-sm text-muted-foreground">
@@ -189,7 +247,6 @@ export function SlackSetupWizard({ onSaved, onBack, sandboxId }: SlackSetupWizar
             This should point to <span className="font-mono font-medium text-foreground">kortix-api</span> (port {SLACK_PORT}).
           </p>
 
-          {/* URL input — the primary element */}
           <div className="space-y-2">
             <Label htmlFor="public-url">Public URL</Label>
             <div className="relative">
@@ -204,7 +261,6 @@ export function SlackSetupWizard({ onSaved, onBack, sandboxId }: SlackSetupWizar
             </div>
           </div>
 
-          {/* Local dev helper — collapsed by default */}
           <button
             onClick={() => setShowLocalDev(!showLocalDev)}
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
@@ -217,12 +273,10 @@ export function SlackSetupWizard({ onSaved, onBack, sandboxId }: SlackSetupWizar
           {showLocalDev && (
             <div className="rounded-xl border bg-muted/30 p-4 space-y-3 text-xs">
               <p className="text-muted-foreground">
-                If you&apos;re running locally and your machine isn&apos;t publicly reachable,
-                use <a href="https://ngrok.com" target="_blank" rel="noopener noreferrer" className="underline text-foreground">ngrok</a> to
-                create a tunnel to kortix-api.
+                If you&apos;re running locally, use{' '}
+                <a href="https://ngrok.com" target="_blank" rel="noopener noreferrer" className="underline text-foreground">ngrok</a>{' '}
+                to create a tunnel to kortix-api.
               </p>
-
-              {/* Detection status */}
               <div className="rounded-lg border p-2.5">
                 {ngrokQuery.isLoading ? (
                   <div className="flex items-center gap-2 text-muted-foreground">
@@ -236,9 +290,7 @@ export function SlackSetupWizard({ onSaved, onBack, sandboxId }: SlackSetupWizar
                     </div>
                     <span className="text-emerald-600 font-medium">Tunnel detected</span>
                     {ngrokQuery.data.portMatches === false && (
-                      <span className="text-amber-600 ml-1">
-                        (port {ngrokQuery.data.forwardPort} — expected {SLACK_PORT})
-                      </span>
+                      <span className="text-amber-600 ml-1">(port {ngrokQuery.data.forwardPort} — expected {SLACK_PORT})</span>
                     )}
                   </div>
                 ) : (
@@ -250,121 +302,56 @@ export function SlackSetupWizard({ onSaved, onBack, sandboxId }: SlackSetupWizar
                       <span className="text-amber-600 font-medium">No tunnel running</span>
                     </div>
                     {ngrokInstalled && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleStartNgrok}
-                        disabled={ngrokStart.isPending}
-                        className="rounded-lg text-[11px] h-6 px-2"
-                      >
-                        {ngrokStart.isPending ? (
-                          <>
-                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                            Starting...
-                          </>
-                        ) : (
-                          <>
-                            <Play className="h-3 w-3 mr-1" />
-                            Start on port {SLACK_PORT}
-                          </>
-                        )}
+                      <Button variant="outline" size="sm" onClick={handleStartNgrok} disabled={ngrokStart.isPending} className="rounded-lg text-[11px] h-6 px-2">
+                        {ngrokStart.isPending ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Starting...</> : <><Play className="h-3 w-3 mr-1" />Start on port {SLACK_PORT}</>}
                       </Button>
                     )}
                   </div>
                 )}
               </div>
-
               <div className="space-y-1.5 text-muted-foreground">
                 <p className="font-medium text-foreground">Manual setup:</p>
-                <pre className="bg-background rounded-lg p-2 font-mono text-[11px] overflow-x-auto">
-                  ngrok http {SLACK_PORT}
-                </pre>
-                <p>
-                  Port <span className="font-mono text-foreground">{SLACK_PORT}</span> is
-                  kortix-api. On a VPS you&apos;d use a reverse proxy (nginx, caddy) pointing
-                  to this port instead.
-                </p>
+                <pre className="bg-background rounded-lg p-2 font-mono text-[11px] overflow-x-auto">ngrok http {SLACK_PORT}</pre>
               </div>
             </div>
           )}
 
           <div className="flex justify-between items-center gap-2 pt-2">
             <Button variant="outline" onClick={onBack} className="rounded-xl">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
+              <ArrowLeft className="h-4 w-4 mr-2" />Back
             </Button>
             <div className="flex items-center gap-3">
-              <button
-                onClick={() => setStep(3)}
-                className="text-xs text-muted-foreground hover:text-foreground underline transition-colors"
-              >
+              <button onClick={() => setStep(3)} className="text-xs text-muted-foreground hover:text-foreground underline transition-colors">
                 Skip — enter credentials manually
               </button>
-              <Button
-                onClick={handleStep1Next}
-                disabled={!publicUrl.trim()}
-                className="rounded-xl"
-              >
-                Next
-                <ArrowRight className="h-4 w-4 ml-2" />
+              <Button onClick={handleStep1Next} disabled={!publicUrl.trim()} className="rounded-xl">
+                Next<ArrowRight className="h-4 w-4 ml-2" />
               </Button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Step 2: Create App from Manifest */}
+      {/* ── Step 2: Create App from Manifest ────────────────────────────────── */}
       {step === 2 && (
         <div className="space-y-4 px-6 pb-6">
           <div className="space-y-3">
             <div className="space-y-2">
               <Label htmlFor="bot-name">Bot Name</Label>
-              <Input
-                id="bot-name"
-                value={botName}
-                onChange={(e) => setBotName(e.target.value)}
-                placeholder="Kortix Agent"
-                className="rounded-xl focus:ring-2 focus:ring-primary/50"
-              />
+              <Input id="bot-name" value={botName} onChange={(e) => setBotName(e.target.value)} placeholder="Kortix Agent" className="rounded-xl focus:ring-2 focus:ring-primary/50" />
             </div>
 
             {!manifestJson ? (
-              <Button
-                onClick={handleGenerateManifest}
-                disabled={generateMutation.isPending}
-                className="w-full rounded-xl"
-              >
-                {generateMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  'Generate Manifest'
-                )}
+              <Button onClick={handleGenerateManifest} disabled={generateMutation.isPending} className="w-full rounded-xl">
+                {generateMutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating...</> : 'Generate Manifest'}
               </Button>
             ) : (
               <>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium">App Manifest</span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleCopyManifest}
-                      className="h-7 rounded-lg text-xs"
-                    >
-                      {copied ? (
-                        <>
-                          <Check className="h-3 w-3 mr-1" />
-                          Copied
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="h-3 w-3 mr-1" />
-                          Copy
-                        </>
-                      )}
+                    <Button variant="outline" size="sm" onClick={handleCopyManifest} className="h-7 rounded-lg text-xs">
+                      {copied ? <><Check className="h-3 w-3 mr-1" />Copied</> : <><Copy className="h-3 w-3 mr-1" />Copy</>}
                     </Button>
                   </div>
                 </div>
@@ -372,16 +359,9 @@ export function SlackSetupWizard({ onSaved, onBack, sandboxId }: SlackSetupWizar
                 <div className="rounded-xl border bg-muted/30 p-4 space-y-2">
                   <p className="text-sm font-medium">Create your Slack app:</p>
                   <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside">
-                    <li>
-                      Open{' '}
-                      <a
-                        href="https://api.slack.com/apps"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="underline inline-flex items-center gap-0.5 text-foreground"
-                      >
-                        api.slack.com/apps
-                        <ExternalLink className="h-3 w-3" />
+                    <li>Open{' '}
+                      <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" className="underline inline-flex items-center gap-0.5 text-foreground">
+                        api.slack.com/apps<ExternalLink className="h-3 w-3" />
                       </a>
                     </li>
                     <li>Click <strong>&quot;Create New App&quot;</strong> then <strong>&quot;From a manifest&quot;</strong></li>
@@ -397,58 +377,38 @@ export function SlackSetupWizard({ onSaved, onBack, sandboxId }: SlackSetupWizar
 
           <div className="flex justify-between gap-2 pt-2">
             <Button variant="outline" onClick={() => setStep(1)} className="rounded-xl">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
+              <ArrowLeft className="h-4 w-4 mr-2" />Back
             </Button>
-            <Button
-              onClick={() => setStep(3)}
-              disabled={!manifestJson}
-              className="rounded-xl"
-            >
-              Next
-              <ArrowRight className="h-4 w-4 ml-2" />
+            <Button onClick={() => setStep(3)} disabled={!manifestJson} className="rounded-xl">
+              Next<ArrowRight className="h-4 w-4 ml-2" />
             </Button>
           </div>
         </div>
       )}
 
-      {/* Step 3: Paste Credentials */}
+      {/* ── Step 3: Paste Credentials & Connect ─────────────────────────────── */}
       {step === 3 && (
         <div className="space-y-4 px-6 pb-6">
           <p className="text-sm text-muted-foreground">
-            Found under <strong>Basic Information</strong> &gt; <strong>App Credentials</strong> in your{' '}
-            <a
-              href="https://api.slack.com/apps"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline inline-flex items-center gap-0.5"
-            >
-              Slack App settings
-              <ExternalLink className="h-3 w-3" />
+            After installing the app to your workspace, copy these from your{' '}
+            <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" className="underline inline-flex items-center gap-0.5">
+              Slack App settings<ExternalLink className="h-3 w-3" />
             </a>
           </p>
 
           <div className="space-y-2">
-            <Label htmlFor="wiz-client-id">Client ID</Label>
+            <Label htmlFor="wiz-bot-token">Bot User OAuth Token</Label>
             <Input
-              id="wiz-client-id"
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              placeholder="1234567890.1234567890"
-              className="rounded-xl focus:ring-2 focus:ring-primary/50"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="wiz-client-secret">Client Secret</Label>
-            <Input
-              id="wiz-client-secret"
+              id="wiz-bot-token"
               type="password"
-              value={clientSecret}
-              onChange={(e) => setClientSecret(e.target.value)}
-              placeholder="abcdef1234567890..."
+              value={botToken}
+              onChange={(e) => setBotToken(e.target.value)}
+              placeholder="xoxb-your-bot-token-here"
               className="rounded-xl focus:ring-2 focus:ring-primary/50"
             />
+            <p className="text-xs text-muted-foreground">
+              Found under <strong>OAuth &amp; Permissions</strong> → Bot User OAuth Token
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -458,36 +418,20 @@ export function SlackSetupWizard({ onSaved, onBack, sandboxId }: SlackSetupWizar
               type="password"
               value={signingSecret}
               onChange={(e) => setSigningSecret(e.target.value)}
-              placeholder="abcdef1234567890..."
+              placeholder="abcdef1234567890abcdef1234567890"
               className="rounded-xl focus:ring-2 focus:ring-primary/50"
             />
+            <p className="text-xs text-muted-foreground">
+              Found under <strong>Basic Information</strong> → App Credentials → Signing Secret
+            </p>
           </div>
 
           <div className="flex justify-between gap-2 pt-2">
-            <Button
-              variant="outline"
-              onClick={() => setStep(2)}
-              className="rounded-xl"
-            >
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
+            <Button variant="outline" onClick={() => setStep(2)} className="rounded-xl">
+              <ArrowLeft className="h-4 w-4 mr-2" />Back
             </Button>
-            <Button
-              onClick={handleSaveCredentials}
-              disabled={!isCredsValid || saveMutation.isPending}
-              className="rounded-xl"
-            >
-              {saveMutation.isPending ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  Save & Install
-                  <ArrowRight className="h-4 w-4 ml-2" />
-                </>
-              )}
+            <Button onClick={handleConnect} disabled={!credsValid || connecting} className="rounded-xl">
+              {connecting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Connecting...</> : <>Save &amp; Connect<ArrowRight className="h-4 w-4 ml-2" /></>}
             </Button>
           </div>
         </div>

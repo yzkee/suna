@@ -35,6 +35,7 @@ import { accessControlApp } from './access-control';
 import { startAccessControlCache, stopAccessControlCache } from './shared/access-control-cache';
 import { legacyApp } from './legacy';
 import { channelsApp } from './channels';
+import { channelWebhooksApp } from './channels/webhooks';
 import { adminApp } from './admin';
 import { oauthApp } from './oauth';
 
@@ -253,10 +254,15 @@ app.route('/v1/access', accessControlApp); // /v1/access/signup-status, /v1/acce
 // Legacy thread migration — authenticated endpoints
 app.route('/v1/legacy', legacyApp); // /v1/legacy/threads, /v1/legacy/threads/:id/migrate
 
-// Channels — Slack/Discord/Telegram channel configs and message history
+// Channel Webhooks — PUBLIC (no auth), platforms can't send JWTs.
+// Security: each adapter verifies requests (Slack signing secret, Telegram secret token).
+// MUST be registered before the channels auth middleware.
+app.route('/webhooks', channelWebhooksApp); // /webhooks/slack, /webhooks/telegram, etc.
+
+// Channels — Slack/Discord/Telegram channel configs (authenticated CRUD)
 app.use('/v1/channels/*', combinedAuth);
 app.use('/v1/channels', combinedAuth);
-app.route('/v1/channels', channelsApp); // /v1/channels, /v1/channels/:id, /v1/channels/:id/messages, etc.
+app.route('/v1/channels', channelsApp); // /v1/channels, /v1/channels/:id, etc.
 
 // Setup — local/self-hosted only. Disabled in cloud mode (not needed, exposes admin surface).
 if (config.isLocal()) {

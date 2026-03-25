@@ -1,10 +1,8 @@
 "use client";
 
-import React, { useMemo, useState, useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import React, { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useChannels, type ChannelConfig } from '@/hooks/channels';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -15,7 +13,6 @@ import {
   Radio,
   Plus,
   Search,
-  Phone,
   Users,
   Mic,
   Mail,
@@ -33,8 +30,6 @@ import { ChannelEditDialog } from './channel-detail-panel';
 
 const getChannelIcon = (channelType: string): React.ComponentType<{ className?: string }> => {
   switch (channelType) {
-    case 'opencode':
-      return Radio;
     case 'telegram':
       return TelegramIcon;
     case 'slack':
@@ -58,7 +53,6 @@ const getChannelIcon = (channelType: string): React.ComponentType<{ className?: 
 
 const getChannelLabel = (channelType: string) => {
   const labels: Record<string, string> = {
-    opencode: 'OpenCode',
     telegram: 'Telegram',
     slack: 'Slack',
     discord: 'Discord',
@@ -170,23 +164,6 @@ export function ChannelsPage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const queryClient = useQueryClient();
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const slackParam = params.get('slack');
-    if (!slackParam) return;
-
-    if (slackParam === 'connected') {
-      toast.success('Slack connected successfully');
-      queryClient.invalidateQueries({ queryKey: ['channels'] });
-    } else if (slackParam === 'error') {
-      const message = params.get('message') || 'Failed to connect Slack';
-      toast.error(message);
-    }
-
-    window.history.replaceState({}, '', '/channels');
-  }, [queryClient]);
 
   const filteredChannels = useMemo(() => {
     let filtered = [...channels].sort((a, b) => {

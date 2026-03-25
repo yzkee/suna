@@ -1,88 +1,104 @@
 /**
  * Channels Sub-Service
  *
- * Manages channel configurations (Slack, Discord, Telegram, etc.).
- * Uses the existing kortix.channel_configs and related tables already
- * present in the DB (managed by the channels migration, not Drizzle push).
+ * CRUD for channel configurations (Slack, Discord, Telegram, etc.).
+ * Each channel config records which platform is connected, which sandbox
+ * it's linked to, and lightweight metadata (name, session strategy, etc.).
+ *
+ * Credentials are NOT stored here — they live in the sandbox's SecretStore
+ * (pushed as env vars). The actual bot runtime is `opencode-channels`
+ * running inside the sandbox.
  *
  * Routes (mounted at /v1/channels):
- *   GET    /                     — list channels for the authenticated account
- *   POST   /                     — create a channel config
- *   GET    /:id                  — get a single channel config
- *   PATCH  /:id                  — update channel config
- *   DELETE /:id                  — delete a channel config
- *   POST   /:id/enable           — set enabled=true
- *   POST   /:id/disable          — set enabled=false
- *   POST   /:id/link             — link channel to a sandbox
- *   POST   /:id/unlink           — unlink channel from a sandbox
- *   GET    /:id/messages         — paginated message history
- *   GET    /:channelId/sessions  — list opencode sessions for this channel
+ *   GET    /              — list channels for the authenticated account
+ *   POST   /              — create a channel config
+ *   GET    /:id           — get a single channel config
+ *   PATCH  /:id           — update channel config
+ *   DELETE /:id           — delete a channel config
+ *   POST   /:id/enable    — set enabled=true
+ *   POST   /:id/disable   — set enabled=false
+ *   POST   /:id/link      — link channel to a sandbox
+ *   POST   /:id/unlink    — unlink channel from a sandbox
  */
 
 import { Hono } from 'hono';
 import { sql } from 'drizzle-orm';
 import { db } from '../shared/db';
-
-// ─── Router ───────────────────────────────────────────────────────────────────
+import { slackWizardApp } from './slack-wizard';
 
 export const channelsApp = new Hono();
 
-// GET / — list all channel configs for account, left-joined with sandbox name
+// Slack wizard routes: /v1/channels/slack-wizard/detect-url, /v1/channels/slack-wizard/generate-manifest
+channelsApp.route('/slack-wizard', slackWizardApp);
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Standard SELECT for channel_configs with sandbox join. */
+const CHANNEL_SELECT = sql`
+  SELECT
+    cc.channel_config_id   AS "channelConfigId",
+    cc.account_id          AS "accountId",
+    cc.sandbox_id          AS "sandboxId",
+    cc.channel_type        AS "channelType",
+    cc.name,
+    cc.enabled,
+    cc.platform_config     AS "platformConfig",
+    cc.session_strategy    AS "sessionStrategy",
+    cc.system_prompt       AS "systemPrompt",
+    cc.agent_name          AS "agentName",
+    cc.metadata,
+    cc.created_at          AS "createdAt",
+    cc.updated_at          AS "updatedAt",
+    s.name                 AS "sandboxName",
+    s.status               AS "sandboxStatus"
+  FROM kortix.channel_configs cc
+  LEFT JOIN kortix.sandboxes s ON cc.sandbox_id = s.sandbox_id
+`;
+
+function formatRow(r: any) {
+  return {
+    channelConfigId: r.channelConfigId,
+    accountId: r.accountId,
+    sandboxId: r.sandboxId ?? null,
+    channelType: r.channelType,
+    name: r.name,
+    enabled: r.enabled,
+    platformConfig: r.platformConfig ?? {},
+    sessionStrategy: r.sessionStrategy,
+    systemPrompt: r.systemPrompt ?? null,
+    agentName: r.agentName ?? null,
+    metadata: r.metadata ?? {},
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+    ...(r.sandboxName
+      ? { sandbox: { name: r.sandboxName, status: r.sandboxStatus ?? 'unknown' } }
+      : {}),
+  };
+}
+
+// ─── GET / ────────────────────────────────────────────────────────────────────
+
 channelsApp.get('/', async (c: any) => {
   const accountId = c.get('userId') as string;
   const sandboxId = c.req.query('sandbox_id');
 
   try {
     const rows = await db.execute(sql`
-      SELECT
-        cc.channel_config_id   AS "channelConfigId",
-        cc.account_id          AS "accountId",
-        cc.sandbox_id          AS "sandboxId",
-        cc.channel_type        AS "channelType",
-        cc.name,
-        cc.enabled,
-        cc.platform_config     AS "platformConfig",
-        cc.session_strategy    AS "sessionStrategy",
-        cc.system_prompt       AS "systemPrompt",
-        cc.agent_name          AS "agentName",
-        cc.metadata,
-        cc.created_at          AS "createdAt",
-        cc.updated_at          AS "updatedAt",
-        s.name                 AS "sandboxName",
-        s.status               AS "sandboxStatus"
-      FROM kortix.channel_configs cc
-      LEFT JOIN kortix.sandboxes s ON cc.sandbox_id = s.sandbox_id
+      ${CHANNEL_SELECT}
       WHERE cc.account_id = ${accountId}
       ${sandboxId ? sql`AND cc.sandbox_id = ${sandboxId}` : sql``}
       ORDER BY cc.created_at DESC
     `);
 
-    const data = rows.map((r: any) => ({
-      channelConfigId: r.channelConfigId,
-      accountId: r.accountId,
-      sandboxId: r.sandboxId ?? null,
-      channelType: r.channelType,
-      name: r.name,
-      enabled: r.enabled,
-      credentials: {},   // credentials are in channel_platform_credentials, not exposed here
-      platformConfig: r.platformConfig ?? {},
-      sessionStrategy: r.sessionStrategy,
-      systemPrompt: r.systemPrompt ?? null,
-      agentName: r.agentName ?? null,
-      metadata: r.metadata ?? {},
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-      ...(r.sandboxName ? { sandbox: { name: r.sandboxName, status: r.sandboxStatus ?? 'unknown' } } : {}),
-    }));
-
-    return c.json({ success: true, data, total: data.length });
+    return c.json({ success: true, data: rows.map(formatRow), total: rows.length });
   } catch (err) {
     console.error('[channels] GET / error:', err);
     return c.json({ success: false, error: 'Failed to fetch channels' }, 500);
   }
 });
 
-// POST / — create a channel config
+// ─── POST / ───────────────────────────────────────────────────────────────────
+
 channelsApp.post('/', async (c: any) => {
   const accountId = c.get('userId') as string;
 
@@ -106,7 +122,8 @@ channelsApp.post('/', async (c: any) => {
 
     const rows = await db.execute(sql`
       INSERT INTO kortix.channel_configs
-        (account_id, sandbox_id, channel_type, name, enabled, platform_config, session_strategy, system_prompt, agent_name, metadata)
+        (account_id, sandbox_id, channel_type, name, enabled, platform_config,
+         session_strategy, system_prompt, agent_name, metadata)
       VALUES
         (${accountId}, ${sandbox_id}, ${channel_type}::kortix.channel_type, ${name}, ${enabled},
          ${JSON.stringify(platform_config)}::jsonb, ${session_strategy}::kortix.session_strategy,
@@ -116,8 +133,7 @@ channelsApp.post('/', async (c: any) => {
         account_id AS "accountId",
         sandbox_id AS "sandboxId",
         channel_type AS "channelType",
-        name,
-        enabled,
+        name, enabled,
         platform_config AS "platformConfig",
         session_strategy AS "sessionStrategy",
         system_prompt AS "systemPrompt",
@@ -127,96 +143,40 @@ channelsApp.post('/', async (c: any) => {
         updated_at AS "updatedAt"
     `);
 
-    const r: any = rows[0];
-    return c.json({
-      success: true,
-      data: {
-        channelConfigId: r.channelConfigId,
-        accountId: r.accountId,
-        sandboxId: r.sandboxId ?? null,
-        channelType: r.channelType,
-        name: r.name,
-        enabled: r.enabled,
-        credentials: {},
-        platformConfig: r.platformConfig ?? {},
-        sessionStrategy: r.sessionStrategy,
-        systemPrompt: r.systemPrompt ?? null,
-        agentName: r.agentName ?? null,
-        metadata: r.metadata ?? {},
-        createdAt: r.createdAt,
-        updatedAt: r.updatedAt,
-      },
-    }, 201);
+    return c.json({ success: true, data: formatRow(rows[0]) }, 201);
   } catch (err) {
     console.error('[channels] POST / error:', err);
     return c.json({ success: false, error: 'Failed to create channel' }, 500);
   }
 });
 
-// GET /:id — get single channel config
+// ─── GET /:id ─────────────────────────────────────────────────────────────────
+
 channelsApp.get('/:id', async (c: any) => {
   const accountId = c.get('userId') as string;
   const id = c.req.param('id');
 
-  // Guard: don't accidentally match sub-resource routes
   if (!id.match(/^[0-9a-f-]{36}$/i)) {
     return c.json({ success: false, error: 'Invalid channel id' }, 400);
   }
 
   try {
     const rows = await db.execute(sql`
-      SELECT
-        cc.channel_config_id   AS "channelConfigId",
-        cc.account_id          AS "accountId",
-        cc.sandbox_id          AS "sandboxId",
-        cc.channel_type        AS "channelType",
-        cc.name,
-        cc.enabled,
-        cc.platform_config     AS "platformConfig",
-        cc.session_strategy    AS "sessionStrategy",
-        cc.system_prompt       AS "systemPrompt",
-        cc.agent_name          AS "agentName",
-        cc.metadata,
-        cc.created_at          AS "createdAt",
-        cc.updated_at          AS "updatedAt",
-        s.name                 AS "sandboxName",
-        s.status               AS "sandboxStatus"
-      FROM kortix.channel_configs cc
-      LEFT JOIN kortix.sandboxes s ON cc.sandbox_id = s.sandbox_id
+      ${CHANNEL_SELECT}
       WHERE cc.channel_config_id = ${id} AND cc.account_id = ${accountId}
       LIMIT 1
     `);
 
     if (!rows.length) return c.json({ success: false, error: 'Channel not found' }, 404);
-
-    const r: any = rows[0];
-    return c.json({
-      success: true,
-      data: {
-        channelConfigId: r.channelConfigId,
-        accountId: r.accountId,
-        sandboxId: r.sandboxId ?? null,
-        channelType: r.channelType,
-        name: r.name,
-        enabled: r.enabled,
-        credentials: {},
-        platformConfig: r.platformConfig ?? {},
-        sessionStrategy: r.sessionStrategy,
-        systemPrompt: r.systemPrompt ?? null,
-        agentName: r.agentName ?? null,
-        metadata: r.metadata ?? {},
-        createdAt: r.createdAt,
-        updatedAt: r.updatedAt,
-        ...(r.sandboxName ? { sandbox: { name: r.sandboxName, status: r.sandboxStatus ?? 'unknown' } } : {}),
-      },
-    });
+    return c.json({ success: true, data: formatRow(rows[0]) });
   } catch (err) {
     console.error('[channels] GET /:id error:', err);
     return c.json({ success: false, error: 'Failed to fetch channel' }, 500);
   }
 });
 
-// PATCH /:id
+// ─── PATCH /:id ───────────────────────────────────────────────────────────────
+
 channelsApp.patch('/:id', async (c: any) => {
   const accountId = c.get('userId') as string;
   const id = c.req.param('id');
@@ -224,15 +184,18 @@ channelsApp.patch('/:id', async (c: any) => {
   try {
     const body = await c.req.json();
 
-    // Build SET clauses dynamically only for provided fields
     const setClauses: ReturnType<typeof sql>[] = [sql`updated_at = now()`];
     if (body.name !== undefined) setClauses.push(sql`name = ${body.name}`);
     if (body.enabled !== undefined) setClauses.push(sql`enabled = ${body.enabled}`);
-    if (body.platform_config !== undefined) setClauses.push(sql`platform_config = ${JSON.stringify(body.platform_config)}::jsonb`);
-    if (body.session_strategy !== undefined) setClauses.push(sql`session_strategy = ${body.session_strategy}::kortix.session_strategy`);
-    if (body.system_prompt !== undefined) setClauses.push(sql`system_prompt = ${body.system_prompt}`);
+    if (body.platform_config !== undefined)
+      setClauses.push(sql`platform_config = ${JSON.stringify(body.platform_config)}::jsonb`);
+    if (body.session_strategy !== undefined)
+      setClauses.push(sql`session_strategy = ${body.session_strategy}::kortix.session_strategy`);
+    if (body.system_prompt !== undefined)
+      setClauses.push(sql`system_prompt = ${body.system_prompt}`);
     if (body.agent_name !== undefined) setClauses.push(sql`agent_name = ${body.agent_name}`);
-    if (body.metadata !== undefined) setClauses.push(sql`metadata = ${JSON.stringify(body.metadata)}::jsonb`);
+    if (body.metadata !== undefined)
+      setClauses.push(sql`metadata = ${JSON.stringify(body.metadata)}::jsonb`);
     if (body.sandbox_id !== undefined) setClauses.push(sql`sandbox_id = ${body.sandbox_id}`);
 
     const setClause = sql.join(setClauses, sql`, `);
@@ -255,15 +218,15 @@ channelsApp.patch('/:id', async (c: any) => {
     `);
 
     if (!rows.length) return c.json({ success: false, error: 'Channel not found' }, 404);
-    const r: any = rows[0];
-    return c.json({ success: true, data: { ...r, credentials: {}, platformConfig: r.platformConfig ?? {}, metadata: r.metadata ?? {} } });
+    return c.json({ success: true, data: formatRow(rows[0]) });
   } catch (err) {
     console.error('[channels] PATCH /:id error:', err);
     return c.json({ success: false, error: 'Failed to update channel' }, 500);
   }
 });
 
-// DELETE /:id
+// ─── DELETE /:id ──────────────────────────────────────────────────────────────
+
 channelsApp.delete('/:id', async (c: any) => {
   const accountId = c.get('userId') as string;
   const id = c.req.param('id');
@@ -282,7 +245,8 @@ channelsApp.delete('/:id', async (c: any) => {
   }
 });
 
-// POST /:id/enable
+// ─── POST /:id/enable ─────────────────────────────────────────────────────────
+
 channelsApp.post('/:id/enable', async (c: any) => {
   const accountId = c.get('userId') as string;
   const id = c.req.param('id');
@@ -300,7 +264,8 @@ channelsApp.post('/:id/enable', async (c: any) => {
   }
 });
 
-// POST /:id/disable
+// ─── POST /:id/disable ───────────────────────────────────────────────────────
+
 channelsApp.post('/:id/disable', async (c: any) => {
   const accountId = c.get('userId') as string;
   const id = c.req.param('id');
@@ -318,7 +283,8 @@ channelsApp.post('/:id/disable', async (c: any) => {
   }
 });
 
-// POST /:id/link
+// ─── POST /:id/link ───────────────────────────────────────────────────────────
+
 channelsApp.post('/:id/link', async (c: any) => {
   const accountId = c.get('userId') as string;
   const id = c.req.param('id');
@@ -338,7 +304,8 @@ channelsApp.post('/:id/link', async (c: any) => {
   }
 });
 
-// POST /:id/unlink
+// ─── POST /:id/unlink ────────────────────────────────────────────────────────
+
 channelsApp.post('/:id/unlink', async (c: any) => {
   const accountId = c.get('userId') as string;
   const id = c.req.param('id');
@@ -353,81 +320,5 @@ channelsApp.post('/:id/unlink', async (c: any) => {
   } catch (err) {
     console.error('[channels] POST /:id/unlink error:', err);
     return c.json({ success: false, error: 'Failed to unlink channel' }, 500);
-  }
-});
-
-// GET /:id/messages
-channelsApp.get('/:id/messages', async (c: any) => {
-  const accountId = c.get('userId') as string;
-  const id = c.req.param('id');
-  const limit = Math.min(parseInt(c.req.query('limit') ?? '50', 10), 200);
-  const offset = parseInt(c.req.query('offset') ?? '0', 10);
-
-  try {
-    // Verify ownership
-    const owner = await db.execute(sql`
-      SELECT channel_config_id FROM kortix.channel_configs
-      WHERE channel_config_id = ${id} AND account_id = ${accountId} LIMIT 1
-    `);
-    if (!owner.length) return c.json({ success: false, error: 'Channel not found' }, 404);
-
-    const [messages, countRows] = await Promise.all([
-      db.execute(sql`
-        SELECT
-          channel_message_id AS "channelMessageId",
-          channel_config_id  AS "channelConfigId",
-          direction, external_id AS "externalId",
-          session_id AS "sessionId", chat_type AS "chatType",
-          content, attachments, platform_user AS "platformUser",
-          metadata, created_at AS "createdAt"
-        FROM kortix.channel_messages
-        WHERE channel_config_id = ${id}
-        ORDER BY created_at DESC
-        LIMIT ${limit} OFFSET ${offset}
-      `),
-      db.execute(sql`
-        SELECT count(*)::int AS total FROM kortix.channel_messages WHERE channel_config_id = ${id}
-      `),
-    ]);
-
-    return c.json({ success: true, data: messages, total: (countRows[0] as any)?.total ?? 0 });
-  } catch (err) {
-    console.error('[channels] GET /:id/messages error:', err);
-    return c.json({ success: false, error: 'Failed to fetch messages' }, 500);
-  }
-});
-
-// GET /:channelId/sessions — list opencode sessions triggered by this channel
-channelsApp.get('/:channelId/sessions', async (c: any) => {
-  const accountId = c.get('userId') as string;
-  const channelId = c.req.param('channelId');
-  const limit = Math.min(parseInt(c.req.query('limit') ?? '50', 10), 200);
-
-  try {
-    const owner = await db.execute(sql`
-      SELECT channel_config_id FROM kortix.channel_configs
-      WHERE channel_config_id = ${channelId} AND account_id = ${accountId} LIMIT 1
-    `);
-    if (!owner.length) return c.json({ success: false, error: 'Channel not found' }, 404);
-
-    // channel_sessions maps strategy_key → opencode session_id
-    const rows = await db.execute(sql`
-      SELECT
-        channel_session_id AS "channelSessionId",
-        channel_config_id  AS "channelConfigId",
-        strategy_key       AS "strategyKey",
-        session_id         AS "sessionId",
-        last_used_at       AS "lastUsedAt",
-        created_at         AS "createdAt"
-      FROM kortix.channel_sessions
-      WHERE channel_config_id = ${channelId}
-      ORDER BY last_used_at DESC
-      LIMIT ${limit}
-    `);
-
-    return c.json({ success: true, data: rows, total: rows.length });
-  } catch (err) {
-    console.error('[channels] GET /:channelId/sessions error:', err);
-    return c.json({ success: false, error: 'Failed to fetch channel sessions' }, 500);
   }
 });
