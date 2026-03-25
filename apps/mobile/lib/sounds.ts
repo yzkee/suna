@@ -1,31 +1,68 @@
-import { Audio } from 'expo-av';
+import { Audio, type AVPlaybackSource } from 'expo-av';
 import { useSoundStore, type SoundEvent } from '@/stores/sound-store';
 
-const SOUND_ASSETS: Record<string, Record<string, any>> = {
-  kortix: {
-    completion: require('@/assets/sounds/kortix/completion.mp3'),
-    send: require('@/assets/sounds/kortix/send.mp3'),
-  },
+// ---------------------------------------------------------------------------
+// Bundled assets — only files that actually exist on disk.
+// Missing events (error, notification) fall back to completion.mp3.
+// The opencode pack has no files yet, so it falls back to kortix.
+// ---------------------------------------------------------------------------
+
+const KORTIX_ASSETS: Partial<Record<SoundEvent, AVPlaybackSource>> = {
+  completion: require('@/assets/sounds/kortix/completion.mp3'),
+  send: require('@/assets/sounds/kortix/send.mp3'),
 };
 
-const soundCache = new Map<string, Audio.Sound>();
+function resolveAsset(pack: string, event: SoundEvent): AVPlaybackSource | null {
+  if (pack === 'kortix' || pack === 'opencode') {
+    return KORTIX_ASSETS[event] ?? KORTIX_ASSETS.completion ?? null;
+  }
+  return null;
+}
 
-async function loadSound(pack: string, event: SoundEvent): Promise<Audio.Sound | null> {
-  const key = `${pack}/${event}`;
-  const cached = soundCache.get(key);
-  if (cached) return cached;
+// ---------------------------------------------------------------------------
+// Audio mode — call once before first playback so sounds work in silent mode
+// on iOS and mix with background audio instead of pausing it.
+// ---------------------------------------------------------------------------
 
-  const asset = SOUND_ASSETS[pack]?.[event];
-  if (!asset) return null;
+let audioModeConfigured = false;
 
+async function ensureAudioMode() {
+  if (audioModeConfigured) return;
   try {
-    const { sound } = await Audio.Sound.createAsync(asset);
-    soundCache.set(key, sound);
-    return sound;
+    await Audio.setAudioModeAsync({
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: false,
+      shouldDuckAndroid: true,
+    });
+    audioModeConfigured = true;
   } catch {
-    return null;
+    // non-fatal — sounds may still work
   }
 }
+
+// ---------------------------------------------------------------------------
+// Playback — each call creates a fresh Sound instance so rapid taps don't
+// conflict. Instances are unloaded after playback finishes to avoid leaks.
+// ---------------------------------------------------------------------------
+
+async function play(asset: AVPlaybackSource, volume: number) {
+  await ensureAudioMode();
+
+  const { sound } = await Audio.Sound.createAsync(asset, {
+    volume,
+    shouldPlay: true,
+  });
+
+  sound.setOnPlaybackStatusUpdate((status) => {
+    if (status.isLoaded && status.didJustFinish) {
+      sound.unloadAsync().catch(() => {});
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 export async function playSound(event: SoundEvent) {
   const { preferences } = useSoundStore.getState();
@@ -33,13 +70,11 @@ export async function playSound(event: SoundEvent) {
   if (preferences.events[event] === false) return;
   if (preferences.volume <= 0) return;
 
-  const sound = await loadSound(preferences.pack, event);
-  if (!sound) return;
+  const asset = resolveAsset(preferences.pack, event);
+  if (!asset) return;
 
   try {
-    await sound.setVolumeAsync(preferences.volume);
-    await sound.setPositionAsync(0);
-    await sound.playAsync();
+    await play(asset, preferences.volume);
   } catch {
     // Silently ignore playback errors
   }
@@ -50,13 +85,11 @@ export async function previewSound(event: SoundEvent) {
   const pack = preferences.pack === 'off' ? 'kortix' : preferences.pack;
   const volume = Math.max(preferences.pack === 'off' ? 0.5 : preferences.volume, 0.2);
 
-  const sound = await loadSound(pack, event);
-  if (!sound) return;
+  const asset = resolveAsset(pack, event);
+  if (!asset) return;
 
   try {
-    await sound.setVolumeAsync(volume);
-    await sound.setPositionAsync(0);
-    await sound.playAsync();
+    await play(asset, volume);
   } catch {
     // Silently ignore playback errors
   }
