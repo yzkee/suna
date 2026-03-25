@@ -9,18 +9,22 @@ import {
   ArrowDownToLine,
   Bug,
   Check,
-  ChevronLeft,
+  Download,
+  HeartPulse,
   Menu,
+  Package,
+  Play,
   RefreshCw,
   Shield,
   Sparkles,
+  Square,
   X,
   Zap,
 } from 'lucide-react-native';
 import { Text } from '@/components/ui/text';
 import { Icon } from '@/components/ui/icon';
 import { useGlobalSandboxUpdate } from '@/hooks/useSandboxUpdate';
-import { getFullChangelog, type ChangelogChange, type ChangelogEntry } from '@/lib/platform/client';
+import { getFullChangelog, type ChangelogChange, type ChangelogEntry, type UpdatePhase } from '@/lib/platform/client';
 import { useTabStore, type PageTab } from '@/stores/tab-store';
 
 const CHANGE_ICONS: Record<string, typeof Sparkles> = {
@@ -62,6 +66,7 @@ export function UpdatesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: U
     changelog: latestChangelog,
     update,
     isUpdating,
+    phase,
     phaseLabel,
     phaseProgress,
     phaseMessage,
@@ -173,41 +178,54 @@ export function UpdatesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: U
           )}
 
           {/* Update progress */}
-          {isUpdating && (
+          {(isUpdating || updateError) && (
             <View
-              className="mt-4 rounded-2xl border px-4 py-3.5"
-              style={{ borderColor: isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.08)' }}
+              className="mt-4 rounded-2xl border px-4 py-4"
+              style={{
+                borderColor: updateError
+                  ? isDark ? 'rgba(239,68,68,0.2)' : 'rgba(239,68,68,0.15)'
+                  : isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.08)',
+                backgroundColor: updateError
+                  ? isDark ? 'rgba(239,68,68,0.05)' : 'rgba(239,68,68,0.03)'
+                  : undefined,
+              }}
             >
-              <View className="flex-row items-center mb-2">
-                <ActivityIndicator size="small" />
+              {/* Header */}
+              <View className="flex-row items-center mb-3">
+                {updateError ? (
+                  <Icon as={X} size={18} className="text-destructive" strokeWidth={2.5} />
+                ) : (
+                  <ActivityIndicator size="small" />
+                )}
                 <View className="ml-3 flex-1">
-                  <Text className="font-roobert-medium text-[15px] text-foreground">Updating to v{latestVersion}</Text>
-                  <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">{phaseLabel}{phaseMessage ? ` — ${phaseMessage}` : ''}</Text>
+                  <Text className={`font-roobert-medium text-[15px] ${updateError ? 'text-destructive' : 'text-foreground'}`}>
+                    {updateError ? 'Update failed' : `Updating to v${latestVersion}`}
+                  </Text>
                 </View>
-                <Text className="font-roobert text-xs tabular-nums text-muted-foreground">{Math.round(phaseProgress)}%</Text>
+                {!updateError && (
+                  <Text className="font-roobert text-xs tabular-nums text-muted-foreground">{Math.round(phaseProgress)}%</Text>
+                )}
               </View>
-              <View className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.06)' }}>
-                <View className="h-full rounded-full" style={{ width: `${Math.max(phaseProgress, 2)}%`, backgroundColor: isDark ? '#F8F8F8' : '#121215' }} />
-              </View>
-            </View>
-          )}
 
-          {/* Update error */}
-          {updateError && (
-            <View
-              className="mt-4 rounded-2xl border px-4 py-3.5"
-              style={{ borderColor: isDark ? 'rgba(239,68,68,0.2)' : 'rgba(239,68,68,0.15)', backgroundColor: isDark ? 'rgba(239,68,68,0.05)' : 'rgba(239,68,68,0.03)' }}
-            >
-              <View className="flex-row items-center">
-                <Icon as={X} size={16} className="text-destructive" strokeWidth={2.5} />
-                <View className="ml-3 flex-1">
-                  <Text className="font-roobert-medium text-[15px] text-destructive">Update failed</Text>
-                  <Text className="mt-0.5 font-roobert text-xs text-muted-foreground">{updateError.message}</Text>
+              {/* Progress bar */}
+              {!updateError && (
+                <View className="mb-4 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.06)' }}>
+                  <View className="h-full rounded-full" style={{ width: `${Math.max(phaseProgress, 2)}%`, backgroundColor: isDark ? '#F8F8F8' : '#121215' }} />
                 </View>
-                <Pressable onPress={handleRetry} className="active:opacity-70">
-                  <Text className="font-roobert-medium text-xs text-primary">Try again</Text>
-                </Pressable>
-              </View>
+              )}
+
+              {/* Phase steps */}
+              <UpdatePhaseSteps currentPhase={phase} hasError={!!updateError} isDark={isDark} />
+
+              {/* Error details + retry */}
+              {updateError && (
+                <View className="mt-3 flex-row items-center">
+                  <Text className="flex-1 font-roobert text-xs text-muted-foreground">{updateError.message}</Text>
+                  <Pressable onPress={handleRetry} className="ml-2 rounded-lg bg-muted/60 px-3 py-1.5 active:opacity-70">
+                    <Text className="font-roobert-medium text-xs text-foreground">Try again</Text>
+                  </Pressable>
+                </View>
+              )}
             </View>
           )}
         </View>
@@ -275,6 +293,68 @@ export function UpdatesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: U
           )}
         </View>
       </ScrollView>
+    </View>
+  );
+}
+
+// ─── Update Phase Steps ─────────────────────────────────────────────────────
+
+const UPDATE_PHASES: { phase: UpdatePhase; label: string; icon: typeof Download }[] = [
+  { phase: 'pulling', label: 'Downloading update', icon: Download },
+  { phase: 'stopping', label: 'Stopping sandbox', icon: Square },
+  { phase: 'removing', label: 'Preparing update', icon: Package },
+  { phase: 'recreating', label: 'Installing update', icon: Package },
+  { phase: 'starting', label: 'Starting sandbox', icon: Play },
+  { phase: 'health_check', label: 'Health checks', icon: HeartPulse },
+  { phase: 'complete', label: 'Complete', icon: Check },
+];
+
+const PHASE_ORDER: UpdatePhase[] = ['pulling', 'stopping', 'removing', 'recreating', 'starting', 'health_check', 'complete'];
+
+function UpdatePhaseSteps({ currentPhase, hasError, isDark }: { currentPhase: string; hasError: boolean; isDark: boolean }) {
+  const currentIdx = PHASE_ORDER.indexOf(currentPhase as UpdatePhase);
+
+  return (
+    <View style={{ gap: 2 }}>
+      {UPDATE_PHASES.map((step, idx) => {
+        const isComplete = currentIdx > idx;
+        const isActive = currentIdx === idx && !hasError;
+        const isFailed = currentIdx === idx && hasError;
+        const isPending = currentIdx < idx;
+
+        let dotColor = isDark ? 'rgba(248,248,248,0.15)' : 'rgba(18,18,21,0.1)';
+        if (isComplete) dotColor = '#10B981';
+        else if (isActive) dotColor = isDark ? '#F8F8F8' : '#121215';
+        else if (isFailed) dotColor = '#EF4444';
+
+        return (
+          <View key={step.phase} className="flex-row items-center py-1.5">
+            <View className="w-5 items-center">
+              {isComplete ? (
+                <Icon as={Check} size={12} style={{ color: '#10B981' }} strokeWidth={2.5} />
+              ) : (
+                <View className="h-2 w-2 rounded-full" style={{ backgroundColor: dotColor }} />
+              )}
+            </View>
+            <Icon
+              as={step.icon}
+              size={13}
+              className={isComplete ? 'text-emerald-500' : isActive ? 'text-foreground' : isFailed ? 'text-destructive' : 'text-muted-foreground/40'}
+              strokeWidth={2.2}
+            />
+            <Text
+              className={`ml-2 font-roobert text-xs ${
+                isComplete ? 'text-emerald-500' : isActive ? 'text-foreground font-roobert-medium' : isFailed ? 'text-destructive' : 'text-muted-foreground/40'
+              }`}
+            >
+              {step.label}
+            </Text>
+            {isActive && !hasError && (
+              <ActivityIndicator size={10} style={{ marginLeft: 6 }} color={isDark ? '#F8F8F8' : '#121215'} />
+            )}
+          </View>
+        );
+      })}
     </View>
   );
 }
