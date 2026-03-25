@@ -1,10 +1,19 @@
 import React, { forwardRef, useMemo, useState } from 'react';
-import { View, TouchableOpacity, useWindowDimensions } from 'react-native';
+import { Pressable, View, useWindowDimensions } from 'react-native';
 import { Text } from '@/components/ui/text';
+import { Icon } from '@/components/ui/icon';
 import { BottomSheetModal, BottomSheetBackdrop, BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
 import { useColorScheme } from 'nativewind';
-import { Ionicons } from '@expo/vector-icons';
+import {
+  ChevronRight,
+  LogOut,
+  Monitor,
+  Moon,
+  Plus,
+  Settings,
+  Sun,
+} from 'lucide-react-native';
 
 type ThemeOption = 'light' | 'dark' | 'system';
 
@@ -19,6 +28,12 @@ interface UserMenuSheetProps {
   activeTheme: ThemeOption;
   isSigningOut: boolean;
 }
+
+const THEME_OPTIONS: { value: ThemeOption; label: string; icon: typeof Sun }[] = [
+  { value: 'light', label: 'Light', icon: Sun },
+  { value: 'dark', label: 'Dark', icon: Moon },
+  { value: 'system', label: 'System', icon: Monitor },
+];
 
 export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(function UserMenuSheet(
   {
@@ -37,22 +52,12 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
   const { colorScheme } = useColorScheme();
   const { height: screenHeight } = useWindowDimensions();
   const isDark = colorScheme === 'dark';
-  const bgColor = isDark ? '#101014' : '#FFFFFF';
-  const borderColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
-  const muted = isDark ? '#9CA3AF' : '#6B7280';
-  const fg = isDark ? '#F8FAFC' : '#111827';
 
-  const themeOptions = useMemo(
-    () => [
-      { value: 'light' as ThemeOption, icon: 'sunny-outline' },
-      { value: 'dark' as ThemeOption, icon: 'moon-outline' },
-      { value: 'system' as ThemeOption, icon: 'desktop-outline' },
-    ],
+  const renderBackdrop = useMemo(
+    () => (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} opacity={0.35} />
+    ),
     [],
-  );
-
-  const renderBackdrop = (props: BottomSheetBackdropProps) => (
-    <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} opacity={0.4} />
   );
 
   const [contentHeight, setContentHeight] = useState(0);
@@ -71,167 +76,153 @@ export const UserMenuSheet = forwardRef<BottomSheetModal, UserMenuSheetProps>(fu
       enableDynamicSizing={false}
       enableOverDrag={false}
       enablePanDownToClose
-      handleIndicatorStyle={{ backgroundColor: isDark ? '#2F2F35' : '#D1D5DB', width: 36 }}
-      backgroundStyle={{ backgroundColor: bgColor, borderRadius: 32 }}
+      handleIndicatorStyle={{
+        backgroundColor: isDark ? '#3F3F46' : '#D4D4D8',
+        width: 36,
+        height: 5,
+        borderRadius: 3,
+      }}
+      backgroundStyle={{
+        backgroundColor: isDark ? '#161618' : '#FFFFFF',
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+      }}
       backdropComponent={renderBackdrop}
     >
       <BottomSheetScrollView
-        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: 24 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 24 }}
         showsVerticalScrollIndicator={false}
         onContentSizeChange={(_: number, h: number) => {
           setContentHeight((prev) => (Math.abs(prev - h) < 1 ? prev : h));
         }}
       >
-        {/* Instances section */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-          <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: muted, letterSpacing: 1 }}>
-            INSTANCES
-          </Text>
-          <TouchableOpacity
-            onPress={onManageInstances}
-            style={{ marginLeft: 'auto', flexDirection: 'row', alignItems: 'center' }}
-          >
-            <Ionicons name="settings-outline" size={14} color={muted} style={{ marginRight: 4 }} />
-            <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: muted }}>Manage</Text>
-          </TouchableOpacity>
-        </View>
+        {/* Instances */}
+        <View className="px-1">
+          <View className="flex-row items-center mb-2">
+            <Text className="text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
+              Instances
+            </Text>
+            <Pressable
+              onPress={onManageInstances}
+              className="ml-auto flex-row items-center active:opacity-70"
+            >
+              <Text className="text-[11px] font-roobert-medium text-muted-foreground">Manage</Text>
+              <Icon as={ChevronRight} size={12} className="ml-0.5 text-muted-foreground/50" strokeWidth={2.2} />
+            </Pressable>
+          </View>
 
-        <View
-          style={{
-            borderWidth: 1,
-            borderColor,
-            borderRadius: 18,
-            paddingHorizontal: 16,
-            paddingVertical: 14,
-            marginBottom: 8,
-            backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : '#F9FAFB',
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <View
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: 4,
-                backgroundColor: '#34D399',
-                marginRight: 10,
-              }}
-            />
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: fg }} numberOfLines={1}>
-                {sandboxLabel || 'sandbox'}
-              </Text>
-              {!!sandboxHost && (
-                <Text style={{ fontSize: 11, color: muted }} numberOfLines={1}>
-                  {sandboxHost}
+          {/* Active instance */}
+          <Pressable className="py-3.5 active:opacity-85">
+            <View className="flex-row items-center">
+              <View className="h-2 w-2 rounded-full bg-emerald-400 mr-3" />
+              <View className="flex-1">
+                <Text className="font-roobert-medium text-[15px] text-foreground" numberOfLines={1}>
+                  {sandboxLabel || 'sandbox'}
                 </Text>
-              )}
+                {!!sandboxHost && (
+                  <Text className="mt-0.5 font-roobert text-xs text-muted-foreground" numberOfLines={1}>
+                    {sandboxHost}
+                  </Text>
+                )}
+              </View>
             </View>
-          </View>
+          </Pressable>
+          <View className="h-px bg-border/35" />
+
+          {/* Add instance */}
+          <Pressable
+            onPress={onAddInstance}
+            className="py-3.5 active:opacity-85"
+          >
+            <View className="flex-row items-center">
+              <Icon as={Plus} size={16} className="text-muted-foreground mr-3" strokeWidth={2.2} />
+              <Text className="font-roobert text-[14px] text-muted-foreground">Add instance...</Text>
+            </View>
+          </Pressable>
         </View>
 
-        <TouchableOpacity
-          onPress={onAddInstance}
-          activeOpacity={0.7}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            borderRadius: 16,
-            paddingHorizontal: 16,
-            paddingVertical: 12,
-            backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F3F4F6',
-            marginBottom: 12,
-          }}
-        >
-          <Ionicons name="add-outline" size={18} color={fg} style={{ marginRight: 10 }} />
-          <Text style={{ fontSize: 14, color: fg }}>Add instance...</Text>
-        </TouchableOpacity>
+        <View className="my-3 h-px bg-border/40" />
 
-        <View style={{ height: 1, backgroundColor: borderColor, marginVertical: 12 }} />
-
-        {/* General section */}
-        <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: muted, letterSpacing: 1, marginBottom: 10 }}>
-          GENERAL
-        </Text>
-
-        <TouchableOpacity
-          onPress={onOpenSettings}
-          activeOpacity={0.7}
-          style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}
-        >
-          <View
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 14,
-              backgroundColor: isDark ? '#1F1F2C' : '#EEF2FF',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginRight: 12,
-            }}
-          >
-            <Ionicons name="settings-outline" size={18} color={isDark ? '#E0E7FF' : '#4C1D95'} />
-          </View>
-          <Text style={{ fontSize: 15, color: fg, fontFamily: 'Roobert-Medium' }}>General</Text>
-        </TouchableOpacity>
-
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            borderRadius: 16,
-            backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F4F4F5',
-            padding: 4,
-            marginBottom: 16,
-          }}
-        >
-          {themeOptions.map((option) => {
-            const active = option.value === activeTheme;
-            return (
-              <TouchableOpacity
-                key={option.value}
-                onPress={() => onSelectTheme(option.value)}
-                style={{
-                  flex: 1,
-                  borderRadius: 12,
-                  paddingVertical: 8,
-                  alignItems: 'center',
-                  backgroundColor: active
-                    ? isDark
-                      ? '#27272A'
-                      : '#FFFFFF'
-                    : 'transparent',
-                }}
-              >
-                <Ionicons
-                  name={option.icon as any}
-                  size={18}
-                  color={active ? (isDark ? '#F8FAFC' : '#111827') : muted}
-                />
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        <View style={{ height: 1, backgroundColor: borderColor, marginVertical: 12 }} />
-
-        <TouchableOpacity
-          onPress={onSignOut}
-          activeOpacity={0.7}
-          style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}
-        >
-          <Ionicons name="log-out-outline" size={20} color={isDark ? '#FCA5A5' : '#DC2626'} style={{ marginRight: 12 }} />
-          <Text
-            style={{
-              fontSize: 15,
-              color: isDark ? '#FCA5A5' : '#B91C1C',
-              flex: 1,
-              opacity: isSigningOut ? 0.6 : 1,
-            }}
-          >
-            {isSigningOut ? 'Signing out...' : 'Log Out'}
+        {/* General */}
+        <View className="px-1">
+          <Text className="mb-2 text-[11px] font-roobert-medium uppercase tracking-wider text-muted-foreground/80">
+            General
           </Text>
-        </TouchableOpacity>
+
+          <Pressable
+            onPress={onOpenSettings}
+            className="active:opacity-85"
+          >
+            <View className="py-3.5">
+              <View className="flex-row items-center">
+                <Icon as={Settings} size={18} className="text-foreground/80" strokeWidth={2.2} />
+                <View className="ml-4 flex-1">
+                  <Text className="font-roobert-medium text-[15px] text-foreground">Settings</Text>
+                </View>
+                <Icon as={ChevronRight} size={16} className="text-muted-foreground/50" strokeWidth={2.2} />
+              </View>
+            </View>
+          </Pressable>
+          <View className="h-px bg-border/35" />
+
+          {/* Theme toggle */}
+          <View className="mt-3 flex-row rounded-xl bg-muted/55 p-1">
+            {THEME_OPTIONS.map((option) => {
+              const active = option.value === activeTheme;
+              return (
+                <Pressable
+                  key={option.value}
+                  onPress={() => onSelectTheme(option.value)}
+                  className="flex-1 rounded-lg active:opacity-85"
+                  style={{
+                    backgroundColor: active
+                      ? isDark ? '#1E1E22' : '#FFFFFF'
+                      : 'transparent',
+                  }}
+                >
+                  <View className="flex-row items-center justify-center px-2 py-2">
+                    <Icon
+                      as={option.icon}
+                      size={14}
+                      className={active ? 'text-foreground' : 'text-muted-foreground'}
+                      strokeWidth={2.2}
+                    />
+                    <Text
+                      className={`ml-1.5 text-xs font-roobert-medium ${
+                        active ? 'text-foreground' : 'text-muted-foreground'
+                      }`}
+                    >
+                      {option.label}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        <View className="my-3 h-px bg-border/40" />
+
+        {/* Sign Out */}
+        <View className="px-1">
+          <Pressable
+            onPress={onSignOut}
+            disabled={isSigningOut}
+            className="active:opacity-85"
+          >
+            <View className="py-3.5">
+              <View className="flex-row items-center">
+                <Icon as={LogOut} size={18} className="text-destructive" strokeWidth={2.2} />
+                <Text
+                  className="ml-4 font-roobert-medium text-[15px] text-destructive"
+                  style={{ opacity: isSigningOut ? 0.6 : 1 }}
+                >
+                  {isSigningOut ? 'Signing out...' : 'Log Out'}
+                </Text>
+              </View>
+            </View>
+          </Pressable>
+        </View>
       </BottomSheetScrollView>
     </BottomSheetModal>
   );
