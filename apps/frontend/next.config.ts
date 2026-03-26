@@ -11,20 +11,14 @@ const getBackendUrl = (): string => {
 
   // Vercel environment detection
   const vercelEnv = process.env.VERCEL_ENV; // 'production', 'preview', or 'development'
-  const gitRef = process.env.VERCEL_GIT_COMMIT_REF || ''; // Branch name
 
-  // Production environment
+  // Production environment → prod API
   if (vercelEnv === 'production') {
     return 'https://new-api.kortix.com/v1';
   }
 
-  // Preview deployments (staging branch)
-  if (vercelEnv === 'preview') {
-    return 'https://computer-preview-api.kortix.com/v1';
-  }
-
-  // Main branch / staging (default)
-  return 'https://dev-api.kortix.com/v1';
+  // Preview / development → dev API
+  return 'https://dev-new-api.kortix.com/v1';
 };
 
 const nextConfig = (): NextConfig => ({
@@ -135,4 +129,3 @@ const nextConfig = (): NextConfig => ({
 });
 
 export default nextConfig;
-// vercel env rebuild 2026-03-26T07:50:55Z
