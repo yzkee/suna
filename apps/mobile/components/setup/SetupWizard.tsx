@@ -241,61 +241,104 @@ function ToolSecretsStep({ onContinue, isDark, themeColors }: StepProps & { onCo
   }, [sandboxUrl, values, onContinue]);
 
   return (
-    <View style={{ width: '100%', gap: 20 }}>
-
-
-      <View style={{ alignItems: 'center', gap: 6 }}>
+    <View style={{ width: '100%', flex: 1 }}>
+      {/* Header */}
+      <View style={{ alignItems: 'center', gap: 4, marginBottom: 16 }}>
         <Text style={{ fontSize: 15, fontFamily: 'Roobert-Medium', color: colors.fg, textAlign: 'center' }}>Add tool keys</Text>
         <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: colors.muted, textAlign: 'center' }}>Optional API keys for agent capabilities</Text>
       </View>
 
-      <ScrollView style={{ maxHeight: 280 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <View style={{ gap: 8 }}>
-          {TOOL_SECRETS.map((secret) => {
-            const Icon = secret.icon;
-            return (
-              <View key={secret.key} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: colors.cardBorder, backgroundColor: colors.cardBg }}>
-                <View style={{ width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(248,248,248,0.05)' : 'rgba(18,18,21,0.04)', marginTop: 2 }}>
-                  <Icon size={14} color={isDark ? 'rgba(248,248,248,0.4)' : 'rgba(18,18,21,0.4)'} />
+      {/* Cards — fill available space */}
+      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10, paddingBottom: 4 }}>
+        {TOOL_SECRETS.map((secret) => {
+          const Icon = secret.icon;
+          const hasValue = !!(values[secret.key] || '').trim();
+          return (
+            <View
+              key={secret.key}
+              style={{
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: hasValue
+                  ? (isDark ? 'rgba(52,211,153,0.2)' : 'rgba(52,211,153,0.15)')
+                  : (isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.06)'),
+                backgroundColor: isDark ? 'rgba(248,248,248,0.02)' : 'rgba(18,18,21,0.015)',
+                overflow: 'hidden',
+              }}
+            >
+              {/* Top row: icon + label + description + link */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, gap: 10 }}>
+                <View style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 10,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: isDark ? 'rgba(248,248,248,0.05)' : 'rgba(18,18,21,0.035)',
+                }}>
+                  <Icon size={15} color={isDark ? 'rgba(248,248,248,0.45)' : 'rgba(18,18,21,0.4)'} />
                 </View>
-                <View style={{ flex: 1, gap: 6 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: isDark ? 'rgba(248,248,248,0.8)' : 'rgba(18,18,21,0.8)', flex: 1 }}>{secret.label}</Text>
-                    <Pressable onPress={() => Linking.openURL(secret.signupUrl)} hitSlop={8}>
-                      <ExternalLink size={12} color={isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)'} />
-                    </Pressable>
-                  </View>
-                  <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.35)' : 'rgba(18,18,21,0.35)', lineHeight: 16 }}>{secret.description}</Text>
-                  <TextInput
-                    secureTextEntry placeholder={secret.key}
-                    placeholderTextColor={isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)'}
-                    value={values[secret.key] || ''} onChangeText={(text) => setValues((prev) => ({ ...prev, [secret.key]: text }))}
-                    autoCapitalize="none" autoCorrect={false}
-                    style={{ height: 32, borderRadius: 8, paddingHorizontal: 10, fontSize: 12, fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }), color: colors.fg, backgroundColor: colors.inputBg, borderWidth: 1, borderColor: colors.inputBorder }}
-                  />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: isDark ? '#F8F8F8' : '#121215' }}>
+                    {secret.label}
+                  </Text>
+                  <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.4)' : 'rgba(18,18,21,0.4)', marginTop: 1, lineHeight: 15 }}>
+                    {secret.description}
+                  </Text>
                 </View>
+                <Pressable onPress={() => Linking.openURL(secret.signupUrl)} hitSlop={12} style={{ padding: 4 }}>
+                  <ExternalLink size={13} color={isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)'} />
+                </Pressable>
               </View>
-            );
-          })}
-        </View>
+              {/* Input row */}
+              <View style={{ paddingHorizontal: 14, paddingBottom: 12 }}>
+                <TextInput
+                  secureTextEntry
+                  placeholder={secret.key}
+                  placeholderTextColor={isDark ? 'rgba(248,248,248,0.15)' : 'rgba(18,18,21,0.15)'}
+                  value={values[secret.key] || ''}
+                  onChangeText={(text) => setValues((prev) => ({ ...prev, [secret.key]: text }))}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  textAlignVertical="center"
+                  style={{
+                    height: 36,
+                    borderRadius: 10,
+                    paddingHorizontal: 12,
+                    paddingVertical: 0,
+                    fontSize: 12,
+                    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+                    color: colors.fg,
+                    backgroundColor: isDark ? 'rgba(248,248,248,0.04)' : 'rgba(18,18,21,0.03)',
+                    borderWidth: 1,
+                    borderColor: isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.06)',
+                    includeFontPadding: false,
+                  }}
+                />
+              </View>
+            </View>
+          );
+        })}
       </ScrollView>
 
-      <View style={{ flexDirection: 'row', gap: 8, paddingTop: 4 }}>
-        <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onContinue(); }} disabled={saving} style={{ flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.cardBorder }}>
-          <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: colors.muted }}>Skip for now</Text>
-        </Pressable>
-        <Pressable onPress={handleSave} disabled={saving} style={{ flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, backgroundColor: themeColors.primary }}>
-          {saving ? (
-            <><Loader2 size={14} color={themeColors.primaryForeground} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Saving…</Text></>
-          ) : (
-            <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>{filledCount > 0 ? 'Save & continue' : 'Continue'}</Text>
-          )}
-        </Pressable>
+      {/* Footer — sticky bottom */}
+      <View style={{ paddingTop: 12 }}>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onContinue(); }} disabled={saving} style={{ flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.cardBorder }}>
+            <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: colors.muted }}>Skip for now</Text>
+          </Pressable>
+          <Pressable onPress={handleSave} disabled={saving} style={{ flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, backgroundColor: themeColors.primary }}>
+            {saving ? (
+              <><Loader2 size={14} color={themeColors.primaryForeground} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Saving…</Text></>
+            ) : (
+              <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>{filledCount > 0 ? 'Save & continue' : 'Continue'}</Text>
+            )}
+          </Pressable>
+        </View>
+        <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)', textAlign: 'center', marginTop: 10 }}>
+          You can add or change keys later in Settings.
+        </Text>
       </View>
-
-      <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.25)' : 'rgba(18,18,21,0.25)', textAlign: 'center' }}>
-        You can add or change keys later in Settings.
-      </Text>
     </View>
   );
 }
@@ -332,10 +375,9 @@ function PipedreamStep({ onComplete, completing, isDark, themeColors }: StepProp
   const busy = saving || completing;
 
   return (
-    <View style={{ width: '100%', gap: 20 }}>
-
-
-      <View style={{ alignItems: 'center', gap: 8 }}>
+    <View style={{ width: '100%', flex: 1 }}>
+      {/* Header */}
+      <View style={{ alignItems: 'center', gap: 8, marginBottom: 20 }}>
         <View style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.04)' }}>
           <Link size={20} color={isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.4)'} />
         </View>
@@ -347,48 +389,55 @@ function PipedreamStep({ onComplete, completing, isDark, themeColors }: StepProp
         </Text>
       </View>
 
-      <View style={{ gap: 12 }}>
-        {PIPEDREAM_KEYS.map((field) => (
-          <View key={field.key} style={{ gap: 4 }}>
-            <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: isDark ? 'rgba(248,248,248,0.6)' : 'rgba(18,18,21,0.6)' }}>
-              {field.label}
-            </Text>
-            <TextInput
-              secureTextEntry={field.secret}
-              placeholder={field.placeholder}
-              placeholderTextColor={isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)'}
-              value={values[field.key] || ''}
-              onChangeText={(text) => setValues((prev) => ({ ...prev, [field.key]: text }))}
-              autoCapitalize="none" autoCorrect={false}
-              style={{ height: 36, borderRadius: 8, paddingHorizontal: 10, fontSize: 12, fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }), color: colors.fg, backgroundColor: colors.inputBg, borderWidth: 1, borderColor: colors.inputBorder }}
-            />
-          </View>
-        ))}
+      {/* Fields — centered in remaining space */}
+      <View style={{ flex: 1, justifyContent: 'center' }}>
+        <View style={{ gap: 14 }}>
+          {PIPEDREAM_KEYS.map((field) => (
+            <View key={field.key} style={{ gap: 5 }}>
+              <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: isDark ? 'rgba(248,248,248,0.6)' : 'rgba(18,18,21,0.6)' }}>
+                {field.label}
+              </Text>
+              <TextInput
+                secureTextEntry={field.secret}
+                placeholder={field.placeholder}
+                placeholderTextColor={isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)'}
+                value={values[field.key] || ''}
+                onChangeText={(text) => setValues((prev) => ({ ...prev, [field.key]: text }))}
+                autoCapitalize="none"
+                autoCorrect={false}
+                textAlignVertical="center"
+                style={{ height: 40, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 0, fontSize: 13, fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }), color: colors.fg, backgroundColor: colors.inputBg, borderWidth: 1, borderColor: colors.inputBorder, includeFontPadding: false }}
+              />
+            </View>
+          ))}
+        </View>
       </View>
 
-      <View style={{ flexDirection: 'row', gap: 8, paddingTop: 4 }}>
-        <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onComplete(); }} disabled={busy} style={{ flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, borderWidth: 1, borderColor: colors.cardBorder }}>
-          {completing ? (
-            <><Loader2 size={14} color={colors.muted} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: colors.muted }}>Finishing…</Text></>
-          ) : (
-            <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: colors.muted }}>Skip for now</Text>
-          )}
-        </Pressable>
-        <Pressable onPress={handleSave} disabled={busy || !allFilled} style={{ flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, backgroundColor: themeColors.primary, opacity: allFilled ? 1 : 0.5 }}>
-          {busy ? (
+      {/* Footer — sticky bottom */}
+      <View style={{ paddingTop: 12 }}>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onComplete(); }} disabled={busy} style={{ flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, borderWidth: 1, borderColor: colors.cardBorder }}>
+            {completing ? (
+              <><Loader2 size={14} color={colors.muted} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: colors.muted }}>Finishing…</Text></>
+            ) : (
+              <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: colors.muted }}>Skip for now</Text>
+            )}
+          </Pressable>
+          <Pressable onPress={handleSave} disabled={busy || !allFilled} style={{ flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, backgroundColor: themeColors.primary, opacity: allFilled ? 1 : 0.5 }}>
+            {busy ? (
             <><Loader2 size={14} color={themeColors.primaryForeground} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>{saving ? 'Saving…' : 'Finishing…'}</Text></>
           ) : (
             <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Save & finish</Text>
           )}
-        </Pressable>
-      </View>
-
-      <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.25)' : 'rgba(18,18,21,0.25)', textAlign: 'center' }}>
-        Get your credentials at{' '}
-        <Text style={{ textDecorationLine: 'underline' }} onPress={() => Linking.openURL('https://pipedream.com/connect')}>
-          pipedream.com/connect
+          </Pressable>
+        </View>
+        <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)', textAlign: 'center', marginTop: 10 }}>
+          Get your credentials at{' '}
+          <Text style={{ textDecorationLine: 'underline' }} onPress={() => Linking.openURL('https://pipedream.com/connect')}>
+            pipedream.com/connect
+          </Text>
         </Text>
-      </Text>
+      </View>
     </View>
   );
 }
@@ -445,73 +494,53 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
   const bg = isDark ? '#09090b' : '#FFFFFF';
 
+  // Steps that need full-height layout (scrollable cards + sticky footer)
+  const isFullHeightStep = step === 2 || step === 3;
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={{ flex: 1, backgroundColor: bg }}
       {...panResponder.panHandlers}
     >
-      <ScrollView
-        contentContainerStyle={{
-          flexGrow: 1,
-          alignItems: 'center',
-          justifyContent: 'center',
-          paddingTop: insets.top + 40,
-          paddingBottom: insets.bottom + 40,
-          paddingHorizontal: 32,
-        }}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Logo */}
-        <KortixLogo size={28} variant="symbol" color={isDark ? 'dark' : 'light'} />
-
-        {/* Title */}
-        <Text style={{ fontSize: 10, fontFamily: 'Roobert-Medium', color: isDark ? 'rgba(248,248,248,0.3)' : 'rgba(18,18,21,0.3)', letterSpacing: 2, textTransform: 'uppercase', marginTop: 16, marginBottom: 8 }}>
-          Instance Setup
-        </Text>
-        <Text style={{ fontSize: 10, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 24 }}>
-          Self-Hosted Setup
-        </Text>
-
-        {/* Step indicator */}
-        <StepIndicator currentStep={step} totalSteps={totalSteps} isDark={isDark} onStepPress={handleStepPress} />
-
-        {/* Step content */}
-        <View style={{ width: '100%', maxWidth: 340 }}>
-          {step === 1 && (
-            <ProviderStep
-              onContinue={() => setStep(2)}
-              isDark={isDark}
-              themeColors={themeColors}
-            />
-          )}
-          {step === 2 && (
-            <ToolSecretsStep
-              onContinue={() => setStep(3)}
-              isDark={isDark}
-              themeColors={themeColors}
-            />
-          )}
-          {step === 3 && (
-            <PipedreamStep
-              onComplete={markSetupComplete}
-              completing={completing}
-              isDark={isDark}
-              themeColors={themeColors}
-            />
-          )}
+      <View style={{ flex: 1, paddingTop: insets.top + 24, paddingBottom: insets.bottom + 16, paddingHorizontal: 28 }}>
+        {/* ── Fixed header ── */}
+        <View style={{ alignItems: 'center', marginBottom: isFullHeightStep ? 16 : 0 }}>
+          <KortixLogo size={28} variant="symbol" color={isDark ? 'dark' : 'light'} />
+          <Text style={{ fontSize: 10, fontFamily: 'Roobert-Medium', color: isDark ? 'rgba(248,248,248,0.3)' : 'rgba(18,18,21,0.3)', letterSpacing: 2, textTransform: 'uppercase', marginTop: 12, marginBottom: 4 }}>
+            Instance Setup
+          </Text>
+          <Text style={{ fontSize: 10, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 16 }}>
+            Self-Hosted Setup
+          </Text>
+          <StepIndicator currentStep={step} totalSteps={totalSteps} isDark={isDark} onStepPress={handleStepPress} />
         </View>
 
-        {completing && (
-          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)' }}>
-            <ActivityIndicator size="small" color={themeColors.primary} />
-            <Text style={{ marginTop: 12, fontSize: 13, fontFamily: 'Roobert-Medium', color: isDark ? '#F8F8F8' : '#121215' }}>
-              Finishing setup…
-            </Text>
+        {/* ── Step content ── */}
+        {step === 1 ? (
+          /* Step 1 is short — center it vertically */
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+            <View style={{ width: '100%', maxWidth: 340 }}>
+              <ProviderStep onContinue={() => setStep(2)} isDark={isDark} themeColors={themeColors} />
+            </View>
+          </View>
+        ) : (
+          /* Steps 2 & 3 fill remaining space — cards scroll, buttons stay at bottom */
+          <View style={{ flex: 1, width: '100%', maxWidth: 380, alignSelf: 'center' }}>
+            {step === 2 && <ToolSecretsStep onContinue={() => setStep(3)} isDark={isDark} themeColors={themeColors} />}
+            {step === 3 && <PipedreamStep onComplete={markSetupComplete} completing={completing} isDark={isDark} themeColors={themeColors} />}
           </View>
         )}
-      </ScrollView>
+      </View>
+
+      {completing && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)' }}>
+          <ActivityIndicator size="small" color={themeColors.primary} />
+          <Text style={{ marginTop: 12, fontSize: 13, fontFamily: 'Roobert-Medium', color: isDark ? '#F8F8F8' : '#121215' }}>
+            Finishing setup…
+          </Text>
+        </View>
+      )}
     </KeyboardAvoidingView>
   );
 }
