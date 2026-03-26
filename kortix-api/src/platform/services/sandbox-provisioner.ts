@@ -12,30 +12,7 @@ import { config } from '../../config';
 import * as pool from '../../pool';
 import { createSandbox, generateSandboxName } from './ensure-sandbox';
 import { createApiKey } from '../../repositories/api-keys';
-import { MACHINE_CREDIT_BONUS } from '../../billing/services/tiers';
-
 const provisioningSubscriptions = new Set<string>();
-
-/**
- * Grant the one-time $5 machine credit bonus.
- * Non-expiring, fire-and-forget — provisioning must not fail if this does.
- */
-async function grantMachineCreditBonus(accountId: string, sandboxId: string): Promise<void> {
-  try {
-    const { grantCredits } = await import('../../billing/services/credits');
-    await grantCredits(
-      accountId,
-      MACHINE_CREDIT_BONUS,
-      'machine_bonus',
-      `Machine credit bonus: $${MACHINE_CREDIT_BONUS} (sandbox ${sandboxId})`,
-      false, // non-expiring
-      `machine_bonus:${sandboxId}`, // idempotency: one grant per sandbox
-    );
-    console.log(`[sandbox-provisioner] Granted $${MACHINE_CREDIT_BONUS} machine bonus for ${accountId} (sandbox ${sandboxId})`);
-  } catch (err) {
-    console.error(`[sandbox-provisioner] Failed to grant machine credit bonus for ${accountId}:`, err);
-  }
-}
 
 /** Find sandbox by subscription ID — checks both column and metadata */
 async function findBySubscription(accountId: string, subscriptionId: string) {
@@ -113,7 +90,6 @@ export async function provisionSandboxFromCheckout(opts: {
           await pool.injectEnv(claimed, sandboxKey.secretKey);
 
           console.log(`[sandbox-provisioner] Claimed from pool: ${row.sandboxId} (ext: ${claimed.externalId})`);
-          void grantMachineCreditBonus(accountId, row.sandboxId);
           return { row, created: true };
         }
       } catch (err) {
@@ -151,8 +127,6 @@ export async function provisionSandboxFromCheckout(opts: {
           updatedAt: new Date(),
         })
         .where(eq(sandboxes.sandboxId, result.row.sandboxId));
-
-      void grantMachineCreditBonus(accountId, result.row.sandboxId);
     }
 
     return result;
