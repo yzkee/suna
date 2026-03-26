@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColorScheme } from 'nativewind';
 import * as Clipboard from 'expo-clipboard';
@@ -289,7 +289,7 @@ function CodeSection({
   return (
     <View>
       <View className="flex-row items-center mb-1.5">
-        <Text className="font-roobert-medium text-[13px] text-foreground flex-1">{title}</Text>
+        <Text className="font-roobert-semibold text-[15px] text-foreground flex-1">{title}</Text>
         <Pressable
           onPress={() => onCopy(code, copyField)}
           className="flex-row items-center rounded-lg px-2 py-1 active:opacity-70"
@@ -305,10 +305,16 @@ function CodeSection({
         <Text className="mb-2 font-roobert text-xs text-muted-foreground">{description}</Text>
       )}
       <View
-        className="rounded-xl overflow-hidden px-3.5 py-3"
-        style={{ backgroundColor: codeBg, borderWidth: 1, borderColor: codeBorder }}
+        className="rounded-xl overflow-hidden"
+        style={{ backgroundColor: codeBg, borderWidth: 1, borderColor: codeBorder, maxHeight: 150 }}
       >
-        <HighlightedCode code={code} />
+        <ScrollView
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 10 }}
+        >
+          <HighlightedCode code={code} />
+        </ScrollView>
       </View>
     </View>
   );
@@ -388,9 +394,9 @@ function HighlightedCode({ code }: { code: string }) {
   const tokens = React.useMemo(() => tokenize(code), [code]);
 
   return (
-    <Text selectable style={{ fontSize: 11.5, lineHeight: 17 }}>
+    <Text selectable style={{ fontSize: 8, lineHeight: 12, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>
       {tokens.map((token, i) => (
-        <Text key={i} style={{ color: token.color, fontFamily: 'RoobertMono-Regular' }}>
+        <Text key={i} style={{ color: token.color }}>
           {token.text}
         </Text>
       ))}
