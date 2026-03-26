@@ -239,6 +239,12 @@ export function RunningServicesPage({ page, onBack, onOpenDrawer, onOpenRightDra
                   key={item.id}
                   item={item}
                   isDark={isDark}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    if (item.kind === 'terminal') {
+                      useTabStore.getState().navigateToPage('page:terminal');
+                    }
+                  }}
                   onStop={item.kind === 'service' ? () => {
                     const svc = services?.find(s => s.port === item.port);
                     if (svc) handleStop(svc);
@@ -270,18 +276,23 @@ function ServiceCard({
   item,
   isDark,
   onStop,
+  onPress,
 }: {
   item: RunningItem;
   isDark: boolean;
   onStop?: () => void;
+  onPress?: () => void;
 }) {
   const isRunning = item.status === 'running';
   const isTerminal = item.kind === 'terminal';
-  const borderColor = isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.08)';
+  const borderColor = isRunning
+    ? isDark ? 'rgba(52,211,153,0.15)' : 'rgba(52,211,153,0.12)'
+    : isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.08)';
 
   return (
-    <View
-      className="rounded-2xl border px-4 py-3.5"
+    <Pressable
+      onPress={onPress}
+      className="rounded-2xl border px-4 py-3.5 active:opacity-85"
       style={{ borderColor }}
     >
       {/* Top row: icon + name + status */}
@@ -368,6 +379,6 @@ function ServiceCard({
           )}
         </View>
       )}
-    </View>
+    </Pressable>
   );
 }
