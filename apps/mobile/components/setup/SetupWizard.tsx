@@ -46,6 +46,7 @@ import {
   BottomSheetModal,
   BottomSheetBackdrop,
   BottomSheetView,
+  BottomSheetScrollView,
   BottomSheetTextInput,
 } from '@gorhom/bottom-sheet';
 import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
@@ -287,52 +288,16 @@ function ProviderStep({ onContinue, isDark, themeColors }: StepProps & { onConti
       {/* ── Provider selection bottom sheet ── */}
       <BottomSheetModal
         ref={sheetRef}
-        snapPoints={selectedProvider ? ['45%'] : ['65%']}
+        snapPoints={selectedProvider ? ['45%'] : ['75%']}
         enablePanDownToClose
         enableDynamicSizing={false}
         backdropComponent={renderBackdrop}
         backgroundStyle={{ backgroundColor: sheetBg, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
         handleIndicatorStyle={{ backgroundColor: isDark ? '#3F3F46' : '#D4D4D8', width: 36, height: 5, borderRadius: 3, marginTop: 8 }}
       >
-        <BottomSheetView style={{ flex: 1, paddingHorizontal: 24 }}>
-          {!selectedProvider ? (
-            /* Provider list */
-            <>
-              <Text style={{ fontSize: 17, fontFamily: 'Roobert-SemiBold', color: colors.fg, textAlign: 'center', marginTop: 4, marginBottom: 2 }}>
-                Choose a provider
-              </Text>
-              <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: colors.muted, textAlign: 'center', marginBottom: 16 }}>
-                Select one to enter your API key
-              </Text>
-              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 20 }}>
-                {POPULAR_PROVIDER_ORDER.map((id) => {
-                  const isConnected = connectedSet.has(id);
-                  return (
-                    <Pressable
-                      key={id}
-                      onPress={() => handleSelectProvider(id)}
-                      style={{
-                        flexDirection: 'row', alignItems: 'center', gap: 12,
-                        paddingVertical: 13, paddingHorizontal: 14,
-                        borderRadius: 14, borderWidth: 1,
-                        borderColor: isConnected ? (isDark ? 'rgba(52,211,153,0.2)' : 'rgba(52,211,153,0.15)') : (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'),
-                        backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.015)',
-                      }}
-                    >
-                      <View style={{ width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
-                        <Cpu size={15} color={isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)'} />
-                      </View>
-                      <Text style={{ flex: 1, fontSize: 15, fontFamily: 'Roobert-Medium', color: colors.fg }}>
-                        {PROVIDER_LABELS[id] || id}
-                      </Text>
-                      {isConnected ? <Check size={16} color="#34d399" /> : <ChevronRight size={14} color={isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'} />}
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            </>
-          ) : (
-            /* API key input */
+        {selectedProvider ? (
+          /* API key input view */
+          <BottomSheetView style={{ flex: 1, paddingHorizontal: 24 }}>
             <View style={{ flex: 1, justifyContent: 'center', paddingBottom: 24 }}>
               <Pressable onPress={() => setSelectedProvider(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, position: 'absolute', top: 0, left: 0, zIndex: 1 }}>
                 <ChevronLeft size={16} color={colors.muted} />
@@ -390,8 +355,44 @@ function ProviderStep({ onContinue, isDark, themeColors }: StepProps & { onConti
                 )}
               </Pressable>
             </View>
-          )}
-        </BottomSheetView>
+          </BottomSheetView>
+        ) : (
+          /* Provider list — uses BottomSheetScrollView for proper scrolling */
+          <BottomSheetScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 32 }}>
+            <Text style={{ fontSize: 17, fontFamily: 'Roobert-SemiBold', color: colors.fg, textAlign: 'center', marginTop: 4, marginBottom: 2 }}>
+              Choose a provider
+            </Text>
+            <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: colors.muted, textAlign: 'center', marginBottom: 16 }}>
+              Select one to enter your API key
+            </Text>
+            <View style={{ gap: 6 }}>
+              {POPULAR_PROVIDER_ORDER.map((id) => {
+                const isConnected = connectedSet.has(id);
+                return (
+                  <Pressable
+                    key={id}
+                    onPress={() => handleSelectProvider(id)}
+                    style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 12,
+                      paddingVertical: 13, paddingHorizontal: 14,
+                      borderRadius: 14, borderWidth: 1,
+                      borderColor: isConnected ? (isDark ? 'rgba(52,211,153,0.2)' : 'rgba(52,211,153,0.15)') : (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'),
+                      backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.015)',
+                    }}
+                  >
+                    <View style={{ width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
+                      <Cpu size={15} color={isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)'} />
+                    </View>
+                    <Text style={{ flex: 1, fontSize: 15, fontFamily: 'Roobert-Medium', color: colors.fg }}>
+                      {PROVIDER_LABELS[id] || id}
+                    </Text>
+                    {isConnected ? <Check size={16} color="#34d399" /> : <ChevronRight size={14} color={isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'} />}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </BottomSheetScrollView>
+        )}
       </BottomSheetModal>
     </View>
   );
