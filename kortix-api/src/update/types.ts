@@ -2,6 +2,7 @@ export type UpdatePhase =
   | 'idle'
   | 'pulling'
   | 'patching'
+  | 'backing_up'
   | 'stopping'
   | 'restarting'
   | 'verifying'

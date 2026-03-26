@@ -31,6 +31,7 @@ export type { UpdatePhase, SandboxUpdateStatus };
 // Human-readable label for each phase (Docker-based flow)
 export const PHASE_LABELS: Record<UpdatePhase, string> = {
   idle:         'Idle',
+  backing_up:   'Creating backup...',
   pulling:      'Downloading update...',
   patching:     'Preparing update...',
   stopping:     'Stopping sandbox...',
@@ -46,12 +47,13 @@ export const PHASE_LABELS: Record<UpdatePhase, string> = {
 
 export const PHASE_PROGRESS: Record<UpdatePhase, number> = {
   idle:         0,
-  pulling:      10,
-  patching:     30,
-  stopping:     45,
+  backing_up:   5,
+  pulling:      15,
+  patching:     35,
+  stopping:     50,
   removing:     55,
   recreating:   65,
-  restarting:   55,
+  restarting:   60,
   verifying:    80,
   starting:     75,
   health_check: 90,

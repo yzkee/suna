@@ -509,11 +509,12 @@ export interface SandboxUpdateResult {
 /**
  * Update phases — Docker image-based flow.
  *
- * JustAVPS: pulling → patching → stopping → restarting → verifying → complete
+ * JustAVPS: backing_up → pulling → patching → stopping → restarting → verifying → complete
  * Local:    pulling → stopping → removing → recreating → health_check → complete
  */
 export type UpdatePhase =
   | 'idle'
+  | 'backing_up'
   | 'pulling'
   | 'patching'
   | 'stopping'
@@ -548,7 +549,10 @@ export async function getSandboxUpdateStatus(
   const token = await getSupabaseAccessToken();
   if (!token) throw new Error('Not authenticated');
 
-  const res = await fetch(`${getPlatformUrl()}/platform/sandbox/update/status`, {
+  const url = sandbox?.sandbox_id
+    ? `${getPlatformUrl()}/platform/sandbox/${sandbox.sandbox_id}/update/status`
+    : `${getPlatformUrl()}/platform/sandbox/update/status`;
+  const res = await fetch(url, {
     headers: {
       'Accept': 'application/json',
       'Authorization': `Bearer ${token}`,
@@ -597,7 +601,7 @@ export async function triggerSandboxUpdate(
   const token = await getSupabaseAccessToken();
   if (!token) throw new Error('Not authenticated');
 
-  const res = await fetch(`${getPlatformUrl()}/platform/sandbox/update`, {
+  const res = await fetch(`${getPlatformUrl()}/platform/sandbox/${sandbox.sandbox_id}/update`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -620,7 +624,10 @@ export async function resetSandboxUpdateStatus(sandbox?: SandboxInfo): Promise<v
   const token = await getSupabaseAccessToken();
   if (!token) throw new Error('Not authenticated');
 
-  const res = await fetch(`${getPlatformUrl()}/platform/sandbox/update/reset`, {
+  const url = sandbox?.sandbox_id
+    ? `${getPlatformUrl()}/platform/sandbox/${sandbox.sandbox_id}/update/reset`
+    : `${getPlatformUrl()}/platform/sandbox/update/reset`;
+  const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Accept': 'application/json',

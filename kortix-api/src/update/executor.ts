@@ -3,7 +3,7 @@ import { sandboxes } from '@kortix/db';
 import { db } from '../shared/db';
 import { config } from '../config';
 import { getProvider, type ProviderName } from '../platform/providers';
-import { JustAVPSProvider } from '../platform/providers/justavps';
+import { JustAVPSProvider, justavpsFetch } from '../platform/providers/justavps';
 import { setPhase, clearUpdateStatus } from './status';
 import {
   getCurrentImage,
@@ -45,14 +45,23 @@ export async function executeUpdate(sandboxId: string, targetVersion: string): P
     const inspectImage = currentResult.success ? currentResult.stdout.trim().replace(/'/g, '') : null;
     const previousVersion = inspectImage?.split(':').pop() ?? null;
 
-    // ── Pull ──
-    await setPhase(sandboxId, 'pulling', 10, `Pulling ${targetImage}...`, {
+    // ── Backup ──
+    await setPhase(sandboxId, 'backing_up', 5, 'Creating backup...', {
       targetVersion,
       previousVersion,
       currentVersion: previousVersion,
       error: null,
       startedAt: new Date().toISOString(),
     });
+    try {
+      await justavpsFetch(`/machines/${row.externalId}/backups`, { method: 'POST' });
+      console.log(`[UPDATE] Backup created for machine ${row.externalId}`);
+    } catch (err) {
+      console.warn(`[UPDATE] Backup failed (non-fatal):`, err instanceof Error ? err.message : err);
+    }
+
+    // ── Pull ──
+    await setPhase(sandboxId, 'pulling', 15, `Pulling ${targetImage}...`);
 
     const pullResult = await pullImage(endpoint, targetImage);
     if (!pullResult.success) throw new Error(`Pull failed: ${pullResult.stderr}`);
@@ -70,7 +79,7 @@ export async function executeUpdate(sandboxId: string, targetVersion: string): P
     }
 
     // ── Checkpoint & stop ──
-    await setPhase(sandboxId, 'stopping', 45, 'Saving state and stopping sandbox...');
+    await setPhase(sandboxId, 'stopping', 50, 'Saving state and stopping sandbox...');
     await checkpointSqlite(endpoint);
 
     await setPhase(sandboxId, 'restarting', 55, 'Restarting sandbox...');

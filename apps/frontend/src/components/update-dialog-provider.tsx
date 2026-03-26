@@ -7,7 +7,7 @@ import { useSandboxConnectionStore } from '@/stores/sandbox-connection-store';
 import { UpdateDialog } from '@/components/update-dialog';
 import type { UpdatePhase } from '@/lib/platform-client';
 
-const DEV_PHASES: UpdatePhase[] = ['idle', 'pulling', 'patching', 'stopping', 'restarting', 'verifying', 'complete'];
+const DEV_PHASES: UpdatePhase[] = ['idle', 'backing_up', 'pulling', 'patching', 'stopping', 'restarting', 'verifying', 'complete'];
 
 export function UpdateDialogProvider() {
   const { open, closeDialog, openDialog } = useUpdateDialogStore();

@@ -49,6 +49,7 @@ function ChangeItem({ change }: { change: ChangelogChange }) {
 
 const PHASE_LABEL: Record<string, string> = {
   idle: 'Preparing...',
+  backing_up: 'Creating backup...',
   pulling: 'Downloading update...',
   patching: 'Preparing files...',
   stopping: 'Stopping sandbox...',
