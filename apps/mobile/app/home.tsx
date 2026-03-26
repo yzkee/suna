@@ -253,7 +253,11 @@ export default function HomeScreen() {
   const [setupState, setSetupState] = useState<'checking' | 'needed' | 'onboarding' | 'done'>('checking');
 
   useEffect(() => {
-    if (!sandboxUrl) return;
+    if (!sandboxUrl) {
+      log.log('[Home] Setup check: no sandboxUrl yet');
+      return;
+    }
+    log.log('[Home] Setup check: starting with sandboxUrl:', sandboxUrl);
     let cancelled = false;
 
     (async () => {
@@ -261,22 +265,63 @@ export default function HomeScreen() {
       const pollMs = 3_000;
       const start = Date.now();
 
-      // 1. Wait for sandbox health endpoint to be reachable
+      // 1. Wait for sandbox to be reachable by polling the env endpoint directly.
+      //    The /global/health endpoint may 404 on some setups, so we test
+      //    reachability with the same endpoint we actually need.
       let reachable = false;
       while (Date.now() - start < maxWaitMs && !cancelled) {
         try {
           const token = await getAuthToken();
-          const res = await fetch(`${sandboxUrl}/global/health`, {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-            signal: AbortSignal.timeout(5000),
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 5000);
+          const res = await fetch(`${sandboxUrl}/env/INSTANCE_SETUP_COMPLETE`, {
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            signal: controller.signal,
           });
-          // 200, 503, or 401 all mean the service is up
-          if (res.ok || res.status === 503 || res.status === 401) {
-            reachable = true;
-            break;
+          clearTimeout(timeout);
+          // Any HTTP response (even 404 for missing key) means sandbox is up
+          reachable = true;
+          if (cancelled) return;
+          log.log('[Home] Setup check: sandbox reachable, INSTANCE_SETUP_COMPLETE response:', res.status);
+          if (res.ok) {
+            const data = await res.json();
+            log.log('[Home] INSTANCE_SETUP_COMPLETE value:', data?.INSTANCE_SETUP_COMPLETE);
+            if (data?.INSTANCE_SETUP_COMPLETE === 'true') {
+              // Setup done — check if onboarding is also done
+              try {
+                const onbCtrl = new AbortController();
+              const onbTimeout = setTimeout(() => onbCtrl.abort(), 5000);
+              const onbRes = await fetch(`${sandboxUrl}/env/ONBOARDING_COMPLETE`, {
+                  headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                  },
+                  signal: onbCtrl.signal,
+                });
+              clearTimeout(onbTimeout);
+                if (!cancelled && onbRes.ok) {
+                  const onbData = await onbRes.json();
+                  if (onbData?.ONBOARDING_COMPLETE === 'true') {
+                    setSetupState('done');
+                    return;
+                  }
+                }
+              } catch {
+                // Can't check — fall through to onboarding
+              }
+              if (!cancelled) setSetupState('onboarding');
+              return;
+            }
           }
-        } catch {
-          // Not reachable yet — keep polling
+          // Not set or not 'true' → show wizard
+          log.log('[Home] Setup check: INSTANCE_SETUP_COMPLETE not true, showing wizard');
+          setSetupState('needed');
+          return;
+        } catch (err: any) {
+          log.error('[Home] Setup check poll error:', err?.message || err);
         }
         await new Promise((r) => setTimeout(r, pollMs));
       }
@@ -284,55 +329,10 @@ export default function HomeScreen() {
       if (cancelled) return;
 
       if (!reachable) {
+        log.log('[Home] Setup check: sandbox not reachable after 60s');
         // Timed out — show wizard anyway (better than silently skipping)
         setSetupState('needed');
         return;
-      }
-
-      // 2. Check if setup was already completed
-      try {
-        const token = await getAuthToken();
-        const res = await fetch(`${sandboxUrl}/env/INSTANCE_SETUP_COMPLETE`, {
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          signal: AbortSignal.timeout(5000),
-        });
-        if (cancelled) return;
-        if (res.ok) {
-          const data = await res.json();
-          if (data?.INSTANCE_SETUP_COMPLETE === 'true') {
-            // Setup done — check if onboarding is also done
-            try {
-              const onbRes = await fetch(`${sandboxUrl}/env/ONBOARDING_COMPLETE`, {
-                headers: {
-                  'Content-Type': 'application/json',
-                  ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                },
-                signal: AbortSignal.timeout(5000),
-              });
-              if (!cancelled && onbRes.ok) {
-                const onbData = await onbRes.json();
-                if (onbData?.ONBOARDING_COMPLETE === 'true') {
-                  setSetupState('done');
-                  return;
-                }
-              }
-            } catch {
-              // Can't check — fall through to onboarding
-            }
-            if (!cancelled) setSetupState('onboarding');
-            return;
-          }
-        }
-        // Not set or not 'true' → show wizard
-        setSetupState('needed');
-      } catch {
-        if (!cancelled) {
-          // Can't check env — show wizard to be safe
-          setSetupState('needed');
-        }
       }
     })();
 

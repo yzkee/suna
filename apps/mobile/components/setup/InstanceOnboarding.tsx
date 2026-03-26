@@ -29,7 +29,6 @@ import * as Haptics from 'expo-haptics';
 import { KortixLogo } from '@/components/ui/KortixLogo';
 import { useSandboxContext } from '@/contexts/SandboxContext';
 import { useCreateSession } from '@/lib/platform/hooks';
-import { useResolvedConfig } from '@/lib/opencode/hooks/use-local-config';
 import { getAuthToken } from '@/api/config';
 import { SessionPage } from '@/components/session/SessionPage';
 import { log } from '@/lib/logger';
@@ -180,7 +179,6 @@ export function InstanceOnboarding({ onComplete }: InstanceOnboardingProps) {
   const commandFiredRef = useRef(false);
 
   const createSession = useCreateSession(sandboxUrl);
-  const resolved = useResolvedConfig();
 
   // ── Resume logic: check existing onboarding session on mount ──
   useEffect(() => {
@@ -227,13 +225,6 @@ export function InstanceOnboarding({ onComplete }: InstanceOnboardingProps) {
         await writeEnv(sandboxUrl, 'ONBOARDING_COMMAND_FIRED', 'true');
 
         const token = await getAuthToken();
-        const payload: Record<string, any> = {
-          command: 'onboarding',
-          arguments: '',
-        };
-        if (resolved.agent?.name) payload.agent = resolved.agent.name;
-        if (resolved.modelKey) payload.model = `${resolved.modelKey.providerID}/${resolved.modelKey.modelID}`;
-        if (resolved.variant) payload.variant = resolved.variant;
 
         fetch(`${sandboxUrl}/session/${session.id}/command`, {
           method: 'POST',
@@ -241,7 +232,7 @@ export function InstanceOnboarding({ onComplete }: InstanceOnboardingProps) {
             'Content-Type': 'application/json',
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ command: 'onboarding', arguments: '' }),
         }).catch((err) => {
           log.error('[Onboarding] Command fire failed:', err?.message);
           commandFiredRef.current = false;
@@ -250,7 +241,7 @@ export function InstanceOnboarding({ onComplete }: InstanceOnboardingProps) {
     } catch (err: any) {
       log.error('[Onboarding] Session creation failed:', err?.message);
     }
-  }, [sandboxUrl, onboardingSessionId, createSession, resolved]);
+  }, [sandboxUrl, onboardingSessionId, createSession]);
 
   // When phase transitions to 'session', create session if needed
   useEffect(() => {

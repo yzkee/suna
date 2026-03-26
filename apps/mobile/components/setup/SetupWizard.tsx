@@ -64,6 +64,7 @@ import { useOpenCodeProviders } from '@/lib/opencode/hooks/use-opencode-data';
 import { useThemeColors } from '@/lib/theme-colors';
 import { getAuthToken } from '@/api/config';
 import { useTabStore } from '@/stores/tab-store';
+import { log } from '@/lib/logger';
 
 // ─── Spinning loader (Loader2 doesn't animate on its own in RN) ─────────────
 
@@ -693,15 +694,24 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   ).current;
 
   const markSetupComplete = useCallback(async () => {
-    if (!sandboxUrl) return;
+    if (!sandboxUrl) {
+      log.error('[SetupWizard] markSetupComplete: no sandboxUrl');
+      onComplete();
+      return;
+    }
     setCompleting(true);
     try {
-      await sandboxFetch(sandboxUrl, '/env/INSTANCE_SETUP_COMPLETE', {
+      const res = await sandboxFetch(sandboxUrl, '/env/INSTANCE_SETUP_COMPLETE', {
         method: 'PUT',
         body: JSON.stringify({ value: 'true' }),
       });
-    } catch {
-      // Best effort — continue to main app
+      if (!res.ok) {
+        log.error('[SetupWizard] Failed to write INSTANCE_SETUP_COMPLETE:', res.status, await res.text().catch(() => ''));
+      } else {
+        log.log('[SetupWizard] INSTANCE_SETUP_COMPLETE written successfully');
+      }
+    } catch (err: any) {
+      log.error('[SetupWizard] markSetupComplete error:', err?.message || err);
     }
     onComplete();
   }, [sandboxUrl, onComplete]);
