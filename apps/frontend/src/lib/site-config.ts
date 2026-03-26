@@ -5,6 +5,7 @@ export const siteConfig = {
       { id: 1, name: 'OS', href: '/' },
       { id: 2, name: 'About', href: '/about' },
       { id: 3, name: 'Careers', href: '/careers' },
+      { id: 4, name: 'Partnerships', href: '/partnerships' },
     ],
   },
   hero: {
@@ -17,25 +18,26 @@ export const siteConfig = {
       links: [
         { id: 1, title: 'About', url: '/about' },
         { id: 2, title: 'Careers', url: '/careers' },
-        { id: 3, title: 'Support', url: '/support' },
-        { id: 4, title: 'Contact', url: 'mailto:hey@kortix.com' },
+        { id: 3, title: 'Partnerships', url: '/partnerships' },
+        { id: 4, title: 'Support', url: '/support' },
+        { id: 5, title: 'Contact', url: 'mailto:hey@kortix.com' },
       ],
     },
     {
       title: 'Resources',
       links: [
-        { id: 5, title: 'Tutorials', url: '/tutorials' },
-        { id: 6, title: 'Documentation', url: 'https://github.com/kortix-ai/suna' },
-        { id: 7, title: 'Discord', url: 'https://discord.com/invite/RvFhXUdZ9H' },
-        { id: 8, title: 'GitHub', url: 'https://github.com/kortix-ai/suna' },
+        { id: 6, title: 'Tutorials', url: '/tutorials' },
+        { id: 7, title: 'Documentation', url: 'https://github.com/kortix-ai/suna' },
+        { id: 8, title: 'Discord', url: 'https://discord.com/invite/RvFhXUdZ9H' },
+        { id: 9, title: 'GitHub', url: 'https://github.com/kortix-ai/suna' },
       ],
     },
     {
       title: 'Legal',
       links: [
-        { id: 9, title: 'Privacy Policy', url: '/legal?tab=privacy' },
-        { id: 10, title: 'Terms of Service', url: '/legal?tab=terms' },
-        { id: 11, title: 'License', url: 'https://github.com/kortix-ai/suna/blob/main/LICENSE' },
+        { id: 10, title: 'Privacy Policy', url: '/legal?tab=privacy' },
+        { id: 11, title: 'Terms of Service', url: '/legal?tab=terms' },
+        { id: 12, title: 'License', url: 'https://github.com/kortix-ai/suna/blob/main/LICENSE' },
       ],
     },
   ],

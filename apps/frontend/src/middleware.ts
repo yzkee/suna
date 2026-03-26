@@ -44,6 +44,7 @@ const PUBLIC_ROUTES = [
   '/install',
   '/install.sh',
   '/careers',
+  '/partnerships', // Partnerships page should be public
   '/brand', // Brand guidelines should be public
   '/pricing', // Pricing page should be public
   '/tutorials', // Tutorials page should be public
