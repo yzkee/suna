@@ -62,6 +62,7 @@ import { MemoryPage } from '@/components/pages/MemoryPage';
 import { LlmProvidersPage } from '@/components/pages/LlmProvidersPage';
 import { MarketplacePage } from '@/components/pages/MarketplacePage';
 import { TerminalPage } from '@/components/pages/TerminalPage';
+import { SetupWizard } from '@/components/setup/SetupWizard';
 import {
   Eye, EyeOff, RefreshCw, Upload, Image, FolderPlus, LayoutGrid, List,
   FileText, Copy, Pencil, Trash2,
@@ -243,6 +244,84 @@ export default function HomeScreen() {
   const router = useRouter();
   const { sandboxUrl, sandboxId, isLoading: sandboxLoading, error: sandboxError } =
     useSandboxContext();
+
+  // ── Instance setup wizard check ──
+  // 'checking' = waiting for sandbox to be reachable, then checking env
+  // 'needed'   = setup not complete, show wizard
+  // 'done'     = setup complete, show main app
+  const [setupState, setSetupState] = useState<'checking' | 'needed' | 'done'>('checking');
+
+  useEffect(() => {
+    if (!sandboxUrl) return;
+    let cancelled = false;
+
+    (async () => {
+      const maxWaitMs = 60_000; // Wait up to 60s for sandbox to be reachable
+      const pollMs = 3_000;
+      const start = Date.now();
+
+      // 1. Wait for sandbox health endpoint to be reachable
+      let reachable = false;
+      while (Date.now() - start < maxWaitMs && !cancelled) {
+        try {
+          const token = await getAuthToken();
+          const res = await fetch(`${sandboxUrl}/global/health`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            signal: AbortSignal.timeout(5000),
+          });
+          // 200, 503, or 401 all mean the service is up
+          if (res.ok || res.status === 503 || res.status === 401) {
+            reachable = true;
+            break;
+          }
+        } catch {
+          // Not reachable yet — keep polling
+        }
+        await new Promise((r) => setTimeout(r, pollMs));
+      }
+
+      if (cancelled) return;
+
+      if (!reachable) {
+        // Timed out — show wizard anyway (better than silently skipping)
+        setSetupState('needed');
+        return;
+      }
+
+      // 2. Check if setup was already completed
+      try {
+        const token = await getAuthToken();
+        const res = await fetch(`${sandboxUrl}/env/INSTANCE_SETUP_COMPLETE`, {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          signal: AbortSignal.timeout(5000),
+        });
+        if (cancelled) return;
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.INSTANCE_SETUP_COMPLETE === 'true') {
+            setSetupState('done');
+            return;
+          }
+        }
+        // Not set or not 'true' → show wizard
+        setSetupState('needed');
+      } catch {
+        if (!cancelled) {
+          // Can't check env — show wizard to be safe
+          setSetupState('needed');
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [sandboxUrl]);
+
+  const handleSetupComplete = useCallback(() => {
+    setSetupState('done');
+  }, []);
 
   // State
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -751,6 +830,33 @@ export default function HomeScreen() {
   );
 
   // ── Render ──
+
+  // Show loading screen while checking setup status
+  if (setupState === 'checking') {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <RNStatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? '#09090b' : '#FFFFFF' }}>
+          <ActivityIndicator size="small" color={isDark ? '#71717a' : '#a1a1aa'} />
+          <Text style={{ marginTop: 12, fontSize: 13, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.4)' : 'rgba(18,18,21,0.4)' }}>
+            Connecting to instance…
+          </Text>
+        </View>
+      </>
+    );
+  }
+
+  // Show setup wizard if instance setup is not complete
+  if (setupState === 'needed') {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <RNStatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+        <SetupWizard onComplete={handleSetupComplete} />
+      </>
+    );
+  }
 
   return (
     <>

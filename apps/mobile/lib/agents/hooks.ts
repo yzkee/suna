@@ -60,7 +60,7 @@ export function useAgents(
 
       if (!res.ok) {
         const errorText = await res.text();
-        log.error('❌ Failed to fetch agents:', res.status);
+        log.warn('❌ Failed to fetch agents:', res.status);
         throw new Error(`Failed to fetch agents: ${res.status} - ${errorText}`);
       }
 

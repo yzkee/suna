@@ -1,0 +1,718 @@
+/**
+ * SetupWizard — Instance setup flow for first-time configuration.
+ *
+ * Mirrors the frontend's InstanceSetupFlow (setup-flow.tsx):
+ *   Step 1: Connect an LLM provider (required for agent to work)
+ *   Step 2: Tool API keys (optional — web search, scraping, etc.)
+ *   Step 3: Pipedream integrations (optional — 3,000+ app integrations)
+ *
+ * After completion, writes INSTANCE_SETUP_COMPLETE=true to sandbox env.
+ */
+
+import React, { useState, useCallback, useMemo, useRef } from 'react';
+import {
+  View,
+  ScrollView,
+  Pressable,
+  TextInput,
+  ActivityIndicator,
+  Linking,
+  KeyboardAvoidingView,
+  Platform,
+  PanResponder,
+} from 'react-native';
+import { Text } from '@/components/ui/text';
+import { useColorScheme } from 'nativewind';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
+import {
+  Sparkles,
+  Check,
+  ChevronRight,
+  Search,
+  Flame,
+  ImageIcon,
+  BookOpen,
+  Mic,
+  ExternalLink,
+  Settings2,
+  Loader2,
+  Link,
+  ChevronLeft,
+  Cpu,
+} from 'lucide-react-native';
+
+import {
+  BottomSheetModal,
+  BottomSheetBackdrop,
+  BottomSheetView,
+  BottomSheetScrollView,
+  BottomSheetTextInput,
+} from '@gorhom/bottom-sheet';
+import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
+
+import { KortixLogo } from '@/components/ui/KortixLogo';
+import { useSandboxContext } from '@/contexts/SandboxContext';
+import { useOpenCodeProviders } from '@/lib/opencode/hooks/use-opencode-data';
+import { useThemeColors } from '@/lib/theme-colors';
+import { getAuthToken } from '@/api/config';
+import { useTabStore } from '@/stores/tab-store';
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+interface SetupWizardProps {
+  onComplete: () => void;
+}
+
+interface StepProps {
+  isDark: boolean;
+  themeColors: { primary: string; primaryForeground: string };
+}
+
+// ─── Tool secrets definition (matches frontend) ─────────────────────────────
+
+const TOOL_SECRETS = [
+  { key: 'TAVILY_API_KEY', label: 'Tavily', description: 'Web search — lets the agent search the internet', icon: Search, signupUrl: 'https://tavily.com' },
+  { key: 'FIRECRAWL_API_KEY', label: 'Firecrawl', description: 'Web scraping — read and extract web page content', icon: Flame, signupUrl: 'https://firecrawl.dev' },
+  { key: 'SERPER_API_KEY', label: 'Serper', description: 'Google image search for finding visual content', icon: ImageIcon, signupUrl: 'https://serper.dev' },
+  { key: 'REPLICATE_API_TOKEN', label: 'Replicate', description: 'AI image & video generation', icon: ImageIcon, signupUrl: 'https://replicate.com' },
+  { key: 'CONTEXT7_API_KEY', label: 'Context7', description: 'Documentation search for coding libraries', icon: BookOpen, signupUrl: 'https://context7.com' },
+  { key: 'ELEVENLABS_API_KEY', label: 'ElevenLabs', description: 'Text-to-speech and voice generation', icon: Mic, signupUrl: 'https://elevenlabs.io' },
+] as const;
+
+const PIPEDREAM_KEYS = [
+  { key: 'PIPEDREAM_CLIENT_ID', label: 'Client ID', placeholder: 'e.g. z8PKSGuQdorPj4UErE…', secret: false },
+  { key: 'PIPEDREAM_CLIENT_SECRET', label: 'Client Secret', placeholder: 'e.g. UeZCz2PeNdOeHJfw…', secret: true },
+  { key: 'PIPEDREAM_PROJECT_ID', label: 'Project ID', placeholder: 'e.g. proj_x9s97z5', secret: false },
+] as const;
+
+// LLM provider IDs that count as "connected"
+const LLM_PROVIDER_IDS = new Set([
+  'anthropic', 'openai', 'openrouter', 'google', 'groq', 'xai',
+  'deepseek', 'mistral', 'cerebras', 'togetherai', 'fireworks',
+]);
+
+// ─── Helper: authenticated fetch to sandbox ──────────────────────────────────
+
+async function sandboxFetch(sandboxUrl: string, path: string, options?: RequestInit): Promise<Response> {
+  const token = await getAuthToken();
+  return fetch(`${sandboxUrl}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options?.headers || {}),
+    },
+  });
+}
+
+// ─── Provider connection helpers ──────────────────────────────────────────────
+
+const PROVIDER_LABELS: Record<string, string> = {
+  anthropic: 'Anthropic', openai: 'OpenAI', google: 'Google', xai: 'xAI',
+  openrouter: 'OpenRouter', groq: 'Groq', deepseek: 'DeepSeek', mistral: 'Mistral',
+};
+
+const POPULAR_PROVIDER_ORDER = ['anthropic', 'openai', 'openrouter', 'google', 'groq', 'xai', 'deepseek', 'mistral'];
+
+async function connectProvider(sandboxUrl: string, providerId: string, apiKey: string): Promise<void> {
+  const token = await getAuthToken();
+  const res = await fetch(`${sandboxUrl}/auth/${encodeURIComponent(providerId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ type: 'api', key: apiKey }),
+  });
+  if (!res.ok) throw new Error(`Failed to connect: ${res.status}`);
+  // Force server reload
+  await fetch(`${sandboxUrl}/global/dispose`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  }).catch(() => {});
+}
+
+// ─── Shared colors helper ────────────────────────────────────────────────────
+
+function useStepColors(isDark: boolean) {
+  return useMemo(() => ({
+    fg: isDark ? '#F8F8F8' : '#121215',
+    muted: isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)',
+    cardBg: isDark ? 'rgba(248,248,248,0.03)' : 'rgba(18,18,21,0.02)',
+    cardBorder: isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.06)',
+    inputBg: isDark ? 'rgba(248,248,248,0.04)' : 'rgba(18,18,21,0.03)',
+    inputBorder: isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.08)',
+  }), [isDark]);
+}
+
+// ─── Step Indicator ──────────────────────────────────────────────────────────
+
+function StepIndicator({ currentStep, totalSteps, isDark, onStepPress }: {
+  currentStep: number;
+  totalSteps: number;
+  isDark: boolean;
+  onStepPress?: (step: number) => void;
+}) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 24 }}>
+      {Array.from({ length: totalSteps }, (_, i) => {
+        const step = i + 1;
+        const isActive = step === currentStep;
+        const isDone = step < currentStep;
+        return (
+          <Pressable
+            key={step}
+            disabled={!isDone || !onStepPress}
+            onPress={() => isDone && onStepPress?.(step)}
+            style={{
+              width: isActive ? 24 : 6,
+              height: 6,
+              borderRadius: 3,
+              backgroundColor: isActive
+                ? (isDark ? '#F8F8F8' : '#121215')
+                : isDone
+                  ? (isDark ? 'rgba(248,248,248,0.4)' : 'rgba(18,18,21,0.4)')
+                  : (isDark ? 'rgba(248,248,248,0.15)' : 'rgba(18,18,21,0.15)'),
+            }}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
+// ─── Step 1: Provider ────────────────────────────────────────────────────────
+
+function ProviderStep({ onContinue, isDark, themeColors }: StepProps & { onContinue: () => void }) {
+  const { sandboxUrl } = useSandboxContext();
+  const { data: providersData, isLoading, refetch } = useOpenCodeProviders(sandboxUrl);
+  const sheetRef = useRef<BottomSheetModal>(null);
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState('');
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const colors = useStepColors(isDark);
+
+  const connectedSet = useMemo(() => new Set(providersData?.connected ?? []), [providersData]);
+  const hasLLMProvider = useMemo(() => [...connectedSet].some((id) => LLM_PROVIDER_IDS.has(id)), [connectedSet]);
+  const connectedCount = connectedSet.size;
+
+  const renderBackdrop = useCallback((props: BottomSheetBackdropProps) => (
+    <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.4} pressBehavior="close" />
+  ), []);
+
+  const handleOpenSheet = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectedProvider(null);
+    setApiKey('');
+    setConnectError(null);
+    sheetRef.current?.present();
+  }, []);
+
+  const handleSelectProvider = useCallback((id: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectedProvider(id);
+    setApiKey('');
+    setConnectError(null);
+  }, []);
+
+  const handleConnect = useCallback(async () => {
+    if (!sandboxUrl || !selectedProvider || !apiKey.trim()) return;
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      await connectProvider(sandboxUrl, selectedProvider, apiKey.trim());
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setApiKey('');
+      setSelectedProvider(null);
+      sheetRef.current?.dismiss();
+      refetch();
+    } catch (e: any) {
+      setConnectError(e.message || 'Failed to connect');
+    } finally {
+      setConnecting(false);
+    }
+  }, [sandboxUrl, selectedProvider, apiKey, refetch]);
+
+  const handleContinue = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    refetch();
+    onContinue();
+  }, [onContinue, refetch]);
+
+  const sheetBg = isDark ? '#1a1a1d' : '#FFFFFF';
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+        <ActivityIndicator size="small" color={isDark ? '#71717a' : '#a1a1aa'} />
+        <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.4)' : 'rgba(18,18,21,0.4)' }}>
+          Checking providers…
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ width: '100%', flex: 1, justifyContent: 'center' }}>
+      <View style={{ gap: 24 }}>
+        <View style={{ alignItems: 'center', gap: 8 }}>
+          <View style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: hasLLMProvider ? 'rgba(52,211,153,0.1)' : (isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.04)') }}>
+            {hasLLMProvider ? <Check size={20} color="#34d399" /> : <Sparkles size={20} color={isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.4)'} />}
+          </View>
+          <Text style={{ fontSize: 15, fontFamily: 'Roobert-Medium', color: isDark ? '#F8F8F8' : '#121215', textAlign: 'center' }}>
+            {hasLLMProvider ? 'Provider connected' : 'Connect an LLM provider'}
+          </Text>
+          <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)', textAlign: 'center', lineHeight: 18, paddingHorizontal: 16 }}>
+            {hasLLMProvider
+              ? `${connectedCount} provider${connectedCount > 1 ? 's' : ''} ready. You can add more anytime from settings.`
+              : 'Connect your existing OpenAI, Anthropic, or other LLM subscription with an API key.'}
+          </Text>
+        </View>
+
+        <View style={{ gap: 8 }}>
+          <Pressable onPress={handleOpenSheet} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 44, borderRadius: 12, backgroundColor: hasLLMProvider ? 'transparent' : themeColors.primary, borderWidth: hasLLMProvider ? 1 : 0, borderColor: isDark ? 'rgba(248,248,248,0.1)' : 'rgba(18,18,21,0.1)' }}>
+            <Settings2 size={14} color={hasLLMProvider ? (isDark ? '#F8F8F8' : '#121215') : themeColors.primaryForeground} />
+            <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: hasLLMProvider ? (isDark ? '#F8F8F8' : '#121215') : themeColors.primaryForeground }}>
+              {hasLLMProvider ? 'Manage Providers' : 'Add LLM Provider'}
+            </Text>
+          </Pressable>
+
+          <Pressable onPress={handleContinue} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 44, borderRadius: 12, backgroundColor: hasLLMProvider ? themeColors.primary : 'transparent' }}>
+            <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: hasLLMProvider ? themeColors.primaryForeground : (isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)') }}>
+              {hasLLMProvider ? 'Continue' : 'Skip for now'}
+            </Text>
+            {hasLLMProvider && <ChevronRight size={14} color={themeColors.primaryForeground} />}
+          </Pressable>
+        </View>
+      </View>
+
+      {/* ── Provider selection bottom sheet ── */}
+      <BottomSheetModal
+        ref={sheetRef}
+        snapPoints={selectedProvider ? ['45%'] : ['75%']}
+        enablePanDownToClose
+        enableDynamicSizing={false}
+        backdropComponent={renderBackdrop}
+        backgroundStyle={{ backgroundColor: sheetBg, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
+        handleIndicatorStyle={{ backgroundColor: isDark ? '#3F3F46' : '#D4D4D8', width: 36, height: 5, borderRadius: 3, marginTop: 8 }}
+      >
+        {selectedProvider ? (
+          /* API key input view */
+          <BottomSheetView style={{ flex: 1, paddingHorizontal: 24 }}>
+            <View style={{ flex: 1, justifyContent: 'center', paddingBottom: 24 }}>
+              <Pressable onPress={() => setSelectedProvider(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, position: 'absolute', top: 0, left: 0, zIndex: 1 }}>
+                <ChevronLeft size={16} color={colors.muted} />
+                <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: colors.muted }}>Back</Text>
+              </Pressable>
+
+              <View style={{ alignItems: 'center', gap: 6, marginBottom: 20 }}>
+                <View style={{ width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
+                  <Cpu size={18} color={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)'} />
+                </View>
+                <Text style={{ fontSize: 16, fontFamily: 'Roobert-SemiBold', color: colors.fg }}>
+                  {PROVIDER_LABELS[selectedProvider] || selectedProvider}
+                </Text>
+                <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: colors.muted }}>
+                  Paste your API key below
+                </Text>
+              </View>
+
+              <BottomSheetTextInput
+                placeholder="sk-..."
+                placeholderTextColor={isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'}
+                value={apiKey}
+                onChangeText={(t: string) => { setApiKey(t); setConnectError(null); }}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoFocus
+                secureTextEntry
+                style={{
+                  height: 44, borderRadius: 12, paddingHorizontal: 14,
+                  fontSize: 14, fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+                  color: colors.fg, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                  borderWidth: 1, borderColor: connectError ? (isDark ? 'rgba(239,68,68,0.4)' : 'rgba(220,38,38,0.3)') : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'),
+                }}
+              />
+
+              {connectError && (
+                <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: isDark ? '#f87171' : '#dc2626', marginTop: 8, textAlign: 'center' }}>
+                  {connectError}
+                </Text>
+              )}
+
+              <Pressable
+                onPress={handleConnect}
+                disabled={connecting || !apiKey.trim()}
+                style={{
+                  height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                  flexDirection: 'row', gap: 6, marginTop: 14,
+                  backgroundColor: themeColors.primary, opacity: apiKey.trim() ? 1 : 0.5,
+                }}
+              >
+                {connecting ? (
+                  <><Loader2 size={14} color={themeColors.primaryForeground} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Connecting…</Text></>
+                ) : (
+                  <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Connect</Text>
+                )}
+              </Pressable>
+            </View>
+          </BottomSheetView>
+        ) : (
+          /* Provider list — uses BottomSheetScrollView for proper scrolling */
+          <BottomSheetScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 32 }}>
+            <Text style={{ fontSize: 17, fontFamily: 'Roobert-SemiBold', color: colors.fg, textAlign: 'center', marginTop: 4, marginBottom: 2 }}>
+              Choose a provider
+            </Text>
+            <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: colors.muted, textAlign: 'center', marginBottom: 16 }}>
+              Select one to enter your API key
+            </Text>
+            <View style={{ gap: 6 }}>
+              {POPULAR_PROVIDER_ORDER.map((id) => {
+                const isConnected = connectedSet.has(id);
+                return (
+                  <Pressable
+                    key={id}
+                    onPress={() => handleSelectProvider(id)}
+                    style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 12,
+                      paddingVertical: 13, paddingHorizontal: 14,
+                      borderRadius: 14, borderWidth: 1,
+                      borderColor: isConnected ? (isDark ? 'rgba(52,211,153,0.2)' : 'rgba(52,211,153,0.15)') : (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'),
+                      backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.015)',
+                    }}
+                  >
+                    <View style={{ width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
+                      <Cpu size={15} color={isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)'} />
+                    </View>
+                    <Text style={{ flex: 1, fontSize: 15, fontFamily: 'Roobert-Medium', color: colors.fg }}>
+                      {PROVIDER_LABELS[id] || id}
+                    </Text>
+                    {isConnected ? <Check size={16} color="#34d399" /> : <ChevronRight size={14} color={isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'} />}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </BottomSheetScrollView>
+        )}
+      </BottomSheetModal>
+    </View>
+  );
+}
+
+// ─── Step 2: Tool Secrets ────────────────────────────────────────────────────
+
+function ToolSecretsStep({ onContinue, isDark, themeColors }: StepProps & { onContinue: () => void }) {
+  const { sandboxUrl } = useSandboxContext();
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const colors = useStepColors(isDark);
+  const filledCount = Object.values(values).filter((v) => v.trim()).length;
+
+  const handleSave = useCallback(async () => {
+    if (!sandboxUrl) return;
+    const toSave = Object.entries(values).filter(([, v]) => v.trim());
+    if (toSave.length === 0) { onContinue(); return; }
+
+    setSaving(true);
+    try {
+      for (const [key, value] of toSave) {
+        await sandboxFetch(sandboxUrl, `/env/${encodeURIComponent(key)}`, {
+          method: 'PUT', body: JSON.stringify({ value: value.trim() }),
+        });
+      }
+    } catch { /* Continue anyway */ }
+    setSaving(false);
+    onContinue();
+  }, [sandboxUrl, values, onContinue]);
+
+  return (
+    <View style={{ width: '100%', flex: 1 }}>
+      {/* Header */}
+      <View style={{ alignItems: 'center', gap: 4, marginBottom: 16 }}>
+        <Text style={{ fontSize: 15, fontFamily: 'Roobert-Medium', color: colors.fg, textAlign: 'center' }}>Add tool keys</Text>
+        <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: colors.muted, textAlign: 'center' }}>Optional API keys for agent capabilities</Text>
+      </View>
+
+      {/* Cards — fill available space */}
+      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10, paddingBottom: 4 }}>
+        {TOOL_SECRETS.map((secret) => {
+          const Icon = secret.icon;
+          const hasValue = !!(values[secret.key] || '').trim();
+          return (
+            <View
+              key={secret.key}
+              style={{
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: hasValue
+                  ? (isDark ? 'rgba(52,211,153,0.2)' : 'rgba(52,211,153,0.15)')
+                  : (isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.06)'),
+                backgroundColor: isDark ? 'rgba(248,248,248,0.02)' : 'rgba(18,18,21,0.015)',
+                overflow: 'hidden',
+              }}
+            >
+              {/* Top row: icon + label + description + link */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, gap: 10 }}>
+                <View style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 10,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: isDark ? 'rgba(248,248,248,0.05)' : 'rgba(18,18,21,0.035)',
+                }}>
+                  <Icon size={15} color={isDark ? 'rgba(248,248,248,0.45)' : 'rgba(18,18,21,0.4)'} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: isDark ? '#F8F8F8' : '#121215' }}>
+                    {secret.label}
+                  </Text>
+                  <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.4)' : 'rgba(18,18,21,0.4)', marginTop: 1, lineHeight: 15 }}>
+                    {secret.description}
+                  </Text>
+                </View>
+                <Pressable onPress={() => Linking.openURL(secret.signupUrl)} hitSlop={12} style={{ padding: 4 }}>
+                  <ExternalLink size={13} color={isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)'} />
+                </Pressable>
+              </View>
+              {/* Input row */}
+              <View style={{ paddingHorizontal: 14, paddingBottom: 12 }}>
+                <TextInput
+                  secureTextEntry
+                  placeholder={secret.key}
+                  placeholderTextColor={isDark ? 'rgba(248,248,248,0.15)' : 'rgba(18,18,21,0.15)'}
+                  value={values[secret.key] || ''}
+                  onChangeText={(text) => setValues((prev) => ({ ...prev, [secret.key]: text }))}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  textAlignVertical="center"
+                  style={{
+                    height: 36,
+                    borderRadius: 10,
+                    paddingHorizontal: 12,
+                    paddingVertical: 0,
+                    fontSize: 12,
+                    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+                    color: colors.fg,
+                    backgroundColor: isDark ? 'rgba(248,248,248,0.04)' : 'rgba(18,18,21,0.03)',
+                    borderWidth: 1,
+                    borderColor: isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.06)',
+                    includeFontPadding: false,
+                  }}
+                />
+              </View>
+            </View>
+          );
+        })}
+      </ScrollView>
+
+      {/* Footer — sticky bottom */}
+      <View style={{ paddingTop: 12 }}>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onContinue(); }} disabled={saving} style={{ flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.cardBorder }}>
+            <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: colors.muted }}>Skip for now</Text>
+          </Pressable>
+          <Pressable onPress={handleSave} disabled={saving} style={{ flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, backgroundColor: themeColors.primary }}>
+            {saving ? (
+              <><Loader2 size={14} color={themeColors.primaryForeground} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Saving…</Text></>
+            ) : (
+              <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>{filledCount > 0 ? 'Save & continue' : 'Continue'}</Text>
+            )}
+          </Pressable>
+        </View>
+        <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)', textAlign: 'center', marginTop: 10 }}>
+          You can add or change keys later in Settings.
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+// ─── Step 3: Pipedream ───────────────────────────────────────────────────────
+
+function PipedreamStep({ onComplete, completing, isDark, themeColors }: StepProps & { onComplete: () => void; completing: boolean }) {
+  const { sandboxUrl } = useSandboxContext();
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const colors = useStepColors(isDark);
+  const allFilled = PIPEDREAM_KEYS.every((k) => (values[k.key] || '').trim());
+
+  const handleSave = useCallback(async () => {
+    if (!sandboxUrl || !allFilled) { onComplete(); return; }
+
+    setSaving(true);
+    try {
+      const entries = [
+        ...PIPEDREAM_KEYS.map((k) => [k.key, (values[k.key] || '').trim()] as const),
+        ['PIPEDREAM_ENVIRONMENT', 'production'] as const,
+      ];
+      for (const [key, value] of entries) {
+        if (!value) continue;
+        await sandboxFetch(sandboxUrl, `/env/${encodeURIComponent(key)}`, {
+          method: 'PUT', body: JSON.stringify({ value }),
+        });
+      }
+    } catch { /* Continue anyway */ }
+    setSaving(false);
+    onComplete();
+  }, [sandboxUrl, values, allFilled, onComplete]);
+
+  const busy = saving || completing;
+
+  return (
+    <View style={{ width: '100%', flex: 1 }}>
+      {/* Header */}
+      <View style={{ alignItems: 'center', gap: 8, marginBottom: 20 }}>
+        <View style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.04)' }}>
+          <Link size={20} color={isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.4)'} />
+        </View>
+        <Text style={{ fontSize: 15, fontFamily: 'Roobert-Medium', color: colors.fg, textAlign: 'center' }}>
+          Third-party integrations
+        </Text>
+        <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: colors.muted, textAlign: 'center', lineHeight: 18, paddingHorizontal: 8 }}>
+          Connect to 3,000+ apps via Pipedream Connect. Optional — you can add this later in Settings.
+        </Text>
+      </View>
+
+      {/* Fields — centered in remaining space */}
+      <View style={{ flex: 1, justifyContent: 'center' }}>
+        <View style={{ gap: 14 }}>
+          {PIPEDREAM_KEYS.map((field) => (
+            <View key={field.key} style={{ gap: 5 }}>
+              <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: isDark ? 'rgba(248,248,248,0.6)' : 'rgba(18,18,21,0.6)' }}>
+                {field.label}
+              </Text>
+              <TextInput
+                secureTextEntry={field.secret}
+                placeholder={field.placeholder}
+                placeholderTextColor={isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)'}
+                value={values[field.key] || ''}
+                onChangeText={(text) => setValues((prev) => ({ ...prev, [field.key]: text }))}
+                autoCapitalize="none"
+                autoCorrect={false}
+                textAlignVertical="center"
+                style={{ height: 40, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 0, fontSize: 13, fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }), color: colors.fg, backgroundColor: colors.inputBg, borderWidth: 1, borderColor: colors.inputBorder, includeFontPadding: false }}
+              />
+            </View>
+          ))}
+        </View>
+      </View>
+
+      {/* Footer — sticky bottom */}
+      <View style={{ paddingTop: 12 }}>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onComplete(); }} disabled={busy} style={{ flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, borderWidth: 1, borderColor: colors.cardBorder }}>
+            {completing ? (
+              <><Loader2 size={14} color={colors.muted} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: colors.muted }}>Finishing…</Text></>
+            ) : (
+              <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: colors.muted }}>Skip for now</Text>
+            )}
+          </Pressable>
+          <Pressable onPress={handleSave} disabled={busy || !allFilled} style={{ flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, backgroundColor: themeColors.primary, opacity: allFilled ? 1 : 0.5 }}>
+            {busy ? (
+            <><Loader2 size={14} color={themeColors.primaryForeground} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>{saving ? 'Saving…' : 'Finishing…'}</Text></>
+          ) : (
+            <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Save & finish</Text>
+          )}
+          </Pressable>
+        </View>
+        <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)', textAlign: 'center', marginTop: 10 }}>
+          Get your credentials at{' '}
+          <Text style={{ textDecorationLine: 'underline' }} onPress={() => Linking.openURL('https://pipedream.com/connect')}>
+            pipedream.com/connect
+          </Text>
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+// ─── Main SetupWizard ────────────────────────────────────────────────────────
+
+export function SetupWizard({ onComplete }: SetupWizardProps) {
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === 'dark';
+  const insets = useSafeAreaInsets();
+  const themeColors = useThemeColors();
+  const { sandboxUrl } = useSandboxContext();
+
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [completing, setCompleting] = useState(false);
+  const stepRef = useRef(step);
+  stepRef.current = step;
+
+  const totalSteps = 3;
+
+  // Swipe right to go back to previous step
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Only activate for horizontal swipes (right) with enough velocity
+        return gestureState.dx > 30 && Math.abs(gestureState.dy) < 50;
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dx > 80 && stepRef.current > 1) {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          setStep((prev) => (prev > 1 ? (prev - 1) as 1 | 2 | 3 : prev));
+        }
+      },
+    }),
+  ).current;
+
+  const markSetupComplete = useCallback(async () => {
+    if (!sandboxUrl) return;
+    setCompleting(true);
+    try {
+      await sandboxFetch(sandboxUrl, '/env/INSTANCE_SETUP_COMPLETE', {
+        method: 'PUT',
+        body: JSON.stringify({ value: 'true' }),
+      });
+    } catch {
+      // Best effort — continue to main app
+    }
+    onComplete();
+  }, [sandboxUrl, onComplete]);
+
+  const handleStepPress = useCallback((s: number) => {
+    if (s < step) setStep(s as 1 | 2 | 3);
+  }, [step]);
+
+  const bg = isDark ? '#09090b' : '#FFFFFF';
+
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={{ flex: 1, backgroundColor: bg }}
+      {...panResponder.panHandlers}
+    >
+      <View style={{ flex: 1, paddingTop: insets.top + 24, paddingBottom: insets.bottom + 16, paddingHorizontal: 28 }}>
+        {/* ── Fixed header ── */}
+        <View style={{ alignItems: 'center', marginBottom: 16 }}>
+          <KortixLogo size={28} variant="symbol" color={isDark ? 'dark' : 'light'} />
+          <Text style={{ fontSize: 10, fontFamily: 'Roobert-Medium', color: isDark ? 'rgba(248,248,248,0.3)' : 'rgba(18,18,21,0.3)', letterSpacing: 2, textTransform: 'uppercase', marginTop: 12, marginBottom: 4 }}>
+            Instance Setup
+          </Text>
+          <Text style={{ fontSize: 10, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 16 }}>
+            Self-Hosted Setup
+          </Text>
+          <StepIndicator currentStep={step} totalSteps={totalSteps} isDark={isDark} onStepPress={handleStepPress} />
+        </View>
+
+        {/* ── Step content ── */}
+        <View style={{ flex: 1, width: '100%', maxWidth: 380, alignSelf: 'center' }}>
+          {step === 1 && <ProviderStep onContinue={() => setStep(2)} isDark={isDark} themeColors={themeColors} />}
+          {step === 2 && <ToolSecretsStep onContinue={() => setStep(3)} isDark={isDark} themeColors={themeColors} />}
+          {step === 3 && <PipedreamStep onComplete={markSetupComplete} completing={completing} isDark={isDark} themeColors={themeColors} />}
+        </View>
+      </View>
+
+      {completing && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', zIndex: 100, backgroundColor: isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)' }}>
+          <ActivityIndicator size="small" color={themeColors.primary} />
+          <Text style={{ marginTop: 12, fontSize: 13, fontFamily: 'Roobert-Medium', color: isDark ? '#F8F8F8' : '#121215' }}>
+            Finishing setup…
+          </Text>
+        </View>
+      )}
+    </KeyboardAvoidingView>
+  );
+}
