@@ -231,6 +231,11 @@ export async function middleware(request: NextRequest) {
     supabaseUrl,
     supabaseAnonKey,
     {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
       cookieOptions: {
         name: KORTIX_SUPABASE_AUTH_COOKIE,
         path: '/',
