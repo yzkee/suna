@@ -226,9 +226,9 @@ describe('Channels CRUD', () => {
 // The webhook forwarder is mounted at /webhooks/{platform} in production.
 // It looks up the DB for a sandbox with an enabled channel of that type,
 // then forwards the request. Without a linked sandbox, it should return 404.
+// With a linked sandbox, it forwards to sandbox:PORT/channels/api/webhooks/{type}.
 
 describe('Webhook Forwarding', () => {
-  // Mount the webhook forwarder on the test app
   const { channelWebhooksApp } = require('../channels/webhooks');
   const webhookApp = createTestApp({ mountChannels: true });
   webhookApp.route('/webhooks', channelWebhooksApp);
@@ -238,7 +238,6 @@ describe('Webhook Forwarding', () => {
       type: 'url_verification',
       challenge: 'test_challenge',
     });
-    // 404 because no channel_config with a linked sandbox
     expect(res.status).toBe(404);
   });
 
@@ -255,5 +254,160 @@ describe('Webhook Forwarding', () => {
       type: 1,
     });
     expect(res.status).toBe(404);
+  });
+});
+
+// ─── Full-stack webhook forwarding with mock sandbox ─────────────────────────
+// Stands up a tiny HTTP server as a mock "sandbox", inserts a sandbox + channel
+// config in the DB, then verifies kortix-api forwards webhooks to the sandbox
+// and returns the response.
+
+import { createServer, type Server } from 'node:http';
+import { sql } from 'drizzle-orm';
+import { getTestDb } from './helpers';
+
+describe('Webhook Forwarding (with linked sandbox)', () => {
+  const { channelWebhooksApp } = require('../channels/webhooks');
+  const webhookApp = createTestApp({ mountChannels: true });
+  webhookApp.route('/webhooks', channelWebhooksApp);
+
+  let mockSandbox: Server;
+  let mockPort: number;
+  const receivedRequests: Array<{ path: string; body: string; headers: Record<string, string> }> = [];
+
+  const SANDBOX_ID = '00000000-e2e0-4000-a000-000000000099';
+
+  beforeAll(async () => {
+    // 1. Start a mock "sandbox" HTTP server that records requests
+    await new Promise<void>((resolve) => {
+      mockSandbox = createServer(async (req, res) => {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(chunk as Buffer);
+        const body = Buffer.concat(chunks).toString();
+
+        receivedRequests.push({
+          path: req.url || '',
+          body,
+          headers: Object.fromEntries(
+            Object.entries(req.headers).map(([k, v]) => [k, String(v)]),
+          ),
+        });
+
+        // Simulate opencode-channels responses
+        if (body.includes('url_verification')) {
+          const parsed = JSON.parse(body);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ challenge: parsed.challenge }));
+        } else {
+          res.writeHead(200, { 'Content-Type': 'text/plain' });
+          res.end('OK');
+        }
+      });
+      mockSandbox.listen(0, () => {
+        const addr = mockSandbox.address();
+        mockPort = typeof addr === 'object' && addr ? addr.port : 0;
+        resolve();
+      });
+    });
+
+    // 2. Insert a sandbox row pointing at the mock server
+    const db = getTestDb();
+    await db.execute(sql`
+      INSERT INTO kortix.sandboxes (sandbox_id, account_id, name, status, provider, base_url, external_id, metadata)
+      VALUES (
+        ${SANDBOX_ID},
+        ${TEST_USER_ID},
+        'mock-sandbox-for-webhook-test',
+        'active',
+        'local_docker',
+        ${'http://localhost:' + mockPort},
+        'mock-ext-id',
+        '{}'::jsonb
+      )
+      ON CONFLICT (sandbox_id) DO UPDATE SET base_url = ${'http://localhost:' + mockPort}
+    `);
+
+    // 3. Insert enabled channel configs linked to this sandbox
+    await db.execute(sql`
+      INSERT INTO kortix.channel_configs (account_id, sandbox_id, channel_type, name, enabled)
+      VALUES
+        (${TEST_USER_ID}, ${SANDBOX_ID}, 'slack', 'Mock Slack', true),
+        (${TEST_USER_ID}, ${SANDBOX_ID}, 'telegram', 'Mock Telegram', true)
+      ON CONFLICT DO NOTHING
+    `);
+  });
+
+  afterAll(async () => {
+    mockSandbox?.close();
+    const db = getTestDb();
+    await db.execute(sql`DELETE FROM kortix.channel_configs WHERE sandbox_id = ${SANDBOX_ID}`);
+    await db.execute(sql`DELETE FROM kortix.sandboxes WHERE sandbox_id = ${SANDBOX_ID}`);
+  });
+
+  it('forwards Slack webhook to the sandbox and returns its response', async () => {
+    receivedRequests.length = 0;
+
+    const res = await jsonPost(webhookApp, '/webhooks/slack', {
+      type: 'url_verification',
+      challenge: 'forwarded_challenge',
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.challenge).toBe('forwarded_challenge');
+
+    // Verify the request reached the mock sandbox
+    expect(receivedRequests.length).toBe(1);
+    expect(receivedRequests[0].path).toBe('/channels/api/webhooks/slack');
+    expect(receivedRequests[0].body).toContain('forwarded_challenge');
+  });
+
+  it('forwards Slack signature headers to the sandbox', async () => {
+    receivedRequests.length = 0;
+
+    const res = await webhookApp.request('/webhooks/slack', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Slack-Signature': 'v0=test_sig',
+        'X-Slack-Request-Timestamp': '1234567890',
+      },
+      body: JSON.stringify({ type: 'event_callback', event: { type: 'message' } }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(receivedRequests.length).toBe(1);
+    expect(receivedRequests[0].headers['x-slack-signature']).toBe('v0=test_sig');
+    expect(receivedRequests[0].headers['x-slack-request-timestamp']).toBe('1234567890');
+  });
+
+  it('forwards Telegram webhook to the sandbox', async () => {
+    receivedRequests.length = 0;
+
+    const res = await jsonPost(webhookApp, '/webhooks/telegram', {
+      update_id: 42,
+      message: { message_id: 1, text: 'forwarded_tg', chat: { id: 123, type: 'private' } },
+    });
+
+    expect(res.status).toBe(200);
+    expect(receivedRequests.length).toBe(1);
+    expect(receivedRequests[0].path).toBe('/channels/api/webhooks/telegram');
+    expect(receivedRequests[0].body).toContain('forwarded_tg');
+  });
+
+  it('forwards Telegram secret token header to the sandbox', async () => {
+    receivedRequests.length = 0;
+
+    const res = await webhookApp.request('/webhooks/telegram', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Telegram-Bot-Api-Secret-Token': 'my_secret',
+      },
+      body: JSON.stringify({ update_id: 43, message: { text: 'with secret' } }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(receivedRequests[0].headers['x-telegram-bot-api-secret-token']).toBe('my_secret');
   });
 });
