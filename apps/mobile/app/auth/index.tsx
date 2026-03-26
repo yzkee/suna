@@ -67,66 +67,14 @@ export default function AuthScreen() {
       if (error) {
         log.error('Sign in error:', error.message);
 
-        // If user doesn't exist, try to create account (self-hosted first-time setup)
-        if (
-          error.message.includes('Invalid login credentials') ||
-          error.message.includes('Email not confirmed')
-        ) {
-          log.log('Trying to create account (self-hosted first-time setup)...');
-
-          const { data: signUpData, error: signUpError } =
-            await supabase.auth.signUp({
-              email: trimmedEmail,
-              password: trimmedPassword,
-              options: {
-                data: { full_name: trimmedEmail.split('@')[0] },
-              },
-            });
-
-          if (signUpError) {
-            log.error('Sign up error:', signUpError.message);
-            setErrorMessage(signUpError.message);
-            setLoading(false);
-            return;
-          }
-
-          // If sign up succeeded but needs confirmation
-          if (signUpData.user && !signUpData.session) {
-            // In local Supabase, email confirmation is typically disabled
-            // Try signing in again
-            const { data: retryData, error: retryError } =
-              await supabase.auth.signInWithPassword({
-                email: trimmedEmail,
-                password: trimmedPassword,
-              });
-
-            if (retryError) {
-              setErrorMessage(
-                'Account created but email confirmation may be required. Check your Supabase settings.',
-              );
-              setLoading(false);
-              return;
-            }
-
-            if (retryData.session) {
-              log.log('Account created and signed in');
-              router.replace('/home');
-              return;
-            }
-          }
-
-          if (signUpData.session) {
-            log.log('Account created and signed in');
-            router.replace('/home');
-            return;
-          }
-
-          setErrorMessage('Account created. Please sign in.');
-          setLoading(false);
-          return;
+        // Show user-friendly error messages
+        if (error.message.includes('Invalid login credentials')) {
+          setErrorMessage('Invalid email or password. Please try again.');
+        } else if (error.message.includes('Email not confirmed')) {
+          setErrorMessage('Email not confirmed. Check your Supabase settings.');
+        } else {
+          setErrorMessage(error.message);
         }
-
-        setErrorMessage(error.message);
         setLoading(false);
         return;
       }
