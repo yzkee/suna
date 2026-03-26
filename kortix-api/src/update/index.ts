@@ -10,3 +10,5 @@ export {
 export type { UpdateStatus, UpdatePhase, StepResult } from './types';
 export type { ContainerConfig } from './container-config';
 export { IDLE_STATUS } from './types';
+export { deploySandbox, buildContainerConfig } from './setup';
+export type { SetupOpts } from './setup';

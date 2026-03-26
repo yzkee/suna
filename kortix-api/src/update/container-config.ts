@@ -28,7 +28,6 @@ export async function readContainerConfig(
   try {
     const config = JSON.parse(result.stdout.trim()) as ContainerConfig;
 
-    // Validate against the running container — config file may be stale from a failed update
     const inspect = await execOnHost(
       endpoint,
       `docker inspect --format='{{.Config.Image}}' ${config.name} 2>/dev/null`,

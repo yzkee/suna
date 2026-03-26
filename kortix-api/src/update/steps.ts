@@ -10,8 +10,30 @@ export function getCurrentImage(endpoint: ResolvedEndpoint, containerName: strin
   );
 }
 
-export function pullImage(endpoint: ResolvedEndpoint, image: string): Promise<StepResult> {
-  return execOnHost(endpoint, `docker pull ${image}`, 300);
+export async function pullImage(endpoint: ResolvedEndpoint, image: string): Promise<StepResult> {
+  // Check if image already exists locally
+  const exists = await execOnHost(endpoint, `docker image inspect ${image} >/dev/null 2>&1 && echo cached`, 10);
+  if (exists.stdout?.trim() === 'cached') {
+    return { success: true, stdout: 'cached', stderr: '', exitCode: 0, durationMs: 0 };
+  }
+
+  // Pull via systemd-run (detached) — the CF proxy times out on long pulls
+  await execOnHost(
+    endpoint,
+    `systemd-run --unit=kortix-image-pull --description="Pull ${image}" docker pull ${image}`,
+    15,
+  );
+
+  // Poll until the image exists or timeout (5 minutes)
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 5000));
+    const check = await execOnHost(endpoint, `docker image inspect ${image} >/dev/null 2>&1 && echo ready`, 10);
+    if (check.stdout?.trim() === 'ready') {
+      return { success: true, stdout: 'pulled', stderr: '', exitCode: 0, durationMs: i * 5000 };
+    }
+  }
+
+  return { success: false, stdout: '', stderr: `Pull timed out after 5 minutes for ${image}`, exitCode: -1, durationMs: 300000 };
 }
 
 export async function checkpointSqlite(endpoint: ResolvedEndpoint, containerName: string): Promise<StepResult> {
@@ -31,15 +53,19 @@ export async function stopAndStartContainer(
 ): Promise<StepResult> {
   const scriptLines = [
     '#!/bin/bash',
-    'set -e',
-    'systemctl stop justavps-docker 2>/dev/null || true',
-    'systemctl stop kortix-sandbox 2>/dev/null || true',
+    // Disable systemd service to prevent auto-restart
+    'systemctl disable --now justavps-docker 2>/dev/null || true',
+    'systemctl disable --now kortix-sandbox 2>/dev/null || true',
+    // Stop and remove container — retry until name is free
     `docker stop -t 10 ${containerName} 2>/dev/null || true`,
     `docker rm -f ${containerName} 2>/dev/null || true`,
+    `for i in $(seq 1 10); do docker inspect ${containerName} >/dev/null 2>&1 || break; sleep 1; done`,
+    // Start new container
     runCommand,
   ].join('\n');
 
   const b64 = Buffer.from(scriptLines).toString('base64');
+  const unitName = `kortix-update-${Date.now()}`;
 
   // Write script to temp file, then run it via systemd-run (survives connection drop)
   await execOnHost(
@@ -50,7 +76,7 @@ export async function stopAndStartContainer(
 
   const result = await execOnHost(
     endpoint,
-    `systemd-run --unit=kortix-update-restart --description="Kortix sandbox update" /tmp/kortix-update.sh`,
+    `systemctl reset-failed kortix-update-restart 2>/dev/null || true; systemd-run --unit=${unitName} --description="Kortix sandbox update" /tmp/kortix-update.sh`,
     15,
   );
 

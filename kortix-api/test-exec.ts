@@ -83,10 +83,15 @@ async function cmdUpdate(sandboxId: string, targetVersion: string) {
   if (exists.stdout?.trim() === 'cached') {
     console.log('Image already cached locally, skipping pull');
   } else {
-    console.log('Pulling', targetImage, '...');
-    const pull = await execOnHost(endpoint, `docker pull ${targetImage}`, 300);
-    if (pull.exitCode !== 0) { console.error('Pull failed:', pull.stderr); return; }
-    console.log('Pull: OK');
+    console.log('Pulling', targetImage, '(detached)...');
+    await execOnHost(endpoint, `systemd-run --unit=kortix-image-pull docker pull ${targetImage}`, 15);
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 5000));
+      const check = await execOnHost(endpoint, `docker image inspect ${targetImage} >/dev/null 2>&1 && echo ready`, 10);
+      if (check.stdout?.trim() === 'ready') { console.log('Pull: OK'); break; }
+      if (i === 59) { console.error('Pull timed out'); return; }
+      process.stdout.write('.');
+    }
   }
 
   // Checkpoint
@@ -102,15 +107,18 @@ for db in glob.glob('/workspace/.local/share/opencode/*.db'):
   const scriptLines = [
     '#!/bin/bash',
     'set -e',
-    'systemctl stop justavps-docker 2>/dev/null || true',
-    'systemctl stop kortix-sandbox 2>/dev/null || true',
+    'systemctl disable --now justavps-docker 2>/dev/null || true',
+    'systemctl disable --now kortix-sandbox 2>/dev/null || true',
     `docker stop -t 10 ${config.name} 2>/dev/null || true`,
     `docker rm -f ${config.name} 2>/dev/null || true`,
+    `for i in $(seq 1 10); do docker inspect ${config.name} >/dev/null 2>&1 || break; sleep 1; done`,
     runCmd,
   ].join('\n');
   const b64 = Buffer.from(scriptLines).toString('base64');
   await execOnHost(endpoint, `echo '${b64}' | base64 -d > /tmp/kortix-update.sh && chmod +x /tmp/kortix-update.sh`, 5);
-  const restart = await execOnHost(endpoint, `systemd-run --unit=kortix-test-restart /tmp/kortix-update.sh`, 15);
+  const unitName = `kortix-test-${Date.now()}`;
+  await execOnHost(endpoint, `systemctl reset-failed kortix-test-restart 2>/dev/null || true`, 5);
+  const restart = await execOnHost(endpoint, `systemd-run --unit=${unitName} /tmp/kortix-update.sh`, 15);
   console.log('Restart:', restart.exitCode === 0 ? 'OK' : '(expected — connection dropped)');
 
   // Wait
