@@ -11,6 +11,7 @@ import { useColorScheme } from 'nativewind';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { SelectableMarkdownText } from '@/components/ui/selectable-markdown';
+import { SandboxPreviewCard, detectLocalhostUrls } from '@/components/chat/SandboxPreviewCard';
 import { ReasoningSection } from '@/components/chat';
 import ReAnimated, {
   useSharedValue,
@@ -2188,11 +2189,21 @@ export function SessionTurn({
             if (isTextPart(part)) {
               const tp = part as TextPart;
               if (!tp.text?.trim()) return null;
+              const detectedUrls = detectLocalhostUrls(tp.text);
               return (
                 <View key={tp.id} className="mb-2">
                   <SelectableMarkdownText isDark={isDark}>
                     {tp.text}
                   </SelectableMarkdownText>
+                  {detectedUrls.map((detected) => (
+                    <SandboxPreviewCard
+                      key={`preview-${detected.port}`}
+                      port={detected.port}
+                      path={detected.path}
+                      title={`localhost:${detected.port}${detected.path}`}
+                      description="Tap to open in browser"
+                    />
+                  ))}
                 </View>
               );
             }

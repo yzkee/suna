@@ -240,102 +240,169 @@ const createAndroidMarkdownRules = (isDark: boolean) => ({
       </RNText>
     </View>
   ),
-  // Table - horizontal scroll with rounded border (using gesture handler ScrollView)
-  table: (node: any, children: any, parent: any, styles: any) => (
-    <View
-      key={node.key}
-      style={{
-        marginVertical: 8,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: isDark ? '#3f3f46' : '#e4e4e7',
-        overflow: 'hidden',
-      }}
-    >
-      <GHScrollView 
-        horizontal={true} 
-        showsHorizontalScrollIndicator={true}
-      >
-        <View>
-          {children}
-        </View>
-      </GHScrollView>
-    </View>
-  ),
-  // Table header section
-  thead: (node: any, children: any, parent: any, styles: any) => (
-    <View 
-      key={node.key} 
-      style={{ backgroundColor: isDark ? '#27272a' : '#f4f4f5' }}
-    >
-      {children}
-    </View>
-  ),
-  // Table body
-  tbody: (node: any, children: any, parent: any, styles: any) => (
-    <View key={node.key}>
-      {children}
-    </View>
-  ),
-  // Table row - horizontal layout
-  tr: (node: any, children: any, parent: any, styles: any) => (
-    <View 
-      key={node.key} 
-      style={{
-        flexDirection: 'row',
-        borderBottomWidth: 1,
-        borderBottomColor: isDark ? '#3f3f46' : '#e4e4e7',
-      }}
-    >
-      {children}
-    </View>
-  ),
-  // Table header cell
-  th: (node: any, children: any, parent: any, styles: any) => (
-    <View 
-      key={node.key} 
-      style={{
-        width: 140,
-        paddingVertical: 12,
-        paddingHorizontal: 14,
-      }}
-    >
-      <RNText 
+  // Table - renders entire table from AST with coordinated column widths
+  table: (node: any, _children: any, parent: any, styles: any) => {
+    // Extract plain text from an AST node recursively
+    const extractText = (n: any): string => {
+      if (!n) return '';
+      if (n.content) return n.content;
+      if (!n.children) return '';
+      return n.children.map((c: any) => extractText(c)).join('');
+    };
+
+    // Render inline content from a cell AST node (supports bold, italic, code, links)
+    const renderCellContent = (cellNode: any, isHeader: boolean): React.ReactNode => {
+      const inlineNodes = cellNode.children || [];
+      // Cells often have a single wrapper node containing the actual content
+      const nodes = inlineNodes.length === 1 && inlineNodes[0].children
+        ? inlineNodes[0].children
+        : inlineNodes;
+
+      if (nodes.length === 0) return extractText(cellNode);
+
+      return nodes.map((n: any, i: number) => {
+        if (n.type === 'text') return n.content || '';
+        if (n.type === 'softbreak') return '\n';
+        if (n.type === 'strong') {
+          return (
+            <RNText key={i} style={{ fontFamily: 'Roobert-SemiBold' }}>
+              {extractText(n)}
+            </RNText>
+          );
+        }
+        if (n.type === 'em') {
+          return (
+            <RNText key={i} style={{ fontStyle: 'italic' }}>
+              {extractText(n)}
+            </RNText>
+          );
+        }
+        if (n.type === 's') {
+          return (
+            <RNText key={i} style={{ textDecorationLine: 'line-through' }}>
+              {extractText(n)}
+            </RNText>
+          );
+        }
+        if (n.type === 'code_inline') {
+          return (
+            <RNText key={i} style={{
+              fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+              fontSize: isHeader ? 10 : 12,
+              backgroundColor: isDark ? '#27272a' : '#f4f4f5',
+              color: isDark ? '#fca5a5' : '#dc2626',
+            }}>
+              {n.content}
+            </RNText>
+          );
+        }
+        if (n.type === 'link') {
+          return (
+            <RNText key={i} style={{ color: isDark ? '#3b82f6' : '#2563eb' }}
+              onPress={() => n.attributes?.href && Linking.openURL(n.attributes.href)}
+            >
+              {extractText(n)}
+            </RNText>
+          );
+        }
+        return extractText(n);
+      });
+    };
+
+    // Parse table structure from AST: table > thead/tbody > tr > th/td
+    const sections: { isHeader: boolean; rows: any[][] }[] = [];
+    for (const section of (node.children || [])) {
+      const isHeader = section.type === 'thead';
+      const rows: any[][] = [];
+      for (const row of (section.children || [])) {
+        if (row.type === 'tr') {
+          const cells = (row.children || []).filter((c: any) => c.type === 'th' || c.type === 'td');
+          rows.push(cells);
+        }
+      }
+      if (rows.length > 0) sections.push({ isHeader, rows });
+    }
+
+    // Compute column count
+    const colCount = Math.max(0, ...sections.flatMap(s => s.rows.map(r => r.length)));
+    if (colCount === 0) return <View key={node.key} />;
+
+    // Compute max text length per column, then estimate pixel width
+    const colWidths: number[] = [];
+    for (let col = 0; col < colCount; col++) {
+      let maxLen = 0;
+      for (const section of sections) {
+        for (const row of section.rows) {
+          if (col < row.length) {
+            const text = extractText(row[col]);
+            maxLen = Math.max(maxLen, text.length);
+          }
+        }
+      }
+      // ~7.5px per char at 13px Roobert font + 20px horizontal padding, min 44px
+      colWidths.push(Math.max(maxLen * 7.5 + 20, 44));
+    }
+
+    const borderColor = isDark ? '#3f3f46' : '#e4e4e7';
+
+    return (
+      <View
+        key={node.key}
         style={{
-          fontFamily: 'Roobert-SemiBold',
-          fontSize: 12,
-          textTransform: 'uppercase',
-          letterSpacing: 0.5,
-          color: isDark ? '#fafafa' : '#18181b',
+          marginVertical: 8,
+          borderRadius: 12,
+          borderWidth: 1,
+          borderColor,
+          overflow: 'hidden',
         }}
-        selectable={true}
       >
-        {children}
-      </RNText>
-    </View>
-  ),
-  // Table data cell
-  td: (node: any, children: any, parent: any, styles: any) => (
-    <View 
-      key={node.key} 
-      style={{
-        width: 140,
-        paddingVertical: 12,
-        paddingHorizontal: 14,
-      }}
-    >
-      <RNText 
-        style={{
-          fontFamily: 'Roobert-Regular',
-          fontSize: 14,
-          color: isDark ? '#fafafa' : '#18181b',
-        }}
-        selectable={true}
-      >
-        {children}
-      </RNText>
-    </View>
-  ),
+        <GHScrollView horizontal showsHorizontalScrollIndicator>
+          <View>
+            {sections.map((section, sIdx) =>
+              section.rows.map((cells, rIdx) => (
+                <View
+                  key={`${sIdx}-${rIdx}`}
+                  style={{
+                    flexDirection: 'row',
+                    borderBottomWidth: 1,
+                    borderBottomColor: borderColor,
+                    ...(section.isHeader ? { backgroundColor: isDark ? '#27272a' : '#f4f4f5' } : {}),
+                  }}
+                >
+                  {cells.map((cell: any, cIdx: number) => (
+                    <View
+                      key={cIdx}
+                      style={{
+                        width: colWidths[cIdx],
+                        paddingVertical: section.isHeader ? 6 : 8,
+                        paddingHorizontal: 10,
+                      }}
+                    >
+                      <RNText
+                        style={{
+                          fontFamily: section.isHeader ? 'Roobert-SemiBold' : 'Roobert-Regular',
+                          fontSize: section.isHeader ? 11 : 13,
+                          lineHeight: section.isHeader ? undefined : 17,
+                          letterSpacing: section.isHeader ? 0.3 : undefined,
+                          color: section.isHeader
+                            ? (isDark ? '#a1a1aa' : '#71717a')
+                            : (isDark ? '#fafafa' : '#18181b'),
+                          textAlign: 'left',
+                        }}
+                        selectable
+                      >
+                        {renderCellContent(cell, section.isHeader)}
+                      </RNText>
+                    </View>
+                  ))}
+                </View>
+              ))
+            )}
+          </View>
+        </GHScrollView>
+      </View>
+    );
+  },
 });
 
 /**
