@@ -36,13 +36,32 @@ export function BrowserPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: B
   const { sandboxId } = useSandboxContext();
 
   const webViewRef = useRef<WebView>(null);
-  const [urlInput, setUrlInput] = useState('');
-  const [currentUrl, setCurrentUrl] = useState('');
+
+  // Restore persisted state from tab store
+  const savedState = useTabStore((s) => s.tabStateById[page.id]) as { savedUrl?: string; savedDisplay?: string } | undefined;
+
+  const [urlInput, setUrlInput] = useState(savedState?.savedDisplay || '');
+  const [currentUrl, setCurrentUrl] = useState(savedState?.savedUrl || '');
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [authToken, setAuthToken] = useState<string | null>(null);
+
+  // Save state when unmounting (tab switch)
+  const currentUrlRef = useRef(currentUrl);
+  const urlInputRef = useRef(urlInput);
+  currentUrlRef.current = currentUrl;
+  urlInputRef.current = urlInput;
+
+  React.useEffect(() => {
+    return () => {
+      useTabStore.getState().setTabState(page.id, {
+        savedUrl: currentUrlRef.current,
+        savedDisplay: urlInputRef.current,
+      });
+    };
+  }, [page.id]);
 
   // Get initial URL from tab metadata or default
   const initialPort = (page as any).metadata?.port as number | undefined;
@@ -62,15 +81,16 @@ export function BrowserPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: B
     return '';
   }, [initialUrl, initialPort, sandboxId, getProxyUrl]);
 
-  // Fetch auth token on mount
+  // Fetch auth token on mount; only set URL if no saved state
   React.useEffect(() => {
     getAuthToken().then((token) => {
       setAuthToken(token);
-      if (resolvedInitialUrl) {
+      if (!currentUrl && resolvedInitialUrl) {
         setCurrentUrl(resolvedInitialUrl);
         setUrlInput(formatDisplayUrl(resolvedInitialUrl));
       }
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedInitialUrl]);
 
   const handleNavigationChange = useCallback((nav: WebViewNavigation) => {
@@ -157,8 +177,8 @@ export function BrowserPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: B
         </Pressable>
 
         {/* URL bar */}
-        <View className="flex-1 flex-row items-center rounded-lg px-2.5 py-1.5 mx-1" style={{ backgroundColor: inputBg }}>
-          {!isEditing && !isLoading && (
+        <View className="flex-1 flex-row items-center justify-center rounded-lg px-2.5 mx-1" style={{ backgroundColor: inputBg, height: 32 }}>
+          {!isLoading && (
             <Icon as={Globe} size={12} style={{ color: mutedColor }} strokeWidth={2} />
           )}
           {isLoading && (
@@ -177,6 +197,8 @@ export function BrowserPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: B
             keyboardType="url"
             returnKeyType="go"
             selectTextOnFocus
+            textAlign="left"
+            textAlignVertical="center"
             style={{
               flex: 1,
               marginLeft: 6,
@@ -184,6 +206,8 @@ export function BrowserPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: B
               fontFamily: 'Roobert',
               color: fgColor,
               paddingVertical: 0,
+              height: 32,
+              includeFontPadding: false,
             }}
           />
         </View>
