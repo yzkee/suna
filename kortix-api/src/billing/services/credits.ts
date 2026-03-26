@@ -21,41 +21,12 @@ export async function getBalance(accountId: string) {
 }
 
 export async function getCreditSummary(accountId: string) {
-  let account = await getCreditAccount(accountId);
+  const account = await getCreditAccount(accountId);
   if (!account) {
     return { total: 0, daily: 0, monthly: 0, extra: 0, canRun: false };
   }
 
-  // Lazy daily refresh + zero-balance fix.
-  if (account.tier) {
-    try {
-      const dailyConfig = getDailyCreditConfig(account.tier);
-      const bal = Number(account.balance) || 0;
-      const daily = Number(account.dailyCreditsBalance) || 0;
-
-      if (!dailyConfig && daily > 0) {
-        // Tier has no daily credits (legacy tiers, pro) — clear stale daily balance
-        const newBal = bal - daily; // remove daily portion from total
-        await updateCreditAccount(accountId, {
-          dailyCreditsBalance: '0',
-          balance: String(Math.max(0, newBal)),
-        } as any);
-        account = (await getCreditAccount(accountId)) ?? account;
-      } else if (bal < MINIMUM_CREDIT_FOR_RUN && daily > 0) {
-        // Balance is empty but daily credits exist — sync balance immediately.
-        await updateCreditAccount(accountId, { balance: account.dailyCreditsBalance } as any);
-        account = (await getCreditAccount(accountId)) ?? account;
-      } else if (dailyConfig) {
-        const result = await refreshDailyCredits(accountId, account.tier);
-        if (result) {
-          account = (await getCreditAccount(accountId)) ?? account;
-        }
-      }
-    } catch (err) {
-      console.warn('[getCreditSummary] Daily refresh failed:', err);
-    }
-  }
-
+  // Pure read. balance is kept in sync by the atomic RPCs (deduct/grant/reset).
   const daily = Number(account.dailyCreditsBalance) || 0;
   const monthly = Number(account.expiringCredits) || 0;
   const extra = Number(account.nonExpiringCredits) || 0;
