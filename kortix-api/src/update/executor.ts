@@ -3,14 +3,19 @@ import { sandboxes } from '@kortix/db';
 import { db } from '../shared/db';
 import { config } from '../config';
 import { getProvider, type ProviderName } from '../platform/providers';
-import { JustAVPSProvider, justavpsFetch } from '../platform/providers/justavps';
 import { setPhase, clearUpdateStatus } from './status';
+import {
+  readContainerConfig,
+  writeContainerConfig,
+  buildFromInspect,
+  buildDockerRunCommand,
+  type ContainerConfig,
+} from './container-config';
 import {
   getCurrentImage,
   pullImage,
-  patchStartScript,
   checkpointSqlite,
-  stopAndRestart,
+  stopAndStartContainer,
   verifyContainer,
 } from './steps';
 
@@ -21,8 +26,31 @@ function imageForVersion(version: string): string {
   return `${base}:${version}`;
 }
 
-function toBase64(str: string): string {
-  return Buffer.from(str).toString('base64');
+async function resolveContainerConfig(
+  endpoint: { url: string; headers: Record<string, string> },
+): Promise<ContainerConfig> {
+  const fromFile = await readContainerConfig(endpoint);
+  if (fromFile) return fromFile;
+
+  const fromInspect = await buildFromInspect(endpoint);
+  if (fromInspect) {
+    await writeContainerConfig(endpoint, fromInspect);
+    console.log(`[UPDATE] Migrated legacy container to config file (${fromInspect.name})`);
+    return fromInspect;
+  }
+
+  throw new Error('Cannot determine container config — no config file and no running container found');
+}
+
+async function tryBackup(provider: string, externalId: string): Promise<void> {
+  if (provider !== 'justavps') return;
+  try {
+    const { justavpsFetch } = await import('../platform/providers/justavps');
+    await justavpsFetch(`/machines/${externalId}/backups`, { method: 'POST' });
+    console.log(`[UPDATE] Backup created for machine ${externalId}`);
+  } catch (err) {
+    console.warn(`[UPDATE] Backup failed (non-fatal):`, err instanceof Error ? err.message : err);
+  }
 }
 
 export async function executeUpdate(sandboxId: string, targetVersion: string): Promise<void> {
@@ -33,17 +61,15 @@ export async function executeUpdate(sandboxId: string, targetVersion: string): P
     .limit(1);
 
   if (!row) throw new Error('Sandbox not found');
-  if (row.provider !== 'justavps') throw new Error('Update only supported for justavps sandboxes');
   if (!row.externalId) throw new Error('Sandbox has no external ID');
 
-  const provider = getProvider(row.provider as ProviderName) as JustAVPSProvider;
+  const provider = getProvider(row.provider as ProviderName);
   const endpoint = await provider.resolveEndpoint(row.externalId);
   const targetImage = imageForVersion(targetVersion);
 
   try {
-    const currentResult = await getCurrentImage(endpoint);
-    const inspectImage = currentResult.success ? currentResult.stdout.trim().replace(/'/g, '') : null;
-    const previousVersion = inspectImage?.split(':').pop() ?? null;
+    const containerConfig = await resolveContainerConfig(endpoint);
+    const previousVersion = containerConfig.image.split(':').pop() ?? null;
 
     // ── Backup ──
     await setPhase(sandboxId, 'backing_up', 5, 'Creating backup...', {
@@ -53,45 +79,33 @@ export async function executeUpdate(sandboxId: string, targetVersion: string): P
       error: null,
       startedAt: new Date().toISOString(),
     });
-    try {
-      await justavpsFetch(`/machines/${row.externalId}/backups`, { method: 'POST' });
-      console.log(`[UPDATE] Backup created for machine ${row.externalId}`);
-    } catch (err) {
-      console.warn(`[UPDATE] Backup failed (non-fatal):`, err instanceof Error ? err.message : err);
-    }
+    await tryBackup(row.provider, row.externalId);
 
     // ── Pull ──
     await setPhase(sandboxId, 'pulling', 15, `Pulling ${targetImage}...`);
-
     const pullResult = await pullImage(endpoint, targetImage);
     if (!pullResult.success) throw new Error(`Pull failed: ${pullResult.stderr}`);
 
-    // ── Patch start script ──
-    await setPhase(sandboxId, 'patching', 30, 'Patching start script...');
+    // ── Checkpoint ──
+    await setPhase(sandboxId, 'stopping', 40, 'Saving state...');
+    await checkpointSqlite(endpoint, containerConfig.name);
 
-    const oldImage = previousVersion ? imageForVersion(previousVersion) : null;
-    const oldBase64 = oldImage ? toBase64(oldImage) : null;
-    const newBase64 = toBase64(targetImage);
-
-    if (oldBase64) {
-      const patchResult = await patchStartScript(endpoint, oldBase64, newBase64);
-      if (!patchResult.success) throw new Error(`Patch script failed: ${patchResult.stderr}`);
-    }
-
-    // ── Checkpoint & stop ──
-    await setPhase(sandboxId, 'stopping', 50, 'Saving state and stopping sandbox...');
-    await checkpointSqlite(endpoint);
-
-    await setPhase(sandboxId, 'restarting', 55, 'Restarting sandbox...');
-    const restartResult = await stopAndRestart(endpoint);
+    // ── Stop & restart ──
+    await setPhase(sandboxId, 'restarting', 55, 'Restarting with new image...');
+    const updatedConfig: ContainerConfig = { ...containerConfig, image: targetImage };
+    const runCmd = buildDockerRunCommand(updatedConfig);
+    const restartResult = await stopAndStartContainer(endpoint, containerConfig.name, runCmd);
     if (!restartResult.success) {
       console.warn(`[UPDATE] Restart warning (may be expected 502): ${restartResult.stderr}`);
     }
 
     // ── Verify ──
     await setPhase(sandboxId, 'verifying', 80, 'Verifying new container...');
-    const verifyResult = await verifyContainer(endpoint, targetImage);
+    const verifyResult = await verifyContainer(endpoint, targetImage, updatedConfig.name);
     if (!verifyResult.success) throw new Error(`Verify failed: ${verifyResult.stderr}`);
+
+    // ── Persist config only after verified ──
+    await writeContainerConfig(endpoint, updatedConfig);
 
     // ── Complete ──
     await setPhase(sandboxId, 'complete', 100, `Updated to v${targetVersion}`, {

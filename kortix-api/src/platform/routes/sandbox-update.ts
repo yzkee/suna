@@ -57,18 +57,29 @@ sandboxIdUpdateRouter.post('/', async (c) => {
     return c.json({ success: false, error: 'Sandbox not found' }, 404);
   }
 
-  if (sandbox.provider === 'justavps') {
-    const status = await getUpdateStatus(sandbox.sandboxId);
-    if (status.phase !== 'idle' && status.phase !== 'complete' && status.phase !== 'failed') {
+  if (sandbox.provider === 'local_docker') {
+    let provider: LocalDockerProvider;
+    try {
+      const p = getProvider('local_docker' as ProviderName);
+      if (!(p instanceof LocalDockerProvider)) {
+        return c.json({ success: false, error: 'local_docker provider not available' }, 400);
+      }
+      provider = p;
+    } catch {
+      return c.json({ success: false, error: 'local_docker provider not available' }, 400);
+    }
+
+    const currentStatus = getSandboxUpdateStatus();
+    if (currentStatus.phase !== 'idle' && currentStatus.phase !== 'complete' && currentStatus.phase !== 'failed') {
       return c.json({
         success: false,
-        error: `Update already in progress (phase: ${status.phase})`,
-        status,
+        error: `Update already in progress (phase: ${currentStatus.phase})`,
+        status: currentStatus,
       }, 409);
     }
 
-    executeUpdate(sandbox.sandboxId, targetVersion).catch((err) => {
-      console.error('[SANDBOX-UPDATE] JustAVPS update failed:', err.message || err);
+    provider.updateSandbox(targetVersion).catch((err) => {
+      console.error('[SANDBOX-UPDATE] Local Docker update failed:', err.message || err);
     });
 
     return c.json({
@@ -77,32 +88,22 @@ sandboxIdUpdateRouter.post('/', async (c) => {
       message: `Update to v${targetVersion} started. Poll GET /status for progress.`,
       targetVersion,
       sandboxId: sandbox.sandboxId,
-      provider: 'justavps',
+      provider: 'local_docker',
     });
   }
 
-  let provider: LocalDockerProvider;
-  try {
-    const p = getProvider('local_docker' as ProviderName);
-    if (!(p instanceof LocalDockerProvider)) {
-      return c.json({ success: false, error: `Update not supported for provider: ${sandbox.provider}` }, 400);
-    }
-    provider = p;
-  } catch {
-    return c.json({ success: false, error: 'local_docker provider not available' }, 400);
-  }
-
-  const currentStatus = getSandboxUpdateStatus();
-  if (currentStatus.phase !== 'idle' && currentStatus.phase !== 'complete' && currentStatus.phase !== 'failed') {
+  // Any remote provider — uses toolbox exec for docker commands
+  const status = await getUpdateStatus(sandbox.sandboxId);
+  if (status.phase !== 'idle' && status.phase !== 'complete' && status.phase !== 'failed') {
     return c.json({
       success: false,
-      error: `Update already in progress (phase: ${currentStatus.phase})`,
-      status: currentStatus,
+      error: `Update already in progress (phase: ${status.phase})`,
+      status,
     }, 409);
   }
 
-  provider.updateSandbox(targetVersion).catch((err) => {
-    console.error('[SANDBOX-UPDATE] Local Docker update failed:', err.message || err);
+  executeUpdate(sandbox.sandboxId, targetVersion).catch((err) => {
+    console.error('[SANDBOX-UPDATE] Update failed:', err.message || err);
   });
 
   return c.json({
@@ -111,7 +112,7 @@ sandboxIdUpdateRouter.post('/', async (c) => {
     message: `Update to v${targetVersion} started. Poll GET /status for progress.`,
     targetVersion,
     sandboxId: sandbox.sandboxId,
-    provider: 'local_docker',
+    provider: sandbox.provider,
   });
 });
 
@@ -125,11 +126,11 @@ sandboxIdUpdateRouter.get('/status', async (c) => {
     return c.json({ success: false, error: 'Sandbox not found' }, 404);
   }
 
-  if (sandbox.provider === 'justavps') {
-    return c.json(await getUpdateStatus(sandbox.sandboxId));
+  if (sandbox.provider === 'local_docker') {
+    return c.json(getSandboxUpdateStatus());
   }
 
-  return c.json(getSandboxUpdateStatus());
+  return c.json(await getUpdateStatus(sandbox.sandboxId));
 });
 
 sandboxIdUpdateRouter.post('/reset', async (c) => {
@@ -142,13 +143,13 @@ sandboxIdUpdateRouter.post('/reset', async (c) => {
     return c.json({ success: false, error: 'Sandbox not found' }, 404);
   }
 
-  if (sandbox.provider === 'justavps') {
-    await resetUpdateStatus(sandbox.sandboxId);
-    return c.json({ success: true, message: 'Update status reset' });
+  if (sandbox.provider === 'local_docker') {
+    resetSandboxUpdateStatus();
+    return c.json({ success: true, message: 'Update status reset to idle' });
   }
 
-  resetSandboxUpdateStatus();
-  return c.json({ success: true, message: 'Update status reset to idle' });
+  await resetUpdateStatus(sandbox.sandboxId);
+  return c.json({ success: true, message: 'Update status reset' });
 });
 
 // ── Legacy routes: /sandbox/update/* (no sandbox ID, picks most recent) ──────
