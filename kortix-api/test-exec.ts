@@ -2,126 +2,134 @@
  * Sandbox toolbox test utility.
  *
  * Usage:
- *   bun run test-exec.ts status <sandboxId>
- *   bun run test-exec.ts update <sandboxId> <version>
- *   bun run test-exec.ts downgrade <sandboxId> <version>
- *   bun run test-exec.ts exec <sandboxId> <command>
- *   bun run test-exec.ts script <sandboxId>           # show start script image
- *   bun run test-exec.ts verify <sandboxId>           # full diagnostic
+ *   bun run test-exec.ts status    <sandboxId>
+ *   bun run test-exec.ts update    <sandboxId> <version>
+ *   bun run test-exec.ts downgrade <sandboxId> <version>   (alias for update)
+ *   bun run test-exec.ts exec      <sandboxId> <command>
+ *   bun run test-exec.ts config    <sandboxId>             # show container config
+ *   bun run test-exec.ts verify    <sandboxId>             # full diagnostic
  */
 
 import { eq } from 'drizzle-orm';
 import { sandboxes } from '@kortix/db';
 import { db } from './src/shared/db';
 import { getProvider, type ProviderName } from './src/platform/providers';
-import { JustAVPSProvider } from './src/platform/providers/justavps';
+import { execOnHost } from './src/update/exec';
+import {
+  readContainerConfig,
+  writeContainerConfig,
+  buildFromInspect,
+  buildDockerRunCommand,
+  type ContainerConfig,
+} from './src/update/container-config';
+import type { ResolvedEndpoint } from './src/platform/providers';
 
-type Endpoint = { url: string; headers: Record<string, string> };
-
-function toBase64(str: string): string {
-  return Buffer.from(str).toString('base64');
-}
-
-function imageForVersion(version: string): string {
-  return `kortix/computer:${version}`;
-}
-
-async function exec(endpoint: Endpoint, command: string, timeout = 60) {
-  const url = `${endpoint.url}/toolbox/process/execute`;
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { ...endpoint.headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ command, timeout }),
-    signal: AbortSignal.timeout((timeout + 15) * 1000),
-  });
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '');
-    return { exit_code: -1, stdout: '', stderr: `HTTP ${resp.status}: ${text}`, duration_ms: 0 };
-  }
-  return (await resp.json()) as { exit_code: number; stdout: string; stderr: string; duration_ms: number };
-}
-
-async function resolveEndpoint(sandboxId: string): Promise<{ endpoint: Endpoint; row: any }> {
+async function resolveEndpoint(sandboxId: string): Promise<{ endpoint: ResolvedEndpoint; row: any }> {
   const [row] = await db.select().from(sandboxes).where(eq(sandboxes.sandboxId, sandboxId)).limit(1);
   if (!row) { console.error('Sandbox not found:', sandboxId); process.exit(1); }
-  const provider = getProvider(row.provider as ProviderName) as JustAVPSProvider;
+  const provider = getProvider(row.provider as ProviderName);
   const endpoint = await provider.resolveEndpoint(row.externalId!);
   return { endpoint, row };
 }
 
-async function getCurrentImage(endpoint: Endpoint): Promise<string> {
-  const r = await exec(endpoint, "docker inspect --format='{{.Config.Image}}' justavps-workload");
-  return r.stdout?.trim().replace(/'/g, '') ?? '';
+async function getConfig(endpoint: ResolvedEndpoint): Promise<ContainerConfig> {
+  const fromFile = await readContainerConfig(endpoint);
+  if (fromFile) return fromFile;
+  const fromInspect = await buildFromInspect(endpoint);
+  if (fromInspect) {
+    await writeContainerConfig(endpoint, fromInspect);
+    console.log('(migrated legacy container to config file)');
+    return fromInspect;
+  }
+  throw new Error('No container config found');
 }
 
 // ── Commands ──────────────────────────────────────────────────────────────────
 
 async function cmdStatus(sandboxId: string) {
   const { endpoint, row } = await resolveEndpoint(sandboxId);
-  const image = await getCurrentImage(endpoint);
-  const version = image.split(':').pop() ?? 'unknown';
+  const config = await getConfig(endpoint);
 
   console.log('Sandbox:', sandboxId);
   console.log('External ID:', row.externalId);
   console.log('Provider:', row.provider);
-  console.log('Base URL:', row.baseUrl);
-  console.log('Running image:', image);
-  console.log('Version:', version);
+  console.log('Container:', config.name);
+  console.log('Image:', config.image);
 
-  const imageId = await exec(endpoint, "docker inspect --format='{{.Image}}' justavps-workload");
+  const imageId = await execOnHost(endpoint, `docker inspect --format='{{.Image}}' ${config.name}`, 10);
   console.log('Image SHA:', imageId.stdout?.trim());
 
-  const uptime = await exec(endpoint, "docker inspect --format='{{.State.StartedAt}}' justavps-workload");
+  const uptime = await execOnHost(endpoint, `docker inspect --format='{{.State.StartedAt}}' ${config.name}`, 10);
   console.log('Started at:', uptime.stdout?.trim());
 }
 
 async function cmdUpdate(sandboxId: string, targetVersion: string) {
   const { endpoint } = await resolveEndpoint(sandboxId);
-  const currentImage = await getCurrentImage(endpoint);
-  const currentVersion = currentImage.split(':').pop()!;
-  const targetImage = imageForVersion(targetVersion);
+  const config = await getConfig(endpoint);
+  const currentVersion = config.image.split(':').pop()!;
 
-  if (currentImage === targetImage) {
+  const base = config.image.split(':')[0];
+  const targetImage = `${base}:${targetVersion}`;
+
+  if (config.image === targetImage) {
     console.log('Already running', targetImage);
     return;
   }
 
   console.log(`Updating ${currentVersion} → ${targetVersion}`);
 
-  // Pull
-  console.log('Pulling', targetImage, '...');
-  const pull = await exec(endpoint, `docker pull ${targetImage}`, 300);
-  if (pull.exit_code !== 0) { console.error('Pull failed:', pull.stderr); return; }
-  console.log('Pull: OK');
+  // Pull (skip if already cached locally)
+  const exists = await execOnHost(endpoint, `docker image inspect ${targetImage} >/dev/null 2>&1 && echo cached`, 10);
+  if (exists.stdout?.trim() === 'cached') {
+    console.log('Image already cached locally, skipping pull');
+  } else {
+    console.log('Pulling', targetImage, '(detached)...');
+    await execOnHost(endpoint, `systemd-run --unit=kortix-image-pull docker pull ${targetImage}`, 15);
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 5000));
+      const check = await execOnHost(endpoint, `docker image inspect ${targetImage} >/dev/null 2>&1 && echo ready`, 10);
+      if (check.stdout?.trim() === 'ready') { console.log('Pull: OK'); break; }
+      if (i === 59) { console.error('Pull timed out'); return; }
+      process.stdout.write('.');
+    }
+  }
 
-  // Patch start script
-  const oldBase64 = toBase64(imageForVersion(currentVersion));
-  const newBase64 = toBase64(targetImage);
-  const patch = await exec(endpoint, `sed -i "s|${oldBase64}|${newBase64}|" /usr/local/bin/justavps-docker-start.sh`);
-  if (patch.exit_code !== 0) { console.error('Patch failed:', patch.stderr); return; }
-
-  const verify = await exec(endpoint, `grep -c '${newBase64}' /usr/local/bin/justavps-docker-start.sh`);
-  if (verify.stdout?.trim() !== '1') { console.error('Patch did not apply — base64 not found in script'); return; }
-  console.log('Patch: OK');
-
-  // Restart
-  const unitName = `justavps-update-${Date.now()}`;
-  // Checkpoint SQLite WAL before stopping
-  await exec(endpoint, `docker exec justavps-workload python3 -c "import sqlite3,glob
+  // Checkpoint
+  console.log('Checkpointing SQLite...');
+  await execOnHost(endpoint, `docker exec ${config.name} python3 -c "import sqlite3,glob
 for db in glob.glob('/workspace/.local/share/opencode/*.db'):
  c=sqlite3.connect(db);c.execute('PRAGMA wal_checkpoint(TRUNCATE)');c.close()" 2>/dev/null || true`, 10);
 
-  const script = "docker stop -t 10 justavps-workload 2>/dev/null || docker rm -f justavps-workload 2>/dev/null || true && fuser -k 3456/tcp 2>/dev/null || true && systemctl restart justavps-docker";
-  const restart = await exec(endpoint, `systemd-run --unit=${unitName} bash -c '${script}'`, 15);
-  console.log('Restart:', restart.exit_code === 0 ? 'OK' : restart.stderr);
+  // Stop + start as one detached unit (survives connection drop)
+  console.log('Stopping and restarting...');
+  const updatedConfig: ContainerConfig = { ...config, image: targetImage };
+  const runCmd = buildDockerRunCommand(updatedConfig);
+  const scriptLines = [
+    '#!/bin/bash',
+    'set -e',
+    'systemctl disable --now justavps-docker 2>/dev/null || true',
+    'systemctl disable --now kortix-sandbox 2>/dev/null || true',
+    `docker stop -t 10 ${config.name} 2>/dev/null || true`,
+    `docker rm -f ${config.name} 2>/dev/null || true`,
+    `for i in $(seq 1 10); do docker inspect ${config.name} >/dev/null 2>&1 || break; sleep 1; done`,
+    runCmd,
+  ].join('\n');
+  const b64 = Buffer.from(scriptLines).toString('base64');
+  await execOnHost(endpoint, `echo '${b64}' | base64 -d > /tmp/kortix-update.sh && chmod +x /tmp/kortix-update.sh`, 5);
+  const unitName = `kortix-test-${Date.now()}`;
+  await execOnHost(endpoint, `systemctl reset-failed kortix-test-restart 2>/dev/null || true`, 5);
+  const restart = await execOnHost(endpoint, `systemd-run --unit=${unitName} /tmp/kortix-update.sh`, 15);
+  console.log('Restart:', restart.exitCode === 0 ? 'OK' : '(expected — connection dropped)');
 
   // Wait
   console.log('Waiting for container...');
   for (let i = 0; i < 15; i++) {
     await new Promise((r) => setTimeout(r, 3000));
-    const running = await getCurrentImage(endpoint);
+    const check = await execOnHost(endpoint, `docker inspect --format='{{.Config.Image}}' ${updatedConfig.name}`, 10);
+    const running = check.stdout?.trim().replace(/'/g, '');
     console.log(`  Attempt ${i + 1}: ${running || '(not running)'}`);
-    if (running === targetImage) {
+    if (check.exitCode === 0 && running === targetImage) {
+      await writeContainerConfig(endpoint, updatedConfig);
       console.log(`Done — now running ${targetVersion}`);
       return;
     }
@@ -131,20 +139,16 @@ for db in glob.glob('/workspace/.local/share/opencode/*.db'):
 
 async function cmdExec(sandboxId: string, command: string) {
   const { endpoint } = await resolveEndpoint(sandboxId);
-  const result = await exec(endpoint, command);
+  const result = await execOnHost(endpoint, command);
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);
-  process.exit(result.exit_code);
+  process.exit(result.exitCode);
 }
 
-async function cmdScript(sandboxId: string) {
+async function cmdConfig(sandboxId: string) {
   const { endpoint } = await resolveEndpoint(sandboxId);
-  const r = await exec(endpoint, "grep -oP \"printf '%s' '\\K[^']+\" /usr/local/bin/justavps-docker-start.sh | head -1");
-  const b64 = r.stdout?.trim();
-  if (!b64) { console.log('No base64 image found in start script'); return; }
-  const decoded = Buffer.from(b64, 'base64').toString('utf-8');
-  console.log('Base64 in script:', b64);
-  console.log('Decoded image:', decoded);
+  const config = await getConfig(endpoint);
+  console.log(JSON.stringify(config, null, 2));
 }
 
 async function cmdVerify(sandboxId: string) {
@@ -154,36 +158,29 @@ async function cmdVerify(sandboxId: string) {
   console.log('ID:', sandboxId);
   console.log('External:', row.externalId);
   console.log('Provider:', row.provider);
-  console.log('Endpoint:', endpoint.url);
+
+  console.log('\n=== Container Config ===');
+  const config = await getConfig(endpoint);
+  console.log('Name:', config.name);
+  console.log('Image:', config.image);
+  console.log('Volumes:', config.volumes.join(', '));
+  console.log('Ports:', config.ports.length, 'mapped');
 
   console.log('\n=== Running Container ===');
-  const image = await getCurrentImage(endpoint);
-  console.log('Image:', image);
-
-  const imageId = await exec(endpoint, "docker inspect --format='{{.Image}}' justavps-workload");
+  const imageId = await execOnHost(endpoint, `docker inspect --format='{{.Image}}' ${config.name}`, 10);
   console.log('SHA:', imageId.stdout?.trim());
 
-  console.log('\n=== Start Script ===');
-  const scriptB64 = await exec(endpoint, "grep -oP \"printf '%s' '\\K[^']+\" /usr/local/bin/justavps-docker-start.sh | head -1");
-  const b64 = scriptB64.stdout?.trim();
-  if (b64) {
-    const decoded = Buffer.from(b64, 'base64').toString('utf-8');
-    console.log('Script image:', decoded);
-    console.log('Matches running:', decoded === image ? 'YES' : `NO (running: ${image})`);
-  } else {
-    console.log('Could not read script base64');
-  }
-
   console.log('\n=== Local Images ===');
-  const images = await exec(endpoint, "docker images kortix/computer --format '{{.Tag}} {{.ID}}' | head -5");
+  const base = config.image.split(':')[0];
+  const images = await execOnHost(endpoint, `docker images ${base} --format '{{.Tag}} {{.ID}}' | head -5`, 10);
   console.log(images.stdout?.trim());
 
   console.log('\n=== Disk ===');
-  const disk = await exec(endpoint, "df -h / | tail -1");
+  const disk = await execOnHost(endpoint, 'df -h / | tail -1', 10);
   console.log(disk.stdout?.trim());
 
   console.log('\n=== Docker Disk ===');
-  const dockerDisk = await exec(endpoint, "docker system df --format '{{.Type}}: {{.Size}} (reclaimable: {{.Reclaimable}})'");
+  const dockerDisk = await execOnHost(endpoint, "docker system df --format '{{.Type}}: {{.Size}} (reclaimable: {{.Reclaimable}})'", 10);
   console.log(dockerDisk.stdout?.trim());
 }
 
@@ -197,7 +194,7 @@ if (!command || !sandboxId) {
   bun run test-exec.ts update    <sandboxId> <version>
   bun run test-exec.ts downgrade <sandboxId> <version>   (alias for update)
   bun run test-exec.ts exec      <sandboxId> <command>
-  bun run test-exec.ts script    <sandboxId>
+  bun run test-exec.ts config    <sandboxId>
   bun run test-exec.ts verify    <sandboxId>`);
   process.exit(1);
 }
@@ -207,7 +204,7 @@ const handlers: Record<string, () => Promise<void>> = {
   update: () => cmdUpdate(sandboxId, rest[0]!),
   downgrade: () => cmdUpdate(sandboxId, rest[0]!),
   exec: () => cmdExec(sandboxId, rest.join(' ')),
-  script: () => cmdScript(sandboxId),
+  config: () => cmdConfig(sandboxId),
   verify: () => cmdVerify(sandboxId),
 };
 

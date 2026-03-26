@@ -37,6 +37,7 @@ import { legacyApp } from './legacy';
 import { channelsApp } from './channels';
 import { channelWebhooksApp } from './channels/webhooks';
 import { adminApp } from './admin';
+import { sandboxPoolAdminApp } from './platform/routes/sandbox-pool-admin';
 import { oauthApp } from './oauth';
 
 // ─── App Setup ──────────────────────────────────────────────────────────────
@@ -269,6 +270,7 @@ if (config.isLocal()) {
   app.route('/v1/setup', setupApp);        // /v1/setup/install-status (public), rest (auth inside router)
 }
 app.route('/v1/admin', adminApp);          // /v1/admin/api/sandboxes, /v1/admin/api/env, /v1/admin/api/health, etc.
+app.route('/v1/admin/sandbox-pool', sandboxPoolAdminApp); // /v1/admin/sandbox-pool/health, /v1/admin/sandbox-pool/list, etc.
 
 // OAuth2 provider — public token endpoint, auth on authorize/consent
 app.route('/v1/oauth', oauthApp);

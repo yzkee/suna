@@ -339,7 +339,6 @@ export class JustAVPSProvider implements SandboxProvider {
       region: location,
       name: `kortix-sandbox-${opts.accountId.slice(0, 8)}-${Date.now().toString(36)}`,
       env_vars: envVars,
-      docker_image: config.SANDBOX_IMAGE,
     };
 
     const imageId = await resolveLatestImageId();
