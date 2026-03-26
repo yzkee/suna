@@ -52,6 +52,7 @@ import { UserMenuSheet } from '@/components/session/UserMenuSheet';
 import { useGlobalSandboxUpdate } from '@/hooks/useSandboxUpdate';
 import { PlaceholderPage } from '@/components/session/PlaceholderPage';
 import { UpdatesPage } from '@/components/pages/UpdatesPage';
+import { SSHPage } from '@/components/pages/SSHPage';
 import { FilesPage } from '@/components/pages/FilesPage';
 import type { FilesPageRef } from '@/components/pages/FilesPage';
 import { SecretsPage } from '@/components/pages/SecretsPage';
@@ -867,6 +868,15 @@ export default function HomeScreen() {
           /* Active page tab — Updates */
           ) : activePageId === 'page:updates' && PAGE_TABS[activePageId] && !showTabsOverview ? (
             <UpdatesPage
+              page={PAGE_TABS[activePageId]}
+              onBack={handleBack}
+              onOpenDrawer={handleDrawerOpen}
+              onOpenRightDrawer={handleRightDrawerOpen}
+            />
+
+          /* Active page tab — SSH */
+          ) : activePageId === 'page:ssh' && PAGE_TABS[activePageId] && !showTabsOverview ? (
+            <SSHPage
               page={PAGE_TABS[activePageId]}
               onBack={handleBack}
               onOpenDrawer={handleDrawerOpen}

@@ -384,3 +384,24 @@ export async function resetSandboxUpdateStatus(): Promise<void> {
     method: 'POST',
   });
 }
+
+// ─── SSH API ────────────────────────────────────────────────────────────────
+
+export interface SSHSetupResult {
+  private_key: string;
+  public_key: string;
+  ssh_command: string;
+  host: string;
+  port: number;
+  username: string;
+}
+
+export async function setupSSH(): Promise<SSHSetupResult> {
+  const result = await platformFetch<SSHSetupResult>('/platform/sandbox/ssh/setup', {
+    method: 'POST',
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error || 'Failed to setup SSH');
+  }
+  return result.data;
+}
