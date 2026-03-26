@@ -39,12 +39,12 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 // ─── Status helpers ─────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; dotColor: string }> = {
-  active:       { label: 'Active',        color: 'text-emerald-500', dotColor: 'bg-emerald-500' },
-  provisioning: { label: 'Provisioning',  color: 'text-amber-500',   dotColor: 'bg-amber-400' },
-  stopped:      { label: 'Stopped',       color: 'text-muted-foreground', dotColor: 'bg-muted-foreground/40' },
-  error:        { label: 'Error',         color: 'text-red-400',     dotColor: 'bg-red-400' },
-  available:    { label: 'Available',     color: 'text-blue-500',    dotColor: 'bg-blue-500' },
-  archived:     { label: 'Archived',      color: 'text-muted-foreground/50', dotColor: 'bg-muted-foreground/20' },
+  active: { label: 'Active', color: 'text-emerald-500', dotColor: 'bg-emerald-500' },
+  provisioning: { label: 'Provisioning', color: 'text-amber-500', dotColor: 'bg-amber-400' },
+  stopped: { label: 'Stopped', color: 'text-muted-foreground', dotColor: 'bg-muted-foreground/40' },
+  error: { label: 'Error', color: 'text-red-400', dotColor: 'bg-red-400' },
+  available: { label: 'Available', color: 'text-blue-500', dotColor: 'bg-blue-500' },
+  archived: { label: 'Archived', color: 'text-muted-foreground/50', dotColor: 'bg-muted-foreground/20' },
 };
 
 function getStatusConfig(status: string) {
@@ -52,10 +52,10 @@ function getStatusConfig(status: string) {
 }
 
 const PROVIDER_CONFIG: Record<string, { label: string; icon: typeof Server; badgeCls: string }> = {
-  justavps:     { label: 'VPS',   icon: Server,    badgeCls: 'text-orange-500/70 bg-orange-500/10' },
-  daytona:      { label: 'Cloud', icon: Cloud,     badgeCls: 'text-violet-500/70 bg-violet-500/10' },
+  justavps: { label: 'VPS', icon: Server, badgeCls: 'text-orange-500/70 bg-orange-500/10' },
+  daytona: { label: 'Cloud', icon: Cloud, badgeCls: 'text-violet-500/70 bg-violet-500/10' },
   local_docker: { label: 'Local', icon: Container, badgeCls: 'text-blue-500/70 bg-blue-500/10' },
-  custom:       { label: 'Custom', icon: Box,      badgeCls: 'text-muted-foreground/70 bg-muted/50' },
+  custom: { label: 'Custom', icon: Box, badgeCls: 'text-muted-foreground/70 bg-muted/50' },
 };
 
 function getProviderConfig(provider: string) {
@@ -218,7 +218,7 @@ export default function InstancesPage() {
       setAutoCreating(true);
       ensureSandbox()
         .then(() => refetch())
-        .catch(() => {})
+        .catch(() => { })
         .finally(() => setAutoCreating(false));
     }
   }, [user, isLoading, sandboxes, autoCreating, isCloud, refetch]);
@@ -258,7 +258,7 @@ export default function InstancesPage() {
       setAutoCreating(true);
       ensureSandbox()
         .then(() => refetch())
-        .catch(() => {})
+        .catch(() => { })
         .finally(() => setAutoCreating(false));
     }
   }
@@ -372,23 +372,49 @@ export default function InstancesPage() {
             </div>
           )}
 
-          {/* Claim computer — full-width card for legacy paid users */}
+          {/* Claim computer card for legacy paid users */}
           {canClaimComputer && !pageLoading && (
-            <div className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/[0.06] to-transparent p-8 flex flex-col items-center text-center gap-5">
-              <div className="flex items-center justify-center h-16 w-16 rounded-2xl bg-primary/10">
-                <Monitor className="h-8 w-8 text-primary" />
-              </div>
-              <div className="space-y-2 max-w-md">
-                <h3 className="text-lg font-semibold text-foreground">Kortix got an upgrade</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  Your plan now includes a free cloud computer with {accountState?.tier?.monthly_credits ? `$${accountState.tier.monthly_credits}` : ''} in monthly credits.
-                  Claim it to start running agents, writing code, and automating tasks — all in the cloud.
+            <div className="rounded-2xl border border-border/50 bg-gradient-to-b from-background to-muted/20 px-8 py-14 pb-6 flex flex-col items-center text-center gap-6">
+              <img
+                src="/kortix-computer.png"
+                alt="Kortix Computer"
+                className="h-40 w-40 object-contain"
+              />
+
+              <div className="space-y-3 max-w-md">
+                <h3 className="text-2xl font-semibold tracking-tight text-foreground">
+                  Kortix is now even better
+                </h3>
+                <p className="text-base text-muted-foreground leading-relaxed">
+                  Your plan now includes a dedicated cloud computer
+                  {accountState?.tier?.monthly_credits ? (<> with <span className="text-foreground font-medium">${accountState.tier.monthly_credits}/mo</span> in credits</>) : ''}.
+                  Always on, runs while you sleep, full root access.
                 </p>
               </div>
-              <Button size="lg" onClick={handleClaimComputer} disabled={claiming} className="gap-2 px-8">
-                {claiming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Monitor className="h-4 w-4" />}
-                {claiming ? 'Setting up your computer...' : 'Claim Your Free Computer'}
+
+              <Button
+                size="lg"
+                onClick={handleClaimComputer}
+                disabled={claiming}
+                className="gap-2 px-8 h-11 text-sm font-medium"
+              >
+                {claiming ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Setting up...
+                  </>
+                ) : (
+                  'Claim Computer'
+                )}
               </Button>
+
+              <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground/60 mt-8">
+                <span>Included in your plan</span>
+                <span className="h-3 w-px bg-border/50" />
+                <span>Always on</span>
+                <span className="h-3 w-px bg-border/50" />
+                <span>Persistent storage</span>
+              </div>
             </div>
           )}
 
