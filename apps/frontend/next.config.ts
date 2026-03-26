@@ -1,26 +1,6 @@
 import type { NextConfig } from 'next';
 import path from 'path';
 
-// Dynamically determine backend URL based on Vercel environment
-const getBackendUrl = (): string => {
-  // If explicitly set via Vercel dashboard/env, use that (highest priority)
-  const explicitUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
-  if (explicitUrl && explicitUrl.trim() !== '') {
-    return explicitUrl;
-  }
-
-  // Vercel environment detection
-  const vercelEnv = process.env.VERCEL_ENV; // 'production', 'preview', or 'development'
-
-  // Production environment → prod API
-  if (vercelEnv === 'production') {
-    return 'https://new-api.kortix.com/v1';
-  }
-
-  // Preview / development → dev API
-  return 'https://dev-new-api.kortix.com/v1';
-};
-
 const nextConfig = (): NextConfig => ({
   output: 'standalone',
   // Pin tracing root to monorepo root so standalone preserves
@@ -30,11 +10,6 @@ const nextConfig = (): NextConfig => ({
   // Skip type checking during build (done in CI via `pnpm typecheck`)
   typescript: {
     ignoreBuildErrors: true,
-  },
-
-  // Set environment variables
-  env: {
-    NEXT_PUBLIC_BACKEND_URL: getBackendUrl(),
   },
 
   // Webpack configuration to make Konva work with Next.js
