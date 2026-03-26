@@ -143,7 +143,12 @@ export function RunningServicesPage({ page, onBack, onOpenDrawer, onOpenRightDra
         <Pressable onPress={onOpenDrawer} hitSlop={8} className="mr-3">
           <Icon as={Menu} size={20} className="text-foreground" strokeWidth={2} />
         </Pressable>
-        <Text className="flex-1 text-lg font-roobert-medium text-foreground">{page.label}</Text>
+        <View className="flex-1">
+          <Text className="text-[17px] font-roobert-semibold text-foreground" style={{ lineHeight: 18, includeFontPadding: false }}>{page.label}</Text>
+          <Text className="font-roobert text-[11px] text-muted-foreground" style={{ marginTop: -3, includeFontPadding: false }}>
+            {isLoading ? 'Loading...' : `${runningCount} service${runningCount !== 1 ? 's' : ''} running`}
+          </Text>
+        </View>
         <Pressable onPress={onOpenRightDrawer} hitSlop={8} className="ml-3 p-1">
           <Ionicons name="apps-outline" size={20} color={isDark ? '#F8F8F8' : '#121215'} />
         </Pressable>
@@ -160,11 +165,6 @@ export function RunningServicesPage({ page, onBack, onOpenDrawer, onOpenRightDra
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
       >
         <View className="px-5 pt-2">
-          {/* Title */}
-          <Text className="text-2xl font-roobert-semibold text-foreground">Running Services</Text>
-          <Text className="mt-1 font-roobert text-sm text-muted-foreground">
-            {isLoading ? 'Loading...' : `${runningCount} service${runningCount !== 1 ? 's' : ''} running`}
-          </Text>
 
           {/* Loading */}
           {isLoading && (
