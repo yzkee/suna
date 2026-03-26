@@ -1,6 +1,0 @@
-name: kortix-eks
-runtime:
-  name: nodejs
-  options:
-    typescript: true
-description: Production EKS infrastructure for Kortix API

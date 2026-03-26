@@ -2,53 +2,72 @@ name: Deploy kortix-api
 
 on:
   push:
-    branches: [staging]
+    branches: [main]
     paths:
       - 'kortix-api/**'
-      - 'kortix-api/Dockerfile'
       - 'scripts/compose/**'
       - 'packages/**'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
   workflow_dispatch:
+    inputs:
+      target:
+        description: 'Deploy target'
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
 
 jobs:
   deploy:
-    name: Deploy to VPS
+    name: Deploy to ${{ inputs.target || 'dev' }}
     runs-on: ubuntu-latest
-    environment: production
-    if: github.ref == 'refs/heads/staging'
+    environment: ${{ inputs.target || 'dev' }}
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
-          host: ${{ secrets.AWS_PRODUCTION_HOST }}
-          username: ${{ secrets.AWS_PRODUCTION_USERNAME }}
-          key: ${{ secrets.AWS_PRODUCTION_KEY }}
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
           timeout: 300s
           script: |
             set -e
 
+            TARGET="${{ inputs.target || 'dev' }}"
+
             cd ~/computer
+
+            # Pull latest main
             git -c fetch.recurseSubmodules=false fetch origin main
             git reset --hard origin/main
             git submodule sync --recursive
             git submodule update --init --recursive --remote
 
-            # Stop and remove old containers first to avoid name conflicts
+            # Rebuild and restart backend
             docker compose --project-directory . -f scripts/compose/docker-compose.yml --profile backend down --remove-orphans || true
             docker compose --project-directory . -f scripts/compose/docker-compose.yml --profile backend build --no-cache
             docker compose --project-directory . -f scripts/compose/docker-compose.yml --profile backend up -d
 
-            for i in $(seq 1 15); do
+            # Health check (up to 60s)
+            for i in $(seq 1 30); do
               if curl -sf http://localhost:8008/v1/health > /dev/null 2>&1; then
-                echo "Healthy after ${i}s"
+                echo "Healthy after ${i}×2s ($TARGET)"
                 break
               fi
-              [ "$i" -eq 15 ] && echo "Health check failed" && exit 1
-              sleep 1
+              [ "$i" -eq 30 ] && echo "Health check failed ($TARGET)" && exit 1
+              sleep 2
             done
 
+            # Cleanup old images
             docker image prune -af --filter "until=24h" || true
             docker compose --project-directory . -f scripts/compose/docker-compose.yml --profile backend ps
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Deployed \`main\` → **${{ inputs.target || 'dev' }}**" >> "$GITHUB_STEP_SUMMARY"
+          echo "Commit: \`${GITHUB_SHA::8}\`" >> "$GITHUB_STEP_SUMMARY"

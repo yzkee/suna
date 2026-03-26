@@ -11,11 +11,12 @@
 3. [Local Dev Workflow](#local-dev-workflow)
 4. [Sandbox Dev Details](#sandbox-dev-details)
 5. [Versioning](#versioning)
-6. [Release Flow](#release-flow)
-7. [OTA Update Mechanism](#ota-update-mechanism)
-8. [Docker Image Architecture](#docker-image-architecture)
-9. [Ports Reference](#ports-reference)
-10. [Quick Reference Cheatsheet](#quick-reference-cheatsheet)
+6. [CI/CD & Deployment](#ci-cd--deployment)
+7. [Release Flow](#release-flow)
+8. [OTA Update Mechanism](#ota-update-mechanism)
+9. [Docker Image Architecture](#docker-image-architecture)
+10. [Ports Reference](#ports-reference)
+11. [Quick Reference Cheatsheet](#quick-reference-cheatsheet)
 
 ---
 
@@ -228,6 +229,56 @@ Before releasing, add an entry to `packages/sandbox/CHANGELOG.json`:
 
 ---
 
+## CI/CD & Deployment
+
+The project uses **two independent deployment tracks**:
+
+### Track 1: API + Frontend (Continuous Deployment)
+
+The API (`kortix-api`) and frontend (`apps/frontend`) deploy independently of sandbox releases.
+
+```
+push to main
+  └─► deploy-api.yml (auto)
+        └─► SSH → dev VPS → docker compose build+up
+            dev-new-api.kortix.com ✓
+
+ready for prod?
+  └─► gh workflow run deploy-api.yml (manual, select "prod")
+        └─► SSH → prod VPS → docker compose build+up
+            new-api.kortix.com ✓
+```
+
+- **Dev**: auto-deploys on every push to `main` (when `kortix-api/`, `packages/`, or `scripts/compose/` change)
+- **Prod**: manual workflow dispatch — `gh workflow run deploy-api.yml -f target=prod`
+- **Frontend**: Vercel auto-deploys from `main`
+- **Rollback**: re-run the workflow on a previous commit
+
+### Track 2: Sandbox Release (Versioned, via `pnpm ship`)
+
+See [Release Flow](#release-flow) below. `pnpm ship` builds Docker images, creates GitHub Releases, and seeds JustAVPS snapshots. This is the only way to publish a new version to users.
+
+### Infrastructure
+
+| Component | Dev | Prod |
+|---|---|---|
+| **API** | `kortix-dev` Lightsail → `dev-new-api.kortix.com` | `kortix-prod` Lightsail → `new-api.kortix.com` |
+| **Frontend** | Vercel → `dev-new.kortix.com` | Vercel → `new.kortix.com` |
+
+> **Planned cutover**: `new-api.kortix.com` → `api.kortix.com`, `new.kortix.com` → `kortix.com`
+
+### Deploy commands
+
+```bash
+# Deploy API to prod (manual)
+gh workflow run deploy-api.yml -f target=prod --repo kortix-ai/computer
+
+# Deploy API to dev (manual override — normally auto on push)
+gh workflow run deploy-api.yml -f target=dev --repo kortix-ai/computer
+```
+
+---
+
 ## Release Flow
 
 ### One-liner
@@ -253,7 +304,9 @@ By default the image-builder script uses `nbg1` for the temporary build machine 
 
 ```bash
 git push
-# Sync JUSTAVPS_IMAGE_ID from kortix-api/.env into any deployed secrets if needed.
+# The push to main auto-deploys the API to dev.
+# To also deploy the API to prod:
+gh workflow run deploy-api.yml -f target=prod --repo kortix-ai/computer
 ```
 
 ### Validate state without shipping
@@ -415,6 +468,8 @@ docker exec -it kortix-sandbox bash
 # 2. Ship everything:
 pnpm ship 0.8.0
 git push
+# 3. Deploy API to prod if needed:
+gh workflow run deploy-api.yml -f target=prod --repo kortix-ai/computer
 ```
 
 ### Release + new Docker image
@@ -422,6 +477,8 @@ git push
 ```bash
 pnpm ship 0.8.0
 git push
+# Deploy API to prod:
+gh workflow run deploy-api.yml -f target=prod --repo kortix-ai/computer
 ```
 
 ### Rebuild the JustAVPS image only
@@ -440,6 +497,12 @@ pnpm check
 
 ```bash
 docker compose -f packages/sandbox/docker/docker-compose.yml build
+```
+
+### Deploy API to prod
+
+```bash
+gh workflow run deploy-api.yml -f target=prod --repo kortix-ai/computer
 ```
 
 ### Force rebuild after dep change
