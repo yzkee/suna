@@ -29,15 +29,23 @@ export async function getCreditSummary(accountId: string) {
   // Lazy daily refresh + zero-balance fix.
   if (account.tier) {
     try {
+      const dailyConfig = getDailyCreditConfig(account.tier);
       const bal = Number(account.balance) || 0;
       const daily = Number(account.dailyCreditsBalance) || 0;
 
-      if (bal < MINIMUM_CREDIT_FOR_RUN && daily > 0) {
+      if (!dailyConfig && daily > 0) {
+        // Tier has no daily credits (legacy tiers, pro) — clear stale daily balance
+        const newBal = bal - daily; // remove daily portion from total
+        await updateCreditAccount(accountId, {
+          dailyCreditsBalance: '0',
+          balance: String(Math.max(0, newBal)),
+        } as any);
+        account = (await getCreditAccount(accountId)) ?? account;
+      } else if (bal < MINIMUM_CREDIT_FOR_RUN && daily > 0) {
         // Balance is empty but daily credits exist — sync balance immediately.
-        // This handles accounts initialized before the balance-init fix.
         await updateCreditAccount(accountId, { balance: account.dailyCreditsBalance } as any);
         account = (await getCreditAccount(accountId)) ?? account;
-      } else {
+      } else if (dailyConfig) {
         const result = await refreshDailyCredits(accountId, account.tier);
         if (result) {
           account = (await getCreditAccount(accountId)) ?? account;
