@@ -51,11 +51,11 @@ const cloudOrigins = [
   'https://kortix.com',
   'https://dev.kortix.com',
   'https://new-dev.kortix.com',
+  'https://dev-new.kortix.com',
   'https://staging.kortix.com',
   'https://kortix.cloud',
   'https://www.kortix.cloud',
   'https://new.kortix.com',
-  'https://computer-preview.kortix.com',
 ];
 const justavpsOrigins = [
   'https://justavps.com',
