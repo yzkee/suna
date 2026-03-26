@@ -24,6 +24,7 @@ services:
       args:
         SERVICE: kortix-api
     ports:
+      - "80:8008"
       - "8008:8008"
     env_file:
       - path: kortix-api/.env
