@@ -176,7 +176,7 @@ export default function InstancesPage() {
   const [autoCreating, setAutoCreating] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const isCloud = isBillingEnabled();
-  const { data: accountState, refetch: refetchAccountState } = useAccountState();
+  const { data: accountState, isLoading: accountStateLoading, refetch: refetchAccountState } = useAccountState();
 
   // Redirect to auth if not logged in
   useEffect(() => {
@@ -280,6 +280,7 @@ export default function InstancesPage() {
   };
 
   const canClaimComputer = accountState?.can_claim_computer === true;
+  const pageLoading = isLoading || (isCloud && accountStateLoading);
 
   const handleLogout = async () => {
     const supabase = createClient();
@@ -351,14 +352,14 @@ export default function InstancesPage() {
           </div>
 
           {/* Loading */}
-          {isLoading && (
+          {pageLoading && (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           )}
 
           {/* Error */}
-          {error && !isLoading && fallbackServers.length === 0 && (
+          {error && !pageLoading && fallbackServers.length === 0 && (
             <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 flex items-center gap-3">
               <AlertCircle className="h-5 w-5 text-destructive flex-shrink-0" />
               <div className="flex-1 min-w-0">
@@ -372,7 +373,7 @@ export default function InstancesPage() {
           )}
 
           {/* Claim computer banner for legacy paid users */}
-          {canClaimComputer && !isLoading && (
+          {canClaimComputer && !pageLoading && (
             <div className="rounded-xl border border-primary/20 bg-primary/5 p-5 flex items-center gap-4 mb-4">
               <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-primary/10 flex-shrink-0">
                 <Monitor className="h-6 w-6 text-primary" />
@@ -391,7 +392,7 @@ export default function InstancesPage() {
           )}
 
           {/* Empty state */}
-          {!isLoading && !error && visible.length === 0 && fallbackServers.length === 0 && !canClaimComputer && (
+          {!pageLoading && !error && visible.length === 0 && fallbackServers.length === 0 && !canClaimComputer && (
             <div className="rounded-xl border border-dashed border-border/60 bg-muted/10 p-8 flex flex-col items-center gap-4">
               <div className="flex items-center justify-center h-14 w-14 rounded-xl bg-muted/50">
                 <Server className="h-7 w-7 text-muted-foreground/40" />
@@ -410,7 +411,7 @@ export default function InstancesPage() {
           )}
 
           {/* Instance list */}
-          {!isLoading && visible.length > 0 && (
+          {!pageLoading && visible.length > 0 && (
             <div className="flex flex-col gap-2">
               {visible.map((sandbox) => (
                 <InstanceCard
@@ -423,7 +424,7 @@ export default function InstancesPage() {
           )}
 
           {/* Fallback list from server store when sandbox API list is unavailable */}
-          {!isLoading && visible.length === 0 && fallbackServers.length > 0 && (
+          {!pageLoading && visible.length === 0 && fallbackServers.length > 0 && (
             <div className="flex flex-col gap-2">
               {fallbackServers.map((server) => (
                 <FallbackInstanceCard
