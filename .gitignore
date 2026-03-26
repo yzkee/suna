@@ -77,3 +77,4 @@ deploy/sandbox/.buildx-cache/
 .nx/
 .pulumi
 .pulumi/
+.vercel
