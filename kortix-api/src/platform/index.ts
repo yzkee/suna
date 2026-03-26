@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { accountRouter } from './routes/account';
 import { cloudSandboxRouter } from './routes/sandbox-cloud';
 import { versionRouter } from './routes/version';
-import { sandboxUpdateRouter } from './routes/sandbox-update';
+import { sandboxUpdateRouter, sandboxIdUpdateRouter } from './routes/sandbox-update';
 import { apiKeysRouter } from './routes/api-keys';
 import { sshRouter } from './routes/ssh';
 import { sandboxWebhookRouter } from './routes/sandbox-webhooks';
@@ -14,7 +14,9 @@ const platformApp = new Hono();
 platformApp.route('/sandbox/version', versionRouter);
 
 // Sandbox update (Docker image-based)
-// Full path: /v1/platform/sandbox/update/*
+// Full path: /v1/platform/sandbox/:id/update/*
+platformApp.route('/sandbox/:id/update', sandboxIdUpdateRouter);
+// Legacy (local_docker only): /v1/platform/sandbox/update/*
 platformApp.route('/sandbox/update', sandboxUpdateRouter);
 
 // SSH key management

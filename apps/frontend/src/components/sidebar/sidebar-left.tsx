@@ -28,6 +28,7 @@ import posthog from 'posthog-js';
 import { SessionList } from '@/components/sidebar/session-list';
 import { useLegacyThreads, useMigrateAllLegacyThreads, useMigrateAllStatus } from '@/hooks/legacy/use-legacy-threads';
 import { useGlobalSandboxUpdate } from '@/hooks/platform/use-global-sandbox-update';
+import { useUpdateDialogStore } from '@/stores/update-dialog-store';
 
 import { UserMenu } from '@/components/sidebar/user-menu';
 import { KortixLogo } from '@/components/sidebar/kortix-logo';
@@ -336,6 +337,7 @@ const changeTypeColor: Record<string, string> = {
 
 function SidebarUpdateIndicator({ collapsed }: { collapsed: boolean }) {
   const { updateAvailable, latestVersion, changelog, update, isUpdating, updateResult } = useGlobalSandboxUpdate();
+  const openDialog = useUpdateDialogStore((s) => s.openDialog);
   const router = useRouter();
   const [dismissed, setDismissed] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
@@ -433,7 +435,7 @@ function SidebarUpdateIndicator({ collapsed }: { collapsed: boolean }) {
       <div className="flex items-center gap-1.5 px-2.5 pb-2.5 pt-1">
         {!isUpdating ? (
           <button
-            onClick={() => update()}
+            onClick={() => openDialog()}
             className="flex-1 flex items-center justify-center gap-1.5 h-7 text-[11px] font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-lg transition-colors cursor-pointer"
           >
             <ArrowDownToLine className="h-3 w-3" />

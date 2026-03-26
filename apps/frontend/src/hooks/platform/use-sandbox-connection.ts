@@ -150,9 +150,8 @@ export function useSandboxConnection() {
 					}
 				}
 
-				// Fetch sandbox version from /kortix/health once on connect
-				if (!versionFetchedRef.current) {
-					versionFetchedRef.current = true;
+				// Fetch sandbox version on every successful connect (detects upgrades/downgrades)
+				{
 					try {
 						const hRes = await authenticatedFetch(`${url}/kortix/health`, {
 							signal: AbortSignal.timeout(3000),

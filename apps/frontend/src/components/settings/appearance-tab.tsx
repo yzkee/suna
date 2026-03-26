@@ -6,6 +6,7 @@ import { useTheme } from 'next-themes';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { transitionFromElement } from '@/lib/view-transition';
 import { useUserPreferencesStore } from '@/stores/user-preferences-store';
 import { THEMES, DEFAULT_THEME_ID, type KortixTheme } from '@/lib/themes';
 import { WALLPAPERS, DEFAULT_WALLPAPER_ID, type Wallpaper } from '@/lib/wallpapers';
@@ -194,7 +195,10 @@ export function AppearanceTab() {
                 <button
                   key={mode.value}
                   type="button"
-                  onClick={() => setBaseMode(mode.value)}
+                  onClick={(e) => {
+                    if (mode.value === baseMode) return;
+                    transitionFromElement(e.currentTarget as HTMLElement, () => setBaseMode(mode.value));
+                  }}
                   className={cn(
                     'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-150',
                     isActive

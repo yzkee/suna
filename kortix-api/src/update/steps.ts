@@ -1,51 +1,13 @@
 import type { ResolvedEndpoint } from '../platform/providers';
+import type { StepResult } from './types';
+import { execOnHost } from './exec';
 
-export type StepResult = {
-  success: boolean;
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-  durationMs: number;
-};
-
-async function execOnHost(
-  endpoint: ResolvedEndpoint,
-  command: string,
-  timeout = 60,
-): Promise<StepResult> {
-  const url = `${endpoint.url}/toolbox/process/execute`;
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { ...endpoint.headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ command, timeout }),
-    signal: AbortSignal.timeout((timeout + 15) * 1000),
-  });
-
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '');
-    return {
-      success: false,
-      stdout: '',
-      stderr: `Daemon error (${resp.status}): ${text.slice(0, 500)}`,
-      exitCode: -1,
-      durationMs: 0,
-    };
-  }
-
-  const data = (await resp.json()) as {
-    exit_code: number;
-    stdout: string;
-    stderr: string;
-    duration_ms: number;
-  };
-
-  return {
-    success: data.exit_code === 0,
-    stdout: data.stdout,
-    stderr: data.stderr,
-    exitCode: data.exit_code,
-    durationMs: data.duration_ms,
-  };
+export function getCurrentImage(endpoint: ResolvedEndpoint): Promise<StepResult> {
+  return execOnHost(
+    endpoint,
+    "docker inspect --format='{{.Config.Image}}' justavps-workload",
+    10,
+  );
 }
 
 export function pullImage(endpoint: ResolvedEndpoint, image: string): Promise<StepResult> {
@@ -64,16 +26,33 @@ export function patchStartScript(
   );
 }
 
-export function stopContainer(endpoint: ResolvedEndpoint): Promise<StepResult> {
+export async function checkpointSqlite(endpoint: ResolvedEndpoint): Promise<StepResult> {
   return execOnHost(
     endpoint,
-    'docker rm -f justavps-workload 2>/dev/null || true; fuser -k 3456/tcp 2>/dev/null || true',
-    30,
+    `docker exec justavps-workload python3 -c "import sqlite3,glob
+for db in glob.glob('/workspace/.local/share/opencode/*.db'):
+ c=sqlite3.connect(db);c.execute('PRAGMA wal_checkpoint(TRUNCATE)');c.close()" 2>/dev/null || true`,
+    10,
   );
 }
 
-export function restartService(endpoint: ResolvedEndpoint): Promise<StepResult> {
-  return execOnHost(endpoint, 'systemctl restart justavps-docker', 30);
+export async function stopAndRestart(endpoint: ResolvedEndpoint): Promise<StepResult> {
+  const script = [
+    'docker stop -t 10 justavps-workload 2>/dev/null || docker rm -f justavps-workload 2>/dev/null || true',
+    'fuser -k 3456/tcp 2>/dev/null || true',
+    'systemctl restart justavps-docker',
+  ].join(' && ');
+
+  const result = await execOnHost(
+    endpoint,
+    `systemd-run --unit=justavps-update-restart --description="Sandbox update restart" bash -c '${script}'`,
+    15,
+  );
+
+  if (!result.success && (result.stderr.includes('502') || result.stderr.includes('aborted'))) {
+    return { success: true, stdout: '', stderr: '', exitCode: 0, durationMs: result.durationMs };
+  }
+  return result;
 }
 
 export async function verifyContainer(
@@ -98,12 +77,4 @@ export async function verifyContainer(
     exitCode: -1,
     durationMs: 0,
   };
-}
-
-export function getCurrentImage(endpoint: ResolvedEndpoint): Promise<StepResult> {
-  return execOnHost(
-    endpoint,
-    "docker inspect --format='{{.Config.Image}}' justavps-workload",
-    10,
-  );
 }

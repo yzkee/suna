@@ -1,2 +1,5 @@
-export { executeUpdate, getUpdateStatus, resetUpdateStatus, type UpdateStatus, type UpdatePhase } from './executor';
-export type { StepResult } from './steps';
+export { executeUpdate } from './executor';
+export { getUpdateStatus, resetUpdateStatus, setPhase, clearUpdateStatus } from './status';
+export { execOnHost } from './exec';
+export type { UpdateStatus, UpdatePhase, StepResult } from './types';
+export { IDLE_STATUS } from './types';

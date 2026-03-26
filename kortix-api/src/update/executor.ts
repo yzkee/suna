@@ -3,49 +3,16 @@ import { sandboxes } from '@kortix/db';
 import { db } from '../shared/db';
 import { config } from '../config';
 import { getProvider, type ProviderName } from '../platform/providers';
-import { JustAVPSProvider } from '../platform/providers/justavps';
+import { JustAVPSProvider, justavpsFetch } from '../platform/providers/justavps';
+import { setPhase, clearUpdateStatus } from './status';
 import {
+  getCurrentImage,
   pullImage,
   patchStartScript,
-  stopContainer,
-  restartService,
+  checkpointSqlite,
+  stopAndRestart,
   verifyContainer,
-  getCurrentImage,
-  type StepResult,
 } from './steps';
-
-export type UpdatePhase =
-  | 'idle'
-  | 'pulling'
-  | 'stopping'
-  | 'restarting'
-  | 'verifying'
-  | 'complete'
-  | 'failed';
-
-export interface UpdateStatus {
-  phase: UpdatePhase;
-  progress: number;
-  message: string;
-  targetVersion: string | null;
-  previousVersion: string | null;
-  currentVersion: string | null;
-  error: string | null;
-  startedAt: string | null;
-  updatedAt: string | null;
-}
-
-const IDLE_STATUS: UpdateStatus = {
-  phase: 'idle',
-  progress: 0,
-  message: '',
-  targetVersion: null,
-  previousVersion: null,
-  currentVersion: null,
-  error: null,
-  startedAt: null,
-  updatedAt: null,
-};
 
 function imageForVersion(version: string): string {
   const current = config.SANDBOX_IMAGE;
@@ -56,42 +23,6 @@ function imageForVersion(version: string): string {
 
 function toBase64(str: string): string {
   return Buffer.from(str).toString('base64');
-}
-
-async function setMetadata(
-  sandboxId: string,
-  update: Partial<UpdateStatus>,
-  existing: Record<string, unknown>,
-) {
-  const status: UpdateStatus = {
-    ...IDLE_STATUS,
-    ...(existing.updateStatus as UpdateStatus | undefined),
-    ...update,
-    updatedAt: new Date().toISOString(),
-  };
-  await db
-    .update(sandboxes)
-    .set({
-      metadata: { ...existing, updateStatus: status },
-      updatedAt: new Date(),
-    })
-    .where(eq(sandboxes.sandboxId, sandboxId));
-}
-
-export async function getUpdateStatus(sandboxId: string): Promise<UpdateStatus> {
-  const [row] = await db
-    .select({ metadata: sandboxes.metadata })
-    .from(sandboxes)
-    .where(eq(sandboxes.sandboxId, sandboxId))
-    .limit(1);
-
-  if (!row) return { ...IDLE_STATUS };
-  const meta = (row.metadata as Record<string, unknown>) ?? {};
-  return (meta.updateStatus as UpdateStatus) ?? { ...IDLE_STATUS };
-}
-
-export function resetUpdateStatus(sandboxId: string): Promise<void> {
-  return setMetadata(sandboxId, { ...IDLE_STATUS }, {}).then(() => {});
 }
 
 export async function executeUpdate(sandboxId: string, targetVersion: string): Promise<void> {
@@ -107,31 +38,39 @@ export async function executeUpdate(sandboxId: string, targetVersion: string): P
 
   const provider = getProvider(row.provider as ProviderName) as JustAVPSProvider;
   const endpoint = await provider.resolveEndpoint(row.externalId);
-  const meta = (row.metadata as Record<string, unknown>) ?? {};
   const targetImage = imageForVersion(targetVersion);
-
-  const set = (update: Partial<UpdateStatus>) => setMetadata(sandboxId, update, meta);
 
   try {
     const currentResult = await getCurrentImage(endpoint);
-    const previousImage = currentResult.success ? currentResult.stdout.trim().replace(/'/g, '') : null;
-    const previousVersion = previousImage?.split(':').pop() ?? null;
+    const inspectImage = currentResult.success ? currentResult.stdout.trim().replace(/'/g, '') : null;
+    const previousVersion = inspectImage?.split(':').pop() ?? null;
 
-    await set({
-      phase: 'pulling',
-      progress: 10,
-      message: `Pulling ${targetImage}...`,
+    // ── Backup ──
+    await setPhase(sandboxId, 'backing_up', 5, 'Creating backup...', {
       targetVersion,
       previousVersion,
       currentVersion: previousVersion,
       error: null,
       startedAt: new Date().toISOString(),
     });
+    try {
+      await justavpsFetch(`/machines/${row.externalId}/backups`, { method: 'POST' });
+      console.log(`[UPDATE] Backup created for machine ${row.externalId}`);
+    } catch (err) {
+      console.warn(`[UPDATE] Backup failed (non-fatal):`, err instanceof Error ? err.message : err);
+    }
+
+    // ── Pull ──
+    await setPhase(sandboxId, 'pulling', 15, `Pulling ${targetImage}...`);
 
     const pullResult = await pullImage(endpoint, targetImage);
     if (!pullResult.success) throw new Error(`Pull failed: ${pullResult.stderr}`);
 
-    const oldBase64 = previousImage ? toBase64(previousImage) : null;
+    // ── Patch start script ──
+    await setPhase(sandboxId, 'patching', 30, 'Patching start script...');
+
+    const oldImage = previousVersion ? imageForVersion(previousVersion) : null;
+    const oldBase64 = oldImage ? toBase64(oldImage) : null;
     const newBase64 = toBase64(targetImage);
 
     if (oldBase64) {
@@ -139,42 +78,34 @@ export async function executeUpdate(sandboxId: string, targetVersion: string): P
       if (!patchResult.success) throw new Error(`Patch script failed: ${patchResult.stderr}`);
     }
 
-    await set({ phase: 'stopping', progress: 50, message: 'Stopping container...' });
-    const stopResult = await stopContainer(endpoint);
-    if (!stopResult.success) console.warn(`[UPDATE] Stop warning: ${stopResult.stderr}`);
+    // ── Checkpoint & stop ──
+    await setPhase(sandboxId, 'stopping', 50, 'Saving state and stopping sandbox...');
+    await checkpointSqlite(endpoint);
 
-    await set({ phase: 'restarting', progress: 60, message: 'Restarting service...' });
-    const restartResult = await restartService(endpoint);
-    if (!restartResult.success) throw new Error(`Restart failed: ${restartResult.stderr}`);
+    await setPhase(sandboxId, 'restarting', 55, 'Restarting sandbox...');
+    const restartResult = await stopAndRestart(endpoint);
+    if (!restartResult.success) {
+      console.warn(`[UPDATE] Restart warning (may be expected 502): ${restartResult.stderr}`);
+    }
 
-    await set({ phase: 'verifying', progress: 80, message: 'Verifying new container...' });
+    // ── Verify ──
+    await setPhase(sandboxId, 'verifying', 80, 'Verifying new container...');
     const verifyResult = await verifyContainer(endpoint, targetImage);
     if (!verifyResult.success) throw new Error(`Verify failed: ${verifyResult.stderr}`);
 
-    await db
-      .update(sandboxes)
-      .set({
-        metadata: { ...meta, updateStatus: undefined, version: targetVersion },
-        updatedAt: new Date(),
-      })
-      .where(eq(sandboxes.sandboxId, sandboxId));
-
-    await set({
-      phase: 'complete',
-      progress: 100,
-      message: `Updated to v${targetVersion}`,
+    // ── Complete ──
+    await setPhase(sandboxId, 'complete', 100, `Updated to v${targetVersion}`, {
       currentVersion: targetVersion,
     });
 
     console.log(`[UPDATE] Sandbox ${sandboxId} updated to ${targetImage}`);
-  } catch (err: any) {
-    const errorMsg = err?.message || String(err);
-    await set({
-      phase: 'failed',
-      progress: 0,
-      message: `Update failed: ${errorMsg}`,
-      error: errorMsg,
-    });
+
+    setTimeout(async () => {
+      try { await clearUpdateStatus(sandboxId, targetVersion); } catch {}
+    }, 30_000);
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    await setPhase(sandboxId, 'failed', 0, `Update failed: ${errorMsg}`, { error: errorMsg });
     console.error(`[UPDATE] Sandbox ${sandboxId} update failed:`, errorMsg);
     throw err;
   }
