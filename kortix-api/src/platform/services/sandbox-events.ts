@@ -3,8 +3,6 @@ import { eq, sql, and } from 'drizzle-orm';
 import { sandboxes } from '@kortix/db';
 import { db } from '../../shared/db';
 import * as pool from '../../pool';
-import { getProvider, type ProviderName } from '../providers';
-import { deploySandbox } from '../../update';
 
 export interface SandboxProvisionEvent {
   sandboxId: string;
@@ -46,37 +44,6 @@ class SandboxEventBus {
 
   off(sandboxId: string, listener: SandboxEventListener): void {
     this.emitter.off(`sandbox:${sandboxId}`, listener);
-  }
-
-  private async deploySandboxContainer(
-    sandbox: typeof sandboxes.$inferSelect,
-    dockerImage: string,
-  ): Promise<void> {
-    const { getProvider, type ProviderName } = await import('../providers');
-    const provider = getProvider(sandbox.provider as ProviderName);
-    const endpoint = await provider.resolveEndpoint(sandbox.externalId!);
-
-    console.log(`[SANDBOX-EVENTS] Deploying container for ${sandbox.sandboxId}: ${dockerImage}`);
-
-    const meta = (sandbox.metadata as Record<string, unknown>) ?? {};
-    const config = await deploySandbox(endpoint, {
-      image: dockerImage,
-      envFile: '/etc/justavps/env',
-    });
-
-    // Update provisioning stage
-    await db
-      .update(sandboxes)
-      .set({
-        metadata: sql`metadata || ${JSON.stringify({
-          provisioningStage: 'docker_running',
-          provisioningMessage: 'Container started',
-        })}::jsonb`,
-        updatedAt: new Date(),
-      } as any)
-      .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
-
-    console.log(`[SANDBOX-EVENTS] Container deployed for ${sandbox.sandboxId}: ${config.name}`);
   }
 
   async processWebhook(payload: {
@@ -172,19 +139,6 @@ class SandboxEventBus {
             )})`,
           ),
         );
-    }
-
-    // When cloud-init finishes, Kortix deploys the Docker container.
-    // This runs async — the container pull + start may take a while.
-    // JustAVPS no longer manages the Docker workload; Kortix owns it.
-    if (data.stage === 'cloud_init_done' && sandbox.provider !== 'local_docker') {
-      const meta = (sandbox.metadata as Record<string, unknown>) ?? {};
-      const dockerImage = meta.dockerImage as string | undefined;
-      if (dockerImage) {
-        this.deploySandboxContainer(sandbox, dockerImage).catch((err) => {
-          console.error(`[SANDBOX-EVENTS] Container deploy failed for ${sandbox.sandboxId}:`, err);
-        });
-      }
     }
 
     // Only provider-confirmed "ready" should flip the sandbox active.
