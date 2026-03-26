@@ -12,6 +12,7 @@ import {
   Download,
   HeartPulse,
   Menu,
+  PanelRight,
   Package,
   Play,
   RefreshCw,
@@ -26,6 +27,8 @@ import { Icon } from '@/components/ui/icon';
 import { useGlobalSandboxUpdate } from '@/hooks/useSandboxUpdate';
 import { getFullChangelog, type ChangelogChange, type ChangelogEntry, type UpdatePhase } from '@/lib/platform/client';
 import { useTabStore, type PageTab } from '@/stores/tab-store';
+import { useThemeColors } from '@/lib/theme-colors';
+import { Ionicons } from '@expo/vector-icons';
 
 const CHANGE_ICONS: Record<string, typeof Sparkles> = {
   feature: Sparkles,
@@ -74,6 +77,7 @@ export function UpdatesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: U
     updateError,
     resetStatus,
   } = useGlobalSandboxUpdate();
+  const themeColors = useThemeColors();
 
   // Persist scroll position across tab switches
   const scrollRef = useRef<ScrollView>(null);
@@ -128,6 +132,9 @@ export function UpdatesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: U
           <Icon as={Menu} size={20} className="text-foreground" strokeWidth={2} />
         </Pressable>
         <Text className="flex-1 text-lg font-roobert-medium text-foreground">{page.label}</Text>
+        <Pressable onPress={onOpenRightDrawer} hitSlop={8} className="ml-3 p-1">
+          <Ionicons name="apps-outline" size={20} color={isDark ? '#F8F8F8' : '#121215'} />
+        </Pressable>
       </View>
 
       <ScrollView
@@ -158,10 +165,10 @@ export function UpdatesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: U
             <Pressable
               onPress={handleUpdate}
               className="mt-4 flex-row items-center justify-center self-start rounded-xl px-5 py-2.5 active:opacity-90"
-              style={{ backgroundColor: isDark ? '#F8F8F8' : '#121215' }}
+              style={{ backgroundColor: themeColors.primary }}
             >
-              <Icon as={ArrowDownToLine} size={15} className={isDark ? 'text-[#121215]' : 'text-[#F8F8F8]'} strokeWidth={2.5} />
-              <Text className={`ml-2 font-roobert-semibold text-sm ${isDark ? 'text-[#121215]' : 'text-[#F8F8F8]'}`}>
+              <Icon as={ArrowDownToLine} size={15} style={{ color: themeColors.primaryForeground }} strokeWidth={2.5} />
+              <Text className="ml-2 font-roobert-semibold text-sm" style={{ color: themeColors.primaryForeground }}>
                 Update to v{latestVersion}
               </Text>
             </Pressable>
@@ -210,7 +217,7 @@ export function UpdatesPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: U
               {/* Progress bar */}
               {!updateError && (
                 <View className="mb-4 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.06)' }}>
-                  <View className="h-full rounded-full" style={{ width: `${Math.max(phaseProgress, 2)}%`, backgroundColor: isDark ? '#F8F8F8' : '#121215' }} />
+                  <View className="h-full rounded-full" style={{ width: `${Math.max(phaseProgress, 2)}%`, backgroundColor: themeColors.primary }} />
                 </View>
               )}
 

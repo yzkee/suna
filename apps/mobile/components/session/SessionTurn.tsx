@@ -11,6 +11,7 @@ import { useColorScheme } from 'nativewind';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { SelectableMarkdownText } from '@/components/ui/selectable-markdown';
+import { SandboxPreviewCard, detectLocalhostUrls } from '@/components/chat/SandboxPreviewCard';
 import { ReasoningSection } from '@/components/chat';
 import ReAnimated, {
   useSharedValue,
@@ -37,11 +38,19 @@ import {
   Scissors,
   MessageCircle,
   ChevronRight,
+  ChevronDown,
   Check,
   CircleAlert,
   Loader2,
+  ExternalLink,
+  FileText,
+  MonitorPlay,
   type LucideIcon,
 } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
+import { useSandboxContext } from '@/contexts/SandboxContext';
+import { getSandboxPortUrl } from '@/lib/platform/client';
+import { useTabStore } from '@/stores/tab-store';
 import type {
   Turn,
   MessageWithParts,
@@ -1682,6 +1691,248 @@ function toolHasExpandableContent(tool: ToolPart): boolean {
   return false;
 }
 
+// ─── ShowToolCard — rich interactive card for "show" / "show-user" tool ──────
+
+const LOCALHOST_RE = /https?:\/\/localhost:(\d+)(\/[^\s)]*)?/;
+
+function ShowToolCard({
+  tool,
+  isDark,
+}: {
+  tool: ToolPart;
+  isDark: boolean;
+}) {
+  const input = getToolInput(tool);
+  const { sandboxId } = useSandboxContext();
+
+  const title = (input.title as string) || '';
+  const description = (input.description as string) || '';
+  const type = (input.type as string) || '';
+  const url = (input.url as string) || '';
+  const path = (input.path as string) || '';
+  const content = (input.content as string) || '';
+  const isRunning = tool.state.status === 'pending' || tool.state.status === 'running';
+  const isError = tool.state.status === 'error';
+
+  // Determine if we have a localhost URL to open in browser
+  const localhostMatch = url ? url.match(LOCALHOST_RE) : null;
+  const hasLocalhostUrl = !!localhostMatch;
+  const canOpen = !!(url || path || hasLocalhostUrl);
+  const isHtmlFile = !!path && /\.(html?|htm)$/i.test(path);
+
+  // Determine display title
+  const displayTitle = title || (type === 'error' ? 'Error' : type === 'url' ? 'Link' : 'Output');
+
+  // Determine icon
+  const IconComponent = (() => {
+    switch (type) {
+      case 'image': return ImageIcon;
+      case 'code': return FileCode2;
+      case 'markdown': return FileText;
+      case 'html': return Globe;
+      case 'url': return Globe;
+      case 'error': return CircleAlert;
+      case 'file': return FileText;
+      default: return ExternalLink;
+    }
+  })();
+
+  // Open button label
+  const openLabel = isHtmlFile || hasLocalhostUrl ? 'Open Preview' : url ? 'Open Link' : 'Open File';
+
+  // Expandable content state
+  const [expanded, setExpanded] = useState(false);
+  const hasExpandableContent = !!(content || (tool.state.status === 'completed' && 'output' in tool.state && tool.state.output?.trim()));
+  const chevronRotation = useSharedValue(0);
+
+  useEffect(() => {
+    chevronRotation.value = withTiming(expanded ? 1 : 0, { duration: 200 });
+  }, [expanded]);
+
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${chevronRotation.value * 180}deg` }],
+  }));
+
+  const handleOpen = useCallback(() => {
+    if (!canOpen || !sandboxId) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    if (hasLocalhostUrl && localhostMatch) {
+      const port = parseInt(localhostMatch[1], 10);
+      const urlPath = localhostMatch[2] || '';
+      const proxyUrl = getSandboxPortUrl(sandboxId, String(port)) + urlPath;
+      useTabStore.getState().navigateToPage('page:browser');
+      useTabStore.getState().setTabState('page:browser', {
+        savedUrl: proxyUrl,
+        savedDisplay: `localhost:${port}${urlPath}`,
+      });
+    } else if (url) {
+      // External URL — open in browser page
+      useTabStore.getState().navigateToPage('page:browser');
+      useTabStore.getState().setTabState('page:browser', {
+        savedUrl: url,
+        savedDisplay: url.replace(/^https?:\/\//, '').replace(/\/$/, ''),
+      });
+    }
+    // File paths could open in a file viewer — for now just expand content
+  }, [canOpen, sandboxId, hasLocalhostUrl, localhostMatch, url]);
+
+  const handleToggle = useCallback(() => {
+    if (!hasExpandableContent) return;
+    LayoutAnimation.configureNext({
+      duration: 200,
+      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+      update: { type: LayoutAnimation.Types.easeInEaseOut },
+      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+    });
+    setExpanded((prev) => !prev);
+  }, [hasExpandableContent]);
+
+  const borderColor = isError
+    ? (isDark ? 'rgba(239,68,68,0.2)' : 'rgba(220,38,38,0.15)')
+    : (isDark ? 'rgba(248,248,248,0.1)' : 'rgba(18,18,21,0.08)');
+
+  return (
+    <View
+      style={{
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor,
+        backgroundColor: cardBg(isDark),
+        marginBottom: 6,
+        overflow: 'hidden',
+      }}
+    >
+      {/* ── Header ── */}
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingHorizontal: 14,
+          paddingVertical: 12,
+        }}
+      >
+        {/* Icon */}
+        <View
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: 8,
+            backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginRight: 10,
+          }}
+        >
+          {isRunning ? (
+            <SpinningLoader size={16} color={muted(isDark)} />
+          ) : (
+            <IconComponent size={16} color={mutedStrong(isDark)} />
+          )}
+        </View>
+
+        {/* Title + Description */}
+        <View style={{ flex: 1, minWidth: 0 }}>
+          {isRunning ? (
+            <ShimmerStatusText text="Preparing output..." size="sm" />
+          ) : (
+            <>
+              <Text
+                numberOfLines={1}
+                style={{
+                  fontSize: 14,
+                  fontFamily: 'Roobert-Medium',
+                  color: fg(isDark),
+                }}
+              >
+                {displayTitle}
+              </Text>
+              {description ? (
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    fontSize: 12,
+                    fontFamily: 'Roobert',
+                    color: muted(isDark),
+                    marginTop: 1,
+                  }}
+                >
+                  {description}
+                </Text>
+              ) : null}
+            </>
+          )}
+        </View>
+
+        {/* Open button */}
+        {!isRunning && canOpen && (url || hasLocalhostUrl) && (
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={handleOpen}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 8,
+              backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+              marginLeft: 8,
+            }}
+          >
+            <MonitorPlay size={13} color={fg(isDark)} style={{ marginRight: 5 }} />
+            <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: fg(isDark) }}>
+              {openLabel}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* ── Expand toggle for content ── */}
+      {hasExpandableContent && !isRunning && (
+        <>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={handleToggle}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 14,
+              paddingVertical: 8,
+              borderTopWidth: 1,
+              borderTopColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+            }}
+          >
+            <ReAnimated.View style={chevronStyle}>
+              <ChevronDown size={14} color={muted(isDark)} />
+            </ReAnimated.View>
+            <Text
+              style={{
+                marginLeft: 6,
+                fontSize: 12,
+                fontFamily: 'Roobert-Medium',
+                color: muted(isDark),
+              }}
+            >
+              {expanded ? 'Hide Content' : 'Show Content'}
+            </Text>
+          </TouchableOpacity>
+
+          {expanded && (
+            <View
+              style={{
+                borderTopWidth: 1,
+                borderTopColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+              }}
+            >
+              <ShowExpandedContent tool={tool} isDark={isDark} />
+            </View>
+          )}
+        </>
+      )}
+    </View>
+  );
+}
+
 // ─── ToolCard — expandable tool call card ────────────────────────────────────
 
 function ToolCard({
@@ -2183,16 +2434,30 @@ export function SessionTurn({
           {visibleParts.map(({ part }) => {
             if (isToolPart(part)) {
               const tp = part as ToolPart;
+              // Use rich card for "show" / "show-user" tools
+              if (tp.tool === 'show' || tp.tool === 'show-user') {
+                return <ShowToolCard key={tp.id} tool={tp} isDark={isDark} />;
+              }
               return <ToolCard key={tp.id} tool={tp} isDark={isDark} />;
             }
             if (isTextPart(part)) {
               const tp = part as TextPart;
               if (!tp.text?.trim()) return null;
+              const detectedUrls = detectLocalhostUrls(tp.text);
               return (
                 <View key={tp.id} className="mb-2">
                   <SelectableMarkdownText isDark={isDark}>
                     {tp.text}
                   </SelectableMarkdownText>
+                  {detectedUrls.map((detected) => (
+                    <SandboxPreviewCard
+                      key={`preview-${detected.port}`}
+                      port={detected.port}
+                      path={detected.path}
+                      title={`localhost:${detected.port}${detected.path}`}
+                      description="Tap to open in browser"
+                    />
+                  ))}
                 </View>
               );
             }

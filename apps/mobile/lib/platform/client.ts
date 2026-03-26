@@ -384,3 +384,106 @@ export async function resetSandboxUpdateStatus(): Promise<void> {
     method: 'POST',
   });
 }
+
+// ─── SSH API ────────────────────────────────────────────────────────────────
+
+export interface SSHSetupResult {
+  private_key: string;
+  public_key: string;
+  ssh_command: string;
+  host: string;
+  port: number;
+  username: string;
+}
+
+export async function setupSSH(): Promise<SSHSetupResult> {
+  const result = await platformFetch<SSHSetupResult>('/platform/sandbox/ssh/setup', {
+    method: 'POST',
+  });
+  if (!result.success || !result.data) {
+    throw new Error(result.error || 'Failed to setup SSH');
+  }
+  return result.data;
+}
+
+// ─── Running Services API ───────────────────────────────────────────────────
+
+export interface SandboxService {
+  id: string;
+  name: string;
+  port: number;
+  pid: number;
+  framework: string;
+  sourcePath: string;
+  startedAt: string;
+  status: 'running' | 'stopped';
+  managed: boolean;
+}
+
+export async function getSandboxServices(sandboxUrl: string): Promise<SandboxService[]> {
+  try {
+    const token = await getAuthToken();
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(`${sandboxUrl}/kortix/services`, { headers, signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data?.services ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function stopSandboxService(sandboxUrl: string, serviceId: string): Promise<boolean> {
+  try {
+    const token = await getAuthToken();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const res = await fetch(`${sandboxUrl}/kortix/services/${serviceId}/stop`, {
+      method: 'POST',
+      headers,
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data?.success ?? false;
+  } catch {
+    return false;
+  }
+}
+
+export interface PtySession {
+  id: string;
+  running: boolean;
+  command?: string;
+  args?: string[];
+  createdAt?: string;
+}
+
+export async function getPtySessions(sandboxUrl: string): Promise<PtySession[]> {
+  try {
+    const token = await getAuthToken();
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(`${sandboxUrl}/pty`, { headers, signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!res.ok) return [];
+    const data = await res.json();
+    // Response could be array directly or wrapped
+    if (Array.isArray(data)) return data;
+    if (data?.ptys && Array.isArray(data.ptys)) return data.ptys;
+    if (data?.data && Array.isArray(data.data)) return data.data;
+    return [];
+  } catch {
+    return [];
+  }
+}

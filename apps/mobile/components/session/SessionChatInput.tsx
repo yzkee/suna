@@ -32,6 +32,7 @@ import type { Session } from '@/lib/platform/types';
 import { MentionSuggestions } from './MentionSuggestions';
 import { useMentions, type TrackedMention, type MentionItem } from './useMentions';
 import { Text as RNText } from 'react-native';
+import { useThemeColors } from '@/lib/theme-colors';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -228,6 +229,7 @@ export function SessionChatInput({
   const cursorRef = useRef(0);
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
+  const themeColors = useThemeColors();
 
   // Config sheet
   const [showConfigSheet, setShowConfigSheet] = useState(false);
@@ -689,24 +691,24 @@ export function SessionChatInput({
                 {isBusy ? (
                   <TouchableOpacity
                     onPress={onStop}
-                    className="h-7 w-7 items-center justify-center rounded-full bg-primary"
+                    className="h-7 w-7 items-center justify-center rounded-full"
+                    style={{ backgroundColor: themeColors.primary }}
                     activeOpacity={0.7}
                   >
-                    <Ionicons name="stop" size={14} color={isDark ? '#121215' : '#F8F8F8'} />
+                    <Ionicons name="stop" size={14} color={themeColors.primaryForeground} />
                   </TouchableOpacity>
                 ) : (
                   <TouchableOpacity
                     onPress={handleSubmit}
                     disabled={!canSend}
-                    className={`h-7 w-7 items-center justify-center rounded-full ${
-                      canSend ? 'bg-primary' : 'bg-muted'
-                    }`}
+                    className="h-7 w-7 items-center justify-center rounded-full"
+                    style={{ backgroundColor: canSend ? themeColors.primary : isDark ? '#232324' : '#E5E7EB' }}
                     activeOpacity={0.7}
                   >
                     <Ionicons
                       name="arrow-up"
                       size={16}
-                      color={canSend ? (isDark ? '#121215' : '#F8F8F8') : (isDark ? '#999999' : '#6e6e6e')}
+                      color={canSend ? themeColors.primaryForeground : (isDark ? '#999999' : '#6e6e6e')}
                     />
                   </TouchableOpacity>
                 )}
