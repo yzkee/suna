@@ -646,12 +646,15 @@ function PipedreamStep({ onComplete, completing, isDark, themeColors }: StepProp
           )}
           </Pressable>
         </View>
-        <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)', textAlign: 'center', marginTop: 10 }}>
-          Get your credentials at{' '}
-          <Text style={{ textDecorationLine: 'underline' }} onPress={() => Linking.openURL('https://pipedream.com/connect')}>
+        <Pressable onPress={() => Linking.openURL('https://pipedream.com/connect')} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: 10 }}>
+          <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.3)' : 'rgba(18,18,21,0.3)' }}>
+            Get your credentials at
+          </Text>
+          <Text style={{ fontSize: 11, fontFamily: 'Roobert-Medium', color: isDark ? 'rgba(248,248,248,0.4)' : 'rgba(18,18,21,0.4)', textDecorationLine: 'underline' }}>
             pipedream.com/connect
           </Text>
-        </Text>
+          <ExternalLink size={10} color={isDark ? 'rgba(248,248,248,0.3)' : 'rgba(18,18,21,0.3)'} />
+        </Pressable>
       </View>
     </View>
   );
