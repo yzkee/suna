@@ -173,7 +173,7 @@ export function DashboardContent() {
         )}
       >
         <WallpaperBackground />
-        <PersonalisedSuggestions onSuggestionClick={handleSend} />
+        {/* <PersonalisedSuggestions onSuggestionClick={handleSend} /> */}
       </div>
 
       {/* Chat Input — identical to session empty state */}
