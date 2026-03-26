@@ -53,6 +53,7 @@ import { useGlobalSandboxUpdate } from '@/hooks/useSandboxUpdate';
 import { PlaceholderPage } from '@/components/session/PlaceholderPage';
 import { UpdatesPage } from '@/components/pages/UpdatesPage';
 import { SSHPage } from '@/components/pages/SSHPage';
+import { RunningServicesPage } from '@/components/pages/RunningServicesPage';
 import { FilesPage } from '@/components/pages/FilesPage';
 import type { FilesPageRef } from '@/components/pages/FilesPage';
 import { SecretsPage } from '@/components/pages/SecretsPage';
@@ -877,6 +878,15 @@ export default function HomeScreen() {
           /* Active page tab — SSH */
           ) : activePageId === 'page:ssh' && PAGE_TABS[activePageId] && !showTabsOverview ? (
             <SSHPage
+              page={PAGE_TABS[activePageId]}
+              onBack={handleBack}
+              onOpenDrawer={handleDrawerOpen}
+              onOpenRightDrawer={handleRightDrawerOpen}
+            />
+
+          /* Active page tab — Running Services */
+          ) : activePageId === 'page:running-services' && PAGE_TABS[activePageId] && !showTabsOverview ? (
+            <RunningServicesPage
               page={PAGE_TABS[activePageId]}
               onBack={handleBack}
               onOpenDrawer={handleDrawerOpen}

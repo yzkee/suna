@@ -405,3 +405,54 @@ export async function setupSSH(): Promise<SSHSetupResult> {
   }
   return result.data;
 }
+
+// ─── Running Services API ───────────────────────────────────────────────────
+
+export interface SandboxService {
+  id: string;
+  name: string;
+  port: number;
+  pid: number;
+  framework: string;
+  sourcePath: string;
+  startedAt: string;
+  status: 'running' | 'stopped';
+  managed: boolean;
+}
+
+export async function getSandboxServices(sandboxUrl: string): Promise<SandboxService[]> {
+  try {
+    const token = await getAuthToken();
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(`${sandboxUrl}/kortix/services`, { headers, signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data?.services ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function stopSandboxService(sandboxUrl: string, serviceId: string): Promise<boolean> {
+  try {
+    const token = await getAuthToken();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const res = await fetch(`${sandboxUrl}/kortix/services/${serviceId}/stop`, {
+      method: 'POST',
+      headers,
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data?.success ?? false;
+  } catch {
+    return false;
+  }
+}
