@@ -96,3 +96,4 @@ RUN mkdir -p /app/${SERVICE}/.kortix-data && \
 USER bun
 
 CMD ["bun", "run", "src/index.ts"]
+# CI/CD test: 2026-03-26T07:34:20Z
