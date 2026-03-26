@@ -22,6 +22,7 @@ import { Icon } from '@/components/ui/icon';
 import { useColorScheme } from 'nativewind';
 import { SelectableMarkdownText } from '@/components/ui/selectable-markdown';
 import { cn } from '@/lib/utils/utils';
+import { ShimmerText } from '@/components/ui/ShimmerText';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -123,26 +124,7 @@ export function ReasoningSection({
     transform: [{ rotate: `${chevronRotation.value}deg` }],
   }));
 
-  // Text shimmer animation
-  const textShimmer = useSharedValue(0);
-  useEffect(() => {
-    if (shouldShimmer) {
-      textShimmer.value = withRepeat(
-        withSequence(
-          withTiming(1, { duration: 600, easing: Easing.inOut(Easing.ease) }),
-          withTiming(0.7, { duration: 600, easing: Easing.inOut(Easing.ease) })
-        ),
-        -1,
-        false
-      );
-    } else {
-      textShimmer.value = withTiming(1, { duration: 200 });
-    }
-  }, [shouldShimmer]);
-
-  const textShimmerStyle = useAnimatedStyle(() => ({
-    opacity: textShimmer.value,
-  }));
+  // No custom shimmer animation — we use the shared ShimmerText component instead
 
   const handleToggle = () => {
     // Configure layout animation for smooth expand/collapse
@@ -164,12 +146,14 @@ export function ReasoningSection({
           className="flex-row items-center gap-1 py-0.5"
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Animated.View style={textShimmerStyle}>
+          {shouldShimmer ? (
+            <ShimmerText text={isExpanded ? 'Hide Reasoning' : 'Show Reasoning'} size="xs" />
+          ) : (
             <Text className="font-roobert-medium text-[13px] text-muted-foreground/80">
               {isExpanded ? 'Hide Reasoning' : 'Show Reasoning'}
             </Text>
-          </Animated.View>
-          <Animated.View style={[chevronAnimatedStyle, textShimmerStyle]}>
+          )}
+          <Animated.View style={chevronAnimatedStyle}>
             <Icon
               as={ChevronDown}
               size={16}
