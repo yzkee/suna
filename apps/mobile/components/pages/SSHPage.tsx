@@ -11,6 +11,7 @@ import {
   Copy,
   Key,
   Menu,
+  PanelRight,
   RefreshCw,
   Terminal,
 } from 'lucide-react-native';
@@ -19,6 +20,7 @@ import { Icon } from '@/components/ui/icon';
 import { setupSSH, type SSHSetupResult } from '@/lib/platform/client';
 import { useTabStore, type PageTab } from '@/stores/tab-store';
 import { useThemeColors } from '@/lib/theme-colors';
+import { Ionicons } from '@expo/vector-icons';
 
 interface SSHPageProps {
   page: PageTab;
@@ -115,6 +117,9 @@ export function SSHPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: SSHPa
           <Icon as={Menu} size={20} className="text-foreground" strokeWidth={2} />
         </Pressable>
         <Text className="flex-1 text-lg font-roobert-medium text-foreground">{page.label}</Text>
+        <Pressable onPress={onOpenRightDrawer} hitSlop={8} className="ml-3 p-1">
+          <Ionicons name="apps-outline" size={20} color={isDark ? '#F8F8F8' : '#121215'} />
+        </Pressable>
       </View>
 
       <ScrollView
