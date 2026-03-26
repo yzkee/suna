@@ -38,6 +38,8 @@ import {
   Settings2,
   Loader2,
   Link,
+  ChevronLeft,
+  Cpu,
 } from 'lucide-react-native';
 
 import { KortixLogo } from '@/components/ui/KortixLogo';
@@ -95,6 +97,30 @@ async function sandboxFetch(sandboxUrl: string, path: string, options?: RequestI
   });
 }
 
+// ─── Provider connection helpers ──────────────────────────────────────────────
+
+const PROVIDER_LABELS: Record<string, string> = {
+  anthropic: 'Anthropic', openai: 'OpenAI', google: 'Google', xai: 'xAI',
+  openrouter: 'OpenRouter', groq: 'Groq', deepseek: 'DeepSeek', mistral: 'Mistral',
+};
+
+const POPULAR_PROVIDER_ORDER = ['anthropic', 'openai', 'openrouter', 'google', 'groq', 'xai', 'deepseek', 'mistral'];
+
+async function connectProvider(sandboxUrl: string, providerId: string, apiKey: string): Promise<void> {
+  const token = await getAuthToken();
+  const res = await fetch(`${sandboxUrl}/auth/${encodeURIComponent(providerId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ type: 'api', key: apiKey }),
+  });
+  if (!res.ok) throw new Error(`Failed to connect: ${res.status}`);
+  // Force server reload
+  await fetch(`${sandboxUrl}/global/dispose`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  }).catch(() => {});
+}
+
 // ─── Shared colors helper ────────────────────────────────────────────────────
 
 function useStepColors(isDark: boolean) {
@@ -149,18 +175,36 @@ function StepIndicator({ currentStep, totalSteps, isDark, onStepPress }: {
 function ProviderStep({ onContinue, isDark, themeColors }: StepProps & { onContinue: () => void }) {
   const { sandboxUrl } = useSandboxContext();
   const { data: providersData, isLoading, refetch } = useOpenCodeProviders(sandboxUrl);
+  const [showPicker, setShowPicker] = useState(false);
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState('');
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const colors = useStepColors(isDark);
 
+  const connectedSet = useMemo(() => new Set(providersData?.connected ?? []), [providersData]);
   const hasLLMProvider = useMemo(() => {
-    if (!providersData?.connected) return false;
-    return providersData.connected.some((id: string) => LLM_PROVIDER_IDS.has(id));
-  }, [providersData]);
+    return [...connectedSet].some((id) => LLM_PROVIDER_IDS.has(id));
+  }, [connectedSet]);
+  const connectedCount = connectedSet.size;
 
-  const connectedCount = providersData?.connected?.length ?? 0;
-
-  const handleAddProvider = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    useTabStore.getState().navigateToPage('page:llm-providers');
-  }, []);
+  const handleConnect = useCallback(async () => {
+    if (!sandboxUrl || !selectedProvider || !apiKey.trim()) return;
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      await connectProvider(sandboxUrl, selectedProvider, apiKey.trim());
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setApiKey('');
+      setSelectedProvider(null);
+      setShowPicker(false);
+      refetch();
+    } catch (e: any) {
+      setConnectError(e.message || 'Failed to connect');
+    } finally {
+      setConnecting(false);
+    }
+  }, [sandboxUrl, selectedProvider, apiKey, refetch]);
 
   const handleContinue = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -179,6 +223,115 @@ function ProviderStep({ onContinue, isDark, themeColors }: StepProps & { onConti
     );
   }
 
+  // Inline provider picker — selecting a provider, then entering API key
+  if (showPicker) {
+    return (
+      <View style={{ width: '100%', flex: 1 }}>
+        {/* Header with back */}
+        <Pressable onPress={() => { setShowPicker(false); setSelectedProvider(null); setApiKey(''); setConnectError(null); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 16 }}>
+          <ChevronLeft size={18} color={isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)'} />
+          <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)' }}>Back</Text>
+        </Pressable>
+
+        {!selectedProvider ? (
+          /* Provider list */
+          <>
+            <Text style={{ fontSize: 15, fontFamily: 'Roobert-Medium', color: colors.fg, textAlign: 'center', marginBottom: 4 }}>
+              Choose a provider
+            </Text>
+            <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: colors.muted, textAlign: 'center', marginBottom: 16 }}>
+              Select one to enter your API key
+            </Text>
+            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+              {POPULAR_PROVIDER_ORDER.map((id) => {
+                const isConnected = connectedSet.has(id);
+                return (
+                  <Pressable
+                    key={id}
+                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelectedProvider(id); }}
+                    style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 12,
+                      paddingVertical: 14, paddingHorizontal: 16,
+                      borderRadius: 14, borderWidth: 1,
+                      borderColor: isConnected ? (isDark ? 'rgba(52,211,153,0.2)' : 'rgba(52,211,153,0.15)') : colors.cardBorder,
+                      backgroundColor: colors.cardBg,
+                    }}
+                  >
+                    <View style={{ width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(248,248,248,0.05)' : 'rgba(18,18,21,0.035)' }}>
+                      <Cpu size={15} color={isDark ? 'rgba(248,248,248,0.4)' : 'rgba(18,18,21,0.35)'} />
+                    </View>
+                    <Text style={{ flex: 1, fontSize: 14, fontFamily: 'Roobert-Medium', color: colors.fg }}>
+                      {PROVIDER_LABELS[id] || id}
+                    </Text>
+                    {isConnected && <Check size={16} color="#34d399" />}
+                    {!isConnected && <ChevronRight size={14} color={isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)'} />}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </>
+        ) : (
+          /* API key input for selected provider */
+          <View style={{ flex: 1, justifyContent: 'center' }}>
+            <View style={{ alignItems: 'center', gap: 8, marginBottom: 24 }}>
+              <View style={{ width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(248,248,248,0.05)' : 'rgba(18,18,21,0.035)' }}>
+                <Cpu size={20} color={isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.4)'} />
+              </View>
+              <Text style={{ fontSize: 16, fontFamily: 'Roobert-SemiBold', color: colors.fg }}>
+                {PROVIDER_LABELS[selectedProvider] || selectedProvider}
+              </Text>
+              <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: colors.muted, textAlign: 'center' }}>
+                Enter your API key to connect
+              </Text>
+            </View>
+
+            <TextInput
+              placeholder="sk-..."
+              placeholderTextColor={isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)'}
+              value={apiKey}
+              onChangeText={(t) => { setApiKey(t); setConnectError(null); }}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoFocus
+              secureTextEntry
+              textAlignVertical="center"
+              style={{
+                height: 44, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 0,
+                fontSize: 14, fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+                color: colors.fg, backgroundColor: colors.inputBg,
+                borderWidth: 1, borderColor: connectError ? (isDark ? 'rgba(239,68,68,0.4)' : 'rgba(220,38,38,0.3)') : colors.inputBorder,
+                includeFontPadding: false,
+              }}
+            />
+
+            {connectError && (
+              <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: isDark ? '#f87171' : '#dc2626', marginTop: 8, textAlign: 'center' }}>
+                {connectError}
+              </Text>
+            )}
+
+            <Pressable
+              onPress={handleConnect}
+              disabled={connecting || !apiKey.trim()}
+              style={{
+                height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                flexDirection: 'row', gap: 6, marginTop: 16,
+                backgroundColor: themeColors.primary, opacity: apiKey.trim() ? 1 : 0.5,
+              }}
+            >
+              {connecting ? (
+                <><Loader2 size={14} color={themeColors.primaryForeground} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Connecting…</Text></>
+              ) : (
+                <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Connect</Text>
+              )}
+            </Pressable>
+          </View>
+        )}
+      </View>
+    );
+  }
+
+  // Default view — shows status + Add/Continue buttons
   return (
     <View style={{ width: '100%', gap: 24 }}>
       <View style={{ alignItems: 'center', gap: 8 }}>
@@ -196,7 +349,7 @@ function ProviderStep({ onContinue, isDark, themeColors }: StepProps & { onConti
       </View>
 
       <View style={{ gap: 8 }}>
-        <Pressable onPress={handleAddProvider} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 44, borderRadius: 12, backgroundColor: hasLLMProvider ? 'transparent' : themeColors.primary, borderWidth: hasLLMProvider ? 1 : 0, borderColor: isDark ? 'rgba(248,248,248,0.1)' : 'rgba(18,18,21,0.1)' }}>
+        <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowPicker(true); }} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 44, borderRadius: 12, backgroundColor: hasLLMProvider ? 'transparent' : themeColors.primary, borderWidth: hasLLMProvider ? 1 : 0, borderColor: isDark ? 'rgba(248,248,248,0.1)' : 'rgba(18,18,21,0.1)' }}>
           <Settings2 size={14} color={hasLLMProvider ? (isDark ? '#F8F8F8' : '#121215') : themeColors.primaryForeground} />
           <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: hasLLMProvider ? (isDark ? '#F8F8F8' : '#121215') : themeColors.primaryForeground }}>
             {hasLLMProvider ? 'Manage Providers' : 'Add LLM Provider'}
@@ -494,9 +647,6 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
   const bg = isDark ? '#09090b' : '#FFFFFF';
 
-  // Steps that need full-height layout (scrollable cards + sticky footer)
-  const isFullHeightStep = step === 2 || step === 3;
-
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -505,7 +655,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     >
       <View style={{ flex: 1, paddingTop: insets.top + 24, paddingBottom: insets.bottom + 16, paddingHorizontal: 28 }}>
         {/* ── Fixed header ── */}
-        <View style={{ alignItems: 'center', marginBottom: isFullHeightStep ? 16 : 0 }}>
+        <View style={{ alignItems: 'center', marginBottom: 16 }}>
           <KortixLogo size={28} variant="symbol" color={isDark ? 'dark' : 'light'} />
           <Text style={{ fontSize: 10, fontFamily: 'Roobert-Medium', color: isDark ? 'rgba(248,248,248,0.3)' : 'rgba(18,18,21,0.3)', letterSpacing: 2, textTransform: 'uppercase', marginTop: 12, marginBottom: 4 }}>
             Instance Setup
@@ -517,24 +667,15 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         </View>
 
         {/* ── Step content ── */}
-        {step === 1 ? (
-          /* Step 1 is short — center it vertically */
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-            <View style={{ width: '100%', maxWidth: 340 }}>
-              <ProviderStep onContinue={() => setStep(2)} isDark={isDark} themeColors={themeColors} />
-            </View>
-          </View>
-        ) : (
-          /* Steps 2 & 3 fill remaining space — cards scroll, buttons stay at bottom */
-          <View style={{ flex: 1, width: '100%', maxWidth: 380, alignSelf: 'center' }}>
-            {step === 2 && <ToolSecretsStep onContinue={() => setStep(3)} isDark={isDark} themeColors={themeColors} />}
-            {step === 3 && <PipedreamStep onComplete={markSetupComplete} completing={completing} isDark={isDark} themeColors={themeColors} />}
-          </View>
-        )}
+        <View style={{ flex: 1, width: '100%', maxWidth: 380, alignSelf: 'center' }}>
+          {step === 1 && <ProviderStep onContinue={() => setStep(2)} isDark={isDark} themeColors={themeColors} />}
+          {step === 2 && <ToolSecretsStep onContinue={() => setStep(3)} isDark={isDark} themeColors={themeColors} />}
+          {step === 3 && <PipedreamStep onComplete={markSetupComplete} completing={completing} isDark={isDark} themeColors={themeColors} />}
+        </View>
       </View>
 
       {completing && (
-        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)' }}>
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', zIndex: 100, backgroundColor: isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)' }}>
           <ActivityIndicator size="small" color={themeColors.primary} />
           <Text style={{ marginTop: 12, fontSize: 13, fontFamily: 'Roobert-Medium', color: isDark ? '#F8F8F8' : '#121215' }}>
             Finishing setup…
