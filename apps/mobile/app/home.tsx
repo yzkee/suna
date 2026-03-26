@@ -62,6 +62,7 @@ import { MemoryPage } from '@/components/pages/MemoryPage';
 import { LlmProvidersPage } from '@/components/pages/LlmProvidersPage';
 import { MarketplacePage } from '@/components/pages/MarketplacePage';
 import { TerminalPage } from '@/components/pages/TerminalPage';
+import { SetupWizard } from '@/components/setup/SetupWizard';
 import {
   Eye, EyeOff, RefreshCw, Upload, Image, FolderPlus, LayoutGrid, List,
   FileText, Copy, Pencil, Trash2,
@@ -243,6 +244,50 @@ export default function HomeScreen() {
   const router = useRouter();
   const { sandboxUrl, sandboxId, isLoading: sandboxLoading, error: sandboxError } =
     useSandboxContext();
+
+  // ── Instance setup wizard check ──
+  // 'checking' = initial fetch in progress
+  // 'needed' = setup not complete, show wizard
+  // 'done' = setup complete, show main app
+  const [setupState, setSetupState] = useState<'checking' | 'needed' | 'done'>('checking');
+
+  useEffect(() => {
+    if (!sandboxUrl) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const token = await getAuthToken();
+        const res = await fetch(`${sandboxUrl}/env/INSTANCE_SETUP_COMPLETE`, {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          signal: AbortSignal.timeout(5000),
+        });
+        if (cancelled) return;
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.INSTANCE_SETUP_COMPLETE === 'true') {
+            setSetupState('done');
+            return;
+          }
+        }
+        setSetupState('needed');
+      } catch {
+        if (!cancelled) {
+          // Can't reach sandbox yet — skip wizard (will show on next launch)
+          setSetupState('done');
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [sandboxUrl]);
+
+  const handleSetupComplete = useCallback(() => {
+    setSetupState('done');
+  }, []);
 
   // State
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -751,6 +796,17 @@ export default function HomeScreen() {
   );
 
   // ── Render ──
+
+  // Show setup wizard if instance setup is not complete
+  if (setupState === 'needed') {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <RNStatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+        <SetupWizard onComplete={handleSetupComplete} />
+      </>
+    );
+  }
 
   return (
     <>
