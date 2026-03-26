@@ -305,17 +305,95 @@ function CodeSection({
         <Text className="mb-2 font-roobert text-xs text-muted-foreground">{description}</Text>
       )}
       <View
-        className="rounded-xl overflow-hidden p-3"
+        className="rounded-xl overflow-hidden px-3.5 py-3"
         style={{ backgroundColor: codeBg, borderWidth: 1, borderColor: codeBorder }}
       >
-        <Text
-          className="font-mono text-[11px] leading-[16px]"
-          style={{ color: '#D4D4D8' }}
-          selectable
-        >
-          {code}
-        </Text>
+        <HighlightedCode code={code} />
       </View>
     </View>
+  );
+}
+
+// ─── Syntax Highlighted Code ────────────────────────────────────────────────
+
+const TOKEN_COLORS = {
+  command: '#7DD3FC',    // sky-300 — commands like mkdir, ssh, cat, chmod
+  flag: '#C4B5FD',      // violet-300 — flags like -i, -o, -p
+  path: '#86EFAC',      // emerald-300 — paths like ~/.ssh/kortix_sandbox
+  string: '#FDE68A',    // amber-200 — quoted strings and heredoc delimiters
+  number: '#FCA5A5',    // red-300 — numbers like ports
+  keyword: '#F9A8D4',   // pink-300 — keywords like Host, HostName, Port
+  comment: '#6B7280',   // gray-500
+  default: '#D4D4D8',   // zinc-300
+};
+
+const COMMANDS = new Set(['mkdir', 'cat', 'chmod', 'ssh', 'touch', 'echo']);
+
+function tokenize(code: string): { text: string; color: string }[] {
+  const tokens: { text: string; color: string }[] = [];
+  const lines = code.split('\n');
+
+  for (let li = 0; li < lines.length; li++) {
+    if (li > 0) tokens.push({ text: '\n', color: TOKEN_COLORS.default });
+    const line = lines[li];
+
+    // Heredoc delimiter lines (e.g. KORTIX_KEY, KORTIX_SSH_CONFIG)
+    if (/^[A-Z_]+$/.test(line.trim())) {
+      tokens.push({ text: line, color: TOKEN_COLORS.string });
+      continue;
+    }
+
+    // SSH config keyword lines (e.g. "  HostName localhost")
+    const configMatch = line.match(/^(\s*)(Host\b|HostName\b|Port\b|User\b|IdentityFile\b|StrictHostKeyChecking\b|UserKnownHostsFile\b|ServerAliveInterval\b|ServerAliveCountMax\b)(.*)/);
+    if (configMatch) {
+      tokens.push({ text: configMatch[1], color: TOKEN_COLORS.default });
+      tokens.push({ text: configMatch[2], color: TOKEN_COLORS.keyword });
+      tokens.push({ text: configMatch[3], color: TOKEN_COLORS.default });
+      continue;
+    }
+
+    // Private/public key content — dim
+    if (line.startsWith('-----') || /^[A-Za-z0-9+/=]{20,}$/.test(line.trim())) {
+      tokens.push({ text: line, color: TOKEN_COLORS.comment });
+      continue;
+    }
+
+    // Token-level highlighting
+    const parts = line.split(/(\s+)/);
+    for (const part of parts) {
+      if (/^\s+$/.test(part)) {
+        tokens.push({ text: part, color: TOKEN_COLORS.default });
+      } else if (COMMANDS.has(part)) {
+        tokens.push({ text: part, color: TOKEN_COLORS.command });
+      } else if (/^-[a-zA-Z]/.test(part) || /^--[a-z]/.test(part)) {
+        tokens.push({ text: part, color: TOKEN_COLORS.flag });
+      } else if (part.startsWith('~/') || part.startsWith('/') || part.includes('/.ssh/')) {
+        tokens.push({ text: part, color: TOKEN_COLORS.path });
+      } else if (/^'[^']*'$/.test(part) || /^<</.test(part)) {
+        tokens.push({ text: part, color: TOKEN_COLORS.string });
+      } else if (/^\d+$/.test(part)) {
+        tokens.push({ text: part, color: TOKEN_COLORS.number });
+      } else if (part === '&&' || part === '|' || part === '>>' || part === '>') {
+        tokens.push({ text: part, color: TOKEN_COLORS.comment });
+      } else {
+        tokens.push({ text: part, color: TOKEN_COLORS.default });
+      }
+    }
+  }
+
+  return tokens;
+}
+
+function HighlightedCode({ code }: { code: string }) {
+  const tokens = React.useMemo(() => tokenize(code), [code]);
+
+  return (
+    <Text selectable style={{ fontSize: 11.5, lineHeight: 17 }}>
+      {tokens.map((token, i) => (
+        <Text key={i} style={{ color: token.color, fontFamily: 'RoobertMono-Regular' }}>
+          {token.text}
+        </Text>
+      ))}
+    </Text>
   );
 }
