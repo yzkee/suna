@@ -42,6 +42,14 @@ import {
   Cpu,
 } from 'lucide-react-native';
 
+import {
+  BottomSheetModal,
+  BottomSheetBackdrop,
+  BottomSheetView,
+  BottomSheetTextInput,
+} from '@gorhom/bottom-sheet';
+import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
+
 import { KortixLogo } from '@/components/ui/KortixLogo';
 import { useSandboxContext } from '@/contexts/SandboxContext';
 import { useOpenCodeProviders } from '@/lib/opencode/hooks/use-opencode-data';
@@ -175,7 +183,7 @@ function StepIndicator({ currentStep, totalSteps, isDark, onStepPress }: {
 function ProviderStep({ onContinue, isDark, themeColors }: StepProps & { onContinue: () => void }) {
   const { sandboxUrl } = useSandboxContext();
   const { data: providersData, isLoading, refetch } = useOpenCodeProviders(sandboxUrl);
-  const [showPicker, setShowPicker] = useState(false);
+  const sheetRef = useRef<BottomSheetModal>(null);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [connecting, setConnecting] = useState(false);
@@ -183,10 +191,27 @@ function ProviderStep({ onContinue, isDark, themeColors }: StepProps & { onConti
   const colors = useStepColors(isDark);
 
   const connectedSet = useMemo(() => new Set(providersData?.connected ?? []), [providersData]);
-  const hasLLMProvider = useMemo(() => {
-    return [...connectedSet].some((id) => LLM_PROVIDER_IDS.has(id));
-  }, [connectedSet]);
+  const hasLLMProvider = useMemo(() => [...connectedSet].some((id) => LLM_PROVIDER_IDS.has(id)), [connectedSet]);
   const connectedCount = connectedSet.size;
+
+  const renderBackdrop = useCallback((props: BottomSheetBackdropProps) => (
+    <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.4} pressBehavior="close" />
+  ), []);
+
+  const handleOpenSheet = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectedProvider(null);
+    setApiKey('');
+    setConnectError(null);
+    sheetRef.current?.present();
+  }, []);
+
+  const handleSelectProvider = useCallback((id: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectedProvider(id);
+    setApiKey('');
+    setConnectError(null);
+  }, []);
 
   const handleConnect = useCallback(async () => {
     if (!sandboxUrl || !selectedProvider || !apiKey.trim()) return;
@@ -197,7 +222,7 @@ function ProviderStep({ onContinue, isDark, themeColors }: StepProps & { onConti
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setApiKey('');
       setSelectedProvider(null);
-      setShowPicker(false);
+      sheetRef.current?.dismiss();
       refetch();
     } catch (e: any) {
       setConnectError(e.message || 'Failed to connect');
@@ -212,9 +237,11 @@ function ProviderStep({ onContinue, isDark, themeColors }: StepProps & { onConti
     onContinue();
   }, [onContinue, refetch]);
 
+  const sheetBg = isDark ? '#1a1a1d' : '#FFFFFF';
+
   if (isLoading) {
     return (
-      <View style={{ alignItems: 'center', paddingVertical: 48, gap: 12 }}>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
         <ActivityIndicator size="small" color={isDark ? '#71717a' : '#a1a1aa'} />
         <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.4)' : 'rgba(18,18,21,0.4)' }}>
           Checking providers…
@@ -223,146 +250,149 @@ function ProviderStep({ onContinue, isDark, themeColors }: StepProps & { onConti
     );
   }
 
-  // Inline provider picker — selecting a provider, then entering API key
-  if (showPicker) {
-    return (
-      <View style={{ width: '100%', flex: 1 }}>
-        {/* Header with back */}
-        <Pressable onPress={() => { setShowPicker(false); setSelectedProvider(null); setApiKey(''); setConnectError(null); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 16 }}>
-          <ChevronLeft size={18} color={isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)'} />
-          <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)' }}>Back</Text>
-        </Pressable>
-
-        {!selectedProvider ? (
-          /* Provider list */
-          <>
-            <Text style={{ fontSize: 15, fontFamily: 'Roobert-Medium', color: colors.fg, textAlign: 'center', marginBottom: 4 }}>
-              Choose a provider
-            </Text>
-            <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: colors.muted, textAlign: 'center', marginBottom: 16 }}>
-              Select one to enter your API key
-            </Text>
-            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-              {POPULAR_PROVIDER_ORDER.map((id) => {
-                const isConnected = connectedSet.has(id);
-                return (
-                  <Pressable
-                    key={id}
-                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelectedProvider(id); }}
-                    style={{
-                      flexDirection: 'row', alignItems: 'center', gap: 12,
-                      paddingVertical: 14, paddingHorizontal: 16,
-                      borderRadius: 14, borderWidth: 1,
-                      borderColor: isConnected ? (isDark ? 'rgba(52,211,153,0.2)' : 'rgba(52,211,153,0.15)') : colors.cardBorder,
-                      backgroundColor: colors.cardBg,
-                    }}
-                  >
-                    <View style={{ width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(248,248,248,0.05)' : 'rgba(18,18,21,0.035)' }}>
-                      <Cpu size={15} color={isDark ? 'rgba(248,248,248,0.4)' : 'rgba(18,18,21,0.35)'} />
-                    </View>
-                    <Text style={{ flex: 1, fontSize: 14, fontFamily: 'Roobert-Medium', color: colors.fg }}>
-                      {PROVIDER_LABELS[id] || id}
-                    </Text>
-                    {isConnected && <Check size={16} color="#34d399" />}
-                    {!isConnected && <ChevronRight size={14} color={isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)'} />}
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </>
-        ) : (
-          /* API key input for selected provider */
-          <View style={{ flex: 1, justifyContent: 'center' }}>
-            <View style={{ alignItems: 'center', gap: 8, marginBottom: 24 }}>
-              <View style={{ width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(248,248,248,0.05)' : 'rgba(18,18,21,0.035)' }}>
-                <Cpu size={20} color={isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.4)'} />
-              </View>
-              <Text style={{ fontSize: 16, fontFamily: 'Roobert-SemiBold', color: colors.fg }}>
-                {PROVIDER_LABELS[selectedProvider] || selectedProvider}
-              </Text>
-              <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: colors.muted, textAlign: 'center' }}>
-                Enter your API key to connect
-              </Text>
-            </View>
-
-            <TextInput
-              placeholder="sk-..."
-              placeholderTextColor={isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)'}
-              value={apiKey}
-              onChangeText={(t) => { setApiKey(t); setConnectError(null); }}
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoFocus
-              secureTextEntry
-              textAlignVertical="center"
-              style={{
-                height: 44, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 0,
-                fontSize: 14, fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
-                color: colors.fg, backgroundColor: colors.inputBg,
-                borderWidth: 1, borderColor: connectError ? (isDark ? 'rgba(239,68,68,0.4)' : 'rgba(220,38,38,0.3)') : colors.inputBorder,
-                includeFontPadding: false,
-              }}
-            />
-
-            {connectError && (
-              <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: isDark ? '#f87171' : '#dc2626', marginTop: 8, textAlign: 'center' }}>
-                {connectError}
-              </Text>
-            )}
-
-            <Pressable
-              onPress={handleConnect}
-              disabled={connecting || !apiKey.trim()}
-              style={{
-                height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
-                flexDirection: 'row', gap: 6, marginTop: 16,
-                backgroundColor: themeColors.primary, opacity: apiKey.trim() ? 1 : 0.5,
-              }}
-            >
-              {connecting ? (
-                <><Loader2 size={14} color={themeColors.primaryForeground} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Connecting…</Text></>
-              ) : (
-                <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Connect</Text>
-              )}
-            </Pressable>
-          </View>
-        )}
-      </View>
-    );
-  }
-
-  // Default view — shows status + Add/Continue buttons
   return (
-    <View style={{ width: '100%', gap: 24 }}>
-      <View style={{ alignItems: 'center', gap: 8 }}>
-        <View style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: hasLLMProvider ? 'rgba(52,211,153,0.1)' : (isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.04)') }}>
-          {hasLLMProvider ? <Check size={20} color="#34d399" /> : <Sparkles size={20} color={isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.4)'} />}
+    <View style={{ width: '100%', flex: 1, justifyContent: 'center' }}>
+      <View style={{ gap: 24 }}>
+        <View style={{ alignItems: 'center', gap: 8 }}>
+          <View style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: hasLLMProvider ? 'rgba(52,211,153,0.1)' : (isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.04)') }}>
+            {hasLLMProvider ? <Check size={20} color="#34d399" /> : <Sparkles size={20} color={isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.4)'} />}
+          </View>
+          <Text style={{ fontSize: 15, fontFamily: 'Roobert-Medium', color: isDark ? '#F8F8F8' : '#121215', textAlign: 'center' }}>
+            {hasLLMProvider ? 'Provider connected' : 'Connect an LLM provider'}
+          </Text>
+          <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)', textAlign: 'center', lineHeight: 18, paddingHorizontal: 16 }}>
+            {hasLLMProvider
+              ? `${connectedCount} provider${connectedCount > 1 ? 's' : ''} ready. You can add more anytime from settings.`
+              : 'Connect your existing OpenAI, Anthropic, or other LLM subscription with an API key.'}
+          </Text>
         </View>
-        <Text style={{ fontSize: 15, fontFamily: 'Roobert-Medium', color: isDark ? '#F8F8F8' : '#121215', textAlign: 'center' }}>
-          {hasLLMProvider ? 'Provider connected' : 'Connect an LLM provider'}
-        </Text>
-        <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)', textAlign: 'center', lineHeight: 18, paddingHorizontal: 16 }}>
-          {hasLLMProvider
-            ? `${connectedCount} provider${connectedCount > 1 ? 's' : ''} ready. You can add more anytime from settings.`
-            : 'Connect your existing OpenAI, Anthropic, or other LLM subscription with an API key.'}
-        </Text>
+
+        <View style={{ gap: 8 }}>
+          <Pressable onPress={handleOpenSheet} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 44, borderRadius: 12, backgroundColor: hasLLMProvider ? 'transparent' : themeColors.primary, borderWidth: hasLLMProvider ? 1 : 0, borderColor: isDark ? 'rgba(248,248,248,0.1)' : 'rgba(18,18,21,0.1)' }}>
+            <Settings2 size={14} color={hasLLMProvider ? (isDark ? '#F8F8F8' : '#121215') : themeColors.primaryForeground} />
+            <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: hasLLMProvider ? (isDark ? '#F8F8F8' : '#121215') : themeColors.primaryForeground }}>
+              {hasLLMProvider ? 'Manage Providers' : 'Add LLM Provider'}
+            </Text>
+          </Pressable>
+
+          <Pressable onPress={handleContinue} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 44, borderRadius: 12, backgroundColor: hasLLMProvider ? themeColors.primary : 'transparent' }}>
+            <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: hasLLMProvider ? themeColors.primaryForeground : (isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)') }}>
+              {hasLLMProvider ? 'Continue' : 'Skip for now'}
+            </Text>
+            {hasLLMProvider && <ChevronRight size={14} color={themeColors.primaryForeground} />}
+          </Pressable>
+        </View>
       </View>
 
-      <View style={{ gap: 8 }}>
-        <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowPicker(true); }} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 44, borderRadius: 12, backgroundColor: hasLLMProvider ? 'transparent' : themeColors.primary, borderWidth: hasLLMProvider ? 1 : 0, borderColor: isDark ? 'rgba(248,248,248,0.1)' : 'rgba(18,18,21,0.1)' }}>
-          <Settings2 size={14} color={hasLLMProvider ? (isDark ? '#F8F8F8' : '#121215') : themeColors.primaryForeground} />
-          <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: hasLLMProvider ? (isDark ? '#F8F8F8' : '#121215') : themeColors.primaryForeground }}>
-            {hasLLMProvider ? 'Manage Providers' : 'Add LLM Provider'}
-          </Text>
-        </Pressable>
+      {/* ── Provider selection bottom sheet ── */}
+      <BottomSheetModal
+        ref={sheetRef}
+        snapPoints={selectedProvider ? ['45%'] : ['65%']}
+        enablePanDownToClose
+        enableDynamicSizing={false}
+        backdropComponent={renderBackdrop}
+        backgroundStyle={{ backgroundColor: sheetBg, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
+        handleIndicatorStyle={{ backgroundColor: isDark ? '#3F3F46' : '#D4D4D8', width: 36, height: 5, borderRadius: 3, marginTop: 8 }}
+      >
+        <BottomSheetView style={{ flex: 1, paddingHorizontal: 24 }}>
+          {!selectedProvider ? (
+            /* Provider list */
+            <>
+              <Text style={{ fontSize: 17, fontFamily: 'Roobert-SemiBold', color: colors.fg, textAlign: 'center', marginTop: 4, marginBottom: 2 }}>
+                Choose a provider
+              </Text>
+              <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: colors.muted, textAlign: 'center', marginBottom: 16 }}>
+                Select one to enter your API key
+              </Text>
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 20 }}>
+                {POPULAR_PROVIDER_ORDER.map((id) => {
+                  const isConnected = connectedSet.has(id);
+                  return (
+                    <Pressable
+                      key={id}
+                      onPress={() => handleSelectProvider(id)}
+                      style={{
+                        flexDirection: 'row', alignItems: 'center', gap: 12,
+                        paddingVertical: 13, paddingHorizontal: 14,
+                        borderRadius: 14, borderWidth: 1,
+                        borderColor: isConnected ? (isDark ? 'rgba(52,211,153,0.2)' : 'rgba(52,211,153,0.15)') : (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'),
+                        backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.015)',
+                      }}
+                    >
+                      <View style={{ width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
+                        <Cpu size={15} color={isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)'} />
+                      </View>
+                      <Text style={{ flex: 1, fontSize: 15, fontFamily: 'Roobert-Medium', color: colors.fg }}>
+                        {PROVIDER_LABELS[id] || id}
+                      </Text>
+                      {isConnected ? <Check size={16} color="#34d399" /> : <ChevronRight size={14} color={isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'} />}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </>
+          ) : (
+            /* API key input */
+            <View style={{ flex: 1, justifyContent: 'center', paddingBottom: 24 }}>
+              <Pressable onPress={() => setSelectedProvider(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, position: 'absolute', top: 0, left: 0, zIndex: 1 }}>
+                <ChevronLeft size={16} color={colors.muted} />
+                <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: colors.muted }}>Back</Text>
+              </Pressable>
 
-        <Pressable onPress={handleContinue} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 44, borderRadius: 12, backgroundColor: hasLLMProvider ? themeColors.primary : 'transparent' }}>
-          <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: hasLLMProvider ? themeColors.primaryForeground : (isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)') }}>
-            {hasLLMProvider ? 'Continue' : 'Skip for now'}
-          </Text>
-          {hasLLMProvider && <ChevronRight size={14} color={themeColors.primaryForeground} />}
-        </Pressable>
-      </View>
+              <View style={{ alignItems: 'center', gap: 6, marginBottom: 20 }}>
+                <View style={{ width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
+                  <Cpu size={18} color={isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)'} />
+                </View>
+                <Text style={{ fontSize: 16, fontFamily: 'Roobert-SemiBold', color: colors.fg }}>
+                  {PROVIDER_LABELS[selectedProvider] || selectedProvider}
+                </Text>
+                <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: colors.muted }}>
+                  Paste your API key below
+                </Text>
+              </View>
+
+              <BottomSheetTextInput
+                placeholder="sk-..."
+                placeholderTextColor={isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'}
+                value={apiKey}
+                onChangeText={(t: string) => { setApiKey(t); setConnectError(null); }}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoFocus
+                secureTextEntry
+                style={{
+                  height: 44, borderRadius: 12, paddingHorizontal: 14,
+                  fontSize: 14, fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+                  color: colors.fg, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                  borderWidth: 1, borderColor: connectError ? (isDark ? 'rgba(239,68,68,0.4)' : 'rgba(220,38,38,0.3)') : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'),
+                }}
+              />
+
+              {connectError && (
+                <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: isDark ? '#f87171' : '#dc2626', marginTop: 8, textAlign: 'center' }}>
+                  {connectError}
+                </Text>
+              )}
+
+              <Pressable
+                onPress={handleConnect}
+                disabled={connecting || !apiKey.trim()}
+                style={{
+                  height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                  flexDirection: 'row', gap: 6, marginTop: 14,
+                  backgroundColor: themeColors.primary, opacity: apiKey.trim() ? 1 : 0.5,
+                }}
+              >
+                {connecting ? (
+                  <><Loader2 size={14} color={themeColors.primaryForeground} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Connecting…</Text></>
+                ) : (
+                  <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Connect</Text>
+                )}
+              </Pressable>
+            </View>
+          )}
+        </BottomSheetView>
+      </BottomSheetModal>
     </View>
   );
 }
