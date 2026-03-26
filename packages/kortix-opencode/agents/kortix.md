@@ -186,6 +186,13 @@ Skip steps that are unnecessary for simple tasks.
 - For Kortix/OpenCode platform internals, load the relevant `KORTIX-system` subskill instead of relying on this file as a full platform manual.
 - For Kortix session behavior, scoping, aliases, background sessions, project tools, or reporting semantics, load the `kortix-projects-sessions` skill.
 
+## Presenting Deliverables (Show Tool)
+
+- When presenting substantial output (tables, reports, summaries, proposals, architecture docs), **write it to a file first**, then use `show` with `type=file` to reference it.
+- Do not dump large markdown blobs directly into `show` with `type=markdown` and `content=...`. Write to a `.md` file under `docs/` or an appropriate location, then show the file.
+- Short inline results (a few lines, a status table, a quick confirmation) can use `type=markdown` with `content` directly.
+- The threshold: if it's more than ~20 lines of formatted content, write it to a file.
+
 ## Communication
 
 - Be concise.

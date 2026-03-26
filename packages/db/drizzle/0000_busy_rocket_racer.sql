@@ -1,43 +1,19 @@
--- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║  Bootstrap Migration                                                       ║
--- ║                                                                             ║
--- ║  Creates schemas, enables extensions, and installs helper functions         ║
--- ║  that Drizzle ORM cannot manage (it only handles tables/indexes/enums).    ║
--- ║                                                                             ║
--- ║  After this migration runs, `drizzle-kit push` creates the actual tables.  ║
--- ╚══════════════════════════════════════════════════════════════════════════════╝
-
--- ─── Schemas ─────────────────────────────────────────────────────────────────
-CREATE SCHEMA IF NOT EXISTS kortix;
-CREATE SCHEMA IF NOT EXISTS basejump;
-
--- ─── Schema Permissions ─────────────────────────────────────────────────────
--- Supabase PostgREST requires USAGE on a schema before it can query tables
--- in that schema via .schema('kortix'). Without this, queries silently return
--- null even if table-level SELECT is granted.
-GRANT USAGE ON SCHEMA kortix TO anon;
-GRANT USAGE ON SCHEMA kortix TO authenticated;
-GRANT USAGE ON SCHEMA kortix TO service_role;
-
--- ─── Drizzle-managed tables (kortix.* schema) ────────────────────────────
--- These tables are normally created by 'drizzle-kit push' but must exist
--- before subsequent ALTER migrations can run.
-
-
-CREATE TYPE "kortix"."access_request_status" AS ENUM('pending', 'approved', 'rejected');
-CREATE TYPE "kortix"."account_role" AS ENUM('owner', 'admin', 'member');
-CREATE TYPE "kortix"."api_key_status" AS ENUM('active', 'revoked', 'expired');
-CREATE TYPE "kortix"."api_key_type" AS ENUM('user', 'sandbox');
-CREATE TYPE "kortix"."deployment_source" AS ENUM('git', 'code', 'files', 'tar');
-CREATE TYPE "kortix"."deployment_status" AS ENUM('pending', 'building', 'deploying', 'active', 'failed', 'stopped');
-CREATE TYPE "kortix"."integration_status" AS ENUM('active', 'revoked', 'expired', 'error');
-CREATE TYPE "kortix"."platform_role" AS ENUM('user', 'admin', 'super_admin');
-CREATE TYPE "kortix"."sandbox_provider" AS ENUM('daytona', 'local_docker', 'justavps');
-CREATE TYPE "kortix"."sandbox_status" AS ENUM('provisioning', 'active', 'stopped', 'archived', 'pooled', 'error');
-CREATE TYPE "kortix"."tunnel_capability" AS ENUM('filesystem', 'shell', 'network', 'apps', 'hardware', 'desktop', 'gpu');
-CREATE TYPE "kortix"."tunnel_permission_request_status" AS ENUM('pending', 'approved', 'denied', 'expired');
-CREATE TYPE "kortix"."tunnel_permission_status" AS ENUM('active', 'revoked', 'expired');
-CREATE TYPE "kortix"."tunnel_status" AS ENUM('online', 'offline', 'connecting');
+CREATE SCHEMA "kortix";
+--> statement-breakpoint
+CREATE TYPE "kortix"."access_request_status" AS ENUM('pending', 'approved', 'rejected');--> statement-breakpoint
+CREATE TYPE "kortix"."account_role" AS ENUM('owner', 'admin', 'member');--> statement-breakpoint
+CREATE TYPE "kortix"."api_key_status" AS ENUM('active', 'revoked', 'expired');--> statement-breakpoint
+CREATE TYPE "kortix"."api_key_type" AS ENUM('user', 'sandbox');--> statement-breakpoint
+CREATE TYPE "kortix"."deployment_source" AS ENUM('git', 'code', 'files', 'tar');--> statement-breakpoint
+CREATE TYPE "kortix"."deployment_status" AS ENUM('pending', 'building', 'deploying', 'active', 'failed', 'stopped');--> statement-breakpoint
+CREATE TYPE "kortix"."integration_status" AS ENUM('active', 'revoked', 'expired', 'error');--> statement-breakpoint
+CREATE TYPE "kortix"."platform_role" AS ENUM('user', 'admin', 'super_admin');--> statement-breakpoint
+CREATE TYPE "kortix"."sandbox_provider" AS ENUM('daytona', 'local_docker', 'justavps');--> statement-breakpoint
+CREATE TYPE "kortix"."sandbox_status" AS ENUM('provisioning', 'active', 'stopped', 'archived', 'pooled', 'error');--> statement-breakpoint
+CREATE TYPE "kortix"."tunnel_capability" AS ENUM('filesystem', 'shell', 'network', 'apps', 'hardware', 'desktop', 'gpu');--> statement-breakpoint
+CREATE TYPE "kortix"."tunnel_permission_request_status" AS ENUM('pending', 'approved', 'denied', 'expired');--> statement-breakpoint
+CREATE TYPE "kortix"."tunnel_permission_status" AS ENUM('active', 'revoked', 'expired');--> statement-breakpoint
+CREATE TYPE "kortix"."tunnel_status" AS ENUM('online', 'offline', 'connecting');--> statement-breakpoint
 CREATE TABLE "kortix"."access_allowlist" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"entry_type" varchar(20) NOT NULL,
@@ -45,7 +21,7 @@ CREATE TABLE "kortix"."access_allowlist" (
 	"note" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."access_requests" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"email" varchar(255) NOT NULL,
@@ -55,7 +31,7 @@ CREATE TABLE "kortix"."access_requests" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."account_deletion_requests" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"account_id" uuid NOT NULL,
@@ -67,14 +43,14 @@ CREATE TABLE "kortix"."account_deletion_requests" (
 	"completed_at" timestamp with time zone,
 	"cancelled_at" timestamp with time zone
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."account_members" (
 	"user_id" uuid NOT NULL,
 	"account_id" uuid NOT NULL,
 	"account_role" "kortix"."account_role" DEFAULT 'owner' NOT NULL,
 	"joined_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."accounts" (
 	"account_id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"name" varchar(255) NOT NULL,
@@ -84,7 +60,7 @@ CREATE TABLE "kortix"."accounts" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."billing_customers" (
 	"account_id" uuid NOT NULL,
 	"id" text PRIMARY KEY NOT NULL,
@@ -92,7 +68,7 @@ CREATE TABLE "kortix"."billing_customers" (
 	"active" boolean,
 	"provider" text
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."credit_accounts" (
 	"account_id" uuid PRIMARY KEY NOT NULL,
 	"balance" numeric(12, 4) DEFAULT '0' NOT NULL,
@@ -142,7 +118,7 @@ CREATE TABLE "kortix"."credit_accounts" (
 	"auto_topup_amount" numeric(10, 2) DEFAULT '20' NOT NULL,
 	"auto_topup_last_charged" timestamp with time zone
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."credit_ledger" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"account_id" uuid NOT NULL,
@@ -162,7 +138,7 @@ CREATE TABLE "kortix"."credit_ledger" (
 	"processing_source" text,
 	CONSTRAINT "kortix_unique_stripe_event" UNIQUE("stripe_event_id")
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."credit_purchases" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"account_id" uuid NOT NULL,
@@ -178,7 +154,7 @@ CREATE TABLE "kortix"."credit_purchases" (
 	"revenuecat_transaction_id" varchar(255),
 	"revenuecat_product_id" varchar(255)
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."credit_usage" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"account_id" uuid NOT NULL,
@@ -189,7 +165,7 @@ CREATE TABLE "kortix"."credit_usage" (
 	"subscription_tier" text,
 	"metadata" jsonb DEFAULT '{}'::jsonb
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."deployments" (
 	"deployment_id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"account_id" uuid NOT NULL,
@@ -210,7 +186,7 @@ CREATE TABLE "kortix"."deployments" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."integrations" (
 	"integration_id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"account_id" uuid NOT NULL,
@@ -227,7 +203,7 @@ CREATE TABLE "kortix"."integrations" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."api_keys" (
 	"key_id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"sandbox_id" uuid NOT NULL,
@@ -242,7 +218,7 @@ CREATE TABLE "kortix"."api_keys" (
 	"last_used_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."oauth_access_tokens" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"token_hash" varchar(128) NOT NULL,
@@ -254,7 +230,7 @@ CREATE TABLE "kortix"."oauth_access_tokens" (
 	"revoked_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."oauth_authorization_codes" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"code" varchar(128) NOT NULL,
@@ -269,7 +245,7 @@ CREATE TABLE "kortix"."oauth_authorization_codes" (
 	"used_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."oauth_clients" (
 	"client_id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"client_secret_hash" varchar(128) NOT NULL,
@@ -279,7 +255,7 @@ CREATE TABLE "kortix"."oauth_clients" (
 	"active" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."oauth_refresh_tokens" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"token_hash" varchar(128) NOT NULL,
@@ -291,13 +267,13 @@ CREATE TABLE "kortix"."oauth_refresh_tokens" (
 	"revoked_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."platform_settings" (
 	"key" varchar(255) PRIMARY KEY NOT NULL,
 	"value" jsonb NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."platform_user_roles" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"account_id" uuid NOT NULL,
@@ -305,7 +281,7 @@ CREATE TABLE "kortix"."platform_user_roles" (
 	"granted_by" uuid,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."pool_resources" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"provider" "kortix"."sandbox_provider" NOT NULL,
@@ -316,7 +292,7 @@ CREATE TABLE "kortix"."pool_resources" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."pool_sandboxes" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"resource_id" uuid,
@@ -330,14 +306,14 @@ CREATE TABLE "kortix"."pool_sandboxes" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"ready_at" timestamp with time zone
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."sandbox_integrations" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"sandbox_id" uuid NOT NULL,
 	"integration_id" uuid NOT NULL,
 	"granted_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."sandboxes" (
 	"sandbox_id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"account_id" uuid NOT NULL,
@@ -354,7 +330,7 @@ CREATE TABLE "kortix"."sandboxes" (
 	"is_included" boolean DEFAULT false NOT NULL,
 	"stripe_subscription_item_id" text
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."server_entries" (
 	"entry_id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"id" varchar(128) NOT NULL,
@@ -368,7 +344,7 @@ CREATE TABLE "kortix"."server_entries" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."tunnel_audit_logs" (
 	"log_id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"tunnel_id" uuid NOT NULL,
@@ -382,7 +358,7 @@ CREATE TABLE "kortix"."tunnel_audit_logs" (
 	"error_message" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."tunnel_connections" (
 	"tunnel_id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"account_id" uuid NOT NULL,
@@ -396,7 +372,7 @@ CREATE TABLE "kortix"."tunnel_connections" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."tunnel_permission_requests" (
 	"request_id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"tunnel_id" uuid NOT NULL,
@@ -408,7 +384,7 @@ CREATE TABLE "kortix"."tunnel_permission_requests" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
+--> statement-breakpoint
 CREATE TABLE "kortix"."tunnel_permissions" (
 	"permission_id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"tunnel_id" uuid NOT NULL,
@@ -420,75 +396,75 @@ CREATE TABLE "kortix"."tunnel_permissions" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
-ALTER TABLE "kortix"."account_members" ADD CONSTRAINT "account_members_account_id_accounts_account_id_fk" FOREIGN KEY ("account_id") REFERENCES "kortix"."accounts"("account_id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "kortix"."deployments" ADD CONSTRAINT "deployments_sandbox_id_sandboxes_sandbox_id_fk" FOREIGN KEY ("sandbox_id") REFERENCES "kortix"."sandboxes"("sandbox_id") ON DELETE set null ON UPDATE no action;
-ALTER TABLE "kortix"."api_keys" ADD CONSTRAINT "api_keys_sandbox_id_sandboxes_sandbox_id_fk" FOREIGN KEY ("sandbox_id") REFERENCES "kortix"."sandboxes"("sandbox_id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "kortix"."oauth_access_tokens" ADD CONSTRAINT "oauth_access_tokens_client_id_oauth_clients_client_id_fk" FOREIGN KEY ("client_id") REFERENCES "kortix"."oauth_clients"("client_id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "kortix"."oauth_authorization_codes" ADD CONSTRAINT "oauth_authorization_codes_client_id_oauth_clients_client_id_fk" FOREIGN KEY ("client_id") REFERENCES "kortix"."oauth_clients"("client_id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "kortix"."oauth_refresh_tokens" ADD CONSTRAINT "oauth_refresh_tokens_access_token_id_oauth_access_tokens_id_fk" FOREIGN KEY ("access_token_id") REFERENCES "kortix"."oauth_access_tokens"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "kortix"."oauth_refresh_tokens" ADD CONSTRAINT "oauth_refresh_tokens_client_id_oauth_clients_client_id_fk" FOREIGN KEY ("client_id") REFERENCES "kortix"."oauth_clients"("client_id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "kortix"."pool_sandboxes" ADD CONSTRAINT "pool_sandboxes_resource_id_pool_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "kortix"."pool_resources"("id") ON DELETE set null ON UPDATE no action;
-ALTER TABLE "kortix"."sandbox_integrations" ADD CONSTRAINT "sandbox_integrations_sandbox_id_sandboxes_sandbox_id_fk" FOREIGN KEY ("sandbox_id") REFERENCES "kortix"."sandboxes"("sandbox_id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "kortix"."sandbox_integrations" ADD CONSTRAINT "sandbox_integrations_integration_id_integrations_integration_id_fk" FOREIGN KEY ("integration_id") REFERENCES "kortix"."integrations"("integration_id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "kortix"."tunnel_audit_logs" ADD CONSTRAINT "tunnel_audit_logs_tunnel_id_tunnel_connections_tunnel_id_fk" FOREIGN KEY ("tunnel_id") REFERENCES "kortix"."tunnel_connections"("tunnel_id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "kortix"."tunnel_connections" ADD CONSTRAINT "tunnel_connections_sandbox_id_sandboxes_sandbox_id_fk" FOREIGN KEY ("sandbox_id") REFERENCES "kortix"."sandboxes"("sandbox_id") ON DELETE set null ON UPDATE no action;
-ALTER TABLE "kortix"."tunnel_permission_requests" ADD CONSTRAINT "tunnel_permission_requests_tunnel_id_tunnel_connections_tunnel_id_fk" FOREIGN KEY ("tunnel_id") REFERENCES "kortix"."tunnel_connections"("tunnel_id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "kortix"."tunnel_permissions" ADD CONSTRAINT "tunnel_permissions_tunnel_id_tunnel_connections_tunnel_id_fk" FOREIGN KEY ("tunnel_id") REFERENCES "kortix"."tunnel_connections"("tunnel_id") ON DELETE cascade ON UPDATE no action;
-CREATE UNIQUE INDEX "idx_access_allowlist_type_value" ON "kortix"."access_allowlist" USING btree ("entry_type","value");
-CREATE INDEX "idx_access_requests_email" ON "kortix"."access_requests" USING btree ("email");
-CREATE INDEX "idx_access_requests_status" ON "kortix"."access_requests" USING btree ("status");
-CREATE INDEX "idx_account_members_user_id" ON "kortix"."account_members" USING btree ("user_id");
-CREATE INDEX "idx_account_members_account_id" ON "kortix"."account_members" USING btree ("account_id");
-CREATE UNIQUE INDEX "idx_account_members_user_account" ON "kortix"."account_members" USING btree ("user_id","account_id");
-CREATE INDEX "idx_kortix_billing_customers_account_id" ON "kortix"."billing_customers" USING btree ("account_id");
-CREATE INDEX "kortix_credit_accounts_account_id_idx" ON "kortix"."credit_accounts" USING btree ("account_id");
-CREATE INDEX "idx_kortix_credit_ledger_idempotency" ON "kortix"."credit_ledger" USING btree ("idempotency_key") WHERE "kortix"."credit_ledger"."idempotency_key" IS NOT NULL;
-CREATE INDEX "idx_deployments_account" ON "kortix"."deployments" USING btree ("account_id");
-CREATE INDEX "idx_deployments_sandbox" ON "kortix"."deployments" USING btree ("sandbox_id");
-CREATE INDEX "idx_deployments_status" ON "kortix"."deployments" USING btree ("status");
-CREATE INDEX "idx_deployments_live_url" ON "kortix"."deployments" USING btree ("live_url");
-CREATE INDEX "idx_deployments_created" ON "kortix"."deployments" USING btree ("created_at");
-CREATE INDEX "idx_integrations_account" ON "kortix"."integrations" USING btree ("account_id");
-CREATE INDEX "idx_integrations_app" ON "kortix"."integrations" USING btree ("app");
-CREATE INDEX "idx_integrations_provider_account" ON "kortix"."integrations" USING btree ("provider_account_id");
-CREATE UNIQUE INDEX "idx_integrations_account_provider_account" ON "kortix"."integrations" USING btree ("account_id","provider_account_id");
-CREATE UNIQUE INDEX "idx_kortix_api_keys_public_key" ON "kortix"."api_keys" USING btree ("public_key");
-CREATE INDEX "idx_kortix_api_keys_secret_hash" ON "kortix"."api_keys" USING btree ("secret_key_hash");
-CREATE INDEX "idx_kortix_api_keys_sandbox" ON "kortix"."api_keys" USING btree ("sandbox_id");
-CREATE INDEX "idx_kortix_api_keys_account" ON "kortix"."api_keys" USING btree ("account_id");
-CREATE UNIQUE INDEX "idx_oauth_access_token_hash" ON "kortix"."oauth_access_tokens" USING btree ("token_hash");
-CREATE INDEX "idx_oauth_access_tokens_client" ON "kortix"."oauth_access_tokens" USING btree ("client_id");
-CREATE INDEX "idx_oauth_access_tokens_user" ON "kortix"."oauth_access_tokens" USING btree ("user_id");
-CREATE UNIQUE INDEX "idx_oauth_codes_code" ON "kortix"."oauth_authorization_codes" USING btree ("code");
-CREATE INDEX "idx_oauth_codes_client" ON "kortix"."oauth_authorization_codes" USING btree ("client_id");
-CREATE INDEX "idx_oauth_codes_expires" ON "kortix"."oauth_authorization_codes" USING btree ("expires_at");
-CREATE UNIQUE INDEX "idx_oauth_refresh_token_hash" ON "kortix"."oauth_refresh_tokens" USING btree ("token_hash");
-CREATE INDEX "idx_oauth_refresh_tokens_client" ON "kortix"."oauth_refresh_tokens" USING btree ("client_id");
-CREATE UNIQUE INDEX "idx_platform_user_roles_account_id" ON "kortix"."platform_user_roles" USING btree ("account_id");
-CREATE INDEX "idx_platform_user_roles_role" ON "kortix"."platform_user_roles" USING btree ("role");
-CREATE UNIQUE INDEX "idx_pool_resources_unique" ON "kortix"."pool_resources" USING btree ("provider","server_type","location");
-CREATE INDEX "idx_pool_sandboxes_claim" ON "kortix"."pool_sandboxes" USING btree ("status","created_at");
-CREATE UNIQUE INDEX "idx_pool_sandboxes_external_id_active" ON "kortix"."pool_sandboxes" USING btree ("external_id");
-CREATE UNIQUE INDEX "idx_sandbox_integration_unique" ON "kortix"."sandbox_integrations" USING btree ("sandbox_id","integration_id");
-CREATE INDEX "idx_sandbox_integrations_sandbox" ON "kortix"."sandbox_integrations" USING btree ("sandbox_id");
-CREATE INDEX "idx_sandboxes_account" ON "kortix"."sandboxes" USING btree ("account_id");
-CREATE INDEX "idx_sandboxes_external_id" ON "kortix"."sandboxes" USING btree ("external_id");
-CREATE INDEX "idx_sandboxes_status" ON "kortix"."sandboxes" USING btree ("status");
-CREATE INDEX "idx_server_entries_default" ON "kortix"."server_entries" USING btree ("is_default");
-CREATE INDEX "idx_server_entries_account" ON "kortix"."server_entries" USING btree ("account_id");
-CREATE UNIQUE INDEX "idx_server_entries_account_id" ON "kortix"."server_entries" USING btree ("account_id","id");
-CREATE INDEX "idx_tunnel_audit_tunnel" ON "kortix"."tunnel_audit_logs" USING btree ("tunnel_id");
-CREATE INDEX "idx_tunnel_audit_account" ON "kortix"."tunnel_audit_logs" USING btree ("account_id");
-CREATE INDEX "idx_tunnel_audit_capability" ON "kortix"."tunnel_audit_logs" USING btree ("capability");
-CREATE INDEX "idx_tunnel_audit_created" ON "kortix"."tunnel_audit_logs" USING btree ("created_at");
-CREATE INDEX "idx_tunnel_connections_account" ON "kortix"."tunnel_connections" USING btree ("account_id");
-CREATE INDEX "idx_tunnel_connections_sandbox" ON "kortix"."tunnel_connections" USING btree ("sandbox_id");
-CREATE INDEX "idx_tunnel_connections_status" ON "kortix"."tunnel_connections" USING btree ("status");
-CREATE INDEX "idx_tunnel_perm_requests_tunnel" ON "kortix"."tunnel_permission_requests" USING btree ("tunnel_id");
-CREATE INDEX "idx_tunnel_perm_requests_account" ON "kortix"."tunnel_permission_requests" USING btree ("account_id");
-CREATE INDEX "idx_tunnel_perm_requests_status" ON "kortix"."tunnel_permission_requests" USING btree ("status");
-CREATE INDEX "idx_tunnel_permissions_tunnel" ON "kortix"."tunnel_permissions" USING btree ("tunnel_id");
-CREATE INDEX "idx_tunnel_permissions_account" ON "kortix"."tunnel_permissions" USING btree ("account_id");
-CREATE INDEX "idx_tunnel_permissions_capability" ON "kortix"."tunnel_permissions" USING btree ("capability");
+--> statement-breakpoint
+ALTER TABLE "kortix"."account_members" ADD CONSTRAINT "account_members_account_id_accounts_account_id_fk" FOREIGN KEY ("account_id") REFERENCES "kortix"."accounts"("account_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "kortix"."deployments" ADD CONSTRAINT "deployments_sandbox_id_sandboxes_sandbox_id_fk" FOREIGN KEY ("sandbox_id") REFERENCES "kortix"."sandboxes"("sandbox_id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "kortix"."api_keys" ADD CONSTRAINT "api_keys_sandbox_id_sandboxes_sandbox_id_fk" FOREIGN KEY ("sandbox_id") REFERENCES "kortix"."sandboxes"("sandbox_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "kortix"."oauth_access_tokens" ADD CONSTRAINT "oauth_access_tokens_client_id_oauth_clients_client_id_fk" FOREIGN KEY ("client_id") REFERENCES "kortix"."oauth_clients"("client_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "kortix"."oauth_authorization_codes" ADD CONSTRAINT "oauth_authorization_codes_client_id_oauth_clients_client_id_fk" FOREIGN KEY ("client_id") REFERENCES "kortix"."oauth_clients"("client_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "kortix"."oauth_refresh_tokens" ADD CONSTRAINT "oauth_refresh_tokens_access_token_id_oauth_access_tokens_id_fk" FOREIGN KEY ("access_token_id") REFERENCES "kortix"."oauth_access_tokens"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "kortix"."oauth_refresh_tokens" ADD CONSTRAINT "oauth_refresh_tokens_client_id_oauth_clients_client_id_fk" FOREIGN KEY ("client_id") REFERENCES "kortix"."oauth_clients"("client_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "kortix"."pool_sandboxes" ADD CONSTRAINT "pool_sandboxes_resource_id_pool_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "kortix"."pool_resources"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "kortix"."sandbox_integrations" ADD CONSTRAINT "sandbox_integrations_sandbox_id_sandboxes_sandbox_id_fk" FOREIGN KEY ("sandbox_id") REFERENCES "kortix"."sandboxes"("sandbox_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "kortix"."sandbox_integrations" ADD CONSTRAINT "sandbox_integrations_integration_id_integrations_integration_id_fk" FOREIGN KEY ("integration_id") REFERENCES "kortix"."integrations"("integration_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "kortix"."tunnel_audit_logs" ADD CONSTRAINT "tunnel_audit_logs_tunnel_id_tunnel_connections_tunnel_id_fk" FOREIGN KEY ("tunnel_id") REFERENCES "kortix"."tunnel_connections"("tunnel_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "kortix"."tunnel_connections" ADD CONSTRAINT "tunnel_connections_sandbox_id_sandboxes_sandbox_id_fk" FOREIGN KEY ("sandbox_id") REFERENCES "kortix"."sandboxes"("sandbox_id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "kortix"."tunnel_permission_requests" ADD CONSTRAINT "tunnel_permission_requests_tunnel_id_tunnel_connections_tunnel_id_fk" FOREIGN KEY ("tunnel_id") REFERENCES "kortix"."tunnel_connections"("tunnel_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "kortix"."tunnel_permissions" ADD CONSTRAINT "tunnel_permissions_tunnel_id_tunnel_connections_tunnel_id_fk" FOREIGN KEY ("tunnel_id") REFERENCES "kortix"."tunnel_connections"("tunnel_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_access_allowlist_type_value" ON "kortix"."access_allowlist" USING btree ("entry_type","value");--> statement-breakpoint
+CREATE INDEX "idx_access_requests_email" ON "kortix"."access_requests" USING btree ("email");--> statement-breakpoint
+CREATE INDEX "idx_access_requests_status" ON "kortix"."access_requests" USING btree ("status");--> statement-breakpoint
+CREATE INDEX "idx_account_members_user_id" ON "kortix"."account_members" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX "idx_account_members_account_id" ON "kortix"."account_members" USING btree ("account_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_account_members_user_account" ON "kortix"."account_members" USING btree ("user_id","account_id");--> statement-breakpoint
+CREATE INDEX "idx_kortix_billing_customers_account_id" ON "kortix"."billing_customers" USING btree ("account_id");--> statement-breakpoint
+CREATE INDEX "kortix_credit_accounts_account_id_idx" ON "kortix"."credit_accounts" USING btree ("account_id");--> statement-breakpoint
+CREATE INDEX "idx_kortix_credit_ledger_idempotency" ON "kortix"."credit_ledger" USING btree ("idempotency_key") WHERE "kortix"."credit_ledger"."idempotency_key" IS NOT NULL;--> statement-breakpoint
+CREATE INDEX "idx_deployments_account" ON "kortix"."deployments" USING btree ("account_id");--> statement-breakpoint
+CREATE INDEX "idx_deployments_sandbox" ON "kortix"."deployments" USING btree ("sandbox_id");--> statement-breakpoint
+CREATE INDEX "idx_deployments_status" ON "kortix"."deployments" USING btree ("status");--> statement-breakpoint
+CREATE INDEX "idx_deployments_live_url" ON "kortix"."deployments" USING btree ("live_url");--> statement-breakpoint
+CREATE INDEX "idx_deployments_created" ON "kortix"."deployments" USING btree ("created_at");--> statement-breakpoint
+CREATE INDEX "idx_integrations_account" ON "kortix"."integrations" USING btree ("account_id");--> statement-breakpoint
+CREATE INDEX "idx_integrations_app" ON "kortix"."integrations" USING btree ("app");--> statement-breakpoint
+CREATE INDEX "idx_integrations_provider_account" ON "kortix"."integrations" USING btree ("provider_account_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_integrations_account_provider_account" ON "kortix"."integrations" USING btree ("account_id","provider_account_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_kortix_api_keys_public_key" ON "kortix"."api_keys" USING btree ("public_key");--> statement-breakpoint
+CREATE INDEX "idx_kortix_api_keys_secret_hash" ON "kortix"."api_keys" USING btree ("secret_key_hash");--> statement-breakpoint
+CREATE INDEX "idx_kortix_api_keys_sandbox" ON "kortix"."api_keys" USING btree ("sandbox_id");--> statement-breakpoint
+CREATE INDEX "idx_kortix_api_keys_account" ON "kortix"."api_keys" USING btree ("account_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_oauth_access_token_hash" ON "kortix"."oauth_access_tokens" USING btree ("token_hash");--> statement-breakpoint
+CREATE INDEX "idx_oauth_access_tokens_client" ON "kortix"."oauth_access_tokens" USING btree ("client_id");--> statement-breakpoint
+CREATE INDEX "idx_oauth_access_tokens_user" ON "kortix"."oauth_access_tokens" USING btree ("user_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_oauth_codes_code" ON "kortix"."oauth_authorization_codes" USING btree ("code");--> statement-breakpoint
+CREATE INDEX "idx_oauth_codes_client" ON "kortix"."oauth_authorization_codes" USING btree ("client_id");--> statement-breakpoint
+CREATE INDEX "idx_oauth_codes_expires" ON "kortix"."oauth_authorization_codes" USING btree ("expires_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_oauth_refresh_token_hash" ON "kortix"."oauth_refresh_tokens" USING btree ("token_hash");--> statement-breakpoint
+CREATE INDEX "idx_oauth_refresh_tokens_client" ON "kortix"."oauth_refresh_tokens" USING btree ("client_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_platform_user_roles_account_id" ON "kortix"."platform_user_roles" USING btree ("account_id");--> statement-breakpoint
+CREATE INDEX "idx_platform_user_roles_role" ON "kortix"."platform_user_roles" USING btree ("role");--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_pool_resources_unique" ON "kortix"."pool_resources" USING btree ("provider","server_type","location");--> statement-breakpoint
+CREATE INDEX "idx_pool_sandboxes_claim" ON "kortix"."pool_sandboxes" USING btree ("status","created_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_pool_sandboxes_external_id_active" ON "kortix"."pool_sandboxes" USING btree ("external_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_sandbox_integration_unique" ON "kortix"."sandbox_integrations" USING btree ("sandbox_id","integration_id");--> statement-breakpoint
+CREATE INDEX "idx_sandbox_integrations_sandbox" ON "kortix"."sandbox_integrations" USING btree ("sandbox_id");--> statement-breakpoint
+CREATE INDEX "idx_sandboxes_account" ON "kortix"."sandboxes" USING btree ("account_id");--> statement-breakpoint
+CREATE INDEX "idx_sandboxes_external_id" ON "kortix"."sandboxes" USING btree ("external_id");--> statement-breakpoint
+CREATE INDEX "idx_sandboxes_status" ON "kortix"."sandboxes" USING btree ("status");--> statement-breakpoint
+CREATE INDEX "idx_server_entries_default" ON "kortix"."server_entries" USING btree ("is_default");--> statement-breakpoint
+CREATE INDEX "idx_server_entries_account" ON "kortix"."server_entries" USING btree ("account_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_server_entries_account_id" ON "kortix"."server_entries" USING btree ("account_id","id");--> statement-breakpoint
+CREATE INDEX "idx_tunnel_audit_tunnel" ON "kortix"."tunnel_audit_logs" USING btree ("tunnel_id");--> statement-breakpoint
+CREATE INDEX "idx_tunnel_audit_account" ON "kortix"."tunnel_audit_logs" USING btree ("account_id");--> statement-breakpoint
+CREATE INDEX "idx_tunnel_audit_capability" ON "kortix"."tunnel_audit_logs" USING btree ("capability");--> statement-breakpoint
+CREATE INDEX "idx_tunnel_audit_created" ON "kortix"."tunnel_audit_logs" USING btree ("created_at");--> statement-breakpoint
+CREATE INDEX "idx_tunnel_connections_account" ON "kortix"."tunnel_connections" USING btree ("account_id");--> statement-breakpoint
+CREATE INDEX "idx_tunnel_connections_sandbox" ON "kortix"."tunnel_connections" USING btree ("sandbox_id");--> statement-breakpoint
+CREATE INDEX "idx_tunnel_connections_status" ON "kortix"."tunnel_connections" USING btree ("status");--> statement-breakpoint
+CREATE INDEX "idx_tunnel_perm_requests_tunnel" ON "kortix"."tunnel_permission_requests" USING btree ("tunnel_id");--> statement-breakpoint
+CREATE INDEX "idx_tunnel_perm_requests_account" ON "kortix"."tunnel_permission_requests" USING btree ("account_id");--> statement-breakpoint
+CREATE INDEX "idx_tunnel_perm_requests_status" ON "kortix"."tunnel_permission_requests" USING btree ("status");--> statement-breakpoint
+CREATE INDEX "idx_tunnel_permissions_tunnel" ON "kortix"."tunnel_permissions" USING btree ("tunnel_id");--> statement-breakpoint
+CREATE INDEX "idx_tunnel_permissions_account" ON "kortix"."tunnel_permissions" USING btree ("account_id");--> statement-breakpoint
+CREATE INDEX "idx_tunnel_permissions_capability" ON "kortix"."tunnel_permissions" USING btree ("capability");--> statement-breakpoint
 CREATE INDEX "idx_tunnel_permissions_status" ON "kortix"."tunnel_permissions" USING btree ("status");

@@ -67,8 +67,20 @@ fi
 
 # ── 5. Reset Supabase database ──────────────────────────────────────────────
 echo "[5/5] Resetting Supabase database..."
-supabase db reset
-echo "  done"
+SUPABASE_DIR="$ROOT_DIR/infra/supabase"
+cd "$SUPABASE_DIR"
+if supabase status >/dev/null 2>&1; then
+  supabase db reset --linked=false 2>/dev/null && echo "  done (reset)" || echo "  done (reset skipped)"
+else
+  # Not running — stop any stale state, start fresh (applies all migrations)
+  supabase stop 2>/dev/null || true
+  if supabase start 2>/dev/null; then
+    echo "  done (started fresh with migrations)"
+  else
+    echo "  WARNING: supabase start failed — run 'cd infra/supabase && supabase start' manually"
+  fi
+fi
+cd "$ROOT_DIR"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

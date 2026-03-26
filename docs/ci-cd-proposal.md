@@ -1,145 +1,74 @@
-# Optimal CI/CD for Kortix Computer
+# Kortix Computer — CI/CD Architecture
 
-## Your Product Has Two Completely Different Release Cadences
-
-**Artifact 1 — Your infrastructure (API + Frontend)**
-- Runs on YOUR servers (VPS + Vercel)
-- You can deploy/rollback instantly, 10x/day
-- Users never see version numbers for this
-- Version doesn't matter, uptime does
-
-**Artifact 2 — The Sandbox (Docker image + OTA + JustAVPS snapshot)**
-- Runs on USER machines and user-provisioned cloud instances
-- Users see the version, choose when to update
-- Can't roll back easily once users have it
-- Every `pnpm ship` version is a public release to all users
-
-**These should NOT share a release pipeline.** Coupling them (as today) means you can't hotfix your API without building sandbox images, and you can't iterate on sandbox changes without deploying your API.
+> **Status: Implemented and verified end-to-end.**
 
 ---
 
-## Recommended Flow: Single Branch, Two Tracks
+## Overview: Single Branch, Two Tracks
+
+All development happens on `main`. The API/Frontend deploy continuously. Sandbox releases are versioned and gated via `pnpm ship`.
 
 ```
 main (only branch)
   │
-  │  every push
-  ├─────────────────────────► dev-new-api.kortix.com  (auto, CI)
-  │                           dev-new.kortix.com       (auto, Vercel)
+  │  every push (auto)
+  ├─────────────────────────► dev-new-api.kortix.com    (GH Actions → Lightsail)
+  │                           dev-new.kortix.com         (Vercel auto-deploy)
   │
-  │  manual: deploy-prod
-  ├─────────────────────────► new-api.kortix.com       (on-demand, CI)
-  │                           new.kortix.com            (Vercel prod)
+  │  manual: gh workflow run deploy-api.yml -f target=prod
+  ├─────────────────────────► new-api.kortix.com         (GH Actions → Lightsail)
+  │                           new.kortix.com              (Vercel — same build)
   │
-  │  manual: pnpm ship 0.9.0
-  └─────────────────────────► kortix/computer:0.9.0    (Docker Hub)
-                              kortix/computer:latest
-                              GitHub Release v0.9.0
+  │  manual: pnpm ship <version>
+  └─────────────────────────► kortix/computer:<version>  (Docker Hub)
+                              GitHub Release v<version>
                               JustAVPS snapshot
-                              OTA available to users
+                              OTA available to all users
 ```
 
-> **Domain cutover (planned):** Once stable, we switch to the final domains:
+> **Domain cutover (planned):** When ready, just update DNS:
 > - `new-api.kortix.com` → `api.kortix.com`
 > - `new.kortix.com` → `kortix.com`
 > - `dev-new-api.kortix.com` → `dev-api.kortix.com`
 > - `dev-new.kortix.com` → `dev.kortix.com`
 >
-> This is a DNS-only change — no infra or CI/CD changes needed.
-
-### Track 1: API + Frontend (Continuous Deployment)
-
-```
-push to main
-  └─► deploy-api.yml (auto)
-        └─► SSH → dev VPS → docker compose build+up
-            dev-new-api.kortix.com ✓
-
-ready for prod?
-  └─► gh workflow run deploy-prod (manual button)
-        └─► SSH → prod VPS → docker compose build+up
-            new-api.kortix.com ✓
-```
-
-- Deploy API to prod whenever you want — daily, hourly, doesn't matter
-- No version numbers, no changelog needed
-- Rollback = re-run the workflow on a previous commit
-- Frontend is Vercel, already auto-deploys from main
-
-### Track 2: Sandbox Release (Versioned, Gated)
-
-```
-developer decides it's release-worthy
-  └─► pnpm ship 0.9.0
-        ├─► Validates CHANGELOG.json entry (existing gate)
-        ├─► Bumps version in 4 files
-        ├─► Builds 3 Docker images (amd64+arm64)
-        │     kortix/computer:0.9.0 + :latest
-        │     kortix/kortix-api:0.9.0 (for self-hosters)
-        │     kortix/kortix-frontend:0.9.0 (for self-hosters)
-        ├─► Creates GitHub Release v0.9.0
-        ├─► Seeds JustAVPS snapshot
-        ├─► Commits version bump
-        └─► You push, done
-
-Users see update:
-  - Self-hosted: sidebar shows "Update available" → pulls new image
-  - Cloud (JustAVPS): new sandboxes auto-use latest snapshot
-  - curl | bash: installs latest version
-```
+> No infra or code changes needed — DNS only.
 
 ---
 
-## Why This Is Optimal For Your Product
+## Track 1: API + Frontend (Continuous Deployment)
 
-1. **API deploys are decoupled from releases.** You can push 30 API fixes between sandbox releases. Users don't care, their sandbox version stays stable.
+**Deploy to dev** — automatic on every push to `main` (when `kortix-api/`, `packages/`, or `scripts/compose/` change):
+```bash
+# Happens automatically via GH Actions
+```
 
-2. **`pnpm ship` remains the single release gate.** No accidental public releases. Changelog is enforced. One command does everything.
+**Deploy to prod** — manual:
+```bash
+gh workflow run deploy-api.yml -f target=prod --repo kortix-ai/computer
+```
 
-3. **No branches to manage.** No staging branch, no promotion workflow, no merge conflicts. `main` is truth.
+**Rollback** — re-run the workflow targeting a previous commit.
 
-4. **Dev environment is always current.** Every push lands on `dev-new-api.kortix.com` — test there before deploying to prod or shipping.
-
-5. **Prod API deploy is independent.** API hotfix at 2am? `gh workflow run deploy-prod`. No need to ship a new sandbox version.
-
-6. **Backward compatibility is natural.** API must work with current sandbox version anyway (users on old versions). This is already true.
-
----
-
-## What Changes From Today
-
-| What | Before | After |
-|---|---|---|
-| Branches | main + staging + PRODUCTION | **main only** |
-| API deploy (dev) | manual SSH or staging push | **auto on every push** |
-| API deploy (prod) | deploy-eks.yml (EKS) | **manual workflow dispatch** |
-| Sandbox release | `pnpm ship` (unchanged) | `pnpm ship` **(unchanged)** |
-| Promote workflow | main→staging→production | **deleted** |
-| EKS | Pulumi + deploy-eks + sync-secrets | **deleted** |
-| Environments | 3 (dev/staging/prod) | **2 (dev/prod)** |
-| Monthly cost | ~$1,000+ | **$24** |
+**Frontend** — Vercel auto-deploys from `main`. Both `new.kortix.com` (prod) and `dev-new.kortix.com` (dev) serve the same production build. A runtime hostname check in `env-config.ts` routes the dev domain to the dev API.
 
 ---
 
-## Concrete Deliverables
+## Track 2: Sandbox Release (Versioned, Gated)
 
-**2 workflows:**
-- `deploy-api.yml` — push to main → auto-deploy dev; workflow_dispatch → deploy prod
-- *(no second workflow needed — `ship.cjs` handles sandbox releases directly)*
+```bash
+# 1. Add changelog entry to sandbox/CHANGELOG.json
+# 2. Ship:
+pnpm ship 0.9.0
+# 3. Push the version-bump commit:
+git push
+```
 
-**2 VPS instances:**
-- `kortix-dev` → `dev-new-api.kortix.com` (later: `dev-api.kortix.com`)
-- `kortix-prod` → `new-api.kortix.com` (later: `api.kortix.com`)
-
-**Delete:** `kortix-staging` instance, `promote.yml`, staging GH environment
-
-**Update:** `docs/development-release-guide.md` Release Flow section (minor edit)
-
-`ship.cjs` stays almost untouched — it already does everything right for sandbox releases.
+`pnpm ship` validates the changelog, bumps versions, builds 3 multi-arch Docker images, creates a GitHub Release, and seeds a JustAVPS snapshot. Users see the update in their sidebar.
 
 ---
 
-## Current Infrastructure
+## Infrastructure
 
 ### Lightsail Instances (us-west-2)
 
@@ -147,27 +76,90 @@ Users see update:
 |---|---|---|---|---|
 | `kortix-dev` | `52.43.117.187` | small (2 vCPU / 2GB) | $12 | Dev API |
 | `kortix-prod` | `44.247.194.29` | small (2 vCPU / 2GB) | $12 | Prod API |
-| `kortix-staging` | `52.42.64.222` | small (2 vCPU / 2GB) | $12 | **To be deleted** |
 
-### DNS Records Needed (Cloudflare → kortix.com)
+**Total: $24/mo** (down from ~$1,000+/mo with EKS + old suna instances)
 
-**Now (transitional):**
+Each instance runs:
+- **nginx** with Cloudflare Origin CA cert (TLS termination, 15-year cert)
+- **Docker Compose** with the `backend` profile (kortix-api on port 8008)
+- **Deploy keys** for `kortix-ai/computer` repo access
 
-| Type | Name | Content | Proxy |
+### Cloudflare DNS
+
+| Type | Name | Content | Mode |
 |---|---|---|---|
-| A | `dev-new-api` | `52.43.117.187` | Proxied |
-| A | `new-api` | `44.247.194.29` | Proxied |
+| A | `dev-new-api` | `52.43.117.187` | Proxied (SSL strict) |
+| A | `new-api` | `44.247.194.29` | Proxied (SSL strict) |
+| CNAME | `dev-new` | `cname.vercel-dns.com` | DNS-only |
+| CNAME | `new` | `cname.vercel-dns.com` | DNS-only |
 
-**After cutover (update DNS, same IPs):**
+### GitHub Actions
 
-| Type | Name | Content | Proxy |
-|---|---|---|---|
-| A | `dev-api` | `52.43.117.187` | Proxied |
-| A | `api` | `44.247.194.29` | Proxied |
+**Workflow:** `.github/workflows/deploy-api.yml`
+- Push to `main` → auto-deploy to `dev` environment
+- `workflow_dispatch` with `target: prod` → deploy to `prod` environment
 
-### GitHub Environments
+**Environments** (`dev`, `prod`): each has `VPS_HOST`, `VPS_USERNAME`, `VPS_SSH_KEY` secrets.
 
-| Environment | Secrets | Purpose |
+### Vercel (`computer-frontend`)
+
+**Domains:** `new.kortix.com` (prod), `dev-new.kortix.com` (dev)
+
+**Per-environment env vars:**
+
+| Variable | Production | Development/Preview |
 |---|---|---|
-| `dev` | `VPS_HOST`, `VPS_USERNAME`, `VPS_SSH_KEY` | Auto-deploy on push to main |
-| `prod` | `VPS_HOST`, `VPS_USERNAME`, `VPS_SSH_KEY` | Manual deploy via workflow dispatch |
+| `NEXT_PUBLIC_BACKEND_URL` | `https://new-api.kortix.com/v1` | `https://dev-new-api.kortix.com/v1` |
+| `NEXT_PUBLIC_URL` | `https://new.kortix.com/` | `https://dev-new.kortix.com/` |
+| `NEXT_PUBLIC_SUPABASE_URL` | `https://jbriwassebxdwoieikga.supabase.co` | `https://heprlhlltebrxydgtsjs.supabase.co` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | PROD BABY anon key | Kortix DEV anon key |
+| `NEXT_PUBLIC_ENV_MODE` | `cloud` | `cloud` |
+
+### Supabase Projects
+
+| Project | Ref | Used By |
+|---|---|---|
+| **Kortix PROD** | `jbriwassebxdwoieikga` | Prod Lightsail, Prod Vercel |
+| **Kortix DEV** | `heprlhlltebrxydgtsjs` | Dev Lightsail, Dev Vercel, local dev |
+
+### Lightsail VPS Env Vars
+
+**Prod** (`kortix-prod`): 76 env vars sourced from `suna-env-prod` (AWS Secrets Manager) + `kortix/prod/api-config`. Connects to PROD Supabase, live Stripe keys, production JustAVPS, Redis (Upstash), Sentry, etc.
+
+**Dev** (`kortix-dev`): 52 env vars from `kortix/prod/api-config` with DEV Supabase overlay. Test Stripe keys, dev JustAVPS URL.
+
+---
+
+## What Was Deleted
+
+| What | Why |
+|---|---|
+| `.github/workflows/deploy-eks.yml` | Replaced by Lightsail VPS deploy |
+| `.github/workflows/sync-secrets.yml` | EKS-only (ExternalSecrets) |
+| `.github/workflows/promote.yml` | No more branch promotion (single branch) |
+| `infra/prod/` (entire Pulumi stack) | EKS cluster, VPC, ALB, IAM, etc. — all gone |
+| `suna-prod` Lightsail (128GB, $884/mo) | Stopped, unused |
+| `kortix-staging` Lightsail | Not needed (2-env model) |
+| 3 static IPs released | Freed quota |
+
+---
+
+## Quick Reference
+
+```bash
+# Deploy API to dev (automatic on push, or manual):
+gh workflow run deploy-api.yml -f target=dev --repo kortix-ai/computer
+
+# Deploy API to prod:
+gh workflow run deploy-api.yml -f target=prod --repo kortix-ai/computer
+
+# Ship a new sandbox release to all users:
+pnpm ship 0.9.0
+git push
+
+# Validate release state:
+pnpm check
+
+# Local dev (starts Supabase + API + frontend):
+pnpm dev
+```

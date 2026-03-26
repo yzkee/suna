@@ -16,6 +16,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
 import { createDb, type Database, sandboxes, deployments, kortixApiKeys } from '@kortix/db';
+import { sql } from 'drizzle-orm';
 import { BillingError } from '../errors';
 import type { AuthVariables } from '../types';
 
@@ -295,15 +296,8 @@ export function createTestApp(opts: TestAppOptions = {}) {
   // ─── Channel routes (module-level db — requires DATABASE_URL) ─────────
   if (opts.mountChannels && hasDb) {
     try {
-      const { createChannelsRouter } = require('../channels/routes/channels');
-      const { ChannelEngineImpl } = require('../channels/core/engine');
-
-      // Use empty adapter map in tests to avoid real HTTP calls
-      // (e.g. Telegram validateCredentials calls api.telegram.org)
-      const adapters = new Map();
-      const engine = new ChannelEngineImpl(adapters);
-      const channelsRouter = createChannelsRouter(engine);
-      app.route('/v1/channels', channelsRouter);
+      const { channelsApp } = require('../channels/index');
+      app.route('/v1/channels', channelsApp);
     } catch (e) {
       console.warn('[test] Failed to mount channel routes:', e);
     }
@@ -350,6 +344,8 @@ export function createTestApp(opts: TestAppOptions = {}) {
  */
 export async function cleanupTestData(): Promise<void> {
   const db = getTestDb();
+  // channel_configs FK → sandboxes, so delete channels first
+  await db.execute(sql`DELETE FROM kortix.channel_configs`);
   await db.delete(kortixApiKeys).execute();
   await db.delete(deployments).execute();
   await db.delete(sandboxes).execute();
