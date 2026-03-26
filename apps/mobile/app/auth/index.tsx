@@ -65,7 +65,8 @@ export default function AuthScreen() {
       });
 
       if (error) {
-        log.error('Sign in error:', error.message);
+        // Use log.warn (not log.error) to avoid red LogBox overlay in dev mode
+        log.warn('Sign in failed:', error.message);
 
         // Show user-friendly error messages
         if (error.message.includes('Invalid login credentials')) {
