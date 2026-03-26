@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Pressable, Platform } from 'react-native';
+import { View, Platform } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -172,7 +172,6 @@ export function InstanceOnboarding({ onComplete }: InstanceOnboardingProps) {
   const { sandboxUrl } = useSandboxContext();
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
-  const insets = useSafeAreaInsets();
 
   const [phase, setPhase] = useState<Phase>('bios');
   const [onboardingSessionId, setOnboardingSessionId] = useState<string | null>(null);
@@ -226,6 +225,7 @@ export function InstanceOnboarding({ onComplete }: InstanceOnboardingProps) {
 
         const token = await getAuthToken();
 
+        log.log('[Onboarding] Firing /onboarding command for session:', session.id);
         fetch(`${sandboxUrl}/session/${session.id}/command`, {
           method: 'POST',
           headers: {
@@ -306,15 +306,8 @@ export function InstanceOnboarding({ onComplete }: InstanceOnboardingProps) {
       <SessionPage
         sessionId={onboardingSessionId}
         onBack={handleSkip}
+        onboardingMode
       />
-      {/* Skip link at bottom */}
-      <View style={{ position: 'absolute', bottom: insets.bottom + 8, left: 0, right: 0, alignItems: 'center' }}>
-        <Pressable onPress={handleSkip} hitSlop={16}>
-          <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.25)' : 'rgba(18,18,21,0.25)' }}>
-            Skip onboarding
-          </Text>
-        </Pressable>
-      </View>
     </View>
   );
 }

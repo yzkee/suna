@@ -194,6 +194,8 @@ interface SessionChatInputProps {
   commands?: Command[];
   /** Called when a command is submitted (staged command + optional args) */
   onCommand?: (command: Command, args?: string) => void;
+  /** Hides config toolbar (agent/model/variant selectors) — used for onboarding */
+  onboardingMode?: boolean;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -223,6 +225,7 @@ export function SessionChatInput({
   onDraftChange,
   commands = [],
   onCommand,
+  onboardingMode = false,
 }: SessionChatInputProps) {
   const [text, setText] = useState('');
   const inputRef = useRef<TextInput>(null);
@@ -646,7 +649,7 @@ export function SessionChatInput({
                   />
                 </TouchableOpacity>
 
-                {availableAutoAlgorithms.length > 0 && (
+                {!onboardingMode && availableAutoAlgorithms.length > 0 && (
                   <AutoContinueButton
                     isDark={isDark}
                     isActive={!!autocontinueMode}

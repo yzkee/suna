@@ -887,7 +887,7 @@ export default function HomeScreen() {
     return (
       <>
         <Stack.Screen options={{ headerShown: false }} />
-        <RNStatusBar barStyle="light-content" />
+        <RNStatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
         <InstanceOnboarding onComplete={handleOnboardingComplete} />
       </>
     );

@@ -60,9 +60,11 @@ interface SessionPageProps {
   onBack: () => void;
   onOpenDrawer?: () => void;
   onOpenRightDrawer?: () => void;
+  /** Hides drawer buttons, model/variant selectors — used for onboarding */
+  onboardingMode?: boolean;
 }
 
-export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer }: SessionPageProps) {
+export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer, onboardingMode }: SessionPageProps) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
@@ -583,13 +585,15 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
         className="px-4 pb-3 bg-background"
       >
         <View className="flex-row items-center">
-          <TouchableOpacity
-            onPress={onOpenDrawer}
-            className="mr-3 p-1"
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons name="menu" size={24} color={isDark ? '#F8F8F8' : '#121215'} />
-          </TouchableOpacity>
+          {!onboardingMode && (
+            <TouchableOpacity
+              onPress={onOpenDrawer}
+              className="mr-3 p-1"
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="menu" size={24} color={isDark ? '#F8F8F8' : '#121215'} />
+            </TouchableOpacity>
+          )}
           <View className="flex-1">
             <Text
               className="text-lg font-bold text-foreground"
@@ -604,13 +608,15 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
               </View>
             )}
           </View>
-          <TouchableOpacity
-            onPress={onOpenRightDrawer}
-            className="ml-3 p-1"
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons name="apps-outline" size={20} color={isDark ? '#F8F8F8' : '#121215'} />
-          </TouchableOpacity>
+          {!onboardingMode && (
+            <TouchableOpacity
+              onPress={onOpenRightDrawer}
+              className="ml-3 p-1"
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="apps-outline" size={20} color={isDark ? '#F8F8F8' : '#121215'} />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -674,7 +680,7 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
       )}
 
       {/* Bottom area — question prompt and chat input share the same slot */}
-      <View>
+      <View style={onboardingMode ? { paddingBottom: insets.bottom } : undefined}>
         {/* Chat input — fades out downward when question appears */}
         <Animated.View
           style={{
@@ -692,6 +698,7 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
             onSend={handleSend}
             onStop={handleStop}
             isBusy={isBusy}
+            onboardingMode={onboardingMode}
             agent={resolved.agent}
             agents={resolved.agents}
             model={resolved.model}
