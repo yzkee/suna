@@ -63,6 +63,7 @@ import { LlmProvidersPage } from '@/components/pages/LlmProvidersPage';
 import { MarketplacePage } from '@/components/pages/MarketplacePage';
 import { TerminalPage } from '@/components/pages/TerminalPage';
 import { SetupWizard } from '@/components/setup/SetupWizard';
+import { InstanceOnboarding } from '@/components/setup/InstanceOnboarding';
 import {
   Eye, EyeOff, RefreshCw, Upload, Image, FolderPlus, LayoutGrid, List,
   FileText, Copy, Pencil, Trash2,
@@ -249,7 +250,7 @@ export default function HomeScreen() {
   // 'checking' = waiting for sandbox to be reachable, then checking env
   // 'needed'   = setup not complete, show wizard
   // 'done'     = setup complete, show main app
-  const [setupState, setSetupState] = useState<'checking' | 'needed' | 'done'>('checking');
+  const [setupState, setSetupState] = useState<'checking' | 'needed' | 'onboarding' | 'done'>('checking');
 
   useEffect(() => {
     if (!sandboxUrl) return;
@@ -302,7 +303,26 @@ export default function HomeScreen() {
         if (res.ok) {
           const data = await res.json();
           if (data?.INSTANCE_SETUP_COMPLETE === 'true') {
-            setSetupState('done');
+            // Setup done — check if onboarding is also done
+            try {
+              const onbRes = await fetch(`${sandboxUrl}/env/ONBOARDING_COMPLETE`, {
+                headers: {
+                  'Content-Type': 'application/json',
+                  ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                signal: AbortSignal.timeout(5000),
+              });
+              if (!cancelled && onbRes.ok) {
+                const onbData = await onbRes.json();
+                if (onbData?.ONBOARDING_COMPLETE === 'true') {
+                  setSetupState('done');
+                  return;
+                }
+              }
+            } catch {
+              // Can't check — fall through to onboarding
+            }
+            if (!cancelled) setSetupState('onboarding');
             return;
           }
         }
@@ -320,6 +340,10 @@ export default function HomeScreen() {
   }, [sandboxUrl]);
 
   const handleSetupComplete = useCallback(() => {
+    setSetupState('onboarding');
+  }, []);
+
+  const handleOnboardingComplete = useCallback(() => {
     setSetupState('done');
   }, []);
 
@@ -854,6 +878,17 @@ export default function HomeScreen() {
         <Stack.Screen options={{ headerShown: false }} />
         <RNStatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
         <SetupWizard onComplete={handleSetupComplete} />
+      </>
+    );
+  }
+
+  // Show agent-driven onboarding after wizard completes
+  if (setupState === 'onboarding') {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <RNStatusBar barStyle="light-content" />
+        <InstanceOnboarding onComplete={handleOnboardingComplete} />
       </>
     );
   }
