@@ -372,21 +372,22 @@ export default function InstancesPage() {
             </div>
           )}
 
-          {/* Claim computer banner for legacy paid users */}
+          {/* Claim computer — full-width card for legacy paid users */}
           {canClaimComputer && !pageLoading && (
-            <div className="rounded-xl border border-primary/20 bg-primary/5 p-5 flex items-center gap-4 mb-4">
-              <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-primary/10 flex-shrink-0">
-                <Monitor className="h-6 w-6 text-primary" />
+            <div className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/[0.06] to-transparent p-8 flex flex-col items-center text-center gap-5">
+              <div className="flex items-center justify-center h-16 w-16 rounded-2xl bg-primary/10">
+                <Monitor className="h-8 w-8 text-primary" />
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground">Claim Your Computer</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Your plan includes a cloud computer. Claim it now to get started.
+              <div className="space-y-2 max-w-md">
+                <h3 className="text-lg font-semibold text-foreground">Kortix got an upgrade</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Your plan now includes a free cloud computer with {accountState?.tier?.monthly_credits ? `$${accountState.tier.monthly_credits}` : ''} in monthly credits.
+                  Claim it to start running agents, writing code, and automating tasks — all in the cloud.
                 </p>
               </div>
-              <Button onClick={handleClaimComputer} disabled={claiming} className="gap-1.5 shrink-0">
-                {claiming ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Monitor className="h-3.5 w-3.5" />}
-                {claiming ? 'Claiming...' : 'Claim Computer'}
+              <Button size="lg" onClick={handleClaimComputer} disabled={claiming} className="gap-2 px-8">
+                {claiming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Monitor className="h-4 w-4" />}
+                {claiming ? 'Setting up your computer...' : 'Claim Your Free Computer'}
               </Button>
             </div>
           )}

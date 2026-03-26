@@ -968,7 +968,21 @@ export function createCloudSandboxRouter(
         }, 409);
       }
 
-      // 3. Provision default machine (background)
+      // 3. One-time credit migration: set expiring credits to new tier amount + $5 machine bonus
+      try {
+        const { resetExpiringCredits, grantCredits } = await import('../../billing/services/credits');
+        const { getTier, MACHINE_CREDIT_BONUS } = await import('../../billing/services/tiers');
+        const tierConfig = getTier(tier);
+        if (tierConfig.monthlyCredits > 0) {
+          await resetExpiringCredits(accountId, tierConfig.monthlyCredits, `Welcome: ${tierConfig.displayName} — $${tierConfig.monthlyCredits} credits`);
+        }
+        await grantCredits(accountId, MACHINE_CREDIT_BONUS, 'machine_bonus', `Machine bonus: $${MACHINE_CREDIT_BONUS}`, false, `machine_bonus:claim:${accountId}`);
+        console.log(`[claim-computer] Granted $${tierConfig.monthlyCredits} tier credits + $${MACHINE_CREDIT_BONUS} bonus for ${accountId}`);
+      } catch (creditErr) {
+        console.error(`[claim-computer] Credit grant failed for ${accountId}:`, creditErr);
+      }
+
+      // 4. Provision default machine (background)
       const defaults = getProviderDefaults();
       const sandboxName = await generateSandboxName(accountId);
 
@@ -1022,18 +1036,6 @@ export function createCloudSandboxRouter(
 
             await pool.injectEnv(claimed, sandboxKey.secretKey);
 
-            // Grant $5 machine bonus
-            const { grantCredits } = await import('../../billing/services/credits');
-            const { MACHINE_CREDIT_BONUS } = await import('../../billing/services/tiers');
-            void grantCredits(
-              accountId,
-              MACHINE_CREDIT_BONUS,
-              'machine_bonus',
-              `Machine credit bonus: $${MACHINE_CREDIT_BONUS} (sandbox ${sandbox.sandboxId})`,
-              false,
-              `machine_bonus:${sandbox.sandboxId}`,
-            ).catch((err: unknown) => console.error('[claim-computer] bonus grant failed:', err));
-
             console.log(`[claim-computer] Pool claim success for ${accountId}: ${sandbox.sandboxId}`);
             return c.json({ success: true, data: serializeSandbox({ ...sandbox, externalId: claimed.externalId, status: 'active', baseUrl: claimed.baseUrl }), provisioning: false }, 201);
           }
@@ -1066,18 +1068,6 @@ export function createCloudSandboxRouter(
               updatedAt: new Date(),
             })
             .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
-
-          // Grant $5 machine bonus
-          const { grantCredits } = await import('../../billing/services/credits');
-          const { MACHINE_CREDIT_BONUS } = await import('../../billing/services/tiers');
-          void grantCredits(
-            accountId,
-            MACHINE_CREDIT_BONUS,
-            'machine_bonus',
-            `Machine credit bonus: $${MACHINE_CREDIT_BONUS} (sandbox ${sandbox.sandboxId})`,
-            false,
-            `machine_bonus:${sandbox.sandboxId}`,
-          ).catch((err: unknown) => console.error('[claim-computer] bonus grant failed:', err));
 
           console.log(`[claim-computer] Provisioned for ${accountId}: ${sandbox.sandboxId}`);
         } catch (err) {
