@@ -16,6 +16,7 @@ import { useAccountState } from '@/hooks/billing/use-account-state';
 import { claimComputer } from '@/lib/api/billing';
 
 import { NewInstanceModal } from '@/components/billing/pricing/new-instance-modal';
+import { UserSettingsModal } from '@/components/settings/user-settings-modal';
 import { Button } from '@/components/ui/button';
 import {
   Server,
@@ -28,10 +29,12 @@ import {
   AlertCircle,
   ExternalLink,
   Monitor,
+  Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
 import { clearUserLocalStorage } from '@/lib/utils/clear-local-storage';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 // ─── Status helpers ─────────────────────────────────────────────────────────
 
@@ -169,6 +172,7 @@ export default function InstancesPage() {
   const { user, isLoading: authLoading } = useAuth();
   const { servers, activeServerId } = useServerStore();
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [autoCreating, setAutoCreating] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const isCloud = isBillingEnabled();
@@ -297,15 +301,35 @@ export default function InstancesPage() {
       {/* Top bar */}
       <div className="flex items-center justify-between px-6 py-4 shrink-0">
         <KortixLogo size={20} />
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleLogout}
-          className="gap-2 text-muted-foreground/50 hover:text-foreground"
-        >
-          <LogOut className="h-3.5 w-3.5" />
-          Log Out
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSettingsOpen(true)}
+            className="gap-2 text-muted-foreground/50 hover:text-foreground"
+          >
+            {user?.user_metadata?.avatar_url ? (
+              <Avatar className="h-5 w-5">
+                <AvatarImage src={user.user_metadata.avatar_url} alt={user.user_metadata?.name || ''} />
+                <AvatarFallback className="text-[10px] bg-muted">
+                  {(user.user_metadata?.name || user.email || 'U').charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+            ) : (
+              <Settings className="h-3.5 w-3.5" />
+            )}
+            Settings
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleLogout}
+            className="gap-2 text-muted-foreground/50 hover:text-foreground"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            Log Out
+          </Button>
+        </div>
       </div>
 
       {/* Content */}
@@ -416,6 +440,9 @@ export default function InstancesPage() {
 
       {/* Checkout modal — opens instantly, no page navigation */}
       <NewInstanceModal open={checkoutOpen} onOpenChange={setCheckoutOpen} />
+
+      {/* User settings modal */}
+      <UserSettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   );
 }
