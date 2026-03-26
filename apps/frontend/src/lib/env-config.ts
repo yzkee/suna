@@ -8,6 +8,27 @@ declare global {
   }
 }
 
+// Map hostnames to API backends for multi-env deployments served from
+// the same Vercel build (single-branch model: main → prod + dev domains).
+const HOST_API_MAP: Record<string, string> = {
+  'dev-new.kortix.com': 'https://dev-new-api.kortix.com/v1',
+  'dev.kortix.com':     'https://dev-api.kortix.com/v1',      // after cutover
+}
+
+function resolveBackendUrl(): string | undefined {
+  // 1. Explicit env var always wins
+  const explicit = process.env.KORTIX_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || process.env.BACKEND_URL
+  if (!explicit) return undefined
+
+  // 2. Client-side: override based on hostname for dev domains
+  if (typeof window !== 'undefined') {
+    const override = HOST_API_MAP[window.location.hostname]
+    if (override) return override
+  }
+
+  return explicit
+}
+
 function readRawEnv(): Partial<RuntimeEnv> {
   if (typeof window !== 'undefined') {
     if (window.__KORTIX_RUNTIME_CONFIG) {
@@ -21,7 +42,7 @@ function readRawEnv(): Partial<RuntimeEnv> {
   return {
     SUPABASE_URL: process.env.KORTIX_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_PUBLIC_URL || process.env.SUPABASE_URL,
     SUPABASE_ANON_KEY: process.env.KORTIX_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY,
-    BACKEND_URL: process.env.KORTIX_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || process.env.BACKEND_URL,
+    BACKEND_URL: resolveBackendUrl(),
     ENV_MODE: (process.env.KORTIX_PUBLIC_ENV_MODE || process.env.NEXT_PUBLIC_ENV_MODE) as 'local' | 'cloud' | undefined,
     APP_URL: process.env.KORTIX_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_URL || process.env.PUBLIC_URL,
   }
