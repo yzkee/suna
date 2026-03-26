@@ -18,6 +18,7 @@ export interface CreditTransaction {
     | 'adjustment'
     | 'expired'
     | 'auto_topup'
+    | 'machine_bonus'
     | 'daily_refresh';
   description: string;
   is_expiring?: boolean;

@@ -64,6 +64,7 @@ const TYPE_CONFIG: Record<string, TypeConfig> = {
   daily_refresh: { label: 'Daily Refresh',   icon: RotateCcw,       category: 'all',          detail: 'Refresh' },
   purchase:      { label: 'Credit Purchase', icon: CreditCard,      category: 'topups',       detail: 'One-time purchase' },
   auto_topup:    { label: 'Auto Top-up',     icon: RotateCcw,       category: 'topups',       detail: 'Automatic top-up' },
+  machine_bonus: { label: 'Machine Bonus',   icon: Zap,             category: 'topups',       detail: 'Free credits' },
   refund:        { label: 'Refund',          icon: ArrowDownCircle, category: 'refunds',      detail: 'Refund' },
   adjustment:    { label: 'Adjustment',      icon: Zap,             category: 'all',          detail: 'Adjustment' },
   expired:       { label: 'Expired',         icon: Clock,           category: 'all',          detail: 'Expired' },
@@ -73,7 +74,7 @@ function getConfig(type: string): TypeConfig {
   return TYPE_CONFIG[type] ?? { label: type, icon: Receipt, category: 'all' as FilterTab, detail: 'Payment' };
 }
 
-const PAYMENT_TYPES = ['purchase', 'auto_topup', 'tier_grant', 'refund'] as const;
+const PAYMENT_TYPES = ['purchase', 'auto_topup', 'tier_grant', 'machine_bonus', 'refund'] as const;
 function isPaymentType(type: string) { return PAYMENT_TYPES.includes(type as (typeof PAYMENT_TYPES)[number]); }
 
 // ─── Summary stats ───────────────────────────────────────────────────────────
