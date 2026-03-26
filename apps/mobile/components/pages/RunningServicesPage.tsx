@@ -16,8 +16,23 @@ import { Text } from '@/components/ui/text';
 import { Icon } from '@/components/ui/icon';
 import { Ionicons } from '@expo/vector-icons';
 import { useSandboxContext } from '@/contexts/SandboxContext';
-import { getSandboxServices, stopSandboxService, type SandboxService } from '@/lib/platform/client';
+import { getSandboxServices, stopSandboxService, getPtySessions, type SandboxService, type PtySession } from '@/lib/platform/client';
 import { useTabStore, type PageTab } from '@/stores/tab-store';
+
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+interface RunningItem {
+  id: string;
+  kind: 'service' | 'terminal';
+  name: string;
+  port?: number;
+  framework?: string;
+  status: 'running' | 'stopped';
+  startedAt?: string;
+  sourcePath?: string;
+  managed?: boolean;
+  pid?: number;
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -93,14 +108,32 @@ export function RunningServicesPage({ page, onBack, onOpenDrawer, onOpenRightDra
     }
   }, [savedScrollY]);
 
-  // Fetch services
-  const { data: services, isLoading, refetch, isRefetching } = useQuery({
+  // Fetch services — silent background polling, no spinner
+  const [manualRefreshing, setManualRefreshing] = useState(false);
+  const { data: services, isLoading: servicesLoading, refetch: refetchServices } = useQuery({
     queryKey: ['sandbox', 'services'],
     queryFn: () => getSandboxServices(sandboxUrl!),
     enabled: !!sandboxUrl,
     staleTime: 5000,
     refetchInterval: 5000,
   });
+
+  // Fetch terminal/PTY sessions
+  const { data: ptySessions, isLoading: ptyLoading, refetch: refetchPty } = useQuery({
+    queryKey: ['sandbox', 'pty'],
+    queryFn: () => getPtySessions(sandboxUrl!),
+    enabled: !!sandboxUrl,
+    staleTime: 5000,
+    refetchInterval: 5000,
+  });
+
+  const isLoading = servicesLoading && ptyLoading;
+
+  const handleManualRefresh = useCallback(async () => {
+    setManualRefreshing(true);
+    await Promise.all([refetchServices(), refetchPty()]);
+    setManualRefreshing(false);
+  }, [refetchServices, refetchPty]);
 
   const handleStop = useCallback(async (service: SandboxService) => {
     if (!sandboxUrl) return;
@@ -122,19 +155,44 @@ export function RunningServicesPage({ page, onBack, onOpenDrawer, onOpenRightDra
     ]);
   }, [sandboxUrl, queryClient]);
 
-  // Filter services
-  const filteredServices = React.useMemo(() => {
-    if (!services) return [];
-    if (!search.trim()) return services;
-    const q = search.toLowerCase();
-    return services.filter((s) =>
-      s.name.toLowerCase().includes(q) ||
-      s.framework.toLowerCase().includes(q) ||
-      String(s.port).includes(q)
-    );
-  }, [services, search]);
+  // Merge services + terminals, filter out internal stuff
+  const INTERNAL_NAMES = new Set(['opencode', 'kortix-master', 'svc-opencode-channels']);
+  const INTERNAL_PORTS = new Set([3111, 8000, 8099]);
 
-  const runningCount = filteredServices.filter((s) => s.status === 'running').length;
+  const allItems: RunningItem[] = React.useMemo(() => {
+    const items: RunningItem[] = [];
+
+    // Add user-facing services
+    if (services) {
+      for (const s of services) {
+        if (INTERNAL_NAMES.has(s.name) || INTERNAL_PORTS.has(s.port) || s.name.startsWith('svc-') || s.sourcePath?.includes('/servicedirs/')) continue;
+        items.push({ id: `svc:${s.port}`, kind: 'service', name: s.name, port: s.port, framework: s.framework, status: s.status, startedAt: s.startedAt, sourcePath: s.sourcePath, managed: s.managed, pid: s.pid });
+      }
+    }
+
+    // Add terminal sessions
+    if (ptySessions) {
+      for (const pty of ptySessions) {
+        const name = `Terminal ${pty.id.slice(0, 4)}`;
+        items.push({ id: `pty:${pty.id}`, kind: 'terminal', name, status: pty.running ? 'running' : 'stopped', startedAt: pty.createdAt });
+      }
+    }
+
+    return items;
+  }, [services, ptySessions]);
+
+  const filteredItems = React.useMemo(() => {
+    if (!search.trim()) return allItems;
+    const q = search.toLowerCase();
+    return allItems.filter((s) =>
+      s.name.toLowerCase().includes(q) ||
+      (s.framework || '').toLowerCase().includes(q) ||
+      (s.port ? String(s.port).includes(q) : false) ||
+      s.kind.includes(q)
+    );
+  }, [allItems, search]);
+
+  const runningCount = filteredItems.filter((s) => s.status === 'running').length;
 
   return (
     <View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
@@ -162,7 +220,7 @@ export function RunningServicesPage({ page, onBack, onOpenDrawer, onOpenRightDra
         onScroll={handleScroll}
         scrollEventThrottle={64}
         onContentSizeChange={handleContentSizeChange}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
+        refreshControl={<RefreshControl refreshing={manualRefreshing} onRefresh={handleManualRefresh} />}
       >
         <View className="px-5 pt-2">
 
@@ -173,22 +231,25 @@ export function RunningServicesPage({ page, onBack, onOpenDrawer, onOpenRightDra
             </View>
           )}
 
-          {/* Services list */}
-          {!isLoading && filteredServices.length > 0 && (
-            <View className="mt-5" style={{ gap: 10 }}>
-              {filteredServices.map((service) => (
+          {/* Items list */}
+          {!isLoading && filteredItems.length > 0 && (
+            <View className="mt-2" style={{ gap: 10 }}>
+              {filteredItems.map((item) => (
                 <ServiceCard
-                  key={service.id}
-                  service={service}
+                  key={item.id}
+                  item={item}
                   isDark={isDark}
-                  onStop={() => handleStop(service)}
+                  onStop={item.kind === 'service' ? () => {
+                    const svc = services?.find(s => s.port === item.port);
+                    if (svc) handleStop(svc);
+                  } : undefined}
                 />
               ))}
             </View>
           )}
 
           {/* Empty state */}
-          {!isLoading && filteredServices.length === 0 && (
+          {!isLoading && filteredItems.length === 0 && (
             <View className="items-center justify-center py-16">
               <Icon as={Server} size={32} className="text-muted-foreground/40" strokeWidth={1.5} />
               <Text className="mt-3 font-roobert-medium text-[15px] text-foreground">No Running Services</Text>
@@ -206,15 +267,16 @@ export function RunningServicesPage({ page, onBack, onOpenDrawer, onOpenRightDra
 // ─── Service Card ───────────────────────────────────────────────────────────
 
 function ServiceCard({
-  service,
+  item,
   isDark,
   onStop,
 }: {
-  service: SandboxService;
+  item: RunningItem;
   isDark: boolean;
-  onStop: () => void;
+  onStop?: () => void;
 }) {
-  const isRunning = service.status === 'running';
+  const isRunning = item.status === 'running';
+  const isTerminal = item.kind === 'terminal';
   const borderColor = isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.08)';
 
   return (
@@ -225,7 +287,7 @@ function ServiceCard({
       {/* Top row: icon + name + status */}
       <View className="flex-row items-center">
         <View className="relative">
-          <Icon as={Globe} size={18} className="text-foreground/70" strokeWidth={2} />
+          <Icon as={isTerminal ? Terminal : Globe} size={18} className="text-foreground/70" strokeWidth={2} />
           {isRunning && (
             <View className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-400 border border-background" />
           )}
@@ -233,29 +295,36 @@ function ServiceCard({
         <View className="ml-3 flex-1">
           <View className="flex-row items-center">
             <Text className="font-roobert-medium text-[15px] text-foreground" numberOfLines={1}>
-              {service.name}
+              {item.name}
             </Text>
-            <View className="ml-2 rounded-full bg-muted/60 px-1.5 py-0.5">
-              <Text className="text-[10px] font-roobert-medium text-muted-foreground">
-                :{service.port}
-              </Text>
-            </View>
+            {item.port != null && (
+              <View className="ml-2 rounded-full bg-muted/60 px-1.5 py-0.5">
+                <Text className="text-[10px] font-roobert-medium text-muted-foreground">
+                  :{item.port}
+                </Text>
+              </View>
+            )}
+            {isTerminal && (
+              <View className="ml-2 rounded-full bg-muted/60 px-1.5 py-0.5">
+                <Text className="text-[10px] font-roobert-medium text-muted-foreground">Terminal</Text>
+              </View>
+            )}
           </View>
           <View className="flex-row items-center mt-0.5" style={{ gap: 6 }}>
-            {!!service.framework && (
+            {!!item.framework && (
               <Text className="font-roobert text-[11px] text-muted-foreground">
-                {getFrameworkLabel(service.framework)}
+                {getFrameworkLabel(item.framework)}
               </Text>
             )}
-            {!!service.startedAt && (
+            {!!item.startedAt && (
               <>
-                <Text className="font-roobert text-[11px] text-muted-foreground/50">·</Text>
+                {!!item.framework && <Text className="font-roobert text-[11px] text-muted-foreground/50">·</Text>}
                 <Text className="font-roobert text-[11px] text-muted-foreground">
-                  {formatTimeAgo(service.startedAt)}
+                  {formatTimeAgo(item.startedAt)}
                 </Text>
               </>
             )}
-            {service.managed && (
+            {item.managed && (
               <>
                 <Text className="font-roobert text-[11px] text-muted-foreground/50">·</Text>
                 <Text className="font-roobert text-[11px] text-muted-foreground">Managed</Text>
@@ -280,22 +349,25 @@ function ServiceCard({
       </View>
 
       {/* Bottom row: path + stop button */}
-      <View className="flex-row items-center mt-2.5">
-        {!!service.sourcePath && (
-          <Text className="flex-1 font-roobert text-[11px] text-muted-foreground/60" numberOfLines={1}>
-            {shortenPath(service.sourcePath)}
-          </Text>
-        )}
-        {isRunning && (
-          <Pressable
-            onPress={onStop}
-            className="flex-row items-center rounded-lg bg-destructive/10 px-2.5 py-1 active:opacity-70"
-          >
-            <Icon as={Square} size={10} className="text-destructive mr-1" strokeWidth={2.5} />
-            <Text className="font-roobert-medium text-[11px] text-destructive">Stop</Text>
-          </Pressable>
-        )}
-      </View>
+      {(item.sourcePath || (onStop && isRunning)) && (
+        <View className="flex-row items-center mt-2.5">
+          {!!item.sourcePath && (
+            <Text className="flex-1 font-roobert text-[11px] text-muted-foreground/60" numberOfLines={1}>
+              {shortenPath(item.sourcePath)}
+            </Text>
+          )}
+          {!item.sourcePath && <View className="flex-1" />}
+          {isRunning && onStop && (
+            <Pressable
+              onPress={onStop}
+              className="flex-row items-center rounded-lg bg-destructive/10 px-2.5 py-1 active:opacity-70"
+            >
+              <Icon as={Square} size={10} className="text-destructive mr-1" strokeWidth={2.5} />
+              <Text className="font-roobert-medium text-[11px] text-destructive">Stop</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
     </View>
   );
 }
