@@ -83,7 +83,7 @@ function SummaryStats({ transactions }: { transactions: ReturnType<typeof useTra
   const txList = (transactions?.transactions ?? []).filter((tx) => isPaymentType(tx.type));
 
   const totalCharged = txList
-    .filter((t) => t.type === 'purchase' || t.type === 'auto_topup')
+    .filter((t) => t.type === 'purchase' || t.type === 'auto_topup' || t.type === 'machine_bonus')
     .reduce((s, t) => s + t.amount, 0);
 
   const recurringPayments = txList.filter((t) => t.type === 'tier_grant').length;
