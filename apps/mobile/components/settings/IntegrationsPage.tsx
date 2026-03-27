@@ -187,9 +187,8 @@ function IntegrationsContent({
         const separator = url.includes('?') ? '&' : '?';
         url = `${url}${separator}app=${encodeURIComponent(app.slug)}`;
 
-        await WebBrowser.openBrowserAsync(url, {
-          presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
-        });
+        // Use system browser (Safari) for OAuth — WebView is blocked by Google etc.
+        await WebBrowser.openAuthSessionAsync(url);
 
         // Browser closed — refetch (webhook may have saved the connection)
         queryClient.invalidateQueries({ queryKey: integrationKeys.connections() });
@@ -405,6 +404,7 @@ function IntegrationsContent({
           onSave={() => setShowCustomMcp(false)}
         />
       </AnimatedPageWrapper>
+
     </>
   );
 }
