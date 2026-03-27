@@ -58,6 +58,7 @@ import { BrowserPage } from '@/components/pages/BrowserPage';
 import { FilesPage } from '@/components/pages/FilesPage';
 import { IntegrationsTabPage } from '@/components/pages/IntegrationsTabPage';
 import { ScheduledTasksTabPage } from '@/components/pages/ScheduledTasksPage';
+import { ApiKeysTabPage } from '@/components/pages/ApiKeysPage';
 import type { FilesPageRef } from '@/components/pages/FilesPage';
 import { SecretsPage } from '@/components/pages/SecretsPage';
 import { MemoryPage } from '@/components/pages/MemoryPage';
@@ -1067,6 +1068,15 @@ export default function HomeScreen() {
           /* Active page tab — Triggers / Scheduled Tasks */
           ) : activePageId === 'page:triggers' && PAGE_TABS[activePageId] && !showTabsOverview ? (
             <ScheduledTasksTabPage
+              page={PAGE_TABS[activePageId]}
+              onBack={handleBack}
+              onOpenDrawer={handleDrawerOpen}
+              onOpenRightDrawer={handleRightDrawerOpen}
+            />
+
+          /* Active page tab — API Keys */
+          ) : activePageId === 'page:api' && PAGE_TABS[activePageId] && !showTabsOverview ? (
+            <ApiKeysTabPage
               page={PAGE_TABS[activePageId]}
               onBack={handleBack}
               onOpenDrawer={handleDrawerOpen}
