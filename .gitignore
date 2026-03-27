@@ -52,7 +52,7 @@ coverage/
 # Supabase
 infra/supabase/.temp/
 # Root supabase/ is stale CLI state — infra/supabase/ is the source of truth
-supabase/
+/supabase/
 
 # Misc
 state.json
