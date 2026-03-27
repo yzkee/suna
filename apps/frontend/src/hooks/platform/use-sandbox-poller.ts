@@ -49,13 +49,14 @@ interface UseSandboxPollerOpts {
 // ─── Stage → progress mapping ───────────────────────────────────────────────
 
 const STAGE_PROGRESS: Record<string, number> = {
-  server_creating:    5,
-  server_created:     15,
-  cloud_init_running: 35,
-  cloud_init_done:    60,
-  services_starting:  80,
-  services_ready:     95,
-  connecting:         98,
+  server_creating:       5,
+  server_created:        15,
+  cloud_init_running:    35,
+  cloud_init_done:       60,
+  services_starting:     80,
+  services_ready:        95,
+  verifying_opencode:    98,
+  connecting:            99,
 };
 
 // Expected ms each stage lasts — used for time-based interpolation
@@ -64,8 +65,9 @@ const STAGE_DURATION_MS: Record<string, number> = {
   server_created:     30_000,
   cloud_init_running: 60_000,
   cloud_init_done:    30_000,
-  services_starting:  20_000,
-  services_ready:     10_000,
+  services_starting:   20_000,
+  services_ready:      10_000,
+  verifying_opencode: 60_000,
   connecting:         15_000,
 };
 
@@ -94,6 +96,41 @@ function getPlatformUrl(): string {
   return getEnv().BACKEND_URL || 'http://localhost:8008/v1';
 }
 
+function getSandboxUrl(sandboxId: string): string {
+  const base = getPlatformUrl().replace('/v1', '');
+  return `${base}/p/${sandboxId}/8000`;
+}
+
+async function waitForOpenCodeHealthy(
+  sandboxId: string,
+  signal: AbortSignal,
+): Promise<boolean> {
+  const url = getSandboxUrl(sandboxId);
+  const timeout = 60_000;
+  const interval = 3_000;
+  const deadline = Date.now() + timeout;
+
+  while (Date.now() < deadline) {
+    if (signal.aborted) return false;
+    let res: Response;
+    try {
+      res = await fetch(`${url}/global/health`, {
+        signal,
+        credentials: 'include',
+      });
+    } catch {
+      await new Promise((r) => setTimeout(r, interval));
+      continue;
+    }
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.healthy === true) return true;
+    }
+    await new Promise((r) => setTimeout(r, interval));
+  }
+  return false;
+}
+
 // ─── Hook ───────────────────────────────────────────────────────────────────
 
 export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
@@ -110,6 +147,7 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timeoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const interpolationRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const healthAbortRef = useRef<AbortController | null>(null);
 
   const set = useCallback((next: SandboxPollerState) => {
     stateRef.current = next;
@@ -138,6 +176,10 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
     if (interpolationRef.current) {
       clearInterval(interpolationRef.current);
       interpolationRef.current = null;
+    }
+    if (healthAbortRef.current) {
+      healthAbortRef.current.abort();
+      healthAbortRef.current = null;
     }
   }, []);
 
@@ -190,9 +232,27 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
         if (!d || stoppedRef.current) {
           // No data — keep polling
         } else if (d.status === 'active') {
-          set({ ...initial(), status: 'ready', progress: 100 });
-          pollingRef.current = false;
-          return; // Done — don't schedule next tick
+          update({
+            status: 'polling',
+            currentStage: 'verifying_opencode',
+            progress: STAGE_PROGRESS.verifying_opencode,
+            stageEnteredAt: Date.now(),
+          });
+          healthAbortRef.current?.abort();
+          const ac = new AbortController();
+          healthAbortRef.current = ac;
+          if (!sandboxId) return;
+          waitForOpenCodeHealthy(sandboxId, ac.signal).then((healthy) => {
+            if (stoppedRef.current) return;
+            if (healthy) {
+              set({ ...initial(), status: 'ready', progress: 100 });
+            } else {
+              set({ ...stateRef.current, status: 'error', error: 'OpenCode services failed to start.' });
+            }
+            pollingRef.current = false;
+            cleanup();
+          });
+          return;
         } else if (d.status === 'error') {
           set({ ...initial(), status: 'error', error: d.error || 'Provisioning failed' });
           pollingRef.current = false;
@@ -258,9 +318,26 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
         try {
           const data = JSON.parse(e.data);
           if (data.status === 'active') {
-            set({ ...initial(), status: 'ready', progress: 100 });
-            pollingRef.current = false;
-            cleanup();
+            update({
+              status: 'polling',
+              currentStage: 'verifying_opencode',
+              progress: STAGE_PROGRESS.verifying_opencode,
+              stageEnteredAt: Date.now(),
+            });
+            healthAbortRef.current?.abort();
+            const ac = new AbortController();
+            healthAbortRef.current = ac;
+            if (!sandboxId) return;
+            waitForOpenCodeHealthy(sandboxId, ac.signal).then((healthy) => {
+              if (stoppedRef.current) return;
+              if (healthy) {
+                set({ ...initial(), status: 'ready', progress: 100 });
+              } else {
+                set({ ...stateRef.current, status: 'error', error: 'OpenCode services failed to start.' });
+              }
+              pollingRef.current = false;
+              cleanup();
+            });
           } else if (data.status === 'error') {
             set({ ...initial(), status: 'error', error: data.message || 'Provisioning failed' });
             pollingRef.current = false;
@@ -283,9 +360,26 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
           const data = JSON.parse(e.data);
 
           if (data.status === 'ready' || data.stage === 'services_ready') {
-            set({ ...initial(), status: 'ready', progress: 100 });
-            pollingRef.current = false;
-            cleanup();
+            update({
+              status: 'polling',
+              currentStage: 'verifying_opencode',
+              progress: STAGE_PROGRESS.verifying_opencode,
+              stageEnteredAt: Date.now(),
+            });
+            healthAbortRef.current?.abort();
+            const ac = new AbortController();
+            healthAbortRef.current = ac;
+            if (!sandboxId) return;
+            waitForOpenCodeHealthy(sandboxId, ac.signal).then((healthy) => {
+              if (stoppedRef.current) return;
+              if (healthy) {
+                set({ ...initial(), status: 'ready', progress: 100 });
+              } else {
+                set({ ...stateRef.current, status: 'error', error: 'OpenCode services failed to start.' });
+              }
+              pollingRef.current = false;
+              cleanup();
+            });
             return;
           }
 
