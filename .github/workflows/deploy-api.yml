@@ -66,6 +66,12 @@ jobs:
             docker image prune -af --filter "until=24h" || true
             docker compose --project-directory . -f scripts/compose/docker-compose.yml --profile backend ps
 
+      - name: Deploy prod frontend (Vercel)
+        if: inputs.target == 'prod'
+        run: |
+          curl -s -X POST "${{ secrets.VERCEL_PROD_DEPLOY_HOOK }}" | head -1
+          echo "Triggered Vercel prod frontend deploy"
+
       - name: Summary
         if: always()
         run: |
