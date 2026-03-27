@@ -189,6 +189,8 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
     interpolationRef.current = setInterval(() => {
       const s = stateRef.current;
       if (s.status !== 'polling' || !s.currentStage || s.stageEnteredAt === null) return;
+      // Never interpolate past verifying_opencode — wait for healthy before showing 100%
+      if (s.currentStage === 'verifying_opencode') return;
       const base = STAGE_PROGRESS[s.currentStage] ?? s.progress;
       const interpolated = interpolateProgress(s.currentStage, s.stageEnteredAt, base);
       if (interpolated > s.progress) {
@@ -318,6 +320,7 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
         try {
           const data = JSON.parse(e.data);
           if (data.status === 'active') {
+            if (stateRef.current.currentStage === 'verifying_opencode') return;
             update({
               status: 'polling',
               currentStage: 'verifying_opencode',
@@ -343,6 +346,7 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
             pollingRef.current = false;
             cleanup();
           } else if (data.provisioning_stage) {
+            if (stateRef.current.currentStage === 'verifying_opencode') return;
             const progress = STAGE_PROGRESS[data.provisioning_stage] ?? stateRef.current.progress;
             const isNewStage = data.provisioning_stage !== stateRef.current.currentStage;
             update({
@@ -391,6 +395,8 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
           }
 
           if (data.stage) {
+            // Once in verifying_opencode, don't accept stage changes until health passes
+            if (stateRef.current.currentStage === 'verifying_opencode') return;
             const progress = STAGE_PROGRESS[data.stage] ?? stateRef.current.progress;
             const isNewStage = data.stage !== stateRef.current.currentStage;
             update({
