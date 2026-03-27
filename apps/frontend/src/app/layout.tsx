@@ -174,18 +174,18 @@ export default function RootLayout({
         />
         
         {/* Static SEO meta tags - rendered in initial HTML */}
-        <title>Kortix: Your Autonomous AI Worker</title>
-        <meta name="description" content="Built for complex tasks, designed for everything. The ultimate AI assistant that handles it all—from simple requests to mega-complex projects." />
-        <meta name="keywords" content="Kortix, AI Worker, Agentic AI, Autonomous AI Worker, AI Automation, AI Workflow Automation, AI Assistant, Task Automation" />
-        <meta property="og:title" content="Kortix: Your Autonomous AI Worker" />
-        <meta property="og:description" content="Built for complex tasks, designed for everything. The ultimate AI assistant that handles it all—from simple requests to mega-complex projects." />
+        <title>Kortix – The Autonomous Company Operating System</title>
+        <meta name="description" content="A cloud computer where AI agents run your company. Connect 3,000+ tools, configure autonomous agents, set triggers — and the machine operates 24/7 with persistent memory." />
+        <meta name="keywords" content="Kortix, autonomous company operating system, AI agents, self-driving company, cloud computer, AI automation, agent orchestration, autowork, AI triggers, persistent memory, autonomous workforce, AI operations" />
+        <meta property="og:title" content="Kortix – The Autonomous Company Operating System" />
+        <meta property="og:description" content="A cloud computer where AI agents run your company. Connect 3,000+ tools, configure autonomous agents, set triggers — and the machine operates 24/7 with persistent memory." />
         <meta property="og:image" content="https://kortix.com/banner.png" />
         <meta property="og:url" content="https://kortix.com" />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="Kortix" />
         <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content="Kortix: Your Autonomous AI Worker" />
-        <meta name="twitter:description" content="Built for complex tasks, designed for everything. The ultimate AI assistant that handles it all—from simple requests to mega-complex projects." />
+        <meta name="twitter:title" content="Kortix – The Autonomous Company Operating System" />
+        <meta name="twitter:description" content="A cloud computer where AI agents run your company. Connect 3,000+ tools, configure autonomous agents, set triggers — and the machine operates 24/7 with persistent memory." />
         <meta name="twitter:image" content="https://kortix.com/banner.png" />
         <meta name="twitter:site" content="@kortix" />
         <link rel="canonical" href="https://kortix.com" />
@@ -204,7 +204,7 @@ export default function RootLayout({
               '@context': 'https://schema.org',
               '@type': 'Organization',
               name: siteMetadata.name,
-              alternateName: ['Kortix', 'Kortix AI', 'Kortix: Your Autonomous AI Worker'],
+              alternateName: ['Kortix', 'Kortix AI', 'Kortix – The Autonomous Company Operating System'],
               url: siteMetadata.url,
               logo: `${siteMetadata.url}/favicon.png`,
               description: siteMetadata.description,
@@ -238,11 +238,6 @@ export default function RootLayout({
                 '@type': 'Offer',
                 price: '0',
                 priceCurrency: 'USD',
-              },
-              aggregateRating: {
-                '@type': 'AggregateRating',
-                ratingValue: '4.8',
-                ratingCount: '1000',
               },
             }),
           }}
