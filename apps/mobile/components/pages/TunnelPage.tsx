@@ -457,7 +457,7 @@ const CreateTunnelSheet = React.forwardRef<
     >
       <BottomSheetScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: Math.max(insets.bottom, 20) + 16 }}>
         {/* Step indicator */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'center', marginBottom: 24 }}>
           {([
             { key: 'name' as const, label: 'Name' },
             { key: 'permissions' as const, label: 'Permissions' },
@@ -470,9 +470,9 @@ const CreateTunnelSheet = React.forwardRef<
             return (
               <React.Fragment key={s}>
                 {i > 0 && (
-                  <View style={{ width: 28, height: 1, backgroundColor: isCompleted ? theme.primary : borderColor, marginHorizontal: 2 }} />
+                  <View style={{ width: 40, height: 1, backgroundColor: isCompleted ? theme.primary : borderColor, marginTop: 13 }} />
                 )}
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ alignItems: 'center', width: 72 }}>
                   <View
                     style={{
                       width: 26,
@@ -481,12 +481,6 @@ const CreateTunnelSheet = React.forwardRef<
                       backgroundColor: isCompleted || isCurrent ? theme.primary : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'),
                       alignItems: 'center',
                       justifyContent: 'center',
-                      ...(isCurrent && !isCompleted ? {
-                        shadowColor: theme.primary,
-                        shadowOffset: { width: 0, height: 0 },
-                        shadowOpacity: 0.3,
-                        shadowRadius: 4,
-                      } : {}),
                     }}
                   >
                     {isCompleted ? (
@@ -497,7 +491,7 @@ const CreateTunnelSheet = React.forwardRef<
                       </RNText>
                     )}
                   </View>
-                  <RNText style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: isCurrent ? fg : muted }}>
+                  <RNText style={{ fontSize: 11, fontFamily: 'Roobert-Medium', color: isCurrent ? fg : muted, marginTop: 5 }}>
                     {label}
                   </RNText>
                 </View>
@@ -680,11 +674,23 @@ const CreateTunnelSheet = React.forwardRef<
                 borderColor,
                 borderRadius: 12,
                 padding: 14,
+                paddingRight: 32,
                 marginBottom: 12,
               }}
             >
-              <RNText style={{ fontSize: 11, fontFamily: 'monospace', color: fg, lineHeight: 18 }} selectable>
-                npx @kortix/agent-tunnel connect{'\n'}  --tunnel-id {result.tunnelId}{'\n'}  --token {result.setupToken}{'\n'}  --api-url {API_URL}/tunnel
+              <RNText style={{ fontSize: 11, fontFamily: 'monospace', lineHeight: 18 }} selectable>
+                <RNText style={{ color: isDark ? '#34d399' : '#059669', fontFamily: 'monospace', fontWeight: '600' }}>npx</RNText>
+                <RNText style={{ color: isDark ? '#7dd3fc' : '#0369a1', fontFamily: 'monospace' }}> @kortix/agent-tunnel</RNText>
+                <RNText style={{ color: isDark ? '#7dd3fc' : '#0369a1', fontFamily: 'monospace' }}> connect</RNText>
+                {'\n'}
+                <RNText style={{ color: isDark ? '#fcd34d' : '#92400e', fontFamily: 'monospace' }}>  --tunnel-id</RNText>
+                <RNText style={{ color: isDark ? 'rgba(248,248,248,0.8)' : 'rgba(18,18,21,0.8)', fontFamily: 'monospace' }}> {result.tunnelId}</RNText>
+                {'\n'}
+                <RNText style={{ color: isDark ? '#fcd34d' : '#92400e', fontFamily: 'monospace' }}>  --token</RNText>
+                <RNText style={{ color: isDark ? '#fda4af' : '#9f1239', fontFamily: 'monospace' }}> {result.setupToken}</RNText>
+                {'\n'}
+                <RNText style={{ color: isDark ? '#fcd34d' : '#92400e', fontFamily: 'monospace' }}>  --api-url</RNText>
+                <RNText style={{ color: isDark ? '#67e8f9' : '#0e7490', fontFamily: 'monospace' }}> {API_URL}/tunnel</RNText>
               </RNText>
               <View style={{ position: 'absolute', top: 10, right: 10 }}>
                 {copied ? (
