@@ -457,7 +457,7 @@ export function useCreateLocalInstance() {
 export function useCreateCloudInstance() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (provider: 'daytona' | 'hetzner') => ensureSandbox({ provider }),
+    mutationFn: (provider: 'daytona' | 'justavps') => ensureSandbox({ provider }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: platformKeys.instances() });
       queryClient.invalidateQueries({ queryKey: platformKeys.sandbox() });
