@@ -118,11 +118,12 @@ export default function InstanceDetailPage() {
     } else if (sandbox.status === 'stopped') {
       setPhase('stopped');
     } else if (sandbox.status === 'active' && !switchedRef.current) {
-      // Sandbox just became active — start the connecting phase
+      // Sandbox just became active — emit connecting stage into poller then start connecting
+      poller.setConnecting?.();
       setPhase('connecting');
     }
     // If switchedRef.current is true, phase is managed by the connecting flow
-  }, [sandbox]);
+  }, [sandbox, poller]);
 
   // ── Connecting phase: register server + wait for services + check setup ──
   useEffect(() => {
@@ -285,7 +286,7 @@ export default function InstanceDetailPage() {
     switch (phase) {
       case 'loading': return 'Loading';
       case 'provisioning': return 'Creating Workspace';
-      case 'connecting': return 'Connecting';
+      case 'connecting': return 'Creating Workspace';
       case 'setup': return 'Instance Setup';
       case 'redirecting': return 'Opening Workspace';
       case 'error': return sandbox?.name || 'Instance';
@@ -340,8 +341,8 @@ export default function InstanceDetailPage() {
             </div>
           )}
 
-          {/* Provisioning */}
-          {phase === 'provisioning' && sandbox && (
+          {/* Provisioning + Connecting — single unified progress view */}
+          {(phase === 'provisioning' || phase === 'connecting') && sandbox && (
             isLocalDocker ? (
               <LocalProvisioningView progress={localProgress} />
             ) : (
@@ -352,15 +353,6 @@ export default function InstanceDetailPage() {
                 machineInfo={poller.machineInfo}
               />
             )
-          )}
-
-          {/* Connecting — waiting for services to come up */}
-          {phase === 'connecting' && (
-            <div className="flex flex-col items-center gap-4">
-              <Loader2 className="h-5 w-5 animate-spin text-primary/60" />
-              <p className="text-[13px] text-muted-foreground/50">Connecting...</p>
-              <p className="text-[11px] text-muted-foreground/30">Waiting for services to start</p>
-            </div>
           )}
 
           {/* Setup flow — shown after services are ready but not yet configured */}
