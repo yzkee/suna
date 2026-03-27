@@ -23,7 +23,7 @@ const MaintenancePage = lazy(() => import('@/components/maintenance/maintenance-
 // Skeleton for immediate FCP
 function ActivateTrialSkeleton() {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-muted/20 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-2xl border-2 shadow-none bg-transparent border-none">
         <CardHeader className="text-center space-y-4">
           <Skeleton className="h-8 w-48 mx-auto" />
@@ -110,7 +110,7 @@ export default function ActivateTrialPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-muted/20 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="absolute top-4 right-4">
         <Button
           variant="outline"

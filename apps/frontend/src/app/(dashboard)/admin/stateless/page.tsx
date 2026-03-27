@@ -238,7 +238,7 @@ export default function StatelessAdminPage() {
   }), [history]);
 
   return (
-    <div className="flex flex-col min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
+    <div className="flex flex-col min-h-screen bg-background">
       <div className="flex-none bg-background/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-6 py-5">
           <div className="flex items-center justify-between">
