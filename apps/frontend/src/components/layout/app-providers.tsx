@@ -63,6 +63,10 @@ export function AppProviders({
   sidebarContent,
   sidebarSiblings
 }: AppProvidersProps) {
+  const obActive = useOnboardingModeStore((s) => s.active);
+  const obMorphing = useOnboardingModeStore((s) => s.morphing);
+  const hideSidebar = obActive && !obMorphing;
+
   const content = (
     <DeleteOperationEffectsWrapper>
       <SubscriptionStoreSync>
@@ -73,11 +77,6 @@ export function AppProviders({
   );
 
   if (!showSidebar) return content;
-
-  const obActive = useOnboardingModeStore((s) => s.active);
-  const obMorphing = useOnboardingModeStore((s) => s.morphing);
-  // 0 width + overflow hidden = invisible. On morph, transition to auto.
-  const hideSidebar = obActive && !obMorphing;
 
   return (
     <SidebarProvider defaultOpen={defaultSidebarOpen}>

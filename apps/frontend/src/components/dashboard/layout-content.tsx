@@ -599,7 +599,8 @@ export default function DashboardLayoutContent({
 	}, [ob.active, ob.morphing, ob.showBoot]);
 
 	// ── Boot overlay callback ──
-	const handleBootDone = useCallback(() => ob.hideBoot(), [ob.hideBoot]);
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	const handleBootDone = useCallback(() => ob.hideBoot(), [ob]);
 
 	// Keep the active server in sync with the current instance.
 	// Source of truth: URL path (/instances/:id/...) OR active-instance cookie
