@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 
 const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
+const { execFileSync } = require('node:child_process')
 
 const ROOT = path.resolve(__dirname, '..', '..')
 const RELEASE_JSON = path.join(ROOT, 'sandbox', 'release.json')
 const API_ENV_PATH = path.join(ROOT, 'kortix-api', '.env')
+const START_SANDBOX_SCRIPT = path.join(ROOT, 'scripts', 'start-sandbox.sh')
 
 const args = process.argv.slice(2)
 const flags = new Set(args.filter((arg) => arg.startsWith('--')))
@@ -129,6 +132,19 @@ async function waitForMachineReady(machineId, timeoutMs) {
   throw new Error(`Build machine ${machineId} did not become ready within ${Math.floor(timeoutMs / 1000)}s`)
 }
 
+async function waitForSsh(machine, timeoutMs) {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      await sshExec(machine, 'echo ok', 15_000)
+      return
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 5000))
+    }
+  }
+  throw new Error(`SSH never became ready for machine ${machine.id}`)
+}
+
 async function waitForImageReady(imageId, timeoutMs) {
   const startedAt = Date.now()
   while (Date.now() - startedAt < timeoutMs) {
@@ -161,6 +177,157 @@ async function deleteMachineIfPresent(machineId) {
   } catch (error) {
     warn(`Failed to delete machine ${machineId}: ${error.message}`)
   }
+}
+
+function withTempSshKey(machine, fn) {
+  const privateKey = machine?.ssh_key?.private_key
+  if (!machine?.ip || !privateKey) {
+    throw new Error(`Machine ${machine?.id || 'unknown'} does not expose root SSH details`)
+  }
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `justavps-image-${machine.id}-`))
+  const keyPath = path.join(dir, 'id_ed25519')
+  fs.writeFileSync(keyPath, privateKey.endsWith('\n') ? privateKey : `${privateKey}\n`, { mode: 0o600 })
+
+  try {
+    return fn({ ip: machine.ip, keyPath })
+  } finally {
+    try { fs.rmSync(dir, { recursive: true, force: true }) } catch {}
+  }
+}
+
+function sshExec(machine, command, timeoutMs = 60_000) {
+  return withTempSshKey(machine, ({ ip, keyPath }) => execFileSync(
+    'ssh',
+    [
+      '-i', keyPath,
+      '-o', 'StrictHostKeyChecking=no',
+      '-o', 'UserKnownHostsFile=/dev/null',
+      '-o', 'ConnectTimeout=15',
+      `root@${ip}`,
+      command,
+    ],
+    { encoding: 'utf8', timeout: timeoutMs, stdio: ['ignore', 'pipe', 'pipe'] },
+  ))
+}
+
+function uploadFile(machine, localPath, remotePath) {
+  return withTempSshKey(machine, ({ ip, keyPath }) => execFileSync(
+    'scp',
+    [
+      '-i', keyPath,
+      '-o', 'StrictHostKeyChecking=no',
+      '-o', 'UserKnownHostsFile=/dev/null',
+      '-o', 'ConnectTimeout=15',
+      localPath,
+      `root@${ip}:${remotePath}`,
+    ],
+    { encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'] },
+  ))
+}
+
+function verifySandboxSshBridge(machine) {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `justavps-abc-${machine.id}-`))
+  const keyPath = path.join(tempDir, 'id_ed25519')
+
+  try {
+    execFileSync('ssh-keygen', ['-t', 'ed25519', '-N', '', '-C', 'justavps-image-verify', '-f', keyPath], {
+      encoding: 'utf8',
+      timeout: 30_000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+
+    const publicKey = fs.readFileSync(`${keyPath}.pub`, 'utf8').trim()
+    const publicKeyB64 = Buffer.from(`${publicKey}\n`).toString('base64')
+    const injectCmd = [
+      'mkdir -p /config/.ssh',
+      `printf '%s' '${publicKeyB64}' | base64 -d >> /config/.ssh/authorized_keys`,
+      'sort -u -o /config/.ssh/authorized_keys /config/.ssh/authorized_keys',
+      'chmod 700 /config/.ssh',
+      'chmod 600 /config/.ssh/authorized_keys',
+      'chown -R abc:abc /config/.ssh',
+    ].join(' && ')
+
+    sshExec(machine, `docker exec justavps-workload sh -lc ${JSON.stringify(injectCmd)}`, 20_000)
+
+    const whoami = execFileSync('ssh', [
+      '-i', keyPath,
+      '-o', 'StrictHostKeyChecking=no',
+      '-o', 'UserKnownHostsFile=/dev/null',
+      '-o', 'ConnectTimeout=15',
+      `abc@${machine.ip}`,
+      'whoami',
+    ], {
+      encoding: 'utf8',
+      timeout: 30_000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim()
+
+    if (whoami !== 'abc') {
+      throw new Error(`abc SSH bridge returned '${whoami}'`)
+    }
+  } finally {
+    try { fs.rmSync(tempDir, { recursive: true, force: true }) } catch {}
+  }
+}
+
+async function bootstrapSandboxRuntime(machine, dockerImage) {
+  if (!fs.existsSync(START_SANDBOX_SCRIPT)) {
+    throw new Error(`Missing ${START_SANDBOX_SCRIPT}`)
+  }
+
+  info(`Bootstrapping sandbox runtime on ${machine.id}...`)
+  const tempScript = path.join(os.tmpdir(), `start-sandbox-${machine.id}.sh`)
+  fs.copyFileSync(START_SANDBOX_SCRIPT, tempScript)
+
+  try {
+    uploadFile(machine, tempScript, '/root/start-sandbox.sh')
+    sshExec(machine, 'chmod +x /root/start-sandbox.sh')
+    sshExec(machine, `bash /root/start-sandbox.sh ${JSON.stringify(dockerImage)}`, 10 * 60 * 1000)
+  } finally {
+    try { fs.unlinkSync(tempScript) } catch {}
+  }
+}
+
+async function verifySandboxRuntime(machineId, { dockerImage, bootstrap = false, scrubEnv = false } = {}) {
+  let machine = await api(`/machines/${machineId}`)
+  await waitForSsh(machine, 5 * 60 * 1000)
+
+  if (bootstrap) {
+    await bootstrapSandboxRuntime(machine, dockerImage)
+    machine = await api(`/machines/${machineId}`)
+  }
+
+  const startedAt = Date.now()
+  let lastError = null
+  while (Date.now() - startedAt < 5 * 60 * 1000) {
+    try {
+      const checks = {
+        unit: sshExec(machine, "systemctl list-unit-files | grep '^justavps-docker.service'", 20_000).trim(),
+        active: sshExec(machine, 'systemctl is-active justavps-docker', 20_000).trim(),
+        container: sshExec(machine, "docker ps --format '{{.Names}}' | grep '^justavps-workload$'", 20_000).trim(),
+        health: sshExec(machine, "curl -fsS http://127.0.0.1:8000/kortix/health || curl -fsS http://127.0.0.1:8000/", 20_000).trim(),
+      }
+
+      if (!checks.unit.includes('justavps-docker.service')) throw new Error('justavps-docker.service missing')
+      if (checks.active !== 'active') throw new Error(`justavps-docker not active (${checks.active})`)
+      if (checks.container !== 'justavps-workload') throw new Error('justavps-workload container missing')
+      if (!checks.health) throw new Error('port 8000 returned empty response')
+
+      verifySandboxSshBridge(machine)
+
+      if (scrubEnv) {
+        sshExec(machine, 'truncate -s 0 /etc/justavps/env && sync', 20_000)
+      }
+      ok(`Sandbox runtime verified on ${machine.id}`)
+      return
+    } catch (error) {
+      lastError = error
+      await new Promise((resolve) => setTimeout(resolve, 5000))
+    }
+  }
+
+  throw new Error(`Sandbox runtime verification failed for ${machineId}: ${lastError instanceof Error ? lastError.message : String(lastError)}`)
 }
 
 async function main() {
@@ -233,6 +400,8 @@ async function main() {
     const readyMachine = await waitForMachineReady(machineId, machineTimeoutMs)
     ok(`Build machine ready${readyMachine.ip ? ` (${readyMachine.ip})` : ''}`)
 
+    await verifySandboxRuntime(machineId, { dockerImage, bootstrap: true, scrubEnv: true })
+
     info('Creating JustAVPS image from build machine...')
     const image = await api(`/machines/${machineId}/image`, {
       method: 'POST',
@@ -277,6 +446,7 @@ async function main() {
       try {
         const readyVerifyMachine = await waitForMachineReady(verifyMachineId, machineTimeoutMs)
         ok(`Verification machine ready${readyVerifyMachine.ip ? ` (${readyVerifyMachine.ip})` : ''}`)
+        await verifySandboxRuntime(verifyMachineId, { dockerImage, bootstrap: false, scrubEnv: false })
       } finally {
         info(`Deleting verification machine ${verifyMachineId}...`)
         await deleteMachineIfPresent(verifyMachineId)
