@@ -205,7 +205,46 @@ function IntegrationsContent({
   const border = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
   const inputBg = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)';
 
-  // ── List header (connected + search) ──
+  // ── Sticky search bar (rendered outside FlatList) ──
+  const SearchBar = (
+    <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 8, backgroundColor: isDark ? '#121215' : '#F8F8F8' }}>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: inputBg,
+          borderRadius: 12,
+          paddingHorizontal: 12,
+          height: 42,
+        }}
+      >
+        <Search size={16} color={muted} />
+        <TextInput
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search 1000+ apps..."
+          placeholderTextColor={muted}
+          style={{
+            flex: 1,
+            marginLeft: 8,
+            fontSize: 15,
+            fontFamily: 'Roobert',
+            color: fg,
+          }}
+          returnKeyType="search"
+          autoCorrect={false}
+          autoCapitalize="none"
+        />
+        {searchQuery.length > 0 && (
+          <Pressable onPress={() => setSearchQuery('')} hitSlop={8}>
+            <X size={16} color={muted} />
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
+
+  // ── List header (connected accounts + section label) ──
   const ListHeader = () => (
     <View style={{ paddingHorizontal: 20 }}>
       {/* Back button + title when embedded (e.g. AgentDrawer) */}
@@ -248,42 +287,6 @@ function IntegrationsContent({
           ))}
         </View>
       )}
-
-      {/* Search */}
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          backgroundColor: inputBg,
-          borderRadius: 12,
-          paddingHorizontal: 12,
-          height: 42,
-          marginBottom: 16,
-        }}
-      >
-        <Search size={16} color={muted} />
-        <TextInput
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholder="Search 1000+ apps..."
-          placeholderTextColor={muted}
-          style={{
-            flex: 1,
-            marginLeft: 8,
-            fontSize: 15,
-            fontFamily: 'Roobert',
-            color: fg,
-          }}
-          returnKeyType="search"
-          autoCorrect={false}
-          autoCapitalize="none"
-        />
-        {searchQuery.length > 0 && (
-          <Pressable onPress={() => setSearchQuery('')} hitSlop={8}>
-            <X size={16} color={muted} />
-          </Pressable>
-        )}
-      </View>
 
       {/* Available apps header */}
       <Text
@@ -338,6 +341,7 @@ function IntegrationsContent({
 
   return (
     <>
+      {SearchBar}
       <FlatList
         data={apps}
         keyExtractor={(item) => item.slug}

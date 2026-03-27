@@ -31,7 +31,6 @@ export const AppIcon = memo(function AppIcon({ name, imgSrc, size = 36 }: AppIco
           width: size,
           height: size,
           borderRadius: radius,
-          backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
         }}
         onError={() => setError(true)}
         resizeMode="contain"
