@@ -531,13 +531,27 @@ function TaskDetailSheet({
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<'settings' | 'executions'>('settings');
   const [isRunning, setIsRunning] = useState(false);
+  const [localIsActive, setLocalIsActive] = useState<boolean | null>(null);
+
+  // Reset local state when trigger changes
+  useEffect(() => {
+    setLocalIsActive(null);
+  }, [trigger?.id]);
+
+  const effectiveIsActive = localIsActive ?? trigger?.isActive ?? true;
 
   const handleRunNow = useCallback(async () => {
     setIsRunning(true);
     await onRunNow();
-    // Keep spinner briefly so user sees feedback
     setTimeout(() => setIsRunning(false), 2000);
   }, [onRunNow]);
+
+  const handleToggle = useCallback(async () => {
+    const newState = !effectiveIsActive;
+    setLocalIsActive(newState);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onToggle();
+  }, [effectiveIsActive, onToggle]);
 
   const fg = isDark ? '#f8f8f8' : '#121215';
   const muted = isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)';
@@ -609,8 +623,8 @@ function TaskDetailSheet({
                 </Text>
               </View>
               <Switch
-                value={trigger.isActive}
-                onValueChange={onToggle}
+                value={effectiveIsActive}
+                onValueChange={handleToggle}
                 trackColor={{ false: isDark ? '#333' : '#ddd', true: theme.primary }}
                 thumbColor="#fff"
               />
@@ -691,6 +705,29 @@ function TaskDetailSheet({
                       </Text>
                     </Pressable>
                   )}
+
+                  {/* Pause / Resume */}
+                  <Pressable
+                    onPress={handleToggle}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      paddingVertical: 13,
+                      borderRadius: 12,
+                      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                    }}
+                  >
+                    {effectiveIsActive ? (
+                      <Pause size={16} color={fg} />
+                    ) : (
+                      <Play size={16} color={fg} />
+                    )}
+                    <Text style={{ fontSize: 15, fontFamily: 'Roobert-Medium', color: fg }}>
+                      {effectiveIsActive ? 'Pause' : 'Resume'}
+                    </Text>
+                  </Pressable>
 
                   {trigger.editable && (
                     <Pressable
