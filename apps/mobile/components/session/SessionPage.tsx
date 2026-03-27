@@ -225,6 +225,10 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
   const inputAnim = useRef(new Animated.Value(1)).current;
   const questionAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
+    // Stop any running animations to prevent overlap
+    inputAnim.stopAnimation();
+    questionAnim.stopAnimation();
+
     if (hasQuestion) {
       // Textarea fades out downward, then question fades in from bottom
       Animated.sequence([
