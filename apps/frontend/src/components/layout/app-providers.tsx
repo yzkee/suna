@@ -1,8 +1,9 @@
 'use client';
 
-import React, { Suspense, lazy } from 'react';
-import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
+import React, { Suspense, lazy, useEffect } from 'react';
+import { SidebarProvider, SidebarInset, useSidebar } from '@/components/ui/sidebar';
 import { RightSidebarProvider } from '@/components/ui/sidebar-right-provider';
+import { useOnboardingModeStore } from '@/stores/onboarding-mode-store';
 import { useDeleteOperationEffects } from '@/stores/delete-operation-store';
 import { SubscriptionStoreSync } from '@/stores/subscription-store';
 import { NewInstanceModal } from '@/components/billing/pricing/new-instance-modal';
@@ -39,6 +40,18 @@ function DeleteOperationEffectsWrapper({ children }: { children: React.ReactNode
   return <>{children}</>;
 }
 
+/** Forces sidebar closed during onboarding, opens it on morph. */
+function OnboardingSidebarSync() {
+  const { setOpen } = useSidebar();
+  const active = useOnboardingModeStore((s) => s.active);
+  const morphing = useOnboardingModeStore((s) => s.morphing);
+  useEffect(() => {
+    if (active && !morphing) setOpen(false);
+    else if (morphing) setOpen(true);
+  }, [active, morphing, setOpen]);
+  return null;
+}
+
 /** Store-driven NewInstanceModal — mounted once globally */
 function GlobalNewInstanceModal() {
   const { isOpen, title, closeNewInstanceModal } = useNewInstanceModalStore();
@@ -73,6 +86,7 @@ export function AppProviders({
 
   return (
     <SidebarProvider defaultOpen={defaultSidebarOpen}>
+      <OnboardingSidebarSync />
       {sidebarContent || (
         <Suspense fallback={<SidebarSkeleton />}>
           <SidebarLeft />

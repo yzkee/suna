@@ -1,23 +1,28 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import { useAuth } from "@/components/AuthProvider";
 import { useConnectionToasts } from "@/components/dashboard/connecting-screen";
 import { AppProviders } from "@/components/layout/app-providers";
 import { TabBar } from "@/components/tabs/tab-bar";
 import { useAdminRole } from "@/hooks/admin";
 import { useSystemStatusQuery } from "@/hooks/edge-flags";
+import { useCreateOpenCodeSession } from "@/hooks/opencode/use-opencode-sessions";
 import { OpenCodeEventStreamProvider } from "@/hooks/opencode/use-opencode-events";
 import { useSandbox } from "@/hooks/platform/use-sandbox";
 import { useSandboxConnection } from "@/hooks/platform/use-sandbox-connection";
 import { useWebNotifications } from "@/hooks/use-web-notifications";
 import { backendApi } from "@/lib/api-client";
+import { getClient } from "@/lib/opencode-sdk";
 import { KortixLoader } from "@/components/ui/kortix-loader";
 import { featureFlags } from "@/lib/feature-flags";
 import { buildInstancePath, getActiveInstanceIdFromCookie, getCurrentInstanceIdFromPathname } from "@/lib/instance-routes";
 import { cn } from "@/lib/utils";
 import { useSandboxConnectionStore } from "@/stores/sandbox-connection-store";
+import { useOnboardingModeStore } from "@/stores/onboarding-mode-store";
 import { getActiveOpenCodeUrl, useServerStore, switchToInstanceAsync } from "@/stores/server-store";
 import { useTabStore } from "@/stores/tab-store";
 import { AnnouncementDialog } from "../announcements/announcement-dialog";
@@ -171,6 +176,42 @@ const DesktopTabContent = lazy(() =>
 	})),
 );
 
+const BootOverlay = lazy(() =>
+	import("@/components/onboarding/boot-overlay").then((mod) => ({
+		default: mod.BootOverlay,
+	})),
+);
+
+/* ─── Onboarding helpers ─────────────────────────────────────── */
+
+function getInstanceUrl() {
+	return useServerStore.getState().getActiveServerUrl();
+}
+
+async function authFetch(...args: Parameters<typeof fetch>) {
+	const { authenticatedFetch } = await import("@/lib/auth-token");
+	return authenticatedFetch(...args);
+}
+
+function persistEnv(key: string, value: string) {
+	const u = getInstanceUrl();
+	authFetch(`${u}/env/${key}`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ value }),
+	}).catch(() => {});
+}
+
+async function readEnv(key: string): Promise<string | null> {
+	try {
+		const u = getInstanceUrl();
+		const res = await authFetch(`${u}/env/${key}`);
+		if (!res.ok) return null;
+		const d = await res.json();
+		return d?.[key] ?? null;
+	} catch { return null; }
+}
+
 // Minimal full-viewport loading state shown while auth / onboarding resolves.
 function DashboardSkeleton() {
 	return (
@@ -188,6 +229,8 @@ function SessionTabsContainer({ children }: { children: React.ReactNode }) {
 	const tabs = useTabStore((s) => s.tabs);
 	const tabOrder = useTabStore((s) => s.tabOrder);
 	const activeTabId = useTabStore((s) => s.activeTabId);
+	const obActive = useOnboardingModeStore((s) => s.active);
+	const obSessionId = useOnboardingModeStore((s) => s.sessionId);
 
 	// Collect tab IDs by type
 	const sessionTabIds = tabOrder.filter((id) => tabs[id]?.type === "session");
@@ -222,7 +265,7 @@ function SessionTabsContainer({ children }: { children: React.ReactNode }) {
 				>
 					<Suspense fallback={null}>
 						<SessionLayout sessionId={id}>
-							<SessionChat sessionId={id} />
+							<SessionChat sessionId={id} hideHeader={obActive && id === obSessionId} />
 						</SessionLayout>
 					</Suspense>
 				</div>
@@ -407,9 +450,18 @@ export default function DashboardLayoutContent({
 		}
 	}, [user, isLoading, router]);
 
-	// Hard gate: redirect to /onboarding if ONBOARDING_COMPLETE is not "true".
-	// Reads directly from the sandbox env — same endpoint as the Secrets Manager page.
-	// Re-runs when the sandbox registers (activeServerId changes) so we get a URL.
+	// ── Onboarding-as-state: the dashboard IS the onboarding page ──
+	// No redirect. If ONBOARDING_COMPLETE is false the dashboard renders
+	// in onboarding mode (full-screen thread, no chrome). When complete
+	// the sidebars morph in — pure state change.
+	const ob = useOnboardingModeStore();
+	const createSession = useCreateOpenCodeSession();
+	const createSessionRef = useRef(createSession);
+	createSessionRef.current = createSession;
+	const obCreating = useRef(false);
+	const obCmdFired = useRef(false);
+	const obRetries = useRef(0);
+
 	const activeServerId = useServerStore((s) => s.activeServerId);
 	const [onboardingChecked, setOnboardingChecked] = useState(false);
 	const [routeSyncing, setRouteSyncing] = useState(false);
@@ -418,56 +470,136 @@ export default function DashboardLayoutContent({
 		setOnboardingChecked(false);
 	}, [routeInstanceId]);
 
-	// Timeout fallback: if sandbox URL never arrives, fail open fast.
-	// We already have a connecting overlay later; don't trap the user in a long skeleton.
+	// Timeout fallback — fail open if sandbox never responds.
 	useEffect(() => {
 		if (onboardingChecked || routeSyncing) return;
-		const timer = setTimeout(() => {
+		const t = setTimeout(() => {
 			if (!onboardingChecked) {
 				console.warn("[layout] Onboarding check timed out — failing open");
 				setOnboardingChecked(true);
 			}
 		}, 1000);
-		return () => clearTimeout(timer);
+		return () => clearTimeout(t);
 	}, [onboardingChecked, routeSyncing]);
 
+	// Check ONBOARDING_COMPLETE — enter onboarding mode or pass through.
 	useEffect(() => {
-		const checkOnboarding = async () => {
+		const check = async () => {
 			if (routeSyncing) return;
-			const currentInstanceId = routeInstanceId || getActiveInstanceIdFromCookie();
 			const instanceUrl = getActiveOpenCodeUrl();
-			if (!instanceUrl) {
-				// Sandbox URL not known yet — wait for next re-run when it registers
-				// (timeout above prevents infinite wait)
-				return;
-			}
-			const { authenticatedFetch } = await import("@/lib/auth-token");
+			if (!instanceUrl) return;
 			try {
-				const res = await authenticatedFetch(`${instanceUrl}/env/ONBOARDING_COMPLETE`, undefined, { retryOnAuthError: false });
-				if (!res.ok) {
-					// Sandbox unreachable — let through, don't block
-					setOnboardingChecked(true);
-					return;
-				}
+				const f = await import("@/lib/auth-token").then((m) => m.authenticatedFetch);
+				const res = await f(`${instanceUrl}/env/ONBOARDING_COMPLETE`, undefined, { retryOnAuthError: false });
+				if (!res.ok) { setOnboardingChecked(true); return; }
 				const data = await res.json();
 				if (data?.ONBOARDING_COMPLETE === 'true') {
 					setOnboardingChecked(true);
 				} else {
-					if (currentInstanceId) {
-						router.replace(`/instances/${currentInstanceId}/onboarding`);
-					} else {
-						// No instance context — send to instances page
-						router.replace("/instances");
-					}
+					// Enter onboarding mode. Check for existing session to skip boot.
+					const existing = await readEnv("ONBOARDING_SESSION_ID");
+					ob.enter({ skipBoot: !!existing });
+					setOnboardingChecked(true);
 				}
-			} catch {
-				// Unreachable — let through
-				setOnboardingChecked(true);
-			}
+			} catch { setOnboardingChecked(true); }
 		};
-		checkOnboarding();
+		check();
 	// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [activeServerId, routeInstanceId, routeSyncing]);
+
+	// ── Onboarding: create / resume session ──
+	useEffect(() => {
+		if (!ob.active || ob.showBoot || ob.sessionId) return;
+		if (obCreating.current) return;
+		obCreating.current = true;
+
+		let retryTimer: ReturnType<typeof setTimeout>;
+		(async () => {
+			try {
+				const alreadyFired = (await readEnv("ONBOARDING_COMMAND_FIRED")) === "true";
+				if (alreadyFired) obCmdFired.current = true;
+
+				let sid: string | null = null;
+				let needsCmd = false;
+				const existing = await readEnv("ONBOARDING_SESSION_ID");
+
+				if (existing) {
+					try {
+						const c = getClient();
+						await c.session.get({ sessionID: existing });
+						sid = existing;
+						const msgs = await c.session.messages({ sessionID: existing });
+						if (!(msgs.data ?? []).some((m: any) => m.info?.role === "assistant")) needsCmd = true;
+					} catch {
+						persistEnv("ONBOARDING_SESSION_ID", "");
+					}
+				}
+
+				if (!sid) {
+					const s = await createSessionRef.current.mutateAsync({ title: "Kortix Onboarding" });
+					persistEnv("ONBOARDING_SESSION_ID", s.id);
+					sid = s.id;
+					needsCmd = true;
+				}
+
+				if (needsCmd && !obCmdFired.current) {
+					obCmdFired.current = true;
+					persistEnv("ONBOARDING_COMMAND_FIRED", "true");
+					void getClient().session.command({ sessionID: sid, command: "onboarding", arguments: "" })
+						.catch(() => { obCmdFired.current = false; });
+				}
+
+				ob.setSessionId(sid);
+				useTabStore.getState().openTab({ id: sid, title: "Kortix Onboarding", type: "session", href: `/sessions/${sid}` });
+			} catch (err) {
+				obCreating.current = false;
+				obRetries.current++;
+				const msg = err instanceof Error ? err.message : String(err ?? "");
+				if (/still syncing|provisioning|not ready|sandbox route/i.test(msg) || obRetries.current < 3) {
+					retryTimer = setTimeout(() => { obCreating.current = false; ob.hideBoot(); }, 2000);
+				} else {
+					toast.error(msg || "Could not start onboarding. Try refreshing.");
+				}
+			}
+		})();
+		return () => clearTimeout(retryTimer);
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ob.active, ob.showBoot, ob.sessionId]);
+
+	// ── Onboarding: liveness fallback — re-fire /onboarding if assistant never starts ──
+	useEffect(() => {
+		if (!ob.active || !ob.sessionId) return;
+		const t = setTimeout(async () => {
+			try {
+				const c = getClient();
+				const msgs = await c.session.messages({ sessionID: ob.sessionId! });
+				if ((msgs.data ?? []).some((m: any) => m.info?.role === "assistant")) return;
+				obCmdFired.current = true;
+				persistEnv("ONBOARDING_COMMAND_FIRED", "true");
+				void c.session.command({ sessionID: ob.sessionId!, command: "onboarding", arguments: "" })
+					.catch(() => { obCmdFired.current = false; });
+			} catch {}
+		}, 8000);
+		return () => clearTimeout(t);
+	}, [ob.active, ob.sessionId]);
+
+	// ── Onboarding: poll ONBOARDING_COMPLETE → trigger morph ──
+	useEffect(() => {
+		if (!ob.active || ob.morphing || ob.showBoot) return;
+		const iv = setInterval(async () => {
+			const v = await readEnv("ONBOARDING_COMPLETE");
+			if (v === "true") {
+				clearInterval(iv);
+				ob.morph();
+				setTimeout(() => ob.done(), 900);
+			}
+		}, 3000);
+		return () => clearInterval(iv);
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ob.active, ob.morphing, ob.showBoot]);
+
+	// ── Boot overlay callback ──
+	const handleBootDone = useCallback(() => ob.hideBoot(), [ob.hideBoot]);
 
 	// Keep the active server in sync with the current instance.
 	// Source of truth: URL path (/instances/:id/...) OR active-instance cookie
@@ -560,19 +692,26 @@ export default function DashboardLayoutContent({
 		);
 	}
 
+	const hideChrome = ob.active && !ob.morphing;
+
 	return (
 		<NovuInboxProvider>
+			{/* Boot overlay — BIOS + logo on top of everything */}
+			{ob.showBoot && (
+				<Suspense fallback={null}>
+					<BootOverlay onComplete={handleBootDone} />
+				</Suspense>
+			)}
+
 			<Suspense fallback={null}>
 				<SleepOverlay />
 			</Suspense>
 			<AppProviders
 				showSidebar={true}
-				defaultSidebarOpen={true}
+				defaultSidebarOpen={!ob.active}
 				sidebarSiblings={
 					<Suspense fallback={null}>
-						{/* Status overlay for deletion operations */}
 						<StatusOverlay />
-
 					</Suspense>
 				}
 			>
@@ -584,17 +723,19 @@ export default function DashboardLayoutContent({
 				<ConnectingScreen />
 			</Suspense>
 
-			{/* Fixed overlay banners — outside document flow, won't affect layout */}
+			{!hideChrome && (
 				<Suspense fallback={null}>
 					<DashboardPromoBanner />
 				</Suspense>
+			)}
 
 				<div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
-					<Suspense fallback={null}>
-						<AnnouncementDialog />
-					</Suspense>
-
-					<FilePreviewDialog />
+					{!hideChrome && (
+						<Suspense fallback={null}>
+							<AnnouncementDialog />
+						</Suspense>
+					)}
+					{!hideChrome && <FilePreviewDialog />}
 
 					<Suspense fallback={null}>
 						<CommandPalette />
@@ -604,9 +745,34 @@ export default function DashboardLayoutContent({
 					</Suspense>
 					<Suspense fallback={null}>
 						<OnboardingProvider>
-							<TabBar />
-							<div className="flex-1 min-h-0 flex flex-col md:border md:border-b-0 md:border-border/50 overflow-hidden md:rounded-t-xl">
+							{/* Tab bar — hidden during onboarding, morphs in */}
+							<AnimatePresence initial={false}>
+								{!hideChrome && (
+									<motion.div
+										key="tab-bar"
+										initial={{ height: 0, opacity: 0 }}
+										animate={{ height: "auto", opacity: 1 }}
+										exit={{ height: 0, opacity: 0 }}
+										transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+										style={{ overflow: "hidden" }}
+									>
+										<TabBar />
+									</motion.div>
+								)}
+							</AnimatePresence>
+
+							<div className="flex-1 min-h-0 flex flex-col md:border md:border-b-0 md:border-border/50 overflow-hidden md:rounded-t-xl relative">
 								<SessionTabsContainer>{children}</SessionTabsContainer>
+
+								{/* Loading state while creating onboarding session */}
+								{ob.active && !ob.sessionId && !ob.showBoot && (
+									<div className="absolute inset-0 z-10 flex items-center justify-center bg-background">
+										<div className="flex flex-col items-center gap-3">
+											<KortixLoader size="medium" />
+											<p className="text-xs text-muted-foreground">Setting up your workspace…</p>
+										</div>
+									</div>
+								)}
 							</div>
 						</OnboardingProvider>
 					</Suspense>

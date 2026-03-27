@@ -33,6 +33,7 @@ import {
 } from '@/lib/menu-registry';
 import { normalizeAppPathname } from '@/lib/instance-routes';
 import { useProviderModalStore } from '@/stores/provider-modal-store';
+import { useOnboardingModeStore } from '@/stores/onboarding-mode-store';
 
 // ============================================================================
 // Main Right Sidebar — Quick actions (no file explorer — that's /files now)
@@ -140,15 +141,21 @@ export function SidebarRight() {
   const quickActionClusters = getNavItemsClustered('rightSidebar', 'quickActions');
   const navClusters = getNavItemsClustered('rightSidebar', 'navigation');
 
+  const obHide = useOnboardingModeStore((s) => s.active && !s.morphing);
+
   if (isMobile) return null;
+
+  const effectiveGap = obHide ? '0px' : (open ? SIDEBAR_RIGHT_WIDTH : SIDEBAR_RIGHT_WIDTH_ICON);
+  const effectivePanel = obHide ? '0px' : (open ? SIDEBAR_RIGHT_WIDTH : SIDEBAR_RIGHT_WIDTH_ICON);
 
   return (
     <>
       {/* Gap element — takes space in flex layout so content area shrinks */}
       <div
-        className="relative shrink-0 bg-transparent transition-[width] duration-300 ease-out will-change-[width] transform-gpu"
+        className="relative shrink-0 bg-transparent transition-[width,opacity] duration-500 ease-out will-change-[width] transform-gpu"
         style={{
-          width: open ? SIDEBAR_RIGHT_WIDTH : SIDEBAR_RIGHT_WIDTH_ICON,
+          width: effectiveGap,
+          opacity: obHide ? 0 : 1,
         }}
       >
         {/* Rail — thin hoverable strip on the left edge to toggle */}
@@ -166,9 +173,10 @@ export function SidebarRight() {
 
       {/* Fixed sidebar panel */}
       <div
-        className="fixed inset-y-0 right-0 z-10 h-svh transition-[right,width] duration-300 ease-out will-change-[width,transform] transform-gpu backface-visibility-hidden flex overflow-visible"
+        className="fixed inset-y-0 right-0 z-10 h-svh transition-[right,width,opacity] duration-500 ease-out will-change-[width,transform] transform-gpu backface-visibility-hidden flex overflow-visible"
         style={{
-          width: open ? SIDEBAR_RIGHT_WIDTH : SIDEBAR_RIGHT_WIDTH_ICON,
+          width: effectivePanel,
+          opacity: obHide ? 0 : 1,
         }}
       >
         <div className="bg-sidebar text-sidebar-foreground flex h-full w-full flex-col">
