@@ -56,6 +56,7 @@ import { SSHPage } from '@/components/pages/SSHPage';
 import { RunningServicesPage } from '@/components/pages/RunningServicesPage';
 import { BrowserPage } from '@/components/pages/BrowserPage';
 import { FilesPage } from '@/components/pages/FilesPage';
+import { IntegrationsTabPage } from '@/components/pages/IntegrationsTabPage';
 import type { FilesPageRef } from '@/components/pages/FilesPage';
 import { SecretsPage } from '@/components/pages/SecretsPage';
 import { MemoryPage } from '@/components/pages/MemoryPage';
@@ -1047,6 +1048,15 @@ export default function HomeScreen() {
           /* Active page tab — Agent Browser */
           ) : activePageId === 'page:agent-browser' && PAGE_TABS[activePageId] && !showTabsOverview ? (
             <BrowserPage
+              page={PAGE_TABS[activePageId]}
+              onBack={handleBack}
+              onOpenDrawer={handleDrawerOpen}
+              onOpenRightDrawer={handleRightDrawerOpen}
+            />
+
+          /* Active page tab — Integrations */
+          ) : activePageId === 'page:integrations' && PAGE_TABS[activePageId] && !showTabsOverview ? (
+            <IntegrationsTabPage
               page={PAGE_TABS[activePageId]}
               onBack={handleBack}
               onOpenDrawer={handleDrawerOpen}
