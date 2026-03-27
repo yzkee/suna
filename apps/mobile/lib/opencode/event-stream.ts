@@ -245,8 +245,11 @@ export function useOpenCodeEventStream(sandboxUrl: string | undefined) {
         if (props.sessionID && props.id) syncStore.getState().removePermission(props.sessionID, props.id);
         break;
       case 'question.asked':
-        log.log('❓ [SSE] question.asked:', props.id, 'session:', props.sessionID);
-        if (props.sessionID) syncStore.getState().addQuestion(props.sessionID, props as any);
+        log.log('❓ [SSE] question.asked:', props.id, 'session:', props.sessionID, 'keys:', Object.keys(props));
+        if (props.sessionID) {
+          syncStore.getState().addQuestion(props.sessionID, props as any);
+          log.log('❓ [SSE] Added question to store, current count:', (syncStore.getState().questions[props.sessionID] || []).length);
+        }
         break;
       case 'question.replied':
       case 'question.rejected':
