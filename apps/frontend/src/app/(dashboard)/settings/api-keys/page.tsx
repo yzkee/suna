@@ -42,7 +42,7 @@ import {
   APIKeyCreateResponse,
   APIKeyRegenerateResponse,
 } from '@/lib/api/api-keys';
-import { getActiveSandboxId, getActiveServer, getActiveOpenCodeUrl } from '@/stores/server-store';
+import { getActiveServer, getActiveOpenCodeUrl } from '@/stores/server-store';
 import { getAuthToken } from '@/lib/auth-token';
 import { useServerStore } from '@/stores/server-store';
 
@@ -142,8 +142,16 @@ function StatusBadge({ status }: { status: string }) {
 // ── Main page ──────────────────────────────────────────────────────────────
 
 export default function APIKeysPage() {
-  const activeServerId = useServerStore((s) => s.activeServerId);
-  const activeSandboxId = getActiveSandboxId();
+  // Use instanceId (the stable DB UUID) so the api-keys backend can resolve
+  // ownership unambiguously. Using sandboxId (external_id) breaks for cloud
+  // providers like Daytona where the external_id is also a UUID — the backend
+  // would mistakenly treat it as the DB primary key and return 404.
+  // Subscribing to both activeServerId and servers ensures reactivity when
+  // the server entry is updated without an activeServerId change.
+  const activeSandboxId = useServerStore((s) => {
+    const server = s.servers.find((e) => e.id === s.activeServerId);
+    return server?.instanceId;
+  });
   const activeServer = getActiveServer();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newKeyData, setNewKeyData] = useState<NewAPIKeyData>({
@@ -231,7 +239,7 @@ export default function APIKeysPage() {
 
   const handleCreateAPIKey = () => {
     if (!activeSandboxId) {
-      toast.warning('No active sandbox');
+      toast.warning('No active sandbox. Please wait for your sandbox to start.');
       return;
     }
     createMutation.mutate({
@@ -410,7 +418,17 @@ export default function APIKeysPage() {
 
           {/* Keys list */}
           <div className="rounded-2xl border bg-card overflow-hidden">
-            {isLoading ? (
+            {!activeSandboxId ? (
+              <div className="px-4 py-12 text-center space-y-2">
+                <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
+                  <AlertCircle className="w-5 h-5 text-muted-foreground" />
+                </div>
+                <p className="text-sm font-medium">No sandbox active</p>
+                <p className="text-xs text-muted-foreground">
+                  A running sandbox is required to manage API keys.
+                </p>
+              </div>
+            ) : isLoading ? (
               <div className="divide-y">
                 {[1, 2].map((i) => (
                   <div key={i} className="px-4 py-4 animate-pulse">
@@ -428,7 +446,7 @@ export default function APIKeysPage() {
               <div className="px-4 py-12 text-center space-y-3">
                 <AlertCircle className="w-8 h-8 text-muted-foreground mx-auto" />
                 <p className="text-muted-foreground text-sm">
-                  {apiKeysResponse?.error?.message || 'Failed to load API keys.'}
+                  {(error as Error)?.message || apiKeysResponse?.error?.message || 'Failed to load API keys.'}
                 </p>
                 <Button variant="outline" size="sm" onClick={() => refetch()}>
                   Try Again
