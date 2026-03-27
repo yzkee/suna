@@ -344,6 +344,16 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
     return stateRef.current;
   }, [sandboxId, timeoutMs, cleanup, update, set, stop, startFallbackPolling, startInterpolation]);
 
+  // Seed progress from a known stage on remount — prevents 0% flash while
+  // waiting for the first SSE event when navigating back to a provisioning page.
+  const seedStage = useCallback((stage: string) => {
+    if (!stage) return;
+    const progress = STAGE_PROGRESS[stage] ?? 0;
+    if (progress > stateRef.current.progress) {
+      update({ currentStage: stage, progress, stageEnteredAt: Date.now() });
+    }
+  }, [update]);
+
   // Emit the synthetic 'connecting' stage (machine ready, waiting for services)
   const setConnecting = useCallback(() => {
     const isNewStage = stateRef.current.currentStage !== 'connecting';
@@ -360,5 +370,5 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
     cleanup();
   }, [cleanup]);
 
-  return { ...state, poll, stop, reset, setConnecting };
+  return { ...state, poll, stop, reset, seedStage, setConnecting };
 }

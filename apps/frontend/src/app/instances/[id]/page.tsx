@@ -1,54 +1,37 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import { useQuery } from '@tanstack/react-query';
 import { KortixLogo } from '@/components/sidebar/kortix-logo';
 import { ProvisioningProgress } from '@/components/provisioning/provisioning-progress';
-import { InstanceSetupFlow } from '@/components/instance/setup-flow';
 import { useSandboxPoller } from '@/hooks/platform/use-sandbox-poller';
 import { getSandboxById } from '@/lib/platform-client';
-import { switchToInstanceAsync, getActiveOpenCodeUrl } from '@/stores/server-store';
+import { switchToInstanceAsync } from '@/stores/server-store';
 import { buildInstancePath } from '@/lib/instance-routes';
 import { authenticatedFetch } from '@/lib/auth-token';
 import { Button } from '@/components/ui/button';
-import {
-  ArrowLeft,
-  Loader2,
-  AlertCircle,
-} from 'lucide-react';
+import { ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
 import { getEnv } from '@/lib/env-config';
 
-// ─── State machine for the instance detail page ─────────────────────────────
-// loading → provisioning → connecting → setup|redirecting
-//                        → error
-//         → connecting   → setup|redirecting
+// ─── State machine ────────────────────────────────────────────────────────────
+// loading → provisioning → redirecting
+//         → active      → redirecting
 //         → error
 //         → stopped
 
-type PagePhase =
-  | 'loading'        // Fetching sandbox info
-  | 'provisioning'   // Machine being created
-  | 'connecting'     // Sandbox active, waiting for services (port 8000) to come up
-  | 'setup'          // Services ready, showing provider setup flow
-  | 'redirecting'    // Setup done, navigating to dashboard
-  | 'error'          // Provisioning or sandbox error
-  | 'stopped';       // Sandbox stopped
+type PagePhase = 'loading' | 'provisioning' | 'active' | 'redirecting' | 'error' | 'stopped';
 
 function LocalProvisioningView({ progress }: { progress: { progress: number; message: string } | null }) {
   const pct = progress?.progress ?? 0;
   const msg = progress?.message ?? 'Preparing your workspace...';
-
   return (
     <div className="w-full max-w-[340px] flex flex-col items-center gap-6">
-      {/* Progress ring */}
       <div className="relative h-28 w-28">
         <svg className="h-full w-full -rotate-90" viewBox="0 0 100 100">
           <circle cx="50" cy="50" r="42" fill="none" strokeWidth="4" className="stroke-foreground/[0.06]" />
-          <circle
-            cx="50" cy="50" r="42" fill="none" strokeWidth="4"
-            strokeLinecap="round"
+          <circle cx="50" cy="50" r="42" fill="none" strokeWidth="4" strokeLinecap="round"
             className="stroke-primary transition-all duration-700 ease-out"
             strokeDasharray={`${2 * Math.PI * 42}`}
             strokeDashoffset={`${2 * Math.PI * 42 * (1 - pct / 100)}`}
@@ -58,18 +41,12 @@ function LocalProvisioningView({ progress }: { progress: { progress: number; mes
           <span className="text-xl font-light text-foreground/80 tabular-nums">{Math.round(pct)}%</span>
         </div>
       </div>
-
-      {/* Progress bar */}
       <div className="w-full space-y-2">
         <div className="w-full bg-foreground/[0.06] rounded-full h-1.5 overflow-hidden">
-          <div
-            className="bg-primary h-full rounded-full transition-all duration-700 ease-out"
-            style={{ width: `${Math.max(pct, 2)}%` }}
-          />
+          <div className="bg-primary h-full rounded-full transition-all duration-700 ease-out" style={{ width: `${Math.max(pct, 2)}%` }} />
         </div>
         <p className="text-[12px] text-muted-foreground/50 text-center">{msg}</p>
       </div>
-
       <p className="text-[11px] text-muted-foreground/30 text-center">
         First boot can take a few minutes while the image is pulled.
       </p>
@@ -82,167 +59,76 @@ export default function InstanceDetailPage() {
   const router = useRouter();
   const { user, isLoading: authLoading } = useAuth();
 
-  // ── Phase state machine ──
   const [phase, setPhase] = useState<PagePhase>('loading');
-  const switchedRef = useRef(false);
-  const connectingRef = useRef(false);
+  const redirectedRef = useRef(false);
 
-  // ── Local docker progress ──
+  // Local docker pull progress
   const [localProgress, setLocalProgress] = useState<{ progress: number; message: string } | null>(null);
   const localPollingRef = useRef(false);
-
-  // ── Provisioning poller (cloud instances) — declared early so phase effects can reference it ──
-  const isLocalDocker = sandbox?.provider === 'local_docker';
-  const poller = useSandboxPoller({ sandboxId: isLocalDocker ? undefined : id });
-  const autoStartedRef = useRef(false);
 
   useEffect(() => {
     if (!authLoading && !user) router.replace('/auth');
   }, [authLoading, user, router]);
 
-  const { data: sandbox, isLoading, error, refetch } = useQuery({
+  const { data: sandbox, isLoading, refetch } = useQuery({
     queryKey: ['platform', 'sandbox', 'detail', id],
     queryFn: () => getSandboxById(id!),
     enabled: !!user && !!id,
+    staleTime: 0,
     refetchInterval: (query) => {
-      const data = query.state.data;
-      if (!data) return 5000;
-      if (data.status === 'provisioning') return 10_000;
+      const s = query.state.data?.status;
+      if (s === 'provisioning') return 10_000;
       return false;
     },
   });
 
-  // ── Derive phase from sandbox status ──
+  // Provisioning poller — only active when sandbox is provisioning
+  const isLocalDocker = sandbox?.provider === 'local_docker';
+  const poller = useSandboxPoller({ sandboxId: isLocalDocker ? undefined : id });
+  const autoStartedRef = useRef(false);
+
+  // ── Derive phase ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!sandbox) return;
+    if (sandbox.status === 'provisioning') setPhase('provisioning');
+    else if (sandbox.status === 'active')   setPhase('active');
+    else if (sandbox.status === 'error')    setPhase('error');
+    else if (sandbox.status === 'stopped')  setPhase('stopped');
+  }, [sandbox]);
 
-    if (sandbox.status === 'provisioning') {
-      setPhase('provisioning');
-    } else if (sandbox.status === 'error') {
-      setPhase('error');
-    } else if (sandbox.status === 'stopped') {
-      setPhase('stopped');
-    } else if (sandbox.status === 'active' && !switchedRef.current) {
-      // Sandbox just became active — emit connecting stage into poller then start connecting
-      poller.setConnecting?.();
-      setPhase('connecting');
-    }
-    // If switchedRef.current is true, phase is managed by the connecting flow
-  }, [sandbox, poller]);
-
-  // ── Connecting phase: register server + wait for services + check setup ──
+  // ── Active → register + redirect immediately ──────────────────────────────
   useEffect(() => {
-    if (phase !== 'connecting' || !sandbox || connectingRef.current) return;
-    if (sandbox.status !== 'active' || !sandbox.external_id) return;
-
-    connectingRef.current = true;
+    if (phase !== 'active' || !sandbox || redirectedRef.current) return;
+    redirectedRef.current = true;
+    setPhase('redirecting');
 
     (async () => {
-      // 1. Register in server store (only once)
-      if (!switchedRef.current) {
-        switchedRef.current = true;
-        const result = await switchToInstanceAsync(sandbox.sandbox_id);
-        if (!result) {
-          // switchToInstanceAsync failed — stay in connecting, it'll retry
-          connectingRef.current = false;
-          return;
-        }
-      }
-
-      // 2. Wait for port 8000 to be reachable (services starting up)
-      const url = getActiveOpenCodeUrl();
-      if (!url) {
-        // No URL yet — retry
-        connectingRef.current = false;
-        return;
-      }
-
-      const maxWaitMs = 120_000; // 2 minutes max
-      const pollMs = 3_000;
-      const start = Date.now();
-      let servicesReady = false;
-
-      while (Date.now() - start < maxWaitMs) {
-        try {
-          const res = await authenticatedFetch(`${url}/global/health`, {
-            signal: AbortSignal.timeout(5_000),
-          });
-          if (res.ok || res.status === 503 || res.status === 401) {
-            // 503 = Kortix Master is running but OpenCode still starting
-            // 401 = services are up but auth token not yet accepted
-            // Either way, the service is reachable — move on.
-            servicesReady = true;
-            break;
-          }
-        } catch {
-          // Not reachable yet — keep waiting
-        }
-        await new Promise((r) => setTimeout(r, pollMs));
-      }
-
-      if (!servicesReady) {
-        // Timed out waiting for services — show setup anyway (they might come up)
-        console.warn('[instance-detail] Services did not become reachable within 2 minutes, proceeding to setup');
-      }
-
-      // 3. Check if setup was already completed
-      try {
-        const res = await authenticatedFetch(`${url}/env/INSTANCE_SETUP_COMPLETE`, {
-          signal: AbortSignal.timeout(5_000),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data?.INSTANCE_SETUP_COMPLETE === 'true') {
-            setPhase('redirecting');
-            router.replace(buildInstancePath(sandbox.sandbox_id, '/onboarding'));
-            return;
-          }
-        }
-      } catch {
-        // Can't check — show setup to be safe
-      }
-
-      // 4. First boot → show setup flow
-      setPhase('setup');
+      await switchToInstanceAsync(sandbox.sandbox_id);
+      router.replace(buildInstancePath(sandbox.sandbox_id, '/onboarding'));
     })();
   }, [phase, sandbox, router]);
 
-  const handleSetupComplete = useCallback(async () => {
-    if (!sandbox) return;
-    // Mark instance setup as done
-    try {
-      const url = getActiveOpenCodeUrl();
-      if (url) {
-        await authenticatedFetch(`${url}/env/INSTANCE_SETUP_COMPLETE`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ value: 'true' }),
-        });
-      }
-    } catch { /* best effort */ }
-    setPhase('redirecting');
-    router.replace(buildInstancePath(sandbox.sandbox_id, '/onboarding'));
-  }, [sandbox, router]);
-
-  // ── Provisioning poller (cloud instances) ──
+  // ── Start provisioning poller ──────────────────────────────────────────────
   useEffect(() => {
     if (!sandbox || autoStartedRef.current || isLocalDocker) return;
     if (sandbox.status === 'provisioning') {
       autoStartedRef.current = true;
+      const knownStage = (sandbox.metadata as Record<string, unknown> | null)?.provisioningStage as string | undefined;
+      if (knownStage) poller.seedStage?.(knownStage);
       poller.poll();
     }
   }, [sandbox, poller, isLocalDocker]);
 
+  // When poller says ready, refetch sandbox (will flip to active → redirect)
   useEffect(() => {
     if (poller.status === 'ready') refetch();
   }, [poller.status, refetch]);
 
-  // ── Local Docker: poll /platform/init/local/status for real pull progress ──
+  // ── Local Docker pull progress ─────────────────────────────────────────────
   useEffect(() => {
     if (!sandbox || !isLocalDocker || sandbox.status !== 'provisioning') return;
     if (localPollingRef.current) return;
     localPollingRef.current = true;
-
     let stopped = false;
     const backendUrl = getEnv().BACKEND_URL || 'http://localhost:8008/v1';
 
@@ -251,7 +137,6 @@ export default function InstanceDetailPage() {
       try {
         const res = await authenticatedFetch(`${backendUrl}/platform/init/local/status`);
         const data = await res.json();
-
         if (data.status === 'ready') {
           setLocalProgress({ progress: 100, message: 'Ready' });
           localPollingRef.current = false;
@@ -264,14 +149,10 @@ export default function InstanceDetailPage() {
           refetch();
           return;
         }
-
         setLocalProgress({
           progress: data.progress || 0,
-          message: data.status === 'creating'
-            ? 'Creating container...'
-            : data.message || 'Pulling sandbox image...',
+          message: data.status === 'creating' ? 'Creating container...' : data.message || 'Pulling sandbox image...',
         });
-
         if (!stopped) setTimeout(poll, 2000);
       } catch {
         if (!stopped) setTimeout(poll, 3000);
@@ -282,19 +163,11 @@ export default function InstanceDetailPage() {
     return () => { stopped = true; localPollingRef.current = false; };
   }, [sandbox, isLocalDocker, refetch]);
 
-  // ── Title text based on phase ──
-  const titleText = (() => {
-    switch (phase) {
-      case 'loading': return 'Loading';
-      case 'provisioning': return 'Creating Workspace';
-      case 'connecting': return 'Creating Workspace';
-      case 'setup': return 'Instance Setup';
-      case 'redirecting': return 'Opening Workspace';
-      case 'error': return sandbox?.name || 'Instance';
-      case 'stopped': return sandbox?.name || 'Instance';
-      default: return sandbox?.name || 'Instance';
-    }
-  })();
+  const titleText = phase === 'provisioning' ? 'Creating Workspace'
+    : phase === 'active' || phase === 'redirecting' ? 'Opening Workspace'
+    : phase === 'error' ? 'Something went wrong'
+    : phase === 'stopped' ? sandbox?.name || 'Instance'
+    : 'Loading';
 
   if (authLoading || !user) {
     return (
@@ -328,9 +201,7 @@ export default function InstanceDetailPage() {
 
           {/* Loading */}
           {phase === 'loading' && isLoading && !sandbox && (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           )}
 
           {/* Not found */}
@@ -342,8 +213,8 @@ export default function InstanceDetailPage() {
             </div>
           )}
 
-          {/* Provisioning + Connecting — single unified progress view */}
-          {(phase === 'provisioning' || phase === 'connecting') && sandbox && (
+          {/* Provisioning progress */}
+          {phase === 'provisioning' && sandbox && (
             isLocalDocker ? (
               <LocalProvisioningView progress={localProgress} />
             ) : (
@@ -356,17 +227,9 @@ export default function InstanceDetailPage() {
             )
           )}
 
-          {/* Setup flow — shown after services are ready but not yet configured */}
-          {phase === 'setup' && (
-            <InstanceSetupFlow onComplete={handleSetupComplete} />
-          )}
-
-          {/* Redirecting to dashboard */}
-          {phase === 'redirecting' && (
-            <div className="flex flex-col items-center gap-4">
-              <Loader2 className="h-5 w-5 animate-spin text-primary/70" />
-              <p className="text-sm text-muted-foreground/50">Opening workspace...</p>
-            </div>
+          {/* Active / Redirecting */}
+          {(phase === 'active' || phase === 'redirecting') && (
+            <Loader2 className="h-5 w-5 animate-spin text-primary/70" />
           )}
 
           {/* Error */}
