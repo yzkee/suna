@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Suspense, lazy, useEffect } from 'react';
+import React, { Suspense, lazy, useLayoutEffect } from 'react';
 import { SidebarProvider, SidebarInset, useSidebar } from '@/components/ui/sidebar';
 import { RightSidebarProvider } from '@/components/ui/sidebar-right-provider';
 import { useOnboardingModeStore } from '@/stores/onboarding-mode-store';
@@ -9,10 +9,10 @@ import { SubscriptionStoreSync } from '@/stores/subscription-store';
 import { NewInstanceModal } from '@/components/billing/pricing/new-instance-modal';
 import { useNewInstanceModalStore } from '@/stores/pricing-modal-store';
 
-const SidebarLeft = lazy(() => 
+const SidebarLeft = lazy(() =>
   import('@/components/sidebar/sidebar-left').then(mod => ({ default: mod.SidebarLeft }))
 );
-const SidebarRight = lazy(() => 
+const SidebarRight = lazy(() =>
   import('@/components/sidebar/sidebar-right').then(mod => ({ default: mod.SidebarRight }))
 );
 
@@ -40,12 +40,15 @@ function DeleteOperationEffectsWrapper({ children }: { children: React.ReactNode
   return <>{children}</>;
 }
 
-/** Forces sidebar closed during onboarding, opens it on morph. */
+/**
+ * Syncs left sidebar open state with onboarding mode.
+ * useLayoutEffect runs before paint → no flash.
+ */
 function OnboardingSidebarSync() {
   const { setOpen } = useSidebar();
   const active = useOnboardingModeStore((s) => s.active);
   const morphing = useOnboardingModeStore((s) => s.morphing);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (active && !morphing) setOpen(false);
     else if (morphing) setOpen(true);
   }, [active, morphing, setOpen]);
@@ -73,10 +76,6 @@ export function AppProviders({
   sidebarContent,
   sidebarSiblings
 }: AppProvidersProps) {
-  const obActive = useOnboardingModeStore((s) => s.active);
-  const obMorphing = useOnboardingModeStore((s) => s.morphing);
-  const hideSidebars = obActive && !obMorphing;
-
   const content = (
     <DeleteOperationEffectsWrapper>
       <SubscriptionStoreSync>
@@ -91,21 +90,19 @@ export function AppProviders({
   return (
     <SidebarProvider defaultOpen={defaultSidebarOpen}>
       <OnboardingSidebarSync />
-      {!hideSidebars && (sidebarContent || (
+      {sidebarContent || (
         <Suspense fallback={<SidebarSkeleton />}>
           <SidebarLeft />
         </Suspense>
-      ))}
+      )}
       <SidebarInset>
         <RightSidebarProvider>
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             {content}
           </div>
-          {!hideSidebars && (
-            <Suspense fallback={null}>
-              <SidebarRight />
-            </Suspense>
-          )}
+          <Suspense fallback={null}>
+            <SidebarRight />
+          </Suspense>
         </RightSidebarProvider>
       </SidebarInset>
       {sidebarSiblings}
