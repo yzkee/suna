@@ -262,6 +262,24 @@ function shellEscape(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
+function resolveReachableKortixApiUrl(): string {
+  const directBase = config.KORTIX_URL.replace(/\/v1\/router\/?$/, '');
+
+  try {
+    const parsed = new URL(directBase);
+    const localHosts = new Set(['localhost', '127.0.0.1', '0.0.0.0']);
+    const isLocalOnly = localHosts.has(parsed.hostname) || parsed.hostname.endsWith('.local');
+
+    if (isLocalOnly && config.JUSTAVPS_WEBHOOK_URL) {
+      return new URL(config.JUSTAVPS_WEBHOOK_URL).origin;
+    }
+  } catch {
+    // Fall through to the direct base URL
+  }
+
+  return directBase;
+}
+
 export function buildCustomerCloudInitScript(dockerImage: string): string {
   return [
     'curl -fsSL https://raw.githubusercontent.com/kortix-ai/computer/main/scripts/start-sandbox.sh -o /usr/local/bin/kortix-start-sandbox.sh',
@@ -335,7 +353,7 @@ export class JustAVPSProvider implements SandboxProvider {
 
     const serviceKey = opts.envVars?.KORTIX_TOKEN || '';
     const envVars: Record<string, string> = {
-      KORTIX_API_URL: config.KORTIX_URL.replace(/\/v1\/router\/?$/, ''),
+      KORTIX_API_URL: resolveReachableKortixApiUrl(),
       ENV_MODE: 'cloud',
       INTERNAL_SERVICE_KEY: serviceKey,
       KORTIX_TOKEN: serviceKey,
