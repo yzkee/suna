@@ -5,21 +5,19 @@ set -euo pipefail
 #
 # Blue/green deployment using nginx as the traffic switcher:
 #
-#   1. Build new image (old container still serving traffic)
-#   2. Start new container on the standby port
-#   3. Health check the new container
-#   4. Swap nginx upstream to the new port
-#   5. Stop the old container
-#   6. On failure: rollback (keep old container, don't swap)
+#   1. Pull latest code (old container still serving)
+#   2. Build new image with explicit tag (old container still serving)
+#   3. Start new container on standby port
+#   4. Health check the new container
+#   5. Swap nginx upstream → reload (graceful, no dropped connections)
+#   6. Stop old container
+#   7. On failure at any step: automatic rollback
 #
-# Port allocation:
-#   Blue = 8008, Green = 8009
-#   nginx always proxies to whichever is "active"
-#
-# State file: ~/.kortix-deploy-slot tracks which slot is active (blue|green)
+# Port allocation: Blue = 8008, Green = 8009
+# State file: ~/.kortix-deploy-slot tracks which slot is active
 # ─────────────────────────────────────────────────────────────────────────────
 
-COMPOSE_FILE="scripts/compose/docker-compose.yml"
+IMAGE_NAME="kortix-api"
 STATE_FILE="$HOME/.kortix-deploy-slot"
 NGINX_CONF="/etc/nginx/sites-available/kortix-api"
 HEALTH_TIMEOUT=60
@@ -54,76 +52,92 @@ git reset --hard origin/main
 git submodule sync --recursive
 git submodule update --init --recursive --remote
 
-# ── 2. Build new image (old container still serving) ─────────────────────────
-echo "[2/6] Building new image (traffic still on $ACTIVE_SLOT:$ACTIVE_PORT)..."
-docker compose --project-directory . -f "$COMPOSE_FILE" build --no-cache kortix-api
+COMMIT=$(git rev-parse --short HEAD)
+IMAGE_TAG="${IMAGE_NAME}:${COMMIT}"
+
+# ── 2. Build new image ───────────────────────────────────────────────────────
+echo "[2/6] Building ${IMAGE_TAG} (traffic still on $ACTIVE_SLOT:$ACTIVE_PORT)..."
+docker build \
+  --file kortix-api/Dockerfile \
+  --build-arg SERVICE=kortix-api \
+  --tag "$IMAGE_TAG" \
+  --tag "${IMAGE_NAME}:latest" \
+  --no-cache \
+  .
 
 # ── 3. Start standby container ───────────────────────────────────────────────
 echo "[3/6] Starting $STANDBY_SLOT on port $STANDBY_PORT..."
-
-# Stop standby if it's somehow still running from a previous failed deploy
 docker rm -f "kortix-api-$STANDBY_SLOT" 2>/dev/null || true
 
 docker run -d \
   --name "kortix-api-$STANDBY_SLOT" \
   --env-file kortix-api/.env \
-  -p "$STANDBY_PORT:8008" \
+  -p "${STANDBY_PORT}:8008" \
   --restart unless-stopped \
-  "$(docker compose --project-directory . -f "$COMPOSE_FILE" config --images | grep kortix-api | head -1)"
+  "$IMAGE_TAG"
 
 # ── 4. Health check standby ──────────────────────────────────────────────────
 echo "[4/6] Health checking $STANDBY_SLOT on port $STANDBY_PORT..."
 ELAPSED=0
-while [ $ELAPSED -lt $HEALTH_TIMEOUT ]; do
-  if curl -sf "http://localhost:$STANDBY_PORT/v1/health" > /dev/null 2>&1; then
+HEALTHY=false
+while [ "$ELAPSED" -lt "$HEALTH_TIMEOUT" ]; do
+  if curl -sf "http://127.0.0.1:${STANDBY_PORT}/v1/health" > /dev/null 2>&1; then
     echo "  ✓ Healthy after ${ELAPSED}s"
+    HEALTHY=true
     break
   fi
-  sleep $HEALTH_INTERVAL
+  sleep "$HEALTH_INTERVAL"
   ELAPSED=$((ELAPSED + HEALTH_INTERVAL))
 done
 
-if [ $ELAPSED -ge $HEALTH_TIMEOUT ]; then
-  echo "  ✗ FAILED — rolling back"
+if [ "$HEALTHY" = "false" ]; then
+  echo "  ✗ Health check FAILED after ${HEALTH_TIMEOUT}s — rolling back"
+  echo "  Container logs:"
+  docker logs "kortix-api-$STANDBY_SLOT" 2>&1 | tail -20
   docker rm -f "kortix-api-$STANDBY_SLOT" 2>/dev/null || true
-  echo "  Standby container removed. Active ($ACTIVE_SLOT:$ACTIVE_PORT) unchanged."
+  echo "  Rollback complete. Active ($ACTIVE_SLOT:$ACTIVE_PORT) unchanged."
   exit 1
 fi
 
 # ── 5. Swap nginx to standby port ────────────────────────────────────────────
 echo "[5/6] Swapping nginx: $ACTIVE_PORT → $STANDBY_PORT..."
-sudo sed -i "s|proxy_pass http://127.0.0.1:[0-9]*;|proxy_pass http://127.0.0.1:$STANDBY_PORT;|" "$NGINX_CONF"
-sudo nginx -t 2>&1 && sudo nginx -s reload
+sudo sed -i "s|proxy_pass http://127.0.0.1:[0-9]*;|proxy_pass http://127.0.0.1:${STANDBY_PORT};|" "$NGINX_CONF"
 
-# Verify the swap worked
-sleep 1
-if curl -sf "https://localhost:443/v1/health" -k > /dev/null 2>&1; then
+if sudo nginx -t 2>&1; then
+  sudo nginx -s reload
+  sleep 1
+else
+  echo "  ✗ nginx config test failed — reverting"
+  sudo sed -i "s|proxy_pass http://127.0.0.1:[0-9]*;|proxy_pass http://127.0.0.1:${ACTIVE_PORT};|" "$NGINX_CONF"
+  docker rm -f "kortix-api-$STANDBY_SLOT" 2>/dev/null || true
+  exit 1
+fi
+
+# Verify nginx is serving from the new port
+if curl -sf -k "https://127.0.0.1/v1/health" > /dev/null 2>&1; then
   echo "  ✓ nginx serving from $STANDBY_SLOT:$STANDBY_PORT"
 else
-  # Revert nginx
-  echo "  ✗ nginx swap failed — reverting"
-  sudo sed -i "s|proxy_pass http://127.0.0.1:[0-9]*;|proxy_pass http://127.0.0.1:$ACTIVE_PORT;|" "$NGINX_CONF"
+  echo "  ✗ nginx verification failed — reverting"
+  sudo sed -i "s|proxy_pass http://127.0.0.1:[0-9]*;|proxy_pass http://127.0.0.1:${ACTIVE_PORT};|" "$NGINX_CONF"
   sudo nginx -s reload
   docker rm -f "kortix-api-$STANDBY_SLOT" 2>/dev/null || true
   exit 1
 fi
 
-# ── 6. Stop old container ────────────────────────────────────────────────────
+# ── 6. Stop old container + cleanup ──────────────────────────────────────────
 echo "[6/6] Stopping old $ACTIVE_SLOT container..."
 docker rm -f "kortix-api-$ACTIVE_SLOT" 2>/dev/null || true
 
-# Also stop the compose-managed container if it exists from before this script was used
-docker compose --project-directory . -f "$COMPOSE_FILE" --profile backend down --remove-orphans 2>/dev/null || true
-
-# Save active slot
+# Save new active slot
 echo "$STANDBY_SLOT" > "$STATE_FILE"
 
-# Cleanup
-docker image prune -af --filter "until=24h" 2>/dev/null || true
+# Prune old images (keep current + previous for fast rollback)
+docker image prune -f --filter "until=1h" 2>/dev/null || true
 
 echo ""
 echo "┌─────────────────────────────────────────┐"
 echo "│ ✓ Deploy complete — zero downtime       │"
 echo "│ Active: $STANDBY_SLOT (port $STANDBY_PORT)               │"
-echo "│ Commit: $(git log -1 --oneline | head -c 50) │"
+echo "│ Image:  $IMAGE_TAG"
+echo "│ Commit: $COMMIT                         │"
 echo "└─────────────────────────────────────────┘"
