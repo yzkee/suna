@@ -1,7 +1,7 @@
 'use client';
 
-import React, { Suspense, lazy, useLayoutEffect } from 'react';
-import { SidebarProvider, SidebarInset, useSidebar } from '@/components/ui/sidebar';
+import React, { Suspense, lazy } from 'react';
+import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { RightSidebarProvider } from '@/components/ui/sidebar-right-provider';
 import { useOnboardingModeStore } from '@/stores/onboarding-mode-store';
 import { useDeleteOperationEffects } from '@/stores/delete-operation-store';
@@ -42,21 +42,6 @@ function DeleteOperationEffectsWrapper({ children }: { children: React.ReactNode
   return <>{children}</>;
 }
 
-/**
- * Syncs left sidebar open state with onboarding mode.
- * useLayoutEffect runs before paint → no flash.
- */
-function OnboardingSidebarSync() {
-  const { setOpen } = useSidebar();
-  const active = useOnboardingModeStore((s) => s.active);
-  const morphing = useOnboardingModeStore((s) => s.morphing);
-  useLayoutEffect(() => {
-    if (active && !morphing) setOpen(false);
-    else if (morphing) setOpen(true);
-  }, [active, morphing, setOpen]);
-  return null;
-}
-
 /** Store-driven NewInstanceModal — mounted once globally */
 function GlobalNewInstanceModal() {
   const { isOpen, title, closeNewInstanceModal } = useNewInstanceModalStore();
@@ -89,14 +74,26 @@ export function AppProviders({
 
   if (!showSidebar) return content;
 
+  const obActive = useOnboardingModeStore((s) => s.active);
+  const obMorphing = useOnboardingModeStore((s) => s.morphing);
+  // 0 width + overflow hidden = invisible. On morph, transition to auto.
+  const hideSidebar = obActive && !obMorphing;
+
   return (
     <SidebarProvider defaultOpen={defaultSidebarOpen}>
-      <OnboardingSidebarSync />
-      {sidebarContent || (
-        <Suspense fallback={<SidebarSkeleton />}>
-          <SidebarLeft />
-        </Suspense>
-      )}
+      <div
+        className="transition-[max-width,opacity] duration-500 ease-out overflow-hidden"
+        style={{
+          maxWidth: hideSidebar ? 0 : '280px',
+          opacity: hideSidebar ? 0 : 1,
+        }}
+      >
+        {sidebarContent || (
+          <Suspense fallback={<SidebarSkeleton />}>
+            <SidebarLeft />
+          </Suspense>
+        )}
+      </div>
       <SidebarInset>
         <RightSidebarProvider>
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
