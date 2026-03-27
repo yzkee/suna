@@ -250,6 +250,9 @@ export function InstanceOnboarding({ onComplete }: InstanceOnboardingProps) {
     }
   }, [phase, onboardingSessionId, initSession]);
 
+  // Note: pending questions are restored by SessionPage's self-heal effect
+  // (detects running question tool parts and polls GET /question).
+
   // ── Poll ONBOARDING_COMPLETE ──
   useEffect(() => {
     if (phase !== 'session' || !sandboxUrl) return;

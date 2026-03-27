@@ -20,6 +20,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   PanResponder,
+  StyleSheet,
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -397,8 +398,8 @@ function ProviderStep({ onContinue, isDark, themeColors }: StepProps & { onConti
             <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: colors.muted, textAlign: 'center', marginBottom: 16 }}>
               Select one to enter your API key
             </Text>
-            <View style={{ gap: 6 }}>
-              {POPULAR_PROVIDER_ORDER.map((id) => {
+            <View style={{ paddingHorizontal: 6 }}>
+              {POPULAR_PROVIDER_ORDER.map((id, idx) => {
                 const isConnected = connectedSet.has(id);
                 return (
                   <Pressable
@@ -406,19 +407,19 @@ function ProviderStep({ onContinue, isDark, themeColors }: StepProps & { onConti
                     onPress={() => handleSelectProvider(id)}
                     style={{
                       flexDirection: 'row', alignItems: 'center', gap: 12,
-                      paddingVertical: 13, paddingHorizontal: 14,
-                      borderRadius: 14, borderWidth: 1,
-                      borderColor: isConnected ? (isDark ? 'rgba(52,211,153,0.2)' : 'rgba(52,211,153,0.15)') : (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'),
-                      backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.015)',
+                      paddingVertical: 14, paddingHorizontal: 2,
+                      borderBottomWidth: idx < POPULAR_PROVIDER_ORDER.length - 1 ? StyleSheet.hairlineWidth : 0,
+                      borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
                     }}
                   >
-                    <View style={{ width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
-                      <Cpu size={15} color={isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)'} />
-                    </View>
-                    <Text style={{ flex: 1, fontSize: 15, fontFamily: 'Roobert-Medium', color: colors.fg }}>
+                    <Cpu size={20} color={isConnected ? '#34d399' : (isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)')} strokeWidth={2} />
+                    <Text style={{ flex: 1, fontSize: 17, fontFamily: 'Roobert-Medium', color: colors.fg }}>
                       {PROVIDER_LABELS[id] || id}
                     </Text>
-                    {isConnected ? <Check size={16} color="#34d399" /> : <ChevronRight size={14} color={isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'} />}
+                    {isConnected
+                      ? <Check size={16} color="#34d399" strokeWidth={2.5} />
+                      : <ChevronRight size={16} color={isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)'} strokeWidth={2} />
+                    }
                   </Pressable>
                 );
               })}

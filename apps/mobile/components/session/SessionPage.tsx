@@ -29,7 +29,7 @@ import { Text as RNText } from 'react-native';
 import { useSyncStore } from '@/lib/opencode/sync-store';
 import { useSessionSync } from '@/lib/opencode/session-sync';
 import { groupMessagesIntoTurns } from '@/lib/opencode/turns';
-import type { Turn, QuestionRequest } from '@/lib/opencode/types';
+import type { Turn, QuestionRequest, ToolPart } from '@/lib/opencode/types';
 import { useSession, replyToQuestion, rejectQuestion, forkSession } from '@/lib/platform/hooks';
 import { useTabStore } from '@/stores/tab-store';
 import { useMessageQueueStore } from '@/stores/message-queue-store';
@@ -110,6 +110,71 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
 
   const isBusy = sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry';
 
+  // ── Self-heal: restore pending questions after reload ──────────────────
+  // Matches the frontend's pattern: detect running question tool parts in
+  // messages, and if the store has no pending questions, poll GET /question.
+  // Track recently-replied question IDs to avoid re-adding them before the
+  // server processes the reply.
+  const suppressedQuestionIds = useRef(new Set<string>());
+
+  const hasRunningQuestionTool = useMemo(() => {
+    if (!safeMessages || safeMessages.length === 0) return false;
+    return safeMessages.some((m) => {
+      if (m.info.role !== 'assistant') return false;
+      return m.parts.some((p) => {
+        if (p.type !== 'tool') return false;
+        const tool = p as ToolPart;
+        return tool.tool === 'question' && (tool.state.status === 'running' || tool.state.status === 'pending');
+      });
+    });
+  }, [safeMessages]);
+
+  // Poll for pending questions when:
+  // - A question tool part is running/pending in messages, OR session is busy
+  // - AND no pending questions in the store
+  const shouldPollQuestions = (hasRunningQuestionTool || isBusy) && pendingQuestions.length === 0 && !!sandboxUrl;
+
+  useEffect(() => {
+    if (!shouldPollQuestions || !sandboxUrl) return;
+    let cancelled = false;
+    let inFlight = false;
+
+    const hydrateQuestions = async () => {
+      if (inFlight || cancelled) return;
+      inFlight = true;
+      try {
+        const token = await getAuthToken();
+        const res = await fetch(`${sandboxUrl}/question`, {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+        if (!res.ok || cancelled) return;
+        const questions = await res.json();
+        if (!Array.isArray(questions) || cancelled) return;
+        const store = useSyncStore.getState();
+        const existingIds = new Set((store.questions[sessionId] || []).map((q) => q.id));
+        for (const q of questions) {
+          if (q.sessionID === sessionId && !existingIds.has(q.id) && !suppressedQuestionIds.current.has(q.id)) {
+            store.addQuestion(sessionId, q);
+            log.log('🔄 [SessionPage] Self-healed pending question:', q.id);
+          }
+        }
+      } catch {} finally {
+        inFlight = false;
+      }
+    };
+
+    hydrateQuestions();
+    const timer = setInterval(hydrateQuestions, 1500);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [shouldPollQuestions, sandboxUrl, sessionId]);
+
   // ── Message Queue ──────────────────────────────────────────────────────
   const queueHydrated = useMessageQueueStore((s) => s.hydrated);
   const allQueuedMessages = useMessageQueueStore((s) => s.messages);
@@ -145,6 +210,11 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
   const activeQuestion: QuestionRequest | undefined = pendingQuestions[0];
   const hasQuestion = !!activeQuestion;
 
+  // Debug: track question state changes
+  useEffect(() => {
+    log.log('🔍 [SessionPage] pendingQuestions:', pendingQuestions.length, 'hasQuestion:', hasQuestion, 'activeQuestion:', activeQuestion?.id);
+  }, [pendingQuestions.length, hasQuestion]);
+
   // ── Queue Draining ─────────────────────────────────────────────────────
   // Automatically send the next queued message when the agent becomes idle.
   // Mirrors the frontend's drainNextWhenSettled pattern.
@@ -152,53 +222,6 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
   const drainScheduledRef = useRef(false);
   const queueInFlightRef = useRef<{ queueId: string; sentAt: number } | null>(null);
 
-  // Keep the last question around so we can still render it during exit animation
-  const lastQuestionRef = useRef<QuestionRequest | undefined>(undefined);
-  const [showQuestionOverlay, setShowQuestionOverlay] = useState(false);
-  if (activeQuestion) {
-    lastQuestionRef.current = activeQuestion;
-  }
-
-  // Animate crossfade between chat input and question prompt
-  // inputAnim: 1 = visible, 0 = hidden (faded down)
-  // questionAnim: 1 = visible, 0 = hidden (faded down)
-  const inputAnim = useRef(new Animated.Value(1)).current;
-  const questionAnim = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (hasQuestion) {
-      setShowQuestionOverlay(true);
-      // Textarea fades out downward, then question fades in from bottom
-      Animated.sequence([
-        Animated.timing(inputAnim, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(questionAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else {
-      // Question fades out downward, then textarea fades in from bottom
-      Animated.sequence([
-        Animated.timing(questionAnim, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(inputAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        // Only unmount question overlay after animation completes
-        setShowQuestionOverlay(false);
-      });
-    }
-  }, [hasQuestion, inputAnim, questionAnim]);
 
   // ── Send / Stop handlers (defined early so queue drain logic can reference them) ──
 
@@ -450,6 +473,8 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
   const handleQuestionReply = useCallback(
     async (requestId: string, answers: string[][]) => {
       if (!sandboxUrl) return;
+      // Suppress this ID so the self-heal polling doesn't re-add it
+      suppressedQuestionIds.current.add(requestId);
       // Optimistically remove from store
       useSyncStore.getState().removeQuestion(sessionId, requestId);
       try {
@@ -457,6 +482,8 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
       } catch (err: any) {
         log.error('Failed to reply to question:', err?.message || err);
       }
+      // Clear suppression after a delay (server should have processed by then)
+      setTimeout(() => suppressedQuestionIds.current.delete(requestId), 10000);
     },
     [sandboxUrl, sessionId],
   );
@@ -464,6 +491,7 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
   const handleQuestionReject = useCallback(
     async (requestId: string) => {
       if (!sandboxUrl) return;
+      suppressedQuestionIds.current.add(requestId);
       // Optimistically remove from store
       useSyncStore.getState().removeQuestion(sessionId, requestId);
       try {
@@ -471,6 +499,7 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
       } catch (err: any) {
         log.error('Failed to reject question:', err?.message || err);
       }
+      setTimeout(() => suppressedQuestionIds.current.delete(requestId), 10000);
       // Also abort the session (matches frontend behavior)
       handleStop();
     },
@@ -679,21 +708,16 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
         />
       )}
 
-      {/* Bottom area — question prompt and chat input share the same slot */}
+      {/* Bottom area — question prompt OR chat input */}
       <View style={onboardingMode ? { paddingBottom: insets.bottom } : undefined}>
-        {/* Chat input — fades out downward when question appears */}
-        <Animated.View
-          style={{
-            opacity: inputAnim,
-            transform: [{
-              translateY: inputAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [30, 0],
-              }),
-            }],
-          }}
-          pointerEvents={hasQuestion ? 'none' : 'auto'}
-        >
+        {hasQuestion && activeQuestion ? (
+          <QuestionPrompt
+            key={activeQuestion.id}
+            request={activeQuestion}
+            onReply={handleQuestionReply}
+            onReject={handleQuestionReject}
+          />
+        ) : (
           <SessionChatInput
             onSend={handleSend}
             onStop={handleStop}
@@ -732,39 +756,6 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
               ) : undefined
             }
           />
-        </Animated.View>
-
-        {/* Question prompt — overlays on top of input, fades in from bottom */}
-        {showQuestionOverlay && lastQuestionRef.current && (
-          <View
-            style={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              bottom: 0,
-              paddingBottom: onboardingMode ? insets.bottom : 0,
-              backgroundColor: isDark ? '#121215' : '#f5f5f5',
-            }}
-          >
-            <Animated.View
-              style={{
-                opacity: questionAnim,
-                transform: [{
-                  translateY: questionAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [30, 0],
-                  }),
-                }],
-              }}
-              pointerEvents={hasQuestion ? 'auto' : 'none'}
-            >
-              <QuestionPrompt
-                request={lastQuestionRef.current}
-                onReply={handleQuestionReply}
-                onReject={handleQuestionReject}
-              />
-            </Animated.View>
-          </View>
         )}
       </View>
 

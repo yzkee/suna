@@ -68,6 +68,19 @@ export function QuestionPrompt({
   const currentAnswers = answers[tab] ?? [];
   const showCustom = currentQuestion?.custom !== false;
 
+  // Reset state when request changes (new question arrives)
+  const prevRequestIdRef = useRef(request.id);
+  useEffect(() => {
+    if (prevRequestIdRef.current !== request.id) {
+      prevRequestIdRef.current = request.id;
+      setTab(0);
+      setAnswers(questions.map(() => []));
+      setCustomInputs(questions.map(() => ''));
+      setEditing(false);
+      setReplying(false);
+    }
+  }, [request.id, questions]);
+
   // Auto-scroll tab pills to keep active tab visible
   useEffect(() => {
     const layout = tabLayouts.current[tab];
@@ -87,10 +100,10 @@ export function QuestionPrompt({
 
   // Auto-activate custom input for single questions with no options
   useEffect(() => {
-    if (isSingle && options.length === 0 && showCustom && !editing) {
+    if (isSingle && options.length === 0 && showCustom) {
       setEditing(true);
     }
-  }, []);
+  }, [request.id, isSingle, options.length, showCustom]);
 
   // -----------------------------------------------------------------------
   // Handlers
