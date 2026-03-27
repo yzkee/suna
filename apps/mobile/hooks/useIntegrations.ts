@@ -195,12 +195,19 @@ async function fetchSandboxes(integrationId: string): Promise<IntegrationSandbox
 
 async function linkSandbox({ integrationId, sandboxId }: { integrationId: string; sandboxId: string }): Promise<void> {
   const session = await getSession();
-  const res = await fetch(`${API_URL}/integrations/connections/${integrationId}/link`, {
+  const url = `${API_URL}/integrations/connections/${integrationId}/link`;
+  console.log('[linkSandbox] POST', url, { sandbox_id: sandboxId });
+  const res = await fetch(url, {
     method: 'POST',
     headers: authHeaders(session.access_token),
     body: JSON.stringify({ sandbox_id: sandboxId }),
   });
-  if (!res.ok) throw new Error('Failed to link sandbox');
+  console.log('[linkSandbox] Response:', res.status, res.statusText);
+  if (!res.ok) {
+    const text = await res.text();
+    console.error('[linkSandbox] Error body:', text);
+    throw new Error(`Failed to link sandbox: ${res.status}`);
+  }
 }
 
 async function unlinkSandbox({ integrationId, sandboxId }: { integrationId: string; sandboxId: string }): Promise<void> {
@@ -278,9 +285,9 @@ export function useLinkSandboxIntegration() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: linkSandbox,
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: integrationKeys.connections() });
-      qc.invalidateQueries({ queryKey: ['integrations', 'sandboxes'] });
+      qc.invalidateQueries({ queryKey: integrationKeys.sandboxes(variables.integrationId) });
     },
   });
 }
@@ -289,9 +296,9 @@ export function useUnlinkSandboxIntegration() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: unlinkSandbox,
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: integrationKeys.connections() });
-      qc.invalidateQueries({ queryKey: ['integrations', 'sandboxes'] });
+      qc.invalidateQueries({ queryKey: integrationKeys.sandboxes(variables.integrationId) });
     },
   });
 }

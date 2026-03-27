@@ -18,6 +18,7 @@ import { log } from '@/lib/logger';
 interface SandboxContextValue {
   sandboxUrl: string | undefined;
   sandboxId: string | undefined;
+  sandboxUuid: string | undefined;
   sandboxName: string | undefined;
   isLoading: boolean;
   error: Error | null;
@@ -27,6 +28,7 @@ interface SandboxContextValue {
 const SandboxContext = createContext<SandboxContextValue>({
   sandboxUrl: undefined,
   sandboxId: undefined,
+  sandboxUuid: undefined,
   sandboxName: undefined,
   isLoading: false,
   error: null,
@@ -46,17 +48,18 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
   const { data, isLoading, error } = useSandbox(shouldFetch);
 
   // Override state — when user manually switches sandbox
-  const [override, setOverride] = useState<{ sandboxUrl: string; sandboxId: string; sandboxName: string } | null>(null);
+  const [override, setOverride] = useState<{ sandboxUrl: string; sandboxId: string; sandboxUuid: string; sandboxName: string } | null>(null);
 
   const switchSandbox = useCallback((sandbox: SandboxInfo) => {
     const url = getSandboxUrl(sandbox.external_id);
     log.log('🔄 [SandboxContext] Switching to sandbox:', sandbox.external_id, '→', url);
-    setOverride({ sandboxUrl: url, sandboxId: sandbox.external_id, sandboxName: sandbox.name });
+    setOverride({ sandboxUrl: url, sandboxId: sandbox.external_id, sandboxUuid: sandbox.sandbox_id, sandboxName: sandbox.name });
   }, []);
 
   // Derive values — override takes precedence
   const sandboxUrl = override?.sandboxUrl ?? (shouldFetch ? data?.sandboxUrl : undefined);
   const sandboxId = override?.sandboxId ?? (shouldFetch ? data?.sandboxId : undefined);
+  const sandboxUuid = override?.sandboxUuid ?? (shouldFetch ? data?.sandbox?.sandbox_id : undefined);
   const sandboxName = override?.sandboxName ?? (shouldFetch ? data?.sandbox?.name : undefined);
 
   // Mount SSE event stream globally (no-ops when sandboxUrl is undefined)
@@ -84,6 +87,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
       value={{
         sandboxUrl,
         sandboxId,
+        sandboxUuid,
         sandboxName,
         isLoading: shouldFetch ? isLoading : false,
         error: shouldFetch ? (error as Error | null) : null,

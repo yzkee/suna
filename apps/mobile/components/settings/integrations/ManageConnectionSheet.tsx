@@ -44,7 +44,7 @@ export function ManageConnectionSheet({ connection, appImgSrc, onDismiss }: Mana
   const linkSandbox = useLinkSandboxIntegration();
   const unlinkSandbox = useUnlinkSandboxIntegration();
 
-  const { sandboxId, sandboxName } = useSandboxContext();
+  const { sandboxId, sandboxUuid, sandboxName } = useSandboxContext();
   const theme = useThemeColors();
 
   const [renameDraft, setRenameDraft] = useState('');
@@ -55,9 +55,8 @@ export function ManageConnectionSheet({ connection, appImgSrc, onDismiss }: Mana
     connection?.integrationId ?? null,
   );
 
-  const linkedSandboxes = sandboxData?.linkedSandboxes ?? [];
-  const availableSandboxes = sandboxData?.availableSandboxes ?? [];
-  const isLinked = linkedSandboxes.some((s: any) => s.sandboxId === sandboxId);
+  const linkedSandboxes = sandboxData?.sandboxes ?? [];
+  const isLinked = linkedSandboxes.some((s: any) => s.sandboxId === sandboxUuid);
 
   // Present/dismiss based on connection
   useEffect(() => {
@@ -108,19 +107,24 @@ export function ManageConnectionSheet({ connection, appImgSrc, onDismiss }: Mana
 
   // ── Link/Unlink sandbox ──
   const handleToggleLink = useCallback(async () => {
-    if (!connection || !sandboxId) return;
+    log.log('[ManageConnection] Toggle link:', { integrationId: connection?.integrationId, sandboxUuid, sandboxId, isLinked });
+    if (!connection || !sandboxUuid) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
       if (isLinked) {
-        await unlinkSandbox.mutateAsync({ integrationId: connection.integrationId, sandboxId });
+        log.log('[ManageConnection] Unlinking...');
+        await unlinkSandbox.mutateAsync({ integrationId: connection.integrationId, sandboxId: sandboxUuid });
       } else {
-        await linkSandbox.mutateAsync({ integrationId: connection.integrationId, sandboxId });
+        log.log('[ManageConnection] Linking...');
+        await linkSandbox.mutateAsync({ integrationId: connection.integrationId, sandboxId: sandboxUuid });
       }
+      log.log('[ManageConnection] Success!');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err: any) {
+      log.error('[ManageConnection] Failed:', err?.message || err);
       Alert.alert('Error', err?.message || 'Failed to update sandbox link');
     }
-  }, [connection, sandboxId, isLinked, linkSandbox, unlinkSandbox]);
+  }, [connection, sandboxUuid, isLinked, linkSandbox, unlinkSandbox]);
 
   // ── Disconnect ──
   const handleDisconnect = useCallback(() => {
@@ -225,7 +229,7 @@ export function ManageConnectionSheet({ connection, appImgSrc, onDismiss }: Mana
               )}
 
               {/* Linked Sandboxes */}
-              {sandboxId && (
+              {sandboxUuid && (
                 <View style={{ marginBottom: 24 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                     <Link2 size={16} color={muted} />
