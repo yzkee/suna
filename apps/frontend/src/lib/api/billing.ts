@@ -145,7 +145,7 @@ export interface CreateCheckoutSessionRequest {
   referral_id?: string;
   commitment_type?: 'monthly' | 'yearly' | 'yearly_commitment';
   locale?: string;
-  /** Instance provisioning: managed VPS server type (e.g. 'cpx21') */
+  /** Instance provisioning: managed VPS plan ID (e.g. 'pro', 'basic') */
   server_type?: string;
   /** Instance provisioning: managed VPS location (e.g. 'nbg1') */
   location?: string;

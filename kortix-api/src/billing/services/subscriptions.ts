@@ -1,4 +1,7 @@
 import { getStripe } from '../../shared/stripe';
+import { db } from '../../shared/db';
+import { platformUserRoles } from '@kortix/db';
+import { eq } from 'drizzle-orm';
 import {
   getCreditAccount,
   updateCreditAccount,
@@ -9,6 +12,16 @@ import { BillingError, SubscriptionError } from '../../errors';
 import { getTier, isUpgrade, isDowngrade, getMonthlyCredits, resolvePriceId } from './tiers';
 import { grantCredits, resetExpiringCredits } from './credits';
 import Stripe from 'stripe';
+
+async function isPlatformAdmin(accountId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ role: platformUserRoles.role })
+    .from(platformUserRoles)
+    .where(eq(platformUserRoles.accountId, accountId))
+    .limit(1);
+
+  return row?.role === 'admin' || row?.role === 'super_admin';
+}
 
 export async function getOrCreateStripeCustomer(
   accountId: string,
@@ -78,6 +91,7 @@ export async function createCheckoutSession(params: {
 
   const customerId = await getOrCreateStripeCustomer(accountId, email);
   const stripe = getStripe();
+  const adminCheckout = await isPlatformAdmin(accountId);
 
   const priceId = resolvePriceId(tierKey, commitmentType);
   if (!priceId) throw new BillingError('No price configured for this tier');
@@ -92,7 +106,7 @@ export async function createCheckoutSession(params: {
 
   // If the customer already has a saved card, create and charge the subscription
   // directly. No hosted Checkout page for repeat instance purchases.
-  const savedPaymentMethodId = await getUsableCustomerPaymentMethod(customerId);
+  const savedPaymentMethodId = adminCheckout ? null : await getUsableCustomerPaymentMethod(customerId);
   if (savedPaymentMethodId) {
     try {
       const subscription = await stripe.subscriptions.create({
@@ -155,7 +169,7 @@ export async function createCheckoutSession(params: {
   // We still reference the pre-created price for direct subscription creation above,
   // but the Checkout page gets a clean display name.
   const stripePrice = await stripe.prices.retrieve(priceId);
-  const unitAmount = stripePrice.unit_amount!;
+  const unitAmount = adminCheckout ? 0 : stripePrice.unit_amount!;
   const interval = stripePrice.recurring?.interval ?? 'month';
 
   const session = await stripe.checkout.sessions.create({
@@ -178,13 +192,14 @@ export async function createCheckoutSession(params: {
     success_url: successUrl,
     cancel_url: cancelUrl,
     allow_promotion_codes: true,
-    payment_method_collection: 'always',
+    payment_method_collection: adminCheckout ? 'if_required' : 'always',
     subscription_data: { metadata },
     metadata: {
       account_id: accountId,
       tier_key: tierKey,
       ...(serverType ? { server_type: serverType } : {}),
       ...(location ? { location } : {}),
+      ...(adminCheckout ? { admin_checkout: 'true' } : {}),
     },
     ...(locale ? { locale: locale as any } : {}),
   });

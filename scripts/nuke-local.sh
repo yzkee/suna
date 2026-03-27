@@ -4,10 +4,10 @@ set -euo pipefail
 # ─── Kortix Local Dev — Full Nuke & Reset ────────────────────────────────────
 #
 # Destroys ALL local state and starts fresh:
-#   1. Kills kortix-api (port 8008) and frontend (port 3000)
-#   2. Removes the sandbox container
-#   3. Removes ALL sandbox Docker volumes (workspace data gone!)
-#   4. Resets the Supabase database (re-runs all migrations)
+#   1. Kills local dev processes bound to common ports
+#   2. Removes repo Docker containers (compose + sandbox + local Supabase)
+#   3. Removes repo Docker volumes (sandbox + local Supabase data)
+#   4. Clears the Supabase local stack state
 #   5. Optionally restarts dev (API + frontend)
 #
 # Usage:
@@ -16,6 +16,15 @@ set -euo pipefail
 # ─────────────────────────────────────────────────────────────────────────────
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SUPABASE_DIR="$ROOT_DIR/infra/supabase"
+SUPABASE_PROJECT_ID="$(python3 - "$SUPABASE_DIR/config.toml" <<'PY'
+import pathlib, re
+import sys
+text = pathlib.Path(sys.argv[1]).read_text()
+match = re.search(r'^project_id\s*=\s*"([^"]+)"', text, re.MULTILINE)
+print(match.group(1) if match else 'kortix-local')
+PY
+)"
 
 START_DEV=false
 if [[ "${1:-}" == "--start" ]]; then
@@ -28,24 +37,43 @@ echo "  NUKING LOCAL DEV ENVIRONMENT"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-# ── 1. Kill API + frontend ────────────────────────────────────────────────────
+# ── 1. Kill local dev processes ────────────────────────────────────────────────
 echo "[1/5] Killing running processes..."
 lsof -ti:8008 2>/dev/null | xargs -r kill -9 2>/dev/null || true
 lsof -ti:3000 2>/dev/null | xargs -r kill -9 2>/dev/null || true
 echo "  done (ports 8008, 3000 cleared)"
 
-# ── 2. Remove sandbox container ──────────────────────────────────────────────
-echo "[2/5] Removing sandbox container..."
-docker rm -f kortix-sandbox 2>/dev/null && echo "  done" || echo "  (no container)"
+DOCKER_AVAILABLE=true
+if ! docker info >/dev/null 2>&1; then
+  DOCKER_AVAILABLE=false
+fi
 
-# ── 3. Remove ALL sandbox volumes ────────────────────────────────────────────
-echo "[3/5] Removing sandbox volumes..."
-VOLS=$(docker volume ls --format "{{.Name}}" | grep -i sandbox || true)
-if [[ -n "$VOLS" ]]; then
-  echo "$VOLS" | xargs docker volume rm -f
-  echo "  removed: $(echo "$VOLS" | tr '\n' ' ')"
+# ── 2. Remove repo containers ─────────────────────────────────────────────────
+echo "[2/5] Removing repo Docker containers..."
+if ! $DOCKER_AVAILABLE; then
+  echo "  WARNING: Docker daemon unavailable — repo containers not removed"
 else
-  echo "  (no volumes)"
+  CONTAINERS=$(docker ps -a --format "{{.Names}}" | grep -E "^kortix-|^kortix-sandbox$|^supabase_.*_${SUPABASE_PROJECT_ID}$" || true)
+  if [[ -n "$CONTAINERS" ]]; then
+    printf '%s\n' "$CONTAINERS" | xargs docker rm -f >/dev/null 2>&1 || true
+    echo "  removed: $(printf '%s ' "$CONTAINERS")"
+  else
+    echo "  (no repo containers)"
+  fi
+fi
+
+# ── 3. Remove repo volumes ────────────────────────────────────────────────────
+echo "[3/5] Removing repo Docker volumes..."
+if ! $DOCKER_AVAILABLE; then
+  echo "  WARNING: Docker daemon unavailable — repo volumes not removed"
+else
+  VOLS=$(docker volume ls --format "{{.Name}}" | grep -E "sandbox|^kortix_supabase-db-data$|^supabase_.*_${SUPABASE_PROJECT_ID}$" || true)
+  if [[ -n "$VOLS" ]]; then
+    printf '%s\n' "$VOLS" | xargs docker volume rm -f >/dev/null 2>&1 || true
+    echo "  removed: $(printf '%s ' "$VOLS")"
+  else
+    echo "  (no volumes)"
+  fi
 fi
 
 # ── 4. Verify sandbox image exists ──────────────────────────────────────────
@@ -65,20 +93,15 @@ else
   echo "  Or the API will try to pull it from Docker Hub on first init."
 fi
 
-# ── 5. Reset Supabase database ──────────────────────────────────────────────
-echo "[5/5] Resetting Supabase database..."
-SUPABASE_DIR="$ROOT_DIR/infra/supabase"
+# ── 5. Clear Supabase local state ─────────────────────────────────────────────
+echo "[5/5] Clearing Supabase local state..."
 cd "$SUPABASE_DIR"
-if supabase status >/dev/null 2>&1; then
-  supabase db reset --linked=false 2>/dev/null && echo "  done (reset)" || echo "  done (reset skipped)"
+if ! $DOCKER_AVAILABLE; then
+  echo "  WARNING: Docker daemon unavailable — Supabase local state not cleared"
+elif supabase stop --no-backup >/dev/null 2>&1; then
+  echo "  done (stack stopped, local data cleared)"
 else
-  # Not running — stop any stale state, start fresh (applies all migrations)
-  supabase stop 2>/dev/null || true
-  if supabase start 2>/dev/null; then
-    echo "  done (started fresh with migrations)"
-  else
-    echo "  WARNING: supabase start failed — run 'cd infra/supabase && supabase start' manually"
-  fi
+  echo "  done (nothing running or already cleared)"
 fi
 cd "$ROOT_DIR"
 

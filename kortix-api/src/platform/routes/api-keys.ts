@@ -66,6 +66,44 @@ export function createApiKeysRouter(
     return !!row;
   }
 
+  /**
+   * Resolve an arbitrary sandbox identifier to the internal DB UUID.
+   *
+   * Resolution order (defends against all known client shapes):
+   *   1. If param looks like a UUID:
+   *      a. Try as DB `sandboxId` (PK) — fast path when frontend sends instanceId
+   *      b. Fallback: try as `externalId` — cloud providers (Daytona) use UUID external IDs
+   *   2. Otherwise: look up by `externalId` (e.g. 'kortix-sandbox' for local Docker)
+   *
+   * Returns the resolved DB UUID, or null if not found / not owned by the account.
+   */
+  async function resolveSandboxId(sandboxIdParam: string, accountId: string): Promise<string | null> {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sandboxIdParam);
+
+    if (isUuid) {
+      // Fast path: treat as DB PK (frontend sends instanceId which is the DB UUID)
+      const ownsAsPk = await verifySandboxOwnership(sandboxIdParam, accountId);
+      if (ownsAsPk) return sandboxIdParam;
+
+      // Fallback: the UUID might be a provider's external_id (e.g. Daytona sandbox UUID).
+      // This covers the case where older clients still send sandboxId (external_id).
+      const [row] = await db
+        .select({ sandboxId: sandboxes.sandboxId })
+        .from(sandboxes)
+        .where(and(eq(sandboxes.externalId, sandboxIdParam), eq(sandboxes.accountId, accountId)))
+        .limit(1);
+      return row?.sandboxId ?? null;
+    }
+
+    // Not a UUID — must be an externalId string (e.g. 'kortix-sandbox')
+    const [row] = await db
+      .select({ sandboxId: sandboxes.sandboxId })
+      .from(sandboxes)
+      .where(and(eq(sandboxes.externalId, sandboxIdParam), eq(sandboxes.accountId, accountId)))
+      .limit(1);
+    return row?.sandboxId ?? null;
+  }
+
   // ─── POST / ─────────────────────────────────────────────────────────────
   // Create a new user API key for a sandbox.
 
@@ -89,23 +127,10 @@ export function createApiKeysRouter(
       return c.json({ error: 'title is required' }, 400);
     }
 
-    // Resolve: try as UUID first, then as external_id
-    let resolvedSandboxId = sandbox_id;
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sandbox_id);
-    if (!isUuid) {
-      const [row] = await db
-        .select({ sandboxId: sandboxes.sandboxId })
-        .from(sandboxes)
-        .where(and(eq(sandboxes.externalId, sandbox_id), eq(sandboxes.accountId, accountId)))
-        .limit(1);
-      if (!row) {
-        return c.json({ error: 'Sandbox not found' }, 404);
-      }
-      resolvedSandboxId = row.sandboxId;
-    }
-
-    const owns = await verifySandboxOwnership(resolvedSandboxId, accountId);
-    if (!owns) {
+    // Resolve sandbox_id → internal DB UUID (handles DB UUID, external_id, and
+    // provider UUIDs that look like DB UUIDs but are actually external IDs)
+    const resolvedSandboxId = await resolveSandboxId(sandbox_id, accountId);
+    if (!resolvedSandboxId) {
       return c.json({ error: 'Sandbox not found' }, 404);
     }
 
@@ -174,23 +199,11 @@ export function createApiKeysRouter(
       return c.json({ error: 'sandbox_id query param is required' }, 400);
     }
 
-    // Resolve: try as UUID first, then as external_id
-    let sandboxId = sandboxIdParam;
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sandboxIdParam);
-    if (!isUuid) {
-      const [row] = await db
-        .select({ sandboxId: sandboxes.sandboxId })
-        .from(sandboxes)
-        .where(and(eq(sandboxes.externalId, sandboxIdParam), eq(sandboxes.accountId, accountId)))
-        .limit(1);
-      if (!row) {
-        return c.json({ error: 'Sandbox not found' }, 404);
-      }
-      sandboxId = row.sandboxId;
-    }
-
-    const owns = await verifySandboxOwnership(sandboxId, accountId);
-    if (!owns) {
+    // Resolve sandbox_id → internal DB UUID (handles DB UUID, external_id, and
+    // provider UUIDs that look like DB UUIDs but are actually external IDs).
+    // Ownership is verified inside resolveSandboxId — no need for a second check.
+    const resolvedSandboxId = await resolveSandboxId(sandboxIdParam, accountId);
+    if (!resolvedSandboxId) {
       return c.json({ error: 'Sandbox not found' }, 404);
     }
 
@@ -209,7 +222,7 @@ export function createApiKeysRouter(
           createdAt: kortixApiKeys.createdAt,
         })
         .from(kortixApiKeys)
-        .where(eq(kortixApiKeys.sandboxId, sandboxId));
+        .where(eq(kortixApiKeys.sandboxId, resolvedSandboxId));
 
       return c.json({
         success: true,

@@ -34,10 +34,8 @@ const STAGE_ORDER: Record<string, number> = {
   server_created: 2,
   cloud_init_running: 3,
   cloud_init_done: 4,
-  docker_pulling: 5,
-  docker_running: 6,
-  services_starting: 7,
-  services_ready: 8,
+  services_starting: 5,
+  services_ready: 6,
 };
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -260,9 +258,7 @@ function getStageMessage(stage: string): string {
     server_creating: 'Creating server...',
     server_created: 'Server created, running cloud-init...',
     cloud_init_running: 'Configuring machine...',
-    cloud_init_done: 'Configuration complete...',
-    docker_pulling: 'Starting sandbox container...',
-    docker_running: 'Container started, booting services...',
+    cloud_init_done: 'Configuration complete, starting services...',
     services_starting: 'Services booting...',
     services_ready: 'All services are up',
   };

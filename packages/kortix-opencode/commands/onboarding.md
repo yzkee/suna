@@ -11,37 +11,92 @@ This is the **gatekeeper**. The user CANNOT access the Kortix dashboard until th
 1. **Understand this person deeply** — who they are, what they do, what they're building, what tools they use, what accounts they have, what they want automated.
 2. **Inventory their full operating environment** — apps, services, clouds, banks, domains, devices, browsers, logins, local tools, APIs, spreadsheets, internal systems, and anything else they touch.
 3. **Get setup coverage as close to 100% as possible** — connect OAuth apps, collect API credentials, save secrets, establish browser logins, and create fallback skills for unsupported services.
-4. **Build the first memories** — everything you learn gets saved to long-term memory via `mem_save`. These memories persist forever. The user should never have to re-introduce themselves or re-explain their setup.
+4. **Seed long-term memory** — everything you learn gets written to the global `.kortix/USER.md` and `.kortix/MEMORY.md` files. These are injected into every future session automatically. The user should never have to re-introduce themselves or re-explain their setup.
 
 ## Context
 
 - The user already configured LLM API keys in a secrets editor before this conversation started. Do NOT ask about API keys for AI providers — they can always change them in **Settings > Secrets**.
 - **Use the `question` tool for all confirmations and choices.** It renders interactive UI with buttons and text inputs.
-- **Save memories as you go, not at the end.** Each phase should `mem_save` what was learned before moving on. If the session drops, nothing is lost.
+- **Write memory as you go, not at the end.** Each phase should update the memory files before moving on. If the session drops, nothing is lost.
 - **Adapt to who they are.** Don't robotically say "company" to a student or "project" to a CEO. Read the room. Mirror their language.
-- **Scraping fallback chain:** `scrape-webpage` → `web-fetch` → `web-search` for cached content. Some sites (especially LinkedIn) block `scrape-webpage`. Never get stuck on a failed scrape — move to the next method immediately.
+- **Scraping fallback chain:** `scrape-webpage` → `webfetch` → `web-search` for cached content. Some sites (especially LinkedIn) block `scrape-webpage`. Never get stuck on a failed scrape — move to the next method immediately.
 - **Coverage beats brevity.** This onboarding should feel exhaustive. Ask follow-ups by category until you have a real map of their stack. If they say "I use the usual stuff," unpack what that actually means.
 - **Do not stop at integrations that already exist.** If a service matters and there is no ready-made integration, you still collect the setup details, save secrets, and create a reusable skill stub/workflow for it.
 - **Browser sessions count as setup.** If an important service only works via website login, use browser automation when appropriate, log in, and preserve the session/profile if the runtime supports it. Also record the exact login URL, account label, 2FA expectations, and what that session unlocks.
 
-### Tools You'll Use
+---
+
+## Memory System
+
+The Kortix memory system uses two plain markdown files injected into every session's context automatically:
+
+| File | Scope | Purpose |
+|---|---|---|
+| `.kortix/USER.md` | Global | User identity, name, preferences, communication style, workflow habits |
+| `.kortix/MEMORY.md` | Global | User's stack, accounts, tools, recurring rules, technical context |
+
+**How to write memory:**
+
+First, locate the global `.kortix/` directory:
+
+```bash
+# Resolve the global kortix directory
+if [ -n "$KORTIX_DIR" ]; then
+  MEM_DIR="$KORTIX_DIR"
+elif [ -n "$KORTIX_WORKSPACE" ]; then
+  MEM_DIR="$KORTIX_WORKSPACE/.kortix"
+elif [ -n "$OPENCODE_CONFIG_DIR" ]; then
+  MEM_DIR="$(dirname $OPENCODE_CONFIG_DIR)/.kortix"
+else
+  MEM_DIR="/workspace/.kortix"
+fi
+mkdir -p "$MEM_DIR"
+echo "Memory dir: $MEM_DIR"
+```
+
+Then write to `$MEM_DIR/USER.md` and `$MEM_DIR/MEMORY.md` using the `write` tool (full overwrite with updated content) or `edit` tool (targeted section update). Always read the file first before writing so you preserve existing content.
+
+**What goes where:**
+- `USER.md`: name, preferred name, role, company, location, communication style, preferences, workflow habits
+- `MEMORY.md`: tools and accounts inventory, connected integrations, saved secrets, automation goals, recurring rules for the agent
+
+---
+
+## Tools You'll Use
 
 | Tool | Purpose |
 |---|---|
 | `question` | Every structured input, every confirmation, every choice |
 | `web-search` | Research the user, their company/project, their industry |
 | `scrape-webpage` | Deep-read websites, GitHub, etc. (**NOT LinkedIn** — blocked by Firecrawl) |
-| `web-fetch` | Fetch page content as markdown — use as fallback if `scrape-webpage` fails |
-| `mem_save` | Persist everything to long-term memory |
-| `integration-search` | Find available OAuth apps to connect |
-| `integration-connect` | Generate OAuth connect links for the user |
-| `integration-list` | Check what's already connected |
+| `webfetch` | Fetch page content as markdown — use as fallback if `scrape-webpage` fails |
+| `read` + `write` + `edit` | Read and update `.kortix/USER.md` and `.kortix/MEMORY.md` for memory |
+| `bash` | Run integration scripts, save secrets via env API, system lookups |
 | `show` | Display results, images, links visually |
 
+**Integration commands** (run via `bash`):
+
+```bash
+# Find the integration script
+SCRIPT=$(find /opt/opencode ~/.opencode -name "integration.ts" 2>/dev/null | head -1)
+
+# Search for available OAuth apps
+bun run "$SCRIPT" search '{"q":"gmail"}'
+
+# Get OAuth connect URL (show to user — they click it)
+bun run "$SCRIPT" connect '{"app":"gmail"}'
+
+# List already-connected apps
+bun run "$SCRIPT" list
+
+# Make an authenticated API call
+bun run "$SCRIPT" request '{"app":"github","method":"GET","url":"https://api.github.com/user"}'
+```
+
 When a service is not covered by an integration, fall back to:
-- env/secrets storage via the master env API
-- browser login automation when applicable
-- generating a new skill/workflow doc for that service so future sessions know how to use the saved credentials
+- Secrets storage via the master env API
+- Browser login automation when applicable
+- Generating a new skill/workflow doc for that service so future sessions know how to use the saved credentials
 
 ---
 
@@ -54,6 +109,7 @@ The onboarding is only complete when you can answer all of these with confidence
 - What apps and services do they use across work, side projects, personal ops, and admin?
 - Which of those are already connected, which have secrets saved, which require browser sessions, and which still need follow-up?
 - For every important unsupported service, is there at least a saved secret and a reusable skill or instruction artifact describing how to use it?
+- Are USER.md and MEMORY.md populated with everything learned so far?
 
 If any answer is still fuzzy, keep going.
 
@@ -118,7 +174,7 @@ If they paste the key, save it immediately:
 ```bash
 curl -s -X POST "http://localhost:8000/env/KEY_NAME_HERE" \
   -H "Content-Type: application/json" \
-  -d '{"value":"THEIR_KEY_HERE"}'
+  -d '{"value":"THEIR_KEY_HERE","restart":true}'
 ```
 
 Then **retry the original operation**. Confirm it works before moving on.
@@ -152,10 +208,10 @@ question({
 ```
 
 **How to handle the URL they give:**
-- **LinkedIn**: Do NOT use `scrape-webpage` — LinkedIn blocks scrapers. Instead, run `web-search("site:linkedin.com/in/{username}")` or `web-search("{full_name} LinkedIn")` to pull cached/indexed profile data. You can also try `web-fetch` on the LinkedIn URL as a fallback, but don't rely on it.
+- **LinkedIn**: Do NOT use `scrape-webpage` — LinkedIn blocks scrapers. Instead, run `web-search("site:linkedin.com/in/{username}")` or `web-search("{full_name} LinkedIn")` to pull cached/indexed profile data. You can also try `webfetch` on the LinkedIn URL as a fallback, but don't rely on it.
 - **GitHub**: `scrape-webpage` works fine on GitHub. Use it.
-- **Personal site / blog / Twitter**: `scrape-webpage` or `web-fetch` — either works.
-- **Any URL that fails with `scrape-webpage`**: Fall back to `web-fetch`, then to `web-search` for cached content.
+- **Personal site / blog / Twitter**: `scrape-webpage` or `webfetch` — either works.
+- **Any URL that fails with `scrape-webpage`**: Fall back to `webfetch`, then to `web-search` for cached content.
 
 Compile what you find into a direct, specific profile — their role, background, what they've built, where they are. Then confirm:
 
@@ -180,16 +236,37 @@ question({
 })
 ```
 
-### Save: User Identity
+### Write: User Identity to Memory
 
-Once confirmed, save immediately. Include both their preferred name (what they want to be called) and full name:
+Once confirmed, locate the global memory directory and update `USER.md` immediately:
 
+```bash
+# Resolve global kortix dir
+if [ -n "$KORTIX_DIR" ]; then MEM_DIR="$KORTIX_DIR"
+elif [ -n "$KORTIX_WORKSPACE" ]; then MEM_DIR="$KORTIX_WORKSPACE/.kortix"
+elif [ -n "$OPENCODE_CONFIG_DIR" ]; then MEM_DIR="$(dirname $OPENCODE_CONFIG_DIR)/.kortix"
+else MEM_DIR="/workspace/.kortix"; fi
+echo "$MEM_DIR"
 ```
-mem_save(
-  text: "Goes by [preferred_name]. Full name: [full_name]. [Role/title]. [Background summary]. [Location if known]. [Notable work/projects]. [LinkedIn: url]. [GitHub: url if found].",
-  type: "semantic",
-  tags: "user-profile, identity, onboarding"
-)
+
+Then use `read` to get the current `$MEM_DIR/USER.md` content, and `edit` or `write` to update it with:
+
+```markdown
+## Preferences
+Preferred name: [preferred_name]
+Full name: [full_name]
+Role: [role/title]
+Company/Project: [name]
+
+## Communication Style
+[Any communication preferences observed or stated]
+
+## Workflow Habits
+Location: [if known]
+Background: [summary]
+Notable work: [projects/companies]
+LinkedIn: [url if found]
+GitHub: [url if found]
 ```
 
 ---
@@ -222,14 +299,19 @@ Once you have a URL → **`scrape-webpage`** it. Present a tight summary: what t
 
 For students/hobbyists/freelancers: ask what they're learning or building instead. Adapt naturally.
 
-### Save: Company / Project
+### Write: Company / Project to Memory
 
-```
-mem_save(
-  text: "[Name] works on [Company/Project]. [What it does]. Industry: [X]. Product: [description]. Website: [url]. Tech: [stack if known]. Stage: [if known].",
-  type: "semantic",
-  tags: "company, project, onboarding"
-)
+Read `$MEM_DIR/MEMORY.md`, then update the `## Environment` section:
+
+```markdown
+## Environment
+Company/Project: [name]
+Website: [url]
+What it does: [description]
+Industry: [X]
+Tech stack: [if known]
+Stage: [if known]
+Role: [their role in it]
 ```
 
 ---
@@ -273,7 +355,19 @@ Once they list their tools, do FOUR things:
 
 ### A. Check what's available via OAuth integrations
 
-For each tool they mention, run `integration-search` to see if it's available as a one-click OAuth connection. For the ones that match, batch the connects:
+For each tool they mention, use the integration script to search for it:
+
+```bash
+SCRIPT=$(find /opt/opencode ~/.opencode -name "integration.ts" 2>/dev/null | head -1)
+
+# Search for an app
+bun run "$SCRIPT" search '{"q":"github"}'
+
+# Check what's already connected
+bun run "$SCRIPT" list
+```
+
+For the ones that have OAuth support, batch the connects:
 
 ```
 question({
@@ -287,7 +381,14 @@ question({
 })
 ```
 
-For each one they want, use `integration-connect` and present the link. The user clicks it → OAuth popup → connected. You can present multiple links at once.
+For each one they want, generate a connect URL:
+
+```bash
+bun run "$SCRIPT" connect '{"app":"APP_SLUG_HERE"}'
+# Returns connectUrl — show it to the user to click
+```
+
+Use `show` to present the link visually. The user clicks it → OAuth popup → connected. You can present multiple links at once.
 
 ### B. Identify CLI / API key services
 
@@ -298,7 +399,8 @@ Some tools don't have OAuth but can be configured via API keys or CLI tokens (e.
 Use the env API to save any keys they provide:
 ```bash
 curl -s -X POST "http://localhost:8000/env/KEY_NAME" \
-  -H "Content-Type: application/json" -d '{"value":"their-key-here"}'
+  -H "Content-Type: application/json" \
+  -d '{"value":"their-key-here","restart":true}'
 ```
 
 Be aggressive about asking for the exact secret names needed. Do not say "add your API key" generically. Say exactly what to store, where to get it, and what it unlocks. Examples:
@@ -344,14 +446,31 @@ If the service truly cannot be automated yet, the skill should still explain how
 
 Even services you can't connect yet — record them. Future sessions can revisit.
 
-### Save: Accounts & Integrations
+### Write: Accounts & Integrations to Memory
 
-```
-mem_save(
-  text: "[Name]'s tools and accounts: [full list by category]. Connected via OAuth: [list]. API key configured: [list]. Browser sessions established: [list]. Unsupported services with generated skills/workflows: [list]. Not yet connected: [list with exact blockers and next steps].",
-  type: "semantic",
-  tags: "accounts, integrations, tools, onboarding"
-)
+Read `$MEM_DIR/MEMORY.md`, then update or extend with a full accounts section:
+
+```markdown
+## Cross-Project Rules
+Always check integration status before attempting API calls — use integration list command.
+Preferred automation approach: [what they mentioned]
+
+## Recurring Notes
+### Tools & Accounts Inventory
+**Connected via OAuth:** [list]
+**API keys configured:** [list of KEY_NAME vars]
+**Browser sessions established:** [list with login URLs]
+**Unsupported services with generated skills:** [list with skill paths]
+**Not yet connected:** [list with exact blockers and next steps]
+
+### Full Stack by Category
+**Code/Dev:** [tools]
+**Communication:** [tools]
+**Docs/Knowledge:** [tools]
+**Sales/Marketing:** [tools]
+**Finance/Admin:** [tools]
+**Personal/Productivity:** [tools]
+**Custom/Internal:** [tools]
 ```
 
 ---
@@ -388,14 +507,23 @@ Examples of automations you might suggest:
 
 Don't force it — just plant the seed. These can be set up as cron triggers later.
 
-### Save: Preferences & Use Cases
+### Write: Preferences & Use Cases to Memory
 
+Update `$MEM_DIR/USER.md` with preferences, and `$MEM_DIR/MEMORY.md` with automation goals:
+
+**Add to USER.md under `## Workflow Habits`:**
+```markdown
+Primary use cases: [stated needs]
+Never automate: [list if stated]
+Needs human confirmation: [list if stated]
+Sensitive systems: [list if stated]
 ```
-mem_save(
-  text: "[Name] wants to use Kortix primarily for: [stated needs]. Key use cases: [list]. Automation ideas discussed: [list]. Priority: [what matters most to them].",
-  type: "procedural",
-  tags: "preferences, use-cases, automation, onboarding"
-)
+
+**Add to MEMORY.md under `## Recurring Notes`:**
+```markdown
+### Automation Goals
+[Stated priorities and ideas discussed]
+Priority automation: [what matters most]
 ```
 
 ---
@@ -443,13 +571,14 @@ You should be able to summarize:
 - identity and role
 - current projects / company / mission
 - all major app categories they use
-- what is already connected
+- what is already connected via OAuth
 - what secrets were saved
 - what browser logins were established
 - which important unsupported services got their own generated skill/workflow
 - what is still blocked and exactly why
+- whether `USER.md` and `MEMORY.md` are fully populated
 
-If any of these are missing, go back and ask.
+If any of these are missing, go back and ask or fill in the gaps.
 
 ---
 
@@ -477,16 +606,72 @@ If they skipped, go straight to Phase 8.
 
 ## Phase 8: Unlock
 
-### Save: Onboarding Record
+### Final Memory Write
 
-Save the complete onboarding experience:
+Before unlocking, do a final comprehensive write to both memory files to capture the full onboarding context.
 
+**Read both files first, then do a final clean write that integrates everything.**
+
+`$MEM_DIR/USER.md` should contain complete user profile:
+
+```markdown
+# Global User Profile
+
+## Preferences
+Preferred name: [name]
+Full name: [name]
+Role: [role] at [company/project]
+Background: [1-2 sentence summary]
+Location: [if known]
+Notable work: [key projects/companies]
+LinkedIn: [url if found]
+GitHub: [url if found]
+
+## Communication Style
+[Observations from the conversation]
+
+## Workflow Habits
+Primary use cases for Kortix: [list]
+Never automate: [list if stated]
+Needs human confirmation: [list if stated]
+Sensitive systems: [list if stated]
+Onboarding completed: [ISO date]
 ```
-mem_save(
-  text: "Onboarding completed for [Name] ([Role] at [Company/Project]). Background: [1-2 sentences]. Uses: [tools list by category]. Connected integrations: [list]. Secrets configured: [list]. Browser logins/sessions: [list]. Unsupported services covered by generated skills/workflows: [list]. Wants Kortix for: [use cases]. Demo: [what you showed, or 'skipped']. Automation ideas: [any discussed]. Remaining blockers: [list]. Key insight: [what matters most to this person].",
-  type: "episodic",
-  tags: "onboarding, first-session, milestone"
-)
+
+`$MEM_DIR/MEMORY.md` should contain environment and stack:
+
+```markdown
+# Global Memory
+
+## Environment
+Company/Project: [name] — [url]
+What it does: [description]
+Tech stack: [if known]
+Industry: [X]
+
+## Cross-Project Rules
+- Always check connected integrations before making API calls
+- [Any rules they stated about automation preferences]
+
+## Recurring Notes
+### Accounts & Integrations
+**Connected via OAuth:** [full list]
+**Secrets configured:** [KEY_NAME list]
+**Browser sessions:** [list with login URLs]
+**Generated skills for unsupported services:** [list with paths]
+**Pending connections:** [list with blockers]
+
+### Stack by Category
+**Code/Dev:** [tools]
+**Communication:** [tools]
+**Docs/Knowledge:** [tools]
+**Sales/Marketing:** [tools]
+**Finance/Admin:** [tools]
+**Personal/Productivity:** [tools]
+**Custom/Internal:** [tools]
+
+### Automation Opportunities Discussed
+[List from Phase 5]
 ```
 
 ### Fire the Unlock
@@ -494,13 +679,24 @@ mem_save(
 **CRITICAL: Use EXACTLY this URL. Do NOT change the host or port. Do NOT use `kortix-master` or any other hostname. The ONLY valid URL is `http://localhost:8000`.**
 
 ```bash
-curl -s -X POST "http://localhost:8000/env/ONBOARDING_COMPLETE" -H "Content-Type: application/json" -d '{"value":"true"}'
-curl -s -X POST "http://localhost:8000/env/ONBOARDING_USER_NAME" -H "Content-Type: application/json" -d "{\"value\":\"USER_NAME_HERE\"}"
-curl -s -X POST "http://localhost:8000/env/ONBOARDING_USER_SUMMARY" -H "Content-Type: application/json" -d "{\"value\":\"SUMMARY_HERE\"}"
-curl -s -X POST "http://localhost:8000/env/ONBOARDING_COMPLETED_AT" -H "Content-Type: application/json" -d "{\"value\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
+curl -s -X POST "http://localhost:8000/env/ONBOARDING_COMPLETE" \
+  -H "Content-Type: application/json" \
+  -d '{"value":"true"}'
+
+curl -s -X POST "http://localhost:8000/env/ONBOARDING_USER_NAME" \
+  -H "Content-Type: application/json" \
+  -d "{\"value\":\"USER_PREFERRED_NAME_HERE\"}"
+
+curl -s -X POST "http://localhost:8000/env/ONBOARDING_USER_SUMMARY" \
+  -H "Content-Type: application/json" \
+  -d "{\"value\":\"SUMMARY_HERE\"}"
+
+curl -s -X POST "http://localhost:8000/env/ONBOARDING_COMPLETED_AT" \
+  -H "Content-Type: application/json" \
+  -d "{\"value\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
 ```
 
-Replace `USER_NAME_HERE` with their name and `SUMMARY_HERE` with a one-line summary (role + company + primary use case).
+Replace `USER_PREFERRED_NAME_HERE` with their preferred name and `SUMMARY_HERE` with a one-line summary (role + company + primary use case).
 
 **After firing the curls, verify the unlock worked:**
 ```bash
@@ -515,22 +711,24 @@ If the response does NOT contain `"true"`, retry the POST.
 ## Rules
 
 1. **GATEKEEPER.** User is blocked until the unlock curl fires. You MUST complete this flow.
-2. **SEED THE MEMORY.** `mem_save` after every phase. These are the foundational memories that make the agent useful from session two onwards. If the session crashes after Phase 3, at least the identity and company are saved.
-3. **ADAPT TO THE PERSON.** Don't say "company" to a student. Don't say "project" to a Fortune 500 exec. Mirror their language and framing. Read who they are and adjust.
-4. **ASK WHERE TO FIND THEM ONLINE.** LinkedIn, GitHub, personal site, Twitter/X — any of these are gold. Always ask early in Phase 2. **Never `scrape-webpage` LinkedIn** — it's blocked. Use `web-search` to find cached LinkedIn data instead.
-5. **MAP THEIR ACCOUNTS EXHAUSTIVELY.** The integrations phase is not optional. Sweep by category and keep asking until you have a serious inventory, not a partial list.
-6. **CONNECT WHAT YOU CAN.** For OAuth-available services, use `integration-connect` to generate links. For API-key services, tell them where to add the key or offer to save it via the env API.
-7. **SAVE SECRETS WITH SPECIFICITY.** Collect the exact env var names required for each important service and store them securely when provided. Retry the relevant action after saving.
-8. **BROWSER LOGINS COUNT.** If a critical system only works via website login, establish that login when appropriate, preserve the session/profile if supported, and record the login details and 2FA expectations.
-9. **UNSUPPORTED SERVICES STILL NEED COVERAGE.** If there is no native integration, create a generated skill/workflow doc for the service and point it at the saved secrets so future agents can use it.
-10. **ALWAYS WEB-SEARCH THE USER.** No exceptions. Even if they give you a LinkedIn, search for more.
-11. **SHOW FINDINGS, ASK TO CONFIRM.** Don't assume your research is right. Present and verify.
-12. **USE `question` FOR EVERYTHING.** Every choice, every confirmation, every structured input.
-13. **ONE PHASE PER MESSAGE.** Don't stack questions. One thing at a time.
-14. **DON'T SKIP THE DEMO** unless the user explicitly opts out via `question`.
-15. **THOROUGH > SHORT.** 6-10 exchanges is no longer the target. Use as many turns as needed to reach real setup coverage without becoming redundant.
-16. **DO NOT ASK ABOUT LLM API KEYS.** Those were configured pre-onboarding.
-17. **NEVER GIVE UP ON A MISSING API KEY.** Any `"Error: FOO_API_KEY not set."` from any tool → follow the Missing API Key Protocol. Ask the user, save it, retry. Never silently fail. Never skip a capability without at least one attempt to collect the key. If they explicitly skip, note it and remind them at the end.
-18. **DO NOT UNLOCK EARLY.** The dashboard stays locked until identity, stack, credentials, and setup coverage are meaningfully complete.
+2. **SEED THE MEMORY FILES.** Write to `.kortix/USER.md` and `.kortix/MEMORY.md` after every phase. These files are injected into every future session automatically. They ARE the long-term memory. If the session crashes after Phase 3, at least identity and company are saved.
+3. **MEMORY IS FILES, NOT TOOLS.** There is no `mem_save` tool. Use `bash` to find the memory dir, then `read`/`write`/`edit` to update the markdown files directly. Locate the dir via env vars: `$KORTIX_DIR`, `$KORTIX_WORKSPACE/.kortix`, or `/workspace/.kortix`.
+4. **ADAPT TO THE PERSON.** Don't say "company" to a student. Don't say "project" to a Fortune 500 exec. Mirror their language and framing. Read who they are and adjust.
+5. **ASK WHERE TO FIND THEM ONLINE.** LinkedIn, GitHub, personal site, Twitter/X — any of these are gold. Always ask early in Phase 2. **Never `scrape-webpage` LinkedIn** — it's blocked. Use `web-search` to find cached LinkedIn data instead.
+6. **MAP THEIR ACCOUNTS EXHAUSTIVELY.** The integrations phase is not optional. Sweep by category and keep asking until you have a serious inventory, not a partial list.
+7. **CONNECT WHAT YOU CAN.** Use the integration script (`bun run "$SCRIPT" connect '{"app":"APP_SLUG"}'`) to generate OAuth connect links. For API-key services, tell them where to add the key or save it via the env API.
+8. **SAVE SECRETS WITH SPECIFICITY.** Collect the exact env var names required for each important service and store them with `curl -X POST http://localhost:8000/env/KEY_NAME -d '{"value":"...","restart":true}'`. Retry the relevant action after saving.
+9. **BROWSER LOGINS COUNT.** If a critical system only works via website login, establish that login when appropriate, preserve the session/profile if supported, and record the login details and 2FA expectations.
+10. **UNSUPPORTED SERVICES STILL NEED COVERAGE.** If there is no native integration, create a generated skill/workflow doc for the service and point it at the saved secrets so future agents can use it.
+11. **ALWAYS WEB-SEARCH THE USER.** No exceptions. Even if they give you a LinkedIn, search for more.
+12. **SHOW FINDINGS, ASK TO CONFIRM.** Don't assume your research is right. Present and verify.
+13. **USE `question` FOR EVERYTHING.** Every choice, every confirmation, every structured input.
+14. **ONE PHASE PER MESSAGE.** Don't stack questions. One thing at a time.
+15. **DON'T SKIP THE DEMO** unless the user explicitly opts out via `question`.
+16. **THOROUGH > SHORT.** 6-10 exchanges is no longer the target. Use as many turns as needed to reach real setup coverage without becoming redundant.
+17. **DO NOT ASK ABOUT LLM API KEYS.** Those were configured pre-onboarding.
+18. **NEVER GIVE UP ON A MISSING API KEY.** Any `"Error: FOO_API_KEY not set."` from any tool → follow the Missing API Key Protocol. Ask the user, save it, retry. Never silently fail.
+19. **DO NOT UNLOCK EARLY.** The dashboard stays locked until identity, stack, credentials, setup coverage, AND memory files are meaningfully complete.
+20. **VERIFY MEMORY WRITES.** After writing to USER.md or MEMORY.md, read the file back to confirm the write succeeded. Don't assume.
 
 $ARGUMENTS
