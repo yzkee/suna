@@ -46,7 +46,7 @@ import * as Haptics from 'expo-haptics';
 import BottomSheet, { BottomSheetBackdrop, BottomSheetScrollView, BottomSheetModal, BottomSheetView, BottomSheetTextInput } from '@gorhom/bottom-sheet';
 
 import { useThemeColors } from '@/lib/theme-colors';
-import type { PageTab } from '@/stores/tab-store';
+import { useTabStore, type PageTab } from '@/stores/tab-store';
 import {
   useScheduledTasks,
   useCreateScheduledTask,
@@ -126,8 +126,8 @@ function ScheduledTasksContent() {
   const insets = useSafeAreaInsets();
   const theme = useThemeColors();
 
-  const { data: triggers, isLoading, error, status, fetchStatus } = useScheduledTasks();
-  console.log('[ScheduledTasks] Query state:', { status, fetchStatus, isLoading, error: error?.message, triggersCount: triggers?.length });
+  const { data: triggers, isLoading, error } = useScheduledTasks();
+  const navigateToSession = useTabStore((s) => s.navigateToSession);
   const createTask = useCreateScheduledTask();
   const deleteTask = useDeleteScheduledTask();
   const toggleTask = useToggleScheduledTask();
@@ -365,7 +365,12 @@ function ScheduledTasksContent() {
         onDismiss={() => setSelectedTrigger(null)}
         onToggle={() => selectedTrigger && handleToggle(selectedTrigger)}
         onDelete={() => selectedTrigger && handleDelete(selectedTrigger)}
-        onRunNow={() => selectedTrigger && handleRunNow(selectedTrigger)}
+        onRunNow={async () => { if (selectedTrigger) await handleRunNow(selectedTrigger); }}
+        onOpenSession={(sessionId) => {
+          detailSheetRef.current?.close();
+          setSelectedTrigger(null);
+          navigateToSession(sessionId);
+        }}
       />
 
       {/* Create Sheet */}
@@ -431,36 +436,69 @@ function TaskListItem({
         )}
       </View>
 
-      {/* Name + schedule */}
-      <View style={{ flex: 1, opacity: trigger.isActive ? 1 : 0.5 }}>
-        <Text style={{ fontSize: 15, fontFamily: 'Roobert-Medium', color: fg }} numberOfLines={1}>
-          {trigger.name}
-        </Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 3 }}>
-          <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: muted }} numberOfLines={1}>
+      {/* Name + badges + schedule */}
+      <View style={{ flex: 1 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <Text style={{ fontSize: 15, fontFamily: 'Roobert-Medium', color: fg, opacity: trigger.isActive ? 1 : 0.5 }} numberOfLines={1}>
+            {trigger.name}
+          </Text>
+          {/* Active / Paused badge */}
+          <View
+            style={{
+              paddingHorizontal: 7,
+              paddingVertical: 2,
+              borderRadius: 6,
+              backgroundColor: trigger.isActive
+                ? (isDark ? 'rgba(52,211,153,0.12)' : 'rgba(52,211,153,0.1)')
+                : (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'),
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 10,
+                fontFamily: 'Roobert-Medium',
+                color: trigger.isActive ? '#34d399' : muted,
+              }}
+            >
+              {trigger.isActive ? 'Active' : 'Paused'}
+            </Text>
+          </View>
+          {/* Source type badge */}
+          <View
+            style={{
+              paddingHorizontal: 7,
+              paddingVertical: 2,
+              borderRadius: 6,
+              backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+            }}
+          >
+            <Text style={{ fontSize: 10, fontFamily: 'Roobert-Medium', color: muted }}>
+              {trigger.sourceType === 'agent' ? 'Agent' : 'Manual'}
+            </Text>
+          </View>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 }}>
+          <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: muted, opacity: trigger.isActive ? 1 : 0.5 }} numberOfLines={1}>
             {isWebhook ? `${trigger.webhook?.method} ${trigger.webhook?.path}` : describeCron(trigger.cronExpr)}
           </Text>
-          {trigger.sourceType === 'agent' && (
-            <View style={{ paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
-              <Text style={{ fontSize: 10, fontFamily: 'Roobert-Medium', color: muted }}>Agent</Text>
-            </View>
+          {trigger.timezone && (
+            <>
+              <Text style={{ fontSize: 12, color: muted }}>·</Text>
+              <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: muted }}>{trigger.timezone}</Text>
+            </>
           )}
         </View>
       </View>
 
-      {/* Timing info */}
-      <View style={{ alignItems: 'flex-end', gap: 2 }}>
-        {trigger.nextRunAt && trigger.isActive && (
+      {/* Next run */}
+      {trigger.nextRunAt && trigger.isActive && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <Clock size={12} color={muted} />
           <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: muted }}>
             {formatRelativeTime(trigger.nextRunAt)}
           </Text>
-        )}
-        {!trigger.isActive && (
-          <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
-            <Text style={{ fontSize: 10, fontFamily: 'Roobert-Medium', color: muted }}>Paused</Text>
-          </View>
-        )}
-      </View>
+        </View>
+      )}
 
       <ChevronRight size={16} color={isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)'} />
     </Pressable>
@@ -478,6 +516,7 @@ function TaskDetailSheet({
   onToggle,
   onDelete,
   onRunNow,
+  onOpenSession,
 }: {
   sheetRef: React.RefObject<BottomSheet>;
   trigger: Trigger | null;
@@ -487,9 +526,18 @@ function TaskDetailSheet({
   onToggle: () => void;
   onDelete: () => void;
   onRunNow: () => void;
+  onOpenSession: (sessionId: string) => void;
 }) {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<'settings' | 'executions'>('settings');
+  const [isRunning, setIsRunning] = useState(false);
+
+  const handleRunNow = useCallback(async () => {
+    setIsRunning(true);
+    await onRunNow();
+    // Keep spinner briefly so user sees feedback
+    setTimeout(() => setIsRunning(false), 2000);
+  }, [onRunNow]);
 
   const fg = isDark ? '#f8f8f8' : '#121215';
   const muted = isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)';
@@ -620,7 +668,8 @@ function TaskDetailSheet({
                 <View style={{ gap: 10 }}>
                   {trigger.type !== 'webhook' && (
                     <Pressable
-                      onPress={onRunNow}
+                      onPress={handleRunNow}
+                      disabled={isRunning}
                       style={{
                         flexDirection: 'row',
                         alignItems: 'center',
@@ -629,11 +678,16 @@ function TaskDetailSheet({
                         paddingVertical: 13,
                         borderRadius: 12,
                         backgroundColor: theme.primary,
+                        opacity: isRunning ? 0.7 : 1,
                       }}
                     >
-                      <Play size={16} color={theme.primaryForeground} fill={theme.primaryForeground} />
+                      {isRunning ? (
+                        <ActivityIndicator size="small" color={theme.primaryForeground} />
+                      ) : (
+                        <Play size={16} color={theme.primaryForeground} fill={theme.primaryForeground} />
+                      )}
                       <Text style={{ fontSize: 15, fontFamily: 'Roobert-Medium', color: theme.primaryForeground }}>
-                        Run Now
+                        {isRunning ? 'Running...' : 'Run Now'}
                       </Text>
                     </Pressable>
                   )}
@@ -660,7 +714,7 @@ function TaskDetailSheet({
                 </View>
               </>
             ) : (
-              <ExecutionsTab triggerId={trigger.id} isDark={isDark} />
+              <ExecutionsTab triggerId={trigger.id} isDark={isDark} onOpenSession={onOpenSession} />
             )}
           </>
         )}
@@ -685,7 +739,7 @@ function InfoRow({ label, value, isDark }: { label: string; value: string; isDar
 
 // ─── Executions Tab ──────────────────────────────────────────────────────────
 
-function ExecutionsTab({ triggerId, isDark }: { triggerId: string; isDark: boolean }) {
+function ExecutionsTab({ triggerId, isDark, onOpenSession }: { triggerId: string; isDark: boolean; onOpenSession: (sessionId: string) => void }) {
   const { data: executions, isLoading } = useTaskExecutions(triggerId);
   const fg = isDark ? '#f8f8f8' : '#121215';
   const muted = isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)';
@@ -709,13 +763,13 @@ function ExecutionsTab({ triggerId, isDark }: { triggerId: string; isDark: boole
   return (
     <View style={{ gap: 8 }}>
       {executions.map((exec) => (
-        <ExecutionRow key={exec.executionId} execution={exec} isDark={isDark} />
+        <ExecutionRow key={exec.executionId} execution={exec} isDark={isDark} onOpenSession={onOpenSession} />
       ))}
     </View>
   );
 }
 
-function ExecutionRow({ execution, isDark }: { execution: Execution; isDark: boolean }) {
+function ExecutionRow({ execution, isDark, onOpenSession }: { execution: Execution; isDark: boolean; onOpenSession: (sessionId: string) => void }) {
   const fg = isDark ? '#f8f8f8' : '#121215';
   const muted = isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)';
   const subtleBg = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)';
@@ -732,37 +786,63 @@ function ExecutionRow({ execution, isDark }: { execution: Execution; isDark: boo
   const config = statusConfig[execution.status] || statusConfig.pending;
   const StatusIcon = config.icon;
 
+  const formatTimestamp = (dateStr: string | null) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    return d.toLocaleDateString(undefined, { month: 'numeric', day: 'numeric', year: 'numeric' }) +
+      ', ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  };
+
+  const hasSession = !!execution.sessionId;
+
   return (
-    <View
+    <Pressable
+      onPress={hasSession ? () => onOpenSession(execution.sessionId!) : undefined}
+      disabled={!hasSession}
       style={{
-        flexDirection: 'row',
-        alignItems: 'center',
         padding: 12,
         borderRadius: 10,
         backgroundColor: subtleBg,
-        gap: 10,
+        gap: 8,
       }}
     >
-      <StatusIcon size={16} color={config.color} />
-      <View style={{ flex: 1 }}>
-        <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: fg, textTransform: 'capitalize' }}>
+      {/* Top row: status + duration + timestamp */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <StatusIcon size={16} color={config.color} />
+        <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: config.color, textTransform: 'capitalize' }}>
           {execution.status}
         </Text>
-        {execution.errorMessage && (
-          <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: '#ef4444', marginTop: 2 }} numberOfLines={2}>
-            {execution.errorMessage}
-          </Text>
+        {hasSession && (
+          <View style={{ marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+            <ChevronRight size={12} color={muted} />
+          </View>
         )}
+        <View style={{ marginLeft: hasSession ? 0 : 'auto', flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          {execution.durationMs != null && (
+            <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: muted }}>
+              {formatDuration(execution.durationMs)}
+            </Text>
+          )}
+          <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: muted }}>
+            {formatTimestamp(execution.startedAt || execution.createdAt)}
+          </Text>
+        </View>
       </View>
-      <View style={{ alignItems: 'flex-end', gap: 2 }}>
-        <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: muted }}>
-          {formatDuration(execution.durationMs)}
+
+      {/* Session ID */}
+      {hasSession && (
+        <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: muted }} numberOfLines={1}>
+          Open session {execution.sessionId}
         </Text>
-        <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: muted }}>
-          {formatRelativeTime(execution.startedAt || execution.createdAt)}
+      )}
+
+      {/* Error message */}
+      {execution.errorMessage && (
+        <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: '#ef4444' }} numberOfLines={3}>
+          {execution.errorMessage}
         </Text>
-      </View>
-    </View>
+      )}
+    </Pressable>
   );
 }
 
