@@ -54,7 +54,6 @@ function ConfigCard({ icon, title, desc }: { icon: React.ReactNode; title: strin
 export default function Home() {
   const [copied, setCopied] = useState(false);
   const [showFloatingCta, setShowFloatingCta] = useState(false);
-  const [isNearPageEnd, setIsNearPageEnd] = useState(false);
   const { user } = useAuth();
   const openNewInstanceModal = useNewInstanceModalStore((s) => s.openNewInstanceModal);
 
@@ -64,24 +63,9 @@ export default function Home() {
   const heroScale = useTransform(scrollY, [0, 400], [1, 0.95]);
 
   useEffect(() => {
-    const END_HIDE_OFFSET = 180;
-    const onScroll = () => {
-      const scrolledPastHero = window.scrollY > window.innerHeight;
-      const pageBottom = window.scrollY + window.innerHeight;
-      const pageHeight = document.documentElement.scrollHeight;
-      const nearEnd = pageBottom >= pageHeight - END_HIDE_OFFSET;
-
-      setShowFloatingCta(scrolledPastHero);
-      setIsNearPageEnd(nearEnd);
-    };
-
-    onScroll();
+    const onScroll = () => setShowFloatingCta(window.scrollY > window.innerHeight);
     window.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('resize', onScroll);
-    return () => {
-      window.removeEventListener('scroll', onScroll);
-      window.removeEventListener('resize', onScroll);
-    };
+    return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
   const handleCopy = useCallback(() => {
@@ -335,7 +319,7 @@ export default function Home() {
 
         {/* ═══════════════ FLOATING CTA BAR ═══════════════ */}
         <div
-           className={`${isNearPageEnd ? 'absolute' : 'fixed'} bottom-6 left-1/2 -translate-x-1/2 z-50 flex max-w-[calc(100vw-1.5rem)] sm:max-w-none w-[calc(100%-1.5rem)] sm:w-auto items-center gap-1.5 px-1.5 py-1.5 rounded-full border border-border/50 bg-background/95 backdrop-blur-md transition-all duration-300 ${
+           className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 px-1.5 py-1.5 rounded-full border border-border/50 bg-background/95 backdrop-blur-md transition-all duration-300 ${
             showFloatingCta ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'
           }`}
         >
