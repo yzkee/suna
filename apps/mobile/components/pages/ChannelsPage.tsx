@@ -175,7 +175,7 @@ function ChannelsContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedChannel, setSelectedChannel] = useState<ChannelConfig | null>(null);
 
-  const detailSheetRef = useRef<BottomSheet>(null);
+  const detailSheetRef = useRef<BottomSheetModal>(null);
   const addSheetRef = useRef<BottomSheetModal>(null);
 
   // Colors
@@ -206,7 +206,10 @@ function ChannelsContent() {
   const handleSelectChannel = useCallback((channel: ChannelConfig) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSelectedChannel(channel);
-    detailSheetRef.current?.snapToIndex(0);
+    // Use requestAnimationFrame to ensure state has rendered before presenting
+    requestAnimationFrame(() => {
+      detailSheetRef.current?.present();
+    });
   }, []);
 
   const handleDelete = useCallback(
@@ -221,7 +224,7 @@ function ChannelsContent() {
             try {
               await deleteChannelMut.mutateAsync(channel.channelConfigId);
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              detailSheetRef.current?.close();
+              detailSheetRef.current?.dismiss();
               setSelectedChannel(null);
             } catch {
               Alert.alert('Error', 'Failed to delete channel');
@@ -378,7 +381,7 @@ function ChannelsContent() {
           }
         }}
         onDelete={handleDelete}
-        onClose={() => { detailSheetRef.current?.close(); setSelectedChannel(null); }}
+        onClose={() => { detailSheetRef.current?.dismiss(); setSelectedChannel(null); }}
       />
 
       {/* Add Channel Sheet */}
@@ -458,7 +461,7 @@ function ChannelDetailSheet({
   sheetRef, channel, isDark, theme, sandboxUuid, sandboxName,
   onToggle, onLink, onUnlink, onSave, onDelete, onClose,
 }: {
-  sheetRef: React.RefObject<BottomSheet>;
+  sheetRef: React.RefObject<BottomSheetModal>;
   channel: ChannelConfig | null;
   isDark: boolean;
   theme: ReturnType<typeof useThemeColors>;
@@ -474,6 +477,7 @@ function ChannelDetailSheet({
   const insets = useSafeAreaInsets();
   const [editName, setEditName] = useState('');
   const [nameChanged, setNameChanged] = useState(false);
+  const [showInstancePicker, setShowInstancePicker] = useState(false);
 
   const fg = isDark ? '#f8f8f8' : '#121215';
   const muted = isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)';
@@ -481,32 +485,49 @@ function ChannelDetailSheet({
   const borderColor = isDark ? 'rgba(248,248,248,0.1)' : 'rgba(18,18,21,0.08)';
   const subtleBg = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)';
 
-  React.useEffect(() => {
-    if (channel) { setEditName(channel.name); setNameChanged(false); }
-  }, [channel?.channelConfigId]);
+  useEffect(() => {
+    if (channel) {
+      setEditName(channel.name);
+      setNameChanged(false);
+      setShowInstancePicker(false);
+    }
+  }, [channel]);
 
-  if (!channel) return null;
+  const renderBackdrop = useCallback(
+    (props: any) => <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.5} />,
+    [],
+  );
+
+  const createdDate = channel ? new Date(channel.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+  const updatedDate = channel ? new Date(channel.updatedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+  const strategyLabel: Record<string, string> = { single: 'Single Session', 'per-thread': 'Per Thread', 'per-user': 'Per User', 'per-message': 'Per Message' };
 
   return (
-    <BottomSheet
+    <BottomSheetModal
       ref={sheetRef}
-      index={-1}
-      snapPoints={['65%']}
+      snapPoints={['80%']}
       enablePanDownToClose
-      onClose={onClose}
+      onDismiss={onClose}
+      backdropComponent={renderBackdrop}
       backgroundStyle={{ backgroundColor: isDark ? '#161618' : '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
       handleIndicatorStyle={{ backgroundColor: isDark ? '#3F3F46' : '#D4D4D8', width: 36, height: 5, borderRadius: 3 }}
     >
-      <View style={{ flex: 1, paddingHorizontal: 24, paddingBottom: Math.max(insets.bottom, 20) }}>
+      {channel ? (
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: Math.max(insets.bottom, 20) + 16 }} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
-          <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-            <Ionicons name={getChannelIcon(channel.channelType) as any} size={20} color={fg} />
+          <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+            <Ionicons name={getChannelIcon(channel.channelType) as any} size={22} color={fg} />
+            {channel.enabled && (
+              <View style={{ position: 'absolute', top: -2, right: -2, width: 12, height: 12, borderRadius: 6, backgroundColor: '#34d399', borderWidth: 2, borderColor: isDark ? '#161618' : '#FFFFFF' }} />
+            )}
           </View>
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Text style={{ fontSize: 18, fontFamily: 'Roobert-Semibold', color: fg }} numberOfLines={1}>{channel.name}</Text>
-              <ChannelStatusDot enabled={channel.enabled} isDark={isDark} />
+              <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: channel.enabled ? 'rgba(52,211,153,0.12)' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)') }}>
+                <Text style={{ fontSize: 10, fontFamily: 'Roobert-Medium', color: channel.enabled ? '#34d399' : muted }}>{channel.enabled ? 'Active' : 'Disabled'}</Text>
+              </View>
             </View>
             <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: muted, marginTop: 2 }}>{getChannelTypeLabel(channel.channelType)}</Text>
           </View>
@@ -519,44 +540,99 @@ function ChannelDetailSheet({
         </View>
 
         {/* Name Input */}
-        <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: muted, marginBottom: 6 }}>Name</Text>
+        <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: muted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>Name</Text>
         <TextInput
           value={editName}
           onChangeText={(text) => { setEditName(text); setNameChanged(text.trim() !== (channel.name || '')); }}
           placeholder="Channel name"
           placeholderTextColor={isDark ? 'rgba(248,248,248,0.25)' : 'rgba(18,18,21,0.3)'}
-          style={{ backgroundColor: inputBg, borderWidth: 1, borderColor, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, fontFamily: 'Roobert', color: fg, marginBottom: 16 }}
+          style={{ backgroundColor: inputBg, borderWidth: 1, borderColor, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 12, fontSize: 15, fontFamily: 'Roobert', color: fg, marginBottom: 16 }}
         />
 
-        {/* Linked Sandbox */}
-        <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: muted, marginBottom: 6 }}>Linked Sandbox</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 12, backgroundColor: subtleBg, borderWidth: StyleSheet.hairlineWidth, borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', marginBottom: 16 }}>
-          <Ionicons name="cube-outline" size={18} color={muted} style={{ marginRight: 10 }} />
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: fg }}>{channel.sandbox?.name || 'Not linked'}</Text>
-            {!channel.sandboxId && (
-              <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: muted, marginTop: 2 }}>Link to a sandbox to start receiving messages</Text>
-            )}
-          </View>
-          {channel.sandboxId ? (
-            <Pressable onPress={() => onUnlink(channel)} style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: isDark ? 'rgba(239,68,68,0.12)' : 'rgba(239,68,68,0.08)' }}>
-              <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: '#ef4444' }}>Unlink</Text>
-            </Pressable>
-          ) : sandboxUuid ? (
-            <Pressable onPress={() => onLink(channel)} style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: theme.primary }}>
-              <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: theme.primaryForeground }}>Link</Text>
-            </Pressable>
-          ) : null}
-        </View>
-
         {nameChanged && (
-          <Pressable onPress={() => onSave(channel, editName.trim())} style={{ alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 14, backgroundColor: theme.primary, marginBottom: 16 }}>
-            <Text style={{ fontSize: 16, fontFamily: 'Roobert-Medium', color: theme.primaryForeground }}>Save Changes</Text>
+          <Pressable onPress={() => onSave(channel, editName.trim())} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, borderRadius: 14, backgroundColor: theme.primary, marginBottom: 16 }}>
+            <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: theme.primaryForeground }}>Save Changes</Text>
           </Pressable>
         )}
 
-        {/* Delete */}
-        <View style={{ marginTop: 'auto', padding: 14, borderRadius: 14, backgroundColor: isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.04)', borderWidth: StyleSheet.hairlineWidth, borderColor: isDark ? 'rgba(239,68,68,0.2)' : 'rgba(239,68,68,0.15)' }}>
+        {/* Linked Instance */}
+        <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: muted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>Linked Instance</Text>
+        <View style={{ borderRadius: 14, backgroundColor: subtleBg, borderWidth: StyleSheet.hairlineWidth, borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', marginBottom: 16, overflow: 'hidden' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', padding: 14 }}>
+            <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center', marginRight: 10 }}>
+              <Ionicons name="cube-outline" size={16} color={muted} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: fg }}>{channel.sandbox?.name || 'Not linked'}</Text>
+              {!channel.sandboxId && (
+                <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: muted, marginTop: 2 }}>Link to receive messages</Text>
+              )}
+            </View>
+            {channel.sandboxId ? (
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                <Pressable onPress={() => setShowInstancePicker(!showInstancePicker)} style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1, borderColor }}>
+                  <Text style={{ fontSize: 11, fontFamily: 'Roobert-Medium', color: fg }}>Change</Text>
+                </Pressable>
+                <Pressable onPress={() => onUnlink(channel)} style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: isDark ? 'rgba(239,68,68,0.12)' : 'rgba(239,68,68,0.08)' }}>
+                  <Text style={{ fontSize: 11, fontFamily: 'Roobert-Medium', color: '#ef4444' }}>Unlink</Text>
+                </Pressable>
+              </View>
+            ) : sandboxUuid ? (
+              <Pressable onPress={() => onLink(channel)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: theme.primary }}>
+                <Ionicons name="link-outline" size={14} color={theme.primaryForeground} />
+                <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: theme.primaryForeground }}>Link</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          {showInstancePicker && sandboxUuid && (
+            <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}>
+              <Pressable
+                onPress={() => { onLink(channel); setShowInstancePicker(false); }}
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, backgroundColor: channel.sandboxId === sandboxUuid ? (isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)') : 'transparent' }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Ionicons name="cube-outline" size={14} color={muted} />
+                  <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: fg }}>{sandboxName || 'Current Sandbox'}</Text>
+                </View>
+                {channel.sandboxId === sandboxUuid && <Check size={14} color={theme.primary} />}
+              </Pressable>
+            </View>
+          )}
+        </View>
+
+        {/* Session Strategy & Metadata */}
+        <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: muted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>Details</Text>
+        <View style={{ borderRadius: 14, backgroundColor: subtleBg, borderWidth: StyleSheet.hairlineWidth, borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', marginBottom: 16, overflow: 'hidden' }}>
+          <DetailRow label="Type" value={getChannelTypeLabel(channel.channelType)} isDark={isDark} fg={fg} muted={muted} />
+          <DetailRow label="Session Strategy" value={strategyLabel[channel.sessionStrategy] || channel.sessionStrategy} isDark={isDark} fg={fg} muted={muted} />
+          {channel.agentName && <DetailRow label="Agent" value={channel.agentName} isDark={isDark} fg={fg} muted={muted} />}
+          <DetailRow label="Created" value={createdDate} isDark={isDark} fg={fg} muted={muted} />
+          <DetailRow label="Updated" value={updatedDate} isDark={isDark} fg={fg} muted={muted} last />
+        </View>
+
+        {/* Platform Config (webhook URL etc.) */}
+        {channel.platformConfig && Object.keys(channel.platformConfig).length > 0 && (
+          <>
+            <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: muted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>Configuration</Text>
+            <View style={{ borderRadius: 14, backgroundColor: subtleBg, borderWidth: StyleSheet.hairlineWidth, borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', marginBottom: 16, overflow: 'hidden' }}>
+              {Object.entries(channel.platformConfig).map(([key, value], i, arr) => (
+                <DetailRow
+                  key={key}
+                  label={key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                  value={typeof value === 'string' ? value : JSON.stringify(value)}
+                  isDark={isDark}
+                  fg={fg}
+                  muted={muted}
+                  last={i === arr.length - 1}
+                  mono
+                />
+              ))}
+            </View>
+          </>
+        )}
+
+        {/* Danger Zone */}
+        <View style={{ padding: 14, borderRadius: 14, backgroundColor: isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.04)', borderWidth: StyleSheet.hairlineWidth, borderColor: isDark ? 'rgba(239,68,68,0.2)' : 'rgba(239,68,68,0.15)' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <View style={{ flex: 1 }}>
               <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: '#ef4444' }}>Delete Channel</Text>
@@ -568,8 +644,27 @@ function ChannelDetailSheet({
             </Pressable>
           </View>
         </View>
-      </View>
-    </BottomSheet>
+      </ScrollView>
+      ) : null}
+    </BottomSheetModal>
+  );
+}
+
+// ─── Detail Row (reusable) ───────────────────────────────────────────────────
+
+function DetailRow({ label, value, isDark, fg, muted, last, mono }: {
+  label: string; value: string; isDark: boolean; fg: string; muted: string; last?: boolean; mono?: boolean;
+}) {
+  return (
+    <View style={{
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      paddingHorizontal: 14, paddingVertical: 11,
+      borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+    }}>
+      <Text style={{ fontSize: 13, fontFamily: 'Roobert', color: muted }}>{label}</Text>
+      <Text style={{ fontSize: 13, fontFamily: mono ? 'monospace' : 'Roobert-Medium', color: fg, maxWidth: '60%' }} numberOfLines={1}>{value}</Text>
+    </View>
   );
 }
 
