@@ -43,7 +43,7 @@ import { useThemeColors } from '@/lib/theme-colors';
 function providerLabel(provider: SandboxProviderName): string {
   switch (provider) {
     case 'local_docker': return 'LOCAL';
-    case 'hetzner': return 'CLOUD';
+    case 'justavps': return 'CLOUD';
     case 'daytona': return 'CLOUD';
     default: return 'INSTANCE';
   }

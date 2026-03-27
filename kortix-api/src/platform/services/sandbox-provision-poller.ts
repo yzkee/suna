@@ -9,7 +9,7 @@
  *   2. Fetches each machine's current state from JustAVPS API
  *   3. Updates the DB stage (forward-only, same as webhook handler)
  *   4. Emits events via sandboxEventBus so SSE streams and in-memory listeners get notified
- *   5. Flips sandbox to 'active' when JustAVPS reports 'ready'
+ *   5. Flips sandbox to 'active' only after port 8000 is actually reachable
  *   6. Flips sandbox to 'error' when JustAVPS reports 'error' or 'deleted'
  */
 
@@ -18,6 +18,7 @@ import { sandboxes } from '@kortix/db';
 import { db } from '../../shared/db';
 import { config } from '../../config';
 import { sandboxEventBus } from './sandbox-events';
+import { probeJustAvpsSandboxReadiness } from './sandbox-readiness';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -34,10 +35,8 @@ const STAGE_ORDER: Record<string, number> = {
   server_created: 2,
   cloud_init_running: 3,
   cloud_init_done: 4,
-  docker_pulling: 5,
-  docker_running: 6,
-  services_starting: 7,
-  services_ready: 8,
+  services_starting: 5,
+  services_ready: 6,
 };
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -163,14 +162,43 @@ async function pollSingleSandbox(sandbox: typeof sandboxes.$inferSelect): Promis
     const incomingStage = machine.provisioning_stage || '';
     const incomingRank = STAGE_ORDER[incomingStage] ?? 0;
 
-    // ── Machine is ready → flip to active ──
+    // ── Machine is ready → verify sandbox services before flipping active ──
     if (machine.status === 'ready') {
       const healedMeta = {
         ...meta,
         provisioningStage: 'services_ready',
-        provisioningMessage: 'All services are up',
+        provisioningMessage: 'VM is ready, verifying sandbox services...',
         ...(machine.ip ? { publicIp: machine.ip } : {}),
       };
+
+      const readiness = await probeJustAvpsSandboxReadiness({
+        slug: (meta.justavpsSlug as string | undefined) || undefined,
+        proxyToken: (meta.justavpsProxyToken as string | undefined) || undefined,
+        serviceKey: ((sandbox.config as Record<string, unknown> | null)?.serviceKey as string | undefined) || undefined,
+      });
+
+      if (!readiness.ready) {
+        await db
+          .update(sandboxes)
+          .set({
+            metadata: {
+              ...healedMeta,
+              provisioningMessage: readiness.message,
+            },
+            updatedAt: new Date(),
+          })
+          .where(eq(sandboxes.sandboxId, sandbox.sandboxId));
+
+        sandboxEventBus.emit({
+          sandboxId: sandbox.sandboxId,
+          externalId: sandbox.externalId,
+          event: 'provision_poll',
+          stage: 'services_ready',
+          message: readiness.message,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
 
       await db
         .update(sandboxes)
@@ -182,7 +210,7 @@ async function pollSingleSandbox(sandbox: typeof sandboxes.$inferSelect): Promis
           ),
         );
 
-      console.log(`[provision-poller] ${sandbox.sandboxId} → active (machine ready)`);
+      console.log(`[provision-poller] ${sandbox.sandboxId} → active (sandbox services ready)`);
 
       sandboxEventBus.emit({
         sandboxId: sandbox.sandboxId,
@@ -260,9 +288,7 @@ function getStageMessage(stage: string): string {
     server_creating: 'Creating server...',
     server_created: 'Server created, running cloud-init...',
     cloud_init_running: 'Configuring machine...',
-    cloud_init_done: 'Configuration complete...',
-    docker_pulling: 'Starting sandbox container...',
-    docker_running: 'Container started, booting services...',
+    cloud_init_done: 'Configuration complete, starting services...',
     services_starting: 'Services booting...',
     services_ready: 'All services are up',
   };

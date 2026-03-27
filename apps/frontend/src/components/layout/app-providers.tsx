@@ -3,19 +3,22 @@
 import React, { Suspense, lazy } from 'react';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { RightSidebarProvider } from '@/components/ui/sidebar-right-provider';
+import { useOnboardingModeStore } from '@/stores/onboarding-mode-store';
 import { useDeleteOperationEffects } from '@/stores/delete-operation-store';
 import { SubscriptionStoreSync } from '@/stores/subscription-store';
 import { NewInstanceModal } from '@/components/billing/pricing/new-instance-modal';
 import { useNewInstanceModalStore } from '@/stores/pricing-modal-store';
 
-const SidebarLeft = lazy(() => 
+const SidebarLeft = lazy(() =>
   import('@/components/sidebar/sidebar-left').then(mod => ({ default: mod.SidebarLeft }))
 );
-const SidebarRight = lazy(() => 
+const SidebarRight = lazy(() =>
   import('@/components/sidebar/sidebar-right').then(mod => ({ default: mod.SidebarRight }))
 );
 
 function SidebarSkeleton() {
+  const obActive = useOnboardingModeStore((s) => s.active);
+  if (obActive) return null;
   return (
     <div className="hidden md:flex w-[280px] flex-col bg-sidebar shrink-0">
       <div className="p-4 space-y-4">
@@ -53,13 +56,17 @@ interface AppProvidersProps {
   sidebarSiblings?: React.ReactNode;
 }
 
-export function AppProviders({ 
-  children, 
+export function AppProviders({
+  children,
   showSidebar = true,
   defaultSidebarOpen,
   sidebarContent,
   sidebarSiblings
 }: AppProvidersProps) {
+  const obActive = useOnboardingModeStore((s) => s.active);
+  const obMorphing = useOnboardingModeStore((s) => s.morphing);
+  const hideSidebar = obActive && !obMorphing;
+
   const content = (
     <DeleteOperationEffectsWrapper>
       <SubscriptionStoreSync>
@@ -73,11 +80,19 @@ export function AppProviders({
 
   return (
     <SidebarProvider defaultOpen={defaultSidebarOpen}>
-      {sidebarContent || (
-        <Suspense fallback={<SidebarSkeleton />}>
-          <SidebarLeft />
-        </Suspense>
-      )}
+      <div
+        className="transition-[max-width,opacity] duration-500 ease-out overflow-hidden"
+        style={{
+          maxWidth: hideSidebar ? 0 : '280px',
+          opacity: hideSidebar ? 0 : 1,
+        }}
+      >
+        {sidebarContent || (
+          <Suspense fallback={<SidebarSkeleton />}>
+            <SidebarLeft />
+          </Suspense>
+        )}
+      </div>
       <SidebarInset>
         <RightSidebarProvider>
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">

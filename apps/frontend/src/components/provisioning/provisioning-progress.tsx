@@ -3,7 +3,6 @@
 import { useMemo } from 'react';
 import { CheckCircle2, Loader2 } from 'lucide-react';
 import { AnimatedCircularProgressBar } from '@/components/ui/animated-circular-progress';
-import { TextMorph } from 'torph/react';
 import { featureFlags } from '@/lib/feature-flags';
 import { DinoGame } from '@/components/games/dino-game';
 import { STAGE_LABELS, type ProvisioningStageInfo } from '@/lib/provisioning-stages';
@@ -44,9 +43,9 @@ export function ProvisioningProgress({
           className="size-36 [&>span]:hidden [&_circle:first-of-type]:opacity-15"
         />
         <div className="absolute inset-0 flex items-center justify-center">
-          <TextMorph className="text-2xl font-light text-foreground/90 tabular-nums">
+          <span className="text-2xl font-light text-foreground/90 tabular-nums transition-all duration-300">
             {`${Math.round(progress)}%`}
-          </TextMorph>
+          </span>
         </div>
       </div>
 

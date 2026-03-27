@@ -6,8 +6,10 @@ const baseUrl = process.env.KORTIX_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_APP
 
 export const siteMetadata = {
   name: 'Kortix',
-  title: 'Kortix: Your Autonomous AI Worker',
-  description: 'Built for complex tasks, designed for everything. The ultimate AI assistant that handles it all—from simple requests to mega-complex projects.',
+  title: 'Kortix – The Autonomous Company Operating System',
+  description:
+    'A cloud computer where AI agents run your company. Connect 3,000+ tools, configure autonomous agents, set triggers — and the machine operates 24/7 with persistent memory.',
   url: baseUrl,
-  keywords: 'Kortix, AI Worker, Agentic AI, Autonomous AI Worker, AI Automation, AI Workflow Automation, AI Assistant, Task Automation',
+  keywords:
+    'Kortix, autonomous company operating system, AI agents, self-driving company, cloud computer, AI automation, agent orchestration, autowork, AI triggers, persistent memory, autonomous workforce, AI operations',
 };

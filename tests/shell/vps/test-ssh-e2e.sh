@@ -109,13 +109,15 @@ echo ""
 # ═══════════════════════════════════════════════════════════════════════════════
 section "PHASE 1: Prerequisites"
 
-# Check sandbox is running
+# Check whether a local sandbox container is available.
+# This is required for local_docker verification, but remote providers like
+# JustAVPS can still be tested even when no local container is present.
+LOCAL_CONTAINER_AVAILABLE=0
 if docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'kortix-sandbox\|sandbox'; then
-  pass "Sandbox container is running"
+  LOCAL_CONTAINER_AVAILABLE=1
+  pass "Local sandbox container is running"
 else
-  fail "Sandbox container is running"
-  echo "  ${RED}Cannot continue — sandbox must be running for SSH tests${NC}"
-  exit 1
+  skip "Local sandbox container is running"
 fi
 
 # Get auth token
@@ -234,6 +236,13 @@ else
   fail "SSH command includes port and user"
 fi
 
+SSH_DESTINATION="${SSH_USER}@${SSH_HOST}"
+IS_REMOTE_PROVIDER=0
+case "$SSH_HOST" in
+  localhost|127.0.0.1|::1) ;;
+  *) IS_REMOTE_PROVIDER=1 ;;
+esac
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # PHASE 4: Public key injected into container
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -242,25 +251,32 @@ section "PHASE 4: Key injection"
 # Extract the key fingerprint portion for matching
 PUB_KEY_DATA=$(echo "$PUBLIC_KEY" | awk '{print $2}')
 
-CONTAINER_KEYS=$(docker exec kortix-sandbox cat /config/.ssh/authorized_keys 2>/dev/null || docker exec kortix-sandbox cat /workspace/.ssh/authorized_keys 2>/dev/null || true)
-if echo "$CONTAINER_KEYS" | grep -q "$PUB_KEY_DATA"; then
-  pass "Public key found in container authorized_keys"
-else
-  fail "Public key found in container authorized_keys"
-fi
+if [ "$IS_REMOTE_PROVIDER" -eq 0 ]; then
+  if [ "$LOCAL_CONTAINER_AVAILABLE" -ne 1 ]; then
+    fail "Local container checks require a running sandbox container"
+  fi
+  CONTAINER_KEYS=$(docker exec kortix-sandbox cat /config/.ssh/authorized_keys 2>/dev/null || docker exec kortix-sandbox cat /workspace/.ssh/authorized_keys 2>/dev/null || true)
+  if echo "$CONTAINER_KEYS" | grep -q "$PUB_KEY_DATA"; then
+    pass "Public key found in container authorized_keys"
+  else
+    fail "Public key found in container authorized_keys"
+  fi
 
-PERMS=$(docker exec kortix-sandbox stat -c '%a' /config/.ssh/authorized_keys 2>/dev/null || docker exec kortix-sandbox stat -c '%a' /workspace/.ssh/authorized_keys 2>/dev/null || echo "unknown")
-if [ "$PERMS" = "600" ]; then
-  pass "authorized_keys has 600 permissions"
-else
-  fail "authorized_keys has 600 permissions (got: $PERMS)"
-fi
+  PERMS=$(docker exec kortix-sandbox stat -c '%a' /config/.ssh/authorized_keys 2>/dev/null || docker exec kortix-sandbox stat -c '%a' /workspace/.ssh/authorized_keys 2>/dev/null || echo "unknown")
+  if [ "$PERMS" = "600" ]; then
+    pass "authorized_keys has 600 permissions"
+  else
+    fail "authorized_keys has 600 permissions (got: $PERMS)"
+  fi
 
-OWNER=$(docker exec kortix-sandbox stat -c '%U' /config/.ssh/authorized_keys 2>/dev/null || docker exec kortix-sandbox stat -c '%U' /workspace/.ssh/authorized_keys 2>/dev/null || echo "unknown")
-if [ "$OWNER" = "abc" ]; then
-  pass "authorized_keys owned by abc"
+  OWNER=$(docker exec kortix-sandbox stat -c '%U' /config/.ssh/authorized_keys 2>/dev/null || docker exec kortix-sandbox stat -c '%U' /workspace/.ssh/authorized_keys 2>/dev/null || echo "unknown")
+  if [ "$OWNER" = "abc" ]; then
+    pass "authorized_keys owned by abc"
+  else
+    fail "authorized_keys owned by abc (got: $OWNER)"
+  fi
 else
-  fail "authorized_keys owned by abc (got: $OWNER)"
+  skip "Local docker exec key checks (remote sandbox will be validated over SSH)"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -268,7 +284,7 @@ fi
 # ═══════════════════════════════════════════════════════════════════════════════
 section "PHASE 5: SSH connection"
 
-SSH_OUTPUT=$(ssh -i "$KEY_TMP" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2 -p "$SSH_PORT" "abc@localhost" "echo SSH_E2E_OK && whoami && hostname" 2>/dev/null || true)
+SSH_OUTPUT=$(ssh -i "$KEY_TMP" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o ServerAliveInterval=5 -o ServerAliveCountMax=2 -p "$SSH_PORT" "$SSH_DESTINATION" "echo SSH_E2E_OK && whoami && hostname" 2>/dev/null || true)
 
 if echo "$SSH_OUTPUT" | grep -q 'SSH_E2E_OK'; then
   pass "SSH connection established with generated key"
@@ -283,8 +299,31 @@ else
   fail "Connected as user 'abc'"
 fi
 
+if [ "$IS_REMOTE_PROVIDER" -eq 1 ]; then
+  REMOTE_KEYS=$(ssh -i "$KEY_TMP" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -p "$SSH_PORT" "$SSH_DESTINATION" "cat ~/.ssh/authorized_keys" 2>/dev/null || true)
+  if echo "$REMOTE_KEYS" | grep -q "$PUB_KEY_DATA"; then
+    pass "Public key found in remote authorized_keys"
+  else
+    fail "Public key found in remote authorized_keys"
+  fi
+
+  REMOTE_PERMS=$(ssh -i "$KEY_TMP" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -p "$SSH_PORT" "$SSH_DESTINATION" "stat -c '%a' ~/.ssh/authorized_keys" 2>/dev/null || true)
+  if [ "$REMOTE_PERMS" = "600" ]; then
+    pass "remote authorized_keys has 600 permissions"
+  else
+    fail "remote authorized_keys has 600 permissions (got: $REMOTE_PERMS)"
+  fi
+
+  REMOTE_OWNER=$(ssh -i "$KEY_TMP" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -p "$SSH_PORT" "$SSH_DESTINATION" "stat -c '%U' ~/.ssh/authorized_keys" 2>/dev/null || true)
+  if [ "$REMOTE_OWNER" = "abc" ]; then
+    pass "remote authorized_keys owned by abc"
+  else
+    fail "remote authorized_keys owned by abc (got: $REMOTE_OWNER)"
+  fi
+fi
+
 # Test command execution via SSH
-SSH_PWD=$(ssh -i "$KEY_TMP" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -p "$SSH_PORT" "abc@localhost" "pwd" 2>/dev/null || true)
+SSH_PWD=$(ssh -i "$KEY_TMP" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -p "$SSH_PORT" "$SSH_DESTINATION" "pwd" 2>/dev/null || true)
 if [ "$SSH_PWD" = "/workspace" ]; then
   pass "Default directory is /workspace"
 else
@@ -320,7 +359,7 @@ KEY_TMP_2=$(mktemp)
 echo "$PRIVATE_KEY_2" > "$KEY_TMP_2"
 chmod 600 "$KEY_TMP_2"
 
-SSH_OUTPUT_2=$(ssh -i "$KEY_TMP_2" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -p "$SSH_PORT" "abc@localhost" "echo SSH_E2E_OK2" 2>/dev/null || true)
+SSH_OUTPUT_2=$(ssh -i "$KEY_TMP_2" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -p "$SSH_PORT" "$SSH_DESTINATION" "echo SSH_E2E_OK2" 2>/dev/null || true)
 if echo "$SSH_OUTPUT_2" | grep -q 'SSH_E2E_OK2'; then
   pass "SSH works with regenerated key"
 else
@@ -328,7 +367,7 @@ else
 fi
 
 # Old key should ALSO still work (keys are appended, not replaced)
-SSH_OUTPUT_OLD=$(ssh -i "$KEY_TMP" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -p "$SSH_PORT" "abc@localhost" "echo SSH_E2E_OLD" 2>/dev/null || true)
+SSH_OUTPUT_OLD=$(ssh -i "$KEY_TMP" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -p "$SSH_PORT" "$SSH_DESTINATION" "echo SSH_E2E_OLD" 2>/dev/null || true)
 if echo "$SSH_OUTPUT_OLD" | grep -q 'SSH_E2E_OLD'; then
   pass "Previous key still works (keys coexist)"
 else
@@ -337,7 +376,11 @@ fi
 
 # Both keys in authorized_keys
 PUB_KEY_DATA_2=$(echo "$PUBLIC_KEY_2" | awk '{print $2}')
-KEY_COUNT=$(docker exec kortix-sandbox cat /config/.ssh/authorized_keys 2>/dev/null | grep -c 'ssh-ed25519' || true)
+if [ "$IS_REMOTE_PROVIDER" -eq 0 ]; then
+  KEY_COUNT=$(docker exec kortix-sandbox cat /config/.ssh/authorized_keys 2>/dev/null | grep -c 'ssh-ed25519' || true)
+else
+  KEY_COUNT=$(ssh -i "$KEY_TMP" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -p "$SSH_PORT" "$SSH_DESTINATION" "grep -c 'ssh-ed25519' ~/.ssh/authorized_keys" 2>/dev/null || true)
+fi
 if [ "${KEY_COUNT:-0}" -ge 2 ] 2>/dev/null; then
   pass "authorized_keys has multiple keys ($KEY_COUNT)"
 else

@@ -258,6 +258,18 @@ async function ensureWebhookRegistered(): Promise<void> {
   }
 }
 
+function shellEscape(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+export function buildCustomerCloudInitScript(dockerImage: string): string {
+  return [
+    'curl -fsSL https://raw.githubusercontent.com/kortix-ai/computer/main/scripts/start-sandbox.sh -o /usr/local/bin/kortix-start-sandbox.sh',
+    'chmod +x /usr/local/bin/kortix-start-sandbox.sh',
+    `/usr/local/bin/kortix-start-sandbox.sh ${shellEscape(dockerImage)}`,
+  ].join('\n');
+}
+
 export class JustAVPSProvider implements SandboxProvider {
   readonly name: ProviderName = 'justavps';
 
@@ -339,6 +351,7 @@ export class JustAVPSProvider implements SandboxProvider {
       region: location,
       name: `kortix-sandbox-${opts.accountId.slice(0, 8)}-${Date.now().toString(36)}`,
       env_vars: envVars,
+      cloud_init_script: buildCustomerCloudInitScript(config.SANDBOX_IMAGE),
     };
 
     const imageId = await resolveLatestImageId();

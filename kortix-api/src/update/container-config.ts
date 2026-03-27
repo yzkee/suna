@@ -14,11 +14,18 @@ export interface ContainerConfig {
 
 const CONFIG_PATH = '/workspace/.kortix/container.json';
 
-const DEFAULT_PORTS = [
-  '3000:3000', '3456:3456', '8000:8000', '8080:8080',
+// Do NOT bind host port 3456 for cloud/JustAVPS sandboxes.
+// The host runs opencode-web on 3456 already, and binding the container to the
+// same port prevents the sandbox workload from starting at all.
+export const DEFAULT_PORTS = [
+  '3000:3000', '8000:8000', '8080:8080',
   '6080:6080', '6081:6081', '3111:3111', '3210:3210',
   '3211:3211', '9223:9223', '9224:9224', '22222:22',
 ];
+
+export function sanitizePorts(ports: string[]): string[] {
+  return ports.filter((port) => port !== '3456:3456');
+}
 
 export async function readContainerConfig(
   endpoint: ResolvedEndpoint,
@@ -27,6 +34,9 @@ export async function readContainerConfig(
   if (!result.success || !result.stdout.trim()) return null;
   try {
     const config = JSON.parse(result.stdout.trim()) as ContainerConfig;
+    const sanitizedPorts = sanitizePorts(config.ports || []);
+    const portsChanged = JSON.stringify(sanitizedPorts) !== JSON.stringify(config.ports || []);
+    config.ports = sanitizedPorts.length > 0 ? sanitizedPorts : DEFAULT_PORTS;
 
     const inspect = await execOnHost(
       endpoint,
@@ -38,7 +48,11 @@ export async function readContainerConfig(
       if (runningImage && runningImage !== config.image) {
         config.image = runningImage;
         await writeContainerConfig(endpoint, config);
+      } else if (portsChanged) {
+        await writeContainerConfig(endpoint, config);
       }
+    } else if (portsChanged) {
+      await writeContainerConfig(endpoint, config);
     }
 
     return config;
@@ -51,7 +65,10 @@ export async function writeContainerConfig(
   endpoint: ResolvedEndpoint,
   config: ContainerConfig,
 ): Promise<void> {
-  const json = JSON.stringify(config, null, 2);
+  const json = JSON.stringify({
+    ...config,
+    ports: sanitizePorts(config.ports || []).length > 0 ? sanitizePorts(config.ports || []) : DEFAULT_PORTS,
+  }, null, 2);
   const b64 = Buffer.from(json).toString('base64');
   await execOnHost(
     endpoint,
@@ -93,7 +110,7 @@ export async function buildFromInspect(
         image: containerConfig.Image || '',
         name,
         volumes: volumes.length > 0 ? volumes : ['kortix-data:/workspace', 'kortix-data:/config'],
-        ports: ports.length > 0 ? ports : DEFAULT_PORTS,
+        ports: sanitizePorts(ports).length > 0 ? sanitizePorts(ports) : DEFAULT_PORTS,
         caps: (hostConfig.CapAdd || []) as string[],
         shmSize: formatShmSize(hostConfig.ShmSize),
         envFile: envFile || '/etc/justavps/env',
@@ -130,7 +147,7 @@ export function buildDockerRunCommand(config: ContainerConfig): string {
   for (const opt of config.securityOpt) args.push(`--security-opt ${opt}`);
   if (config.shmSize) args.push(`--shm-size ${config.shmSize}`);
   for (const vol of config.volumes) args.push(`-v ${vol}`);
-  for (const port of config.ports) args.push(`-p ${port}`);
+  for (const port of sanitizePorts(config.ports)) args.push(`-p ${port}`);
   args.push(config.image);
   return args.join(' ');
 }

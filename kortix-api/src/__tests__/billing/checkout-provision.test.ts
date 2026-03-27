@@ -83,7 +83,7 @@ describe('checkout.session.completed: instance provisioning', () => {
         account_id: 'acc_test_123',
         tier_key: 'pro',
         commitment_type: 'monthly',
-        server_type: 'cpx21',
+        server_type: 'basic',
         location: 'hel1',
       },
     });
@@ -95,7 +95,7 @@ describe('checkout.session.completed: instance provisioning', () => {
     expect(provisionCalls.length).toBe(1);
     const call = provisionCalls[0][0]; // first arg is the params object
     expect(call.accountId).toBe('acc_test_123');
-    expect(call.serverType).toBe('cpx21');
+    expect(call.serverType).toBe('basic');
     expect(call.location).toBe('hel1');
     expect(call.subscriptionId).toBe('sub_test_123');
     expect(call.tierKey).toBe('pro');
@@ -124,7 +124,7 @@ describe('checkout.session.completed: instance provisioning', () => {
         account_id: 'acc_test_123',
         tier_key: 'pro',
         commitment_type: 'monthly',
-        server_type: 'cpx31',
+        server_type: 'pro',
         location: 'ash',
       },
     });
@@ -141,13 +141,13 @@ describe('checkout.session.completed: instance provisioning', () => {
 
     // Provisioning also happened
     expect(provisionCalls.length).toBe(1);
-    expect(provisionCalls[0][0].serverType).toBe('cpx31');
+    expect(provisionCalls[0][0].serverType).toBe('pro');
     expect(provisionCalls[0][0].location).toBe('ash');
   });
 
   test('provisioning failure does not block subscription creation', async () => {
     mockRegistry.provisionSandboxFromCheckout = async () => {
-      throw new Error('Hetzner API timeout');
+      throw new Error('Provider API timeout');
     };
 
     const session = createMockStripeCheckoutSession({
@@ -155,7 +155,7 @@ describe('checkout.session.completed: instance provisioning', () => {
         account_id: 'acc_test_123',
         tier_key: 'pro',
         commitment_type: 'monthly',
-        server_type: 'cpx21',
+        server_type: 'basic',
         location: 'hel1',
       },
     });
@@ -176,7 +176,7 @@ describe('checkout.session.completed: instance provisioning', () => {
         account_id: 'acc_test_123',
         tier_key: 'pro',
         commitment_type: 'monthly',
-        server_type: 'cpx21',
+        server_type: 'basic',
         // no location
       },
     });
@@ -186,7 +186,7 @@ describe('checkout.session.completed: instance provisioning', () => {
     await processStripeWebhook(JSON.stringify(event), 'sig');
 
     expect(provisionCalls.length).toBe(1);
-    expect(provisionCalls[0][0].serverType).toBe('cpx21');
+    expect(provisionCalls[0][0].serverType).toBe('basic');
     expect(provisionCalls[0][0].location).toBeUndefined();
   });
 });

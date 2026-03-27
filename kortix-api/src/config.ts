@@ -122,7 +122,7 @@ const envSchema = z.object({
   JUSTAVPS_API_KEY:                   optStr,
   JUSTAVPS_IMAGE_ID:                  optStr,   // Optional pin — if unset, auto-resolves latest kortix-computer-v* image from JustAVPS
   JUSTAVPS_DEFAULT_LOCATION:          optStrDefault('hel1'),
-  JUSTAVPS_DEFAULT_SERVER_TYPE:       optStrDefault('cpx31'),
+  JUSTAVPS_DEFAULT_SERVER_TYPE:       optStrDefault('pro'),
   JUSTAVPS_PROXY_DOMAIN:              optStrDefault('kortix.cloud'),  // CF Worker proxy domain ({slug}.kortix.cloud)
   JUSTAVPS_WEBHOOK_SECRET:            optStr,   // HMAC secret for verifying JustAVPS webhook signatures
   JUSTAVPS_WEBHOOK_URL:               optStr,   // URL where JustAVPS should send webhook events (e.g. https://api.kortix.com/v1/platform/webhooks/justavps)

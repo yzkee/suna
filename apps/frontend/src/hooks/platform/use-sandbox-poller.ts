@@ -27,6 +27,7 @@ export interface SandboxPollerState {
   currentStage: string | null;
   machineInfo: { ip: string; serverType: string; location: string } | null;
   error: string | null;
+  stageEnteredAt: number | null; // timestamp when current stage was entered
 }
 
 interface StatusResponse {
@@ -45,23 +46,48 @@ interface UseSandboxPollerOpts {
   timeoutMs?: number;
 }
 
-// ─── Stage → progress mapping (mirrors backend) ────────────────────────────
+// ─── Stage → progress mapping ───────────────────────────────────────────────
 
 const STAGE_PROGRESS: Record<string, number> = {
-  server_creating: 10,
-  server_created: 25,
-  cloud_init_running: 40,
-  cloud_init_done: 55,
-  docker_pulling: 65,
-  docker_running: 80,
-  services_starting: 90,
-  services_ready: 100,
+  server_creating:    5,
+  server_created:     15,
+  cloud_init_running: 35,
+  cloud_init_done:    60,
+  services_starting:  80,
+  services_ready:     95,
+  connecting:         98,
+};
+
+// Expected ms each stage lasts — used for time-based interpolation
+const STAGE_DURATION_MS: Record<string, number> = {
+  server_creating:    20_000,
+  server_created:     30_000,
+  cloud_init_running: 60_000,
+  cloud_init_done:    30_000,
+  services_starting:  20_000,
+  services_ready:     10_000,
+  connecting:         15_000,
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function initial(): SandboxPollerState {
-  return { status: 'idle', progress: 0, stages: null, currentStage: null, machineInfo: null, error: null };
+  return { status: 'idle', progress: 0, stages: null, currentStage: null, machineInfo: null, error: null, stageEnteredAt: null };
+}
+
+/** Interpolate progress within a stage based on elapsed time */
+function interpolateProgress(stage: string, stageEnteredAt: number, baseProgress: number): number {
+  const durationMs = STAGE_DURATION_MS[stage];
+  if (!durationMs) return baseProgress;
+  const nextStageKeys = Object.keys(STAGE_PROGRESS);
+  const currentIdx = nextStageKeys.indexOf(stage);
+  const nextStage = nextStageKeys[currentIdx + 1];
+  const nextProgress = nextStage ? STAGE_PROGRESS[nextStage] : baseProgress + 5;
+  const elapsed = Date.now() - stageEnteredAt;
+  const fraction = Math.min(1, elapsed / durationMs);
+  // ease-out: slow down as we approach the next stage
+  const eased = 1 - Math.pow(1 - fraction, 2);
+  return Math.round(baseProgress + eased * (nextProgress - baseProgress - 1));
 }
 
 function getPlatformUrl(): string {
@@ -83,6 +109,7 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
   const eventSourceRef = useRef<EventSource | null>(null);
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timeoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const interpolationRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const set = useCallback((next: SandboxPollerState) => {
     stateRef.current = next;
@@ -108,6 +135,26 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
       clearTimeout(timeoutTimerRef.current);
       timeoutTimerRef.current = null;
     }
+    if (interpolationRef.current) {
+      clearInterval(interpolationRef.current);
+      interpolationRef.current = null;
+    }
+  }, []);
+
+  // Start a 500ms interval that nudges progress forward within the active stage
+  const startInterpolation = useCallback(() => {
+    if (interpolationRef.current) return;
+    interpolationRef.current = setInterval(() => {
+      const s = stateRef.current;
+      if (s.status !== 'polling' || !s.currentStage || s.stageEnteredAt === null) return;
+      const base = STAGE_PROGRESS[s.currentStage] ?? s.progress;
+      const interpolated = interpolateProgress(s.currentStage, s.stageEnteredAt, base);
+      if (interpolated > s.progress) {
+        const next = { ...s, progress: interpolated };
+        stateRef.current = next;
+        setState(next);
+      }
+    }, 500);
   }, []);
 
   const stop = useCallback(() => {
@@ -151,11 +198,13 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
           pollingRef.current = false;
           return;
         } else {
+          const isNewStage = d.stage !== null && d.stage !== stateRef.current.currentStage;
           update({
-            progress: d.stageProgress ?? stateRef.current.progress,
+            progress: Math.max(stateRef.current.progress, d.stageProgress ?? stateRef.current.progress),
             stages: d.stages ?? stateRef.current.stages,
             currentStage: d.stage ?? stateRef.current.currentStage,
             machineInfo: d.machineInfo ?? stateRef.current.machineInfo,
+            stageEnteredAt: isNewStage ? Date.now() : stateRef.current.stageEnteredAt,
           });
         }
       } catch {
@@ -179,7 +228,8 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
     pollingRef.current = true;
     stoppedRef.current = false;
     cleanup();
-    update({ status: 'polling' });
+    update({ status: 'polling', stageEnteredAt: Date.now() });
+    startInterpolation();
 
     // Global timeout
     timeoutTimerRef.current = setTimeout(() => {
@@ -217,7 +267,12 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
             cleanup();
           } else if (data.provisioning_stage) {
             const progress = STAGE_PROGRESS[data.provisioning_stage] ?? stateRef.current.progress;
-            update({ progress, currentStage: data.provisioning_stage });
+            const isNewStage = data.provisioning_stage !== stateRef.current.currentStage;
+            update({
+              progress: Math.max(stateRef.current.progress, progress),
+              currentStage: data.provisioning_stage,
+              stageEnteredAt: isNewStage ? Date.now() : stateRef.current.stageEnteredAt,
+            });
           }
         } catch { /* malformed SSE data */ }
       });
@@ -243,9 +298,11 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
 
           if (data.stage) {
             const progress = STAGE_PROGRESS[data.stage] ?? stateRef.current.progress;
+            const isNewStage = data.stage !== stateRef.current.currentStage;
             update({
-              progress: Math.max(stateRef.current.progress, progress), // Never go backward
+              progress: Math.max(stateRef.current.progress, progress),
               currentStage: data.stage,
+              stageEnteredAt: isNewStage ? Date.now() : stateRef.current.stageEnteredAt,
             });
           }
         } catch { /* malformed SSE data */ }
@@ -285,7 +342,27 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
     }
 
     return stateRef.current;
-  }, [sandboxId, timeoutMs, cleanup, update, set, stop, startFallbackPolling]);
+  }, [sandboxId, timeoutMs, cleanup, update, set, stop, startFallbackPolling, startInterpolation]);
+
+  // Seed progress from a known stage on remount — prevents 0% flash while
+  // waiting for the first SSE event when navigating back to a provisioning page.
+  const seedStage = useCallback((stage: string) => {
+    if (!stage) return;
+    const progress = STAGE_PROGRESS[stage] ?? 0;
+    if (progress > stateRef.current.progress) {
+      update({ currentStage: stage, progress, stageEnteredAt: Date.now() });
+    }
+  }, [update]);
+
+  // Emit the synthetic 'connecting' stage (machine ready, waiting for services)
+  const setConnecting = useCallback(() => {
+    const isNewStage = stateRef.current.currentStage !== 'connecting';
+    update({
+      currentStage: 'connecting',
+      progress: Math.max(stateRef.current.progress, STAGE_PROGRESS.connecting),
+      stageEnteredAt: isNewStage ? Date.now() : stateRef.current.stageEnteredAt,
+    });
+  }, [update]);
 
   // Cleanup on unmount
   useEffect(() => () => {
@@ -293,5 +370,5 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
     cleanup();
   }, [cleanup]);
 
-  return { ...state, poll, stop, reset };
+  return { ...state, poll, stop, reset, seedStage, setConnecting };
 }

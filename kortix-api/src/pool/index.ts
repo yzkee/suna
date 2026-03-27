@@ -132,7 +132,7 @@ export async function handleWebhook(externalId: string, stage?: string, webhookS
   const ps = await inventory.findByExternalId(externalId);
   if (!ps) return false;
 
-  if (stage === 'services_ready' || webhookStatus === 'ready') {
+  if (webhookStatus === 'ready') {
     await inventory.markReady(ps.id);
     console.log(`[POOL] ${ps.id} → ready`);
   } else if (webhookStatus === 'error') {

@@ -25,6 +25,11 @@ export async function ensureSchema(): Promise<void> {
     return;
   }
 
+  if (process.env.KORTIX_SKIP_ENSURE_SCHEMA === '1') {
+    console.log('[schema] KORTIX_SKIP_ENSURE_SCHEMA=1 — skipping');
+    return;
+  }
+
   // Production: schema managed externally (CI/CD migrations)
   if (config.INTERNAL_KORTIX_ENV === 'prod') {
     console.log('[schema] Production mode — skipping auto-push (managed externally)');
