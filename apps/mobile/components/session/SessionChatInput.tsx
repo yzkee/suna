@@ -196,6 +196,10 @@ interface SessionChatInputProps {
   onCommand?: (command: Command, args?: string) => void;
   /** Hides config toolbar (agent/model/variant selectors) — used for onboarding */
   onboardingMode?: boolean;
+  /** Initial text to populate the input with (e.g. restored after question prompt) */
+  initialText?: string;
+  /** Called whenever the input text changes — used to track current text externally */
+  onTextChange?: (text: string) => void;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -226,8 +230,10 @@ export function SessionChatInput({
   commands = [],
   onCommand,
   onboardingMode = false,
+  initialText = '',
+  onTextChange,
 }: SessionChatInputProps) {
-  const [text, setText] = useState('');
+  const [text, setText] = useState(initialText);
   const inputRef = useRef<TextInput>(null);
   const cursorRef = useRef(0);
   const { colorScheme } = useColorScheme();
@@ -277,6 +283,7 @@ export function SessionChatInput({
   const handleTextChange = useCallback(
     (newText: string) => {
       setText(newText);
+      onTextChange?.(newText);
       cursorRef.current = newText.length;
       mention.handleTextChange(newText, newText.length);
 

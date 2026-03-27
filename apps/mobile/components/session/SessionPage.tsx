@@ -205,15 +205,24 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
 
   // Queue expanded/collapsed state
   const [queueExpanded, setQueueExpanded] = useState(false);
+  const [savedInputText, setSavedInputText] = useState('');
+  const inputTextRef = useRef('');
 
   // The first pending question for this session (if any)
   const activeQuestion: QuestionRequest | undefined = pendingQuestions[0];
   const hasQuestion = !!activeQuestion;
 
-  // Debug: track question state changes
+  // Save input text when question appears, clear after it's restored
   useEffect(() => {
-    log.log('🔍 [SessionPage] pendingQuestions:', pendingQuestions.length, 'hasQuestion:', hasQuestion, 'activeQuestion:', activeQuestion?.id);
-  }, [pendingQuestions.length, hasQuestion]);
+    if (hasQuestion) {
+      setSavedInputText(inputTextRef.current);
+    } else {
+      // Question dismissed — savedInputText will be consumed by SessionChatInput's initialText
+      // Clear it after a tick so it doesn't persist across future mounts
+      const t = setTimeout(() => setSavedInputText(''), 100);
+      return () => clearTimeout(t);
+    }
+  }, [hasQuestion]);
 
   // ── Queue Draining ─────────────────────────────────────────────────────
   // Automatically send the next queued message when the agent becomes idle.
@@ -723,6 +732,8 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
             onStop={handleStop}
             isBusy={isBusy}
             onboardingMode={onboardingMode}
+            initialText={savedInputText}
+            onTextChange={(t) => { inputTextRef.current = t; }}
             agent={resolved.agent}
             agents={resolved.agents}
             model={resolved.model}
