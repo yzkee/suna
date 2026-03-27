@@ -370,6 +370,7 @@ export class JustAVPSProvider implements SandboxProvider {
       name: `kortix-sandbox-${opts.accountId.slice(0, 8)}-${Date.now().toString(36)}`,
       env_vars: envVars,
       cloud_init_script: buildCustomerCloudInitScript(config.SANDBOX_IMAGE),
+      enable_backups: true,
     };
 
     const imageId = await resolveLatestImageId();
