@@ -23,6 +23,7 @@ NGINX_CONF="/etc/nginx/sites-available/kortix-api"
 HEALTH_TIMEOUT=60
 HEALTH_INTERVAL=2
 LOCK_FILE="$HOME/.kortix-deploy.lock"
+PREBUILT_IMAGE="${PREBUILT_IMAGE:-}"
 
 cd ~/computer
 
@@ -63,15 +64,21 @@ git submodule update --init --recursive --remote
 COMMIT=$(git rev-parse --short HEAD)
 IMAGE_TAG="${IMAGE_NAME}:${COMMIT}"
 
-# ── 2. Build new image ───────────────────────────────────────────────────────
-echo "[2/6] Building ${IMAGE_TAG} (traffic still on $ACTIVE_SLOT:$ACTIVE_PORT)..."
-docker build \
-  --file kortix-api/Dockerfile \
-  --build-arg SERVICE=kortix-api \
-  --tag "$IMAGE_TAG" \
-  --tag "${IMAGE_NAME}:latest" \
-  --no-cache \
-  .
+# ── 2. Prepare image ─────────────────────────────────────────────────────────
+if [ -n "$PREBUILT_IMAGE" ]; then
+  echo "[2/6] Pulling prebuilt image $PREBUILT_IMAGE..."
+  docker pull "$PREBUILT_IMAGE"
+  IMAGE_TAG="$PREBUILT_IMAGE"
+else
+  echo "[2/6] Building ${IMAGE_TAG} (traffic still on $ACTIVE_SLOT:$ACTIVE_PORT)..."
+  docker build \
+    --file kortix-api/Dockerfile \
+    --build-arg SERVICE=kortix-api \
+    --tag "$IMAGE_TAG" \
+    --tag "${IMAGE_NAME}:latest" \
+    --no-cache \
+    .
+fi
 
 # ── 3. Start standby container ───────────────────────────────────────────────
 echo "[3/6] Starting $STANDBY_SLOT on port $STANDBY_PORT..."

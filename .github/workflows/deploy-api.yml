@@ -25,9 +25,50 @@ concurrency:
   group: deploy-api-${{ inputs.target || 'dev' }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
+  build:
+    name: Build and push image
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tag
+        id: meta
+        run: |
+          IMAGE="ghcr.io/kortix-ai/kortix-api:${GITHUB_SHA::8}"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "Using image: $IMAGE"
+
+      - name: Build and push
+        run: |
+          docker build \
+            --file kortix-api/Dockerfile \
+            --build-arg SERVICE=kortix-api \
+            --tag "${{ steps.meta.outputs.image }}" \
+            --tag "ghcr.io/kortix-ai/kortix-api:latest" \
+            .
+          docker push "${{ steps.meta.outputs.image }}"
+          docker push "ghcr.io/kortix-ai/kortix-api:latest"
+
   deploy:
     name: Deploy to ${{ inputs.target || 'dev' }}
+    needs: build
     runs-on: ubuntu-latest
     environment: ${{ inputs.target || 'dev' }}
     steps:
@@ -42,14 +83,11 @@ jobs:
           script: |
             set -e
             cd ~/computer
-            # Pull latest (the deploy script also does this, but we need it
-            # to exist on disk before we can run it for the first time)
             git -c fetch.recurseSubmodules=false fetch origin main
             git reset --hard origin/main
             git submodule sync --recursive
             git submodule update --init --recursive --remote
-            # Run zero-downtime deploy
-            bash scripts/deploy-zero-downtime.sh
+            PREBUILT_IMAGE="${{ needs.build.outputs.image }}" bash scripts/deploy-zero-downtime.sh
 
       - name: Deploy prod frontend (Vercel)
         if: inputs.target == 'prod'
@@ -61,4 +99,5 @@ jobs:
         if: always()
         run: |
           echo "### Deployed \`main\` → **${{ inputs.target || 'dev' }}**" >> "$GITHUB_STEP_SUMMARY"
+          echo "Image: \`${{ needs.build.outputs.image }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "Commit: \`${GITHUB_SHA::8}\`" >> "$GITHUB_STEP_SUMMARY"
