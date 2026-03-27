@@ -1,12 +1,6 @@
 import type { ResolvedEndpoint } from '../platform/providers';
 import { execOnHost } from './exec';
-import { writeContainerConfig, buildDockerRunCommand, type ContainerConfig } from './container-config';
-
-const DEFAULT_PORTS = [
-  '3000:3000', '3456:3456', '8000:8000', '8080:8080',
-  '6080:6080', '6081:6081', '3111:3111', '3210:3210',
-  '3211:3211', '9223:9223', '9224:9224', '22222:22',
-];
+import { writeContainerConfig, buildDockerRunCommand, DEFAULT_PORTS, sanitizePorts, type ContainerConfig } from './container-config';
 
 export interface SetupOpts {
   image: string;
@@ -18,11 +12,12 @@ export interface SetupOpts {
 
 export function buildContainerConfig(opts: SetupOpts): ContainerConfig {
   const volumeName = opts.volumeName || 'kortix-data';
+  const ports = sanitizePorts(opts.ports || DEFAULT_PORTS);
   return {
     image: opts.image,
     name: opts.containerName || 'kortix-sandbox',
     volumes: [`${volumeName}:/workspace`, `${volumeName}:/config`],
-    ports: opts.ports || DEFAULT_PORTS,
+    ports,
     caps: ['SYS_ADMIN'],
     shmSize: '2g',
     envFile: opts.envFile || '/etc/justavps/env',

@@ -174,7 +174,7 @@ export default function OnboardingPage() {
 
   const isTransientSandboxStartupError = useCallback((err: unknown): boolean => {
     const msg = err instanceof Error ? err.message : String(err ?? '');
-    return /still syncing|still provisioning|still starting|still loading|not ready|sandbox route is still syncing/i.test(msg);
+    return /still syncing|still provisioning|still starting|still loading|not ready|sandbox route is still syncing|sandbox is waking up|failed to fetch|networkerror when attempting to fetch resource|load failed/i.test(msg);
   }, []);
 
   const refreshSandboxRouting = useCallback(async () => {
@@ -698,8 +698,8 @@ export default function OnboardingPage() {
               {sessionError ? (
                 <div className="flex flex-col items-center justify-center gap-4 bg-background/95 backdrop-blur-xl rounded-xl border border-border/40 p-8">
                   <p className="text-sm text-muted-foreground text-center max-w-[340px]">
-                    {sessionErrorMessage && /provisioning|syncing|still starting|still loading/i.test(sessionErrorMessage)
-                      ? 'The sandbox is still starting up. Give it a moment, then retry.'
+                    {sessionErrorMessage && /provisioning|syncing|still starting|still loading|sandbox is waking up|failed to fetch|networkerror when attempting to fetch resource|load failed/i.test(sessionErrorMessage)
+                      ? 'The sandbox is still starting up or reconnecting. Give it a moment, then retry.'
                       : 'Could not connect to the sandbox.'}
                   </p>
                   {sessionErrorMessage && (

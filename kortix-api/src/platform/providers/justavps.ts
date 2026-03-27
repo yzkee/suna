@@ -1,4 +1,6 @@
 import { eq } from 'drizzle-orm';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { sandboxes } from '@kortix/db';
 import { db } from '../../shared/db';
 import { config, SANDBOX_VERSION } from '../../config';
@@ -258,6 +260,21 @@ async function ensureWebhookRegistered(): Promise<void> {
   }
 }
 
+function shellEscape(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+function buildCustomerCloudInitScript(dockerImage: string): string {
+  const startScriptPath = join(process.cwd(), 'scripts', 'start-sandbox.sh');
+  const startScript = readFileSync(startScriptPath, 'utf8');
+  const encoded = Buffer.from(startScript).toString('base64');
+  return [
+    `echo '${encoded}' | base64 -d > /usr/local/bin/kortix-start-sandbox.sh`,
+    'chmod +x /usr/local/bin/kortix-start-sandbox.sh',
+    `/usr/local/bin/kortix-start-sandbox.sh ${shellEscape(dockerImage)}`,
+  ].join('\n');
+}
+
 export class JustAVPSProvider implements SandboxProvider {
   readonly name: ProviderName = 'justavps';
 
@@ -339,6 +356,7 @@ export class JustAVPSProvider implements SandboxProvider {
       region: location,
       name: `kortix-sandbox-${opts.accountId.slice(0, 8)}-${Date.now().toString(36)}`,
       env_vars: envVars,
+      cloud_init_script: buildCustomerCloudInitScript(config.SANDBOX_IMAGE),
     };
 
     const imageId = await resolveLatestImageId();

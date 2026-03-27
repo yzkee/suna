@@ -113,7 +113,7 @@ sseRouter.get('/:id/provision-stream', async (c) => {
           event: 'stage',
         });
 
-        if (event.stage === 'services_ready' || event.status === 'ready' || event.status === 'error') {
+        if (event.status === 'ready' || event.status === 'error') {
           resolved = true;
           await stream.writeSSE({ data: JSON.stringify({ done: true }), event: 'done' });
           sandboxEventBus.off(sandboxId, listener);
