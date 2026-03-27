@@ -6,6 +6,7 @@ on:
     paths:
       - 'kortix-api/**'
       - 'scripts/compose/**'
+      - 'scripts/deploy-zero-downtime.sh'
       - 'packages/**'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
@@ -26,45 +27,25 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.target || 'dev' }}
     steps:
-      - name: Deploy via SSH
+      - name: Zero-downtime deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
-          timeout: 300s
+          timeout: 600s
           script: |
             set -e
-
-            TARGET="${{ inputs.target || 'dev' }}"
-
             cd ~/computer
-
-            # Pull latest main
+            # Pull latest (the deploy script also does this, but we need it
+            # to exist on disk before we can run it for the first time)
             git -c fetch.recurseSubmodules=false fetch origin main
             git reset --hard origin/main
             git submodule sync --recursive
             git submodule update --init --recursive --remote
-
-            # Rebuild and restart backend
-            docker compose --project-directory . -f scripts/compose/docker-compose.yml --profile backend down --remove-orphans || true
-            docker compose --project-directory . -f scripts/compose/docker-compose.yml --profile backend build --no-cache
-            docker compose --project-directory . -f scripts/compose/docker-compose.yml --profile backend up -d
-
-            # Health check (up to 60s)
-            for i in $(seq 1 30); do
-              if curl -sf http://localhost:8008/v1/health > /dev/null 2>&1; then
-                echo "Healthy after ${i}×2s ($TARGET)"
-                break
-              fi
-              [ "$i" -eq 30 ] && echo "Health check failed ($TARGET)" && exit 1
-              sleep 2
-            done
-
-            # Cleanup old images
-            docker image prune -af --filter "until=24h" || true
-            docker compose --project-directory . -f scripts/compose/docker-compose.yml --profile backend ps
+            # Run zero-downtime deploy
+            bash scripts/deploy-zero-downtime.sh
 
       - name: Deploy prod frontend (Vercel)
         if: inputs.target == 'prod'
