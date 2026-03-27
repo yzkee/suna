@@ -457,37 +457,53 @@ const CreateTunnelSheet = React.forwardRef<
     >
       <BottomSheetScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: Math.max(insets.bottom, 20) + 16 }}>
         {/* Step indicator */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 20, gap: 4 }}>
-          {(['name', 'permissions', 'connect'] as const).map((s, i) => (
-            <React.Fragment key={s}>
-              {i > 0 && (
-                <View style={{ width: 24, height: 1, backgroundColor: (step === 'permissions' && i <= 1) || (step === 'connect') ? theme.primary : borderColor }} />
-              )}
-              <View
-                style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: 12,
-                  backgroundColor:
-                    (step === 'permissions' && i === 0) || (step === 'connect' && i < 2)
-                      ? theme.primary
-                      : s === step
-                        ? theme.primary
-                        : isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                {((step === 'permissions' && i === 0) || (step === 'connect' && i < 2)) ? (
-                  <Check size={12} color={theme.primaryForeground} />
-                ) : (
-                  <RNText style={{ fontSize: 11, fontFamily: 'Roobert-Medium', color: s === step ? theme.primaryForeground : muted }}>
-                    {i + 1}
-                  </RNText>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+          {([
+            { key: 'name' as const, label: 'Name' },
+            { key: 'permissions' as const, label: 'Permissions' },
+            { key: 'connect' as const, label: 'Connect' },
+          ]).map(({ key: s, label }, i) => {
+            const stepIndex = ['name', 'permissions', 'connect'].indexOf(step);
+            const isCompleted = i < stepIndex;
+            const isCurrent = i === stepIndex;
+
+            return (
+              <React.Fragment key={s}>
+                {i > 0 && (
+                  <View style={{ width: 28, height: 1, backgroundColor: isCompleted ? theme.primary : borderColor, marginHorizontal: 2 }} />
                 )}
-              </View>
-            </React.Fragment>
-          ))}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View
+                    style={{
+                      width: 26,
+                      height: 26,
+                      borderRadius: 13,
+                      backgroundColor: isCompleted || isCurrent ? theme.primary : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'),
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      ...(isCurrent && !isCompleted ? {
+                        shadowColor: theme.primary,
+                        shadowOffset: { width: 0, height: 0 },
+                        shadowOpacity: 0.3,
+                        shadowRadius: 4,
+                      } : {}),
+                    }}
+                  >
+                    {isCompleted ? (
+                      <Check size={13} color={theme.primaryForeground} />
+                    ) : (
+                      <RNText style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: isCurrent ? theme.primaryForeground : muted }}>
+                        {i + 1}
+                      </RNText>
+                    )}
+                  </View>
+                  <RNText style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: isCurrent ? fg : muted }}>
+                    {label}
+                  </RNText>
+                </View>
+              </React.Fragment>
+            );
+          })}
         </View>
 
         {isCreating ? (

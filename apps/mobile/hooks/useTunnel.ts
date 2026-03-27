@@ -106,37 +106,34 @@ async function authFetch<T>(path: string, options?: RequestInit): Promise<T> {
   });
   const body = await res.json();
   if (!res.ok) {
-    throw new Error(body?.error?.message || body?.message || `Request failed (${res.status})`);
+    throw new Error(body?.error || body?.message || body?.detail || `Request failed (${res.status})`);
   }
   return body;
 }
 
 // ─── API Functions ──────────────────────────────────────────────────────────
+// Note: Tunnel backend returns data directly (no { success, data } envelope)
 
 async function listConnections(): Promise<TunnelConnection[]> {
-  const envelope = await authFetch<{ success: boolean; data: TunnelConnection[] }>('/tunnel/connections');
-  return envelope.data || [];
+  return authFetch<TunnelConnection[]>('/tunnel/connections');
 }
 
 async function getConnection(tunnelId: string): Promise<TunnelConnection> {
-  const envelope = await authFetch<{ success: boolean; data: TunnelConnection }>(`/tunnel/connections/${tunnelId}`);
-  return envelope.data;
+  return authFetch<TunnelConnection>(`/tunnel/connections/${tunnelId}`);
 }
 
 async function createConnection(data: { name: string; sandboxId?: string; capabilities?: string[] }): Promise<TunnelConnectionCreateResponse> {
-  const envelope = await authFetch<{ success: boolean; data: TunnelConnectionCreateResponse }>(
+  return authFetch<TunnelConnectionCreateResponse>(
     '/tunnel/connections',
     { method: 'POST', body: JSON.stringify(data) },
   );
-  return envelope.data;
 }
 
 async function updateConnection(tunnelId: string, data: { name?: string; capabilities?: string[] }): Promise<TunnelConnection> {
-  const envelope = await authFetch<{ success: boolean; data: TunnelConnection }>(
+  return authFetch<TunnelConnection>(
     `/tunnel/connections/${tunnelId}`,
     { method: 'PATCH', body: JSON.stringify(data) },
   );
-  return envelope.data;
 }
 
 async function deleteConnection(tunnelId: string): Promise<void> {
@@ -144,16 +141,14 @@ async function deleteConnection(tunnelId: string): Promise<void> {
 }
 
 async function listPermissions(tunnelId: string): Promise<TunnelPermission[]> {
-  const envelope = await authFetch<{ success: boolean; data: TunnelPermission[] }>(`/tunnel/permissions/${tunnelId}`);
-  return envelope.data || [];
+  return authFetch<TunnelPermission[]>(`/tunnel/permissions/${tunnelId}`);
 }
 
 async function grantPermission(tunnelId: string, data: { capability: string; scope?: Record<string, unknown>; expiresAt?: string }): Promise<TunnelPermission> {
-  const envelope = await authFetch<{ success: boolean; data: TunnelPermission }>(
+  return authFetch<TunnelPermission>(
     `/tunnel/permissions/${tunnelId}`,
     { method: 'POST', body: JSON.stringify(data) },
   );
-  return envelope.data;
 }
 
 async function revokePermission(tunnelId: string, permissionId: string): Promise<void> {
@@ -161,10 +156,9 @@ async function revokePermission(tunnelId: string, permissionId: string): Promise
 }
 
 async function fetchAuditLogs(tunnelId: string, page: number, limit: number): Promise<AuditLogPage> {
-  const envelope = await authFetch<{ success: boolean; data: AuditLogPage }>(
+  return authFetch<AuditLogPage>(
     `/tunnel/audit/${tunnelId}?page=${page}&limit=${limit}`,
   );
-  return envelope.data;
 }
 
 // ─── Query Keys ─────────────────────────────────────────────────────────────
