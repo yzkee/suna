@@ -2,6 +2,7 @@ import { Context, Next } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { validateSecretKey } from '../repositories/api-keys';
 import { isKortixToken } from '../shared/crypto';
+import { canAccessPreviewSandbox } from '../shared/preview-ownership';
 import { getSupabase } from '../shared/supabase';
 import { verifySupabaseJwt } from '../shared/jwt-verify';
 import { config } from '../config';
@@ -140,12 +141,19 @@ export async function combinedAuth(c: Context, next: Next) {
     return;
   }
 
-  // Extract token: header → cookie → query param (for WS upgrades)
+  const previewSandboxId = extractPreviewSandboxId(c.req.path);
+
+  // Extract token: header → X-Kortix-Token (preview only) → cookie → query param
   const authHeader = c.req.header('Authorization');
+  const kortixTokenHeader = previewSandboxId ? c.req.header('X-Kortix-Token') : undefined;
   let token: string | undefined;
 
   if (authHeader?.startsWith('Bearer ')) {
     token = authHeader.slice(7);
+  }
+
+  if (!token && kortixTokenHeader && isKortixToken(kortixTokenHeader)) {
+    token = kortixTokenHeader;
   }
 
   if (!token) {
@@ -185,9 +193,16 @@ export async function combinedAuth(c: Context, next: Next) {
     if (!result.isValid) {
       throw new HTTPException(401, { message: result.error || 'Invalid Kortix token' });
     }
+    if (previewSandboxId && !(await canAccessPreviewSandbox({
+      previewSandboxId,
+      accountId: result.accountId,
+    }))) {
+      throw new HTTPException(403, { message: 'Not authorized to access this sandbox' });
+    }
     // Map accountId → userId so route handlers work unchanged
     c.set('userId', result.accountId);
     c.set('userEmail', '');
+    if (result.accountId) c.set('accountId', result.accountId);
     if (isPreviewRoute) setPreviewSessionCookie(c, token);
     await next();
     return;
@@ -196,6 +211,12 @@ export async function combinedAuth(c: Context, next: Next) {
   // 2. Try Supabase JWT — fast path: local verification (no network roundtrip)
   const local = await verifySupabaseJwt(token);
   if (local.ok) {
+    if (previewSandboxId && !(await canAccessPreviewSandbox({
+      previewSandboxId,
+      userId: local.userId,
+    }))) {
+      throw new HTTPException(403, { message: 'Not authorized to access this sandbox' });
+    }
     c.set('userId', local.userId);
     c.set('userEmail', local.email);
     if (isPreviewRoute) setPreviewSessionCookie(c, token);
@@ -215,6 +236,13 @@ export async function combinedAuth(c: Context, next: Next) {
 
     if (error || !user) {
       throw new HTTPException(401, { message: 'Invalid or expired token' });
+    }
+
+    if (previewSandboxId && !(await canAccessPreviewSandbox({
+      previewSandboxId,
+      userId: user.id,
+    }))) {
+      throw new HTTPException(403, { message: 'Not authorized to access this sandbox' });
     }
 
     c.set('userId', user.id);
@@ -258,4 +286,10 @@ function setPreviewSessionCookie(c: Context, token: string) {
     `${PREVIEW_SESSION_COOKIE}=${encoded}; Path=/v1/p/; HttpOnly; SameSite=Lax; Max-Age=3600`,
     { append: true },
   );
+}
+
+function extractPreviewSandboxId(path: string): string | null {
+  const match = path.match(/^\/v1\/p\/([^/]+)(?:\/|$)/);
+  if (!match) return null;
+  return match[1] === 'auth' ? null : match[1];
 }

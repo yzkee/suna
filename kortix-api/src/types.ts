@@ -80,6 +80,7 @@ export interface AppContext {
 export interface AuthVariables {
   userId: string;
   userEmail: string;
+  accountId?: string;
 }
 
 // Hono environment type (cron/billing)

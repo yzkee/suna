@@ -17,6 +17,7 @@ import { validateSecretKey } from './repositories/api-keys';
 import { isKortixToken } from './shared/crypto';
 import { getSupabase } from './shared/supabase';
 import { verifySupabaseJwt } from './shared/jwt-verify';
+import { canAccessPreviewSandbox } from './shared/preview-ownership';
 import { setupApp } from './setup';
 import { providersApp } from './providers/routes';
 import { secretsApp } from './secrets/routes';
@@ -647,21 +648,33 @@ function extractCookieToken(req: Request): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-async function validatePreviewToken(token: string): Promise<boolean> {
+async function validatePreviewToken(token: string, sandboxId: string): Promise<boolean> {
   if (isKortixToken(token)) {
     const result = await validateSecretKey(token);
-    return result.isValid;
+    return !!result.isValid && !!result.accountId && await canAccessPreviewSandbox({
+      previewSandboxId: sandboxId,
+      accountId: result.accountId,
+    });
   }
   // Fast path: local JWT verification (no network roundtrip)
   const local = await verifySupabaseJwt(token);
-  if (local.ok) return true;
+  if (local.ok) {
+    return canAccessPreviewSandbox({
+      previewSandboxId: sandboxId,
+      userId: local.userId,
+    });
+  }
   // Definitively invalid (bad sig, expired, malformed) — reject without network call
   if (local.reason !== 'no-keys' && local.reason !== 'no-key-for-kid') return false;
   // JWKS not yet available — fall back to network call
   try {
     const supabase = getSupabase();
     const { data: { user }, error } = await supabase.auth.getUser(token);
-    return !error && !!user;
+    if (error || !user) return false;
+    return canAccessPreviewSandbox({
+      previewSandboxId: sandboxId,
+      userId: user.id,
+    });
   } catch {
     return false;
   }
@@ -815,13 +828,14 @@ export default {
       if (!isSubdomainAuthenticated(sandboxId, port)) {
         const authHeader = req.headers.get('Authorization');
         const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        const kortixTokenHeader = req.headers.get('X-Kortix-Token');
         const cookieToken = extractCookieToken(req);
         // Also accept ?token= query param — browser WebSocket API can't set
         // custom headers, and initial page loads may not have cookies yet.
         const queryToken = url.searchParams.get('token');
-        const token = bearerToken || cookieToken || queryToken;
+        const token = bearerToken || cookieToken || kortixTokenHeader || queryToken;
 
-        if (!token || !(await validatePreviewToken(token))) {
+        if (!token || !(await validatePreviewToken(token, sandboxId))) {
           return new Response(JSON.stringify({ error: 'Unauthorized' }), {
             status: 401,
             headers: {
@@ -973,11 +987,12 @@ export default {
 
         const wsAuthHeader = req.headers.get('Authorization');
         const wsBearerToken = wsAuthHeader?.startsWith('Bearer ') ? wsAuthHeader.slice(7) : null;
+        const wsKortixTokenHeader = req.headers.get('X-Kortix-Token');
         const wsCookieToken = extractCookieToken(req);
         const wsQueryToken = url.searchParams.get('token');
-        const wsToken = wsBearerToken || wsCookieToken || wsQueryToken;
+        const wsToken = wsBearerToken || wsCookieToken || wsKortixTokenHeader || wsQueryToken;
 
-        if (wsToken && (await validatePreviewToken(wsToken))) {
+        if (wsToken && (await validatePreviewToken(wsToken, wsSandboxId))) {
           const resolved = await resolveProvider(wsSandboxId).catch(() => null);
           const provider = resolved?.provider ?? 'local_docker';
 
