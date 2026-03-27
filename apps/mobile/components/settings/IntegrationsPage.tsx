@@ -40,6 +40,7 @@ import { CustomMcpDialog } from './integrations/CustomMcpDialog';
 import { AnimatedPageWrapper } from '@/components/shared/AnimatedPageWrapper';
 import { useLanguage } from '@/contexts';
 import { useRouter } from 'expo-router';
+import { useThemeColors } from '@/lib/theme-colors';
 import { log } from '@/lib/logger';
 
 import {
@@ -518,6 +519,7 @@ function AppRow({
   const isConnected = connections && connections.length > 0;
   const fg = isDark ? '#f8f8f8' : '#121215';
   const muted = isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)';
+  const theme = useThemeColors();
   const categoryText = app.categories?.slice(0, 2).join(' · ') || '';
 
   return (
@@ -560,10 +562,10 @@ function AppRow({
             paddingHorizontal: 12,
             paddingVertical: 6,
             borderRadius: 8,
-            backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+            backgroundColor: theme.primary,
           }}
         >
-          <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: fg }}>
+          <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: theme.primaryForeground }}>
             Connect
           </Text>
         </View>

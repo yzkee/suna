@@ -22,6 +22,7 @@ import {
   type IntegrationConnection,
 } from '@/hooks/useIntegrations';
 import { useSandboxContext } from '@/contexts/SandboxContext';
+import { useThemeColors } from '@/lib/theme-colors';
 import { log } from '@/lib/logger';
 
 interface ManageConnectionSheetProps {
@@ -43,9 +44,11 @@ export function ManageConnectionSheet({ connection, appImgSrc, onDismiss }: Mana
   const linkSandbox = useLinkSandboxIntegration();
   const unlinkSandbox = useUnlinkSandboxIntegration();
 
-  const { sandboxId } = useSandboxContext();
+  const { sandboxId, sandboxName } = useSandboxContext();
+  const theme = useThemeColors();
 
   const [renameDraft, setRenameDraft] = useState('');
+  const [localLabel, setLocalLabel] = useState<string | null>(null);
 
   // Fetch sandboxes linked to this integration
   const { data: sandboxData } = useIntegrationSandboxes(
@@ -60,6 +63,7 @@ export function ManageConnectionSheet({ connection, appImgSrc, onDismiss }: Mana
   useEffect(() => {
     if (connection) {
       setRenameDraft(connection.label || connection.appName || connection.app);
+      setLocalLabel(null);
       sheetRef.current?.snapToIndex(0);
     } else {
       sheetRef.current?.close();
@@ -83,16 +87,18 @@ export function ManageConnectionSheet({ connection, appImgSrc, onDismiss }: Mana
   // ── Rename ──
   const handleOpenRename = useCallback(() => {
     if (!connection) return;
-    setRenameDraft(connection.label || connection.appName || connection.app);
+    setRenameDraft(displayName);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     renameSheetRef.current?.present();
-  }, [connection]);
+  }, [connection, displayName]);
 
   const handleConfirmRename = useCallback(async () => {
     if (!connection || !renameDraft.trim()) return;
     Keyboard.dismiss();
     try {
-      await rename.mutateAsync({ integrationId: connection.integrationId, label: renameDraft.trim() });
+      const newLabel = renameDraft.trim();
+      await rename.mutateAsync({ integrationId: connection.integrationId, label: newLabel });
+      setLocalLabel(newLabel);
       renameSheetRef.current?.dismiss();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err: any) {
@@ -148,7 +154,7 @@ export function ManageConnectionSheet({ connection, appImgSrc, onDismiss }: Mana
   const subtleBg = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)';
   const borderColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
 
-  const displayName = connection?.label || connection?.appName || connection?.app || '';
+  const displayName = localLabel || connection?.label || connection?.appName || connection?.app || '';
 
   const formatDate = (iso: string | null) => {
     if (!iso) return null;
@@ -246,7 +252,7 @@ export function ManageConnectionSheet({ connection, appImgSrc, onDismiss }: Mana
                   >
                     <Monitor size={18} color={muted} style={{ marginRight: 10 }} />
                     <Text style={{ flex: 1, fontSize: 14, fontFamily: 'Roobert', color: fg }} numberOfLines={1}>
-                      {sandboxId.length > 20 ? `sandbox-${sandboxId.slice(0, 8)}` : sandboxId}
+                      {sandboxName || sandboxId}
                     </Text>
                     <Pressable
                       onPress={handleToggleLink}
@@ -259,21 +265,21 @@ export function ManageConnectionSheet({ connection, appImgSrc, onDismiss }: Mana
                         paddingVertical: 6,
                         borderRadius: 8,
                         backgroundColor: isLinked
-                          ? (isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.06)')
-                          : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'),
+                          ? (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)')
+                          : theme.primary,
                       }}
                     >
                       {(linkSandbox.isPending || unlinkSandbox.isPending) ? (
-                        <ActivityIndicator size="small" color={fg} />
+                        <ActivityIndicator size="small" color={isLinked ? muted : theme.primaryForeground} />
                       ) : isLinked ? (
                         <>
-                          <Unlink size={13} color="#ef4444" />
-                          <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: '#ef4444' }}>Unlink</Text>
+                          <Unlink size={13} color={muted} />
+                          <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: muted }}>Unlink</Text>
                         </>
                       ) : (
                         <>
-                          <Link2 size={13} color={fg} />
-                          <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: fg }}>Link</Text>
+                          <Link2 size={13} color={theme.primaryForeground} />
+                          <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: theme.primaryForeground }}>Link</Text>
                         </>
                       )}
                     </Pressable>
