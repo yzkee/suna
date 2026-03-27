@@ -9,7 +9,7 @@
  * After completion, writes INSTANCE_SETUP_COMPLETE=true to sandbox env.
  */
 
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   View,
   ScrollView,
@@ -21,6 +21,13 @@ import {
   Platform,
   PanResponder,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withTiming,
+  Easing,
+} from 'react-native-reanimated';
 import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -57,6 +64,31 @@ import { useOpenCodeProviders } from '@/lib/opencode/hooks/use-opencode-data';
 import { useThemeColors } from '@/lib/theme-colors';
 import { getAuthToken } from '@/api/config';
 import { useTabStore } from '@/stores/tab-store';
+import { log } from '@/lib/logger';
+
+// ─── Spinning loader (Loader2 doesn't animate on its own in RN) ─────────────
+
+function SpinningLoader({ size, color }: { size: number; color: string }) {
+  const rotation = useSharedValue(0);
+
+  useEffect(() => {
+    rotation.value = withRepeat(
+      withTiming(360, { duration: 1000, easing: Easing.linear }),
+      -1,
+      false,
+    );
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+  }));
+
+  return (
+    <Animated.View style={animatedStyle}>
+      <Loader2 size={size} color={color} />
+    </Animated.View>
+  );
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -349,7 +381,7 @@ function ProviderStep({ onContinue, isDark, themeColors }: StepProps & { onConti
                 }}
               >
                 {connecting ? (
-                  <><Loader2 size={14} color={themeColors.primaryForeground} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Connecting…</Text></>
+                  <><SpinningLoader size={14} color={themeColors.primaryForeground} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Connecting…</Text></>
                 ) : (
                   <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Connect</Text>
                 )}
@@ -513,7 +545,7 @@ function ToolSecretsStep({ onContinue, isDark, themeColors }: StepProps & { onCo
           </Pressable>
           <Pressable onPress={handleSave} disabled={saving} style={{ flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, backgroundColor: themeColors.primary }}>
             {saving ? (
-              <><Loader2 size={14} color={themeColors.primaryForeground} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Saving…</Text></>
+              <><SpinningLoader size={14} color={themeColors.primaryForeground} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Saving…</Text></>
             ) : (
               <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>{filledCount > 0 ? 'Save & continue' : 'Continue'}</Text>
             )}
@@ -602,25 +634,28 @@ function PipedreamStep({ onComplete, completing, isDark, themeColors }: StepProp
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onComplete(); }} disabled={busy} style={{ flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, borderWidth: 1, borderColor: colors.cardBorder }}>
             {completing ? (
-              <><Loader2 size={14} color={colors.muted} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: colors.muted }}>Finishing…</Text></>
+              <><SpinningLoader size={14} color={colors.muted} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: colors.muted }}>Finishing…</Text></>
             ) : (
               <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: colors.muted }}>Skip for now</Text>
             )}
           </Pressable>
           <Pressable onPress={handleSave} disabled={busy || !allFilled} style={{ flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, backgroundColor: themeColors.primary, opacity: allFilled ? 1 : 0.5 }}>
             {busy ? (
-            <><Loader2 size={14} color={themeColors.primaryForeground} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>{saving ? 'Saving…' : 'Finishing…'}</Text></>
+            <><SpinningLoader size={14} color={themeColors.primaryForeground} /><Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>{saving ? 'Saving…' : 'Finishing…'}</Text></>
           ) : (
             <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Save & finish</Text>
           )}
           </Pressable>
         </View>
-        <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)', textAlign: 'center', marginTop: 10 }}>
-          Get your credentials at{' '}
-          <Text style={{ textDecorationLine: 'underline' }} onPress={() => Linking.openURL('https://pipedream.com/connect')}>
+        <Pressable onPress={() => Linking.openURL('https://pipedream.com/connect')} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: 10 }}>
+          <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.3)' : 'rgba(18,18,21,0.3)' }}>
+            Get your credentials at
+          </Text>
+          <Text style={{ fontSize: 11, fontFamily: 'Roobert-Medium', color: isDark ? 'rgba(248,248,248,0.4)' : 'rgba(18,18,21,0.4)', textDecorationLine: 'underline' }}>
             pipedream.com/connect
           </Text>
-        </Text>
+          <ExternalLink size={10} color={isDark ? 'rgba(248,248,248,0.3)' : 'rgba(18,18,21,0.3)'} />
+        </Pressable>
       </View>
     </View>
   );
@@ -659,15 +694,24 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   ).current;
 
   const markSetupComplete = useCallback(async () => {
-    if (!sandboxUrl) return;
+    if (!sandboxUrl) {
+      log.error('[SetupWizard] markSetupComplete: no sandboxUrl');
+      onComplete();
+      return;
+    }
     setCompleting(true);
     try {
-      await sandboxFetch(sandboxUrl, '/env/INSTANCE_SETUP_COMPLETE', {
+      const res = await sandboxFetch(sandboxUrl, '/env/INSTANCE_SETUP_COMPLETE', {
         method: 'PUT',
         body: JSON.stringify({ value: 'true' }),
       });
-    } catch {
-      // Best effort — continue to main app
+      if (!res.ok) {
+        log.error('[SetupWizard] Failed to write INSTANCE_SETUP_COMPLETE:', res.status, await res.text().catch(() => ''));
+      } else {
+        log.log('[SetupWizard] INSTANCE_SETUP_COMPLETE written successfully');
+      }
+    } catch (err: any) {
+      log.error('[SetupWizard] markSetupComplete error:', err?.message || err);
     }
     onComplete();
   }, [sandboxUrl, onComplete]);

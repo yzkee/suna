@@ -85,6 +85,13 @@ export function QuestionPrompt({
     }
   }, [editing]);
 
+  // Auto-activate custom input for single questions with no options
+  useEffect(() => {
+    if (isSingle && options.length === 0 && showCustom && !editing) {
+      setEditing(true);
+    }
+  }, []);
+
   // -----------------------------------------------------------------------
   // Handlers
   // -----------------------------------------------------------------------
@@ -553,8 +560,13 @@ export function QuestionPrompt({
                     ref={inputRef}
                     placeholder="Type your answer..."
                     placeholderTextColor={mutedColor}
-                    defaultValue={customInputs[tab]}
-                    onSubmitEditing={(e) => handleCustomSubmit(e.nativeEvent.text)}
+                    value={customInputs[tab]}
+                    onChangeText={(t) => {
+                      const next = [...customInputs];
+                      next[tab] = t;
+                      setCustomInputs(next);
+                    }}
+                    onSubmitEditing={() => handleCustomSubmit(customInputs[tab])}
                     returnKeyType={isMulti ? 'done' : 'go'}
                     style={{
                       flex: 1,
@@ -569,12 +581,7 @@ export function QuestionPrompt({
                     }}
                   />
                   <TouchableOpacity
-                    onPress={() => {
-                      const val = inputRef.current
-                        ? (inputRef.current as any)._lastNativeText || customInputs[tab]
-                        : customInputs[tab];
-                      handleCustomSubmit(val || '');
-                    }}
+                    onPress={() => handleCustomSubmit(customInputs[tab])}
                     activeOpacity={0.8}
                     style={{
                       height: 32,
