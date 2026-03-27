@@ -17,6 +17,8 @@ const SidebarRight = lazy(() =>
 );
 
 function SidebarSkeleton() {
+  const obActive = useOnboardingModeStore((s) => s.active);
+  if (obActive) return null;
   return (
     <div className="hidden md:flex w-[280px] flex-col bg-sidebar shrink-0">
       <div className="p-4 space-y-4">
