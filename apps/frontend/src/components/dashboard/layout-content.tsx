@@ -193,9 +193,9 @@ async function authFetch(...args: Parameters<typeof fetch>) {
 	return authenticatedFetch(...args);
 }
 
-function persistEnv(key: string, value: string) {
+async function persistEnv(key: string, value: string) {
 	const u = getInstanceUrl();
-	authFetch(`${u}/env/${key}`, {
+	await authFetch(`${u}/env/${key}`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ value }),
@@ -482,8 +482,46 @@ export default function DashboardLayoutContent({
 		return () => clearTimeout(t);
 	}, [onboardingChecked, routeSyncing]);
 
+	// ── Query param controls ──────────────────────────────────────
+	// ?onboarding-skip  → mark complete, skip straight to dashboard
+	// ?onboarding-redo  → reset to false, re-run onboarding from scratch
+	const [paramHandled, setParamHandled] = useState(false);
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		const params = new URLSearchParams(window.location.search);
+		const wantsSkip = params.has("onboarding-skip");
+		const wantsRedo = params.has("onboarding-redo");
+		if (!wantsSkip && !wantsRedo) { setParamHandled(true); return; }
+
+		const instanceUrl = getActiveOpenCodeUrl();
+		if (!instanceUrl) return; // wait for sandbox URL
+
+		(async () => {
+			if (wantsSkip) {
+				await persistEnv("ONBOARDING_COMPLETE", "true");
+				// Clean URL and let the normal check pass through
+				const clean = new URL(window.location.href);
+				clean.searchParams.delete("onboarding-skip");
+				window.history.replaceState({}, "", clean.pathname + clean.search);
+				ob.done(); // exit onboarding mode if active
+				setParamHandled(true);
+			} else if (wantsRedo) {
+				await persistEnv("ONBOARDING_COMPLETE", "false");
+				await persistEnv("ONBOARDING_SESSION_ID", "");
+				await persistEnv("ONBOARDING_COMMAND_FIRED", "");
+				const clean = new URL(window.location.href);
+				clean.searchParams.delete("onboarding-redo");
+				window.history.replaceState({}, "", clean.pathname + clean.search);
+				ob.done(); // reset any existing state
+				setParamHandled(true);
+			}
+		})();
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [activeServerId]);
+
 	// Check ONBOARDING_COMPLETE — enter onboarding mode or pass through.
 	useEffect(() => {
+		if (!paramHandled) return;
 		const check = async () => {
 			if (routeSyncing) return;
 			const instanceUrl = getActiveOpenCodeUrl();
@@ -505,7 +543,7 @@ export default function DashboardLayoutContent({
 		};
 		check();
 	// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [activeServerId, routeInstanceId, routeSyncing]);
+	}, [activeServerId, routeInstanceId, routeSyncing, paramHandled]);
 
 	// ── Onboarding: create / resume session ──
 	useEffect(() => {
