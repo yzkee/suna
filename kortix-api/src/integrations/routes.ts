@@ -33,6 +33,8 @@ type SandboxEnv = {
 
 const connectTokenSchema = z.object({
   app: z.string().optional(),
+  success_redirect_uri: z.string().optional(),
+  error_redirect_uri: z.string().optional(),
 });
 
 const tokenRequestSchema = z.object({
@@ -107,7 +109,10 @@ export function createIntegrationsRouter(): Hono<AppEnv> {
 
     try {
       const provider = getProviderFromRequest(c);
-      const result = await provider.createConnectToken(accountId, parsed.data.app);
+      const result = await provider.createConnectToken(accountId, parsed.data.app, {
+        successRedirectUri: parsed.data.success_redirect_uri,
+        errorRedirectUri: parsed.data.error_redirect_uri,
+      });
       return c.json(result);
     } catch (err) {
       console.error('[INTEGRATIONS] Error creating connect token:', err);
@@ -188,6 +193,42 @@ export function createIntegrationsRouter(): Hono<AppEnv> {
     } catch (err) {
       console.error('[INTEGRATIONS] Error saving connection:', err);
       return c.json({ error: 'Failed to save connection' }, 500);
+    }
+  });
+
+  // Sync: pull accounts from Pipedream and save any missing ones locally
+  app.post('/connections/sync', async (c) => {
+    try {
+      const userId = c.get('userId') as string;
+      const accountId = await resolveAccountId(userId);
+      const provider = getProviderFromRequest(c);
+
+      // Get all Pipedream accounts for this user
+      const pdAccounts = await provider.listAccounts(accountId);
+      // Get existing local connections
+      const existing = await listIntegrationsByAccount(accountId);
+      const existingProviderIds = new Set(existing.map((e) => e.providerAccountId));
+
+      let synced = 0;
+      for (const pd of pdAccounts) {
+        if (!existingProviderIds.has(pd.id)) {
+          await insertIntegration({
+            accountId,
+            app: pd.app,
+            appName: pd.appName,
+            providerName: provider.name,
+            providerAccountId: pd.id,
+          });
+          synced++;
+          console.log(`[INTEGRATIONS] Synced: ${pd.app} (${pd.id}) for account ${accountId}`);
+        }
+      }
+
+      const rows = await listIntegrationsByAccount(accountId);
+      return c.json({ connections: rows, synced });
+    } catch (err) {
+      console.error('[INTEGRATIONS] Sync error:', err);
+      return c.json({ error: 'Failed to sync connections' }, 500);
     }
   });
 

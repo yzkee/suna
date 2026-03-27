@@ -125,7 +125,7 @@ export interface TriggerListResult {
 
 export interface AuthProvider {
   readonly name: string;
-  createConnectToken(accountId: string, app?: string): Promise<ConnectTokenResult>;
+  createConnectToken(accountId: string, app?: string, opts?: { successRedirectUri?: string; errorRedirectUri?: string }): Promise<ConnectTokenResult>;
   listAccounts(accountId: string): Promise<ConnectedAccount[]>;
   getAccount(accountId: string, accountProviderId: string): Promise<ConnectedAccount | null>;
   getAuthToken(accountId: string, app: string, providerAccountId?: string): Promise<AuthToken>;

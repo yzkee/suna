@@ -120,13 +120,13 @@ export class PipedreamProvider implements AuthProvider {
     return res.json() as Promise<T>;
   }
 
-  async createConnectToken(accountId: string, app?: string): Promise<ConnectTokenResult> {
+  async createConnectToken(accountId: string, app?: string, opts?: { successRedirectUri?: string; errorRedirectUri?: string }): Promise<ConnectTokenResult> {
     const { origin, base } = this.getFrontendOriginAndBase();
     const body: Record<string, unknown> = {
       external_user_id: accountId,
       allowed_origins: [origin],
-      success_redirect_uri: `${base}/integrations?connected=true`,
-      error_redirect_uri: `${base}/integrations?error=true`,
+      success_redirect_uri: opts?.successRedirectUri || `${base}/integrations?connected=true`,
+      error_redirect_uri: opts?.errorRedirectUri || `${base}/integrations?error=true`,
     };
     if (app) {
       body.app_slug = app;
