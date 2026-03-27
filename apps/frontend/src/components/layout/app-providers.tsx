@@ -66,13 +66,17 @@ interface AppProvidersProps {
   sidebarSiblings?: React.ReactNode;
 }
 
-export function AppProviders({ 
-  children, 
+export function AppProviders({
+  children,
   showSidebar = true,
   defaultSidebarOpen,
   sidebarContent,
   sidebarSiblings
 }: AppProvidersProps) {
+  const obActive = useOnboardingModeStore((s) => s.active);
+  const obMorphing = useOnboardingModeStore((s) => s.morphing);
+  const hideSidebars = obActive && !obMorphing;
+
   const content = (
     <DeleteOperationEffectsWrapper>
       <SubscriptionStoreSync>
@@ -87,19 +91,21 @@ export function AppProviders({
   return (
     <SidebarProvider defaultOpen={defaultSidebarOpen}>
       <OnboardingSidebarSync />
-      {sidebarContent || (
+      {!hideSidebars && (sidebarContent || (
         <Suspense fallback={<SidebarSkeleton />}>
           <SidebarLeft />
         </Suspense>
-      )}
+      ))}
       <SidebarInset>
         <RightSidebarProvider>
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             {content}
           </div>
-          <Suspense fallback={null}>
-            <SidebarRight />
-          </Suspense>
+          {!hideSidebars && (
+            <Suspense fallback={null}>
+              <SidebarRight />
+            </Suspense>
+          )}
         </RightSidebarProvider>
       </SidebarInset>
       {sidebarSiblings}
