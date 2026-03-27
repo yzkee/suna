@@ -180,8 +180,12 @@ function IntegrationsContent({
       setConnectingApp(app.slug);
       try {
         const result = await createToken.mutateAsync(app.slug);
-        const url = result.connectUrl;
+        let url = result.connectUrl;
         if (!url) throw new Error('No connect URL returned');
+
+        // Pipedream connect link needs the app slug as a query param
+        const separator = url.includes('?') ? '&' : '?';
+        url = `${url}${separator}app=${encodeURIComponent(app.slug)}`;
 
         await WebBrowser.openBrowserAsync(url, {
           presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
