@@ -601,7 +601,7 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
             >
               {title}
             </Text>
-            {isBusy && (
+            {isBusy && !onboardingMode && (
               <View className="flex-row items-center mt-0.5">
                 <View className="h-1.5 w-1.5 rounded-full bg-muted-foreground mr-1" />
                 <Text className="text-xs text-muted-foreground">Working</Text>
@@ -742,6 +742,7 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
               left: 0,
               right: 0,
               bottom: 0,
+              paddingBottom: onboardingMode ? insets.bottom : 0,
               backgroundColor: isDark ? '#121215' : '#f5f5f5',
             }}
           >
