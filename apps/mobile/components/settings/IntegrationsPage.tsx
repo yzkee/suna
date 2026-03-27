@@ -123,7 +123,6 @@ function IntegrationsContent({
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [connectingApp, setConnectingApp] = useState<string | null>(null);
   const [managingConnection, setManagingConnection] = useState<IntegrationConnection | null>(null);
-  const [showCustomMcp, setShowCustomMcp] = useState(false);
 
   // Debounce search
   useEffect(() => {
@@ -339,38 +338,12 @@ function IntegrationsContent({
     </View>
   );
 
-  // ── List footer (loading + more integrations) ──
+  // ── List footer (loading) ──
   const ListFooter = () => (
     <View style={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 40 }}>
       {isFetchingNextPage && (
         <ActivityIndicator style={{ marginVertical: 16 }} color={muted} />
       )}
-
-      {/* Legacy: Custom MCP */}
-      <View style={{ marginTop: 24 }}>
-        <Text
-          style={{
-            fontSize: 12,
-            fontFamily: 'Roobert-Medium',
-            color: muted,
-            textTransform: 'uppercase',
-            letterSpacing: 1,
-            marginBottom: 10,
-          }}
-        >
-          More
-        </Text>
-        <LegacySection
-          icon={Globe}
-          title={t('integrations.customMcpServers', 'Custom MCP Servers')}
-          description={t('integrations.customMcpDescription', 'Connect custom MCP servers via HTTP')}
-          isDark={isDark}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setShowCustomMcp(true);
-          }}
-        />
-      </View>
     </View>
   );
 
@@ -429,14 +402,7 @@ function IntegrationsContent({
         onDismiss={() => setManagingConnection(null)}
       />
 
-      {/* Custom MCP dialog */}
-      <AnimatedPageWrapper visible={showCustomMcp} onClose={() => setShowCustomMcp(false)}>
-        <CustomMcpDialog
-          open={showCustomMcp}
-          onOpenChange={setShowCustomMcp}
-          onSave={() => setShowCustomMcp(false)}
-        />
-      </AnimatedPageWrapper>
+
 
     </>
   );
