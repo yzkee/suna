@@ -1411,9 +1411,18 @@ export function SessionChatInput({
   // never loses results even if the API returns empty for the longer query.
   const fileResultsCache = useRef<Set<string>>(new Set());
 
+  const savedTextBeforeQuestionRef = useRef('');
   useEffect(() => {
-    if (!lockForQuestion) return;
-    setText('');
+    if (lockForQuestion) {
+      // Question appeared — save current draft and clear input
+      savedTextBeforeQuestionRef.current = text;
+      setText('');
+    } else if (savedTextBeforeQuestionRef.current) {
+      // Question dismissed — restore the saved draft
+      setText(savedTextBeforeQuestionRef.current);
+      savedTextBeforeQuestionRef.current = '';
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to lockForQuestion changes
   }, [lockForQuestion]);
 
   // ChatGPT-like behavior: if the user starts typing while the textarea is not

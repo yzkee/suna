@@ -23,6 +23,7 @@ import {
 	Scissors,
 	Send,
 	Terminal,
+	Timer,
 	Undo2,
 	X,
 } from "lucide-react";
@@ -1308,6 +1309,20 @@ function UserMessageRow({
 		[commandInfo, rawText, commands],
 	);
 
+	// Detect trigger_event in user message
+	const triggerEventInfo = useMemo(() => {
+		if (!rawText) return undefined;
+		const match = rawText.match(/<trigger_event>\s*([\s\S]*?)\s*<\/trigger_event>/);
+		if (!match) return undefined;
+		try {
+			const data = JSON.parse(match[1]);
+			const promptText = rawText.replace(/<trigger_event>[\s\S]*?<\/trigger_event>/, "").trim();
+			return { data, prompt: promptText };
+		} catch {
+			return undefined;
+		}
+	}, [rawText]);
+
 	// Extract DCP notifications from ignored text parts (DCP plugin sends ignored user messages)
 	const ignoredTextParts = stickyParts
 		.filter(isTextPart)
@@ -1479,6 +1494,35 @@ function UserMessageRow({
 				{dcpNotifications.map((n, i) => (
 					<DCPNotificationCard key={i} notification={n} />
 				))}
+			</div>
+		);
+	}
+
+	// Trigger event messages: render as a right-aligned card
+	if (triggerEventInfo) {
+		return (
+			<div className="flex flex-col items-end gap-1">
+				<div className="inline-flex flex-col gap-1.5 px-4 py-2.5 rounded-2xl border border-border/60 bg-muted/40">
+					<div className="flex items-center gap-2">
+						<Timer className="size-3.5 text-muted-foreground shrink-0" />
+						<span className="font-mono text-sm text-foreground">
+							{triggerEventInfo.data?.trigger || "Scheduled Task"}
+						</span>
+						{triggerEventInfo.data?.data?.manual && (
+							<span className="text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+								Manual
+							</span>
+						)}
+					</div>
+					{triggerEventInfo.prompt && (
+						<div
+							className="text-xs text-muted-foreground pl-5.5 break-words max-w-[400px]"
+							style={{ paddingLeft: "1.375rem" }}
+						>
+							{triggerEventInfo.prompt}
+						</div>
+					)}
+				</div>
 			</div>
 		);
 	}
