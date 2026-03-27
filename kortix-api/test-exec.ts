@@ -123,7 +123,7 @@ for db in glob.glob('/workspace/.local/share/opencode/*.db'):
 
   // Wait
   console.log('Waiting for container...');
-  for (let i = 0; i < 15; i++) {
+  for (let i = 0; i < 50; i++) {
     await new Promise((r) => setTimeout(r, 3000));
     const check = await execOnHost(endpoint, `docker inspect --format='{{.Config.Image}}' ${updatedConfig.name}`, 10);
     const running = check.stdout?.trim().replace(/'/g, '');

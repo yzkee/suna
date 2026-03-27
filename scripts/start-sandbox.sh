@@ -35,8 +35,10 @@ cat > /usr/local/bin/justavps-docker-start.sh << DOCKERSTARTEOF
 set -e
 
 ENV_FILE="/etc/justavps/env"
-for i in \$(seq 1 60); do
-  [ -s "\$ENV_FILE" ] && break
+BOOT_TIME=\$(stat -c %Y /proc/1 2>/dev/null || echo 0)
+for i in \$(seq 1 120); do
+  FILE_TIME=\$(stat -c %Y "\$ENV_FILE" 2>/dev/null || echo 0)
+  [ "\$FILE_TIME" -gt "\$BOOT_TIME" ] && break
   sleep 1
 done
 if [ ! -s "\$ENV_FILE" ]; then
@@ -91,6 +93,23 @@ DOCKERSERVICEEOF
 # ── Write host ports for readiness checks ─────────────────────────────────
 mkdir -p /etc/justavps
 printf '%s\n' "${HOST_PORTS[@]}" > /etc/justavps/docker-host-ports
+
+# ── Write container config (used by update system) ────────────────────────
+docker volume create justavps-data 2>/dev/null || true
+WORKSPACE_MOUNT=$(docker volume inspect justavps-data --format '{{.Mountpoint}}')
+mkdir -p "${WORKSPACE_MOUNT}/.kortix"
+cat > "${WORKSPACE_MOUNT}/.kortix/container.json" << CONFIGEOF
+{
+  "image": "${DOCKER_IMAGE}",
+  "name": "justavps-workload",
+  "volumes": ["justavps-data:/workspace", "justavps-data:/config"],
+  "ports": ["3000:3000", "3456:3456", "8000:8000", "8080:8080", "6080:6080", "6081:6081", "3111:3111", "3210:3210", "3211:3211", "9223:9223", "9224:9224", "22222:22"],
+  "caps": ["SYS_ADMIN"],
+  "shmSize": "2g",
+  "envFile": "/etc/justavps/env",
+  "securityOpt": ["seccomp=unconfined"]
+}
+CONFIGEOF
 
 # ── Pull image ────────────────────────────────────────────────────────────
 stage_callback "docker_pulling" "Pulling Docker image..."
