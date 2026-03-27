@@ -22,8 +22,16 @@ STATE_FILE="$HOME/.kortix-deploy-slot"
 NGINX_CONF="/etc/nginx/sites-available/kortix-api"
 HEALTH_TIMEOUT=60
 HEALTH_INTERVAL=2
+LOCK_FILE="$HOME/.kortix-deploy.lock"
 
 cd ~/computer
+
+# ── Serialize deploys on-host (defense in depth) ────────────────────────────
+exec 9>"$LOCK_FILE"
+echo "[lock] Waiting for deploy lock..."
+flock 9
+echo "[lock] Acquired deploy lock"
+trap 'flock -u 9 || true' EXIT
 
 # ── Resolve active/standby slots ─────────────────────────────────────────────
 ACTIVE_SLOT="blue"
