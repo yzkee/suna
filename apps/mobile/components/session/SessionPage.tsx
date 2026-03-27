@@ -29,7 +29,7 @@ import { Text as RNText } from 'react-native';
 import { useSyncStore } from '@/lib/opencode/sync-store';
 import { useSessionSync } from '@/lib/opencode/session-sync';
 import { groupMessagesIntoTurns } from '@/lib/opencode/turns';
-import type { Turn, QuestionRequest } from '@/lib/opencode/types';
+import type { Turn, QuestionRequest, ToolPart } from '@/lib/opencode/types';
 import { useSession, replyToQuestion, rejectQuestion, forkSession } from '@/lib/platform/hooks';
 import { useTabStore } from '@/stores/tab-store';
 import { useMessageQueueStore } from '@/stores/message-queue-store';
@@ -110,6 +110,62 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
 
   const isBusy = sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry';
 
+  // ── Self-heal: restore pending questions after reload ──────────────────
+  // Matches the frontend's pattern: detect running question tool parts in
+  // messages, and if the store has no pending questions, poll GET /question.
+  const hasRunningQuestionTool = useMemo(() => {
+    if (!safeMessages || safeMessages.length === 0) return false;
+    return safeMessages.some((m) => {
+      if (m.info.role !== 'assistant') return false;
+      return m.parts.some((p) => {
+        if (p.type !== 'tool') return false;
+        const tool = p as ToolPart;
+        return tool.tool === 'question' && (tool.state.status === 'running' || tool.state.status === 'pending');
+      });
+    });
+  }, [safeMessages]);
+
+  useEffect(() => {
+    if (!hasRunningQuestionTool || pendingQuestions.length > 0 || !sandboxUrl) return;
+    let cancelled = false;
+    let inFlight = false;
+
+    const hydrateQuestions = async () => {
+      if (inFlight || cancelled) return;
+      inFlight = true;
+      try {
+        const token = await getAuthToken();
+        const res = await fetch(`${sandboxUrl}/question`, {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+        if (!res.ok || cancelled) return;
+        const questions = await res.json();
+        if (!Array.isArray(questions) || cancelled) return;
+        const store = useSyncStore.getState();
+        const existingIds = new Set((store.questions[sessionId] || []).map((q) => q.id));
+        for (const q of questions) {
+          if (q.sessionID === sessionId && !existingIds.has(q.id)) {
+            store.addQuestion(sessionId, q);
+            log.log('🔄 [SessionPage] Self-healed pending question:', q.id);
+          }
+        }
+      } catch {} finally {
+        inFlight = false;
+      }
+    };
+
+    hydrateQuestions();
+    const timer = setInterval(hydrateQuestions, 2000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [hasRunningQuestionTool, pendingQuestions.length, sandboxUrl, sessionId]);
+
   // ── Message Queue ──────────────────────────────────────────────────────
   const queueHydrated = useMessageQueueStore((s) => s.hydrated);
   const allQueuedMessages = useMessageQueueStore((s) => s.messages);
@@ -145,6 +201,11 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
   const activeQuestion: QuestionRequest | undefined = pendingQuestions[0];
   const hasQuestion = !!activeQuestion;
 
+  // Debug: track question state changes
+  useEffect(() => {
+    log.log('🔍 [SessionPage] pendingQuestions:', pendingQuestions.length, 'hasQuestion:', hasQuestion, 'activeQuestion:', activeQuestion?.id);
+  }, [pendingQuestions.length, hasQuestion]);
+
   // ── Queue Draining ─────────────────────────────────────────────────────
   // Automatically send the next queued message when the agent becomes idle.
   // Mirrors the frontend's drainNextWhenSettled pattern.
@@ -154,7 +215,6 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
 
   // Keep the last question around so we can still render it during exit animation
   const lastQuestionRef = useRef<QuestionRequest | undefined>(undefined);
-  const [showQuestionOverlay, setShowQuestionOverlay] = useState(false);
   if (activeQuestion) {
     lastQuestionRef.current = activeQuestion;
   }
@@ -166,7 +226,6 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
   const questionAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (hasQuestion) {
-      setShowQuestionOverlay(true);
       // Textarea fades out downward, then question fades in from bottom
       Animated.sequence([
         Animated.timing(inputAnim, {
@@ -193,10 +252,7 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
           duration: 300,
           useNativeDriver: true,
         }),
-      ]).start(() => {
-        // Only unmount question overlay after animation completes
-        setShowQuestionOverlay(false);
-      });
+      ]).start();
     }
   }, [hasQuestion, inputAnim, questionAnim]);
 
@@ -735,7 +791,7 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
         </Animated.View>
 
         {/* Question prompt — overlays on top of input, fades in from bottom */}
-        {showQuestionOverlay && lastQuestionRef.current && (
+        {lastQuestionRef.current && (
           <View
             style={{
               position: 'absolute',
@@ -745,6 +801,7 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
               paddingBottom: onboardingMode ? insets.bottom : 0,
               backgroundColor: isDark ? '#121215' : '#f5f5f5',
             }}
+            pointerEvents={hasQuestion ? 'auto' : 'none'}
           >
             <Animated.View
               style={{
@@ -756,7 +813,6 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
                   }),
                 }],
               }}
-              pointerEvents={hasQuestion ? 'auto' : 'none'}
             >
               <QuestionPrompt
                 request={lastQuestionRef.current}

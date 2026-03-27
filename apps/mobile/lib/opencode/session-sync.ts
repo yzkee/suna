@@ -13,6 +13,10 @@ import type { MessageWithParts } from './types';
 /**
  * Hydrate a session's messages into the sync store.
  * Call this when navigating to a session page.
+ *
+ * Note: pending questions/permissions are restored by SessionPage's
+ * self-heal effect (polling GET /question when a running question tool
+ * part is detected but no pending question is in the store).
  */
 export function useSessionSync(
   sandboxUrl: string | undefined,
