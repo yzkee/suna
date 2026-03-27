@@ -2315,6 +2315,20 @@ export function SessionTurn({
     [userText, commands],
   );
 
+  // Detect trigger_event in user message
+  const triggerEventInfo = useMemo(() => {
+    if (!userText) return undefined;
+    const match = userText.match(/<trigger_event>\s*([\s\S]*?)\s*<\/trigger_event>/);
+    if (!match) return undefined;
+    try {
+      const data = JSON.parse(match[1]);
+      const promptText = userText.replace(/<trigger_event>[\s\S]*?<\/trigger_event>/, '').trim();
+      return { data, prompt: promptText };
+    } catch {
+      return undefined;
+    }
+  }, [userText]);
+
   // Build interleaved parts list (text, tools, reasoning in natural order)
   // Hide question tool parts with pending questions, hide internal tools
   const visibleParts = useMemo(() => {
@@ -2373,7 +2387,55 @@ export function SessionTurn({
     <View className="mb-4">
       {/* User message */}
       <View className="flex-row justify-end mb-2 px-4">
-        {commandInfo ? (
+        {triggerEventInfo ? (
+          <View
+            style={{
+              borderRadius: 16,
+              borderWidth: 1,
+              borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+              backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+              paddingHorizontal: 16,
+              paddingVertical: 10,
+              maxWidth: '85%',
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Ionicons
+                name="timer-outline"
+                size={14}
+                color={isDark ? '#a1a1aa' : '#71717a'}
+              />
+              <Text
+                style={{
+                  fontSize: 14,
+                  fontFamily: 'Roobert-Medium',
+                  color: isDark ? '#F8F8F8' : '#121215',
+                }}
+              >
+                {triggerEventInfo.data?.trigger || 'Scheduled Task'}
+              </Text>
+              {triggerEventInfo.data?.data?.manual && (
+                <View style={{ paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
+                  <Text style={{ fontSize: 10, fontFamily: 'Roobert-Medium', color: isDark ? '#a1a1aa' : '#71717a' }}>Manual</Text>
+                </View>
+              )}
+            </View>
+            {triggerEventInfo.prompt && (
+              <Text
+                numberOfLines={3}
+                style={{
+                  fontSize: 12,
+                  fontFamily: 'Roobert',
+                  color: isDark ? '#71717a' : '#a1a1aa',
+                  marginTop: 4,
+                  paddingLeft: 22,
+                }}
+              >
+                {triggerEventInfo.prompt}
+              </Text>
+            )}
+          </View>
+        ) : commandInfo ? (
           <View
             style={{
               borderRadius: 16,
