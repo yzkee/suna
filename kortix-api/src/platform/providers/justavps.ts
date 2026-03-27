@@ -280,6 +280,7 @@ function resolveReachableKortixApiUrl(): string {
   return directBase;
 }
 
+
 export function buildCustomerCloudInitScript(dockerImage: string): string {
   return [
     'curl -fsSL https://raw.githubusercontent.com/kortix-ai/computer/main/scripts/start-sandbox.sh -o /usr/local/bin/kortix-start-sandbox.sh',
