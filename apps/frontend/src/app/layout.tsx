@@ -123,7 +123,7 @@ export default function RootLayout({
         {/* DNS prefetch for analytics (loaded later but resolve DNS early) */}
         <link rel="dns-prefetch" href="https://www.googletagmanager.com" />
         <link rel="dns-prefetch" href="https://eu.i.posthog.com" />
-        
+
         {/* Container Load - Initialize dataLayer with page context BEFORE GTM loads */}
         <script
           dangerouslySetInnerHTML={{
@@ -172,7 +172,7 @@ export default function RootLayout({
             `,
           }}
         />
-        
+
         {/* Static SEO meta tags - rendered in initial HTML */}
         <title>Kortix – The Autonomous Company Operating System</title>
         <meta name="description" content="A cloud computer where AI agents run your company. Connect 3,000+ tools, configure autonomous agents, set triggers — and the machine operates 24/7 with persistent memory." />
@@ -189,7 +189,7 @@ export default function RootLayout({
         <meta name="twitter:image" content="https://kortix.com/banner.png" />
         <meta name="twitter:site" content="@kortix" />
         <link rel="canonical" href="https://kortix.com" />
-        
+
         {/* iOS Smart App Banner - shows native install banner in Safari */}
         {!featureFlags.disableMobileAdvertising ? (
           <meta name="apple-itunes-app" content="app-id=6754448524, app-argument=kortix://" />
@@ -244,7 +244,7 @@ export default function RootLayout({
         />
       </head>
 
-      <body className="antialiased font-sans bg-background">
+      <body className="antialiased font-sans">
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
@@ -266,9 +266,9 @@ export default function RootLayout({
             <Analytics />
           </Suspense>
           {process.env.NEXT_PUBLIC_GTM_ID && (
-          <Suspense fallback={null}>
+            <Suspense fallback={null}>
               <GoogleTagManager gtmId={process.env.NEXT_PUBLIC_GTM_ID} />
-          </Suspense>
+            </Suspense>
           )}
           <Suspense fallback={null}>
             <SpeedInsights />
