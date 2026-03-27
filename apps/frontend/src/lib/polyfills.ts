@@ -18,29 +18,6 @@ if (!Promise.withResolvers) {
   };
 }
 
-// In some Node dev environments, global localStorage can exist with an invalid shape
-// (e.g. getItem is not a function), which crashes SSR in dependencies expecting a
-// browser-compatible Storage API.
-if (typeof window === 'undefined') {
-  const maybeStorage = (globalThis as { localStorage?: unknown }).localStorage as {
-    getItem?: unknown;
-    setItem?: unknown;
-    removeItem?: unknown;
-    clear?: unknown;
-  } | undefined;
-
-  if (maybeStorage && typeof maybeStorage.getItem !== 'function') {
-    (globalThis as { localStorage: Storage }).localStorage = {
-      getItem: () => null,
-      setItem: () => undefined,
-      removeItem: () => undefined,
-      clear: () => undefined,
-      key: () => null,
-      length: 0,
-    };
-  }
-}
-
 // Suppress specific React warnings from third-party libraries (e.g., Syncfusion)
 // These warnings are harmless but noisy - they come from libraries using deprecated patterns
 if (typeof window !== 'undefined') {
