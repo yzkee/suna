@@ -189,7 +189,7 @@ export default function InstanceDetailPage() {
           const data = await res.json();
           if (data?.INSTANCE_SETUP_COMPLETE === 'true') {
             setPhase('redirecting');
-            router.replace(buildInstancePath(sandbox.sandbox_id, '/dashboard'));
+            router.replace(buildInstancePath(sandbox.sandbox_id, '/onboarding'));
             return;
           }
         }
@@ -216,7 +216,7 @@ export default function InstanceDetailPage() {
       }
     } catch { /* best effort */ }
     setPhase('redirecting');
-    router.replace(buildInstancePath(sandbox.sandbox_id, '/dashboard'));
+    router.replace(buildInstancePath(sandbox.sandbox_id, '/onboarding'));
   }, [sandbox, router]);
 
   // ── Provisioning poller (cloud instances) ──
