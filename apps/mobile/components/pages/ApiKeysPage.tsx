@@ -257,8 +257,8 @@ function ApiKeysContent() {
               );
             case 'header':
               return (
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 24, marginBottom: 12 }}>
-                  <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, marginBottom: 8 }}>
+                  <Text style={{ fontSize: 11, fontFamily: 'Roobert-Medium', color: muted, textTransform: 'uppercase', letterSpacing: 0.8 }}>
                     Your Keys
                   </Text>
                   <Pressable
@@ -266,15 +266,15 @@ function ApiKeysContent() {
                     style={{
                       flexDirection: 'row',
                       alignItems: 'center',
-                      gap: 6,
-                      paddingHorizontal: 12,
-                      paddingVertical: 6,
+                      gap: 5,
+                      paddingHorizontal: 10,
+                      paddingVertical: 5,
                       borderRadius: 8,
                       backgroundColor: theme.primary,
                     }}
                   >
-                    <Plus size={14} color={theme.primaryForeground} />
-                    <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: theme.primaryForeground }}>
+                    <Plus size={13} color={theme.primaryForeground} />
+                    <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: theme.primaryForeground }}>
                       Create Key
                     </Text>
                   </Pressable>
@@ -291,26 +291,27 @@ function ApiKeysContent() {
               );
             case 'empty':
               return (
-                <View style={{ padding: 40, alignItems: 'center', backgroundColor: subtleBg, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, borderColor }}>
-                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
-                    <Key size={18} color={muted} />
-                  </View>
-                  <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: fg, marginBottom: 4 }}>No API keys</Text>
-                  <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: muted, textAlign: 'center' }}>
-                    Create a key to access your sandbox programmatically.
+                <View style={{ paddingVertical: 32, paddingHorizontal: 20, alignItems: 'center' }}>
+                  <Key size={22} color={muted} />
+                  <Text style={{ fontSize: 13, fontFamily: 'Roobert', color: muted, textAlign: 'center', marginTop: 10, lineHeight: 18 }}>
+                    No API keys yet. Create a key to access{'\n'}your sandbox programmatically.
                   </Text>
                 </View>
               );
             case 'hint':
               return (
-                <View style={{ flexDirection: 'row', gap: 10, marginTop: 24, padding: 14, borderRadius: 14, backgroundColor: subtleBg, borderWidth: StyleSheet.hairlineWidth, borderColor }}>
-                  <Shield size={16} color={muted} style={{ marginTop: 1 }} />
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: 20, padding: 12, borderRadius: 12, backgroundColor: subtleBg, borderWidth: StyleSheet.hairlineWidth, borderColor }}>
+                  <Shield size={14} color={muted} style={{ marginTop: 2 }} />
                   <View style={{ flex: 1, gap: 4 }}>
-                    <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: muted, lineHeight: 18 }}>
-                      Pass your secret key as a Bearer token:{' '}
-                      <Text style={{ fontFamily: 'Roobert-Medium', color: fg }}>Authorization: Bearer kortix_...</Text>
+                    <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: muted, lineHeight: 16 }}>
+                      Pass your key as a Bearer token:
                     </Text>
-                    <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: muted, lineHeight: 18 }}>
+                    <View style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, alignSelf: 'flex-start' }}>
+                      <Text style={{ fontSize: 11, fontFamily: 'Roobert-Medium', color: fg }}>
+                        Authorization: Bearer kortix_...
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: muted, lineHeight: 16, marginTop: 2 }}>
                       Keys are hashed server-side and never stored in plain text.
                     </Text>
                   </View>
@@ -387,27 +388,29 @@ function SandboxTokenCard({
   const borderColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
 
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 16, backgroundColor: subtleBg, borderWidth: StyleSheet.hairlineWidth, borderColor, marginTop: 8 }}>
-      <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center' }}>
-        <Bot size={18} color={muted} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: fg }}>Sandbox Token</Text>
-          <StatusDot status={apiKey.status} isDark={isDark} />
+    <View style={{ padding: 14, borderRadius: 14, backgroundColor: subtleBg, borderWidth: StyleSheet.hairlineWidth, borderColor, marginTop: 8 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center' }}>
+          <Bot size={16} color={muted} />
         </View>
-        <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: muted, marginTop: 2 }}>
-          Used by the agent inside your sandbox
-        </Text>
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: fg }}>Sandbox Token</Text>
+            <StatusDot status={apiKey.status} isDark={isDark} />
+          </View>
+        </View>
+        <Pressable onPress={onRegenerate} disabled={isRegenerating} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
+          {isRegenerating ? (
+            <ActivityIndicator size="small" color={muted} />
+          ) : (
+            <RefreshCw size={12} color={muted} />
+          )}
+          <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: muted }}>Regenerate</Text>
+        </Pressable>
       </View>
-      <Pressable onPress={onRegenerate} disabled={isRegenerating} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
-        {isRegenerating ? (
-          <ActivityIndicator size="small" color={muted} />
-        ) : (
-          <RefreshCw size={13} color={muted} />
-        )}
-        <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: muted }}>Regenerate</Text>
-      </Pressable>
+      <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: muted, marginTop: 6, marginLeft: 42 }}>
+        Used by the agent inside your sandbox to call the platform API
+      </Text>
     </View>
   );
 }
@@ -434,39 +437,40 @@ function ApiKeyRow({
       style={{
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 12,
-        paddingVertical: 14,
+        gap: 10,
+        paddingVertical: 12,
         borderBottomWidth: StyleSheet.hairlineWidth,
         borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-        backgroundColor: expired ? (isDark ? 'rgba(245,158,11,0.04)' : 'rgba(245,158,11,0.03)') : 'transparent',
       }}
     >
-      <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center' }}>
-        <Key size={15} color={muted} />
+      <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center' }}>
+        <Key size={14} color={muted} />
       </View>
       <View style={{ flex: 1 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: fg }} numberOfLines={1}>{apiKey.title}</Text>
           <StatusDot status={apiKey.status} isDark={isDark} />
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 3, flexWrap: 'wrap' }}>
-          <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: muted }}>Created {formatKeyDate(apiKey.created_at)}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+          <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: muted }}>
+            {formatKeyDate(apiKey.created_at)}
+          </Text>
           {apiKey.expires_at && (
-            <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: expired ? '#ca8a04' : muted }}>
-              {expired ? 'Expired' : 'Expires'} {formatKeyDate(apiKey.expires_at)}
-            </Text>
-          )}
-          {apiKey.last_used_at && (
-            <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: muted }}>Last used {formatKeyDate(apiKey.last_used_at)}</Text>
+            <>
+              <Text style={{ fontSize: 11, color: muted }}>·</Text>
+              <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: expired ? '#ca8a04' : muted }}>
+                {expired ? 'Expired' : 'Expires'} {formatKeyDate(apiKey.expires_at)}
+              </Text>
+            </>
           )}
         </View>
       </View>
       <Pressable
         onPress={apiKey.status === 'active' ? onRevoke : onDelete}
-        hitSlop={8}
+        hitSlop={10}
         style={{ padding: 6 }}
       >
-        <Trash2 size={16} color={muted} />
+        <Trash2 size={15} color={muted} />
       </Pressable>
     </View>
   );
@@ -640,14 +644,16 @@ function CreateApiKeySheet({
             justifyContent: 'center',
             paddingVertical: 14,
             borderRadius: 14,
-            backgroundColor: !title.trim() ? (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)') : theme.primary,
-            opacity: !title.trim() ? 0.5 : 1,
+            backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+            ...(!title.trim() ? {} : { backgroundColor: theme.primary }),
           }}
         >
           {createKey.isPending ? (
             <ActivityIndicator size="small" color={theme.primaryForeground} />
           ) : (
-            <Text style={{ fontSize: 16, fontFamily: 'Roobert-Medium', color: theme.primaryForeground }}>Create Key</Text>
+            <Text style={{ fontSize: 16, fontFamily: 'Roobert-Medium', color: !title.trim() ? muted : theme.primaryForeground }}>
+              Create Key
+            </Text>
           )}
         </Pressable>
       </BottomSheetView>
