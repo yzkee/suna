@@ -91,6 +91,11 @@ export default function InstanceDetailPage() {
   const [localProgress, setLocalProgress] = useState<{ progress: number; message: string } | null>(null);
   const localPollingRef = useRef(false);
 
+  // ── Provisioning poller (cloud instances) — declared early so phase effects can reference it ──
+  const isLocalDocker = sandbox?.provider === 'local_docker';
+  const poller = useSandboxPoller({ sandboxId: isLocalDocker ? undefined : id });
+  const autoStartedRef = useRef(false);
+
   useEffect(() => {
     if (!authLoading && !user) router.replace('/auth');
   }, [authLoading, user, router]);
@@ -220,10 +225,6 @@ export default function InstanceDetailPage() {
   }, [sandbox, router]);
 
   // ── Provisioning poller (cloud instances) ──
-  const isLocalDocker = sandbox?.provider === 'local_docker';
-  const poller = useSandboxPoller({ sandboxId: isLocalDocker ? undefined : id });
-  const autoStartedRef = useRef(false);
-
   useEffect(() => {
     if (!sandbox || autoStartedRef.current || isLocalDocker) return;
     if (sandbox.status === 'provisioning') {
