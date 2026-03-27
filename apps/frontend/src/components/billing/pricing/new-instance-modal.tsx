@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { X, Check, Loader2, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
 import { isBillingEnabled } from '@/lib/config';
@@ -154,37 +155,29 @@ export function NewInstanceModal({ open, onOpenChange, returnUrl, title }: NewIn
                 <Skeleton className="h-[72px] w-full rounded-xl" />
               </div>
             ) : (
-              <div className="space-y-2.5">
+              <RadioGroup value={selected ?? undefined} onValueChange={setSelected} className="gap-2.5">
                 {serverTypes.map((t) => {
                   const isSelected = selected === t.name;
                   const isRecommended = t.name === 'pro';
                   const meta = TIER_META[t.name];
                   return (
-                    <button
+                    <label
                       key={t.name}
-                      type="button"
-                      onClick={() => setSelected(t.name)}
                       className={cn(
-                        'group relative w-full flex items-center gap-3.5 px-4 py-3.5 rounded-xl border-2 transition-all cursor-pointer text-left',
+                        'relative flex items-center gap-3.5 px-4 py-3.5 rounded-xl border-2 transition-all cursor-pointer',
                         isSelected
                           ? 'border-foreground bg-foreground/[0.03]'
                           : 'border-border hover:border-foreground/20',
                       )}
                     >
-                      {/* Recommended badge — top-right corner */}
+                      {/* Recommended badge */}
                       {isRecommended && (
                         <span className="absolute -top-2.5 right-3 text-[10px] font-semibold bg-foreground text-background px-2 py-0.5 rounded-full">
                           Recommended
                         </span>
                       )}
 
-                      {/* Radio */}
-                      <div className={cn(
-                        'size-[18px] rounded-full border-2 shrink-0 flex items-center justify-center transition-colors',
-                        isSelected ? 'border-foreground' : 'border-muted-foreground/30',
-                      )}>
-                        {isSelected && <div className="size-2.5 rounded-full bg-foreground" />}
-                      </div>
+                      <RadioGroupItem value={t.name} />
 
                       {/* Specs */}
                       <div className="flex-1 min-w-0">
@@ -201,10 +194,10 @@ export function NewInstanceModal({ open, onOpenChange, returnUrl, title }: NewIn
                         <span className="text-lg font-bold tabular-nums text-foreground">${t.priceMonthlyMarkup.toFixed(0)}</span>
                         <span className="text-[11px] text-muted-foreground">/mo</span>
                       </div>
-                    </button>
+                    </label>
                   );
                 })}
-              </div>
+              </RadioGroup>
             )}
           </div>
 
