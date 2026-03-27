@@ -164,6 +164,15 @@ function IntegrationsContent({
     return map;
   }, [connections]);
 
+  // Map of app slug → imgSrc for icon lookup
+  const appImgMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const a of apps) {
+      if (a.imgSrc) map.set(a.slug, a.imgSrc);
+    }
+    return map;
+  }, [apps]);
+
   // ── Refetch connections when app comes to foreground (after OAuth) ──
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
@@ -302,6 +311,7 @@ function IntegrationsContent({
             <ConnectedRow
               key={conn.integrationId}
               connection={conn}
+              imgSrc={appImgMap.get(conn.app)}
               isDark={isDark}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -414,6 +424,7 @@ function IntegrationsContent({
       {/* Manage connection sheet */}
       <ManageConnectionSheet
         connection={managingConnection}
+        appImgSrc={managingConnection ? appImgMap.get(managingConnection.app) : undefined}
         onDismiss={() => setManagingConnection(null)}
       />
 
@@ -434,15 +445,18 @@ function IntegrationsContent({
 
 function ConnectedRow({
   connection,
+  imgSrc,
   isDark,
   onPress,
 }: {
   connection: IntegrationConnection;
+  imgSrc?: string;
   isDark: boolean;
   onPress: () => void;
 }) {
   const fg = isDark ? '#f8f8f8' : '#121215';
   const muted = isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)';
+  const iconUrl = imgSrc || (connection.metadata as any)?.imgSrc;
 
   return (
     <Pressable
@@ -458,7 +472,7 @@ function ConnectedRow({
     >
       <AppIcon
         name={connection.appName || connection.app}
-        imgSrc={(connection.metadata as any)?.imgSrc}
+        imgSrc={iconUrl}
         size={36}
       />
       <View style={{ flex: 1 }}>
@@ -474,8 +488,8 @@ function ConnectedRow({
               backgroundColor: connection.status === 'active' ? '#34d399' : '#ef4444',
             }}
           />
-          <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: muted, textTransform: 'capitalize' }}>
-            {connection.status}
+          <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: muted }}>
+            {connection.appName || connection.app}
           </Text>
         </View>
       </View>

@@ -1,48 +1,65 @@
 /**
  * ManageConnectionSheet — Bottom sheet for managing a connected Pipedream integration.
- * Rename, view status, disconnect.
+ * Shows icon, status, linked sandboxes, rename (via sub-sheet), and disconnect.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, TextInput, Pressable, Alert, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Pressable, Alert, ActivityIndicator, StyleSheet, Keyboard } from 'react-native';
 import { Text } from '@/components/ui/text';
-import BottomSheet, { BottomSheetBackdrop, BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import BottomSheet, { BottomSheetBackdrop, BottomSheetScrollView, BottomSheetModal, BottomSheetView, BottomSheetTextInput } from '@gorhom/bottom-sheet';
 import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Pencil, Trash2, Check, X, Calendar, Clock } from 'lucide-react-native';
+import { Pencil, Trash2, Calendar, Link2, Unlink, Monitor } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 
 import { AppIcon } from './AppIcon';
 import {
   useRenameIntegration,
   useDisconnectIntegration,
+  useIntegrationSandboxes,
+  useLinkSandboxIntegration,
+  useUnlinkSandboxIntegration,
   type IntegrationConnection,
 } from '@/hooks/useIntegrations';
+import { useSandboxContext } from '@/contexts/SandboxContext';
 import { log } from '@/lib/logger';
 
 interface ManageConnectionSheetProps {
   connection: IntegrationConnection | null;
+  appImgSrc?: string;
   onDismiss: () => void;
 }
 
-export function ManageConnectionSheet({ connection, onDismiss }: ManageConnectionSheetProps) {
+export function ManageConnectionSheet({ connection, appImgSrc, onDismiss }: ManageConnectionSheetProps) {
   const sheetRef = useRef<BottomSheet>(null);
-  const snapPoints = useMemo(() => ['55%', '80%'], []);
+  const renameSheetRef = useRef<BottomSheetModal>(null);
+  const snapPoints = useMemo(() => ['60%', '85%'], []);
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
 
   const rename = useRenameIntegration();
   const disconnect = useDisconnectIntegration();
+  const linkSandbox = useLinkSandboxIntegration();
+  const unlinkSandbox = useUnlinkSandboxIntegration();
 
-  const [isEditing, setIsEditing] = useState(false);
-  const [labelDraft, setLabelDraft] = useState('');
+  const { sandboxId } = useSandboxContext();
+
+  const [renameDraft, setRenameDraft] = useState('');
+
+  // Fetch sandboxes linked to this integration
+  const { data: sandboxData } = useIntegrationSandboxes(
+    connection?.integrationId ?? null,
+  );
+
+  const linkedSandboxes = sandboxData?.linkedSandboxes ?? [];
+  const availableSandboxes = sandboxData?.availableSandboxes ?? [];
+  const isLinked = linkedSandboxes.some((s: any) => s.sandboxId === sandboxId);
 
   // Present/dismiss based on connection
   useEffect(() => {
     if (connection) {
-      setIsEditing(false);
-      setLabelDraft(connection.label || connection.appName || connection.app);
+      setRenameDraft(connection.label || connection.appName || connection.app);
       sheetRef.current?.snapToIndex(0);
     } else {
       sheetRef.current?.close();
@@ -63,17 +80,43 @@ export function ManageConnectionSheet({ connection, onDismiss }: ManageConnectio
     [],
   );
 
-  const handleSaveLabel = useCallback(async () => {
-    if (!connection || !labelDraft.trim()) return;
+  // ── Rename ──
+  const handleOpenRename = useCallback(() => {
+    if (!connection) return;
+    setRenameDraft(connection.label || connection.appName || connection.app);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    renameSheetRef.current?.present();
+  }, [connection]);
+
+  const handleConfirmRename = useCallback(async () => {
+    if (!connection || !renameDraft.trim()) return;
+    Keyboard.dismiss();
     try {
-      await rename.mutateAsync({ integrationId: connection.integrationId, label: labelDraft.trim() });
-      setIsEditing(false);
+      await rename.mutateAsync({ integrationId: connection.integrationId, label: renameDraft.trim() });
+      renameSheetRef.current?.dismiss();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Failed to rename');
     }
-  }, [connection, labelDraft, rename]);
+  }, [connection, renameDraft, rename]);
 
+  // ── Link/Unlink sandbox ──
+  const handleToggleLink = useCallback(async () => {
+    if (!connection || !sandboxId) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      if (isLinked) {
+        await unlinkSandbox.mutateAsync({ integrationId: connection.integrationId, sandboxId });
+      } else {
+        await linkSandbox.mutateAsync({ integrationId: connection.integrationId, sandboxId });
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Failed to update sandbox link');
+    }
+  }, [connection, sandboxId, isLinked, linkSandbox, unlinkSandbox]);
+
+  // ── Disconnect ──
   const handleDisconnect = useCallback(() => {
     if (!connection) return;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -99,10 +142,11 @@ export function ManageConnectionSheet({ connection, onDismiss }: ManageConnectio
     );
   }, [connection, disconnect, onDismiss]);
 
+  // ── Colors ──
   const fg = isDark ? '#f8f8f8' : '#121215';
   const muted = isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)';
-  const border = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
-  const cardBg = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)';
+  const subtleBg = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)';
+  const borderColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
 
   const displayName = connection?.label || connection?.appName || connection?.app || '';
 
@@ -116,147 +160,252 @@ export function ManageConnectionSheet({ connection, onDismiss }: ManageConnectio
   };
 
   return (
-    <BottomSheet
-      ref={sheetRef}
-      index={-1}
-      snapPoints={snapPoints}
-      enablePanDownToClose
-      onChange={handleSheetChange}
-      backdropComponent={renderBackdrop}
-      backgroundStyle={{ backgroundColor: isDark ? '#161618' : '#FFFFFF' }}
-      handleIndicatorStyle={{ backgroundColor: isDark ? '#555' : '#ccc' }}
-    >
-      <BottomSheetScrollView
-        contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 20 }}
+    <>
+      <BottomSheet
+        ref={sheetRef}
+        index={-1}
+        snapPoints={snapPoints}
+        enablePanDownToClose
+        onChange={handleSheetChange}
+        backdropComponent={renderBackdrop}
+        backgroundStyle={{ backgroundColor: isDark ? '#161618' : '#FFFFFF' }}
+        handleIndicatorStyle={{ backgroundColor: isDark ? '#555' : '#ccc' }}
       >
-        {connection && (
-          <>
-            {/* Header */}
-            <View style={{ alignItems: 'center', marginBottom: 24 }}>
-              <AppIcon name={connection.appName || connection.app} imgSrc={(connection.metadata as any)?.imgSrc} size={56} />
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, gap: 8 }}>
-                {isEditing ? (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <TextInput
-                      value={labelDraft}
-                      onChangeText={setLabelDraft}
-                      onSubmitEditing={handleSaveLabel}
-                      autoFocus
-                      style={{
-                        fontSize: 18,
-                        fontFamily: 'Roobert-Medium',
-                        color: fg,
-                        borderBottomWidth: 1,
-                        borderBottomColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)',
-                        paddingVertical: 2,
-                        minWidth: 120,
-                        textAlign: 'center',
-                      }}
-                    />
-                    <Pressable onPress={handleSaveLabel} hitSlop={8}>
-                      {rename.isPending ? (
-                        <ActivityIndicator size="small" color={fg} />
-                      ) : (
-                        <Check size={18} color="#34d399" />
-                      )}
-                    </Pressable>
-                    <Pressable onPress={() => setIsEditing(false)} hitSlop={8}>
-                      <X size={18} color={muted} />
-                    </Pressable>
-                  </View>
-                ) : (
-                  <>
+        <BottomSheetScrollView
+          contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 20 }}
+        >
+          {connection && (
+            <>
+              {/* Header — Icon left, Name + Provider right */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 20 }}>
+                <AppIcon
+                  name={connection.appName || connection.app}
+                  imgSrc={appImgSrc || (connection.metadata as any)?.imgSrc}
+                  size={48}
+                />
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <Text style={{ fontSize: 18, fontFamily: 'Roobert-Medium', color: fg }}>
                       {displayName}
                     </Text>
-                    <Pressable onPress={() => setIsEditing(true)} hitSlop={8}>
+                    <Pressable onPress={handleOpenRename} hitSlop={8}>
                       <Pencil size={14} color={muted} />
                     </Pressable>
-                  </>
-                )}
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                    <View
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: 3,
+                        backgroundColor: connection.status === 'active' ? '#34d399' : '#ef4444',
+                      }}
+                    />
+                    <Text style={{ fontSize: 13, fontFamily: 'Roobert', color: muted }}>
+                      {connection.appName || connection.app}
+                    </Text>
+                  </View>
+                </View>
               </View>
 
-              {/* Status badge */}
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 6,
-                  marginTop: 8,
-                  paddingHorizontal: 10,
-                  paddingVertical: 4,
-                  borderRadius: 12,
-                  backgroundColor: connection.status === 'active'
-                    ? (isDark ? 'rgba(52,211,153,0.1)' : 'rgba(52,211,153,0.08)')
-                    : (isDark ? 'rgba(239,68,68,0.1)' : 'rgba(239,68,68,0.08)'),
-                }}
-              >
-                <View
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: 3,
-                    backgroundColor: connection.status === 'active' ? '#34d399' : '#ef4444',
-                  }}
-                />
-                <Text
-                  style={{
-                    fontSize: 12,
-                    fontFamily: 'Roobert-Medium',
-                    color: connection.status === 'active' ? '#34d399' : '#ef4444',
-                    textTransform: 'capitalize',
-                  }}
-                >
-                  {connection.status}
-                </Text>
-              </View>
-            </View>
-
-            {/* Info rows */}
-            <View style={{ gap: 12, marginBottom: 24 }}>
+              {/* Connected date */}
               {connection.connectedAt && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20 }}>
                   <Calendar size={16} color={muted} />
                   <Text style={{ fontSize: 14, fontFamily: 'Roobert', color: muted }}>
                     Connected {formatDate(connection.connectedAt)}
                   </Text>
                 </View>
               )}
-              {connection.lastUsedAt && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <Clock size={16} color={muted} />
-                  <Text style={{ fontSize: 14, fontFamily: 'Roobert', color: muted }}>
-                    Last used {formatDate(connection.lastUsedAt)}
+
+              {/* Linked Sandboxes */}
+              {sandboxId && (
+                <View style={{ marginBottom: 24 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <Link2 size={16} color={muted} />
+                    <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      Linked Sandboxes
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 13, fontFamily: 'Roobert', color: muted, marginBottom: 12 }}>
+                    Choose which sandboxes can use this integration for authenticated API calls.
                   </Text>
+
+                  {/* Current sandbox row */}
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingVertical: 12,
+                      paddingHorizontal: 14,
+                      borderRadius: 12,
+                      backgroundColor: subtleBg,
+                      borderWidth: StyleSheet.hairlineWidth,
+                      borderColor,
+                    }}
+                  >
+                    <Monitor size={18} color={muted} style={{ marginRight: 10 }} />
+                    <Text style={{ flex: 1, fontSize: 14, fontFamily: 'Roobert', color: fg }} numberOfLines={1}>
+                      {sandboxId.length > 20 ? `sandbox-${sandboxId.slice(0, 8)}` : sandboxId}
+                    </Text>
+                    <Pressable
+                      onPress={handleToggleLink}
+                      disabled={linkSandbox.isPending || unlinkSandbox.isPending}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 8,
+                        backgroundColor: isLinked
+                          ? (isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.06)')
+                          : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'),
+                      }}
+                    >
+                      {(linkSandbox.isPending || unlinkSandbox.isPending) ? (
+                        <ActivityIndicator size="small" color={fg} />
+                      ) : isLinked ? (
+                        <>
+                          <Unlink size={13} color="#ef4444" />
+                          <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: '#ef4444' }}>Unlink</Text>
+                        </>
+                      ) : (
+                        <>
+                          <Link2 size={13} color={fg} />
+                          <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: fg }}>Link</Text>
+                        </>
+                      )}
+                    </Pressable>
+                  </View>
                 </View>
               )}
-            </View>
 
-            {/* Disconnect */}
-            <Pressable
-              onPress={handleDisconnect}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-                paddingVertical: 14,
-                borderRadius: 14,
-                backgroundColor: isDark ? 'rgba(239,68,68,0.1)' : 'rgba(239,68,68,0.06)',
-              }}
-            >
-              {disconnect.isPending ? (
-                <ActivityIndicator size="small" color="#ef4444" />
-              ) : (
-                <Trash2 size={16} color="#ef4444" />
-              )}
-              <Text style={{ fontSize: 15, fontFamily: 'Roobert-Medium', color: '#ef4444' }}>
-                Disconnect
+              {/* Disconnect */}
+              <Pressable
+                onPress={handleDisconnect}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  paddingVertical: 14,
+                  borderRadius: 14,
+                  backgroundColor: isDark ? 'rgba(239,68,68,0.1)' : 'rgba(239,68,68,0.06)',
+                }}
+              >
+                {disconnect.isPending ? (
+                  <ActivityIndicator size="small" color="#ef4444" />
+                ) : (
+                  <Trash2 size={16} color="#ef4444" />
+                )}
+                <Text style={{ fontSize: 15, fontFamily: 'Roobert-Medium', color: '#ef4444' }}>
+                  Disconnect
+                </Text>
+              </Pressable>
+            </>
+          )}
+        </BottomSheetScrollView>
+      </BottomSheet>
+
+      {/* Rename Sub-Sheet */}
+      <BottomSheetModal
+        ref={renameSheetRef}
+        enableDynamicSizing
+        enablePanDownToClose
+        backdropComponent={renderBackdrop}
+        keyboardBehavior="interactive"
+        keyboardBlurBehavior="restore"
+        android_keyboardInputMode="adjustResize"
+        onDismiss={() => setRenameDraft('')}
+        backgroundStyle={{
+          backgroundColor: isDark ? '#161618' : '#FFFFFF',
+          borderTopLeftRadius: 24,
+          borderTopRightRadius: 24,
+        }}
+        handleIndicatorStyle={{
+          backgroundColor: isDark ? '#3F3F46' : '#D4D4D8',
+          width: 36,
+          height: 5,
+          borderRadius: 3,
+        }}
+      >
+        <BottomSheetView
+          style={{
+            paddingHorizontal: 24,
+            paddingTop: 8,
+            paddingBottom: Math.max(insets.bottom, 20) + 16,
+          }}
+        >
+          {/* Header */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
+            {connection && (
+              <View style={{ marginRight: 12 }}>
+                <AppIcon
+                  name={connection.appName || connection.app}
+                  imgSrc={appImgSrc || (connection.metadata as any)?.imgSrc}
+                  size={40}
+                />
+              </View>
+            )}
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 18, fontFamily: 'Roobert-Semibold', color: fg }}>
+                Rename
               </Text>
-            </Pressable>
-          </>
-        )}
-      </BottomSheetScrollView>
-    </BottomSheet>
+              <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: muted, marginTop: 2 }} numberOfLines={1}>
+                {displayName}
+              </Text>
+            </View>
+          </View>
+
+          {/* Input */}
+          <BottomSheetTextInput
+            value={renameDraft}
+            onChangeText={setRenameDraft}
+            placeholder="Enter new name"
+            placeholderTextColor={isDark ? 'rgba(248,248,248,0.25)' : 'rgba(18,18,21,0.3)'}
+            autoFocus
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="done"
+            onSubmitEditing={handleConfirmRename}
+            style={{
+              backgroundColor: isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.04)',
+              borderWidth: 1,
+              borderColor: isDark ? 'rgba(248,248,248,0.1)' : 'rgba(18,18,21,0.08)',
+              borderRadius: 14,
+              paddingHorizontal: 16,
+              paddingVertical: 14,
+              fontSize: 16,
+              fontFamily: 'Roobert',
+              color: fg,
+              marginBottom: 20,
+            }}
+          />
+
+          {/* Save button */}
+          <Pressable
+            onPress={handleConfirmRename}
+            disabled={!renameDraft.trim() || rename.isPending}
+            style={{
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingVertical: 14,
+              borderRadius: 14,
+              backgroundColor: !renameDraft.trim() ? (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)') : fg,
+              opacity: !renameDraft.trim() ? 0.5 : 1,
+            }}
+          >
+            {rename.isPending ? (
+              <ActivityIndicator size="small" color={isDark ? '#121215' : '#F8F8F8'} />
+            ) : (
+              <Text style={{ fontSize: 16, fontFamily: 'Roobert-Medium', color: isDark ? '#121215' : '#F8F8F8' }}>
+                Save
+              </Text>
+            )}
+          </Pressable>
+        </BottomSheetView>
+      </BottomSheetModal>
+    </>
   );
 }
