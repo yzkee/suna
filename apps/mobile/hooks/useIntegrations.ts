@@ -123,14 +123,28 @@ async function fetchConnections(): Promise<IntegrationConnection[]> {
   return data.connections ?? data;
 }
 
-async function createConnectToken(app?: string): Promise<ConnectTokenResult> {
+async function createConnectToken(opts: { app?: string; successRedirectUri?: string; errorRedirectUri?: string }): Promise<ConnectTokenResult> {
   const session = await getSession();
+  const body: Record<string, string> = {};
+  if (opts.app) body.app = opts.app;
+  if (opts.successRedirectUri) body.success_redirect_uri = opts.successRedirectUri;
+  if (opts.errorRedirectUri) body.error_redirect_uri = opts.errorRedirectUri;
   const res = await fetch(`${API_URL}/integrations/connect-token`, {
     method: 'POST',
     headers: authHeaders(session.access_token),
-    body: JSON.stringify(app ? { app } : {}),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error('Failed to create connect token');
+  return res.json();
+}
+
+export async function syncConnections(): Promise<{ connections: IntegrationConnection[]; synced: number }> {
+  const session = await getSession();
+  const res = await fetch(`${API_URL}/integrations/connections/sync`, {
+    method: 'POST',
+    headers: authHeaders(session.access_token),
+  });
+  if (!res.ok) throw new Error('Failed to sync connections');
   return res.json();
 }
 

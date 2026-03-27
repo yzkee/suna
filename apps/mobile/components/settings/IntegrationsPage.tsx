@@ -46,6 +46,7 @@ import {
   useIntegrationApps,
   useIntegrationConnections,
   useCreateConnectToken,
+  syncConnections,
   integrationKeys,
   type IntegrationApp,
   type IntegrationConnection,
@@ -179,7 +180,15 @@ function IntegrationsContent({
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setConnectingApp(app.slug);
       try {
-        const result = await createToken.mutateAsync(app.slug);
+        // Use app deep link scheme so Safari auto-dismisses after OAuth
+        const successUri = 'kortix://integrations/success';
+        const errorUri = 'kortix://integrations/error';
+
+        const result = await createToken.mutateAsync({
+          app: app.slug,
+          successRedirectUri: successUri,
+          errorRedirectUri: errorUri,
+        });
         let url = result.connectUrl;
         if (!url) throw new Error('No connect URL returned');
 
@@ -187,10 +196,22 @@ function IntegrationsContent({
         const separator = url.includes('?') ? '&' : '?';
         url = `${url}${separator}app=${encodeURIComponent(app.slug)}`;
 
-        // Use system browser (Safari) for OAuth — WebView is blocked by Google etc.
-        await WebBrowser.openAuthSessionAsync(url);
+        // openAuthSessionAsync auto-dismisses when redirected to our app scheme
+        const authResult = await WebBrowser.openAuthSessionAsync(url, 'kortix://integrations');
 
-        // Browser closed — refetch (webhook may have saved the connection)
+        if (authResult.type === 'success') {
+          const returnUrl = authResult.url;
+          if (returnUrl.includes('error')) {
+            Alert.alert('Connection Failed', `Could not connect ${app.name}. Please try again.`);
+          }
+        }
+
+        // Sync connections from Pipedream — discovers newly connected accounts
+        try {
+          await syncConnections();
+        } catch (e) {
+          log.error('[Integrations] Sync failed:', e);
+        }
         queryClient.invalidateQueries({ queryKey: integrationKeys.connections() });
       } catch (err: any) {
         log.error('[Integrations] Connect failed:', err?.message);
