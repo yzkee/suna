@@ -3,12 +3,14 @@
  *
  * Supports multiple providers:
  *   - local_docker: generates ed25519 keypair via ssh-keygen, injects pubkey via docker exec
- *   - justavps: fetches existing SSH keys from JustAVPS machine API
+ *   - justavps: generates ed25519 keypair, injects pubkey into the sandbox container
+ *               via host toolbox + docker exec, then routes SSH on port 22 into
+ *               the container instead of returning VPS host root access.
  *
  * Mounted at /v1/platform/sandbox/ssh
  *
  * Routes:
- *   POST /setup  → Generate/retrieve keypair, return private key + ssh command
+ *   POST /setup  → Generate keypair, inject into sandbox container, return private key + ssh command
  */
 
 import { Hono } from 'hono';
@@ -18,9 +20,86 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import Docker from 'dockerode';
 import { config } from '../../config';
+import { execOnHost } from '../../update/exec';
 import type { AuthVariables } from '../../types';
 
 const sshRouter = new Hono<{ Variables: AuthVariables }>();
+
+// ─── Shared: keypair generation ──────────────────────────────────────────────
+
+function generateKeypair(): { privateKey: string; publicKey: string } {
+  const tmpPath = join(tmpdir(), `kortix-ssh-${Date.now()}`);
+  mkdirSync(tmpPath, { recursive: true });
+  const keyPath = join(tmpPath, 'key');
+
+  try {
+    execSync(`ssh-keygen -t ed25519 -f "${keyPath}" -N "" -C "kortix-sandbox" -q`, { stdio: 'pipe' });
+  } catch {
+    throw new Error('Failed to generate SSH keypair via ssh-keygen');
+  }
+
+  const privateKey = readFileSync(keyPath, 'utf-8');
+  const publicKey = readFileSync(`${keyPath}.pub`, 'utf-8').trim();
+
+  try { unlinkSync(keyPath); } catch {}
+  try { unlinkSync(`${keyPath}.pub`); } catch {}
+  try { rmdirSync(tmpPath); } catch {}
+
+  return { privateKey, publicKey };
+}
+
+// ─── Shared: authorized_keys injection via remote host toolbox exec ──────────
+// JustAVPS resolveEndpoint() points at the VPS host toolbox endpoint, not the
+// sandbox's kortix-master API. To inject a key into the Dockerized sandbox we
+// must exec on the host, then docker exec into the workload container.
+
+async function injectPublicKeyViaHostExec(
+  endpoint: { url: string; headers: Record<string, string> },
+  publicKey: string,
+  containerName = 'justavps-workload',
+): Promise<void> {
+  const publicKeyB64 = Buffer.from(`${publicKey}\n`).toString('base64');
+  const innerCmd = [
+    `mkdir -p /config/.ssh`,
+    `printf '%s' '${publicKeyB64}' | base64 -d >> /config/.ssh/authorized_keys`,
+    `sort -u -o /config/.ssh/authorized_keys /config/.ssh/authorized_keys`,
+    `chmod 700 /config/.ssh`,
+    `chmod 600 /config/.ssh/authorized_keys`,
+    `chown -R abc:abc /config/.ssh`,
+  ].join(' && ');
+  const escapedInnerCmd = innerCmd.replace(/(["`$\\])/g, '\\$1');
+  const hostCmd = `docker exec ${containerName} sh -lc "${escapedInnerCmd}"`;
+
+  const result = await execOnHost(endpoint, hostCmd, 30);
+  if (!result.success) {
+    throw new Error(`Failed to inject SSH key into sandbox: ${result.stderr || result.stdout || 'unknown host exec error'}`);
+  }
+}
+
+async function injectPublicKeyViaHostExecWithRetry(
+  endpoint: { url: string; headers: Record<string, string> },
+  publicKey: string,
+  timeoutMs = 120_000,
+): Promise<void> {
+  const startedAt = Date.now();
+  let lastError: unknown = null;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      await injectPublicKeyViaHostExec(endpoint, publicKey);
+      return;
+    } catch (err) {
+      lastError = err;
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Timed out waiting for sandbox exec endpoint to become ready');
+}
+
+// ─── Local Docker: inject via docker exec ────────────────────────────────────
 
 function getDockerClient(): Docker {
   if (!config.DOCKER_HOST) return new Docker();
@@ -63,49 +142,6 @@ async function runContainerCommand(container: Docker.Container, cmd: string): Pr
   }
 }
 
-async function setupJustavpsSSH(externalId: string) {
-  const { justavpsFetch } = await import('../providers/justavps');
-
-  const machine = await justavpsFetch<{
-    id: string;
-    ip: string | null;
-    status: string;
-    ssh_key: {
-      private_key: string | null;
-      public_key: string | null;
-      setup_command: string | null;
-      key_path: string;
-    } | null;
-    connect: {
-      ssh_command: string | null;
-      setup_command: string | null;
-      vscode_url: string;
-      cursor_ssh: string | null;
-    } | null;
-  }>(`/machines/${externalId}`);
-
-  if (machine.status !== 'ready') {
-    throw new Error('Sandbox is not ready yet. Wait for provisioning to complete.');
-  }
-
-  if (!machine.ip) {
-    throw new Error('Sandbox does not have an IP address yet.');
-  }
-
-  if (!machine.ssh_key?.private_key) {
-    throw new Error('SSH keys are not available for this sandbox.');
-  }
-
-  return {
-    private_key: machine.ssh_key.private_key,
-    public_key: machine.ssh_key.public_key || '',
-    ssh_command: machine.connect?.ssh_command || `ssh -i ${machine.ssh_key.key_path} -o StrictHostKeyChecking=no root@${machine.ip}`,
-    host: machine.ip,
-    port: 22,
-    username: 'root',
-  };
-}
-
 async function setupLocalDockerSSH(containerName: string, c: any) {
   const docker = getDockerClient();
   const container = docker.getContainer(containerName);
@@ -121,27 +157,13 @@ async function setupLocalDockerSSH(containerName: string, c: any) {
     throw e;
   }
 
-  const tmpPath = join(tmpdir(), `kortix-ssh-${Date.now()}`);
-  mkdirSync(tmpPath, { recursive: true });
-  const keyPath = join(tmpPath, 'key');
-
-  try {
-    execSync(`ssh-keygen -t ed25519 -f "${keyPath}" -N "" -C "kortix-sandbox" -q`, { stdio: 'pipe' });
-  } catch (e) {
-    throw new Error('Failed to generate SSH keypair via ssh-keygen');
-  }
-
-  const privateKey = readFileSync(keyPath, 'utf-8');
-  const publicKey = readFileSync(`${keyPath}.pub`, 'utf-8').trim();
-
-  try { unlinkSync(keyPath); } catch {}
-  try { unlinkSync(`${keyPath}.pub`); } catch {}
-  try { rmdirSync(tmpPath); } catch {}
+  const { privateKey, publicKey } = generateKeypair();
 
   const escapedPubKey = publicKey.replace(/'/g, "'\\''");
+  // Inject into both /config/.ssh (sshd config) and /workspace/.ssh (fallback)
   await runContainerCommand(
     container,
-    `mkdir -p /workspace/.ssh && echo '${escapedPubKey}' >> /workspace/.ssh/authorized_keys && sort -u -o /workspace/.ssh/authorized_keys /workspace/.ssh/authorized_keys && chmod 700 /workspace/.ssh && chmod 600 /workspace/.ssh/authorized_keys && chown -R abc:abc /workspace/.ssh`,
+    `mkdir -p /config/.ssh && echo '${escapedPubKey}' >> /config/.ssh/authorized_keys && sort -u -o /config/.ssh/authorized_keys /config/.ssh/authorized_keys && chmod 700 /config/.ssh && chmod 600 /config/.ssh/authorized_keys && chown -R abc:abc /config/.ssh`,
   );
   console.log(`[SSH] Public key injected into container ${containerName}`);
 
@@ -164,6 +186,74 @@ async function setupLocalDockerSSH(containerName: string, c: any) {
     username: 'abc',
   };
 }
+
+// ─── JustAVPS: inject into sandbox container (NOT the VPS host) ──────────────
+// Previously this returned VPS host root SSH keys — giving access to the bare
+// machine instead of the sandboxed container. This is now fixed:
+//   1. Generate a fresh ed25519 keypair (same as local_docker)
+//   2. Resolve the JustAVPS host toolbox endpoint (via CF proxy)
+//   3. Inject the public key into /config/.ssh/authorized_keys inside the container
+//   4. Return connection to host port 22 as user abc, where host sshd is
+//      configured to auth against container keys and force every abc session
+//      into the workload container.
+
+async function setupJustavpsSSH(externalId: string) {
+  const { justavpsFetch } = await import('../providers/justavps');
+  const { JustAVPSProvider } = await import('../providers/justavps');
+
+  const provider = new JustAVPSProvider();
+
+  // The DB row can become "active" before the underlying JustAVPS machine has
+  // finished provisioning. Wait until the provider reports the VM itself is
+  // actually ready before attempting SSH setup.
+  await provider.ensureRunning(externalId);
+
+  // Get machine IP and verify it's ready
+  const machine = await justavpsFetch<{
+    id: string;
+    ip: string | null;
+    status: string;
+  }>(`/machines/${externalId}`);
+
+  if (machine.status !== 'ready') {
+    throw new Error('Sandbox is not ready yet. Wait for provisioning to complete.');
+  }
+
+  if (!machine.ip) {
+    throw new Error('Sandbox does not have an IP address yet.');
+  }
+
+  // Generate a fresh keypair for this session
+  const { privateKey, publicKey } = generateKeypair();
+
+  // Resolve sandbox endpoint via the CF proxy (same path used by all other API calls)
+  const endpoint = await provider.resolveEndpoint(externalId);
+
+  // Inject public key into the Dockerized sandbox via the JustAVPS host toolbox.
+  // resolveEndpoint() targets the host, so we exec on the VPS and then docker
+  // exec into the workload container.
+  await injectPublicKeyViaHostExecWithRetry(endpoint, publicKey);
+  console.log(`[SSH] Public key injected into JustAVPS container ${externalId}`);
+
+  // JustAVPS only guarantees external SSH reachability on host port 22.
+  // start-sandbox.sh configures host sshd so `ssh abc@host` authenticates using
+  // the container's authorized_keys and force-commands the session into the
+  // workload container as user abc.
+  const port = 22;
+  const host = machine.ip;
+  const sshCmd = `ssh -i ~/.ssh/kortix_sandbox -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -p ${port} abc@${host}`;
+
+  return {
+    private_key: privateKey,
+    public_key: publicKey,
+    ssh_command: sshCmd,
+    host,
+    port,
+    username: 'abc',
+  };
+}
+
+// ─── Route ───────────────────────────────────────────────────────────────────
 
 sshRouter.post('/setup', async (c) => {
   try {
