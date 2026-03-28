@@ -891,16 +891,17 @@ export function InstanceManagerDialog({
 
   async function savePrivateKey() {
     if (!sshResult) return;
+    const keyName = `kortix_${sshResult.host.replace(/\./g, '-')}`;
     const blob = new Blob([sshResult.private_key], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'kortix_sandbox';
+    a.download = keyName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    toast.success('Private key downloaded. Run: chmod 600 ~/Downloads/kortix_sandbox');
+    toast.success(`Key downloaded — run: chmod 600 ~/Downloads/${keyName}`);
   }
 
   // Compute description text based on mode
