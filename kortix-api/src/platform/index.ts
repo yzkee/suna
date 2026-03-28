@@ -6,6 +6,7 @@ import { sandboxUpdateRouter, sandboxIdUpdateRouter } from './routes/sandbox-upd
 import { apiKeysRouter } from './routes/api-keys';
 import { sshRouter } from './routes/ssh';
 import { sandboxWebhookRouter } from './routes/sandbox-webhooks';
+import { backupRouter } from './routes/sandbox-backups';
 
 const platformApp = new Hono();
 
@@ -30,6 +31,10 @@ platformApp.route('/api-keys', apiKeysRouter);
 // Webhook receivers + SSE provisioning stream
 // Full path: /v1/platform/webhooks/justavps, /v1/platform/sandbox/:id/provision-stream
 platformApp.route('/', sandboxWebhookRouter);
+
+// Sandbox backups
+// Full path: /v1/platform/sandbox/:id/backups/*
+platformApp.route('/sandbox', backupRouter);
 
 // Unified routes — always DB-backed.
 // Full path: /v1/platform/providers, /v1/platform/init, /v1/platform/sandbox/*, etc.

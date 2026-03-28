@@ -73,6 +73,14 @@ interface JustAVPSServerType {
   available: boolean;
 }
 
+export interface JustAVPSBackup {
+  id: string;
+  description: string;
+  created: string;
+  size: number;
+  status: string;
+}
+
 interface JustAVPSWebhook {
   id: string;
   url: string;
@@ -548,6 +556,29 @@ export class JustAVPSProvider implements SandboxProvider {
       }
       throw err;
     }
+  }
+
+  // ─── Backups ──────────────────────────────────────────────────────────────
+
+  async listBackups(externalId: string): Promise<{ backups: JustAVPSBackup[]; backups_enabled: boolean }> {
+    return justavpsFetch<{ backups: JustAVPSBackup[]; backups_enabled: boolean }>(
+      `/machines/${externalId}/backups`,
+    );
+  }
+
+  async createBackup(externalId: string, description?: string): Promise<{ backup_id: string; status: string }> {
+    return justavpsFetch<{ backup_id: string; status: string }>(
+      `/machines/${externalId}/backups`,
+      { method: 'POST', body: description ? { description } : undefined },
+    );
+  }
+
+  async restoreBackup(externalId: string, backupId: string): Promise<void> {
+    await justavpsFetch(`/machines/${externalId}/backups/${backupId}/restore`, { method: 'POST' });
+  }
+
+  async deleteBackup(externalId: string, backupId: string): Promise<void> {
+    await justavpsFetch(`/machines/${externalId}/backups/${backupId}`, { method: 'DELETE' });
   }
 
   private async waitForIp(

@@ -30,6 +30,7 @@ import {
   ExternalLink,
   Monitor,
   Settings,
+  Archive,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
@@ -64,13 +65,14 @@ function getProviderConfig(provider: string) {
 
 // ─── Instance Card ──────────────────────────────────────────────────────────
 
-function InstanceCard({ sandbox, onClick }: { sandbox: SandboxInfo; onClick: () => void }) {
+function InstanceCard({ sandbox, onClick, onBackups }: { sandbox: SandboxInfo; onClick: () => void; onBackups?: () => void }) {
   const status = getStatusConfig(sandbox.status);
   const provider = getProviderConfig(sandbox.provider);
   const ProviderIcon = provider.icon;
   const meta = sandbox.metadata as Record<string, unknown> | undefined;
   const location = (meta?.location as string) || null;
   const serverType = (meta?.serverType as string) || null;
+  const showBackups = sandbox.provider === 'justavps' && ['active', 'stopped'].includes(sandbox.status);
 
   return (
     <button
@@ -118,7 +120,21 @@ function InstanceCard({ sandbox, onClick }: { sandbox: SandboxInfo; onClick: () 
           </div>
         </div>
 
-        <ExternalLink className="h-4 w-4 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors flex-shrink-0 mt-1" />
+        <div className="flex items-center gap-1 flex-shrink-0 mt-1">
+          {showBackups && onBackups && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => { e.stopPropagation(); onBackups(); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onBackups(); } }}
+              title="Backups"
+              className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground/30 hover:text-muted-foreground/80 hover:bg-muted/50 transition-colors opacity-0 group-hover:opacity-100"
+            >
+              <Archive className="h-3.5 w-3.5" />
+            </span>
+          )}
+          <ExternalLink className="h-4 w-4 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors" />
+        </div>
       </div>
     </button>
   );
@@ -445,6 +461,7 @@ export default function InstancesPage() {
                   key={sandbox.sandbox_id}
                   sandbox={sandbox}
                   onClick={() => handleInstanceClick(sandbox)}
+                  onBackups={() => router.push(`/instances/${sandbox.sandbox_id}/backups`)}
                 />
               ))}
             </div>

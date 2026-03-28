@@ -441,6 +441,74 @@ export async function reactivateSandbox(sandboxId?: string): Promise<void> {
   }
 }
 
+// ─── Backup API ─────────────────────────────────────────────────────────────
+
+export interface BackupInfo {
+  id: string;
+  description: string;
+  created: string;
+  size: number;
+  status: string;
+}
+
+export interface BackupListResponse {
+  backups: BackupInfo[];
+  backups_enabled: boolean;
+}
+
+export async function listBackups(sandboxId: string): Promise<BackupListResponse> {
+  const result = await platformFetch<BackupListResponse>(
+    `/platform/sandbox/${sandboxId}/backups`,
+  );
+  if (!result.success || !result.data) {
+    throw new Error(result.error || 'Failed to list backups');
+  }
+  return result.data;
+}
+
+export async function createBackup(
+  sandboxId: string,
+  description?: string,
+): Promise<{ backup_id: string; status: string }> {
+  const result = await platformFetch<{ backup_id: string; status: string }>(
+    `/platform/sandbox/${sandboxId}/backups`,
+    {
+      method: 'POST',
+      body: description ? JSON.stringify({ description }) : undefined,
+    },
+  );
+  if (!result.success || !result.data) {
+    throw new Error(result.error || 'Failed to create backup');
+  }
+  return result.data;
+}
+
+export async function restoreBackup(
+  sandboxId: string,
+  backupId: string,
+): Promise<void> {
+  const result = await platformFetch<{ action: string; status: string }>(
+    `/platform/sandbox/${sandboxId}/backups/${backupId}/restore`,
+    { method: 'POST' },
+  );
+  if (!result.success) {
+    throw new Error(result.error || 'Failed to restore backup');
+  }
+}
+
+export async function deleteBackup(
+  sandboxId: string,
+  backupId: string,
+): Promise<void> {
+  const result = await platformFetch<{ action: string; status: string }>(
+    `/platform/sandbox/${sandboxId}/backups/${backupId}`,
+    { method: 'DELETE' },
+  );
+  if (!result.success) {
+    throw new Error(result.error || 'Failed to delete backup');
+  }
+}
+
 // ─── SSH Setup API ──────────────────────────────────────────────────────────
 
 export interface SSHSetupResult {
