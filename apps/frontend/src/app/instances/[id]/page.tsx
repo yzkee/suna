@@ -183,7 +183,7 @@ export default function InstanceDetailPage() {
       // full-screen blocking overlay on the very first load.
       markProvisioningVerified();
       await switchToInstanceAsync(sandbox.sandbox_id);
-      router.replace(buildInstancePath(sandbox.sandbox_id, '/onboarding'));
+      router.replace(buildInstancePath(sandbox.sandbox_id, '/dashboard'));
     })();
   }, [phase, waitingForHealth, sandbox, router]);
 

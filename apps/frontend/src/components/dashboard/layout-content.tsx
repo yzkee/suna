@@ -17,6 +17,7 @@ import { useSandboxConnection } from "@/hooks/platform/use-sandbox-connection";
 import { useWebNotifications } from "@/hooks/use-web-notifications";
 import { backendApi } from "@/lib/api-client";
 import { getClient } from "@/lib/opencode-sdk";
+import { KortixLogo } from "@/components/sidebar/kortix-logo";
 import { KortixLoader } from "@/components/ui/kortix-loader";
 import { featureFlags } from "@/lib/feature-flags";
 import { buildInstancePath, getActiveInstanceIdFromCookie, getCurrentInstanceIdFromPathname } from "@/lib/instance-routes";
@@ -215,8 +216,21 @@ async function readEnv(key: string): Promise<string | null> {
 // Minimal full-viewport loading state shown while auth / onboarding resolves.
 function DashboardSkeleton() {
 	return (
-		<div className="fixed inset-0 flex items-center justify-center bg-background">
-			<KortixLoader size="medium" />
+		<div className="fixed inset-0 flex items-center justify-center bg-background px-6">
+			<div className="flex w-full max-w-[360px] flex-col items-center gap-6 text-center">
+				<div className="mb-2 flex flex-col items-center gap-3">
+					<KortixLogo size={22} />
+					<p className="text-[15px] font-normal uppercase tracking-[0.15em] text-foreground/30">
+						Connecting to Workspace
+					</p>
+				</div>
+
+				<KortixLoader size="medium" />
+
+				<p className="max-w-[300px] text-sm leading-relaxed text-muted-foreground/60">
+					Checking sandbox health and restoring your session.
+				</p>
+			</div>
 		</div>
 	);
 }
@@ -637,7 +651,6 @@ export default function DashboardLayoutContent({
 	}, [ob.active, ob.morphing, ob.showBoot]);
 
 	// ── Boot overlay callback ──
-	// eslint-disable-next-line react-hooks/exhaustive-deps
 	const handleBootDone = useCallback(() => ob.hideBoot(), [ob]);
 
 	// Keep the active server in sync with the current instance.
