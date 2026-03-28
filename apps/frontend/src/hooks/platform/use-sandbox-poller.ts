@@ -66,8 +66,8 @@ const STAGE_DURATION_MS: Record<string, number> = {
   cloud_init_running: 60_000,
   cloud_init_done:    30_000,
   services_starting:   20_000,
-  services_ready:      10_000,
-  verifying_opencode: 60_000,
+  services_ready:     180_000, // Services can take several minutes to start on cold boot
+  verifying_opencode: 180_000,
   connecting:         15_000,
 };
 
@@ -89,7 +89,9 @@ function interpolateProgress(stage: string, stageEnteredAt: number, baseProgress
   const fraction = Math.min(1, elapsed / durationMs);
   // ease-out: slow down as we approach the next stage
   const eased = 1 - Math.pow(1 - fraction, 2);
-  return Math.round(baseProgress + eased * (nextProgress - baseProgress - 1));
+  const interpolated = Math.round(baseProgress + eased * (nextProgress - baseProgress - 1));
+  // Never interpolate to 100 — that's reserved for truly ready
+  return Math.min(interpolated, 99);
 }
 
 function getPlatformUrl(): string {
@@ -106,7 +108,7 @@ async function waitForOpenCodeHealthy(
   signal: AbortSignal,
 ): Promise<boolean> {
   const url = getSandboxUrl(sandboxId);
-  const timeout = 60_000;
+  const timeout = 180_000; // 3 minutes — cold starts can take a while
   const interval = 3_000;
   const deadline = Date.now() + timeout;
 
@@ -189,8 +191,6 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
     interpolationRef.current = setInterval(() => {
       const s = stateRef.current;
       if (s.status !== 'polling' || !s.currentStage || s.stageEnteredAt === null) return;
-      // Never interpolate past verifying_opencode — wait for healthy before showing 100%
-      if (s.currentStage === 'verifying_opencode') return;
       const base = STAGE_PROGRESS[s.currentStage] ?? s.progress;
       const interpolated = interpolateProgress(s.currentStage, s.stageEnteredAt, base);
       if (interpolated > s.progress) {

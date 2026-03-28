@@ -172,6 +172,11 @@ const envSchema = z.object({
   SANDBOX_VERSION:             optStr,  // dev override: skip npm registry lookup for latest version
   GITHUB_TOKEN:                optStr,  // optional: authenticated GitHub API calls for changelog
 
+  // ── Mailtrap (optional — provisioning email notifications) ────────────────
+  MAILTRAP_API_TOKEN:          optStr,
+  MAILTRAP_FROM_EMAIL:         optStrDefault('noreply@kortix.com'),
+  MAILTRAP_FROM_NAME:          optStrDefault('Kortix'),
+
   // ── Stray env vars used directly in other files (centralized here) ───────
   CORS_ALLOWED_ORIGINS:        optStr,
   KORTIX_MASTER_URL:           optStr,
@@ -484,6 +489,11 @@ export const config = {
   /** Dev override: force a specific sandbox version (skips release.json). */
   SANDBOX_VERSION_OVERRIDE: env.SANDBOX_VERSION,
   GITHUB_TOKEN: env.GITHUB_TOKEN,
+
+  // ─── Mailtrap (Email Notifications) ────────────────────────────────────────
+  MAILTRAP_API_TOKEN: env.MAILTRAP_API_TOKEN,
+  MAILTRAP_FROM_EMAIL: env.MAILTRAP_FROM_EMAIL,
+  MAILTRAP_FROM_NAME: env.MAILTRAP_FROM_NAME,
 
   // ─── Stray env vars (centralized from other files) ────────────────────────
   CORS_ALLOWED_ORIGINS: env.CORS_ALLOWED_ORIGINS,

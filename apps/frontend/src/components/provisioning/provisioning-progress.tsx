@@ -96,7 +96,7 @@ export function ProvisioningProgress({
               {stageDisplayText}
             </h2>
           </div>
-          <p className="mt-1 text-[12px] text-foreground/20">This usually takes about a minute</p>
+          <p className="mt-1 text-[12px] text-foreground/20">This can take a couple of minutes — we&apos;ll notify you when it&apos;s ready</p>
         </>
       )}
 

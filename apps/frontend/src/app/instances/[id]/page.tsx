@@ -9,6 +9,7 @@ import { ProvisioningProgress } from '@/components/provisioning/provisioning-pro
 import { useSandboxPoller } from '@/hooks/platform/use-sandbox-poller';
 import { getSandboxById } from '@/lib/platform-client';
 import { switchToInstanceAsync } from '@/stores/server-store';
+import { markProvisioningVerified } from '@/stores/sandbox-connection-store';
 import { buildInstancePath } from '@/lib/instance-routes';
 import { authenticatedFetch } from '@/lib/auth-token';
 import { Button } from '@/components/ui/button';
@@ -22,6 +23,33 @@ import { getEnv } from '@/lib/env-config';
 //         → stopped
 
 type PagePhase = 'loading' | 'provisioning' | 'active' | 'redirecting' | 'error' | 'stopped';
+
+async function waitForWorkspaceHealth(sandboxId: string, signal: AbortSignal): Promise<boolean> {
+  const backendUrl = (getEnv().BACKEND_URL || 'http://localhost:8008/v1').replace(/\/+$/, '');
+  const healthUrl = `${backendUrl}/p/${sandboxId}/8000/global/health`;
+
+  while (!signal.aborted) {
+    if (signal.aborted) return false;
+
+    try {
+      const res = await authenticatedFetch(healthUrl, {
+        method: 'GET',
+        signal,
+      }, { retryOnAuthError: false });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.healthy === true) return true;
+      }
+    } catch {
+      if (signal.aborted) return false;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+
+  return false;
+}
 
 function LocalProvisioningView({ progress }: { progress: { progress: number; message: string } | null }) {
   const pct = progress?.progress ?? 0;
@@ -54,12 +82,36 @@ function LocalProvisioningView({ progress }: { progress: { progress: number; mes
   );
 }
 
+function WakingInstanceView({ label }: { label: string }) {
+  return (
+    <div className="w-full max-w-[360px] flex flex-col items-center gap-6 text-center">
+      <div className="relative flex h-20 w-20 items-center justify-center rounded-full border border-foreground/[0.08] bg-foreground/[0.03]">
+        <div className="absolute inset-0 rounded-full border border-primary/20 animate-ping" />
+        <Loader2 className="h-7 w-7 animate-spin text-primary/70" />
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-base font-medium text-foreground/85">Pinging sandbox</h2>
+        <p className="text-sm text-muted-foreground/60 leading-relaxed">
+          {label} is waking up. We&apos;ll open it as soon as the workspace responds.
+        </p>
+      </div>
+
+      <div className="inline-flex items-center gap-2 rounded-full border border-foreground/[0.08] bg-foreground/[0.03] px-3 py-1.5 text-[11px] uppercase tracking-[0.18em] text-muted-foreground/45">
+        <span className="h-1.5 w-1.5 rounded-full bg-primary/60" />
+        Checking health
+      </div>
+    </div>
+  );
+}
+
 export default function InstanceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { user, isLoading: authLoading } = useAuth();
 
   const [phase, setPhase] = useState<PagePhase>('loading');
+  const [waitingForHealth, setWaitingForHealth] = useState(false);
   const redirectedRef = useRef(false);
 
   // Local docker pull progress
@@ -90,23 +142,50 @@ export default function InstanceDetailPage() {
   // ── Derive phase ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!sandbox) return;
+    setWaitingForHealth(false);
     if (sandbox.status === 'provisioning') setPhase('provisioning');
     else if (sandbox.status === 'active')   setPhase('active');
     else if (sandbox.status === 'error')    setPhase('error');
     else if (sandbox.status === 'stopped')  setPhase('stopped');
   }, [sandbox]);
 
+  useEffect(() => {
+    if (!sandbox || sandbox.status !== 'active' || isLocalDocker || redirectedRef.current) {
+      return;
+    }
+
+    let mounted = true;
+    const controller = new AbortController();
+
+    (async () => {
+      const healthy = await waitForWorkspaceHealth(sandbox.sandbox_id, controller.signal);
+      if (!mounted) return;
+      setWaitingForHealth(!healthy);
+    })();
+
+    setWaitingForHealth(true);
+
+    return () => {
+      mounted = false;
+      controller.abort();
+    };
+  }, [sandbox, isLocalDocker]);
+
   // ── Active → register + redirect immediately ──────────────────────────────
   useEffect(() => {
-    if (phase !== 'active' || !sandbox || redirectedRef.current) return;
+    if (phase !== 'active' || waitingForHealth || !sandbox || redirectedRef.current) return;
     redirectedRef.current = true;
     setPhase('redirecting');
 
     (async () => {
+      // Signal that provisioning already verified the sandbox is healthy.
+      // This prevents the dashboard's ConnectingScreen from showing a
+      // full-screen blocking overlay on the very first load.
+      markProvisioningVerified();
       await switchToInstanceAsync(sandbox.sandbox_id);
-      router.replace(buildInstancePath(sandbox.sandbox_id, '/onboarding'));
+      router.replace(buildInstancePath(sandbox.sandbox_id, '/dashboard'));
     })();
-  }, [phase, sandbox, router]);
+  }, [phase, waitingForHealth, sandbox, router]);
 
   // ── Start provisioning poller ──────────────────────────────────────────────
   useEffect(() => {
@@ -163,7 +242,11 @@ export default function InstanceDetailPage() {
     return () => { stopped = true; localPollingRef.current = false; };
   }, [sandbox, isLocalDocker, refetch]);
 
+  const showHealthGate = waitingForHealth && !!sandbox && !isLocalDocker;
+  const serverLabel = sandbox?.name || 'Instance';
+
   const titleText = phase === 'provisioning' ? 'Creating Workspace'
+    : showHealthGate ? 'Pinging Sandbox'
     : phase === 'active' || phase === 'redirecting' ? 'Opening Workspace'
     : phase === 'error' ? 'Something went wrong'
     : phase === 'stopped' ? sandbox?.name || 'Instance'
@@ -227,8 +310,10 @@ export default function InstanceDetailPage() {
             )
           )}
 
+          {showHealthGate && <WakingInstanceView label={serverLabel} />}
+
           {/* Active / Redirecting */}
-          {(phase === 'active' || phase === 'redirecting') && (
+          {(phase === 'active' || phase === 'redirecting') && !showHealthGate && (
             <Loader2 className="h-5 w-5 animate-spin text-primary/70" />
           )}
 

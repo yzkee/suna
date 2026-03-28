@@ -30,7 +30,8 @@ export const STAGE_LABELS: Record<string, string> = {
   server_created:     'Machine ready, configuring',
   cloud_init_running: 'Installing dependencies',
   cloud_init_done:    'Environment configured',
-  services_starting:  'Almost there',
-  services_ready:     'Connecting to workspace',
-  connecting:         'Starting services',
+  services_starting:  'Starting workspace services',
+  services_ready:     'Waiting for services to come online',
+  connecting:         'Connecting to workspace',
+  verifying_opencode: 'Verifying workspace is ready',
 } as const;

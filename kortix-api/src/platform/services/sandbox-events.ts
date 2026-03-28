@@ -139,22 +139,30 @@ class SandboxEventBus {
         );
     }
 
-    // Only provider-confirmed "ready" should flip the sandbox active.
-    // services_ready means the VM boot flow finished, but port 8000 / Kortix
-    // may still be starting. The GET /platform/sandbox/:id/status endpoint
-    // surfaces progress; the sandbox becomes active once the provider confirms ready.
+    // Provider-confirmed "ready" means the VM is up — but OpenCode / Kortix
+    // services may still be starting inside the container. DON'T flip to active
+    // here. Just update the stage to 'services_ready' and let the provision
+    // poller's readiness probe verify port 8000 is actually responding before
+    // marking active. This prevents the frontend from connecting to a sandbox
+    // where services aren't running yet.
     if (data.status === 'ready') {
       if (sandbox.status === 'provisioning') {
         await db
           .update(sandboxes)
-          .set({ status: 'active', updatedAt: new Date() } as any)
+          .set({
+            metadata: sql`metadata || ${JSON.stringify({
+              provisioningStage: 'services_ready',
+              provisioningMessage: 'VM is ready, waiting for services to start...',
+            })}::jsonb`,
+            updatedAt: new Date(),
+          } as any)
           .where(
             and(
               eq(sandboxes.sandboxId, sandbox.sandboxId),
               eq(sandboxes.status, 'provisioning'),
             ),
           );
-        console.log(`[SANDBOX-EVENTS] Sandbox ${sandbox.sandboxId} → active`);
+        console.log(`[SANDBOX-EVENTS] Sandbox ${sandbox.sandboxId} → services_ready (waiting for readiness probe)`);
       }
     }
 
