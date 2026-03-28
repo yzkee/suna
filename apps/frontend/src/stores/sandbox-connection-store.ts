@@ -33,6 +33,7 @@ interface SandboxConnectionStore {
 // blocking overlay. By persisting it, users who were previously connected
 // see the lightweight reconnect pill instead, making reconnection feel instant.
 const STORAGE_KEY = "kortix-sandbox-was-connected";
+const PROVISION_VERIFIED_KEY = "kortix-sandbox-provision-verified";
 
 function loadWasConnected(): boolean {
 	try {
@@ -49,6 +50,22 @@ function saveWasConnected(value: boolean) {
 		} else {
 			sessionStorage.removeItem(STORAGE_KEY);
 		}
+	} catch {
+		/* SSR or storage unavailable */
+	}
+}
+
+function loadProvisionVerified(): boolean {
+	try {
+		return sessionStorage.getItem(PROVISION_VERIFIED_KEY) === "1";
+	} catch {
+		return false;
+	}
+}
+
+function clearProvisionVerified() {
+	try {
+		sessionStorage.removeItem(PROVISION_VERIFIED_KEY);
 	} catch {
 		/* SSR or storage unavailable */
 	}
@@ -136,8 +153,33 @@ export function resetSandboxFail() {
  * Full reset for server switches — clears ALL connection state so the new
  * instance starts fresh. Without this, `wasConnected` from a previous instance
  * leaks into the new one, causing wrong thresholds and stale UI.
+ *
+ * Exception: if the provisioning page just verified health and set the
+ * PROVISION_VERIFIED_KEY flag, we start as "connected" with wasConnected=true
+ * so the dashboard doesn't show a blocking overlay during the transition.
  */
 export function resetForServerSwitch() {
+	const fromProvisioning = loadProvisionVerified();
+	clearProvisionVerified();
+
+	if (fromProvisioning) {
+		// Provisioning already verified health — skip the blocking overlay.
+		// The health poller will still run and correct the status if needed.
+		useSandboxConnectionStore.setState({
+			status: "connecting",
+			failCount: 0,
+			initialCheckDone: false,
+			wasConnected: true, // lightweight reconnect pill instead of blocking overlay
+			reconnectAttempts: 0,
+			disconnectedAt: null,
+			sandboxVersion: null,
+			openCodeVersion: null,
+			healthy: null,
+		});
+		saveWasConnected(true);
+		return;
+	}
+
 	useSandboxConnectionStore.setState({
 		status: "connecting",
 		failCount: 0,
@@ -150,6 +192,19 @@ export function resetForServerSwitch() {
 		healthy: null,
 	});
 	saveWasConnected(false);
+}
+
+/**
+ * Called by the provisioning page right before redirecting to the dashboard.
+ * Signals that the sandbox was already verified as healthy, so the dashboard
+ * should NOT show a full-screen blocking overlay on first load.
+ */
+export function markProvisioningVerified() {
+	try {
+		sessionStorage.setItem(PROVISION_VERIFIED_KEY, "1");
+	} catch {
+		/* SSR or storage unavailable */
+	}
 }
 
 export function setSandboxVersion(version: string | null) {

@@ -656,7 +656,7 @@ export function createCloudSandboxRouter(
         docker_pulling: 65,
         docker_running: 80,
         services_starting: 90,
-        services_ready: 100,
+        services_ready: 95, // Not 100 — sandbox is still provisioning until health probe passes
       };
 
       let stageProgress: number | null = null;

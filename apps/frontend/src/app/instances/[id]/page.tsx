@@ -9,6 +9,7 @@ import { ProvisioningProgress } from '@/components/provisioning/provisioning-pro
 import { useSandboxPoller } from '@/hooks/platform/use-sandbox-poller';
 import { getSandboxById } from '@/lib/platform-client';
 import { switchToInstanceAsync } from '@/stores/server-store';
+import { markProvisioningVerified } from '@/stores/sandbox-connection-store';
 import { buildInstancePath } from '@/lib/instance-routes';
 import { authenticatedFetch } from '@/lib/auth-token';
 import { Button } from '@/components/ui/button';
@@ -103,6 +104,10 @@ export default function InstanceDetailPage() {
     setPhase('redirecting');
 
     (async () => {
+      // Signal that provisioning already verified the sandbox is healthy.
+      // This prevents the dashboard's ConnectingScreen from showing a
+      // full-screen blocking overlay on the very first load.
+      markProvisioningVerified();
       await switchToInstanceAsync(sandbox.sandbox_id);
       router.replace(buildInstancePath(sandbox.sandbox_id, '/onboarding'));
     })();

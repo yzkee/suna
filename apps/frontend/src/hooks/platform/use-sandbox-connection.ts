@@ -17,8 +17,9 @@ import { useServerStore } from "@/stores/server-store";
 /**
  * Number of consecutive failures before marking as unreachable
  * when this is the FIRST connection (never been connected).
+ * Set high enough to ride through transient proxy startup delays.
  */
-const FAIL_THRESHOLD_FIRST = 3;
+const FAIL_THRESHOLD_FIRST = 5;
 
 /**
  * For reconnection (was connected, then failed) — show the banner
@@ -103,9 +104,11 @@ export function useSandboxConnection() {
 				if (!alive) return;
 
 				if (res.status === 401) {
-					setSandboxStatus('unreachable');
-					scheduleNext();
-					return;
+					// Treat 401 like any other failure — respect the threshold
+					// instead of immediately marking unreachable. During transitions
+					// (e.g. provisioning → dashboard), the proxy may briefly return 401
+					// before auth propagates.
+					throw new Error(`Auth error: ${res.status}`);
 				}
 
 				if (res.status === 403) {

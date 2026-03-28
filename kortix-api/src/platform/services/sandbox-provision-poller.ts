@@ -19,6 +19,7 @@ import { db } from '../../shared/db';
 import { config } from '../../config';
 import { sandboxEventBus } from './sandbox-events';
 import { probeJustAvpsSandboxReadiness } from './sandbox-readiness';
+import { sendWorkspaceReadyEmail } from './email-notification';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -175,6 +176,7 @@ async function pollSingleSandbox(sandbox: typeof sandboxes.$inferSelect): Promis
         slug: (meta.justavpsSlug as string | undefined) || undefined,
         proxyToken: (meta.justavpsProxyToken as string | undefined) || undefined,
         serviceKey: ((sandbox.config as Record<string, unknown> | null)?.serviceKey as string | undefined) || undefined,
+        externalId: sandbox.externalId || undefined,
       });
 
       if (!readiness.ready) {
@@ -221,6 +223,14 @@ async function pollSingleSandbox(sandbox: typeof sandboxes.$inferSelect): Promis
         message: 'All services are up',
         timestamp: new Date().toISOString(),
       });
+
+      // Send "workspace ready" email notification (fire-and-forget)
+      sendWorkspaceReadyEmail({
+        accountId: sandbox.accountId,
+        sandboxName: sandbox.name || sandbox.sandboxId,
+        sandboxId: sandbox.sandboxId,
+      }).catch(() => {}); // never block on email failures
+
       return;
     }
 
