@@ -230,7 +230,7 @@ export function createCloudSandboxRouter(
       if (isManagedVpsProvider(providerName) && config.KORTIX_BILLING_INTERNAL_ENABLED) {
         const { getCustomerByAccountId } = await import('../../billing/repositories/customers');
         const { getOrCreateStripeCustomer } = await import('../../billing/services/subscriptions');
-        const { getComputeProductId, getComputeDisplayPriceCents, COMPUTE_PRICE_MARKUP } = await import('../../billing/services/tiers');
+        const { getComputeProductId, getComputeDisplayPriceCents, getComputeDescription, COMPUTE_PRICE_MARKUP } = await import('../../billing/services/tiers');
         const { getStripe } = await import('../../shared/stripe');
 
         const loc = requestedOrDefaultLocation;
@@ -314,6 +314,7 @@ export function createCloudSandboxRouter(
               recurring: { interval: 'month' },
             },
           }],
+          description: getComputeDescription(requestedOrDefaultServerType),
           payment_behavior: 'error_if_incomplete',
           payment_settings: { save_default_payment_method: 'on_subscription' },
           metadata: {

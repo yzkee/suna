@@ -9,7 +9,7 @@ import {
 } from '../repositories/credit-accounts';
 import { getCustomerByAccountId, upsertCustomer } from '../repositories/customers';
 import { BillingError, SubscriptionError } from '../../errors';
-import { getTier, isUpgrade, isDowngrade, getMonthlyCredits, resolvePriceId, getComputeDisplayPriceCents, getComputeProductId } from './tiers';
+import { getTier, isUpgrade, isDowngrade, getMonthlyCredits, resolvePriceId, getComputeDisplayPriceCents, getComputeProductId, getComputeDescription } from './tiers';
 import { grantCredits, resetExpiringCredits } from './credits';
 import Stripe from 'stripe';
 
@@ -108,7 +108,7 @@ export async function createCheckoutSession(params: {
   // directly. No hosted Checkout page for repeat instance purchases.
   //
   // When a server_type is provided, use the canonical compute display price
-  // (from COMPUTE_DISPLAY_PRICES) instead of the base tier price.  This keeps
+  // (from COMPUTE_TIERS) instead of the base tier price.  This keeps
   // the Stripe charge in sync with the prices shown in the frontend modal.
   const computePriceCents = serverType ? getComputeDisplayPriceCents(serverType) : null;
 
@@ -134,6 +134,7 @@ export async function createCheckoutSession(params: {
         payment_behavior: 'error_if_incomplete',
         payment_settings: { save_default_payment_method: 'on_subscription' },
         metadata,
+        ...(serverType ? { description: getComputeDescription(serverType) } : {}),
       });
 
       if (subscription.status === 'active' || subscription.status === 'trialing') {
@@ -179,13 +180,9 @@ export async function createCheckoutSession(params: {
     }
   }
 
-  // Fallback: hosted Checkout for first purchase / no saved card / SCA-required payment
-  //
-  // Use price_data with inline product_data so the Stripe Checkout page shows
-  // "Kortix Computer" instead of the generic product name from the dashboard.
-  //
-  // When a server_type is provided, use the canonical compute display price
-  // so the Stripe Checkout page shows the same price as the frontend modal.
+  // Fallback: hosted Checkout for first purchase / no saved card / SCA-required payment.
+  // Uses inline product_data so the checkout page shows "Kortix Computer" with
+  // actual machine specs — no provider names, regions, or internal tier keys.
   let unitAmount: number;
   let interval: Stripe.Price.Recurring.Interval = 'month';
 
@@ -197,27 +194,19 @@ export async function createCheckoutSession(params: {
     interval = stripePrice.recurring?.interval ?? 'month';
   }
 
-  // When using compute display pricing, reference the existing compute product
-  // so all instance subscriptions are grouped under one product in Stripe.
-  // Otherwise fall back to inline product_data for legacy/non-compute checkouts.
-  const lineItemPriceData: Stripe.Checkout.SessionCreateParams.LineItem['price_data'] = computePriceCents != null
-    ? {
-        currency: 'usd',
-        unit_amount: unitAmount,
-        recurring: { interval },
-        product: getComputeProductId(),
-      }
-    : {
-        currency: 'usd',
-        unit_amount: unitAmount,
-        recurring: { interval },
-        product_data: {
-          name: 'Kortix Computer',
-          description: serverType
-            ? `Cloud instance (${serverType}${location ? ` · ${location}` : ''})`
-            : 'Cloud instance + LLM credits',
-        },
-      };
+  // Always use product_data so the Stripe Checkout page shows a clean,
+  // user-facing name with actual machine specs — no provider names or regions.
+  const computeDesc = serverType ? getComputeDescription(serverType) : null;
+
+  const lineItemPriceData: Stripe.Checkout.SessionCreateParams.LineItem['price_data'] = {
+    currency: 'usd',
+    unit_amount: unitAmount,
+    recurring: { interval },
+    product_data: {
+      name: 'Kortix Computer',
+      description: computeDesc ?? 'Cloud computer + LLM credits',
+    },
+  };
 
   const session = await stripe.checkout.sessions.create({
     customer: customerId,
@@ -230,7 +219,10 @@ export async function createCheckoutSession(params: {
     cancel_url: cancelUrl,
     allow_promotion_codes: true,
     payment_method_collection: adminCheckout ? 'if_required' : 'always',
-    subscription_data: { metadata },
+    subscription_data: {
+      metadata,
+      ...(computeDesc ? { description: computeDesc } : {}),
+    },
     metadata: {
       account_id: accountId,
       tier_key: tierKey,

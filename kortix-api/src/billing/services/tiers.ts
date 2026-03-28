@@ -12,22 +12,39 @@ export const MACHINE_CREDIT_BONUS = 5;
 /** Markup applied to managed VPS prices for additional instances. */
 export const COMPUTE_PRICE_MARKUP = 1.2;
 
-/**
- * Canonical display prices per server type (in USD).
- * Must stay in sync with the frontend's DISPLAY_PRICES in use-server-types.ts.
- * The actual VPS provider prices are uneven ($39, $56, $77 …); these are the
- * business-decided round numbers shown in the UI *and* charged via Stripe.
- */
-export const COMPUTE_DISPLAY_PRICES: Record<string, number> = {
-  pro:   40,
-  power: 60,
-  ultra: 80,
+// ─── Compute instance definitions ───────────────────────────────────────────
+// Single source of truth for the machine tiers we sell.  Prices and specs must
+// stay in sync with the frontend's DISPLAY_PRICES / FALLBACK_TYPES in
+// apps/frontend/src/hooks/instance/use-server-types.ts.
+
+interface ComputeTier {
+  label: string;
+  cores: number;
+  memoryGb: number;
+  diskGb: number;
+  priceUsd: number;
+}
+
+export const COMPUTE_TIERS: Record<string, ComputeTier> = {
+  pro:   { label: 'Pro',   cores: 8,  memoryGb: 16, diskGb: 320, priceUsd: 40 },
+  power: { label: 'Power', cores: 12, memoryGb: 24, diskGb: 480, priceUsd: 60 },
+  ultra: { label: 'Ultra', cores: 16, memoryGb: 32, diskGb: 640, priceUsd: 80 },
 };
 
 /** Return the display price in USD cents for a server type, or null if unknown. */
 export function getComputeDisplayPriceCents(serverType: string): number | null {
-  const price = COMPUTE_DISPLAY_PRICES[serverType];
-  return price != null ? price * 100 : null;
+  const tier = COMPUTE_TIERS[serverType];
+  return tier ? tier.priceUsd * 100 : null;
+}
+
+/**
+ * Human-readable line for Stripe checkout / invoice descriptions.
+ * Example: "Kortix Computer · Pro — 8 vCPU, 16 GB RAM, 320 GB SSD"
+ */
+export function getComputeDescription(serverType: string): string {
+  const t = COMPUTE_TIERS[serverType];
+  if (!t) return 'Kortix Computer';
+  return `Kortix Computer · ${t.label} — ${t.cores} vCPU, ${t.memoryGb} GB RAM, ${t.diskGb} GB SSD`;
 }
 
 // ─── Tiers ──────────────────────────────────────────────────────────────────
