@@ -116,8 +116,20 @@ export function createCloudSandboxRouter(
     try {
       const location = c.req.query('location') || config.JUSTAVPS_DEFAULT_LOCATION;
       const types = await listJustAVPSServerTypes(location);
+
+      // Apply canonical display pricing from COMPUTE_TIERS so the API returns
+      // the same prices the frontend shows and Stripe charges.  Raw provider
+      // prices are kept in priceMonthly for internal use.
+      const { COMPUTE_TIERS } = await import('../../billing/services/tiers');
+      const withDisplayPricing = types.map((t) => {
+        const tier = COMPUTE_TIERS[t.name];
+        return tier
+          ? { ...t, priceMonthlyMarkup: tier.priceUsd }
+          : t;
+      });
+
       return c.json({
-        serverTypes: types,
+        serverTypes: withDisplayPricing,
         location,
         defaultServerType: config.JUSTAVPS_DEFAULT_SERVER_TYPE,
         defaultLocation: config.JUSTAVPS_DEFAULT_LOCATION,
