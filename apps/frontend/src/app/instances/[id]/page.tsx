@@ -313,7 +313,7 @@ export default function InstanceDetailPage() {
           {showHealthGate && <WakingInstanceView label={serverLabel} />}
 
           {/* Active / Redirecting */}
-          {(phase === 'active' || phase === 'redirecting') && (
+          {(phase === 'active' || phase === 'redirecting') && !showHealthGate && (
             <Loader2 className="h-5 w-5 animate-spin text-primary/70" />
           )}
 
