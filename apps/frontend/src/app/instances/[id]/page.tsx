@@ -158,7 +158,7 @@ export default function InstanceDetailPage() {
     const controller = new AbortController();
 
     (async () => {
-      const healthy = await waitForWorkspaceHealth(sandbox.sandbox_id, controller.signal);
+      const healthy = await waitForWorkspaceHealth(sandbox.external_id, controller.signal);
       if (!mounted) return;
       setWaitingForHealth(!healthy);
     })();
