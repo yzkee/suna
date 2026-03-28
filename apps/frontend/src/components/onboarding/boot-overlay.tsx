@@ -37,7 +37,7 @@ export function BootOverlay({ onComplete }: BootOverlayProps) {
 
   // Boot sound
   useEffect(() => {
-    const audio = new Audio('/sounds/kortix/bootup.wav');
+    const audio = new Audio('/sounds/kortix/startup_cj.mp3');
     audio.volume = 0.6;
     audio.preload = 'auto';
     audioRef.current = audio;
