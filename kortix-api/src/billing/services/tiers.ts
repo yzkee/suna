@@ -12,6 +12,24 @@ export const MACHINE_CREDIT_BONUS = 5;
 /** Markup applied to managed VPS prices for additional instances. */
 export const COMPUTE_PRICE_MARKUP = 1.2;
 
+/**
+ * Canonical display prices per server type (in USD).
+ * Must stay in sync with the frontend's DISPLAY_PRICES in use-server-types.ts.
+ * The actual VPS provider prices are uneven ($39, $56, $77 …); these are the
+ * business-decided round numbers shown in the UI *and* charged via Stripe.
+ */
+export const COMPUTE_DISPLAY_PRICES: Record<string, number> = {
+  pro:   40,
+  power: 60,
+  ultra: 80,
+};
+
+/** Return the display price in USD cents for a server type, or null if unknown. */
+export function getComputeDisplayPriceCents(serverType: string): number | null {
+  const price = COMPUTE_DISPLAY_PRICES[serverType];
+  return price != null ? price * 100 : null;
+}
+
 // ─── Tiers ──────────────────────────────────────────────────────────────────
 
 const TIERS: Record<string, TierConfig> = {

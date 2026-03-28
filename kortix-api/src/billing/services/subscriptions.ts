@@ -9,7 +9,7 @@ import {
 } from '../repositories/credit-accounts';
 import { getCustomerByAccountId, upsertCustomer } from '../repositories/customers';
 import { BillingError, SubscriptionError } from '../../errors';
-import { getTier, isUpgrade, isDowngrade, getMonthlyCredits, resolvePriceId } from './tiers';
+import { getTier, isUpgrade, isDowngrade, getMonthlyCredits, resolvePriceId, getComputeDisplayPriceCents, getComputeProductId } from './tiers';
 import { grantCredits, resetExpiringCredits } from './credits';
 import Stripe from 'stripe';
 
@@ -106,12 +106,29 @@ export async function createCheckoutSession(params: {
 
   // If the customer already has a saved card, create and charge the subscription
   // directly. No hosted Checkout page for repeat instance purchases.
+  //
+  // When a server_type is provided, use the canonical compute display price
+  // (from COMPUTE_DISPLAY_PRICES) instead of the base tier price.  This keeps
+  // the Stripe charge in sync with the prices shown in the frontend modal.
+  const computePriceCents = serverType ? getComputeDisplayPriceCents(serverType) : null;
+
   const savedPaymentMethodId = adminCheckout ? null : await getUsableCustomerPaymentMethod(customerId);
   if (savedPaymentMethodId) {
     try {
+      const subscriptionItems: Stripe.SubscriptionCreateParams.Item[] = computePriceCents != null
+        ? [{
+            price_data: {
+              currency: 'usd',
+              product: getComputeProductId(),
+              unit_amount: adminCheckout ? 0 : computePriceCents,
+              recurring: { interval: 'month' },
+            },
+          }]
+        : [{ price: priceId }];
+
       const subscription = await stripe.subscriptions.create({
         customer: customerId,
-        items: [{ price: priceId }],
+        items: subscriptionItems,
         collection_method: 'charge_automatically',
         default_payment_method: savedPaymentMethodId,
         payment_behavior: 'error_if_incomplete',
@@ -166,17 +183,31 @@ export async function createCheckoutSession(params: {
   //
   // Use price_data with inline product_data so the Stripe Checkout page shows
   // "Kortix Computer" instead of the generic product name from the dashboard.
-  // We still reference the pre-created price for direct subscription creation above,
-  // but the Checkout page gets a clean display name.
-  const stripePrice = await stripe.prices.retrieve(priceId);
-  const unitAmount = adminCheckout ? 0 : stripePrice.unit_amount!;
-  const interval = stripePrice.recurring?.interval ?? 'month';
+  //
+  // When a server_type is provided, use the canonical compute display price
+  // so the Stripe Checkout page shows the same price as the frontend modal.
+  let unitAmount: number;
+  let interval: Stripe.Price.Recurring.Interval = 'month';
 
-  const session = await stripe.checkout.sessions.create({
-    customer: customerId,
-    mode: 'subscription',
-    line_items: [{
-      price_data: {
+  if (computePriceCents != null) {
+    unitAmount = adminCheckout ? 0 : computePriceCents;
+  } else {
+    const stripePrice = await stripe.prices.retrieve(priceId);
+    unitAmount = adminCheckout ? 0 : stripePrice.unit_amount!;
+    interval = stripePrice.recurring?.interval ?? 'month';
+  }
+
+  // When using compute display pricing, reference the existing compute product
+  // so all instance subscriptions are grouped under one product in Stripe.
+  // Otherwise fall back to inline product_data for legacy/non-compute checkouts.
+  const lineItemPriceData: Stripe.Checkout.SessionCreateParams.LineItem['price_data'] = computePriceCents != null
+    ? {
+        currency: 'usd',
+        unit_amount: unitAmount,
+        recurring: { interval },
+        product: getComputeProductId(),
+      }
+    : {
         currency: 'usd',
         unit_amount: unitAmount,
         recurring: { interval },
@@ -186,7 +217,13 @@ export async function createCheckoutSession(params: {
             ? `Cloud instance (${serverType}${location ? ` · ${location}` : ''})`
             : 'Cloud instance + LLM credits',
         },
-      },
+      };
+
+  const session = await stripe.checkout.sessions.create({
+    customer: customerId,
+    mode: 'subscription',
+    line_items: [{
+      price_data: lineItemPriceData,
       quantity: 1,
     }],
     success_url: successUrl,

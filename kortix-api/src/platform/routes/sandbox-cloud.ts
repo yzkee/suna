@@ -230,7 +230,7 @@ export function createCloudSandboxRouter(
       if (isManagedVpsProvider(providerName) && config.KORTIX_BILLING_INTERNAL_ENABLED) {
         const { getCustomerByAccountId } = await import('../../billing/repositories/customers');
         const { getOrCreateStripeCustomer } = await import('../../billing/services/subscriptions');
-        const { getComputeProductId, COMPUTE_PRICE_MARKUP } = await import('../../billing/services/tiers');
+        const { getComputeProductId, getComputeDisplayPriceCents, COMPUTE_PRICE_MARKUP } = await import('../../billing/services/tiers');
         const { getStripe } = await import('../../shared/stripe');
 
         const loc = requestedOrDefaultLocation;
@@ -241,7 +241,9 @@ export function createCloudSandboxRouter(
           return c.json({ success: false, error: `Server type not found: ${requestedOrDefaultServerType}` }, 400);
         }
 
-        const monthlyPrice = Math.round(selectedType.priceMonthly * COMPUTE_PRICE_MARKUP * 100); // cents
+        // Use canonical display prices when available; fall back to provider price × markup.
+        const monthlyPrice = getComputeDisplayPriceCents(requestedOrDefaultServerType)
+          ?? Math.round(selectedType.priceMonthly * COMPUTE_PRICE_MARKUP * 100); // cents
 
         const stripe = getStripe();
         let customer = await getCustomerByAccountId(accountId);
