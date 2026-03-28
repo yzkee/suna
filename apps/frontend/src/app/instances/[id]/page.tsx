@@ -82,6 +82,29 @@ function LocalProvisioningView({ progress }: { progress: { progress: number; mes
   );
 }
 
+function WakingInstanceView({ label }: { label: string }) {
+  return (
+    <div className="w-full max-w-[360px] flex flex-col items-center gap-6 text-center">
+      <div className="relative flex h-20 w-20 items-center justify-center rounded-full border border-foreground/[0.08] bg-foreground/[0.03]">
+        <div className="absolute inset-0 rounded-full border border-primary/20 animate-ping" />
+        <Loader2 className="h-7 w-7 animate-spin text-primary/70" />
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-base font-medium text-foreground/85">Pinging sandbox</h2>
+        <p className="text-sm text-muted-foreground/60 leading-relaxed">
+          {label} is waking up. We&apos;ll open it as soon as the workspace responds.
+        </p>
+      </div>
+
+      <div className="inline-flex items-center gap-2 rounded-full border border-foreground/[0.08] bg-foreground/[0.03] px-3 py-1.5 text-[11px] uppercase tracking-[0.18em] text-muted-foreground/45">
+        <span className="h-1.5 w-1.5 rounded-full bg-primary/60" />
+        Checking health
+      </div>
+    </div>
+  );
+}
+
 export default function InstanceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -220,9 +243,10 @@ export default function InstanceDetailPage() {
   }, [sandbox, isLocalDocker, refetch]);
 
   const showHealthGate = waitingForHealth && !!sandbox && !isLocalDocker;
+  const serverLabel = sandbox?.name || 'Instance';
 
   const titleText = phase === 'provisioning' ? 'Creating Workspace'
-    : showHealthGate ? 'Opening Workspace'
+    : showHealthGate ? 'Pinging Sandbox'
     : phase === 'active' || phase === 'redirecting' ? 'Opening Workspace'
     : phase === 'error' ? 'Something went wrong'
     : phase === 'stopped' ? sandbox?.name || 'Instance'
@@ -273,18 +297,20 @@ export default function InstanceDetailPage() {
           )}
 
           {/* Provisioning progress */}
-          {(phase === 'provisioning' || showHealthGate) && sandbox && (
+          {phase === 'provisioning' && sandbox && (
             isLocalDocker ? (
               <LocalProvisioningView progress={localProgress} />
             ) : (
               <ProvisioningProgress
-                progress={showHealthGate ? Math.max(poller.progress, 98) : poller.progress}
+                progress={poller.progress}
                 stages={poller.stages}
-                currentStage={showHealthGate ? 'verifying_opencode' : poller.currentStage}
+                currentStage={poller.currentStage}
                 machineInfo={poller.machineInfo}
               />
             )
           )}
+
+          {showHealthGate && <WakingInstanceView label={serverLabel} />}
 
           {/* Active / Redirecting */}
           {(phase === 'active' || phase === 'redirecting') && (
