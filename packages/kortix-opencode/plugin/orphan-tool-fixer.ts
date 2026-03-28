@@ -198,7 +198,9 @@ function isIncompleteToolPart(part: ChatMessagePart): boolean {
 function shouldStripToolPart(part: ChatMessagePart): boolean {
 	if (!isToolPart(part)) return false
 	if (!part.state) return true
-	if (hasEmptyInput(part)) return true
+	// Only strip empty-input tools if they are NOT completed — zero-arg tools
+	// (e.g. project_list, pty_list) legitimately have input: {} when successful.
+	if (hasEmptyInput(part) && part.state.status !== "completed") return true
 	return false
 }
 
