@@ -24,6 +24,33 @@ import { getEnv } from '@/lib/env-config';
 
 type PagePhase = 'loading' | 'provisioning' | 'active' | 'redirecting' | 'error' | 'stopped';
 
+async function waitForWorkspaceHealth(sandboxId: string, signal: AbortSignal): Promise<boolean> {
+  const backendUrl = (getEnv().BACKEND_URL || 'http://localhost:8008/v1').replace(/\/+$/, '');
+  const healthUrl = `${backendUrl}/p/${sandboxId}/8000/global/health`;
+
+  while (!signal.aborted) {
+    if (signal.aborted) return false;
+
+    try {
+      const res = await authenticatedFetch(healthUrl, {
+        method: 'GET',
+        signal,
+      }, { retryOnAuthError: false });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.healthy === true) return true;
+      }
+    } catch {
+      if (signal.aborted) return false;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+
+  return false;
+}
+
 function LocalProvisioningView({ progress }: { progress: { progress: number; message: string } | null }) {
   const pct = progress?.progress ?? 0;
   const msg = progress?.message ?? 'Preparing your workspace...';
@@ -61,6 +88,7 @@ export default function InstanceDetailPage() {
   const { user, isLoading: authLoading } = useAuth();
 
   const [phase, setPhase] = useState<PagePhase>('loading');
+  const [waitingForHealth, setWaitingForHealth] = useState(false);
   const redirectedRef = useRef(false);
 
   // Local docker pull progress
@@ -91,15 +119,38 @@ export default function InstanceDetailPage() {
   // ── Derive phase ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!sandbox) return;
+    setWaitingForHealth(false);
     if (sandbox.status === 'provisioning') setPhase('provisioning');
     else if (sandbox.status === 'active')   setPhase('active');
     else if (sandbox.status === 'error')    setPhase('error');
     else if (sandbox.status === 'stopped')  setPhase('stopped');
   }, [sandbox]);
 
+  useEffect(() => {
+    if (!sandbox || sandbox.status !== 'active' || isLocalDocker || redirectedRef.current) {
+      return;
+    }
+
+    let mounted = true;
+    const controller = new AbortController();
+
+    (async () => {
+      const healthy = await waitForWorkspaceHealth(sandbox.sandbox_id, controller.signal);
+      if (!mounted) return;
+      setWaitingForHealth(!healthy);
+    })();
+
+    setWaitingForHealth(true);
+
+    return () => {
+      mounted = false;
+      controller.abort();
+    };
+  }, [sandbox, isLocalDocker]);
+
   // ── Active → register + redirect immediately ──────────────────────────────
   useEffect(() => {
-    if (phase !== 'active' || !sandbox || redirectedRef.current) return;
+    if (phase !== 'active' || waitingForHealth || !sandbox || redirectedRef.current) return;
     redirectedRef.current = true;
     setPhase('redirecting');
 
@@ -111,7 +162,7 @@ export default function InstanceDetailPage() {
       await switchToInstanceAsync(sandbox.sandbox_id);
       router.replace(buildInstancePath(sandbox.sandbox_id, '/onboarding'));
     })();
-  }, [phase, sandbox, router]);
+  }, [phase, waitingForHealth, sandbox, router]);
 
   // ── Start provisioning poller ──────────────────────────────────────────────
   useEffect(() => {
@@ -168,7 +219,10 @@ export default function InstanceDetailPage() {
     return () => { stopped = true; localPollingRef.current = false; };
   }, [sandbox, isLocalDocker, refetch]);
 
+  const showHealthGate = waitingForHealth && !!sandbox && !isLocalDocker;
+
   const titleText = phase === 'provisioning' ? 'Creating Workspace'
+    : showHealthGate ? 'Opening Workspace'
     : phase === 'active' || phase === 'redirecting' ? 'Opening Workspace'
     : phase === 'error' ? 'Something went wrong'
     : phase === 'stopped' ? sandbox?.name || 'Instance'
@@ -219,14 +273,14 @@ export default function InstanceDetailPage() {
           )}
 
           {/* Provisioning progress */}
-          {phase === 'provisioning' && sandbox && (
+          {(phase === 'provisioning' || showHealthGate) && sandbox && (
             isLocalDocker ? (
               <LocalProvisioningView progress={localProgress} />
             ) : (
               <ProvisioningProgress
-                progress={poller.progress}
+                progress={showHealthGate ? Math.max(poller.progress, 98) : poller.progress}
                 stages={poller.stages}
-                currentStage={poller.currentStage}
+                currentStage={showHealthGate ? 'verifying_opencode' : poller.currentStage}
                 machineInfo={poller.machineInfo}
               />
             )
