@@ -28,8 +28,8 @@ RUN --mount=type=cache,target=/var/cache/apk \
 RUN git clone --depth 1 https://github.com/sursaone/bun-pty.git /build/bun-pty
 WORKDIR /build/bun-pty/rust-pty
 RUN sed -i 's/crate-type = \["cdylib"\]/crate-type = ["staticlib"]/' Cargo.toml
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     cargo build --release
 RUN gcc -shared -o /build/librust_pty.so \
     -Wl,--whole-archive target/release/librust_pty.a -Wl,--no-whole-archive \

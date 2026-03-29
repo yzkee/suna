@@ -13,7 +13,7 @@
 5. [Versioning](#versioning)
 6. [CI/CD & Deployment](#ci-cd--deployment)
 7. [Release Flow](#release-flow)
-8. [OTA Update Mechanism](#ota-update-mechanism)
+8. [Update Mechanism](#update-mechanism)
 9. [Docker Image Architecture](#docker-image-architecture)
 10. [Ports Reference](#ports-reference)
 11. [Quick Reference Cheatsheet](#quick-reference-cheatsheet)
@@ -46,19 +46,15 @@ The sandbox is built in 4 layers:
 │  OS: Alpine XFCE, Bun, uv, chromium, SSH, s6-overlay       │
 │  Prebaked at: docker build time                             │
 │                                                             │
-│  /opt/kortix-staging-{version}/   ← actual files live here │
-│      kortix-master/               ← proxy/API server        │
-│      opencode/                    ← OC runtime config       │
-│      kortix-opencode/             ← OpenCode config dir     │
-│      opencode-channels/           ← chat adapters           │
-│      opencode-agent-triggers/     ← cron/triggers           │
-│      agent-browser-viewer/        ← browser viewer UI       │
-│      kortix/                      ← version + CHANGELOG     │
+│  /opt/kortix-master/            ← proxy/API server          │
+│  /opt/opencode/                 ← OpenCode config/runtime   │
+│  /opt/opencode-channels/        ← chat adapters             │
+│  /opt/opencode-agent-triggers/  ← cron/triggers             │
+│  /opt/agent-browser-viewer/     ← browser viewer UI         │
+│  /opt/kortix/                   ← version + CHANGELOG       │
 │                                                             │
-│  /opt/kortix-master    → symlink to kortix-staging-*/kortix-master
-│  /opt/opencode         → symlink to kortix-staging-*/opencode
-│  (kortix-opencode → /opt/opencode/)                          │
-│  (symlinks are the ACID swap mechanism for OTA updates)     │
+│  Versioned releases are shipped as Docker image tags        │
+│  (`kortix/computer:<version>`) instead of staged OTA trees  │
 └─────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
@@ -85,17 +81,10 @@ The sandbox is built in 4 layers:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### The symlink contract
+### Runtime contract
 
-Every runtime path in `/opt/` is a symlink to the current staged version:
-
-```
-/opt/kortix-master  →  /opt/kortix-staging-0.7.26/kortix-master
-/opt/opencode       →  /opt/kortix-staging-0.7.26/opencode
-...
-```
-
-This is how OTA updates work atomically: `postinstall.sh` builds a new `kortix-staging-{newVersion}/` directory in parallel while the live version keeps running, then `update.ts` swaps all symlinks at once.
+The sandbox runtime is baked directly into the container image under `/opt/*`.
+When a new release ships, running sandboxes update by pulling the new tagged Docker image and recreating the container with the same persistent `/workspace` volume.
 
 ---
 
@@ -146,12 +135,12 @@ With the dev overlay, **code changes are live immediately**. You only need `--bu
 
 | Local path | Container path |
 |---|---|
-| `packages/sandbox/kortix-master/src` | `/opt/kortix-master/src` |
+| `sandbox/kortix-master/src` | `/opt/kortix-master/src` |
 | `packages/kortix-opencode/` | `/opt/opencode/` (agents, tools, skills, plugin, commands) |
 | `packages/opencode-channels/src` | `/opt/opencode-channels/src` |
 | `packages/opencode-agent-triggers/src` | `/opt/opencode-agent-triggers/src` |
 
-These map into the **active symlink target** — so your edit lands directly in the running code path.
+These mounts land directly in the running code path inside the dev container.
 
 ### When to rebuild the image
 
@@ -161,7 +150,7 @@ You **do not** need to rebuild for:
 
 You **do** need `pnpm dev:sandbox --build` when:
 - `Dockerfile` changes
-- `packages/sandbox/package.json` changes (new/removed dep)
+- `sandbox/package.json` changes (new/removed dep)
 - `kortix-master/package.json` or `bun.lock` changes
 - `kortix-opencode/package.json` changes
 
@@ -199,18 +188,18 @@ curl http://127.0.0.1:14000/kortix/health
 
 ### Version locations
 
-The single source of version truth is `packages/sandbox/package.json`. The `ship` script keeps all other locations in sync:
+The single source of version truth is `sandbox/package.json`. The `ship` script keeps all other locations in sync:
 
 | File | Field |
 |---|---|
-| `packages/sandbox/package.json` | `"version"` |
-| `packages/sandbox/release.json` | `releaseVersion`, `sandbox.image`, etc. |
-| `packages/sandbox/startup.sh` | `DEFAULT_KORTIX_SANDBOX_VERSION` |
+| `sandbox/package.json` | `"version"` |
+| `sandbox/release.json` | `version`, `images.*`, `snapshots.*` |
+| `sandbox/startup.sh` | `DEFAULT_KORTIX_SANDBOX_VERSION` |
 | `scripts/get-kortix.sh` | `DEFAULT_KORTIX_VERSION` |
 
 ### Changelog
 
-Before releasing, add an entry to `packages/sandbox/CHANGELOG.json`:
+Before releasing, add an entry to `sandbox/CHANGELOG.json`:
 
 ```json
 {
@@ -318,49 +307,24 @@ pnpm check
 
 ---
 
-## OTA Update Mechanism
+## Update Mechanism
 
-Running sandboxes update without Docker rebuilds via a 6-phase ACID flow.
+Running sandboxes update by replacing the container image, not by staging OTA tarballs inside the VM.
 
 ### How a sandbox updates
 
-1. User clicks **Update** in the sidebar (or API call to `POST /kortix/update`)
-2. `update.ts` calls `downloadAndStageOTA(version)`:
-   - Downloads `https://github.com/kortix-ai/computer/releases/download/v{version}/sandbox-runtime-{version}.tar.gz`
-   - Extracts to `/tmp/kortix-ota-extract-{version}/`
-   - Runs `postinstall.sh` from the tarball (detected as **staging mode** because `/opt/kortix-master` is a symlink)
-3. `postinstall.sh` in **staging mode**:
-   - Builds new `kortix-master`, `opencode`, `kortix-opencode`, `opencode-channels`, `opencode-agent-triggers` into `/opt/kortix-staging-{version}/`
-   - **Smart dep copy**: if lockfile is unchanged vs. current version, copies `node_modules` instead of running `bun install` (fast path)
-   - Writes `/opt/kortix-staging-{version}/.manifest` when done
-4. `update.ts` verifies staging succeeded (manifest exists)
-5. `update.ts` atomically swaps all `/opt/` symlinks to point to the new staging dir
-6. `update.ts` restarts `kortix-master` via s6 and validates health
+1. User clicks **Update** in the sidebar, or the platform hits the sandbox update API
+2. The control plane resolves the target version from `sandbox/release.json`
+3. The host pulls the matching image tags such as `kortix/computer:{version}`
+4. The sandbox container is recreated with the same mounted workspace and env
+5. Health checks wait for `kortix-master` and dependent services to come back cleanly
 
-### ACID properties
+### Why this model is simpler
 
-- **Atomic** — all symlinks swap together; there's no partial state
-- **Zero downtime** — new version staged while current is running
-- **Rollback-safe** — old staging dir preserved until `cleanup` phase
-- **Fast** — source-only tarball (~5MB) + dep copy shortcut when lockfile unchanged
-
-### OTA tarball contents
-
-```
-sandbox-runtime-{version}.tar.gz
-├── kortix-master/          proxy server TypeScript source
-├── vendor/
-│   ├── kortix-opencode/    OpenCode config (agents, tools, skills, plugins)
-│   ├── opencode-channels/  chat adapter source
-│   └── opencode-agent-triggers/  cron/trigger source
-├── postinstall.sh          staging deployment script
-├── s6-services/            service definitions
-├── config/                 init scripts (kortix-env-setup, customize)
-├── browser-viewer/         agent browser viewer UI
-├── core/                   manifest + service spec
-├── package.json            version + dep metadata
-└── CHANGELOG.json
-```
+- **Single release artifact** — the Docker tag is the deployable unit
+- **Consistent runtime** — cloud and self-hosted installs boot the same image
+- **Safer rollback** — reverting means recreating from the previous tag
+- **Less moving state** — user files stay in `/workspace`, app code stays in the image
 
 ---
 
@@ -375,9 +339,8 @@ Everything needed to run, with zero network calls on container start:
 | `/opt/bun/` | Bun runtime |
 | `/usr/local/bin/uv` | uv (Python package runner) |
 | `/opt/bun-pty-musl/librust_pty.so` | musl-compiled bun-pty Rust lib |
-| `/opt/kortix-staging-{version}/` | Full sandbox runtime (code + node_modules) |
-| `/opt/kortix-master` | Symlink → current staging dir |
-| `/opt/opencode` | OpenCode config dir (agents, tools, skills, plugins) |
+| `/opt/kortix-master/` | Proxy + control server runtime |
+| `/opt/opencode/` | OpenCode config, agents, tools, skills, plugins |
 | `/etc/s6-overlay/s6-rc.d/` | Service definitions |
 | `/custom-cont-init.d/` | Init scripts |
 
@@ -385,18 +348,18 @@ Everything needed to run, with zero network calls on container start:
 
 - User workspace data (mounted at `/workspace` as a volume)
 - Secrets (injected via env vars → `/workspace/.secrets/`)
-- New code versions (delivered via OTA tarball)
+- New code versions beyond the currently pulled image tag
 
 ### Build command
 
 ```bash
 # Just the sandbox image (local, for dev):
-docker compose -f packages/sandbox/docker/docker-compose.yml build
+docker compose -f sandbox/docker/docker-compose.yml build
 
 # Multi-platform release push:
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  -f packages/sandbox/docker/Dockerfile \
+  -f sandbox/docker/Dockerfile \
   -t kortix/computer:0.8.0 \
   -t kortix/computer:latest \
   --push .
@@ -408,10 +371,10 @@ Only when something in the Dockerfile or its dependency chain changes:
 - `Dockerfile` itself
 - Any `apk add` package needed
 - Bun version
-- `packages/sandbox/package.json` (adds/removes a dep that needs prebaking)
+- `sandbox/package.json` (adds/removes a dep that needs prebaking)
 - `bun.lock` in a sandbox package
 
-For everything else, `pnpm ship` (OTA tarball) is sufficient.
+For everything else, `pnpm ship` and a container recreate are sufficient.
 
 ---
 
@@ -464,7 +427,7 @@ docker exec -it kortix-sandbox bash
 ### Release a new version
 
 ```bash
-# 1. Add changelog entry to packages/sandbox/CHANGELOG.json
+# 1. Add changelog entry to sandbox/CHANGELOG.json
 # 2. Ship everything:
 pnpm ship 0.8.0
 git push
@@ -496,7 +459,7 @@ pnpm check
 ### Build sandbox image manually
 
 ```bash
-docker compose -f packages/sandbox/docker/docker-compose.yml build
+docker compose -f sandbox/docker/docker-compose.yml build
 ```
 
 ### Deploy API to prod

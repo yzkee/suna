@@ -1,5 +1,33 @@
 [
   {
+    "version": "0.8.21",
+    "date": "2026-03-29",
+    "title": "Backups, provisioning polish, and session routing fixes",
+    "description": "Adds sandbox backup management in the dashboard and API, smooths provisioning and wake-state UX across web and mobile, and hardens the Kortix OpenCode runtime with safer session/project routing and zero-arg tool-call handling.",
+    "changes": [
+      {
+        "type": "feature",
+        "text": "Add sandbox backup flows across the platform with new backup pages, dialogs, hooks, API routes, and JustAVPS provider support"
+      },
+      {
+        "type": "fix",
+        "text": "Improve health and readiness gating so instance switching, wake screens, and provisioning progress wait for the right global and workspace health signals before showing a machine as ready"
+      },
+      {
+        "type": "fix",
+        "text": "Clean up provisioning, checkout, and pricing behavior by aligning machine pricing data, Stripe descriptions, and stuck-state handling across the frontend and API"
+      },
+      {
+        "type": "improvement",
+        "text": "Expand mobile and dashboard management surfaces for tunnels, channels, API keys, scheduled tasks, running services, and onboarding flows"
+      },
+      {
+        "type": "fix",
+        "text": "Refine the Kortix OpenCode runtime with session-project gating, simpler memory behavior, better agent resolution, and protection for zero-argument tool calls like project_list and pty_list"
+      }
+    ]
+  },
+  {
     "version": "0.8.20",
     "date": "2026-03-25",
     "title": "Fix sandbox agent trigger execution for webhook, cron, and event flows",
