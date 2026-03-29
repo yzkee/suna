@@ -92,7 +92,7 @@ async function run() {
 	const event = plugin.event as (args: { event: any }) => Promise<void>
 
 	console.log("\n── 1. Plugin initialization ──")
-	assert(Object.keys(tools).length === 10, `10 tools registered (got ${Object.keys(tools).length})`)
+	assert(Object.keys(tools).length === 11, `11 tools registered (got ${Object.keys(tools).length})`)
 	assert(typeof event === "function", "Event handler is a function")
 	assert(existsSync(DB_PATH), "SQLite DB created in central workspace .kortix")
 
@@ -104,7 +104,7 @@ async function run() {
 	assert(createResult.includes("e2e-test-project"), "project_create returns project name")
 	assert(existsSync(TEST_PROJECT), "Project directory created")
 	assert(existsSync(path.join(TEST_PROJECT, ".kortix", "project.json")), "project.json marker exists")
-	assert(existsSync(path.join(TEST_PROJECT, ".kortix", "context.md")), "context.md exists")
+	assert(existsSync(path.join(TEST_PROJECT, ".kortix", "CONTEXT.md")), "CONTEXT.md exists")
 	assert(existsSync(path.join(TEST_PROJECT, ".opencode")), ".opencode dir exists")
 	assert(existsSync(path.join(TEST_PROJECT, ".git")), "Git initialized")
 
@@ -249,6 +249,50 @@ async function run() {
 	console.log("\n── 10. Result persistence ──")
 	const sessionsDir = path.join(TEST_PROJECT, ".kortix", "sessions")
 	assert(existsSync(sessionsDir), ".kortix/sessions/ directory exists")
+
+	console.log("\n── 11. Project select & tool gate ──")
+	const toolGate = plugin["tool.execute.before"] as (input: { tool: string; sessionID: string; callID: string }, output: { args: any }) => Promise<void>
+	assert(typeof toolGate === "function", "tool.execute.before hook registered")
+
+	// Ungated tools should always pass (even without project)
+	const ungatedSession = "ses_no_project_test"
+	await toolGate({ tool: "project_list", sessionID: ungatedSession, callID: "c1" }, { args: {} })
+	assert(true, "project_list allowed without project")
+	await toolGate({ tool: "session_read", sessionID: ungatedSession, callID: "c2" }, { args: {} })
+	assert(true, "session_read allowed without project")
+
+	// Gated tools should throw without a project
+	let gateBlocked = false
+	try {
+		await toolGate({ tool: "mcp_bash", sessionID: ungatedSession, callID: "c3" }, { args: {} })
+	} catch (e: any) {
+		gateBlocked = true
+		assert(e.message.includes("No project selected"), `Tool gate error message correct (got: ${e.message.slice(0, 60)})`)
+	}
+	assert(gateBlocked, "mcp_bash blocked without project")
+
+	// project_select should link session to project
+	const selectResult = await tools.project_select.execute(
+		{ project: "e2e-test-project" },
+		{ sessionID: ungatedSession, agent: "kortix" },
+	)
+	assert(selectResult.includes("e2e-test-project"), "project_select returns project name")
+	assert(selectResult.includes("selected"), "project_select confirms selection")
+
+	// After select, gated tools should pass
+	let gateAllowed = false
+	try {
+		await toolGate({ tool: "mcp_bash", sessionID: ungatedSession, callID: "c4" }, { args: {} })
+		gateAllowed = true
+	} catch {}
+	assert(gateAllowed, "mcp_bash allowed after project_select")
+
+	// project_select with invalid project
+	const badSelect = await tools.project_select.execute(
+		{ project: "nonexistent-project" },
+		{ sessionID: "ses_bad_select", agent: "kortix" },
+	)
+	assert(badSelect.includes("not found"), "project_select rejects unknown project")
 
 	db.close()
 

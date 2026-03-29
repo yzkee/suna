@@ -245,7 +245,7 @@ Every spawned session receives a structured prompt that includes:
 
 ## Project Context
 
-<contents of .kortix/context.md>
+<contents of .kortix/CONTEXT.md>
 
 ## Other Active Sessions in This Project
 
@@ -256,7 +256,7 @@ Every spawned session receives a structured prompt that includes:
 1. Working directory: `<project path>` — use workdir on bash commands.
 2. Stay in your lane. Only modify files within your task scope.
 3. TDD: Write tests FIRST. Implement to pass. Verify after every change.
-4. Update `.kortix/context.md` with discoveries and decisions.
+4. Update `.kortix/CONTEXT.md` with discoveries and decisions.
 5. Write docs to `.kortix/docs/` for shared context.
 6. Include test results in your final message.
 7. When done, emit <promise>DONE</promise> then <promise>VERIFIED</promise>.

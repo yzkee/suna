@@ -198,9 +198,11 @@ function isIncompleteToolPart(part: ChatMessagePart): boolean {
 function shouldStripToolPart(part: ChatMessagePart): boolean {
 	if (!isToolPart(part)) return false
 	if (!part.state) return true
-	// Only strip empty-input tools if they are NOT completed — zero-arg tools
-	// (e.g. project_list, pty_list) legitimately have input: {} when successful.
-	if (hasEmptyInput(part) && part.state.status !== "completed") return true
+	// Only strip empty-input tools if they never ran — zero-arg tools
+	// (e.g. project_list, pty_list) legitimately have input: {} when executed.
+	// Completed or errored tools already have a tool_result pair, so stripping
+	// them would create orphaned tool_results that break Anthropic's API.
+	if (hasEmptyInput(part) && part.state.status !== "completed" && part.state.status !== "error") return true
 	return false
 }
 

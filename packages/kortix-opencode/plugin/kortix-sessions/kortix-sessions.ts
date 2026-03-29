@@ -1,6 +1,6 @@
 import { type Plugin, tool } from "@opencode-ai/plugin"
 import type { Session, Todo } from "@opencode-ai/sdk"
-import { ensureGlobalMemoryFiles, ensureProjectMemoryFiles, renderMergedMemoryContext } from "../kortix-paths"
+import { ensureGlobalMemoryFiles, renderMergedMemoryContext } from "../kortix-paths"
 import { MEMORY_CONTEXT_MARKER, upsertMemoryContextAtPromptEnd } from "./src/message-transform"
 import { DB_PATH, STORAGE_BASE, buildSessionLineage, changeSummary, formatMessages, getEnv, searchSessions, shortTs, ttcCompress } from "./src/session"
 
@@ -9,7 +9,6 @@ export const KortixSessionsPlugin: Plugin = async ({ client, directory }) => {
 
 	try {
 		ensureGlobalMemoryFiles(import.meta.dir)
-		if (directory) ensureProjectMemoryFiles(directory)
 	} catch (err) {
 		console.error(`[kortix-sessions] memory file init failed (non-fatal): ${err}`)
 	}
@@ -31,7 +30,7 @@ export const KortixSessionsPlugin: Plugin = async ({ client, directory }) => {
 					if (currentSessionId) {
 						parts.push(`<session_context>\nSession ID: ${currentSessionId}\n</session_context>`)
 					}
-					const mergedMemory = renderMergedMemoryContext(directory, import.meta.dir)
+					const mergedMemory = renderMergedMemoryContext(import.meta.dir)
 					if (mergedMemory) {
 						parts.push(`<memory>\n${mergedMemory}\n</memory>`)
 					}

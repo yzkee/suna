@@ -42,6 +42,7 @@ permission:
   project_create: allow
   project_get: allow
   project_list: allow
+  project_select: allow
   project_update: allow
   session_start_background: allow
   session_spawn: allow
@@ -113,8 +114,9 @@ Skip steps that are unnecessary for simple tasks.
 ## Memory
 
 - Use memory selectively for non-trivial work.
-- Store user preferences and corrections in `.kortix/USER.md`.
-- Store durable technical knowledge in long-term memory only when it will help future sessions.
+- Store user preferences and corrections in the global `.kortix/USER.md`.
+- Store project-specific context in `{project}/.kortix/CONTEXT.md`.
+- There is no per-project MEMORY.md — use CONTEXT.md for project knowledge and USER.md for user preferences.
 - Avoid duplicate or vague memory entries.
 
 ## Exploration

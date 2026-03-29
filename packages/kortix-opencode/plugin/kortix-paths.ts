@@ -56,52 +56,22 @@ function ensureFile(filePath: string, content: string): string {
 	return filePath
 }
 
-export function ensureGlobalMemoryFiles(anchorDir?: string): { userPath: string; memoryPath: string } {
+/**
+ * Ensure global USER.md exists at the workspace root .kortix/ directory.
+ * This is the ONLY memory file. Project-specific context lives in
+ * {project}/.kortix/CONTEXT.md instead. MEMORY.md is removed.
+ */
+export function ensureGlobalMemoryFiles(anchorDir?: string): { userPath: string } {
 	const kortixDir = ensureKortixDir(anchorDir)
 	return {
 		userPath: ensureFile(join(kortixDir, "USER.md"), [
-			"# Global User Profile",
+			"# User Profile",
 			"",
 			"## Preferences",
 			"",
 			"## Communication Style",
 			"",
 			"## Workflow Habits",
-			"",
-		].join("\n")),
-		memoryPath: ensureFile(join(kortixDir, "MEMORY.md"), [
-			"# Global Memory",
-			"",
-			"## Environment",
-			"",
-			"## Cross-Project Rules",
-			"",
-			"## Recurring Notes",
-			"",
-		].join("\n")),
-	}
-}
-
-export function ensureProjectMemoryFiles(projectDir: string): { userPath: string; memoryPath: string } {
-	const kortixDir = join(normalizeAbsolutePath(projectDir), ".kortix")
-	mkdirSync(kortixDir, { recursive: true })
-	return {
-		userPath: ensureFile(join(kortixDir, "USER.md"), [
-			"# Project User Profile",
-			"",
-			"## Preferences",
-			"",
-			"## Workflow Notes",
-			"",
-		].join("\n")),
-		memoryPath: ensureFile(join(kortixDir, "MEMORY.md"), [
-			"# Project Memory",
-			"",
-			"## Architecture",
-			"",
-			"## Commands",
-			"",
-			"## Conventions",
 			"",
 		].join("\n")),
 	}
@@ -146,30 +116,24 @@ function normalizeMemoryBody(text: string): string[] {
 	return out
 }
 
-export function renderMergedMemoryContext(projectDir?: string, anchorDir?: string): string {
+/**
+ * Render memory context from global USER.md only.
+ * Project-level memory files have been removed — project context
+ * lives in {project}/.kortix/CONTEXT.md and AGENTS.md instead.
+ */
+export function renderMergedMemoryContext(anchorDir?: string): string {
 	const globalFiles = ensureGlobalMemoryFiles(anchorDir)
-	const projectFiles = projectDir ? ensureProjectMemoryFiles(projectDir) : null
 
 	const blocks = [
-		projectFiles ? { label: "Project User", lines: normalizeMemoryBody(readIfExists(projectFiles.userPath)) } : null,
-		projectFiles ? { label: "Project Memory", lines: normalizeMemoryBody(readIfExists(projectFiles.memoryPath)) } : null,
-		{ label: "Global User", lines: normalizeMemoryBody(readIfExists(globalFiles.userPath)) },
-		{ label: "Global Memory", lines: normalizeMemoryBody(readIfExists(globalFiles.memoryPath)) },
-	].filter(Boolean) as Array<{ label: string; lines: string[] }>
+		{ label: "User", lines: normalizeMemoryBody(readIfExists(globalFiles.userPath)) },
+	]
 
-	const seen = new Set<string>()
 	const rendered: string[] = []
 	for (const block of blocks) {
-		const uniqueLines = block.lines.filter((line) => {
-			const key = line.trim().toLowerCase()
-			if (!key) return false
-			if (seen.has(key)) return false
-			seen.add(key)
-			return true
-		})
-		if (uniqueLines.length === 0) continue
+		const nonEmpty = block.lines.filter(line => line.trim())
+		if (nonEmpty.length === 0) continue
 		rendered.push(`## ${block.label}`)
-		rendered.push(...uniqueLines)
+		rendered.push(...nonEmpty)
 		rendered.push("")
 	}
 

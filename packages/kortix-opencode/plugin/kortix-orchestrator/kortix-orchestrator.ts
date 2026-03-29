@@ -24,7 +24,7 @@ import { mkdirSync, readdirSync, statSync, readFileSync, existsSync, unlinkSync 
 import * as path from "node:path"
 import { type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
 import type { Event } from "@opencode-ai/sdk"
-import { ensureGlobalMemoryFiles, ensureKortixDir, ensureProjectMemoryFiles, renderMergedMemoryContext, resolveKortixWorkspaceRoot } from "../kortix-paths"
+import { ensureGlobalMemoryFiles, ensureKortixDir, resolveKortixWorkspaceRoot } from "../kortix-paths"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -85,6 +85,11 @@ function initDb(dbPath: string): Database {
 			created_at TEXT NOT NULL,
 			completed_at TEXT
 		);
+		CREATE TABLE IF NOT EXISTS session_projects (
+			session_id TEXT PRIMARY KEY,
+			project_id TEXT NOT NULL REFERENCES projects(id),
+			set_at TEXT NOT NULL
+		);
 	`)
 	// Migration: add opencode_id column if missing (existing DBs)
 	try { db.exec("ALTER TABLE projects ADD COLUMN opencode_id TEXT") } catch {}
@@ -124,6 +129,45 @@ class Manager {
 
 	constructor(private client: any, private dir: string, private db: Database) {}
 
+	// ── Session ↔ Project Link ──
+	// In-memory cache: once a session is linked to a project, we never query the DB again.
+	// The DB is only for persistence across process restarts.
+	private sessionProjectCache = new Map<string, ProjectRow>()
+
+	/** Get the Kortix project linked to this session, or null. Cached after first hit. */
+	getSessionProject(sessionId: string): ProjectRow | null {
+		// Hot path: in-memory cache (no DB round-trip)
+		const cached = this.sessionProjectCache.get(sessionId)
+		if (cached) return cached
+
+		// Cold path: check DB (only happens once per session per process lifetime)
+		const row = this.db.prepare("SELECT p.* FROM session_projects sp JOIN projects p ON sp.project_id = p.id WHERE sp.session_id = $sid")
+			.get({ $sid: sessionId }) as ProjectRow | null
+		if (row) this.sessionProjectCache.set(sessionId, row)
+		return row
+	}
+
+	/** Link a session to a Kortix project. Caches immediately. */
+	setSessionProject(sessionId: string, projectId: string): void {
+		this.db.prepare("INSERT OR REPLACE INTO session_projects (session_id, project_id, set_at) VALUES ($sid, $pid, $now)")
+			.run({ $sid: sessionId, $pid: projectId, $now: new Date().toISOString() })
+		// Update cache immediately so subsequent tool calls never hit DB
+		const project = this.db.prepare("SELECT * FROM projects WHERE id = $id").get({ $id: projectId }) as ProjectRow | null
+		if (project) this.sessionProjectCache.set(sessionId, project)
+	}
+
+	/** Try to auto-detect project from a directory path */
+	autoDetectProject(directory: string): ProjectRow | null {
+		// Check if directory or any parent matches a known project path
+		let dir = directory
+		while (dir && dir !== "/" && dir !== ".") {
+			const row = this.db.prepare("SELECT * FROM projects WHERE path = $p").get({ $p: dir }) as ProjectRow | null
+			if (row) return row
+			dir = path.dirname(dir)
+		}
+		return null
+	}
+
 	// ── Projects ──
 
 	async createProject(name: string, desc: string, customPath: string): Promise<ProjectRow> {
@@ -152,10 +196,9 @@ class Manager {
 		for (const d of [".opencode/agents", ".opencode/skills", ".opencode/commands", ".kortix/plans", ".kortix/docs", ".kortix/sessions"])
 			await fs.mkdir(path.join(pp, d), { recursive: true })
 		ensureGlobalMemoryFiles(import.meta.dir)
-		ensureProjectMemoryFiles(pp)
 		const marker: ProjectMarker = { name, description: desc || "", created: new Date().toISOString() }
 		await wm(path.join(pp, ".kortix", "project.json"), JSON.stringify(marker, null, 2))
-		await wm(path.join(pp, ".kortix", "context.md"), `# ${name}\n\n${desc || "No description."}\n\nCreated: ${marker.created}\n`)
+		await wm(path.join(pp, ".kortix", "CONTEXT.md"), `# ${name}\n\n${desc || "No description."}\n\nCreated: ${marker.created}\n`)
 		await wm(path.join(pp, ".gitignore"), "node_modules/\n.env\n.env.*\n!.env.example\n*.log\ndist/\n.DS_Store\n")
 		await wm(path.join(pp, ".opencode", "opencode.jsonc"), JSON.stringify({ $schema: "https://opencode.ai/config.json" }, null, 2))
 		if (!existsSync(path.join(pp, ".git"))) {
@@ -274,7 +317,7 @@ class Manager {
 
 	private async projectState(project: ProjectRow, skipSid?: string): Promise<{ ctx: string; siblingCtx: string }> {
 		let ctx = ""
-		try { ctx = await fs.readFile(path.join(project.path, ".kortix", "context.md"), "utf8") } catch { ctx = "(none)" }
+		try { ctx = await fs.readFile(path.join(project.path, ".kortix", "CONTEXT.md"), "utf8") } catch { ctx = "(none)" }
 
 		const siblings = this.db.prepare("SELECT session_id, prompt, status FROM delegations WHERE project_id=$pid ORDER BY created_at DESC LIMIT 10")
 			.all({ $pid: project.id }) as Array<{ session_id: string; prompt: string; status: string }>
@@ -350,7 +393,7 @@ Other workers may be running in parallel on this project. **Do NOT touch files o
 1. **Working directory:** \`${project.path}\` — use \`workdir\` on bash commands.
 2. **Stay in your lane.** Only modify files within your task scope. Other workers may be active — respect their file ownership.
 3. **TDD:** Write tests FIRST. Implement to pass. Verify after every change.
-4. Update \`.kortix/context.md\` with discoveries and decisions.
+4. Update \`.kortix/CONTEXT.md\` with discoveries and decisions.
 5. Write docs to \`.kortix/docs/\` for shared context.
 6. Include test results in your final message.
 7. When fully done and all tests pass, emit \`<promise>DONE</promise>\` then \`<promise>VERIFIED</promise>\`.
@@ -365,8 +408,8 @@ Other workers may be running in parallel on this project. **Do NOT touch files o
 		const sess = await this.client.session.create({ body: { title: (title || prompt).slice(0, 80), parentID: parentSid } })
 		if (!sess.data?.id) throw new Error("Failed to create session")
 		const sessionId = sess.data.id
-		// Normalize agent name — "default", "", or invalid → kortix
-		const agentName = (agent && agent !== "default" && agent !== "kortix" && agent !== "KortixWorker") ? agent : "kortix"
+		// Agent name is already validated by resolveAgent() in the tool layer — just use it
+		const agentName = agent || "kortix"
 		const now = new Date().toISOString()
 
 		// Record delegation
@@ -646,6 +689,38 @@ const KortixPlugin: Plugin = async (ctx) => {
 	const db = initDb(path.join(kortixDir, "kortix.db"))
 	const mgr = new Manager(client, workspaceRoot, db)
 
+	// Fetch available agent names from the runtime — no hardcoding
+	let cachedAgentNames: string[] | null = null // null = not yet loaded
+	const agentListReady = (client.agents?.() as Promise<any> | undefined)
+		?.then((res: any) => {
+			const agents = res?.data ?? res ?? []
+			if (Array.isArray(agents) && agents.length > 0) {
+				cachedAgentNames = agents.map((a: any) => a?.name ?? a?.id).filter(Boolean)
+			} else {
+				cachedAgentNames = ["kortix"]
+			}
+		})
+		?.catch(() => { cachedAgentNames = ["kortix"] }) // fallback on error
+
+	/** Validate an agent name against the runtime's available agents */
+	async function resolveAgent(explicit: string, parentAgent: string): Promise<string> {
+		// Wait for agent list if it hasn't loaded yet (typically <100ms)
+		if (!cachedAgentNames && agentListReady) {
+			await agentListReady
+		}
+		const known = cachedAgentNames ?? ["kortix"]
+		// If explicit and valid, use it
+		if (explicit && explicit !== "default" && explicit !== "background" && known.includes(explicit)) {
+			return explicit
+		}
+		// Inherit from parent if valid
+		if (parentAgent && known.includes(parentAgent)) {
+			return parentAgent
+		}
+		// Fallback
+		return "kortix"
+	}
+
 	const listBackgroundSessions = tool({
 		description: "List background sessions, optionally filtered by project.",
 		args: {
@@ -667,20 +742,22 @@ const KortixPlugin: Plugin = async (ctx) => {
 	const spawnBackgroundSession = tool({
 		description: `Spawn or resume a background session in a project. Returns the session ID immediately, then later sends a <session-report> on completion or failure. Runs /autowork by default.`,
 		args: {
-			project: tool.schema.string().describe('Project name or path. "" allowed when resuming via session_id.'),
-			description: tool.schema.string().describe('Short session label. "" to skip.'),
-			prompt: tool.schema.string().describe("Detailed task description. Be thorough — the session starts with zero context beyond this + project's .kortix/context.md."),
-			agent: tool.schema.string().describe('"" for default (kortix). Or any agent name.'),
-			subagent_type: tool.schema.string().describe('Alias of agent.'),
-			session_id: tool.schema.string().describe('Existing session ID to continue instead of creating a fresh one.'),
-			model: tool.schema.string().describe('"" for agent default. Or "provider/model" like "anthropic/claude-sonnet-4-6", "anthropic/claude-opus-4".'),
+			project: tool.schema.string().describe('Project name or path. Required for new sessions. "" when resuming via session_id.'),
+			description: tool.schema.string().describe('Short session label (shown in lists). "" to auto-generate from prompt.'),
+			prompt: tool.schema.string().describe("Detailed task description. Be thorough — the session starts with zero context beyond this + project's .kortix/CONTEXT.md."),
+			agent: tool.schema.string().describe('"" to inherit from current session (recommended). Or any agent name like "kortix", "explore", "general".'),
+			subagent_type: tool.schema.string().describe('Deprecated, ignored. Use agent instead.'),
+			session_id: tool.schema.string().describe('Existing session ID to resume. "" for a new session.'),
+			model: tool.schema.string().describe('"" to inherit from current session (recommended). Or "provider/model" like "anthropic/claude-sonnet-4-6".'),
 			command: tool.schema.string().describe('"" for default (/autowork). Or any command. "none" for one-shot (no loop).'),
 		},
 		async execute(args: { project: string; description: string; prompt: string; agent: string; subagent_type: string; session_id: string; model: string; command: string }, toolCtx: ToolContext): Promise<string> {
 			if (!toolCtx?.sessionID) return "Error: no session context."
 			try {
 				const cmd = args.command === "none" ? "" : (args.command || "/autowork")
-				const agent = args.subagent_type || args.agent || "kortix"
+				// Resolve agent: explicit arg > parent session's agent > "kortix"
+				// subagent_type is ignored — LLMs fill it with garbage like "background"
+				const agent = await resolveAgent(args.agent || "", toolCtx.agent || "")
 				const existingSessionId = args.session_id || ""
 				const del = existingSessionId
 					? await mgr.resume(existingSessionId, args.prompt, toolCtx.sessionID, toolCtx.agent, cmd, args.model || undefined)
@@ -737,10 +814,9 @@ const KortixPlugin: Plugin = async (ctx) => {
 					const stats = db.prepare("SELECT status, COUNT(*) as c FROM delegations WHERE project_id=$pid GROUP BY status").all({ $pid: p.id }) as Array<{ status: string; c: number }>
 					const ocId = p.opencode_id ? `\nOpenCode ID: ${p.opencode_id}` : ""
 					const globalMemory = ensureGlobalMemoryFiles(import.meta.dir)
-					const projectMemory = ensureProjectMemoryFiles(p.path)
-					const mergedMemory = renderMergedMemoryContext(p.path, import.meta.dir)
-					const mergedPreview = mergedMemory ? `${mergedMemory.slice(0, 500)}${mergedMemory.length > 500 ? "..." : ""}` : "(empty)"
-					return `**${p.name}** (${p.id})${ocId}\nPath: \`${p.path}\`\nDesc: ${p.description || "-"}\nSessions: ${stats.map(s => `${s.status}:${s.c}`).join(" ") || "none"}\nGlobal USER: \`${globalMemory.userPath}\`\nGlobal MEMORY: \`${globalMemory.memoryPath}\`\nProject USER: \`${projectMemory.userPath}\`\nProject MEMORY: \`${projectMemory.memoryPath}\`\nMerged memory preview:\n${mergedPreview}`
+					const contextPath = path.join(p.path, ".kortix", "CONTEXT.md")
+					const contextExists = existsSync(contextPath)
+					return `**${p.name}** (${p.id})${ocId}\nPath: \`${p.path}\`\nDesc: ${p.description || "-"}\nSessions: ${stats.map(s => `${s.status}:${s.c}`).join(" ") || "none"}\nUser profile: \`${globalMemory.userPath}\`\nProject context: \`${contextPath}\` ${contextExists ? "✓" : "(missing)"}`
 				},
 			}),
 
@@ -771,18 +847,32 @@ const KortixPlugin: Plugin = async (ctx) => {
 				},
 			}),
 
+			project_select: tool({
+				description: "Set the active project for this session. Must be called before any file/bash/edit operations. Auto-detected from working directory when possible.",
+				args: {
+					project: tool.schema.string().describe('Project name or path to select.'),
+				},
+				async execute(args: { project: string }, toolCtx: ToolContext): Promise<string> {
+					if (!toolCtx?.sessionID) return "Error: no session context."
+					const p = mgr.getProject(args.project)
+					if (!p) return `Project "${args.project}" not found. Use project_list to see available projects, or project_create to register one.`
+					mgr.setSessionProject(toolCtx.sessionID, p.id)
+					return `Project **${p.name}** selected for this session.\nPath: \`${p.path}\`\nYou can now use file, bash, and edit tools.`
+				},
+			}),
+
 			session_start_background: spawnBackgroundSession,
 			session_spawn: tool({
 				description: "Compatibility alias for `session_start_background`.",
 				args: {
-					project: tool.schema.string().describe('Project name or path. "" allowed when resuming via session_id.'),
-					description: tool.schema.string().describe('Short session label. "" to skip.'),
+					project: tool.schema.string().describe('Project name or path. Required for new sessions. "" when resuming via session_id.'),
+					description: tool.schema.string().describe('Short session label. "" to auto-generate.'),
 					prompt: tool.schema.string().describe("Detailed task description."),
-					agent: tool.schema.string().describe('"" for default (kortix). Or any agent name.'),
-					subagent_type: tool.schema.string().describe('Alias of agent.'),
-					session_id: tool.schema.string().describe('Existing session ID to continue instead of creating a fresh one.'),
-					model: tool.schema.string().describe('"" for agent default. Or "provider/model".'),
-					command: tool.schema.string().describe('"" for default (/autowork). Or any command. "none" for one-shot (no loop).'),
+					agent: tool.schema.string().describe('"" to inherit from current session. Or explicit agent name.'),
+					subagent_type: tool.schema.string().describe('Deprecated, ignored. Use agent instead.'),
+					session_id: tool.schema.string().describe('Existing session ID to resume. "" for new.'),
+					model: tool.schema.string().describe('"" to inherit from current session. Or "provider/model".'),
+					command: tool.schema.string().describe('"" for default (/autowork). Or any command. "none" for one-shot.'),
 				},
 				async execute(args: { project: string; description: string; prompt: string; agent: string; subagent_type: string; session_id: string; model: string; command: string }, toolCtx: ToolContext): Promise<string> {
 					return spawnBackgroundSession.execute(args, toolCtx)
@@ -826,6 +916,65 @@ Also works on ANY session ID (not just spawned ones) — use session_list (built
 				},
 				async execute(args: { session_id: string; message: string }): Promise<string> { return mgr.sendMessage(args.session_id, args.message) },
 			}),
+		},
+
+		// ── Project gate: block work tools until a project is selected for the session ──
+		// CRITICAL: This hook runs before EVERY tool call. If it throws, the tool
+		// fails. If the DB is broken, we must FAIL OPEN (allow) not fail closed
+		// (block everything with "disk I/O error").
+		"tool.execute.before": async (input: { tool: string; sessionID: string; callID: string }, _output: { args: any }) => {
+			// Normalize tool name: both hyphens and underscores should match
+			// (LLMs sometimes call "image_search" when the tool is "image-search")
+			const toolName = input.tool
+			const normalized = toolName.replace(/-/g, "_")
+
+			// Tools that are always allowed (project management, session management, search, show, etc.)
+			const UNGATED_PREFIXES = [
+				"project_", "session_", "worktree_",     // orchestration tools
+				"web_search", "web-search",              // web search
+				"image_search", "image-search",          // image search
+				"scrape_webpage", "scrape-webpage",      // web scraping
+				"instance_dispose", "instance-dispose",  // system
+				"context7_", "context7-",                // docs
+			]
+			// Allow ungated tools by prefix
+			if (UNGATED_PREFIXES.some(p => toolName.startsWith(p) || normalized.startsWith(p.replace(/-/g, "_")))) return
+			// Allow ungated tools by exact name
+			const UNGATED_EXACT = [
+				"todowrite", "todoread", "show", "question", "skill",
+				"webfetch", "apply_patch",
+			]
+			if (UNGATED_EXACT.includes(toolName) || UNGATED_EXACT.includes(normalized)) return
+
+			const sessionId = input.sessionID
+			if (!sessionId) return // no session context — can't gate
+
+			// Wrap DB access in try-catch — if the DB is broken, fail OPEN (allow)
+			// rather than blocking every tool with "disk I/O error"
+			try {
+				// Check if session already has a project
+				const linked = mgr.getSessionProject(sessionId)
+				if (linked) return // already linked — allow
+
+				// Try auto-detection from working directory
+				const autoProject = mgr.autoDetectProject(ctx.directory || "")
+				if (autoProject) {
+					mgr.setSessionProject(sessionId, autoProject.id)
+					console.error(`[kortix-orchestrator] Auto-linked session ${sessionId.slice(-8)} to project "${autoProject.name}" (from directory ${ctx.directory})`)
+					return // auto-linked — allow
+				}
+			} catch (err) {
+				// DB error (disk I/O, corruption, etc.) — fail open, don't block work
+				console.error(`[kortix-orchestrator] Project gate DB error (allowing tool): ${err instanceof Error ? err.message : err}`)
+				return
+			}
+
+			// No project — block with descriptive error
+			throw new Error(
+				`No project selected for this session. You must select a project before using ${toolName}.\n` +
+				`Use project_list to see available projects, then project_select to choose one.\n` +
+				`Or use project_create to register a new project directory.`
+			)
 		},
 
 		event: async ({ event }: { event: Event }) => {
