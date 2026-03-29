@@ -16,7 +16,11 @@ export function useBackups(sandboxId: string | undefined) {
     queryKey,
     queryFn: () => listBackups(sandboxId!),
     enabled: !!sandboxId,
-    refetchInterval: 30_000,
+    refetchInterval: (q) => {
+      const backups = q.state.data?.backups;
+      if (backups?.some((b) => b.status === 'creating')) return 5_000;
+      return 30_000;
+    },
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey });

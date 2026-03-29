@@ -31,7 +31,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { useBackups } from '@/hooks/instance/use-backups';
-import { toast } from '@/lib/toast';
+import { toast as sonnerToast } from 'sonner';
 import { cn } from '@/lib/utils';
 
 interface BackupDialogProps {
@@ -90,9 +90,9 @@ export function BackupDialog({ open, onOpenChange, sandboxId }: BackupDialogProp
     try {
       await create.mutateAsync(description || undefined);
       setDescription('');
-      toast.success('Backup started');
+      sonnerToast.success('Backup started');
     } catch (err: any) {
-      toast.error(err?.message || 'Failed to create backup');
+      sonnerToast.error(err?.message || 'Failed to create backup');
     }
   }
 
@@ -100,9 +100,9 @@ export function BackupDialog({ open, onOpenChange, sandboxId }: BackupDialogProp
     setConfirmRestore(null);
     try {
       await restore.mutateAsync(backupId);
-      toast.success('Restore initiated. Your machine will reboot with the backup data.');
+      sonnerToast.success('Restore initiated. Your machine will reboot with the backup data.');
     } catch (err: any) {
-      toast.error(err?.message || 'Failed to restore backup');
+      sonnerToast.error(err?.message || 'Failed to restore backup');
     }
   }
 
@@ -110,9 +110,9 @@ export function BackupDialog({ open, onOpenChange, sandboxId }: BackupDialogProp
     setConfirmDelete(null);
     try {
       await remove.mutateAsync(backupId);
-      toast.success('Backup deleted');
+      sonnerToast.success('Backup deleted');
     } catch (err: any) {
-      toast.error(err?.message || 'Failed to delete backup');
+      sonnerToast.error(err?.message || 'Failed to delete backup');
     }
   }
 
