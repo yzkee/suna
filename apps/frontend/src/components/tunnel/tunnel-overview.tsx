@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Cable, Plus, Monitor, Trash2, Search, X, Terminal, Copy, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getEnv } from '@/lib/env-config';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -141,7 +142,8 @@ function ConnectionItem({
 function ConnectButton() {
   const [showCommand, setShowCommand] = useState(false);
   const [copied, setCopied] = useState(false);
-  const command = 'npx @kortix/agent-tunnel connect';
+  const apiUrl = `${getEnv().BACKEND_URL}/tunnel`;
+  const command = `npx @kortix/agent-tunnel connect --api-url ${apiUrl}`;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(command);
@@ -168,7 +170,7 @@ function ConnectButton() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 4, scale: 0.97 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 top-full mt-2 z-50 w-[360px] rounded-xl border border-border bg-card shadow-lg p-4 space-y-3"
+            className="absolute right-0 top-full mt-2 z-50 w-[480px] rounded-xl border border-border bg-card shadow-lg p-4 space-y-3"
           >
             <div className="flex items-center gap-2">
               <Terminal className="h-4 w-4 text-muted-foreground" />
@@ -181,7 +183,7 @@ function ConnectButton() {
               onClick={handleCopy}
               className="group flex items-center gap-2 w-full bg-foreground/[0.04] hover:bg-foreground/[0.07] border border-foreground/[0.08] rounded-lg px-3 py-2.5 transition-colors"
             >
-              <code className="text-xs font-mono text-foreground/80 flex-1 text-left truncate">
+              <code className="text-xs font-mono text-foreground/80 flex-1 text-left break-all">
                 {command}
               </code>
               {copied ? (
@@ -199,7 +201,8 @@ function ConnectButton() {
 
 function ConnectGuide() {
   const [copied, setCopied] = useState(false);
-  const command = 'npx @kortix/agent-tunnel connect';
+  const apiUrl = `${getEnv().BACKEND_URL}/tunnel`;
+  const command = `npx @kortix/agent-tunnel connect --api-url ${apiUrl}`;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(command);
