@@ -73,7 +73,7 @@ import { InstanceOnboarding } from '@/components/setup/InstanceOnboarding';
 import {
   Eye, EyeOff, RefreshCw, Upload, Image, FolderPlus, LayoutGrid, List,
   FileText, Copy, Pencil, Trash2,
-  Bot, Sparkles, Terminal, FolderOpen, Plug,
+  Bot, Sparkles, Terminal, FolderOpen, Plug, Settings,
 } from 'lucide-react-native';
 import type { BottomBarMenuItem } from '@/components/session/BottomBar';
 import { log } from '@/lib/logger';
@@ -1292,8 +1292,14 @@ export default function HomeScreen() {
                         {
                           icon: Plug,
                           label: 'Add MCP server',
-                          onPress: () => handleCreateSessionWithPrompt('Add MCP server', "HEY let's add a new MCP server. Ask which server to connect, then configure it with the right transport and environment variables."),
+                          onPress: () => workspacePageRef.current?.openSettings('mcp'),
                         },
+                        {
+                          icon: Settings,
+                          label: 'Settings',
+                          onPress: () => workspacePageRef.current?.openSettings('general'),
+                        },
+                        { type: 'divider' },
                         {
                           icon: RefreshCw,
                           label: 'Refresh workspace',

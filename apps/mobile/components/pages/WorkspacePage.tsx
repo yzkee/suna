@@ -66,6 +66,7 @@ import {
   type Project,
   type McpStatus,
 } from '@/lib/opencode/hooks/use-opencode-data';
+import { WorkspaceSettingsSheet, type WorkspaceSettingsSheetRef } from './WorkspaceSettingsSheet';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -153,6 +154,7 @@ const COMPOSER_PRESETS: Record<string, { title: string; prompt: string }> = {
 
 export interface WorkspacePageRef {
   refetch: () => void;
+  openSettings: (tab?: 'general' | 'providers' | 'permissions' | 'mcp') => void;
 }
 
 interface WorkspacePageProps {
@@ -187,6 +189,7 @@ export const WorkspacePage = forwardRef<WorkspacePageRef, WorkspacePageProps>(fu
   const [kindFilter, setKindFilter] = useState<KindFilter>('all');
   const [selectedItem, setSelectedItem] = useState<WorkspaceItem | null>(null);
   const detailSheetRef = useRef<BottomSheetModal>(null);
+  const settingsSheetRef = useRef<WorkspaceSettingsSheetRef>(null);
 
   // Data
   const { data: agents, isLoading: lAgents, refetch: rAgents } = useOpenCodeAgents(sandboxUrl);
@@ -265,9 +268,10 @@ export const WorkspacePage = forwardRef<WorkspacePageRef, WorkspacePageProps>(fu
     return c;
   }, [allItems]);
 
-  // Expose refetch for BottomBar refresh action
+  // Expose refetch and openSettings for BottomBar menu
   useImperativeHandle(ref, () => ({
     refetch: refetchAll,
+    openSettings: (tab) => settingsSheetRef.current?.present(tab),
   }), [refetchAll]);
 
   // Filtered items
@@ -707,6 +711,9 @@ export const WorkspacePage = forwardRef<WorkspacePageRef, WorkspacePageProps>(fu
           <DetailContent />
         </BottomSheetScrollView>
       </BottomSheetModal>
+
+      {/* Settings bottom sheet */}
+      <WorkspaceSettingsSheet ref={settingsSheetRef} />
     </View>
   );
 });

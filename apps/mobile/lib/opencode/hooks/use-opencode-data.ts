@@ -4,7 +4,7 @@
  * Mirrors the frontend's use-opencode-sessions.ts agent/provider fetching.
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getAuthToken } from '@/api/config';
 import { log } from '@/lib/logger';
 
@@ -73,12 +73,14 @@ export interface OpenCodeConfig {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-async function opencodeFetch<T>(sandboxUrl: string, path: string): Promise<T> {
+async function opencodeFetch<T>(sandboxUrl: string, path: string, init?: RequestInit): Promise<T> {
   const token = await getAuthToken();
   const res = await fetch(`${sandboxUrl}${path}`, {
+    ...init,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
     },
   });
   if (!res.ok) {
@@ -215,7 +217,7 @@ export interface Project {
 }
 
 export interface McpStatus {
-  status: 'connected' | 'failed' | 'needs_auth' | 'disconnected' | 'disabled' | 'pending';
+  status: 'connected' | 'failed' | 'needs_auth' | 'needs_client_registration' | 'disconnected' | 'disabled' | 'pending';
   tools?: string[];
   error?: string;
 }
@@ -346,4 +348,108 @@ export function useOpenCodeModels(sandboxUrl: string | undefined) {
   const models = filterToLatestModels(allModels);
   const defaults = providers?.default || {};
   return { data: models, allModels, defaults, providers, ...rest };
+}
+
+// ─── Config Mutation ────────────────────────────────────────────────────────
+
+export function useUpdateOpenCodeConfig(sandboxUrl: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (config: Partial<OpenCodeConfig>) => {
+      if (!sandboxUrl) throw new Error('No sandbox URL');
+      return opencodeFetch<OpenCodeConfig>(sandboxUrl, '/config', {
+        method: 'PATCH',
+        body: JSON.stringify({ config }),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: opencodeKeys.config(sandboxUrl || '') });
+    },
+  });
+}
+
+// ─── MCP Mutations ──────────────────────────────────────────────────────────
+
+export interface AddMcpServerParams {
+  name: string;
+  type: 'local' | 'remote';
+  command?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+}
+
+export function useAddMcpServer(sandboxUrl: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: AddMcpServerParams) => {
+      if (!sandboxUrl) throw new Error('No sandbox URL');
+      const config: Record<string, unknown> = { type: params.type };
+      if (params.type === 'local') {
+        config.command = params.command;
+        if (params.env && Object.keys(params.env).length > 0) config.environment = params.env;
+      } else {
+        config.url = params.url;
+        if (params.headers && Object.keys(params.headers).length > 0) config.headers = params.headers;
+      }
+      return opencodeFetch<Record<string, McpStatus>>(sandboxUrl, '/mcp', {
+        method: 'POST',
+        body: JSON.stringify({ name: params.name, config }),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: opencodeKeys.mcpStatus(sandboxUrl || '') });
+    },
+  });
+}
+
+export function useConnectMcpServer(sandboxUrl: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (name: string) => {
+      if (!sandboxUrl) throw new Error('No sandbox URL');
+      return opencodeFetch(sandboxUrl, `/mcp/${encodeURIComponent(name)}/connect`, { method: 'POST' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: opencodeKeys.mcpStatus(sandboxUrl || '') });
+    },
+  });
+}
+
+export function useDisconnectMcpServer(sandboxUrl: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (name: string) => {
+      if (!sandboxUrl) throw new Error('No sandbox URL');
+      return opencodeFetch(sandboxUrl, `/mcp/${encodeURIComponent(name)}/disconnect`, { method: 'POST' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: opencodeKeys.mcpStatus(sandboxUrl || '') });
+    },
+  });
+}
+
+export function useMcpAuthStart(sandboxUrl: string | undefined) {
+  return useMutation({
+    mutationFn: async (name: string) => {
+      if (!sandboxUrl) throw new Error('No sandbox URL');
+      return opencodeFetch<{ authorizationUrl: string }>(sandboxUrl, `/mcp/${encodeURIComponent(name)}/auth`, { method: 'POST' });
+    },
+  });
+}
+
+export function useMcpAuthCallback(sandboxUrl: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: { name: string; code: string }) => {
+      if (!sandboxUrl) throw new Error('No sandbox URL');
+      return opencodeFetch<McpStatus>(sandboxUrl, `/mcp/${encodeURIComponent(params.name)}/auth/callback`, {
+        method: 'POST',
+        body: JSON.stringify({ code: params.code }),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: opencodeKeys.mcpStatus(sandboxUrl || '') });
+    },
+  });
 }
