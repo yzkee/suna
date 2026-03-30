@@ -267,7 +267,10 @@ export function useOpenCodeEventStream(sandboxUrl: string | undefined) {
         break;
 
       default:
-        log.log(`📨 [SSE] Unhandled event: ${type}`);
+        // Silently ignore known heartbeat/internal events to avoid log spam
+        if (type !== 'server.heartbeat') {
+          log.log(`📨 [SSE] Unhandled event: ${type}`);
+        }
         break;
     }
   }, [queryClient]);
