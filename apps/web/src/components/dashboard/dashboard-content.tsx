@@ -18,7 +18,7 @@ import { useServerStore } from '@/stores/server-store';
 import { SessionChatInput } from '@/components/session/session-chat-input';
 import { WallpaperBackground } from '@/components/ui/wallpaper-background';
 import { PersonalisedSuggestions } from '@/components/dashboard/personalised-suggestions';
-import { useOpenCodeLocal } from '@/hooks/opencode/use-opencode-local';
+import { useOpenCodeLocal, formatModelString } from '@/hooks/opencode/use-opencode-local';
 import { useOpenCodeConfig } from '@/hooks/opencode/use-opencode-config';
 import { Menu } from 'lucide-react';
 import type { Command } from '@/hooks/opencode/use-opencode-sessions';
@@ -132,7 +132,7 @@ export function DashboardContent() {
           command: cmd.name,
           arguments: args || '',
           ...(local.agent.current && { agent: local.agent.current.name }),
-          ...(local.model.currentKey && { model: String(local.model.currentKey) }),
+          ...(local.model.currentKey && { model: formatModelString(local.model.currentKey) }),
           ...(local.model.variant.current && { variant: local.model.variant.current }),
         } as any).catch(() => {
           toast.warning('Failed to execute command');

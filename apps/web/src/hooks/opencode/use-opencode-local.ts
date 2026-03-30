@@ -89,6 +89,37 @@ function uniqueBy<T>(arr: T[], key: (item: T) => string): T[] {
   return result;
 }
 
+/**
+ * Normalize a model value into a ModelKey.
+ * Handles:
+ *   - object: { providerID: string; modelID: string }
+ *   - string: "providerID/modelID"
+ * Returns undefined if the input is not a recognizable model.
+ */
+export function parseModelKey(model: unknown): ModelKey | undefined {
+  if (!model) return undefined;
+  if (typeof model === 'object' && model !== null) {
+    const obj = model as Record<string, unknown>;
+    if (typeof obj.providerID === 'string' && typeof obj.modelID === 'string') {
+      return { providerID: obj.providerID, modelID: obj.modelID };
+    }
+  }
+  if (typeof model === 'string') {
+    const idx = model.indexOf('/');
+    if (idx > 0 && idx < model.length - 1) {
+      return { providerID: model.slice(0, idx), modelID: model.slice(idx + 1) };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Format a ModelKey as a string "providerID/modelID" for command endpoints.
+ */
+export function formatModelString(model: ModelKey): string {
+  return `${model.providerID}/${model.modelID}`;
+}
+
 // ============================================================================
 // Hook
 // ============================================================================
