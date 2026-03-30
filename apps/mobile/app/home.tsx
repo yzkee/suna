@@ -61,7 +61,7 @@ import { ScheduledTasksTabPage } from '@/components/pages/ScheduledTasksPage';
 import { ApiKeysTabPage } from '@/components/pages/ApiKeysPage';
 import { ChannelsTabPage } from '@/components/pages/ChannelsPage';
 import { TunnelTabPage } from '@/components/pages/TunnelPage';
-import { WorkspacePage } from '@/components/pages/WorkspacePage';
+import { WorkspacePage, type WorkspacePageRef } from '@/components/pages/WorkspacePage';
 import type { FilesPageRef } from '@/components/pages/FilesPage';
 import { SecretsPage } from '@/components/pages/SecretsPage';
 import { MemoryPage } from '@/components/pages/MemoryPage';
@@ -364,6 +364,7 @@ export default function HomeScreen() {
 
   // Files page ref (for BottomBar menu integration)
   const filesPageRef = useRef<FilesPageRef>(null);
+  const workspacePageRef = useRef<WorkspacePageRef>(null);
   const bottomBarRef = useRef<BottomBarRef>(null);
   const viewShotRef = useRef<any>(null);
   const [filesShowHidden, setFilesShowHidden] = useState(false);
@@ -483,6 +484,26 @@ export default function HomeScreen() {
       setDrawerOpen(false);
     } catch (err: any) {
       log.error('❌ [Home] Failed to create session:', err?.message || err);
+    }
+  }, [sandboxUrl, createSession, navigateToSession]);
+
+  const handleCreateSessionWithPrompt = useCallback(async (title: string, prompt: string) => {
+    if (!sandboxUrl) return;
+    try {
+      const session = await createSession.mutateAsync({ title });
+      navigateToSession(session.id);
+      // Send the preset prompt into the new session
+      const token = await getAuthToken();
+      await fetch(`${sandboxUrl}/session/${session.id}/prompt_async`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ parts: [{ type: 'text', text: prompt }] }),
+      });
+    } catch (err: any) {
+      log.error('❌ [Home] Failed to create session with prompt:', err?.message || err);
     }
   }, [sandboxUrl, createSession, navigateToSession]);
 
@@ -1107,10 +1128,12 @@ export default function HomeScreen() {
           /* Active page tab — Workspace */
           ) : activePageId === 'page:workspace' && PAGE_TABS[activePageId] && !showTabsOverview ? (
             <WorkspacePage
+              ref={workspacePageRef}
               page={PAGE_TABS[activePageId]}
               onBack={handleBack}
               onOpenDrawer={handleDrawerOpen}
               onOpenRightDrawer={handleRightDrawerOpen}
+              onCreateSessionWithPrompt={handleCreateSessionWithPrompt}
             />
 
           /* Active page tab — other pages (placeholder) */
@@ -1242,7 +1265,9 @@ export default function HomeScreen() {
                 onDiagnostics={() => log.log('TODO: diagnostics')}
                 onArchiveSession={() => { if (activeSessionId) handleArchive(activeSessionId); }}
                 customMenuItems={
-                  activePageId === 'page:files'
+                  activePageId === 'page:workspace'
+                    ? (workspacePageRef.current?.getMenuItems() as BottomBarMenuItem[] ?? undefined)
+                    : activePageId === 'page:files'
                     ? (filesSelectedName
                         ? ([
                             // Contextual file actions only (long-press)

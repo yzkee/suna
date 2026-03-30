@@ -9,7 +9,7 @@
  * - Quick actions section for creating new items
  */
 
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -37,6 +37,8 @@ import {
   FileText,
   Blocks,
   ArrowUpRight,
+  Settings,
+  RefreshCw,
 } from 'lucide-react-native';
 import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -140,18 +142,32 @@ const KIND_TABS: { value: KindFilter; label: string }[] = [
   { value: 'mcp', label: 'MCP' },
 ];
 
+// ─── Quick action presets (same as frontend) ────────────────────────────────
+
+const COMPOSER_PRESETS: Record<string, { title: string; prompt: string }> = {
+  agent:   { title: 'New agent',   prompt: "HEY let's build a new agent. Ask what job it should own, then scaffold it in the right workspace location and wire up any supporting skills." },
+  skill:   { title: 'New skill',   prompt: "HEY let's build a new skill. Ask what should trigger it, then create the SKILL.md and any supporting files in the right workspace location." },
+  command: { title: 'New command', prompt: "HEY let's build a new slash command. Ask what the command should do, then add it in the right workspace location and connect it to the correct agent." },
+  project: { title: 'New project', prompt: "HEY let's set up a new project. Ask for the name and purpose, then create it in the right workspace location with a clean starting structure." },
+};
+
 // ─── Props ──────────────────────────────────────────────────────────────────
+
+export interface WorkspacePageRef {
+  getMenuItems: () => Array<{ type?: 'action' | 'divider'; icon?: React.ComponentType<any>; label?: string; onPress?: () => void }>;
+}
 
 interface WorkspacePageProps {
   page: PageTab;
   onBack: () => void;
   onOpenDrawer?: () => void;
   onOpenRightDrawer?: () => void;
+  onCreateSessionWithPrompt?: (title: string, prompt: string) => void;
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export function WorkspacePage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: WorkspacePageProps) {
+export const WorkspacePage = forwardRef<WorkspacePageRef, WorkspacePageProps>(function WorkspacePage({ page, onBack, onOpenDrawer, onOpenRightDrawer, onCreateSessionWithPrompt }, ref) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
@@ -250,6 +266,43 @@ export function WorkspacePage({ page, onBack, onOpenDrawer, onOpenRightDrawer }:
     allItems.forEach((i) => c[i.kind]++);
     return c;
   }, [allItems]);
+
+  // Expose quick-action menu items for the BottomBar three-dot menu
+  useImperativeHandle(ref, () => ({
+    getMenuItems: () => [
+      {
+        icon: Bot,
+        label: `New agent  ·  ${kindCounts.agent} live`,
+        onPress: () => onCreateSessionWithPrompt?.(COMPOSER_PRESETS.agent.title, COMPOSER_PRESETS.agent.prompt),
+      },
+      {
+        icon: Sparkles,
+        label: `New skill  ·  ${kindCounts.skill} live`,
+        onPress: () => onCreateSessionWithPrompt?.(COMPOSER_PRESETS.skill.title, COMPOSER_PRESETS.skill.prompt),
+      },
+      {
+        icon: Terminal,
+        label: `New command  ·  ${kindCounts.command} live`,
+        onPress: () => onCreateSessionWithPrompt?.(COMPOSER_PRESETS.command.title, COMPOSER_PRESETS.command.prompt),
+      },
+      {
+        icon: FolderOpen,
+        label: `New project  ·  ${kindCounts.project} live`,
+        onPress: () => onCreateSessionWithPrompt?.(COMPOSER_PRESETS.project.title, COMPOSER_PRESETS.project.prompt),
+      },
+      { type: 'divider' as const },
+      {
+        icon: Plug,
+        label: `Add MCP server  ·  ${kindCounts.mcp} connected`,
+        onPress: () => onCreateSessionWithPrompt?.('Add MCP server', "HEY let's add a new MCP server. Ask which server to connect, then configure it with the right transport and environment variables."),
+      },
+      {
+        icon: RefreshCw,
+        label: 'Refresh',
+        onPress: () => refetchAll(),
+      },
+    ],
+  }), [kindCounts, onCreateSessionWithPrompt, refetchAll]);
 
   // Filtered items
   const filteredItems = useMemo(() => {
@@ -690,7 +743,7 @@ export function WorkspacePage({ page, onBack, onOpenDrawer, onOpenRightDrawer }:
       </BottomSheetModal>
     </View>
   );
-}
+});
 
 // ─── Small components ───────────────────────────────────────────────────────
 
