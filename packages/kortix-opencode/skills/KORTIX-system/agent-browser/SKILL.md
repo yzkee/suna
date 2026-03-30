@@ -27,6 +27,44 @@ agent-browser wait --load networkidle
 agent-browser snapshot -i  # Check result
 ```
 
+## Screenshot & Capture Directory Convention
+
+**All screenshots, PDFs, recordings, and visual diffs MUST be saved to a `screenshots/` directory in the project root** — never scattered across the project tree or workspace root.
+
+```bash
+# The directory is auto-created if it doesn't exist
+mkdir -p ./screenshots
+
+# CORRECT — always use ./screenshots/
+agent-browser screenshot ./screenshots/page.png
+agent-browser screenshot --full ./screenshots/full-page.png
+agent-browser pdf ./screenshots/page.pdf
+agent-browser record start ./screenshots/demo.webm
+
+# WRONG — clutters the project root or random directories
+agent-browser screenshot page.png
+agent-browser screenshot /workspace/content-agent/site-current.png
+agent-browser screenshot ../output/shot.png
+```
+
+When taking multiple screenshots in a workflow, use descriptive filenames:
+
+```bash
+mkdir -p ./screenshots
+agent-browser screenshot ./screenshots/homepage.png
+agent-browser screenshot ./screenshots/blog-listing.png
+agent-browser screenshot ./screenshots/login-form.png
+agent-browser screenshot ./screenshots/checkout-flow.png
+```
+
+For diffing workflows, baselines also go in `screenshots/`:
+
+```bash
+agent-browser screenshot ./screenshots/baseline-homepage.png
+# ... changes ...
+agent-browser diff screenshot --baseline ./screenshots/baseline-homepage.png
+```
+
 ## Command Chaining
 
 Commands can be chained with `&&` in a single shell invocation. The browser persists between commands via a background daemon, so chaining is safe and more efficient than separate calls.
@@ -38,8 +76,8 @@ agent-browser open https://example.com && agent-browser wait --load networkidle 
 # Chain multiple interactions
 agent-browser fill @e1 "user@example.com" && agent-browser fill @e2 "password123" && agent-browser click @e3
 
-# Navigate and capture
-agent-browser open https://example.com && agent-browser wait --load networkidle && agent-browser screenshot page.png
+# Navigate and capture — screenshots go in ./screenshots/
+agent-browser open https://example.com && agent-browser wait --load networkidle && agent-browser screenshot ./screenshots/page.png
 ```
 
 **When to chain:** Use `&&` when you don't need to read the output of an intermediate command before proceeding (e.g., open + wait + screenshot). Run commands separately when you need to parse the output first (e.g., snapshot to discover refs, then interact using those refs).
@@ -86,10 +124,10 @@ agent-browser wait --download ./output.zip     # Wait for any download to comple
 agent-browser --download-path ./downloads open <url>  # Set default download directory
 
 # Capture
-agent-browser screenshot              # Screenshot to temp dir
+agent-browser screenshot              # Screenshot to ./screenshots/ (auto-named)
 agent-browser screenshot --full       # Full page screenshot
 agent-browser screenshot --annotate   # Annotated screenshot with numbered element labels
-agent-browser pdf output.pdf          # Save as PDF
+agent-browser pdf ./screenshots/output.pdf          # Save as PDF
 
 # Diff (compare page states)
 agent-browser diff snapshot                          # Compare current vs last snapshot
@@ -235,7 +273,7 @@ agent-browser profiler stop trace.json # Stop and save profile (path optional)
 # Open local files with file:// URLs
 agent-browser --allow-file-access open file:///path/to/document.pdf
 agent-browser --allow-file-access open file:///path/to/page.html
-agent-browser screenshot output.png
+agent-browser screenshot ./screenshots/output.png
 ```
 
 ### iOS Simulator (Mobile Safari)
@@ -254,7 +292,7 @@ agent-browser -p ios fill @e2 "text"
 agent-browser -p ios swipe up         # Mobile-specific gesture
 
 # Take screenshot
-agent-browser -p ios screenshot mobile.png
+agent-browser -p ios screenshot ./screenshots/mobile.png
 
 # Close session (shuts down simulator)
 agent-browser -p ios close
@@ -329,9 +367,9 @@ For visual regression testing or monitoring:
 
 ```bash
 # Save a baseline screenshot, then compare later
-agent-browser screenshot baseline.png
+agent-browser screenshot ./screenshots/baseline.png
 # ... time passes or changes are made ...
-agent-browser diff screenshot --baseline baseline.png
+agent-browser diff screenshot --baseline ./screenshots/baseline.png
 
 # Compare staging vs production
 agent-browser diff url https://staging.example.com https://prod.example.com --screenshot

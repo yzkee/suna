@@ -74,19 +74,19 @@ agent-browser is checked @e1      # Check if checked
 ## Screenshots and PDF
 
 ```bash
-agent-browser screenshot          # Save to temporary directory
-agent-browser screenshot path.png # Save to specific path
-agent-browser screenshot --full   # Full page
-agent-browser pdf output.pdf      # Save as PDF
+agent-browser screenshot                        # Save to ./screenshots/ (auto-named)
+agent-browser screenshot ./screenshots/page.png # Save to specific path in screenshots dir
+agent-browser screenshot --full                 # Full page
+agent-browser pdf ./screenshots/output.pdf      # Save as PDF
 ```
 
 ## Video Recording
 
 ```bash
-agent-browser record start ./demo.webm    # Start recording
-agent-browser click @e1                   # Perform actions
-agent-browser record stop                 # Stop and save video
-agent-browser record restart ./take2.webm # Stop current + start new
+agent-browser record start ./screenshots/demo.webm    # Start recording
+agent-browser click @e1                               # Perform actions
+agent-browser record stop                             # Stop and save video
+agent-browser record restart ./screenshots/take2.webm # Stop current + start new
 ```
 
 ## Wait

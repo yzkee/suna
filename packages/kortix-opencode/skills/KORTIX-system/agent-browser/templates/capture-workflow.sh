@@ -9,12 +9,13 @@
 #   - page-text.txt: All text content
 #   - page.pdf: PDF version
 #
+# Output directory defaults to ./screenshots/ to keep captures organized.
 # Optional: Load auth state for protected pages
 
 set -euo pipefail
 
 TARGET_URL="${1:?Usage: $0 <url> [output-dir]}"
-OUTPUT_DIR="${2:-.}"
+OUTPUT_DIR="${2:-./screenshots}"
 
 echo "Capturing: $TARGET_URL"
 mkdir -p "$OUTPUT_DIR"
