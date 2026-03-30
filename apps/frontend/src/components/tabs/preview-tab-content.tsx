@@ -61,7 +61,7 @@ export function PreviewTabContent({ tabId }: PreviewTabContentProps) {
     return !port && !!originalUrl && !originalUrl.startsWith('http://localhost') && !originalUrl.startsWith('http://127.0.0.1');
   }, [port, originalUrl]);
 
-  const { activeServer, serverUrl, proxyUrl, rewritePortPath } = useSandboxProxy();
+  const { activeServer, serverUrl, subdomainOpts, proxyUrl, rewritePortPath } = useSandboxProxy();
 
   const proxiedPreviewUrl = useMemo(
     () => proxyUrl(rawPreviewUrl) ?? rawPreviewUrl,
@@ -139,7 +139,7 @@ export function PreviewTabContent({ tabId }: PreviewTabContentProps) {
   const navigateTo = useCallback((url: string) => {
     const externalUrl = normalizeExternalInput(url);
     if (externalUrl && isExternalUrl(externalUrl)) {
-      const newProxyUrl = buildWebProxyUrl(externalUrl, serverUrl);
+      const newProxyUrl = buildWebProxyUrl(externalUrl, serverUrl, subdomainOpts);
       if (!newProxyUrl) return;
 
       let displayHost: string;
@@ -193,7 +193,7 @@ export function PreviewTabContent({ tabId }: PreviewTabContentProps) {
     setIsLoading(true);
     setHasError(false);
     setRefreshKey((k) => k + 1);
-  }, [serverUrl, rewritePortPath, tabId, updateTabMetadata, historyIndex]);
+  }, [serverUrl, subdomainOpts, rewritePortPath, tabId, updateTabMetadata, historyIndex]);
 
   /** Handle address bar submission. */
   const handleAddressSubmit = useCallback((e: React.FormEvent) => {

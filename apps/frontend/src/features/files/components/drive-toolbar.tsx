@@ -155,11 +155,11 @@ export function DriveToolbar({
               )}
             >
               <Home className="h-4 w-4" />
-              <span>My Kortix</span>
+              <span className="font-mono text-xs">/workspace</span>
             </button>
 
             {segments.map((segment, index) => {
-              // Skip 'workspace' as it's represented by "My Drive"
+              // Skip 'workspace' as it's represented by the root button
               if (index === 0 && segment === 'workspace') return null;
               const isLast = index === segments.length - 1;
 

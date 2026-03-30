@@ -70,11 +70,21 @@ export {
   useFileHistory,
   useFileCommitDiff,
   useFileAtCommit,
+  useWorkspaceSearch,
+  searchWorkspaceFiles,
+  rankFileResult,
+  parseFileResults,
   fileListKeys,
   fileContentKeys,
   fileSearchKeys,
   fileHistoryKeys,
   lssSearchKeys,
+} from './hooks';
+
+export type {
+  FileSearchResult,
+  WorkspaceSearchState,
+  UseWorkspaceSearchOptions,
 } from './hooks';
 
 // Store

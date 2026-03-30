@@ -51,7 +51,7 @@ function parseIntegrationConnectUrl(href: string): { appSlug: string; sandboxId?
 }
 
 export function LocalhostLinkInterceptor() {
-  const { activeServer, serverUrl, rewritePortPath } = useSandboxProxy();
+  const { activeServer, serverUrl, subdomainOpts, rewritePortPath } = useSandboxProxy();
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -140,7 +140,7 @@ export function LocalhostLinkInterceptor() {
       if (isWebProxyUrl(href)) {
         const originalUrl = parseWebProxyUrl(href);
         if (originalUrl) {
-          const proxyUrl = buildWebProxyUrl(originalUrl, serverUrl);
+          const proxyUrl = buildWebProxyUrl(originalUrl, serverUrl, subdomainOpts);
           if (proxyUrl) {
             e.preventDefault();
             e.stopPropagation();
@@ -160,7 +160,7 @@ export function LocalhostLinkInterceptor() {
 
     document.addEventListener('click', handleClick, { capture: true });
     return () => document.removeEventListener('click', handleClick, { capture: true });
-  }, [activeServer, rewritePortPath, serverUrl]);
+  }, [activeServer, rewritePortPath, serverUrl, subdomainOpts]);
 
   return null;
 }

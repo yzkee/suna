@@ -561,17 +561,59 @@ export function isPreviewUrl(url: string): boolean {
 
 const WEB_PROXY_PATH_PREFIX = '/web-proxy/';
 
+/**
+ * Build a web proxy URL that routes through the Kortix Master (port 8000)
+ * which hosts the /web-proxy/ forward proxy.
+ *
+ * The web proxy lives on Kortix Master, NOT the OpenCode server, so we
+ * must construct a URL targeting port 8000 via the subdomain/path proxy.
+ *
+ * Strategy (most robust → least):
+ *   1. subdomainOpts provided → use rewriteLocalhostUrl for port 8000
+ *   2. serverUrl is a subdomain proxy URL (p8008-...) → swap port prefix to 8000
+ *   3. serverUrl is a path-based proxy (/v1/p/sandbox/8000) → rewrite port segment
+ *   4. Fallback: bare http://localhost:8000 (only works inside the sandbox)
+ */
 export function buildWebProxyUrl(
   targetUrl: string,
   serverUrl: string,
+  subdomainOpts?: SubdomainUrlOptions,
 ): string | null {
   try {
     const parsed = new URL(targetUrl);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
     const scheme = parsed.protocol.replace(':', '');
     const proxyPath = `${WEB_PROXY_PATH_PREFIX}${scheme}/${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`;
-    const server = new URL(serverUrl);
-    return `${server.origin}${proxyPath}`;
+
+    const kmPort = SANDBOX_PORTS.KORTIX_MASTER; // "8000"
+
+    // 1. If subdomainOpts is provided, use the standard rewrite
+    if (subdomainOpts) {
+      const baseUrl = rewriteLocalhostUrl(parseInt(kmPort, 10), '/', serverUrl, subdomainOpts);
+      return `${baseUrl.replace(/\/$/, '')}${proxyPath}`;
+    }
+
+    // 2. Derive from serverUrl directly (handles local subdomain proxy)
+    //    serverUrl like "http://p8008-kortix-sandbox.localhost:8008"
+    //    → swap to   "http://p8000-kortix-sandbox.localhost:8008"
+    try {
+      const server = new URL(serverUrl);
+      const subdomainMatch = server.hostname.match(/^p(\d+)-(.+)$/);
+      if (subdomainMatch) {
+        const sandboxHost = subdomainMatch[2]; // "kortix-sandbox.localhost"
+        return `${server.protocol}//p${kmPort}-${sandboxHost}:${server.port}${proxyPath}`;
+      }
+
+      // 3. Path-based proxy: "https://domain/v1/p/{sandboxId}/8000"
+      //    → rewrite to     "https://domain/v1/p/{sandboxId}/8000/web-proxy/..."
+      const pathMatch = server.pathname.match(/^(\/v1\/p\/[^/]+)\/\d+/);
+      if (pathMatch) {
+        return `${server.origin}${pathMatch[1]}/${kmPort}${proxyPath}`;
+      }
+    } catch { /* fall through */ }
+
+    // 4. Last resort: bare localhost (only works if Kortix Master is accessible directly)
+    return `http://localhost:${kmPort}${proxyPath}`;
   } catch {
     return null;
   }

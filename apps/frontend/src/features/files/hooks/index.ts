@@ -23,6 +23,17 @@ export {
   fileSearchKeys,
 } from './use-file-search';
 
+// Standalone workspace search (CMD+K, @-mentions, etc.)
+export {
+  useWorkspaceSearch,
+  searchWorkspaceFiles,
+  rankFileResult,
+  parseFileResults,
+  type FileSearchResult,
+  type WorkspaceSearchState,
+  type UseWorkspaceSearchOptions,
+} from './use-workspace-search';
+
 // Semantic search (LSS)
 export { useLssSearch, lssSearchKeys } from './use-lss-search';
 

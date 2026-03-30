@@ -71,12 +71,12 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { uploadFile } from "@/features/files/api/opencode-files";
+import { searchWorkspaceFiles } from "@/features/files";
 import { useOpenCodeConfig } from "@/hooks/opencode/use-opencode-config";
 import { useOpenCodeLocal } from "@/hooks/opencode/use-opencode-local";
 import type { ProviderListResponse } from "@/hooks/opencode/use-opencode-sessions";
 import {
 	ascendingId,
-	findOpenCodeFiles,
 	rejectQuestion,
 	replyToPermission,
 	replyToQuestion,
@@ -4550,7 +4550,7 @@ export function SessionChat({
 	const handleFileSearch = useCallback(
 		async (query: string): Promise<string[]> => {
 			try {
-				return await findOpenCodeFiles(query);
+				return await searchWorkspaceFiles(query);
 			} catch {
 				return [];
 			}

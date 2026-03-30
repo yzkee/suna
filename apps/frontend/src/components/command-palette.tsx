@@ -227,52 +227,29 @@ function FileSearchPage({
     );
   }
 
-  // File name search results — files first, then dirs
-  const files = search.results.filter((r) => !r.isDir);
-  const dirs = search.results.filter((r) => r.isDir);
-
+  // Mixed results — ranked by relevance, files and folders interleaved
   return (
-    <>
-      {files.length > 0 && (
-        <CommandGroup heading={`Files (${files.length})`} forceMount>
-          {files.map((file) => (
-            <CommandItem
-              key={file.path}
-              value={sanitizeCmdkValue(`file ${file.name} ${file.path}`)}
-              onSelect={() => onSelect(file.path)}
-            >
-              {getFileIcon(file.name, { className: 'h-4 w-4 shrink-0' })}
-              <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0">
-                <span className="truncate text-sm font-medium">{file.name}</span>
-                <span className="text-[10px] text-muted-foreground/35 font-mono truncate flex-shrink min-w-0">
-                  {file.path}
-                </span>
-              </div>
-            </CommandItem>
-          ))}
-        </CommandGroup>
-      )}
-
-      {dirs.length > 0 && (
-        <CommandGroup heading={`Folders (${dirs.length})`} forceMount>
-          {dirs.map((dir) => (
-            <CommandItem
-              key={dir.path}
-              value={sanitizeCmdkValue(`dir ${dir.name} ${dir.path}`)}
-              onSelect={() => onSelect(dir.path, true)}
-            >
-              <Folder className="h-4 w-4 shrink-0 text-blue-400" />
-              <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0">
-                <span className="truncate text-sm font-medium">{dir.name}</span>
-                <span className="text-[10px] text-muted-foreground/35 font-mono truncate flex-shrink min-w-0">
-                  {dir.path}
-                </span>
-              </div>
-            </CommandItem>
-          ))}
-        </CommandGroup>
-      )}
-    </>
+    <CommandGroup heading={`Results (${search.results.length})`} forceMount>
+      {search.results.map((item) => (
+        <CommandItem
+          key={item.path}
+          value={sanitizeCmdkValue(`${item.isDir ? 'dir' : 'file'} ${item.name} ${item.path}`)}
+          onSelect={() => onSelect(item.path, item.isDir)}
+        >
+          {item.isDir ? (
+            <Folder className="h-4 w-4 shrink-0 text-blue-400" />
+          ) : (
+            getFileIcon(item.name, { className: 'h-4 w-4 shrink-0' })
+          )}
+          <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0">
+            <span className="truncate text-sm font-medium">{item.name}</span>
+            <span className="text-[10px] text-muted-foreground/35 font-mono truncate flex-shrink min-w-0">
+              {item.path}
+            </span>
+          </div>
+        </CommandItem>
+      ))}
+    </CommandGroup>
   );
 }
 

@@ -30,6 +30,7 @@ import {
   MessageSquare,
   Terminal,
   Reply,
+  Folder,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -55,7 +56,9 @@ import type {
   Command,
   ProviderListResponse,
 } from '@/hooks/opencode/use-opencode-sessions';
-import { findOpenCodeFiles, useOpenCodeSessions, useOpenCodeSessionTodo } from '@/hooks/opencode/use-opencode-sessions';
+import { useOpenCodeSessions, useOpenCodeSessionTodo } from '@/hooks/opencode/use-opencode-sessions';
+import { searchWorkspaceFiles } from '@/features/files';
+import { getFileIcon } from '@/features/files/components/file-icon';
 import type { Session } from '@/hooks/opencode/use-opencode-sessions';
 
 import { useMessageQueueStore } from '@/stores/message-queue-store';
@@ -1063,13 +1066,13 @@ function MentionPopover({
 
   return (
     <div
-      className="fixed z-[9999] bg-popover border border-border rounded-xl overflow-hidden"
-      style={{ bottom: window.innerHeight - r.top + 4, left: r.left, width: r.width }}
+      className="fixed z-[9999] bg-popover border border-border/60 rounded-lg shadow-lg overflow-hidden"
+      style={{ bottom: window.innerHeight - r.top + 4, left: r.left, width: Math.min(r.width, 480) }}
     >
-      <div ref={listRef} className="max-h-64 overflow-y-auto py-1">
+      <div ref={listRef} className="max-h-72 overflow-y-auto py-1">
         {agents.length > 0 && (
           <>
-            <div className="px-3 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Modes</div>
+            <div className="px-3 py-1 text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-wider">Agents</div>
             {agents.map((item) => {
               const idx = globalIndex++;
               return (
@@ -1078,13 +1081,13 @@ function MentionPopover({
                   data-mention-index={idx}
                   onMouseDown={(e) => { e.preventDefault(); onSelect(item); }}
                   className={cn(
-                    'w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors cursor-pointer',
-                    idx === selectedIndex ? 'bg-muted' : 'hover:bg-muted',
+                    'w-full flex items-center gap-2 px-3 py-1.5 text-sm transition-colors cursor-pointer',
+                    idx === selectedIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-muted',
                   )}
                 >
                   <span className="size-4 rounded flex items-center justify-center bg-purple-500/15 text-purple-500 text-[10px] font-bold shrink-0">@</span>
-                  <span className="truncate capitalize">{item.label}</span>
-                  {item.description && <span className="text-muted-foreground truncate text-xs">{item.description}</span>}
+                  <span className="truncate font-medium capitalize">{item.label}</span>
+                  {item.description && <span className="text-muted-foreground/40 truncate text-[10px]">{item.description}</span>}
                 </button>
               );
             })}
@@ -1092,7 +1095,7 @@ function MentionPopover({
         )}
         {sessions.length > 0 && (
           <>
-            <div className="px-3 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Sessions</div>
+            <div className="px-3 py-1 text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-wider">Sessions</div>
             {sessions.map((item) => {
               const idx = globalIndex++;
               return (
@@ -1101,13 +1104,13 @@ function MentionPopover({
                   data-mention-index={idx}
                   onMouseDown={(e) => { e.preventDefault(); onSelect(item); }}
                   className={cn(
-                    'w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors cursor-pointer',
-                    idx === selectedIndex ? 'bg-muted' : 'hover:bg-muted',
+                    'w-full flex items-center gap-2 px-3 py-1.5 text-sm transition-colors cursor-pointer',
+                    idx === selectedIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-muted',
                   )}
                 >
-                  <MessageSquare className="size-3.5 text-emerald-500 shrink-0" />
-                  <span className="truncate text-xs">{item.label}</span>
-                  {item.description && <span className="text-muted-foreground truncate text-xs ml-auto">{item.description}</span>}
+                  <MessageSquare className="size-4 text-emerald-500 shrink-0" />
+                  <span className="truncate text-sm font-medium">{item.label}</span>
+                  {item.description && <span className="text-[10px] text-muted-foreground/35 truncate ml-auto">{item.description}</span>}
                 </button>
               );
             })}
@@ -1118,18 +1121,31 @@ function MentionPopover({
             <div className="px-3 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Files</div>
             {files.map((item) => {
               const idx = globalIndex++;
+              const filePath = item.value || item.label;
+              const isDir = filePath.endsWith('/');
+              const cleanPath = isDir ? filePath.slice(0, -1) : filePath;
+              const fileName = cleanPath.split('/').pop() || cleanPath;
               return (
                 <button
                   key={`file-${item.value}`}
                   data-mention-index={idx}
                   onMouseDown={(e) => { e.preventDefault(); onSelect(item); }}
                   className={cn(
-                    'w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors cursor-pointer',
-                    idx === selectedIndex ? 'bg-muted' : 'hover:bg-muted',
+                    'w-full flex items-center gap-2 px-3 py-1.5 text-sm transition-colors cursor-pointer',
+                    idx === selectedIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-muted',
                   )}
                 >
-                  <FileCode className="size-3.5 text-blue-500 shrink-0" />
-                  <span className="truncate font-mono text-xs">{item.label}</span>
+                  {isDir ? (
+                    <Folder className="size-4 shrink-0 text-blue-400" />
+                  ) : (
+                    getFileIcon(fileName, { className: 'size-4 shrink-0' })
+                  )}
+                  <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0">
+                    <span className="truncate text-sm font-medium">{fileName}</span>
+                    <span className="text-[10px] text-muted-foreground/35 font-mono truncate flex-shrink min-w-0">
+                      {cleanPath}
+                    </span>
+                  </div>
                 </button>
               );
             })}
@@ -1137,9 +1153,9 @@ function MentionPopover({
         )}
         {/* Loading indicator while searching for files */}
         {loading && files.length === 0 && (
-          <div className="px-3 py-2 flex items-center gap-2 text-muted-foreground">
+          <div className="px-3 py-2 flex items-center gap-2 text-muted-foreground/50">
             <Loader2 className="size-3.5 animate-spin" />
-            <span className="text-xs">Searching files...</span>
+            <span className="text-xs">Searching…</span>
           </div>
         )}
       </div>
@@ -1354,7 +1370,7 @@ export function SessionChatInput({
   const fileSearchFn = useMemo(() => {
     if (onFileSearch) return onFileSearch;
     return async (query: string): Promise<string[]> => {
-      try { return await findOpenCodeFiles(query); } catch { return []; }
+      try { return await searchWorkspaceFiles(query); } catch { return []; }
     };
   }, [onFileSearch]);
 
