@@ -37,6 +37,8 @@ interface ModelStore {
   selectedModel?: Record<string, ModelKey | undefined>;
   /** Per-session agent name — keyed by sessionId so each session remembers its own agent */
   sessionAgentName?: Record<string, string | undefined>;
+  /** Per-session model selection — keyed by sessionId so each session remembers its own model across reloads */
+  sessionModel?: Record<string, ModelKey | undefined>;
 }
 
 // ============================================================================
@@ -272,6 +274,23 @@ export function useModelStore(allModels: FlatModel[]) {
     setStore({ ...s, sessionAgentName: next });
   }, []);
 
+  // Per-session model selection (survives reload — user's explicit choice for this session)
+  const getSessionModel = useCallback(
+    (sessionId: string): ModelKey | undefined => store.sessionModel?.[sessionId],
+    [store.sessionModel],
+  );
+
+  const setSessionModel = useCallback((sessionId: string, model: ModelKey | undefined) => {
+    const s = getStore();
+    const next = { ...s.sessionModel };
+    if (model) {
+      next[sessionId] = model;
+    } else {
+      delete next[sessionId];
+    }
+    setStore({ ...s, sessionModel: next });
+  }, []);
+
   return {
     isVisible,
     isLatest,
@@ -284,6 +303,8 @@ export function useModelStore(allModels: FlatModel[]) {
     setSelectedModel,
     getSessionAgentName,
     setSessionAgentName,
+    getSessionModel,
+    setSessionModel,
     /** All user visibility preferences (for manage models dialog) */
     userPrefs: store.user,
   };

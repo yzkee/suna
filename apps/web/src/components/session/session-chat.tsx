@@ -44,7 +44,7 @@ import { TurnErrorDisplay } from "@/components/session/session-error-banner";
 import { SessionSiteHeader } from "@/components/session/session-site-header";
 import { QuestionPrompt, type QuestionPromptHandle, type QuestionAction } from "@/components/session/question-prompt";
 import { SessionWelcome } from "@/components/session/session-welcome";
-import { SessionRevertDock, type RevertDockItem } from "@/components/session/session-revert-dock";
+import type { RevertDockItem } from "@/components/session/session-revert-dock";
 import { FileCard } from "@/components/file-previews/FileCard";
 
 import { ToolPartRenderer } from "@/components/session/tool-renderers";
@@ -3226,7 +3226,12 @@ export function SessionChat({
 		return messages.some((msg) => msg.parts?.some((p) => p.type === "tool"));
 	}, [messages]);
 
-	// ---- Restore model/agent from last user message (matching SolidJS session.tsx:550-560) ----
+	// ---- Restore model/agent from last user message ----
+	// Seeds agent/model from the last user message ONLY if there's no per-session
+	// selection yet. This handles opening a session for the first time. If the user
+	// already changed the model in this session (persisted per-session in localStorage),
+	// we don't overwrite it — the per-session selection takes priority via the
+	// resolution chain in useOpenCodeLocal.
 	const lastUserMessage = useMemo(
 		() =>
 			messages
@@ -3241,8 +3246,14 @@ export function SessionChat({
 		lastUserMsgIdRef.current = lastUserMessage.info.id;
 		const msg = lastUserMessage.info as any;
 		if (msg.agent) local.agent.set(msg.agent);
-		const parsedModel = parseModelKey(msg.model);
-		if (parsedModel) local.model.set(parsedModel); // no { recent: true } — matches SolidJS
+		// Only seed model from message if the user hasn't already made a per-session
+		// selection (e.g. changed the model after the last message, then reloaded).
+		// The per-session model is checked first in the resolution chain, so we only
+		// need to seed it here when it's empty (first open of this session).
+		if (!local.model.hasSessionModel) {
+			const parsedModel = parseModelKey(msg.model);
+			if (parsedModel) local.model.set(parsedModel);
+		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [lastUserMessage?.info.id]);
 
@@ -4867,6 +4878,25 @@ export function SessionChat({
 									);
 								})}
 
+								{/* Rolled-back messages divider — inline in chat flow */}
+								{rolledItems.length > 0 && (
+									<div className="flex items-center gap-3 py-3 my-1">
+										<div className="flex-1 h-px bg-border/60" />
+										<span className="text-[11px] text-muted-foreground/70">
+											{rolledItems.length === 1 ? "1 message" : `${rolledItems.length} messages`} rolled back
+										</span>
+										<button
+											type="button"
+											onClick={() => handleRestore(rolledItems[0].id)}
+											disabled={reverting}
+											className="text-[11px] font-medium text-primary hover:text-primary/80 transition-colors cursor-pointer disabled:opacity-50"
+										>
+											{reverting ? "Restoring..." : "Restore"}
+										</button>
+										<div className="flex-1 h-px bg-border/60" />
+									</div>
+								)}
+
 								{/* Busy indicator when no turns yet but session is busy */}
 								{commandError && <TurnErrorDisplay errorText={commandError} className="mt-2" />}
 								{!showOptimistic && isBusy && visibleTurns.length === 0 && (
@@ -4935,18 +4965,6 @@ export function SessionChat({
 
 			{/* Input — hidden in read-only mode (sub-session modal) */}
 			{!readOnly && (
-				<>
-				{/* Revert dock — shows rolled-back messages when session is reverted */}
-				{rolledItems.length > 0 && (
-					<div className="px-4 pb-2">
-						<SessionRevertDock
-							items={rolledItems}
-							restoring={restoringId}
-							disabled={reverting}
-							onRestore={handleRestore}
-						/>
-					</div>
-				)}
 				<SessionChatInput
 				onSend={async (text, files, mentions) => {
 					await handleSend(text, files, mentions);
@@ -5135,7 +5153,6 @@ export function SessionChat({
 					) : undefined
 				}
 			/>
-			</>
 			)}
 		</div>
 	);

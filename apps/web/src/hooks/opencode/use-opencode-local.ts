@@ -58,6 +58,8 @@ export interface OpenCodeLocalModel {
   setVisibility: (model: ModelKey, visible: boolean) => void;
   /** Cycle through recent models */
   cycle: (direction: 1 | -1) => void;
+  /** Whether this session has an explicit per-session model selection in localStorage */
+  hasSessionModel: boolean;
   /** Variant management */
   variant: {
     current: string | undefined;
@@ -286,15 +288,22 @@ export function useOpenCodeLocal({
     return undefined;
   }, [config?.model, modelStore.recent, providers, isModelValid]);
 
-  // ---- Current model resolution (persisted per-agent -> agent.model -> fallback) ----
+  // ---- Current model resolution ----
+  // Priority: per-session > per-agent > agent.model > fallback
+  // Per-session persists the user's explicit pick for THIS session across reloads.
   const currentModelKey = useMemo<ModelKey | undefined>(() => {
     if (!currentAgent) return undefined;
     return getFirstValidModel(
+      // 1. Per-session model (user's explicit choice in this session — survives reload)
+      () => sessionId ? modelStore.getSessionModel(sessionId) : undefined,
+      // 2. Per-agent model (persisted across sessions for this agent)
       () => modelStore.getSelectedModel(currentAgent.name),
+      // 3. Agent's configured default model
       () => currentAgent.model as ModelKey | undefined,
+      // 4. Global fallback (config.model > recent > first connected)
       () => fallbackModel,
     );
-  }, [currentAgent, modelStore, getFirstValidModel, fallbackModel]);
+  }, [currentAgent, sessionId, modelStore, getFirstValidModel, fallbackModel]);
 
   const currentModel = useMemo<FlatModel | undefined>(
     () => (currentModelKey ? findModel(currentModelKey) : undefined),
@@ -314,6 +323,10 @@ export function useOpenCodeLocal({
       if (currentAgent && next) {
         modelStore.setSelectedModel(currentAgent.name, next);
       }
+      // Also persist per-session so the selection survives page reload
+      if (sessionId && next) {
+        modelStore.setSessionModel(sessionId, next);
+      }
       if (model) {
         modelStore.setVisibility(model, true);
       }
@@ -321,7 +334,7 @@ export function useOpenCodeLocal({
         modelStore.pushRecent(model);
       }
     },
-    [currentAgent, fallbackModel, modelStore],
+    [currentAgent, sessionId, fallbackModel, modelStore],
   );
 
   // ---- Agent set (matching SolidJS local.tsx:52-63) ----
@@ -441,6 +454,12 @@ export function useOpenCodeLocal({
     setVariant(variantList[index + 1]);
   }, [variantList, variantCurrent, setVariant]);
 
+  // ---- Per-session model exists check ----
+  const hasSessionModel = useMemo<boolean>(() => {
+    if (!sessionId) return false;
+    return !!modelStore.getSessionModel(sessionId);
+  }, [sessionId, modelStore]);
+
   // ---- Assemble return value ----
   return {
     agent: {
@@ -458,6 +477,7 @@ export function useOpenCodeLocal({
       visible: modelStore.isVisible,
       setVisibility: modelStore.setVisibility,
       cycle: cycleModel,
+      hasSessionModel,
       variant: {
         current: variantCurrent,
         list: variantList,
