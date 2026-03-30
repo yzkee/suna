@@ -50,9 +50,7 @@ coverage/
 .vercel/
 
 # Supabase
-infra/supabase/.temp/
-# Root supabase/ is stale CLI state — infra/supabase/ is the source of truth
-/supabase/
+supabase/.temp/
 
 # Misc
 state.json
@@ -66,12 +64,11 @@ dump.rdb
 .cwc/
 test/
 
-# Sandbox data
+# Core runtime data
 .kortix/
-services/kortix-api/.kortix-data/
-services/kortix-api/.sandbox-auth-token.json
-packages/kortix-opencode/.kortix/
-deploy/sandbox/.buildx-cache/
+apps/api/.kortix-data/
+apps/api/.sandbox-auth-token.json
+core/kortix-master/opencode/.kortix/
 **/.buildx-cache/
 
 .nx/
