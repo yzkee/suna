@@ -34,6 +34,7 @@ import { useSession, replyToQuestion, rejectQuestion, forkSession } from '@/lib/
 import { useTabStore } from '@/stores/tab-store';
 import { useMessageQueueStore } from '@/stores/message-queue-store';
 import type { QueuedMessage } from '@/stores/message-queue-store';
+import { useCompactionStore } from '@/stores/compaction-store';
 import { useSandboxContext } from '@/contexts/SandboxContext';
 import {
   useOpenCodeAgents,
@@ -109,6 +110,7 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
   const safeMessages = useMemo(() => messages ?? [], [messages]);
 
   const isBusy = sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry';
+  const isCompacting = useCompactionStore((s) => Boolean(s.compactingBySession[sessionId]));
 
   // ── Self-heal: restore pending questions after reload ──────────────────
   // Matches the frontend's pattern: detect running question tool parts in
@@ -679,14 +681,49 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
             ) : null
           }
           ListFooterComponent={
-            <View
-              style={{
-                // Fill remaining viewport so the last turn's user bubble
-                // sits at the top. Subtract: header (~60+insets), input (~120+insets),
-                // footer bar (~50), and the actual measured last turn height.
-                height: Math.max(0, windowHeight - insets.top - insets.bottom - 210 - lastTurnHeight),
-              }}
-            />
+            <View>
+              {isCompacting && (
+                <View style={{ paddingHorizontal: 20, paddingVertical: 16 }}>
+                  {/* Divider with Compaction badge */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+                    <View style={{ flex: 1, height: 1, backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }} />
+                    <View style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 6,
+                      paddingHorizontal: 10, paddingVertical: 4,
+                      borderRadius: 6,
+                      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                      borderWidth: 1,
+                      borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                    }}>
+                      <Ionicons name="layers-outline" size={12} color={isDark ? '#888' : '#666'} />
+                      <RNText style={{ fontSize: 11, fontFamily: 'Roobert-SemiBold', color: isDark ? '#888' : '#666', letterSpacing: 0.3 }}>
+                        Compaction
+                      </RNText>
+                    </View>
+                    <View style={{ flex: 1, height: 1, backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }} />
+                  </View>
+                  {/* Compacting indicator */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    {isDark ? (
+                      <KortixSymbolWhite width={14} height={14} />
+                    ) : (
+                      <KortixSymbolBlack width={14} height={14} />
+                    )}
+                    <RNText style={{ fontSize: 14, fontFamily: 'Roobert', color: isDark ? '#888' : '#666' }}>
+                      Compacting session...
+                    </RNText>
+                  </View>
+                </View>
+              )}
+              <View
+                style={{
+                  // Fill remaining viewport so the last turn's user bubble
+                  // sits at the top. Subtract: header (~60+insets), input (~120+insets),
+                  // footer bar (~50), and the actual measured last turn height.
+                  height: Math.max(0, windowHeight - insets.top - insets.bottom - 210 - lastTurnHeight),
+                }}
+              />
+            </View>
           }
           onScrollToIndexFailed={(info) => {
             setTimeout(() => {

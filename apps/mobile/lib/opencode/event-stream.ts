@@ -13,6 +13,7 @@ import { log } from '@/lib/logger';
 import { getAuthToken } from '@/api/config';
 import { useSyncStore, isOptimistic, clearDeltaActiveParts } from './sync-store';
 import { platformKeys } from '@/lib/platform/hooks';
+import { useCompactionStore } from '@/stores/compaction-store';
 import type { MessageWithParts, Part, SessionStatus } from './types';
 
 // ---------------------------------------------------------------------------
@@ -185,6 +186,9 @@ export function useOpenCodeEventStream(sandboxUrl: string | undefined) {
         if (sessionID) {
           log.log(`✅ [SSE] session.idle: ${sessionID}`);
           syncStore.getState().setStatus(sessionID, { type: 'idle' });
+          // Stop compacting indicator if it was running (covers error cases
+          // where session.compacted never fires but session goes idle).
+          useCompactionStore.getState().stopCompaction(sessionID);
           // Streaming finished — clear delta tracking so future
           // message.part.updated snapshots are accepted normally.
           clearDeltaActiveParts();
@@ -227,12 +231,33 @@ export function useOpenCodeEventStream(sandboxUrl: string | undefined) {
       }
 
       case 'session.compacted': {
-        if (props.sessionID) {
+        if (props.sessionID && sandboxUrl) {
+          const compactedSessionId = props.sessionID;
+          // Stop the compacting UI indicator
+          useCompactionStore.getState().stopCompaction(compactedSessionId);
+          // Full refetch after compaction — messages changed significantly.
+          // Rehydrate the sync store (single source of truth for messages).
+          getAuthToken().then((token) => {
+            fetch(`${sandboxUrl}/session/${compactedSessionId}/message`, {
+              headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              },
+            })
+              .then((res) => res.ok ? res.json() : null)
+              .then((messages) => {
+                if (messages) {
+                  syncStore.getState().hydrate(compactedSessionId, messages);
+                }
+              })
+              .catch(() => {});
+          });
+
           queryClient.invalidateQueries({
-            queryKey: platformKeys.sessionMessages(props.sessionID),
+            queryKey: platformKeys.sessionMessages(compactedSessionId),
           });
           queryClient.invalidateQueries({
-            queryKey: platformKeys.session(props.sessionID),
+            queryKey: platformKeys.session(compactedSessionId),
           });
         }
         break;
@@ -262,6 +287,8 @@ export function useOpenCodeEventStream(sandboxUrl: string | undefined) {
           log.error(`❌ [SSE] Session error in ${props.sessionID}:`, props.error);
           // Set status to idle so the UI stops showing "Working"
           syncStore.getState().setStatus(props.sessionID, { type: 'idle' });
+          // Stop compacting indicator if it was running
+          useCompactionStore.getState().stopCompaction(props.sessionID);
           clearDeltaActiveParts();
         }
         break;

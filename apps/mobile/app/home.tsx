@@ -46,6 +46,7 @@ import {
   useOpenCodeConfig,
 } from '@/lib/opencode/hooks/use-opencode-data';
 import { useResolvedConfig } from '@/lib/opencode/hooks/use-local-config';
+import { useCompactSession } from '@/lib/opencode/hooks/use-compact-session';
 import { useTabStore, PAGE_TABS } from '@/stores/tab-store';
 import { RightDrawerContent } from '@/components/session/RightDrawerContent';
 import { UserMenuSheet } from '@/components/session/UserMenuSheet';
@@ -400,6 +401,9 @@ export default function HomeScreen() {
       mounted = false;
     };
   }, [colorScheme]);
+
+  // Compact session mutation
+  const compactSession = useCompactSession();
 
   // Persisted tab state (survives app restarts)
   const activeSessionId = useTabStore((s) => s.activeSessionId);
@@ -1255,11 +1259,27 @@ export default function HomeScreen() {
                 onNewSession={handleNewSession}
                 onOpenTabs={handleOpenTabsOverview}
                 onCompactSession={() => {
-                  if (activeSessionId) {
-                    Alert.alert('Compact Session', 'Compact this session to reduce context size?', [
-                      { text: 'Cancel', style: 'cancel' },
-                      { text: 'Compact', onPress: () => log.log('TODO: compact session') },
-                    ]);
+                  if (activeSessionId && sandboxUrl) {
+                    Alert.alert(
+                      'Compact Session',
+                      'This will summarize older messages using AI to free up context space. Key information is preserved, but original messages will be condensed into a compact summary.',
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Compact',
+                          onPress: () => {
+                            compactSession.mutate(
+                              { sandboxUrl, sessionId: activeSessionId },
+                              {
+                                onError: (err) => {
+                                  Alert.alert('Compact Failed', err.message || 'Failed to compact session.');
+                                },
+                              },
+                            );
+                          },
+                        },
+                      ],
+                    );
                   }
                 }}
                 onExportTranscript={() => log.log('TODO: export transcript')}
