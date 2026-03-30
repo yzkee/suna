@@ -95,12 +95,15 @@ export async function justavpsFetch<T = any>(
   options: { method?: string; body?: unknown } = {},
 ): Promise<T> {
   const baseUrl = config.JUSTAVPS_API_URL.replace(/\/$/, '');
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${config.JUSTAVPS_API_KEY}`,
+  };
+  if (options.body) {
+    headers['Content-Type'] = 'application/json';
+  }
   const res = await fetch(`${baseUrl}${path}`, {
     method: options.method || 'GET',
-    headers: {
-      'Authorization': `Bearer ${config.JUSTAVPS_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
     signal: AbortSignal.timeout(API_TIMEOUT_MS),
   });

@@ -90,7 +90,7 @@ export async function verifyContainer(
   endpoint: ResolvedEndpoint,
   expectedImage: string,
   containerName: string,
-  retries = 15,
+  retries = 50,
 ): Promise<StepResult> {
   for (let i = 0; i < retries; i++) {
     const result = await execOnHost(
@@ -100,7 +100,8 @@ export async function verifyContainer(
     );
     const running = result.stdout.trim().replace(/'/g, '');
     if (result.success && running === expectedImage) return result;
-    await new Promise((r) => setTimeout(r, 3000));
+    const delay = Math.min(2000 * Math.pow(1.5, i), 15000);
+    await new Promise((r) => setTimeout(r, delay));
   }
   return {
     success: false,
