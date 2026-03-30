@@ -3,8 +3,9 @@
  *
  * Projects + async session spawning. That's it.
  *
- * Storage: central .kortix/kortix.db (SQLite)
- *   - projects: registry + auto-discovery via .kortix/project.json
+ * Storage: central .kortix/kortix.db (SQLite) — SINGLE SOURCE OF TRUTH
+ *   - projects: registry (created via project_create only, no filesystem scanning)
+ *   - tasks: per-project task management with lifecycle
  *   - delegations: which sessions were spawned, in which project, by whom
  *
  * Tools (8):
@@ -34,7 +35,7 @@ interface DelegationRow {
 	parent_session_id: string; parent_agent: string
 	status: string; result: string | null; created_at: string; completed_at: string | null
 }
-interface ProjectMarker { name: string; description: string; created: string }
+// ProjectMarker removed — SQLite is the single source of truth, no .kortix/project.json markers.
 
 // ── Database ─────────────────────────────────────────────────────────────────
 
@@ -102,24 +103,8 @@ function projectId(name: string): string {
 	return `proj-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${Date.now().toString(36)}`
 }
 
-function scanProjects(baseDir: string, maxDepth = 2, depth = 0): Array<{ dirPath: string; marker: ProjectMarker }> {
-	const out: Array<{ dirPath: string; marker: ProjectMarker }> = []
-	if (depth > maxDepth) return out
-	let entries: string[]
-	try { entries = readdirSync(baseDir) } catch { return out }
-	for (const e of entries) {
-		if (e === "node_modules" || e === ".git" || e === ".opencode") continue
-		const fp = path.join(baseDir, e)
-		try { if (!statSync(fp).isDirectory()) continue } catch { continue }
-		try {
-			const m = JSON.parse(readFileSync(path.join(fp, ".kortix", "project.json"), "utf8")) as ProjectMarker
-			if (m.name) out.push({ dirPath: fp, marker: m })
-		} catch {
-			if (depth < maxDepth) out.push(...scanProjects(fp, maxDepth, depth + 1))
-		}
-	}
-	return out
-}
+// scanProjects removed — SQLite is the single source of truth for projects.
+// No filesystem scanning, no .kortix/project.json markers.
 
 // ── Manager ──────────────────────────────────────────────────────────────────
 
@@ -164,134 +149,44 @@ class Manager {
 		const existing = this.db.prepare("SELECT * FROM projects WHERE path=$p").get({ $p: pp }) as ProjectRow | null
 		if (existing) {
 			if (desc) { this.db.prepare("UPDATE projects SET description=$d WHERE id=$id").run({ $d: desc, $id: existing.id }); existing.description = desc }
-			// Ensure OpenCode link exists — discover if missing
-			if (!existing.opencode_id) {
-				try {
-					const ocResult = await this.client.project.current({ directory: pp })
-					const ocProject = ocResult.data as any
-					if (ocProject?.id && ocProject.id !== "global") {
-						existing.opencode_id = ocProject.id
-						this.db.prepare("UPDATE projects SET opencode_id=$oid WHERE id=$id").run({ $oid: ocProject.id, $id: existing.id })
-					}
-				} catch {}
-			}
-			// Push name to OpenCode
-			if (existing.opencode_id) {
-				try { await this.client.project.update({ projectID: existing.opencode_id, name: existing.name }) } catch {}
-			}
 			return existing
 		}
+
+		// Scaffold directory structure
 		const wm = async (f: string, c: string) => { if (!existsSync(f)) await fs.writeFile(f, c, "utf8") }
-		for (const d of [".opencode/agents", ".opencode/skills", ".opencode/commands", ".kortix/plans", ".kortix/docs", ".kortix/sessions"])
+		for (const d of [".kortix/docs", ".kortix/sessions"])
 			await fs.mkdir(path.join(pp, d), { recursive: true })
 		ensureGlobalMemoryFiles(import.meta.dir)
-		const marker: ProjectMarker = { name, description: desc || "", created: new Date().toISOString() }
-		await wm(path.join(pp, ".kortix", "project.json"), JSON.stringify(marker, null, 2))
-		await wm(path.join(pp, ".kortix", "CONTEXT.md"), `# ${name}\n\n${desc || "No description."}\n\nCreated: ${marker.created}\n`)
+		await wm(path.join(pp, ".kortix", "CONTEXT.md"), `# ${name}\n\n${desc || "No description."}\n`)
 		await wm(path.join(pp, ".gitignore"), "node_modules/\n.env\n.env.*\n!.env.example\n*.log\ndist/\n.DS_Store\n")
-		await wm(path.join(pp, ".opencode", "opencode.jsonc"), JSON.stringify({ $schema: "https://opencode.ai/config.json" }, null, 2))
 		if (!existsSync(path.join(pp, ".git"))) {
 			try {
 				await Bun.spawn(["git", "init"], { cwd: pp, stdout: "pipe", stderr: "pipe" }).exited
-				// Ensure git user is configured (required for commit in sandbox environments)
 				await Bun.spawn(["git", "config", "user.email", "kortix@project.local"], { cwd: pp, stdout: "pipe", stderr: "pipe" }).exited
 				await Bun.spawn(["git", "config", "user.name", "Kortix"], { cwd: pp, stdout: "pipe", stderr: "pipe" }).exited
 				await Bun.spawn(["git", "add", "-A"], { cwd: pp, stdout: "pipe", stderr: "pipe" }).exited
 				await Bun.spawn(["git", "commit", "-m", "Init", "--allow-empty"], { cwd: pp, stdout: "pipe", stderr: "pipe" }).exited
 			} catch {}
 		}
+
+		// Write to SQLite — the single source of truth
 		const id = projectId(name), now = new Date().toISOString()
 
-		// Register with OpenCode — trigger discovery via project.current({ directory })
-		// This calls Project.fromDirectory(pp) server-side which auto-registers the project
+		// Best-effort OpenCode link (non-blocking)
 		let opencodeId: string | null = null
 		try {
 			const ocResult = await this.client.project.current({ directory: pp })
 			const ocProject = ocResult.data as any
-			// Only link if OC returned a real project (not "global" fallback for this directory)
-			if (ocProject?.id && ocProject.id !== "global") {
-				opencodeId = ocProject.id
-				// Push name to OpenCode
-				await this.client.project.update({ projectID: opencodeId, name })
-			}
-		} catch {
-			// Fallback: check existing OC projects by worktree match
-			try {
-				const ocProjects = await this.client.project.list()
-				const match = (ocProjects.data ?? []).find((p: any) => p.worktree === pp && p.id !== "global")
-				if (match) {
-					opencodeId = match.id
-					await this.client.project.update({ projectID: match.id, name })
-				}
-			} catch {}
-		}
+			if (ocProject?.id && ocProject.id !== "global") opencodeId = ocProject.id
+		} catch {}
 
 		this.db.prepare("INSERT INTO projects (id,name,path,description,created_at,opencode_id) VALUES ($id,$n,$p,$d,$c,$oid)")
 			.run({ $id: id, $n: name, $p: pp, $d: desc || "", $c: now, $oid: opencodeId })
 		return { id, name, path: pp, description: desc || "", created_at: now, opencode_id: opencodeId }
 	}
 
-	async listProjects(): Promise<ProjectRow[]> {
-		// 1. Filesystem scan for .kortix/project.json markers (offline fallback)
-		for (const { dirPath, marker } of scanProjects(this.dir)) {
-			if (!this.db.prepare("SELECT 1 FROM projects WHERE path=$p").get({ $p: dirPath }))
-				this.db.prepare("INSERT INTO projects (id,name,path,description,created_at,opencode_id) VALUES ($id,$n,$p,$d,$c,NULL)")
-					.run({ $id: projectId(marker.name), $n: marker.name, $p: dirPath, $d: marker.description || "", $c: marker.created || new Date().toISOString() })
-		}
-
-		// 2. Sync with OpenCode — register any OC projects missing from Kortix, update opencode_id links
-		try {
-			const ocProjects = await this.client.project.list()
-			for (const ocp of (ocProjects.data ?? []) as any[]) {
-				const worktree = ocp.worktree as string
-				const existing = this.db.prepare("SELECT * FROM projects WHERE path=$p").get({ $p: worktree }) as ProjectRow | null
-				if (existing) {
-					// Link opencode_id if missing
-					if (!existing.opencode_id) {
-						this.db.prepare("UPDATE projects SET opencode_id=$oid WHERE id=$id").run({ $oid: ocp.id, $id: existing.id })
-					}
-					// Bidirectional name sync:
-					// - If OpenCode has a name and Kortix doesn't (or they diverged), OpenCode wins → update Kortix
-					// - If Kortix has a name and OpenCode doesn't, push Kortix name → OpenCode
-					if (ocp.name && ocp.name !== existing.name) {
-						this.db.prepare("UPDATE projects SET name=$n WHERE id=$id").run({ $n: ocp.name, $id: existing.id })
-					} else if (!ocp.name && existing.name) {
-						// Kortix has a name but OpenCode doesn't — push it
-						try { await this.client.project.update({ projectID: ocp.id, name: existing.name }) } catch {}
-					}
-				} else {
-					// Auto-register OpenCode project in Kortix SQLite
-					const name = ocp.name || worktree.split("/").pop() || worktree
-					const now = ocp.time?.created ? new Date(ocp.time.created).toISOString() : new Date().toISOString()
-					this.db.prepare("INSERT OR IGNORE INTO projects (id,name,path,description,created_at,opencode_id) VALUES ($id,$n,$p,'',$c,$oid)")
-						.run({ $id: projectId(name), $n: name, $p: worktree, $c: now, $oid: ocp.id })
-					// Push derived name to OpenCode if it doesn't have one
-					if (!ocp.name && name) {
-						try { await this.client.project.update({ projectID: ocp.id, name }) } catch {}
-					}
-				}
-			}
-		} catch {}
-
-		// 3. Discover unlinked Kortix projects in OpenCode — trigger OC registration for projects with .git but no opencode_id
-		try {
-			const unlinked = this.db.prepare("SELECT * FROM projects WHERE opencode_id IS NULL").all() as ProjectRow[]
-			for (const proj of unlinked) {
-				if (!existsSync(path.join(proj.path, ".git"))) continue
-				try {
-					const ocResult = await this.client.project.current({ directory: proj.path })
-					const ocProject = ocResult.data as any
-					if (ocProject?.id && ocProject.id !== "global") {
-						this.db.prepare("UPDATE projects SET opencode_id=$oid WHERE id=$id").run({ $oid: ocProject.id, $id: proj.id })
-						// Push name to OpenCode if it doesn't have one
-						if (!ocProject.name && proj.name) {
-							try { await this.client.project.update({ projectID: ocProject.id, name: proj.name }) } catch {}
-						}
-					}
-				} catch {}
-			}
-		} catch {}
-
+	listProjects(): ProjectRow[] {
+		// SQLite is the single source of truth. No scanning, no OpenCode sync.
 		return this.db.prepare("SELECT * FROM projects ORDER BY created_at DESC").all() as ProjectRow[]
 	}
 
@@ -779,33 +674,42 @@ const KortixPlugin: Plugin = async (ctx) => {
 				},
 			}),
 
-			project_list: tool({
-				description: "List all projects. Auto-discovers .kortix/project.json markers.",
+		project_list: tool({
+				description: "List all projects from Kortix SQLite.",
 				args: {},
-				async execute(): Promise<string> {
-					const ps = await mgr.listProjects()
-					if (!ps.length) return "No projects. Use project_create."
+				execute(): string {
+					const ps = mgr.listProjects()
+					if (!ps.length) return "No projects yet. Use `project_create` to create one."
 					const lines = ps.map(p => {
-						const cnt = (db.prepare("SELECT COUNT(*) as c FROM delegations WHERE project_id=$pid").get({ $pid: p.id }) as { c: number })?.c || 0
-						const ocLabel = p.opencode_id ? `oc:${p.opencode_id.slice(0, 8)}` : "-"
-						return `| ${p.name} | \`${p.path}\` | ${cnt} | ${p.description || "-"} | ${ocLabel} |`
+						const sessions = (db.prepare("SELECT COUNT(*) as c FROM delegations WHERE project_id=$pid").get({ $pid: p.id }) as { c: number })?.c || 0
+						return `| **${p.name}** | \`${p.path}\` | ${sessions} | ${p.description || "—"} |`
 					})
-					return `| Name | Path | Sessions | Desc | OC ID |\n|---|---|---|---|---|\n${lines.join("\n")}`
+					return `| Project | Path | Sessions | Description |\n|---|---|---|---|\n${lines.join("\n")}\n\n${ps.length} project${ps.length !== 1 ? "s" : ""}.`
 				},
 			}),
 
 			project_get: tool({
-				description: "Get project details.",
+				description: "Get project details and session info.",
 				args: { name: tool.schema.string().describe("Name or path") },
-				async execute(args: { name: string }): Promise<string> {
+				execute(args: { name: string }): string {
 					const p = mgr.getProject(args.name)
-					if (!p) return `Not found: "${args.name}"`
-					const stats = db.prepare("SELECT status, COUNT(*) as c FROM delegations WHERE project_id=$pid GROUP BY status").all({ $pid: p.id }) as Array<{ status: string; c: number }>
-					const ocId = p.opencode_id ? `\nOpenCode ID: ${p.opencode_id}` : ""
-					const globalMemory = ensureGlobalMemoryFiles(import.meta.dir)
+					if (!p) return `Project not found: "${args.name}"`
+					const sessionStats = db.prepare("SELECT status, COUNT(*) as c FROM delegations WHERE project_id=$pid GROUP BY status").all({ $pid: p.id }) as Array<{ status: string; c: number }>
 					const contextPath = path.join(p.path, ".kortix", "CONTEXT.md")
 					const contextExists = existsSync(contextPath)
-					return `**${p.name}** (${p.id})${ocId}\nPath: \`${p.path}\`\nDesc: ${p.description || "-"}\nSessions: ${stats.map(s => `${s.status}:${s.c}`).join(" ") || "none"}\nUser profile: \`${globalMemory.userPath}\`\nProject context: \`${contextPath}\` ${contextExists ? "✓" : "(missing)"}`
+					const lines = [
+						`## ${p.name}`,
+						``,
+						`**Path:** \`${p.path}\``,
+						p.description ? `**Description:** ${p.description}` : null,
+						`**ID:** \`${p.id}\``,
+						``,
+						`### Sessions`,
+						sessionStats.length > 0 ? sessionStats.map(s => `- ${s.status}: ${s.c}`).join("\n") : "No sessions yet.",
+						``,
+						`**Context:** \`${contextPath}\` ${contextExists ? "✓" : "(not created)"}`,
+					].filter(Boolean)
+					return lines.join("\n")
 				},
 			}),
 
@@ -821,17 +725,6 @@ const KortixPlugin: Plugin = async (ctx) => {
 					if (!p) return "Not found."
 					const n = args.name || p.name, d = args.description || p.description
 					db.prepare("UPDATE projects SET name=$n,description=$d WHERE id=$id").run({ $n: n, $d: d, $id: p.id })
-					// Update .kortix/project.json marker
-					try {
-						const mp = path.join(p.path, ".kortix", "project.json")
-						let marker: ProjectMarker = { name: n, description: d, created: p.created_at }
-						if (existsSync(mp)) try { marker = { ...JSON.parse(readFileSync(mp, "utf8")), name: n, description: d } } catch {}
-						await fs.writeFile(mp, JSON.stringify(marker, null, 2), "utf8")
-					} catch {}
-					// Push name to OpenCode
-					if (p.opencode_id) {
-						try { await client.project.update({ projectID: p.opencode_id, name: n }) } catch {}
-					}
 					return `Updated: **${n}**`
 				},
 			}),

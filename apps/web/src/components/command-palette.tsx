@@ -43,7 +43,7 @@ import {
 import { useSidebar } from '@/components/ui/sidebar';
 import {
   useOpenCodeSessions,
-  useOpenCodeProjects,
+  // useOpenCodeProjects — replaced by Kortix projects
   useOpenCodeAgents,
   useOpenCodeProviders,
 } from '@/hooks/opencode/use-opencode-sessions';
@@ -68,6 +68,7 @@ import {
   MODEL_SELECTOR_PROVIDER_IDS,
 } from '@/components/providers/provider-branding';
 import { useWorkspaceSearch, useFilesStore } from '@/features/files';
+import { useKortixProjects, type KortixProject } from '@/hooks/kortix/use-kortix-projects';
 import { getFileIcon } from '@/features/files/components/file-icon';
 import type { FindMatch } from '@/features/files';
 import {
@@ -101,9 +102,10 @@ function formatRelativeTime(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString();
 }
 
-function deriveProjectName(project: { id: string; name?: string; worktree?: string }): string {
+function deriveProjectName(project: { id: string; name?: string; path?: string; worktree?: string }): string {
   if (project.name) return project.name;
-  return project.worktree?.split('/').pop() || project.worktree || 'Project';
+  const p = project.path || project.worktree;
+  return p?.split('/').pop() || p || 'Project';
 }
 
 /**
@@ -285,7 +287,7 @@ export function CommandPalette() {
 
   // ── Data hooks ──
   const { data: sessions } = useOpenCodeSessions();
-  const { data: projects } = useOpenCodeProjects();
+  const { data: projects } = useKortixProjects();
   const { data: agents } = useOpenCodeAgents();
   const { data: providers } = useOpenCodeProviders();
 
@@ -784,6 +786,13 @@ export function CommandPalette() {
     });
   }, [close]);
 
+  const handleGenerateSSHKey = useCallback(() => {
+    close();
+    import('@/stores/ssh-dialog-store').then(({ useSSHDialogStore }) => {
+      useSSHDialogStore.getState().openSSHDialog();
+    });
+  }, [close]);
+
   const actionHandlers: Record<string, () => void> = useMemo(() => ({
     newSession: handleNewSession,
     openTerminal: handleOpenTerminal,
@@ -794,13 +803,28 @@ export function CommandPalette() {
     openPlan: handleOpenPlan,
     openProviderModal: handleOpenProviderModal,
     reloadInstance: handleReloadInstance,
-  }), [handleNewSession, handleOpenTerminal, handleCompactSession, handleViewChanges, handleToggleSidebar, handleLogout, handleOpenPlan, handleOpenProviderModal, handleReloadInstance]);
+    generateSSHKey: handleGenerateSSHKey,
+  }), [handleNewSession, handleOpenTerminal, handleCompactSession, handleViewChanges, handleToggleSidebar, handleLogout, handleOpenPlan, handleOpenProviderModal, handleReloadInstance, handleGenerateSSHKey]);
 
   const handleRegistryItem = useCallback((item: MenuItemDef) => {
     switch (item.kind) {
-      case 'navigate':
-        handleNavigate(item.href!, item.label);
+      case 'navigate': {
+        // Use registry tabType/tabId when available (browser, preview, desktop, etc.)
+        const tabType = (item.tabType || (item.href?.startsWith('/settings') ? 'settings' : 'page')) as any;
+        const tabId = item.tabId || `page:${item.href}`;
+        openTabAndNavigate(
+          {
+            id: tabId,
+            title: item.label || item.href!.split('/').pop() || '',
+            type: tabType,
+            href: item.href!,
+            ...(item.tabType === 'preview' ? { metadata: { url: '', port: 0, originalUrl: '', path: '/' } } : {}),
+          },
+          router,
+        );
+        close();
         break;
+      }
       case 'settings':
         handleOpenSettings(item.settingsTab!);
         break;
@@ -813,7 +837,7 @@ export function CommandPalette() {
         break;
       }
     }
-  }, [handleNavigate, handleOpenSettings, handleSetTheme, actionHandlers]);
+  }, [router, close, handleOpenSettings, handleSetTheme, actionHandlers]);
 
   // ── Agent/Model selection handlers ──
   const handleSelectAgent = useCallback((agentName: string) => {

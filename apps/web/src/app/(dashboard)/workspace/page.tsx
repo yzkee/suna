@@ -40,12 +40,14 @@ import {
   useOpenCodeCommands,
   useOpenCodeToolIds,
   useOpenCodeMcpStatus,
-  useOpenCodeProjects,
   type Agent,
   type Command,
   type McpStatus,
-  type Project,
 } from '@/hooks/opencode/use-opencode-sessions';
+import { useKortixProjects, type KortixProject } from '@/hooks/kortix/use-kortix-projects';
+
+// Re-export as Project for backward compat in this file
+type Project = KortixProject;
 import { useSkills } from '@/features/skills/hooks';
 import { getSkillSource, type Skill } from '@/features/skills/types';
 import { openTabAndNavigate } from '@/stores/tab-store';
@@ -165,8 +167,9 @@ function DetailSheet({
   if (item?.kind === 'project' && item.raw) {
     const p = item.raw as Project;
     rows.push({ label: 'ID', value: p.id, mono: true });
-    if (p.worktree) rows.push({ label: 'Worktree', value: p.worktree, mono: true });
-    if (p.vcs) rows.push({ label: 'VCS', value: p.vcs });
+    if (p.path) rows.push({ label: 'Path', value: p.path, mono: true });
+    if (p.description) rows.push({ label: 'Description', value: p.description });
+    if (p.taskCount) rows.push({ label: 'Tasks', value: `${p.tasksDone}/${p.taskCount} done` });
   }
   if (item?.kind === 'tool' && item.raw) {
     const t = item.raw as { toolId: string; server?: string };
@@ -396,8 +399,13 @@ export default function WorkspacePage() {
     }
   }, [createSession]);
 
-  // Data
-  const { data: projects,  isLoading: lProjects  } = useOpenCodeProjects();
+  // Data — Kortix projects are the source of truth
+  const { data: projects,  isLoading: lProjects, error: projectsError  } = useKortixProjects();
+  // Debug: log to browser console if projects fail to load
+  if (typeof window !== 'undefined') {
+    if (projectsError) console.error('[workspace] projects error:', projectsError);
+    if (!lProjects && !projectsError && !projects) console.warn('[workspace] projects: no data, no error, not loading');
+  }
   const { data: agents,    isLoading: lAgents    } = useOpenCodeAgents();
   const { data: skills,    isLoading: lSkills    } = useSkills();
   const { data: commands,  isLoading: lCommands  } = useOpenCodeCommands();
@@ -410,22 +418,19 @@ export default function WorkspacePage() {
     const items: WorkspaceItem[] = [];
 
     if (projects && Array.isArray(projects)) {
-      const sorted = [...projects].sort((a: any, b: any) => {
-        const ag = a.id === 'global' || a.worktree === '/';
-        const bg = b.id === 'global' || b.worktree === '/';
-        if (ag && !bg) return -1;
-        if (!ag && bg) return 1;
-        return (b.time?.updated ?? 0) - (a.time?.updated ?? 0);
-      });
+      const sorted = [...projects].sort((a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
       for (const p of sorted) {
-        const name = p.name || p.worktree?.split('/').pop() || p.worktree || 'Project';
+        const taskLabel = (p.taskCount ?? 0) > 0 ? `${p.tasksDone}/${p.taskCount} tasks` : undefined;
         items.push({
           id: `project:${p.id}`,
-          name,
-          description: p.worktree && p.worktree !== '/' ? p.worktree : undefined,
+          name: p.name,
+          description: p.path && p.path !== '/' ? p.path : undefined,
           kind: 'project',
-          scope: p.id === 'global' || p.worktree === '/' ? 'global' : 'project',
-          raw: p,
+          scope: 'project',
+          meta: taskLabel,
+          raw: p as any,
         });
       }
     }

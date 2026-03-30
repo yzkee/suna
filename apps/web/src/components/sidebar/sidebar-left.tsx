@@ -75,7 +75,8 @@ import { useAdminRole } from '@/hooks/admin';
 import { useDocumentModalStore } from '@/stores/use-document-modal-store';
 import { isBillingEnabled } from '@/lib/config';
 
-import { useCreateOpenCodeSession, useOpenCodeSessions, useOpenCodeProjects } from '@/hooks/opencode/use-opencode-sessions';
+import { useCreateOpenCodeSession, useOpenCodeSessions } from '@/hooks/opencode/use-opencode-sessions';
+import { useKortixProjects, type KortixProject } from '@/hooks/kortix/use-kortix-projects';
 import { openTabAndNavigate } from '@/stores/tab-store';
 import { useServerStore } from '@/stores/server-store';
 import { useOpenCodePendingStore } from '@/stores/opencode-pending-store';
@@ -260,27 +261,19 @@ function SessionsFlyout() {
 // ============================================================================
 
 function ProjectsFlyout() {
-  const { data: projects } = useOpenCodeProjects();
+  const { data: projects } = useKortixProjects();
 
   const sortedProjects = React.useMemo(() => {
     if (!projects || !Array.isArray(projects)) return [];
-    const hasRealWorkspace = projects.some((p: any) => p.id !== 'global' && (p.worktree === '/workspace' || p.worktree === '/workspace/'));
-    return [...projects]
-      .filter((p: any) => !(p.id === 'global' && p.worktree === '/' && hasRealWorkspace))
-      .sort((a: any, b: any) => {
-        const aIsGlobal = a.id === 'global' || a.worktree === '/' || a.worktree === '/workspace';
-        const bIsGlobal = b.id === 'global' || b.worktree === '/' || b.worktree === '/workspace';
-        if (aIsGlobal && !bIsGlobal) return -1;
-        if (!aIsGlobal && bIsGlobal) return 1;
-        return (b.time?.updated ?? 0) - (a.time?.updated ?? 0);
-      });
+    return [...projects].sort((a, b) => {
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
   }, [projects]);
 
-  const handleClick = (project: any) => {
-    const title = project.name || project.worktree?.split('/').pop() || 'Project';
+  const handleClick = (project: KortixProject) => {
     openTabAndNavigate({
       id: `project:${project.id}`,
-      title,
+      title: project.name,
       type: 'project',
       href: `/projects/${encodeURIComponent(project.id)}`,
     });
@@ -293,22 +286,24 @@ function ProjectsFlyout() {
           No projects yet
         </div>
       ) : (
-        sortedProjects.map((project: any) => {
-          const name = project.name || project.worktree?.split('/').pop() || project.worktree;
-          return (
-            <button
-              key={project.id}
-              onClick={() => handleClick(project)}
-              className={cn(
-                'flex items-center gap-3 w-full px-3 py-2 text-sm cursor-pointer',
-                'transition-colors duration-150',
-                'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground',
-              )}
-            >
-              <span className="flex-1 truncate text-left">{name}</span>
-            </button>
-          );
-        })
+        sortedProjects.map((project) => (
+          <button
+            key={project.id}
+            onClick={() => handleClick(project)}
+            className={cn(
+              'flex items-center gap-3 w-full px-3 py-2 text-sm cursor-pointer',
+              'transition-colors duration-150',
+              'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground',
+            )}
+          >
+            <span className="flex-1 truncate text-left">{project.name}</span>
+            {(project.sessionCount ?? 0) > 0 && (
+              <span className="text-[10px] text-muted-foreground/40 tabular-nums">
+                {project.sessionCount}
+              </span>
+            )}
+          </button>
+        ))
       )}
     </div>
   );
@@ -470,27 +465,19 @@ function SidebarSections() {
   const pathname = normalizeAppPathname(usePathname());
   const { isMobile, setOpenMobile } = useSidebar();
 
-  // Projects data — filter out the bare "global" (worktree "/") if a real workspace project exists
-  const { data: projectsData } = useOpenCodeProjects();
+  // Projects data — Kortix projects are the source of truth
+  const { data: projectsData } = useKortixProjects();
   const sortedProjects = React.useMemo(() => {
     if (!projectsData || !Array.isArray(projectsData)) return [];
-    const hasRealWorkspace = projectsData.some((p: any) => p.id !== 'global' && (p.worktree === '/workspace' || p.worktree === '/workspace/'));
-    return [...projectsData]
-      .filter((p: any) => !(p.id === 'global' && p.worktree === '/' && hasRealWorkspace))
-      .sort((a: any, b: any) => {
-        const aIsGlobal = a.id === 'global' || a.worktree === '/' || a.worktree === '/workspace';
-        const bIsGlobal = b.id === 'global' || b.worktree === '/' || b.worktree === '/workspace';
-        if (aIsGlobal && !bIsGlobal) return -1;
-        if (!aIsGlobal && bIsGlobal) return 1;
-        return (b.time?.updated ?? 0) - (a.time?.updated ?? 0);
-      });
+    return [...projectsData].sort((a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
   }, [projectsData]);
 
-  const handleProjectClick = React.useCallback((project: any) => {
-    const name = project.name || project.worktree?.split('/').pop() || 'Project';
+  const handleProjectClick = React.useCallback((project: KortixProject) => {
     openTabAndNavigate({
       id: `project:${project.id}`,
-      title: name,
+      title: project.name,
       type: 'project',
       href: `/projects/${encodeURIComponent(project.id)}`,
     });
@@ -546,24 +533,26 @@ function SidebarSections() {
             <div className="flex flex-col pl-2">
               <div className="px-2 pb-2">
                 <div className="space-y-0.5">
-                  {sortedProjects.map((project: any) => {
-                    const name = project.name || project.worktree?.split('/').pop() || project.worktree;
-                    return (
-                      <div
-                        key={project.id}
-                        onClick={() => handleProjectClick(project)}
-                        className={cn(
-                          'flex items-center gap-2 py-1.5 rounded-lg text-[13px] cursor-pointer',
-                          'transition-colors duration-150',
-                          'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground',
-                          'pr-2.5',
-                        )}
-                        style={{ paddingLeft: '14px' }}
-                      >
-                        <span className="flex-1 truncate">{name}</span>
-                      </div>
-                    );
-                  })}
+                  {sortedProjects.map((project) => (
+                    <div
+                      key={project.id}
+                      onClick={() => handleProjectClick(project)}
+                      className={cn(
+                        'flex items-center gap-2 py-1.5 rounded-lg text-[13px] cursor-pointer',
+                        'transition-colors duration-150',
+                        'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground',
+                        'pr-2.5',
+                      )}
+                      style={{ paddingLeft: '14px' }}
+                    >
+                      <span className="flex-1 truncate">{project.name}</span>
+                      {(project.sessionCount ?? 0) > 0 && (
+                        <span className="text-[10px] text-muted-foreground/40 tabular-nums">
+                          {project.sessionCount}
+                        </span>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>

@@ -306,6 +306,13 @@ app.route('/v1/tunnel', tunnelApp);
 
 // WoA moved to /v1/router/woa — see router/index.ts
 
+// ── Kortix API — proxies /v1/kortix/* to the sandbox's /kortix/* ─────────────
+// Direct server-to-server proxy. Avoids double-CORS from the /v1/p/ path.
+// Auth: Supabase JWT (global middleware). Sandbox auth: INTERNAL_SERVICE_KEY.
+import { kortixProxyHandler } from './routes/kortix-projects';
+app.all('/v1/kortix/*', kortixProxyHandler);
+app.all('/v1/kortix', kortixProxyHandler);
+
 // Preview Proxy — unified route for both cloud (Daytona) and local mode.
 // Pattern: /v1/p/{sandboxId}/{port}/* for ALL modes.
 // Cloud:  sandboxId = Daytona external ID → proxied via Daytona SDK
