@@ -33,6 +33,7 @@ import {
 } from '@/lib/menu-registry';
 import { normalizeAppPathname } from '@/lib/instance-routes';
 import { useProviderModalStore } from '@/stores/provider-modal-store';
+import { useSSHDialogStore } from '@/stores/ssh-dialog-store';
 import { useOnboardingModeStore } from '@/stores/onboarding-mode-store';
 import { getClient } from '@/lib/opencode-sdk';
 import { toast } from '@/lib/toast';
@@ -62,7 +63,7 @@ export function SidebarRight() {
 
   const router = useRouter();
   const pathname = normalizeAppPathname(usePathname());
-  const [sshDialogOpen, setSSHDialogOpen] = useState(false);
+  const { isOpen: sshDialogOpen, setOpen: setSSHDialogOpen } = useSSHDialogStore();
 
   const { getServiceUrl } = useSandboxProxy();
 
