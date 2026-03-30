@@ -198,11 +198,37 @@ export interface Command {
   hints: string[];
 }
 
+export interface Skill {
+  name: string;
+  description?: string;
+  location: string;
+  content?: string;
+  hidden?: boolean;
+}
+
+export interface Project {
+  id: string;
+  name?: string;
+  worktree: string;
+  vcs?: string;
+  time?: { created?: number; updated?: number };
+}
+
+export interface McpStatus {
+  status: 'connected' | 'failed' | 'needs_auth' | 'disconnected' | 'disabled' | 'pending';
+  tools?: string[];
+  error?: string;
+}
+
 export const opencodeKeys = {
   agents: (url: string) => ['opencode', 'agents', url] as const,
   providers: (url: string) => ['opencode', 'providers', url] as const,
   config: (url: string) => ['opencode', 'config', url] as const,
   commands: (url: string) => ['opencode', 'commands', url] as const,
+  skills: (url: string) => ['opencode', 'skills', url] as const,
+  projects: (url: string) => ['opencode', 'projects', url] as const,
+  toolIds: (url: string) => ['opencode', 'toolIds', url] as const,
+  mcpStatus: (url: string) => ['opencode', 'mcpStatus', url] as const,
 };
 
 // ─── Hooks ───────────────────────────────────────────────────────────────────
@@ -261,6 +287,56 @@ export function useOpenCodeCommands(sandboxUrl: string | undefined) {
     enabled: !!sandboxUrl,
     staleTime: Infinity,
     gcTime: 10 * 60 * 1000,
+  });
+}
+
+export function useOpenCodeSkills(sandboxUrl: string | undefined) {
+  return useQuery({
+    queryKey: opencodeKeys.skills(sandboxUrl || ''),
+    queryFn: async () => {
+      if (!sandboxUrl) throw new Error('No sandbox URL');
+      const skills = await opencodeFetch<Skill[]>(sandboxUrl, '/skill');
+      return skills.filter((s) => !s.hidden);
+    },
+    enabled: !!sandboxUrl,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  });
+}
+
+export function useOpenCodeProjects(sandboxUrl: string | undefined) {
+  return useQuery({
+    queryKey: opencodeKeys.projects(sandboxUrl || ''),
+    queryFn: async () => {
+      if (!sandboxUrl) throw new Error('No sandbox URL');
+      return opencodeFetch<Project[]>(sandboxUrl, '/project');
+    },
+    enabled: !!sandboxUrl,
+    staleTime: 60 * 1000,
+  });
+}
+
+export function useOpenCodeToolIds(sandboxUrl: string | undefined) {
+  return useQuery({
+    queryKey: opencodeKeys.toolIds(sandboxUrl || ''),
+    queryFn: async () => {
+      if (!sandboxUrl) throw new Error('No sandbox URL');
+      return opencodeFetch<string[]>(sandboxUrl, '/tool/ids');
+    },
+    enabled: !!sandboxUrl,
+    staleTime: 60 * 1000,
+  });
+}
+
+export function useOpenCodeMcpStatus(sandboxUrl: string | undefined) {
+  return useQuery({
+    queryKey: opencodeKeys.mcpStatus(sandboxUrl || ''),
+    queryFn: async () => {
+      if (!sandboxUrl) throw new Error('No sandbox URL');
+      return opencodeFetch<Record<string, McpStatus>>(sandboxUrl, '/mcp/status');
+    },
+    enabled: !!sandboxUrl,
+    staleTime: 60 * 1000,
   });
 }
 

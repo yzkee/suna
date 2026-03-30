@@ -61,6 +61,7 @@ import { ScheduledTasksTabPage } from '@/components/pages/ScheduledTasksPage';
 import { ApiKeysTabPage } from '@/components/pages/ApiKeysPage';
 import { ChannelsTabPage } from '@/components/pages/ChannelsPage';
 import { TunnelTabPage } from '@/components/pages/TunnelPage';
+import { WorkspacePage } from '@/components/pages/WorkspacePage';
 import type { FilesPageRef } from '@/components/pages/FilesPage';
 import { SecretsPage } from '@/components/pages/SecretsPage';
 import { MemoryPage } from '@/components/pages/MemoryPage';
@@ -1097,6 +1098,15 @@ export default function HomeScreen() {
           /* Active page tab — Tunnel */
           ) : activePageId === 'page:tunnel' && PAGE_TABS[activePageId] && !showTabsOverview ? (
             <TunnelTabPage
+              page={PAGE_TABS[activePageId]}
+              onBack={handleBack}
+              onOpenDrawer={handleDrawerOpen}
+              onOpenRightDrawer={handleRightDrawerOpen}
+            />
+
+          /* Active page tab — Workspace */
+          ) : activePageId === 'page:workspace' && PAGE_TABS[activePageId] && !showTabsOverview ? (
+            <WorkspacePage
               page={PAGE_TABS[activePageId]}
               onBack={handleBack}
               onOpenDrawer={handleDrawerOpen}
