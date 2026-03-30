@@ -44,6 +44,7 @@ import { TurnErrorDisplay } from "@/components/session/session-error-banner";
 import { SessionSiteHeader } from "@/components/session/session-site-header";
 import { QuestionPrompt, type QuestionPromptHandle, type QuestionAction } from "@/components/session/question-prompt";
 import { SessionWelcome } from "@/components/session/session-welcome";
+import { SessionRevertDock, type RevertDockItem } from "@/components/session/session-revert-dock";
 import { FileCard } from "@/components/file-previews/FileCard";
 
 import { ToolPartRenderer } from "@/components/session/tool-renderers";
@@ -73,7 +74,7 @@ import {
 import { uploadFile } from "@/features/files/api/opencode-files";
 import { searchWorkspaceFiles } from "@/features/files";
 import { useOpenCodeConfig } from "@/hooks/opencode/use-opencode-config";
-import { useOpenCodeLocal } from "@/hooks/opencode/use-opencode-local";
+import { useOpenCodeLocal, parseModelKey, formatModelString } from "@/hooks/opencode/use-opencode-local";
 import type { ProviderListResponse } from "@/hooks/opencode/use-opencode-sessions";
 import {
 	ascendingId,
@@ -88,6 +89,7 @@ import {
 	useOpenCodeSession,
 	useOpenCodeSessions,
 	useRevertSession,
+	useUnrevertSession,
 	useSendOpenCodeMessage,
 
 } from "@/hooks/opencode/use-opencode-sessions";
@@ -97,6 +99,7 @@ import { getClient } from "@/lib/opencode-sdk";
 // billingApi / invalidateAccountState / useQueryClient removed — billing is handled server-side by the router
 import { playSound } from "@/lib/sounds";
 import { cn } from "@/lib/utils";
+import { toast as sonnerToast } from "sonner";
 import { useKortixComputerStore } from "@/stores/kortix-computer-store";
 import { useMessageQueueStore } from "@/stores/message-queue-store";
 import { useOpenCodePendingStore } from "@/stores/opencode-pending-store";
@@ -1940,7 +1943,7 @@ interface SessionTurnProps {
 	onFork: (messageId: string) => Promise<void>;
 	/** Fork the session at a user message and resend with edited text */
 	onEditFork: (userMessageId: string, newText: string) => Promise<void>;
-	/** Revert the session — forks at this point with clean history and reverts file changes */
+	/** Revert the session — undoes file changes after this point (restorable) */
 	onRevert: (messageId: string) => Promise<void>;
 	/** Providers data for the Connect Provider dialog */
 	providers?: ProviderListResponse;
@@ -2839,7 +2842,6 @@ function SessionTurn({
 								<TooltipContent>Fork from here</TooltipContent>
 							</Tooltip>
 						)}
-						{/* Revert — disabled for now
 						{!isFirstTurn && !isBusy && !isReverted && (
 							<Tooltip>
 								<TooltipTrigger asChild>
@@ -2853,14 +2855,12 @@ function SessionTurn({
 								<TooltipContent>Revert to before this</TooltipContent>
 							</Tooltip>
 						)}
-						*/}
 					</div>
-					{/* Revert confirmation — disabled for now
 					<ConfirmDialog
 						open={revertDialogOpen}
 						onOpenChange={setRevertDialogOpen}
 						title="Revert to this point?"
-						description="This will create a new session with the conversation up to this point and revert all file changes made after it. The original session is preserved."
+						description="All file changes made after this point will be undone. You can restore them later."
 						action={async () => {
 							setRevertLoading(true);
 							try {
@@ -2870,11 +2870,10 @@ function SessionTurn({
 								setRevertDialogOpen(false);
 							}
 						}}
-						actionLabel="Fork & Revert"
+						actionLabel="Revert"
 						variant="destructive"
 						loading={revertLoading}
 					/>
-					*/}
 				</>
 			)}
 
@@ -3010,6 +3009,7 @@ export function SessionChat({
 	const abortSession = useAbortOpenCodeSession();
 	const forkSession = useForkSession();
 	const revertSession = useRevertSession();
+	const unrevertSession = useUnrevertSession();
 
 	// ---- Unified model/agent/variant state (1:1 port of SolidJS local.tsx) ----
 	const local = useOpenCodeLocal({ agents, providers, config, sessionId });
@@ -3125,10 +3125,11 @@ export function SessionChat({
 						local.agent.set(pendingOptions.agent as string);
 					}
 					if (pendingOptions?.model) {
-						options.model = pendingOptions.model;
-						local.model.set(
-							pendingOptions.model as { providerID: string; modelID: string },
-						);
+						const parsedPendingModel = parseModelKey(pendingOptions.model);
+						if (parsedPendingModel) {
+							options.model = parsedPendingModel;
+							local.model.set(parsedPendingModel);
+						}
 					}
 					if (pendingOptions?.variant) {
 						options.variant = pendingOptions.variant;
@@ -3240,7 +3241,8 @@ export function SessionChat({
 		lastUserMsgIdRef.current = lastUserMessage.info.id;
 		const msg = lastUserMessage.info as any;
 		if (msg.agent) local.agent.set(msg.agent);
-		if (msg.model) local.model.set(msg.model); // no { recent: true } — matches SolidJS
+		const parsedModel = parseModelKey(msg.model);
+		if (parsedModel) local.model.set(parsedModel); // no { recent: true } — matches SolidJS
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [lastUserMessage?.info.id]);
 
@@ -4106,6 +4108,29 @@ export function SessionChat({
 		[turns],
 	);
 
+	// ---- Revert: filter visible turns and compute rolled-back items ----
+	const revertMessageID = session?.revert?.messageID;
+
+	const visibleTurns = useMemo(() => {
+		if (!revertMessageID) return turns;
+		return turns.filter((turn) => turn.userMessage.info.id < revertMessageID);
+	}, [turns, revertMessageID]);
+
+	const rolledItems: RevertDockItem[] = useMemo(() => {
+		if (!revertMessageID) return [];
+		return turns
+			.filter((turn) => turn.userMessage.info.id >= revertMessageID)
+			.map((turn) => {
+				const textPart = turn.userMessage.parts.find(
+					(p) => p.type === "text" && "text" in p && (p as any).text?.trim(),
+				);
+				const text = textPart && "text" in textPart
+					? String((textPart as any).text).replace(/\s+/g, " ").trim()
+					: "[attachment]";
+				return { id: turn.userMessage.info.id, text };
+			});
+	}, [turns, revertMessageID]);
+
 	// Reset on session change
 	useEffect(() => {
 		setPollingActive(false);
@@ -4130,6 +4155,8 @@ export function SessionChat({
 	// ============================================================================
 
 	const isReverted = !!session?.revert;
+	const [restoringId, setRestoringId] = useState<string | undefined>(undefined);
+	const [reverting, setReverting] = useState(false);
 
 	const handleFork = useCallback(
 		async (messageId: string) => {
@@ -4203,34 +4230,55 @@ export function SessionChat({
 
 	const handleRevert = useCallback(
 		async (messageId: string) => {
-			// Fork + revert: create a clean fork up to this point, revert files
-			// on the original session, then navigate to the fork.
-
-			// 1. Revert file changes on this session (rolls back disk state)
-			await revertSession.mutateAsync({
-				sessionId,
-				messageId,
-			});
-
-			// 2. Fork at the revert point — copies messages before messageId
-			const forkedSession = await forkSession.mutateAsync({
-				sessionId,
-				messageId,
-			});
-
-			// 3. Navigate to the forked session
-			const title = forkedSession.title || "Reverted session";
-			openTabAndNavigate({
-				id: forkedSession.id,
-				title,
-				type: "session",
-				href: `/sessions/${forkedSession.id}`,
-				parentSessionId: sessionId,
-				serverId: useServerStore.getState().activeServerId,
-			});
-			localStorage.setItem(`fork_origin_${forkedSession.id}`, sessionId);
+			if (reverting) return;
+			setReverting(true);
+			try {
+				// Halt session if busy (matches OpenCode: abort before revert)
+				if (isBusy && !abortSession.isPending) {
+					try { abortSession.mutate(sessionId); } catch {}
+				}
+				await revertSession.mutateAsync({ sessionId, messageId });
+			} catch {
+				sonnerToast.error("Revert failed");
+			} finally {
+				setReverting(false);
+			}
 		},
-		[sessionId, revertSession, forkSession],
+		[sessionId, revertSession, isBusy, abortSession, reverting],
+	);
+
+	/**
+	 * Restore a rolled-back message. Matches OpenCode behavior:
+	 * - Last rolled item → full unrevert.
+	 * - Otherwise → move revert point to the NEXT user message (partial restore).
+	 */
+	const handleRestore = useCallback(
+		async (messageId: string) => {
+			if (reverting || restoringId) return;
+			setRestoringId(messageId);
+			setReverting(true);
+			try {
+				if (isBusy && !abortSession.isPending) {
+					try { abortSession.mutate(sessionId); } catch {}
+				}
+				const rolledIdx = rolledItems.findIndex((item) => item.id === messageId);
+				const nextRolled = rolledIdx >= 0 ? rolledItems[rolledIdx + 1] : undefined;
+
+				if (!nextRolled) {
+					// Last rolled item — full unrevert
+					await unrevertSession.mutateAsync(sessionId);
+				} else {
+					// Partial restore — move revert point to the next message
+					await revertSession.mutateAsync({ sessionId, messageId: nextRolled.id });
+				}
+			} catch {
+				sonnerToast.error("Restore failed");
+			} finally {
+				setRestoringId(undefined);
+				setReverting(false);
+			}
+		},
+		[sessionId, revertSession, unrevertSession, isBusy, abortSession, reverting, restoringId, rolledItems],
 	);
 
 	// ============================================================================
@@ -4491,7 +4539,7 @@ export function SessionChat({
 			playSound("send");
 			const label = args ? `/${cmd.name} ${args}` : `/${cmd.name}`;
 			const selectedModel = local.model.currentKey
-				? `${local.model.currentKey.providerID}/${local.model.currentKey.modelID}`
+				? formatModelString(local.model.currentKey)
 				: undefined;
 			const handleCommandError = (err?: unknown) => {
 				setPendingCommand(null);
@@ -4768,8 +4816,8 @@ export function SessionChat({
 											</div>
 										)}
 
-										{/* Turn-based message rendering */}
-										{turns.map((turn, turnIndex) => {
+									{/* Turn-based message rendering */}
+									{visibleTurns.map((turn, turnIndex) => {
 									// Check if this turn is a compaction summary
 									// The server sets `summary: true` on assistant messages that are compaction summaries
 									const hasCompaction =
@@ -4821,7 +4869,7 @@ export function SessionChat({
 
 								{/* Busy indicator when no turns yet but session is busy */}
 								{commandError && <TurnErrorDisplay errorText={commandError} className="mt-2" />}
-								{!showOptimistic && isBusy && turns.length === 0 && (
+								{!showOptimistic && isBusy && visibleTurns.length === 0 && (
 									<div className="flex items-center gap-3">
 										{/* eslint-disable-next-line @next/next/no-img-element */}
 										<img
@@ -4887,6 +4935,18 @@ export function SessionChat({
 
 			{/* Input — hidden in read-only mode (sub-session modal) */}
 			{!readOnly && (
+				<>
+				{/* Revert dock — shows rolled-back messages when session is reverted */}
+				{rolledItems.length > 0 && (
+					<div className="px-4 pb-2">
+						<SessionRevertDock
+							items={rolledItems}
+							restoring={restoringId}
+							disabled={reverting}
+							onRestore={handleRestore}
+						/>
+					</div>
+				)}
 				<SessionChatInput
 				onSend={async (text, files, mentions) => {
 					await handleSend(text, files, mentions);
@@ -5075,6 +5135,7 @@ export function SessionChat({
 					) : undefined
 				}
 			/>
+			</>
 			)}
 		</div>
 	);
