@@ -289,7 +289,19 @@ app.route('/v1/servers', serversApp);        // /v1/servers, /v1/servers/:id, /v
 app.use('/v1/queue/*', combinedAuth);
 app.route('/v1/queue', queueApp);            // /v1/queue/sessions/:id, /v1/queue/messages/:id, /v1/queue/all, /v1/queue/status
 
-app.use('/v1/tunnel/*', combinedAuth);
+// Public device-auth endpoints (no auth — CLI uses these)
+import { createDeviceAuthPublicRouter } from './tunnel/routes/device-auth';
+app.route('/v1/tunnel/device-auth', createDeviceAuthPublicRouter());
+
+app.use('/v1/tunnel/*', async (c, next) => {
+  // Skip auth for public device-auth routes: POST /device-auth and GET /device-auth/:code/status
+  const path = c.req.path.replace('/v1/tunnel/device-auth', '');
+  if (c.req.path.startsWith('/v1/tunnel/device-auth')) {
+    if (c.req.method === 'POST' && (path === '' || path === '/')) return next();
+    if (c.req.method === 'GET' && path.endsWith('/status')) return next();
+  }
+  return combinedAuth(c, next);
+});
 app.route('/v1/tunnel', tunnelApp);
 
 // WoA moved to /v1/router/woa — see router/index.ts
@@ -398,7 +410,7 @@ async function injectSandboxToken(sandboxId: string, accountId: string): Promise
 
   const dockerExec = (token: string) => {
     execSync(
-      `docker exec kortix-sandbox bash -c "printf '%s' '${token}' > /run/s6/container_environment/KORTIX_TOKEN && printf '%s' '${kortixApiUrl}' > /run/s6/container_environment/KORTIX_API_URL"`,
+      `docker exec kortix-sandbox bash -c "printf '%s' '${token}' > /run/s6/container_environment/KORTIX_TOKEN && printf '%s' '${kortixApiUrl}' > /run/s6/container_environment/KORTIX_API_URL && printf '%s' '${token}' > /run/s6/container_environment/TUNNEL_TOKEN && printf '%s' '${kortixApiUrl}' > /run/s6/container_environment/TUNNEL_API_URL"`,
       { stdio: 'pipe', env: dockerEnv },
     );
   };

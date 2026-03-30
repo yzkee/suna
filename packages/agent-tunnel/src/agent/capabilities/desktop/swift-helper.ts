@@ -4,7 +4,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 
 const HELPER_VERSION = 'v4';
-const BIN_DIR = join(homedir(), '.kortix-tunnel', 'bin');
+const BIN_DIR = join(homedir(), '.agent-tunnel', 'bin');
 const HELPER_PATH = join(BIN_DIR, `desktop-helper-${HELPER_VERSION}`);
 
 const SWIFT_SOURCE = `

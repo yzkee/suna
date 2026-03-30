@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Cable, Plus, Monitor, Trash2, Search, X } from 'lucide-react';
+import { Cable, Plus, Monitor, Trash2, Search, X, Terminal, Copy, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,7 +22,6 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useTunnelConnections, useDeleteTunnelConnection, type TunnelConnection } from '@/hooks/tunnel/use-tunnel';
 import { useTunnelRealtimeSync } from '@/hooks/tunnel/use-tunnel-realtime';
-import { TunnelCreateDialog } from './tunnel-create-dialog';
 import { TunnelSettingsDialog } from './tunnel-settings-dialog';
 import { TunnelPermissionRequestDialog } from './tunnel-permission-request-dialog';
 import { toast } from 'sonner';
@@ -139,22 +138,109 @@ function ConnectionItem({
 
 // ─── Empty state ─────────────────────────────────────────────────────────────
 
-function EmptyState({ onCreateClick }: { onCreateClick: () => void }) {
+function ConnectButton() {
+  const [showCommand, setShowCommand] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const command = 'npx @kortix/agent-tunnel connect';
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(command);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
-    <div className="relative bg-muted/20 rounded-3xl border border-dashed border-border/50 flex flex-col items-center justify-center py-20 px-4 overflow-hidden">
+    <div className="relative">
+      <Button
+        variant="default"
+        className="px-3 sm:px-4 rounded-2xl gap-1.5 sm:gap-2 text-sm"
+        onClick={() => setShowCommand(!showCommand)}
+      >
+        <Plus className="h-4 w-4" />
+        <span className="hidden xs:inline">Add Connection</span>
+        <span className="xs:hidden">Add</span>
+      </Button>
+
+      <AnimatePresence>
+        {showCommand && (
+          <motion.div
+            initial={{ opacity: 0, y: 4, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 4, scale: 0.97 }}
+            transition={{ duration: 0.15 }}
+            className="absolute right-0 top-full mt-2 z-50 w-[360px] rounded-xl border border-border bg-card shadow-lg p-4 space-y-3"
+          >
+            <div className="flex items-center gap-2">
+              <Terminal className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Connect a machine</span>
+            </div>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Run this command on the machine you want to connect. You&apos;ll approve it in your browser.
+            </p>
+            <button
+              onClick={handleCopy}
+              className="group flex items-center gap-2 w-full bg-foreground/[0.04] hover:bg-foreground/[0.07] border border-foreground/[0.08] rounded-lg px-3 py-2.5 transition-colors"
+            >
+              <code className="text-xs font-mono text-foreground/80 flex-1 text-left truncate">
+                {command}
+              </code>
+              {copied ? (
+                <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+              ) : (
+                <Copy className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              )}
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function ConnectGuide() {
+  const [copied, setCopied] = useState(false);
+  const command = 'npx @kortix/agent-tunnel connect';
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(command);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="relative bg-muted/20 rounded-3xl border border-dashed border-border/50 flex flex-col items-center justify-center py-16 px-4 overflow-hidden">
       <Ripple mainCircleSize={160} mainCircleOpacity={0.12} numCircles={6} />
-      <div className="relative z-10 flex flex-col items-center">
+      <div className="relative z-10 flex flex-col items-center max-w-lg">
         <div className="w-16 h-16 bg-muted border rounded-2xl flex items-center justify-center mb-4">
           <Cable className="h-7 w-7 text-muted-foreground" />
         </div>
         <h3 className="text-lg font-semibold text-foreground mb-2">Connect your machine</h3>
-        <p className="text-sm text-muted-foreground text-center leading-relaxed max-w-md mb-6">
-          Create a tunnel connection to give Kortix access to local files, shell commands, and more.
+        <p className="text-sm text-muted-foreground text-center leading-relaxed mb-6">
+          Run this command on any machine to connect it to Kortix. You&apos;ll approve the connection in your browser.
         </p>
-        <Button onClick={onCreateClick}>
-          <Plus className="h-4 w-4" />
-          New Connection
-        </Button>
+
+        <button
+          onClick={handleCopy}
+          className="group flex items-center gap-3 bg-foreground/[0.04] hover:bg-foreground/[0.07] border border-foreground/[0.08] rounded-xl px-5 py-3.5 transition-colors w-full max-w-sm"
+        >
+          <Terminal className="h-4 w-4 text-muted-foreground shrink-0" />
+          <code className="text-sm font-mono text-foreground/80 flex-1 text-left truncate">
+            {command}
+          </code>
+          {copied ? (
+            <Check className="h-4 w-4 text-emerald-500 shrink-0" />
+          ) : (
+            <Copy className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+          )}
+        </button>
+
+        <div className="flex items-center gap-6 mt-6 text-xs text-muted-foreground/60">
+          <span>1. Run the command</span>
+          <span className="text-foreground/10">|</span>
+          <span>2. Approve in browser</span>
+          <span className="text-foreground/10">|</span>
+          <span>3. Connected</span>
+        </div>
       </div>
     </div>
   );
@@ -192,7 +278,6 @@ export function TunnelOverview() {
   const deleteMutation = useDeleteTunnelConnection();
   useTunnelRealtimeSync();
 
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [selectedTunnel, setSelectedTunnel] = useState<TunnelConnection | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -262,15 +347,7 @@ export function TunnelOverview() {
               )}
             </div>
           </div>
-          <Button
-            variant="default"
-            className="px-3 sm:px-4 rounded-2xl gap-1.5 sm:gap-2 text-sm"
-            onClick={() => setCreateDialogOpen(true)}
-          >
-            <Plus className="h-4 w-4" />
-            <span className="hidden xs:inline">Add Connection</span>
-            <span className="xs:hidden">Add</span>
-          </Button>
+          <ConnectButton />
         </div>
 
         {/* Content */}
@@ -278,7 +355,7 @@ export function TunnelOverview() {
           {isLoading ? (
             <LoadingSkeleton />
           ) : !hasConnections ? (
-            <EmptyState onCreateClick={() => setCreateDialogOpen(true)} />
+            <ConnectGuide />
           ) : filtered.length === 0 && searchQuery ? (
             <div className="text-center py-12 text-muted-foreground text-sm">
               No connections matching &ldquo;{searchQuery}&rdquo;
@@ -311,11 +388,6 @@ export function TunnelOverview() {
           )}
         </div>
       </div>
-
-      <TunnelCreateDialog
-        open={createDialogOpen}
-        onOpenChange={setCreateDialogOpen}
-      />
 
       <TunnelSettingsDialog
         tunnel={selectedTunnel}

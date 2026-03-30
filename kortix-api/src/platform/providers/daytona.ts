@@ -61,6 +61,8 @@ export class DaytonaProvider implements SandboxProvider {
           KORTIX_API_URL: sandboxApiBase,
           ENV_MODE: 'cloud',
           INTERNAL_SERVICE_KEY: serviceKey,
+          TUNNEL_API_URL: sandboxApiBase,
+          TUNNEL_TOKEN: serviceKey,
           // Route tool SDK traffic through the Kortix router proxy for billing/key injection.
           // If not set, sandbox tools fall back to hitting the real upstream APIs directly.
           TAVILY_API_URL: `${routerBase}/tavily`,

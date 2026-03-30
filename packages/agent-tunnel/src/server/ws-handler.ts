@@ -81,6 +81,11 @@ export function createWsHandlers(relay: TunnelRelay, opts?: WsHandlerOptions): W
             return;
           }
 
+          // Send signing key to agent so it never needs the server secret
+          try {
+            pending.ws.send(JSON.stringify({ type: 'auth_ok', signingKey: result.signingKey }));
+          } catch {}
+
           relay.registerAgent(tunnelId, pending.ws, result.signingKey, result.metadata);
           if (heartbeat) {
             heartbeat.register(tunnelId);

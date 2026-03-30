@@ -68,6 +68,24 @@ export function generateTunnelToken(): string {
   return `${KEY_PREFIX_TUNNEL}${randomAlphanumeric(SECRET_RANDOM_LENGTH)}`;
 }
 
+const UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const DIGITS = '0123456789';
+
+/**
+ * Generate a human-readable device auth code: XXXX-NNNN
+ * (4 uppercase letters + hyphen + 4 digits)
+ */
+export function generateDeviceCode(): string {
+  const bytes = randomBytes(8);
+  let letters = '';
+  let numbers = '';
+  for (let i = 0; i < 4; i++) {
+    letters += UPPER[bytes[i]! % UPPER.length];
+    numbers += DIGITS[bytes[i + 4]! % DIGITS.length];
+  }
+  return `${letters}-${numbers}`;
+}
+
 /** Check if a token is a tunnel setup token. */
 export function isTunnelToken(token: string): boolean {
   return token.startsWith(KEY_PREFIX_TUNNEL);
@@ -117,10 +135,8 @@ export function timingSafeStringEqual(a: string, b: string): boolean {
   return timingSafeEqual(hashA, hashB);
 }
 
-const SIGNING_KEY_CONTEXT = 'kortix-tunnel-signing-v1';
-
-export function deriveSigningKey(token: string): string {
-  return createHmac('sha256', SIGNING_KEY_CONTEXT)
+export function deriveSigningKey(token: string, secret: string): string {
+  return createHmac('sha256', secret)
     .update(token)
     .digest('hex');
 }

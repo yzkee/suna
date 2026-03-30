@@ -22,6 +22,7 @@ import { createPermissionsRouter } from './routes/permissions';
 import { createPermissionRequestsRouter } from './routes/permission-requests';
 import { createRpcRouter } from './routes/rpc';
 import { createAuditRouter } from './routes/audit';
+import { createDeviceAuthRouter } from './routes/device-auth';
 import { tunnelRelay } from './core/relay';
 import { heartbeatManager } from './core/heartbeat';
 import { notifyTunnelEvent } from './routes/permission-requests';
@@ -35,6 +36,7 @@ tunnelApp.route('/permissions', createPermissionsRouter());
 tunnelApp.route('/permission-requests', createPermissionRequestsRouter());
 tunnelApp.route('/rpc', createRpcRouter());
 tunnelApp.route('/audit', createAuditRouter());
+tunnelApp.route('/device-auth', createDeviceAuthRouter());
 
 // ─── WS Handlers (used by index.ts Bun server) ──────────────────────────────
 
@@ -92,7 +94,7 @@ const wsHandlers = createWsHandlers(tunnelRelay, {
 
     if (!tunnel) return null;
 
-    const signingKey = deriveSigningKey(token);
+    const signingKey = deriveSigningKey(token, config.TUNNEL_SIGNING_SECRET);
     return {
       signingKey,
       metadata: {
@@ -243,6 +245,18 @@ function startTunnelService(): void {
           and(
             eq(tunnelPermissions.status, 'active'),
             lt(tunnelPermissions.expiresAt, new Date()),
+          ),
+        );
+
+      // Expire pending device auth requests
+      const { tunnelDeviceAuthRequests } = await import('@kortix/db');
+      await db
+        .update(tunnelDeviceAuthRequests)
+        .set({ status: 'expired', updatedAt: new Date() })
+        .where(
+          and(
+            eq(tunnelDeviceAuthRequests.status, 'pending'),
+            lt(tunnelDeviceAuthRequests.expiresAt, new Date()),
           ),
         );
     } catch (err) {

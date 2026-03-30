@@ -3,7 +3,7 @@
  *
  * Strategy: spin up a lightweight mock HTTP server that simulates the
  * tunnel relay API, then invoke the CLI as a child process via `bun run`
- * with KORTIX_API_URL pointing at the mock. Assert on JSON stdout,
+ * with TUNNEL_API_URL pointing at the mock. Assert on JSON stdout,
  * stderr, and exit codes.
  *
  * Run: bun test src/client/cli.test.ts
@@ -267,9 +267,9 @@ function runCli(
     const child = spawn("bun", cliArgs, {
       env: {
         ...process.env,
-        KORTIX_API_URL: `http://localhost:${mockPort}`,
-        KORTIX_TOKEN: "test-token",
-        KORTIX_TUNNEL_ID: "",
+        TUNNEL_API_URL: `http://localhost:${mockPort}`,
+        TUNNEL_TOKEN: "test-token",
+        TUNNEL_ID: "",
         ...envOverrides,
       },
       cwd: dirname(dirname(CLI_PATH)),
@@ -669,7 +669,7 @@ describe("Agent Tunnel CLI", () => {
 
     test("permission denied returns structured response", async () => {
       const r = await runCli("fs_read", '{"path":"/etc/passwd"}', {
-        KORTIX_API_URL: `http://localhost:${permPort}`,
+        TUNNEL_API_URL: `http://localhost:${permPort}`,
       });
       // CLI should output permission-required JSON (not crash)
       expect(r.json).not.toBeNull();
@@ -683,7 +683,7 @@ describe("Agent Tunnel CLI", () => {
       const r = await runCli(
         "shell",
         '{"command":"rm","args":["-rf","/"]}',
-        { KORTIX_API_URL: `http://localhost:${permPort}` }
+        { TUNNEL_API_URL: `http://localhost:${permPort}` }
       );
       expect(r.json!.success).toBe(false);
       expect(r.json!.permissionRequired).toBe(true);
@@ -695,7 +695,7 @@ describe("Agent Tunnel CLI", () => {
   describe("server unreachable", () => {
     test("status with dead server returns error JSON", async () => {
       const r = await runCli("status", undefined, {
-        KORTIX_API_URL: "http://localhost:1",
+        TUNNEL_API_URL: "http://localhost:1",
       });
       expect(r.exitCode).toBe(1);
       expect(r.json).not.toBeNull();
@@ -705,7 +705,7 @@ describe("Agent Tunnel CLI", () => {
 
     test("fs_read with dead server returns error JSON", async () => {
       const r = await runCli("fs_read", '{"path":"/tmp/x"}', {
-        KORTIX_API_URL: "http://localhost:1",
+        TUNNEL_API_URL: "http://localhost:1",
       });
       expect(r.exitCode).toBe(1);
       expect(r.json!.success).toBe(false);
@@ -738,7 +738,7 @@ describe("Agent Tunnel CLI", () => {
 
     test("status with no connections returns empty list", async () => {
       const r = await runCli("status", undefined, {
-        KORTIX_API_URL: `http://localhost:${emptyPort}`,
+        TUNNEL_API_URL: `http://localhost:${emptyPort}`,
       });
       expect(r.exitCode).toBe(0);
       expect(r.json!.success).toBe(true);
@@ -748,7 +748,7 @@ describe("Agent Tunnel CLI", () => {
 
     test("fs_read with no connections returns error", async () => {
       const r = await runCli("fs_read", '{"path":"/tmp/x"}', {
-        KORTIX_API_URL: `http://localhost:${emptyPort}`,
+        TUNNEL_API_URL: `http://localhost:${emptyPort}`,
       });
       expect(r.exitCode).toBe(1);
       expect(r.json!.success).toBe(false);

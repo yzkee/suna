@@ -364,12 +364,15 @@ export class JustAVPSProvider implements SandboxProvider {
     const location = opts.location || config.JUSTAVPS_DEFAULT_LOCATION;
 
     const serviceKey = opts.envVars?.KORTIX_TOKEN || '';
+    const sandboxApiBase = resolveReachableKortixApiUrl();
     const envVars: Record<string, string> = {
-      KORTIX_API_URL: resolveReachableKortixApiUrl(),
+      KORTIX_API_URL: sandboxApiBase,
       ENV_MODE: 'cloud',
       INTERNAL_SERVICE_KEY: serviceKey,
       KORTIX_TOKEN: serviceKey,
       KORTIX_SANDBOX_VERSION: SANDBOX_VERSION,
+      TUNNEL_API_URL: sandboxApiBase,
+      TUNNEL_TOKEN: serviceKey,
       PUID: '1000',
       PGID: '1000',
       ...opts.envVars,
