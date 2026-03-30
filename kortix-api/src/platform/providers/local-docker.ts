@@ -558,10 +558,14 @@ export class LocalDockerProvider implements SandboxProvider {
 
     const containerEnv = await this.getContainerEnv();
 
+    const sandboxApiBase = getSandboxInternalApiUrl();
+    const sandboxToken = containerEnv['KORTIX_TOKEN'] || '';
     const desired: Record<string, string> = {
-      KORTIX_API_URL: getSandboxInternalApiUrl(),
-      KORTIX_TOKEN: containerEnv['KORTIX_TOKEN'] || '',
+      KORTIX_API_URL: sandboxApiBase,
+      KORTIX_TOKEN: sandboxToken,
       INTERNAL_SERVICE_KEY: config.INTERNAL_SERVICE_KEY,
+      TUNNEL_API_URL: sandboxApiBase,
+      TUNNEL_TOKEN: sandboxToken,
     };
 
     let currentEnv: Record<string, string> = {};
@@ -850,6 +854,8 @@ export class LocalDockerProvider implements SandboxProvider {
       `KORTIX_API_URL=${getSandboxInternalApiUrl()}`,
       `KORTIX_TOKEN=${authToken}`,
       `INTERNAL_SERVICE_KEY=${serviceKey}`,
+      `TUNNEL_API_URL=${getSandboxInternalApiUrl()}`,
+      `TUNNEL_TOKEN=${authToken}`,
       `SANDBOX_ID=${CONTAINER_NAME}`,
       'PROJECT_ID=local',
       ...(config.KORTIX_LOCAL_IMAGES ? ['KORTIX_LOCAL_SOURCE=1'] : []),

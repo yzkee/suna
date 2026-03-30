@@ -49,6 +49,8 @@ export {
   tunnelPermissions,
   tunnelPermissionRequests,
   tunnelAuditLogs,
+  tunnelDeviceAuthStatusEnum,
+  tunnelDeviceAuthRequests,
   tunnelConnectionsRelations,
   tunnelPermissionsRelations,
   tunnelPermissionRequestsRelations,

@@ -1,6 +1,6 @@
 {
   "name": "@kortix/agent-tunnel",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": false,
   "type": "module",
   "description": "Tunnel relay between cloud AI agents and local machines — server relay, local agent, client SDK, JSON-RPC, HMAC signing",

@@ -366,12 +366,15 @@ export class JustAVPSProvider implements SandboxProvider {
     const routerBase = `${sandboxApiBase}/v1/router`;
 
     const serviceKey = opts.envVars?.KORTIX_TOKEN || '';
+    const sandboxApiBase = resolveReachableKortixApiUrl();
     const envVars: Record<string, string> = {
       KORTIX_API_URL: sandboxApiBase,
       ENV_MODE: 'cloud',
       INTERNAL_SERVICE_KEY: serviceKey,
       KORTIX_TOKEN: serviceKey,
       KORTIX_SANDBOX_VERSION: SANDBOX_VERSION,
+      TUNNEL_API_URL: sandboxApiBase,
+      TUNNEL_TOKEN: serviceKey,
       TAVILY_API_URL: `${routerBase}/tavily`,
       REPLICATE_API_URL: `${routerBase}/replicate`,
       SERPER_API_URL: `${routerBase}/serper`,

@@ -1,6 +1,5 @@
 import { createHash, createHmac, timingSafeEqual, randomBytes } from 'crypto';
 
-const SIGNING_KEY_CONTEXT = 'kortix-tunnel-signing-v1';
 const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
 function randomAlphanumeric(length: number): string {
@@ -12,8 +11,8 @@ function randomAlphanumeric(length: number): string {
   return result;
 }
 
-export function deriveSigningKey(token: string): string {
-  return createHmac('sha256', SIGNING_KEY_CONTEXT)
+export function deriveSigningKey(token: string, secret: string): string {
+  return createHmac('sha256', secret)
     .update(token)
     .digest('hex');
 }

@@ -760,6 +760,35 @@ export const tunnelAuditLogs = kortixSchema.table(
   ],
 );
 
+export const tunnelDeviceAuthStatusEnum = kortixSchema.enum('tunnel_device_auth_status', [
+  'pending',
+  'approved',
+  'denied',
+  'expired',
+]);
+
+export const tunnelDeviceAuthRequests = kortixSchema.table(
+  'tunnel_device_auth_requests',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    deviceCode: varchar('device_code', { length: 9 }).notNull(),
+    deviceSecretHash: varchar('device_secret_hash', { length: 128 }).notNull(),
+    status: tunnelDeviceAuthStatusEnum('status').default('pending').notNull(),
+    machineHostname: varchar('machine_hostname', { length: 255 }),
+    accountId: uuid('account_id'),
+    tunnelId: uuid('tunnel_id').references(() => tunnelConnections.tunnelId, { onDelete: 'set null' }),
+    setupToken: varchar('setup_token', { length: 64 }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_tunnel_device_auth_code').on(table.deviceCode),
+    index('idx_tunnel_device_auth_status').on(table.status),
+    index('idx_tunnel_device_auth_expires').on(table.expiresAt),
+  ],
+);
+
 // ─── Tunnel Relations ────────────────────────────────────────────────────────
 
 export const tunnelConnectionsRelations = relations(tunnelConnections, ({ one, many }) => ({

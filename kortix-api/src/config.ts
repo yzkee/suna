@@ -156,6 +156,7 @@ const envSchema = z.object({
   PIPEDREAM_WEBHOOK_SECRET:    optStr,
 
   // ── Tunnel (optional, all have sane defaults) ────────────────────────────
+  TUNNEL_SIGNING_SECRET:             optStr,
   TUNNEL_ENABLED:                    optBoolTrue,
   TUNNEL_HEARTBEAT_INTERVAL_MS:      optInt(30_000),
   TUNNEL_HEARTBEAT_MAX_MISSED:       optInt(3),
@@ -252,6 +253,12 @@ function validateEnv(): z.infer<typeof envSchema> {
   if (billingWillBeEnabled) {
     if (!raw.STRIPE_SECRET_KEY)    issues.push({ var: 'STRIPE_SECRET_KEY',    message: 'Required when billing is enabled (ENV_MODE=cloud)', level: 'error' });
     if (!raw.STRIPE_WEBHOOK_SECRET) issues.push({ var: 'STRIPE_WEBHOOK_SECRET', message: 'Required when billing is enabled (ENV_MODE=cloud)', level: 'error' });
+  }
+
+  // ── Conditional: Tunnel enabled → need signing secret ──────────────────
+  const tunnelEnabled = (raw as any).TUNNEL_ENABLED !== 'false' && (raw as any).TUNNEL_ENABLED !== false;
+  if (tunnelEnabled && !raw.TUNNEL_SIGNING_SECRET) {
+    issues.push({ var: 'TUNNEL_SIGNING_SECRET', message: 'Required when tunnel is enabled — used for HMAC signing key derivation', level: 'error' });
   }
 
   // ── Conditional: KORTIX_URL — required for sandbox routing ──────────────
@@ -473,6 +480,7 @@ export const config = {
   PIPEDREAM_WEBHOOK_SECRET: env.PIPEDREAM_WEBHOOK_SECRET,
 
   // ─── Tunnel (Reverse-Tunnel to Local Machine) ──────────────────────────────
+  TUNNEL_SIGNING_SECRET: env.TUNNEL_SIGNING_SECRET,
   TUNNEL_ENABLED: env.TUNNEL_ENABLED,
   TUNNEL_HEARTBEAT_INTERVAL_MS: env.TUNNEL_HEARTBEAT_INTERVAL_MS,
   TUNNEL_HEARTBEAT_MAX_MISSED: env.TUNNEL_HEARTBEAT_MAX_MISSED,

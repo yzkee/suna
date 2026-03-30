@@ -3,7 +3,7 @@ import type { TunnelConfig } from './config';
 import { CapabilityRegistry, type RpcHandler } from './capabilities/index';
 import { PermissionGuard } from './security/permission-guard';
 import type { LocalPermission } from './security/permission-guard';
-import { deriveSigningKey, signMessage, verifyMessageSignature } from '../shared/crypto';
+import { signMessage, verifyMessageSignature } from '../shared/crypto';
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -54,7 +54,7 @@ export class TunnelAgent {
   private uptimeInterval: ReturnType<typeof setInterval> | null = null;
 
   // HMAC signature verification
-  private signingKey: string;
+  private signingKey: string | null = null;
   private lastNonce = 0;
   private responseNonce = 0;
 
@@ -62,7 +62,6 @@ export class TunnelAgent {
     this.config = config;
     this.registry = registry;
     this.permissionGuard = new PermissionGuard();
-    this.signingKey = deriveSigningKey(config.token);
   }
 
   connect(): void {
@@ -116,12 +115,11 @@ export class TunnelAgent {
       this.uptime = 0;
       this.lastNonce = 0;
       this.responseNonce = 0;
+      this.signingKey = null;
       this.uptimeInterval = setInterval(() => { this.uptime++; }, 1000);
 
       // Send auth handshake as first message (token never in URL)
       this.send({ type: 'auth', token: this.config.token });
-
-      log(`${c.green}●${c.reset}`, `Connected ${c.reset}${c.gray}(${this.registry.getCapabilityNames().join(', ')})${c.reset}`);
     });
 
     this.ws.addEventListener('message', (event) => {
@@ -150,11 +148,23 @@ export class TunnelAgent {
   }
 
   private async handleMessage(raw: string): Promise<void> {
-    let msg: IncomingMessage;
+    let msg: any;
     try {
       msg = JSON.parse(raw);
     } catch {
       log(`${c.yellow}!${c.reset}`, `Received invalid JSON`);
+      return;
+    }
+
+    // Handle auth_ok — server sends signing key after successful auth
+    if (msg.type === 'auth_ok' && msg.signingKey) {
+      this.signingKey = msg.signingKey;
+      log(`${c.green}●${c.reset}`, `Connected ${c.reset}${c.gray}(${this.registry.getCapabilityNames().join(', ')})${c.reset}`);
+      return;
+    }
+
+    if (!this.signingKey) {
+      log(`${c.yellow}!${c.reset}`, `Message received before auth completed`);
       return;
     }
 
@@ -232,7 +242,7 @@ export class TunnelAgent {
     const { _sig, _nonce, ...payloadObj } = msg as any;
     const payload = JSON.stringify(payloadObj);
 
-    if (!verifyMessageSignature(this.signingKey, payload, nonce, sig)) {
+    if (!verifyMessageSignature(this.signingKey!, payload, nonce, sig)) {
       log(`${c.red}✗${c.reset}`, `Invalid HMAC signature`);
       return false;
     }
@@ -278,7 +288,7 @@ export class TunnelAgent {
   }
 
   private sendSigned(data: Record<string, unknown>): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    if (this.ws?.readyState === WebSocket.OPEN && this.signingKey) {
       const nonce = ++this.responseNonce;
       const payload = JSON.stringify(data);
       const sig = signMessage(this.signingKey, payload, nonce);
@@ -313,7 +323,7 @@ export class TunnelAgent {
           platform: platform(),
           arch: arch(),
           osVersion: release(),
-          agentVersion: '0.1.1',
+          agentVersion: '0.1.2',
         },
       },
     });

@@ -177,6 +177,7 @@ async function attemptKeySync(baseUrl: string): Promise<boolean> {
   const keysToSync: Record<string, string> = {
     INTERNAL_SERVICE_KEY: ourKey,
     KORTIX_API_URL: internalApiUrl,
+    TUNNEL_API_URL: internalApiUrl,
   };
 
   for (let attempt = 0; attempt < MAX_SYNC_RETRIES; attempt++) {

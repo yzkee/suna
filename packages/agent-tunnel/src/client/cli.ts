@@ -56,15 +56,15 @@ function getEnv(key: string): string | undefined {
 const FALLBACK_API_URL = "http://localhost:8008";
 
 function getApiBase(): string {
-  const raw = getEnv("KORTIX_API_URL") || FALLBACK_API_URL;
+  const raw = getEnv("TUNNEL_API_URL") || FALLBACK_API_URL;
   const url = raw.startsWith("http") ? raw : FALLBACK_API_URL;
   return url.replace(/\/+$/, "");
 }
 
 const client = new TunnelClient({
   apiUrl: `${getApiBase()}/v1/tunnel`,
-  token: getEnv("KORTIX_TOKEN") || "",
-  tunnelId: getEnv("KORTIX_TUNNEL_ID"),
+  token: getEnv("TUNNEL_TOKEN") || "",
+  tunnelId: getEnv("TUNNEL_ID"),
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────

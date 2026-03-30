@@ -32,7 +32,7 @@ import type {
 } from './types';
 
 function tmpPath(ext: string = '.png'): string {
-  return join(tmpdir(), `kortix-ss-${randomBytes(6).toString('hex')}${ext}`);
+  return join(tmpdir(), `tunnel-ss-${randomBytes(6).toString('hex')}${ext}`);
 }
 
 function exec(cmd: string, args: string[], timeoutMs = 15000): Promise<string> {

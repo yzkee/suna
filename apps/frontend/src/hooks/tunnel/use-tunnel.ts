@@ -94,6 +94,7 @@ export const tunnelKeys = {
   permissions: (tunnelId: string) => [...tunnelKeys.all, 'permissions', tunnelId] as const,
   permissionRequests: () => [...tunnelKeys.all, 'permission-requests'] as const,
   auditLogs: (tunnelId: string, page: number) => [...tunnelKeys.all, 'audit', tunnelId, page] as const,
+  deviceAuth: (code: string) => [...tunnelKeys.all, 'device-auth', code] as const,
 };
 
 // ─── Connection Hooks ────────────────────────────────────────────────────────
@@ -269,6 +270,65 @@ export function useDenyPermissionRequest() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: tunnelKeys.permissionRequests() });
+    },
+  });
+}
+
+// ─── Device Auth Hooks ──────────────────────────────────────────────────────
+
+export interface DeviceAuthInfo {
+  deviceCode: string;
+  machineHostname: string | null;
+  status: 'pending' | 'approved' | 'denied' | 'expired';
+  expiresAt: string;
+  createdAt: string;
+}
+
+export function useDeviceAuthInfo(code: string) {
+  return useQuery({
+    queryKey: tunnelKeys.deviceAuth(code),
+    queryFn: async () => {
+      const res = await backendApi.get<DeviceAuthInfo>(`/tunnel/device-auth/${code}/info`);
+      if (!res.success) throw new Error(res.error?.message || 'Failed to fetch device auth info');
+      return res.data!;
+    },
+    enabled: !!code,
+    staleTime: 2_000,
+    refetchInterval: 5_000,
+  });
+}
+
+export function useApproveDeviceAuth() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ code, ...data }: {
+      code: string;
+      name?: string;
+      capabilities?: string[];
+    }) => {
+      const res = await backendApi.post<{ success: boolean; tunnelId: string }>(
+        `/tunnel/device-auth/${code}/approve`,
+        data,
+      );
+      if (!res.success) throw new Error(res.error?.message || 'Failed to approve device');
+      return res.data!;
+    },
+    onSuccess: (_, vars) => {
+      queryClient.invalidateQueries({ queryKey: tunnelKeys.deviceAuth(vars.code) });
+      queryClient.invalidateQueries({ queryKey: tunnelKeys.connections() });
+    },
+  });
+}
+
+export function useDenyDeviceAuth() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (code: string) => {
+      const res = await backendApi.post(`/tunnel/device-auth/${code}/deny`);
+      if (!res.success) throw new Error(res.error?.message || 'Failed to deny device');
+    },
+    onSuccess: (_, code) => {
+      queryClient.invalidateQueries({ queryKey: tunnelKeys.deviceAuth(code) });
     },
   });
 }

@@ -60,6 +60,8 @@ services:
       - KORTIX_API_URL=${KORTIX_API_URL:-http://host.docker.internal:8008}
       - KORTIX_TOKEN=${KORTIX_TOKEN:-}
       - INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY:-}
+      - TUNNEL_API_URL=${KORTIX_API_URL:-http://host.docker.internal:8008}
+      - TUNNEL_TOKEN=${KORTIX_TOKEN:-}
       - SANDBOX_ID=${SANDBOX_ID:-local}
       - PROJECT_ID=${PROJECT_ID:-local}
       - ENV_MODE=${ENV_MODE:-local}
