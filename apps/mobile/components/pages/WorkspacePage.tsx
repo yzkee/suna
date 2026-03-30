@@ -503,14 +503,16 @@ export function WorkspacePage({ page, onBack, onOpenDrawer, onOpenRightDrawer }:
               </View>
               <CopyButton text={content} fg={fg} muted={muted} chipBg={chipBg} />
             </View>
-            <View style={{ backgroundColor: cardBg, borderWidth: 1, borderColor, borderRadius: 12, padding: 14 }}>
-              <RNText
-                style={{ fontSize: 12, fontFamily: 'monospace', color: fg, lineHeight: 18 }}
-                numberOfLines={20}
-                selectable
-              >
-                {content}
-              </RNText>
+            <View style={{ backgroundColor: cardBg, borderWidth: 1, borderColor, borderRadius: 12, padding: 14, maxHeight: 260 }}>
+              <ScrollView nestedScrollEnabled showsVerticalScrollIndicator>
+                <TextInput
+                  value={content}
+                  editable={false}
+                  multiline
+                  scrollEnabled={false}
+                  style={{ fontSize: 12, fontFamily: 'monospace', color: fg, lineHeight: 18, padding: 0 }}
+                />
+              </ScrollView>
             </View>
           </View>
         )}
