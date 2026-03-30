@@ -14,7 +14,7 @@ Use this skill as the top-level map for the Kortix platform. It should route you
 | Container/runtime model, persistence, paths, ports, basic ops | `technical-sys-info` | Docker-backed sandbox model, durable paths, key services, simple health checks |
 | Env vars, secrets, encryption, cloud mode | `kortix-environment-secrets` | Env vars, cloud mode, secret API, encryption |
 | Agents, skills, tools, commands, sessions, providers, plugins, API | `opencode-framework` | Framework architecture, config, REST API, SSE |
-| Sessions, prompt memory, background sessions, projects, orchestration, SQLite | `kortix-projects-sessions` | Tiny prompt memory, session retrieval, background sessions, project CRUD, worker assignment, DONE/VERIFIED protocol, filesystem persistence |
+| Sessions, background sessions, projects, orchestration, SQLite | `kortix-projects-sessions` | Session retrieval, background sessions, project CRUD, worker assignment, DONE/VERIFIED protocol, filesystem persistence |
 | Local semantic search over files and SQLite | `lss` | Hybrid BM25 + embedding search, indexing, watch mode, SQLite row search |
 | OAuth apps, Pipedream actions, authenticated API calls | `kortix-integrations` | Integrations, actions, proxyFetch, trigger management |
 | Slack, Telegram, Discord bridge | `kortix-channels` | Messaging bridge, session tracking, adapter setup, APIs |

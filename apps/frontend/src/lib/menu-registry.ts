@@ -44,6 +44,7 @@ import {
   Layers,
   GitCompareArrows,
   Search,
+  RefreshCw,
 
   // Settings pages
   KeyRound,
@@ -298,6 +299,17 @@ export const menuRegistry: MenuItemDef[] = [
     href: '/workspace',
     activePathPrefixes: ['/workspace', '/agents', '/skills', '/commands', '/tools'],
     keywords: 'workspace agents skills commands tools build create',
+  },
+  {
+    id: 'reload-instance',
+    label: 'Reload Instance',
+    icon: RefreshCw,
+    group: 'quickActions',
+    subGroup: 'tools',
+    showIn: ['rightSidebar', 'commandPalette'],
+    kind: 'action',
+    actionId: 'reloadInstance',
+    keywords: 'reload restart refresh dispose instance rescan skills agents plugins',
   },
   {
     id: 'secrets-quick',

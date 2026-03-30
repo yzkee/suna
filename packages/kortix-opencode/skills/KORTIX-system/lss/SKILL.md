@@ -156,7 +156,7 @@ Main DB:
 
 LSS is the deep search layer, not the session API.
 
-- `kortix-projects-sessions` handles prompt memory, session tools, and project orchestration
+- `kortix-projects-sessions` handles session tools, project CRUD, and background orchestration
 - `lss` handles semantic retrieval over files and SQLite
 
 Keep those roles separate.

@@ -19,6 +19,8 @@ import {
   ChevronRight,
   ArrowLeft,
   Check,
+  Folder,
+  Hash,
 } from 'lucide-react';
 
 import {
@@ -64,12 +66,15 @@ import {
   ProviderLogo,
   MODEL_SELECTOR_PROVIDER_IDS,
 } from '@/components/providers/provider-branding';
+import { findFiles, findText } from '@/features/files';
+import { getFileIcon } from '@/features/files/components/file-icon';
+import type { FindMatch } from '@/features/files';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-type PalettePage = 'root' | 'agents' | 'models';
+type PalettePage = 'root' | 'agents' | 'models' | 'files';
 
 // ============================================================================
 // Helpers
@@ -101,6 +106,303 @@ function deriveProjectName(project: { id: string; name?: string; worktree?: stri
 function sanitizeCmdkValue(value: string): string {
   // Remove double quotes, single quotes, backslashes, brackets — all CSS selector breakers
   return value.replace(/["'\\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// ============================================================================
+// File Search helpers
+// ============================================================================
+
+interface FileSearchResult {
+  path: string;
+  name: string;
+  isDir: boolean;
+}
+
+/**
+ * Smart ranking for file search results.
+ * Priority: exact basename → basename startsWith → basename includes → path includes.
+ * Ties broken by depth (shallower = better), then alpha.
+ */
+function rankFileResult(result: FileSearchResult, query: string): number {
+  const ql = query.toLowerCase();
+  const pathLower = result.path.toLowerCase();
+  const baseLower = result.name.toLowerCase();
+  const depth = result.path.split('/').length;
+
+  // Exact basename match
+  if (baseLower === ql) return 0 + depth * 0.001;
+  // Basename starts with query
+  if (baseLower.startsWith(ql)) return 100 + depth * 0.001;
+  // Basename contains query
+  if (baseLower.includes(ql)) return 200 + depth * 0.001;
+  // Full path starts with query
+  if (pathLower.startsWith(ql)) return 300 + depth * 0.001;
+  // Full path contains query
+  if (pathLower.includes(ql)) return 400 + depth * 0.001;
+  // Fuzzy: all query chars in order in basename
+  let qi = 0;
+  for (let i = 0; i < baseLower.length && qi < ql.length; i++) {
+    if (baseLower[i] === ql[qi]) qi++;
+  }
+  if (qi === ql.length) return 500 + depth * 0.001;
+  // Fuzzy in path
+  qi = 0;
+  for (let i = 0; i < pathLower.length && qi < ql.length; i++) {
+    if (pathLower[i] === ql[qi]) qi++;
+  }
+  if (qi === ql.length) return 600 + depth * 0.001;
+  return 1000 + depth;
+}
+
+function parseFileResults(paths: string[]): FileSearchResult[] {
+  return paths.map((p) => {
+    const isDir = p.endsWith('/');
+    const clean = isDir ? p.slice(0, -1) : p;
+    return {
+      path: clean,
+      name: clean.split('/').pop() || clean,
+      isDir,
+    };
+  });
+}
+
+// ============================================================================
+// FileSearchPage — async file search sub-page for the command palette
+// ============================================================================
+
+function FileSearchPage({
+  query,
+  onSelect,
+}: {
+  query: string;
+  onSelect: (filePath: string) => void;
+}) {
+  const [results, setResults] = useState<FileSearchResult[]>([]);
+  const [textResults, setTextResults] = useState<FindMatch[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [searchedQuery, setSearchedQuery] = useState('');
+  const seqRef = useRef(0);
+
+  const trimmed = query.trim();
+  const isContentSearch = trimmed.startsWith('>');
+  const effectiveQuery = isContentSearch ? trimmed.slice(1).trim() : trimmed;
+
+  // Debounced search
+  useEffect(() => {
+    if (!effectiveQuery || effectiveQuery.length < 1) {
+      setResults([]);
+      setTextResults([]);
+      setSearchedQuery('');
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    const seq = ++seqRef.current;
+    const timer = setTimeout(async () => {
+      try {
+        if (isContentSearch) {
+          // Content search via ripgrep
+          const matches = await findText(effectiveQuery);
+          if (seq === seqRef.current) {
+            setTextResults(matches.slice(0, 50));
+            setResults([]);
+            setSearchedQuery(effectiveQuery);
+            setIsLoading(false);
+          }
+        } else {
+          // File name search — parallel: strict file + broad (files+dirs)
+          const [fileOnly, broad] = await Promise.all([
+            findFiles(effectiveQuery, { type: 'file', limit: 100 }).catch(() => []),
+            findFiles(effectiveQuery, { limit: 100 }).catch(() => []),
+          ]);
+
+          if (seq === seqRef.current) {
+            // Merge and dedupe
+            const seen = new Set<string>();
+            const merged: string[] = [];
+            for (const p of [...fileOnly, ...broad]) {
+              const key = p.endsWith('/') ? p.slice(0, -1) : p;
+              if (!seen.has(key)) {
+                seen.add(key);
+                merged.push(p);
+              }
+            }
+
+            const parsed = parseFileResults(merged);
+            // Sort by ranking
+            parsed.sort((a, b) => {
+              const ra = rankFileResult(a, effectiveQuery);
+              const rb = rankFileResult(b, effectiveQuery);
+              if (ra !== rb) return ra - rb;
+              return a.path.localeCompare(b.path);
+            });
+
+            setResults(parsed.slice(0, 50));
+            setTextResults([]);
+            setSearchedQuery(effectiveQuery);
+            setIsLoading(false);
+          }
+        }
+      } catch {
+        if (seq === seqRef.current) {
+          setIsLoading(false);
+        }
+      }
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [effectiveQuery, isContentSearch]);
+
+  const hasResults = results.length > 0 || textResults.length > 0;
+
+  // Idle: show hint
+  if (!effectiveQuery) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-12">
+        <div className="flex items-center justify-center h-10 w-10 rounded-full bg-muted/30">
+          <Search className="h-4 w-4 text-muted-foreground/40" />
+        </div>
+        <div className="text-center space-y-1">
+          <p className="text-sm text-muted-foreground/60">Type to search files in /workspace</p>
+          <p className="text-[11px] text-muted-foreground/30">
+            Prefix with <kbd className="px-1 py-0.5 rounded bg-muted text-[10px] font-mono">&gt;</kbd> to search file contents
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Loading
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-10">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground/50" />
+        <span className="text-sm text-muted-foreground/50">
+          {isContentSearch ? 'Searching file contents...' : 'Searching files...'}
+        </span>
+      </div>
+    );
+  }
+
+  // No results
+  if (!hasResults && searchedQuery) {
+    return (
+      <div className="flex flex-col items-center gap-2 py-12">
+        <div className="flex items-center justify-center h-10 w-10 rounded-full bg-muted/30">
+          <Search className="h-4 w-4 text-muted-foreground/30" />
+        </div>
+        <div className="text-center">
+          <span className="text-sm text-muted-foreground/60">
+            No {isContentSearch ? 'content matches' : 'files found'} for &ldquo;{searchedQuery}&rdquo;
+          </span>
+          {!isContentSearch && (
+            <p className="text-[11px] text-muted-foreground/30 mt-1">
+              Try a shorter query or prefix with &gt; for content search
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Content search results
+  if (isContentSearch && textResults.length > 0) {
+    // Group by file path
+    const grouped = new Map<string, FindMatch[]>();
+    for (const match of textResults) {
+      const existing = grouped.get(match.path);
+      if (existing) {
+        existing.push(match);
+      } else {
+        grouped.set(match.path, [match]);
+      }
+    }
+
+    return (
+      <>
+        {Array.from(grouped.entries()).map(([filePath, matches]) => {
+          const fileName = filePath.split('/').pop() || filePath;
+          return (
+            <CommandGroup
+              key={filePath}
+              heading={
+                <span className="inline-flex items-center gap-1.5 font-mono text-[10px]">
+                  {getFileIcon(fileName, { className: 'h-3 w-3 shrink-0' })}
+                  {filePath}
+                </span>
+              }
+              forceMount
+            >
+              {matches.slice(0, 5).map((match, i) => (
+                <CommandItem
+                  key={`${filePath}:${match.line_number}:${i}`}
+                  value={sanitizeCmdkValue(`content ${filePath} ${match.lines} ${match.line_number}`)}
+                  onSelect={() => onSelect(filePath)}
+                >
+                  <Hash className="h-3.5 w-3.5 text-muted-foreground/40 flex-shrink-0" />
+                  <span className="text-[11px] text-muted-foreground/50 tabular-nums w-8 text-right flex-shrink-0">
+                    {match.line_number}
+                  </span>
+                  <span className="truncate text-sm font-mono text-muted-foreground/80 flex-1">
+                    {match.lines.trim()}
+                  </span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          );
+        })}
+      </>
+    );
+  }
+
+  // File name search results — split files and dirs
+  const files = results.filter((r) => !r.isDir);
+  const dirs = results.filter((r) => r.isDir);
+
+  return (
+    <>
+      {files.length > 0 && (
+        <CommandGroup heading={`Files (${files.length})`} forceMount>
+          {files.map((file) => (
+            <CommandItem
+              key={file.path}
+              value={sanitizeCmdkValue(`file ${file.name} ${file.path}`)}
+              onSelect={() => onSelect(file.path)}
+            >
+              {getFileIcon(file.name, { className: 'h-4 w-4 shrink-0' })}
+              <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0">
+                <span className="truncate text-sm font-medium">{file.name}</span>
+                <span className="text-[10px] text-muted-foreground/35 font-mono truncate flex-shrink min-w-0">
+                  {file.path}
+                </span>
+              </div>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      )}
+
+      {dirs.length > 0 && (
+        <CommandGroup heading={`Directories (${dirs.length})`} forceMount>
+          {dirs.map((dir) => (
+            <CommandItem
+              key={dir.path}
+              value={sanitizeCmdkValue(`dir ${dir.name} ${dir.path}`)}
+              onSelect={() => onSelect(dir.path)}
+            >
+              <Folder className="h-4 w-4 shrink-0 text-blue-400" />
+              <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0">
+                <span className="truncate text-sm font-medium">{dir.name}</span>
+                <span className="text-[10px] text-muted-foreground/35 font-mono truncate flex-shrink min-w-0">
+                  {dir.path}
+                </span>
+              </div>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      )}
+    </>
+  );
 }
 
 // ============================================================================
@@ -161,9 +463,9 @@ export function CommandPalette() {
   const close = useCallback(() => setOpen(false), []);
 
   // ── Page navigation helpers ──
-  const goToPage = useCallback((p: PalettePage) => {
+  const goToPage = useCallback((p: PalettePage, preserveQuery?: boolean) => {
     setPage(p);
-    setQuery('');
+    if (!preserveQuery) setQuery('');
   }, []);
 
   const goBack = useCallback(() => {
@@ -306,7 +608,6 @@ export function CommandPalette() {
 
   const filteredAgents = useMemo(() => {
     if (!visibleAgents.length) return [];
-    if (!query.trim()) return visibleAgents;
     const q = query.trim().toLowerCase();
     return visibleAgents.filter((a) =>
       a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q),
@@ -450,6 +751,20 @@ export function CommandPalette() {
     [router, close],
   );
 
+  const handleSelectFile = useCallback(
+    (filePath: string) => {
+      const fileName = filePath.split('/').pop() || filePath;
+      openTabAndNavigate({
+        id: `file:${filePath}`,
+        title: fileName,
+        type: 'file',
+        href: `/files/${encodeURIComponent(filePath)}`,
+      });
+      close();
+    },
+    [close],
+  );
+
   const handleToggleSidebar = useCallback(() => {
     toggleSidebar();
     close();
@@ -499,6 +814,24 @@ export function CommandPalette() {
     });
   }, [close]);
 
+  const handleReloadInstance = useCallback(() => {
+    close();
+    const confirmed = window.confirm(
+      'Reload Instance?\n\n'
+      + '• All active sessions will be interrupted\n'
+      + '• MCP connections will be dropped and reconnected\n'
+      + '• Skills, agents, plugins & config will be rescanned from disk\n\n'
+      + 'You\'ll need to send a new message to resume in each session.'
+    );
+    if (!confirmed) return;
+    import('@/lib/opencode-sdk').then(({ getClient }) => {
+      const client = getClient();
+      client.instance.dispose()
+        .then(() => toast.success('Instance reloaded — skills, agents & config rescanned'))
+        .catch(() => toast.error('Failed to reload instance'));
+    });
+  }, [close]);
+
   const actionHandlers: Record<string, () => void> = useMemo(() => ({
     newSession: handleNewSession,
     openTerminal: handleOpenTerminal,
@@ -508,7 +841,8 @@ export function CommandPalette() {
     logout: handleLogout,
     openPlan: handleOpenPlan,
     openProviderModal: handleOpenProviderModal,
-  }), [handleNewSession, handleOpenTerminal, handleCompactSession, handleViewChanges, handleToggleSidebar, handleLogout, handleOpenPlan, handleOpenProviderModal]);
+    reloadInstance: handleReloadInstance,
+  }), [handleNewSession, handleOpenTerminal, handleCompactSession, handleViewChanges, handleToggleSidebar, handleLogout, handleOpenPlan, handleOpenProviderModal, handleReloadInstance]);
 
   const handleRegistryItem = useCallback((item: MenuItemDef) => {
     switch (item.kind) {
@@ -558,6 +892,7 @@ export function CommandPalette() {
   const placeholder = useMemo(() => {
     if (page === 'agents') return 'Search agents...';
     if (page === 'models') return 'Search models...';
+    if (page === 'files') return 'Search files in /workspace...';
     return 'Search commands, projects, sessions...';
   }, [page]);
 
@@ -565,6 +900,7 @@ export function CommandPalette() {
   const pageTitle = useMemo(() => {
     if (page === 'agents') return 'Change Agent';
     if (page === 'models') return 'Change Model';
+    if (page === 'files') return 'Search Files';
     return null;
   }, [page]);
 
@@ -676,6 +1012,17 @@ export function CommandPalette() {
                         </CommandItem>
                       </>
                     )}
+
+                    {/* File search entry point — always available */}
+                    <CommandItem
+                      value="suggestion search files find file open workspace"
+                      onSelect={() => goToPage('files')}
+                    >
+                      <Search className="h-4 w-4" />
+                      <span className="flex-1">Search Files</span>
+                      <span className="text-[10px] text-muted-foreground/40">/workspace</span>
+                      <ChevronRight className="h-3 w-3 text-muted-foreground/30" />
+                    </CommandItem>
                   </CommandGroup>
 
                   {/* Projects */}
@@ -882,6 +1229,23 @@ export function CommandPalette() {
                     </CommandGroup>
                   )}
 
+                  {/* Search files action — always shown when typing */}
+                  {queryLongEnough && (
+                    <CommandGroup heading="File Search" forceMount>
+                      <CommandItem
+                        value={sanitizeCmdkValue(`search files ${query.trim()} workspace find open`)}
+                        onSelect={() => goToPage('files', true)}
+                      >
+                        <Search className="h-4 w-4" />
+                        <span className="flex-1">
+                          Search files for &ldquo;{query.trim()}&rdquo;
+                        </span>
+                        <span className="text-[10px] text-muted-foreground/40">/workspace</span>
+                        <ChevronRight className="h-3 w-3 text-muted-foreground/30" />
+                      </CommandItem>
+                    </CommandGroup>
+                  )}
+
                   {/* No results */}
                   {showNoResults && (
                     <div className="flex flex-col items-center gap-2 py-12" cmdk-empty="">
@@ -893,7 +1257,7 @@ export function CommandPalette() {
                           No results for &ldquo;{query.trim()}&rdquo;
                         </span>
                         <p className="text-[11px] text-muted-foreground/30 mt-1">
-                          Try a different search term
+                          Try &ldquo;Search files&rdquo; or a different term
                         </p>
                       </div>
                     </div>
@@ -1038,6 +1402,11 @@ export function CommandPalette() {
               )}
             </>
           )}
+
+          {/* ============================================================ */}
+          {/* PAGE: FILES                                                   */}
+          {/* ============================================================ */}
+          {page === 'files' && <FileSearchPage query={query} onSelect={handleSelectFile} />}
         </CommandList>
 
         {/* ── Footer ── */}
@@ -1055,6 +1424,12 @@ export function CommandPalette() {
             <div className="flex items-center gap-1">
               <CommandKbd>⌫</CommandKbd>
               <span>back</span>
+            </div>
+          )}
+          {page === 'files' && (
+            <div className="flex items-center gap-1">
+              <CommandKbd>&gt;</CommandKbd>
+              <span>content search</span>
             </div>
           )}
           <div className="flex items-center gap-1">

@@ -1,62 +1,73 @@
 ---
 name: kortix-projects-sessions
-description: "Kortix projects + sessions reference: project CRUD, worker session spawning, DONE/VERIFIED protocol, prompt memory files, session retrieval, background orchestration, and SQLite inspection."
+description: "Kortix projects + sessions reference: project CRUD, worker session spawning, DONE/VERIFIED protocol, session retrieval, background orchestration, and SQLite inspection."
 ---
 
 # Kortix Projects + Sessions
 
-Kortix runs two complementary systems: a **session continuity layer** for memory and history retrieval, and a **projects + orchestration layer** for long-running autonomous work. This skill covers both.
+Projects are named, path-bound work contexts. Sessions are conversation threads that can be spawned, resumed, searched, and read. This skill covers both systems and how they interact.
 
 ---
 
-## Mental Model
+## Projects
 
-Three continuity layers:
+### Project Tools
 
-| Layer | Purpose | Default behavior |
-|---|---|---|
-| **Merged memory files** | Tiny stable preferences and facts | Injected as a small merged prompt block every turn |
-| **Session tools** | Past conversation and tool history | Retrieved on demand |
-| **Skills and files on disk** | Reusable workflows and detailed durable notes | Loaded only when needed |
+| Tool | Description |
+|---|---|
+| `project_create(name, description, path)` | Register a directory. Creates scaffold if new. Idempotent. |
+| `project_list()` | List all projects. Auto-discovers `.kortix/project.json` markers on disk. |
+| `project_get(name)` | Get one project. Accepts name (fuzzy) or absolute path. |
+| `project_update(project, name, description)` | Update name or description. Syncs to OpenCode and `project.json`. |
+| `project_select(project)` | Link this session to a project. **Required before file/bash/edit tools.** |
 
-Tiny hot memory. Sessions as the historical record. Procedural knowledge in skills and files. No giant ambient memory dump every turn.
+### Project Directory Scaffold
 
----
+`project_create` creates this structure for new projects:
 
-## Tiny Prompt Memory
+```
+<project>/
+├── .kortix/
+│   ├── project.json        # identity marker { name, description, created }
+│   ├── CONTEXT.md          # shared project context — read by worker sessions
+│   ├── plans/              # plans and roadmaps
+│   ├── docs/               # shared docs for cross-session context
+│   └── sessions/           # persisted session results (auto-written on completion)
+├── .opencode/
+│   ├── agents/
+│   ├── skills/
+│   ├── commands/
+│   └── opencode.jsonc
+└── .gitignore
+```
 
-Four markdown files are durable prompt memory, auto-merged and injected each turn:
+A git repo is initialized automatically if one doesn't exist.
 
-| Scope | File | Purpose |
-|---|---|---|
-| Global | `.kortix/USER.md` | User-wide preferences and communication style |
-| Global | `.kortix/MEMORY.md` | Cross-project facts and recurring rules |
-| Project | `<project>/.kortix/USER.md` | Project-specific user preferences |
-| Project | `<project>/.kortix/MEMORY.md` | Project conventions, commands, architecture notes |
+### Project Context (`CONTEXT.md`)
 
-**Merge order** (project overrides global, duplicates removed):
-1. project `USER.md`
-2. project `MEMORY.md`
-3. global `USER.md`
-4. global `MEMORY.md`
+Each project has a `.kortix/CONTEXT.md` file. This is the project's shared memory:
 
-**Write to memory files:**
-- stable preferences, recurring repo conventions, durable environment facts, small rules
+- Read by the orchestrator when spawning worker sessions — included in the worker assignment prompt.
+- Workers are instructed to update it with discoveries and decisions.
+- NOT auto-injected into every turn. Read on demand.
 
-**Do NOT write to memory files:**
-- task progress, raw tool output, logs, debugging trails, large historical context, secrets
+**Write to CONTEXT.md:** project architecture, conventions, environment setup, discovered facts, cross-session decisions.
 
-### Where `.kortix/` lives
+**Don't write:** raw tool output, logs, task progress, debugging trails.
 
-The global `.kortix/` directory is resolved at runtime:
+### Project Discovery
 
-1. `KORTIX_DIR` env var (explicit override)
-2. `KORTIX_WORKSPACE` env var → `{KORTIX_WORKSPACE}/.kortix/`
-3. `OPENCODE_CONFIG_DIR` env var → parent directory → `.kortix/`
-4. Git repo root of the plugin anchor dir → `.kortix/`
-5. Fallback: `$HOME/.kortix/`
+`project_list()` uses three sources:
 
-On a local macOS dev machine with the heyagi repo, the global `.kortix/` is at `/Users/<user>/Projects/heyagi/.opencode/.kortix/`. The orchestrator DB (`kortix.db`) lives inside it.
+1. **Filesystem scan** — walks up to 2 levels from workspace root looking for `.kortix/project.json`
+2. **OpenCode project sync** — queries the OpenCode API to register any OC projects missing from Kortix, and link `opencode_id` bidirectionally
+3. **Unlinked resolution** — triggers OC registration for projects with `.git` but no `opencode_id`
+
+### Session-Project Link
+
+Every session must be linked to a project via `project_select` before using file/bash/edit tools. The link is stored in the `session_projects` table in the orchestrator DB and cached in-memory per session.
+
+Ungated tools (always allowed without a project): `project_*`, `session_*`, `worktree_*`, `web-search`, `image-search`, `scrape-webpage`, `instance-dispose`, `context7_*`, `todowrite`, `todoread`, `show`, `question`, `skill`, `webfetch`, `apply_patch`.
 
 ---
 
@@ -109,72 +120,6 @@ Use when a conversation continued across compression or resumed sessions.
 
 ---
 
-## Projects System
-
-Projects are named, path-bound work contexts managed by the Kortix Orchestrator plugin. Each project has its own directory structure, `.kortix/` metadata, and a session delegation log.
-
-### Project Tools
-
-| Tool | Description |
-|---|---|
-| `project_create(name, description, path)` | Register a directory. Creates scaffold if new. Idempotent. |
-| `project_list()` | List all projects. Auto-discovers `.kortix/project.json` markers on disk. |
-| `project_get(name)` | Get one project. Accepts name (fuzzy) or absolute path. |
-| `project_update(project, name, description)` | Update name or description. Syncs to OpenCode and `project.json`. |
-
-### Project Directory Scaffold
-
-When `project_create` makes a new project, it creates:
-
-```
-<project>/
-├── .kortix/
-│   ├── project.json        # identity marker { name, description, created }
-│   ├── context.md          # shared project context — read by every worker session
-│   ├── USER.md             # project-level user preferences (prompt memory)
-│   ├── MEMORY.md           # project-level conventions (prompt memory)
-│   ├── plans/              # plans and roadmaps
-│   ├── docs/               # shared docs for cross-session context
-│   └── sessions/           # persisted session results (auto-written on completion)
-├── .opencode/
-│   ├── agents/
-│   ├── skills/
-│   ├── commands/
-│   └── opencode.jsonc
-└── .gitignore
-```
-
-A git repo is initialized automatically if one doesn't exist.
-
-### Project Discovery
-
-`project_list()` uses three sources in order:
-
-1. **Filesystem scan** — walks up to 2 levels from workspace root looking for `.kortix/project.json`
-2. **OpenCode project sync** — queries the OpenCode API to register any OC projects missing from Kortix, and link `opencode_id` bidirectionally
-3. **Unlinked resolution** — triggers OC registration for projects with `.git` but no `opencode_id`
-
-### Kortix Orchestrator Database
-
-The orchestrator plugin stores its state in SQLite:
-
-```text
-<workspace-root>/.kortix/kortix.db
-```
-
-Two tables:
-- `projects` — id, name, path, description, created_at, opencode_id
-- `delegations` — session_id, project_id, prompt, agent, parent_session_id, status, result, created_at, completed_at
-
-Query directly when you need raw access:
-
-```bash
-sqlite3 /path/to/.kortix/kortix.db \
-  "SELECT session_id, status, substr(prompt,1,80) FROM delegations ORDER BY created_at DESC LIMIT 10;"
-```
-
----
-
 ## Background Sessions (Orchestration)
 
 Background sessions are the primary mechanism for parallel autonomous work. They run the `/autowork` loop and report back when done.
@@ -206,7 +151,7 @@ session_start_background({
   model: "",        // "" = agent default
   command: "",      // "" = /autowork (default)
   session_id: "",   // "" = create new
-  subagent_type: "" // alias for agent
+  subagent_type: "" // deprecated, use agent
 })
 ```
 
@@ -314,83 +259,46 @@ Works on any session ID, not just spawned ones.
 
 ---
 
-## Prompt Behavior
-
-Each turn, Kortix injects a small block into the prompt:
-
-```xml
-<session_context>
-Session ID: ses_abc123
-</session_context>
-
-<memory>
-## Project User
-...project USER.md content...
-
-## Project Memory
-...project MEMORY.md content...
-
-## Global User
-...global USER.md content...
-
-## Global Memory
-...global MEMORY.md content...
-</memory>
-```
-
-Duplicates across files are removed. Empty sections are omitted.
-
----
-
 ## Filesystem Persistence
-
-The filesystem is the most reliable long-term storage for high-fidelity information.
 
 | What to store | Where |
 |---|---|
-| Plans, handoff notes, decisions, architecture | Files in project or `.kortix/docs/` |
+| Project context, conventions, architecture | `{project}/.kortix/CONTEXT.md` |
+| Plans, handoff notes, decisions | Files in `{project}/.kortix/docs/` or `{project}/.kortix/plans/` |
 | Conversation history | Session tools (`session_get`, `session_search`) |
-| Tiny stable preferences and rules | `USER.md` / `MEMORY.md` |
-| Worker session results | Auto-written to `.kortix/sessions/` on completion |
+| Worker session results | Auto-written to `{project}/.kortix/sessions/` on completion |
 
 Rule of thumb:
 - Future session needs exact content → write a file
 - It's conversation history → use session tools
-- It's a tiny recurring preference → use `USER.md` or `MEMORY.md`
+- It's project knowledge → `{project}/.kortix/CONTEXT.md`
 
 ---
 
-## Direct SQLite Access
+## Orchestrator Database
 
-### Locate the databases first
+The orchestrator stores state in SQLite:
 
-The DB paths vary by environment. Always discover them rather than hardcoding:
+```text
+<workspace-root>/.kortix/kortix.db
+```
+
+Three tables:
+- `projects` — id, name, path, description, created_at, opencode_id
+- `delegations` — session_id, project_id, prompt, agent, parent_session_id, status, result, created_at, completed_at
+- `session_projects` — session_id, project_id, set_at (session↔project link)
+
+### Locate the databases
 
 ```bash
 # OpenCode session DB
 OC_DB=$(find ~ -name "opencode.db" -path "*/opencode/*" 2>/dev/null | head -1)
-echo "OpenCode DB: $OC_DB"
 
-# Kortix orchestrator DB — lives in .kortix/ at the workspace/git root
+# Kortix orchestrator DB
 KORTIX_DB=$(find ~ -name "kortix.db" -path "*/.kortix/*" 2>/dev/null | head -1)
-echo "Kortix DB:   $KORTIX_DB"
 ```
 
-Run that once per session and substitute `$OC_DB` / `$KORTIX_DB` in the queries below.
-
-### OpenCode session DB queries
-
-```bash
-# Recent sessions
-sqlite3 -readonly "$OC_DB" \
-  "SELECT id, title FROM session ORDER BY time_updated DESC LIMIT 10;"
-
-# Search by content
-sqlite3 -readonly "$OC_DB" \
-  "SELECT s.id, s.title FROM message m JOIN session s ON s.id = m.session_id WHERE m.data LIKE '%auth%';"
-```
-
-### Orchestrator DB queries
+### Common queries
 
 ```bash
 # Recent delegations
@@ -400,32 +308,27 @@ sqlite3 "$KORTIX_DB" \
 # All projects
 sqlite3 "$KORTIX_DB" \
   "SELECT name, path, description FROM projects;"
+
+# Recent sessions
+sqlite3 -readonly "$OC_DB" \
+  "SELECT id, title FROM session ORDER BY time_updated DESC LIMIT 10;"
+
+# Search sessions by content
+sqlite3 -readonly "$OC_DB" \
+  "SELECT s.id, s.title FROM message m JOIN session s ON s.id = m.session_id WHERE m.data LIKE '%auth%';"
 ```
-
-### Stored JSON and Grep
-
-```bash
-# Find sessions that touched a specific file
-OC_STORAGE=$(dirname "$OC_DB")/storage
-grep -rl 'middleware/auth.ts' "$OC_STORAGE"/
-grep -rl '"tool":"Write"' "$OC_STORAGE"/
-```
-
----
-
-## LSS
-
-For semantic retrieval over files or SQLite rows, load the standalone `lss` skill.
-
-Keep the split clear:
-- `kortix-projects-sessions` = prompt memory + session tools + background session behavior + projects
-- `lss` = semantic and hybrid search over files and SQLite
 
 ---
 
 ## Decision Guide
 
 ```text
+Need to create/manage projects?
+  → project_create / project_list / project_get / project_update
+
+Need to link session to a project?
+  → project_select
+
 Need one specific session?
   → session_get
 
@@ -455,7 +358,4 @@ Need raw DB queries?
 
 Need semantic recall?
   → load lss skill
-
-Need to create/manage projects?
-  → project_create / project_list / project_get / project_update
 ```

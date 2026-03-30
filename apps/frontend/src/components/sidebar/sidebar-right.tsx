@@ -34,6 +34,18 @@ import {
 import { normalizeAppPathname } from '@/lib/instance-routes';
 import { useProviderModalStore } from '@/stores/provider-modal-store';
 import { useOnboardingModeStore } from '@/stores/onboarding-mode-store';
+import { getClient } from '@/lib/opencode-sdk';
+import { toast } from '@/lib/toast';
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
 
 // ============================================================================
 // Main Right Sidebar — Quick actions (no file explorer — that's /files now)
@@ -71,6 +83,30 @@ export function SidebarRight() {
       console.error('[SidebarRight] Failed to create PTY:', e);
     }
   }, [createPty]);
+
+  // Reload / dispose instance → rescans skills, agents, plugins, config
+  const [isReloading, setIsReloading] = useState(false);
+  const [reloadDialogOpen, setReloadDialogOpen] = useState(false);
+
+  const handleReloadInstance = useCallback(() => {
+    setReloadDialogOpen(true);
+  }, []);
+
+  const confirmReloadInstance = useCallback(async () => {
+    if (isReloading) return;
+    setReloadDialogOpen(false);
+    setIsReloading(true);
+    try {
+      const client = getClient();
+      await client.instance.dispose();
+      toast.success('Instance reloaded — skills, agents & config rescanned');
+    } catch (e) {
+      console.error('[SidebarRight] Instance reload failed:', e);
+      toast.error('Failed to reload instance');
+    } finally {
+      setIsReloading(false);
+    }
+  }, [isReloading]);
 
   /**
    * Open a well-known sandbox service as a preview tab.
@@ -132,10 +168,12 @@ export function SidebarRight() {
           setSSHDialogOpen(true);
         } else if (item.actionId === 'openProviderModal') {
           useProviderModalStore.getState().openProviderModal('connected');
+        } else if (item.actionId === 'reloadInstance') {
+          handleReloadInstance();
         }
         break;
     }
-  }, [router, openSandboxServiceTab, handleNewTerminal]);
+  }, [router, openSandboxServiceTab, handleNewTerminal, handleReloadInstance]);
 
   // Get registry items for the right sidebar
   const quickActionClusters = getNavItemsClustered('rightSidebar', 'quickActions');
@@ -232,23 +270,26 @@ export function SidebarRight() {
                     {cluster.map((item) => {
                       const Icon = item.icon;
                       const isTerminal = item.actionId === 'newTerminal';
+                      const isReload = item.actionId === 'reloadInstance';
+                      const isDisabled = (isTerminal && createPty.isPending) || (isReload && isReloading);
                       return (
                         <Tooltip key={item.id}>
                           <TooltipTrigger asChild>
                             <button
                               onClick={() => handleItemAction(item)}
-                              disabled={isTerminal && createPty.isPending}
+                              disabled={isDisabled}
                               className={cn(
                                 'flex items-center justify-center w-full py-2 rounded-lg cursor-pointer',
                                 'text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150',
                                 'disabled:opacity-50 disabled:cursor-not-allowed',
+                                isReload && isReloading && 'animate-spin',
                               )}
                             >
                               <Icon className="h-4 w-4" />
                             </button>
                           </TooltipTrigger>
                           <TooltipContent side="left" sideOffset={12} className="text-xs">
-                            {item.label}
+                            {isReload && isReloading ? 'Reloading...' : item.label}
                           </TooltipContent>
                         </Tooltip>
                       );
@@ -316,19 +357,26 @@ export function SidebarRight() {
                         {cluster.map((item) => {
                           const Icon = item.icon;
                           const isTerminal = item.actionId === 'newTerminal';
+                          const isReload = item.actionId === 'reloadInstance';
+                          const isDisabled = (isTerminal && createPty.isPending) || (isReload && isReloading);
+                          const label = isTerminal && createPty.isPending
+                            ? 'Creating...'
+                            : isReload && isReloading
+                              ? 'Reloading...'
+                              : item.label;
                           return (
                             <button
                               key={item.id}
                               onClick={() => handleItemAction(item)}
-                              disabled={isTerminal && createPty.isPending}
+                              disabled={isDisabled}
                               className={cn(
                                 'flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] cursor-pointer',
                                 'text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150',
                                 'disabled:opacity-50 disabled:cursor-not-allowed',
                               )}
                             >
-                              <Icon className="h-4 w-4 flex-shrink-0" />
-                              <span>{isTerminal && createPty.isPending ? 'Creating...' : item.label}</span>
+                              <Icon className={cn("h-4 w-4 flex-shrink-0", isReload && isReloading && 'animate-spin')} />
+                              <span>{label}</span>
                             </button>
                           );
                         })}
@@ -382,6 +430,35 @@ export function SidebarRight() {
       </div>
 
       <SSHKeyDialog open={sshDialogOpen} onOpenChange={setSSHDialogOpen} />
+
+      <AlertDialog open={reloadDialogOpen} onOpenChange={setReloadDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reload Instance</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>This will tear down and rebuild the agent runtime. All active sessions will be interrupted.</p>
+                <ul className="list-disc pl-4 text-xs text-muted-foreground space-y-1">
+                  <li>All MCP connections will be dropped and reconnected</li>
+                  <li>In-flight LLM calls and tool executions will abort</li>
+                  <li>Skills, agents, plugins, tools, and config will be rescanned from disk</li>
+                  <li>You&apos;ll need to send a new message to resume in each session</li>
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              onClick={confirmReloadInstance}
+              disabled={isReloading}
+            >
+              {isReloading ? 'Reloading...' : 'Reload Instance'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
