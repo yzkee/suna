@@ -67,7 +67,7 @@ echo "[3/5] Removing repo Docker volumes..."
 if ! $DOCKER_AVAILABLE; then
   echo "  WARNING: Docker daemon unavailable — repo volumes not removed"
 else
-  VOLS=$(docker volume ls --format "{{.Name}}" | grep -E "sandbox|^kortix_supabase-db-data$|^supabase_.*_${SUPABASE_PROJECT_ID}$" || true)
+  VOLS=$(docker volume ls --format "{{.Name}}" | grep -E "sandbox|^kortix_supabase-db-data$|^supabase_(db|storage)_" || true)
   if [[ -n "$VOLS" ]]; then
     printf '%s\n' "$VOLS" | xargs docker volume rm -f >/dev/null 2>&1 || true
     echo "  removed: $(printf '%s ' "$VOLS")"

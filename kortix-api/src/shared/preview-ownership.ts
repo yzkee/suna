@@ -1,9 +1,10 @@
-import { and, eq, ne, or } from 'drizzle-orm';
+import { and, eq, ne, or, sql } from 'drizzle-orm';
 import { sandboxes } from '@kortix/db';
 import { db } from './db';
 import { resolveAccountId } from './resolve-account';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type CacheEntry = {
   accountId: string | null;
@@ -18,15 +19,21 @@ async function resolvePreviewSandboxAccountId(previewSandboxId: string): Promise
     return cached.accountId;
   }
 
+  // Only compare against sandbox_id (UUID column) when the input is a valid UUID,
+  // otherwise Postgres throws "invalid input syntax for type uuid".
+  const idCondition = UUID_RE.test(previewSandboxId)
+    ? or(
+        eq(sandboxes.externalId, previewSandboxId),
+        eq(sandboxes.sandboxId, previewSandboxId),
+      )
+    : eq(sandboxes.externalId, previewSandboxId);
+
   const [row] = await db
     .select({ accountId: sandboxes.accountId })
     .from(sandboxes)
     .where(
       and(
-        or(
-          eq(sandboxes.externalId, previewSandboxId),
-          eq(sandboxes.sandboxId, previewSandboxId),
-        ),
+        idCondition,
         ne(sandboxes.status, 'pooled'),
       ),
     )
