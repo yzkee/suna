@@ -53,6 +53,9 @@ const PptxRenderer = lazy(() =>
 const ImageRenderer = lazy(() =>
   import('@/components/file-renderers/image-renderer').then((m) => ({ default: m.ImageRenderer })),
 );
+const SqliteRenderer = lazy(() =>
+  import('@/components/file-renderers/sqlite-renderer').then((m) => ({ default: m.SqliteRenderer })),
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -69,6 +72,7 @@ export type FileCategory =
   | 'pptx'
   | 'xlsx'
   | 'csv'
+  | 'sqlite'
   | 'video'
   | 'audio'
   | 'html'
@@ -85,6 +89,7 @@ export function getFileCategory(filename: string, mimeType?: string): FileCatego
   if (['pptx', 'ppt'].includes(ext)) return 'pptx';
   if (['xlsx', 'xls'].includes(ext)) return 'xlsx';
   if (['csv', 'tsv'].includes(ext)) return 'csv';
+  if (['db', 'sqlite', 'sqlite3', 'db3', 'sdb', 's3db'].includes(ext)) return 'sqlite';
   if (['mp4', 'webm', 'mov', 'avi', 'mkv', 'm4v'].includes(ext)) return 'video';
   if (['mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'wma'].includes(ext)) return 'audio';
   if (['html', 'htm'].includes(ext)) return 'html';
@@ -530,6 +535,17 @@ export function FileContentRenderer({
           </Suspense>
         )}
 
+        {/* SQLite database viewer */}
+        {!isLoading && !error && fileCategory === 'sqlite' && (
+          <Suspense fallback={<RendererFallback />}>
+            <SqliteRenderer
+              filePath={filePath}
+              fileName={fileName}
+              className="h-full"
+            />
+          </Suspense>
+        )}
+
         {/* CSV / TSV preview */}
         {!isLoading && !error && fileCategory === 'csv' && fileContent && (
           <Suspense fallback={<RendererFallback />}>
@@ -619,7 +635,7 @@ export function FileContentRenderer({
           fileContent &&
           fileContent.type === 'binary' &&
           !imageDataUrl &&
-          !['pdf', 'docx', 'pptx', 'xlsx', 'video', 'audio'].includes(fileCategory) && (
+          !['pdf', 'docx', 'pptx', 'xlsx', 'sqlite', 'video', 'audio'].includes(fileCategory) && (
             <div className="flex flex-col items-center justify-center h-full gap-3 p-8 text-center">
               <div className="h-12 w-12 rounded-xl bg-muted/50 flex items-center justify-center">
                 <FileWarning className="h-6 w-6 text-muted-foreground/30" />

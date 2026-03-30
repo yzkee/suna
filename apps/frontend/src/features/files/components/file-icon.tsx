@@ -19,6 +19,7 @@ import {
   FileBadge,
   FileBox,
   FileChartLine,
+  Database,
   File as FileIcon,
 } from 'lucide-react';
 
@@ -149,6 +150,11 @@ function getMonochromeIcon(fileName: string, ic: string, isDirectory?: boolean, 
     return <FileSpreadsheet className={mono} />;
   }
 
+  // SQLite databases
+  if (['db', 'sqlite', 'sqlite3', 'db3', 'sdb', 's3db'].includes(ext)) {
+    return <Database className={mono} />;
+  }
+
   // PDF / Documents
   if (ext === 'pdf') {
     return <FileType className={mono} />;
@@ -265,6 +271,9 @@ function getColoredIcon(fileName: string, ic: string, isDirectory?: boolean) {
 
   // Spreadsheets
   if (['xlsx', 'xls', 'csv', 'tsv', 'ods'].includes(ext)) return <FileSpreadsheet className={`${ic} text-green-400`} />;
+
+  // SQLite databases
+  if (['db', 'sqlite', 'sqlite3', 'db3', 'sdb', 's3db'].includes(ext)) return <Database className={`${ic} text-blue-400`} />;
 
   // PDF / Documents
   if (ext === 'pdf') return <FileType className={`${ic} text-red-500`} />;

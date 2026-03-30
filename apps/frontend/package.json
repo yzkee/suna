@@ -222,6 +222,7 @@
     "rimraf": "^6.1.3",
     "server-only": "^0.0.1",
     "sonner": "^2.0.3",
+    "sql.js": "^1.14.1",
     "streamdown": "^1.6.11",
     "svg-dotted-map": "^2.1.0",
     "tailwind-merge": "^3.0.2",
