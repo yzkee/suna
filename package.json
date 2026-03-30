@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "bash scripts/dev-local.sh",
     "dev:frontend": "pnpm --filter Kortix-Computer-Frontend dev",
+    "dev:mobile": "pnpm --filter ./apps/mobile dev",
     "dev:api": "pnpm --filter kortix-api dev",
     "dev:sandbox": "docker compose -f sandbox/docker/docker-compose.yml -f sandbox/docker/docker-compose.dev.yml up",
     "dev:sandbox:build": "docker compose -f sandbox/docker/docker-compose.yml -f sandbox/docker/docker-compose.dev.yml up --build",
