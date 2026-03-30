@@ -31,7 +31,7 @@ fatal()   { error "$*"; exit 1; }
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 INSTALL_DIR="${KORTIX_HOME:-$HOME/.kortix}"
-DEFAULT_KORTIX_VERSION="0.8.21"
+DEFAULT_KORTIX_VERSION="0.8.22"
 KORTIX_VERSION="${KORTIX_VERSION:-$DEFAULT_KORTIX_VERSION}"
 KORTIX_LOCAL_IMAGES="${KORTIX_LOCAL_IMAGES:-0}"
 KORTIX_LOCAL_TAG="${KORTIX_LOCAL_TAG:-latest}"
