@@ -177,7 +177,7 @@ export function BrowserPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: B
         </Pressable>
 
         {/* URL bar */}
-        <View className="flex-1 flex-row items-center justify-center rounded-lg px-2.5 mx-1" style={{ backgroundColor: inputBg, height: 32 }}>
+        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: inputBg, height: 32, maxHeight: 32, borderRadius: 8, paddingHorizontal: 10, marginHorizontal: 4, overflow: 'hidden' }}>
           {!isLoading && (
             <Icon as={Globe} size={12} style={{ color: mutedColor }} strokeWidth={2} />
           )}
@@ -197,8 +197,8 @@ export function BrowserPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: B
             keyboardType="url"
             returnKeyType="go"
             selectTextOnFocus
-            textAlign="left"
-            textAlignVertical="center"
+            numberOfLines={1}
+            multiline={false}
             style={{
               flex: 1,
               marginLeft: 6,
