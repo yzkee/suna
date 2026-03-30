@@ -321,7 +321,7 @@ export function useOpenCodeToolIds(sandboxUrl: string | undefined) {
     queryKey: opencodeKeys.toolIds(sandboxUrl || ''),
     queryFn: async () => {
       if (!sandboxUrl) throw new Error('No sandbox URL');
-      return opencodeFetch<string[]>(sandboxUrl, '/tool/ids');
+      return opencodeFetch<string[]>(sandboxUrl, '/experimental/tool/ids');
     },
     enabled: !!sandboxUrl,
     staleTime: 60 * 1000,
@@ -333,7 +333,7 @@ export function useOpenCodeMcpStatus(sandboxUrl: string | undefined) {
     queryKey: opencodeKeys.mcpStatus(sandboxUrl || ''),
     queryFn: async () => {
       if (!sandboxUrl) throw new Error('No sandbox URL');
-      return opencodeFetch<Record<string, McpStatus>>(sandboxUrl, '/mcp/status');
+      return opencodeFetch<Record<string, McpStatus>>(sandboxUrl, '/mcp');
     },
     enabled: !!sandboxUrl,
     staleTime: 60 * 1000,
