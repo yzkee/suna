@@ -51,6 +51,7 @@ coverage/
 
 # Supabase
 supabase/.temp/
+supabase/.branches/
 
 # Misc
 state.json
