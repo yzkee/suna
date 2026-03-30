@@ -1,4 +1,0 @@
-[test]
-# Each test file runs in its own process to avoid mock.module() collisions
-# between billing unit tests that mock different sets of modules.
-isolation = true
