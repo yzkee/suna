@@ -73,6 +73,7 @@ import { InstanceOnboarding } from '@/components/setup/InstanceOnboarding';
 import {
   Eye, EyeOff, RefreshCw, Upload, Image, FolderPlus, LayoutGrid, List,
   FileText, Copy, Pencil, Trash2,
+  Bot, Sparkles, Terminal, FolderOpen, Plug,
 } from 'lucide-react-native';
 import type { BottomBarMenuItem } from '@/components/session/BottomBar';
 import { log } from '@/lib/logger';
@@ -1266,7 +1267,39 @@ export default function HomeScreen() {
                 onArchiveSession={() => { if (activeSessionId) handleArchive(activeSessionId); }}
                 customMenuItems={
                   activePageId === 'page:workspace'
-                    ? (workspacePageRef.current?.getMenuItems() as BottomBarMenuItem[] ?? undefined)
+                    ? ([
+                        {
+                          icon: Bot,
+                          label: 'New agent',
+                          onPress: () => handleCreateSessionWithPrompt('New agent', "HEY let's build a new agent. Ask what job it should own, then scaffold it in the right workspace location and wire up any supporting skills."),
+                        },
+                        {
+                          icon: Sparkles,
+                          label: 'New skill',
+                          onPress: () => handleCreateSessionWithPrompt('New skill', "HEY let's build a new skill. Ask what should trigger it, then create the SKILL.md and any supporting files in the right workspace location."),
+                        },
+                        {
+                          icon: Terminal,
+                          label: 'New command',
+                          onPress: () => handleCreateSessionWithPrompt('New command', "HEY let's build a new slash command. Ask what the command should do, then add it in the right workspace location and connect it to the correct agent."),
+                        },
+                        {
+                          icon: FolderOpen,
+                          label: 'New project',
+                          onPress: () => handleCreateSessionWithPrompt('New project', "HEY let's set up a new project. Ask for the name and purpose, then create it in the right workspace location with a clean starting structure."),
+                        },
+                        { type: 'divider' },
+                        {
+                          icon: Plug,
+                          label: 'Add MCP server',
+                          onPress: () => handleCreateSessionWithPrompt('Add MCP server', "HEY let's add a new MCP server. Ask which server to connect, then configure it with the right transport and environment variables."),
+                        },
+                        {
+                          icon: RefreshCw,
+                          label: 'Refresh workspace',
+                          onPress: () => workspacePageRef.current?.refetch(),
+                        },
+                      ] as BottomBarMenuItem[])
                     : activePageId === 'page:files'
                     ? (filesSelectedName
                         ? ([

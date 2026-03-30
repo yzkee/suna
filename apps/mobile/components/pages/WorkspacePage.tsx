@@ -37,8 +37,6 @@ import {
   FileText,
   Blocks,
   ArrowUpRight,
-  Settings,
-  RefreshCw,
 } from 'lucide-react-native';
 import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -154,7 +152,7 @@ const COMPOSER_PRESETS: Record<string, { title: string; prompt: string }> = {
 // ─── Props ──────────────────────────────────────────────────────────────────
 
 export interface WorkspacePageRef {
-  getMenuItems: () => Array<{ type?: 'action' | 'divider'; icon?: React.ComponentType<any>; label?: string; onPress?: () => void }>;
+  refetch: () => void;
 }
 
 interface WorkspacePageProps {
@@ -267,42 +265,10 @@ export const WorkspacePage = forwardRef<WorkspacePageRef, WorkspacePageProps>(fu
     return c;
   }, [allItems]);
 
-  // Expose quick-action menu items for the BottomBar three-dot menu
+  // Expose refetch for BottomBar refresh action
   useImperativeHandle(ref, () => ({
-    getMenuItems: () => [
-      {
-        icon: Bot,
-        label: `New agent  ·  ${kindCounts.agent} live`,
-        onPress: () => onCreateSessionWithPrompt?.(COMPOSER_PRESETS.agent.title, COMPOSER_PRESETS.agent.prompt),
-      },
-      {
-        icon: Sparkles,
-        label: `New skill  ·  ${kindCounts.skill} live`,
-        onPress: () => onCreateSessionWithPrompt?.(COMPOSER_PRESETS.skill.title, COMPOSER_PRESETS.skill.prompt),
-      },
-      {
-        icon: Terminal,
-        label: `New command  ·  ${kindCounts.command} live`,
-        onPress: () => onCreateSessionWithPrompt?.(COMPOSER_PRESETS.command.title, COMPOSER_PRESETS.command.prompt),
-      },
-      {
-        icon: FolderOpen,
-        label: `New project  ·  ${kindCounts.project} live`,
-        onPress: () => onCreateSessionWithPrompt?.(COMPOSER_PRESETS.project.title, COMPOSER_PRESETS.project.prompt),
-      },
-      { type: 'divider' as const },
-      {
-        icon: Plug,
-        label: `Add MCP server  ·  ${kindCounts.mcp} connected`,
-        onPress: () => onCreateSessionWithPrompt?.('Add MCP server', "HEY let's add a new MCP server. Ask which server to connect, then configure it with the right transport and environment variables."),
-      },
-      {
-        icon: RefreshCw,
-        label: 'Refresh',
-        onPress: () => refetchAll(),
-      },
-    ],
-  }), [kindCounts, onCreateSessionWithPrompt, refetchAll]);
+    refetch: refetchAll,
+  }), [refetchAll]);
 
   // Filtered items
   const filteredItems = useMemo(() => {
