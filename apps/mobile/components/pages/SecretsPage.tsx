@@ -15,6 +15,8 @@ import {
   RefreshControl,
   ActivityIndicator,
   Platform,
+  TextInput,
+  Pressable,
 } from 'react-native';
 import { Text } from '@/components/ui/text';
 import {
@@ -25,6 +27,8 @@ import {
   EyeOff,
   Key,
   AlertTriangle,
+  Search,
+  X,
 } from 'lucide-react-native';
 import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -42,7 +46,6 @@ import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
 import { useSandboxContext } from '@/contexts/SandboxContext';
 import { getAuthToken } from '@/api/config';
 import { log } from '@/lib/logger';
-import { SearchBar } from '@/components/ui/SearchBar';
 import type { PageTab } from '@/stores/tab-store';
 
 // ─── API ─────────────────────────────────────────────────────────────────────
@@ -312,40 +315,56 @@ export function SecretsPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: S
   return (
     <View style={{ flex: 1, backgroundColor: bgColor }}>
       {/* Header */}
-      <View style={{ paddingTop: insets.top + 8, paddingBottom: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: borderColor }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            {onOpenDrawer && (
-              <TouchableOpacity onPress={onOpenDrawer} style={{ marginRight: 12 }}>
-                <Ionicons name="menu-outline" size={22} color={fgColor} />
-              </TouchableOpacity>
-            )}
-            <Text style={{ fontSize: 17, fontFamily: 'Roobert-SemiBold', color: fgColor }}>Secrets</Text>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <TouchableOpacity
-              onPress={openAdd}
-              style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: fgColor, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 }}
-            >
-              <Plus size={14} color={bgColor} style={{ marginRight: 4 }} />
-              <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: bgColor }}>Add</Text>
+      <View style={{ paddingTop: insets.top, paddingHorizontal: 16, paddingBottom: 12 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          {onOpenDrawer && (
+            <TouchableOpacity onPress={onOpenDrawer} style={{ marginRight: 12, padding: 4 }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <Ionicons name="menu" size={24} color={fgColor} />
             </TouchableOpacity>
-            {onOpenRightDrawer && (
-              <TouchableOpacity onPress={onOpenRightDrawer}>
-                <Ionicons name="apps-outline" size={22} color={fgColor} />
-              </TouchableOpacity>
-            )}
+          )}
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 18, fontFamily: 'Roobert-SemiBold', color: fgColor }} numberOfLines={1}>{page.label}</Text>
           </View>
+          <TouchableOpacity
+            onPress={openAdd}
+            style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: fgColor, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8 }}
+          >
+            <Plus size={14} color={bgColor} style={{ marginRight: 4 }} />
+            <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: bgColor }}>Add</Text>
+          </TouchableOpacity>
+          {onOpenRightDrawer && (
+            <TouchableOpacity onPress={onOpenRightDrawer} style={{ padding: 4 }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <Ionicons name="apps-outline" size={20} color={fgColor} />
+            </TouchableOpacity>
+          )}
         </View>
+      </View>
 
-        {/* Search */}
-        <View style={{ marginTop: 12 }}>
-          <SearchBar
+      {/* Search */}
+      <View style={{ paddingHorizontal: 20, paddingBottom: 8 }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+            borderRadius: 12,
+            paddingHorizontal: 12,
+            height: 40,
+          }}
+        >
+          <Search size={16} color={mutedColor} />
+          <TextInput
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Search"
-            onClear={() => setSearchQuery('')}
+            placeholder="Search secrets..."
+            placeholderTextColor={mutedColor}
+            style={{ flex: 1, marginLeft: 8, fontSize: 14, fontFamily: 'Roobert', color: fgColor, paddingVertical: 0 }}
           />
+          {searchQuery.length > 0 && (
+            <Pressable onPress={() => setSearchQuery('')} hitSlop={10}>
+              <X size={16} color={mutedColor} />
+            </Pressable>
+          )}
         </View>
       </View>
 

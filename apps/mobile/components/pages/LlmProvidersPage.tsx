@@ -369,19 +369,19 @@ export function LlmProvidersPage({ page, onBack, onOpenDrawer, onOpenRightDrawer
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             {onOpenDrawer && (
               <TouchableOpacity onPress={onOpenDrawer} style={{ marginRight: 12 }}>
-                <Ionicons name="menu-outline" size={22} color={fgColor} />
+                <Ionicons name="menu" size={24} color={fgColor} />
               </TouchableOpacity>
             )}
             <View>
-              <Text style={{ fontSize: 17, fontFamily: 'Roobert-SemiBold', color: fgColor, lineHeight: 18, includeFontPadding: false }}>LLM Providers</Text>
-              <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: mutedColor, marginTop: -3, includeFontPadding: false }}>
+              <Text style={{ fontSize: 18, fontFamily: 'Roobert-SemiBold', color: fgColor }} numberOfLines={1}>{page.label}</Text>
+              <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: mutedColor, marginTop: 1, includeFontPadding: false }}>
                 {connectedSet.size} connected
               </Text>
             </View>
           </View>
           {onOpenRightDrawer && (
             <TouchableOpacity onPress={onOpenRightDrawer}>
-              <Ionicons name="apps-outline" size={22} color={fgColor} />
+              <Ionicons name="apps-outline" size={20} color={fgColor} />
             </TouchableOpacity>
           )}
         </View>
