@@ -277,8 +277,7 @@ function ProjectsFlyout() {
   }, [projects]);
 
   const handleClick = (project: any) => {
-    const isGlobal = project.id === 'global' || project.worktree === '/' || project.worktree === '/workspace';
-    const title = isGlobal ? 'Global' : (project.name || project.worktree?.split('/').pop() || 'Project');
+    const title = project.name || project.worktree?.split('/').pop() || 'Project';
     openTabAndNavigate({
       id: `project:${project.id}`,
       title,
@@ -295,8 +294,7 @@ function ProjectsFlyout() {
         </div>
       ) : (
         sortedProjects.map((project: any) => {
-          const isGlobal = project.id === 'global' || project.worktree === '/' || project.worktree === '/workspace';
-          const name = isGlobal ? 'Global' : (project.name || project.worktree?.split('/').pop() || project.worktree);
+          const name = project.name || project.worktree?.split('/').pop() || project.worktree;
           return (
             <button
               key={project.id}
@@ -549,8 +547,7 @@ function SidebarSections() {
               <div className="px-2 pb-2">
                 <div className="space-y-0.5">
                   {sortedProjects.map((project: any) => {
-                    const isGlobal = project.id === 'global' || project.worktree === '/' || project.worktree === '/workspace';
-                    const name = isGlobal ? 'Global' : (project.name || project.worktree?.split('/').pop() || project.worktree);
+                    const name = project.name || project.worktree?.split('/').pop() || project.worktree;
                     return (
                       <div
                         key={project.id}

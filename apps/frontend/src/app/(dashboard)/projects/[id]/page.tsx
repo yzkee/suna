@@ -47,8 +47,6 @@ function formatRelative(ts?: number): string {
 
 function resolveProjectName(project: Project | null, fallback: string): string {
   if (!project) return fallback;
-  const isGlobal = project.id === 'global' || project.worktree === '/' || project.worktree === '/workspace';
-  if (isGlobal) return 'Global';
   return project.name || project.worktree?.split('/').pop() || fallback;
 }
 

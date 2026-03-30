@@ -308,13 +308,15 @@ const DYNAMIC_RESOLVERS: DynamicResolver[] = [
   },
 
   // /projects/<id> — project detail page
+  // Title is generic here; the project page component updates it once data loads.
   (pathname) => {
     const m = pathname.match(/^\/projects\/([^/]+)$/);
     if (!m) return null;
     const projectId = decodeURIComponent(m[1]);
+    const name = projectId.split('/').pop() || 'Project';
     return {
       id: `project:${projectId}`,
-      title: 'Project',
+      title: name,
       type: 'project',
       href: `/projects/${m[1]}`,
     };

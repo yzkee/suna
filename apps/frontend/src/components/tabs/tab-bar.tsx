@@ -132,21 +132,12 @@ function resolveRouteTab(pathname: string): Omit<Tab, 'openedAt'> | null {
     };
   }
 
-  const projectMatch = pathname.match(/^\/projects\/([^/]+)$/);
-  if (projectMatch) {
-    return {
-      id: `page:${pathname}`,
-      title: 'Project',
-      type: 'page' as const,
-      href: pathname,
-    };
-  }
-
-  // File viewer routes (/files/<path>) and terminal routes (/terminal/<ptyId>)
-  // are NOT auto-opened here. They are opened explicitly by the sidebar or
-  // their respective catch-all route pages. Auto-opening from the sync effect
-  // would re-create a tab immediately after closing it, because pushState
-  // doesn't update usePathname() and the old URL lingers.
+  // Project detail routes (/projects/<id>), file viewer routes (/files/<path>),
+  // and terminal routes (/terminal/<ptyId>) are NOT auto-opened here.
+  // They are opened explicitly by the sidebar or their respective catch-all
+  // route pages. Auto-opening from the sync effect would re-create a tab
+  // immediately after closing it, because pushState doesn't update
+  // usePathname() and the old URL lingers.
 
   return null;
 }
@@ -697,6 +688,8 @@ export function TabBar() {
       let closedHref: string;
       if (id.startsWith('page:')) {
         closedHref = id.slice(5);
+      } else if (id.startsWith('project:')) {
+        closedHref = `/projects/${encodeURIComponent(id.slice(8))}`;
       } else if (id.startsWith('file:')) {
         closedHref = `/files/${encodeURIComponent(id.slice(5))}`;
       } else if (id.startsWith('terminal:')) {

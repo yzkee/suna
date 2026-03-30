@@ -418,7 +418,7 @@ export default function WorkspacePage() {
         return (b.time?.updated ?? 0) - (a.time?.updated ?? 0);
       });
       for (const p of sorted) {
-        const name = p.name || (p.worktree === '/' || p.id === 'global' ? 'Global' : p.worktree.split('/').pop() || p.worktree);
+        const name = p.name || p.worktree?.split('/').pop() || p.worktree || 'Project';
         items.push({
           id: `project:${p.id}`,
           name,

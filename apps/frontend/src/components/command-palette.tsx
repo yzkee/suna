@@ -21,6 +21,7 @@ import {
   Check,
   Folder,
   Hash,
+  Globe,
 } from 'lucide-react';
 
 import {
@@ -66,9 +67,17 @@ import {
   ProviderLogo,
   MODEL_SELECTOR_PROVIDER_IDS,
 } from '@/components/providers/provider-branding';
-import { findFiles, findText } from '@/features/files';
+import { useWorkspaceSearch, useFilesStore } from '@/features/files';
 import { getFileIcon } from '@/features/files/components/file-icon';
 import type { FindMatch } from '@/features/files';
+import {
+  parseLocalhostUrl,
+  toInternalUrl,
+  normalizeExternalInput,
+  buildWebProxyUrl,
+} from '@/lib/utils/sandbox-url';
+import { enrichPreviewMetadata } from '@/lib/utils/session-context';
+import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
 
 // ============================================================================
 // Types
@@ -94,8 +103,7 @@ function formatRelativeTime(timestamp: number): string {
 
 function deriveProjectName(project: { id: string; name?: string; worktree?: string }): string {
   if (project.name) return project.name;
-  if (!project.worktree || project.worktree === '/' || project.id === 'global') return 'Global';
-  return project.worktree.split('/').pop() || project.worktree;
+  return project.worktree?.split('/').pop() || project.worktree || 'Project';
 }
 
 /**
@@ -108,66 +116,10 @@ function sanitizeCmdkValue(value: string): string {
   return value.replace(/["'\\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-// ============================================================================
-// File Search helpers
-// ============================================================================
-
-interface FileSearchResult {
-  path: string;
-  name: string;
-  isDir: boolean;
-}
-
-/**
- * Smart ranking for file search results.
- * Priority: exact basename → basename startsWith → basename includes → path includes.
- * Ties broken by depth (shallower = better), then alpha.
- */
-function rankFileResult(result: FileSearchResult, query: string): number {
-  const ql = query.toLowerCase();
-  const pathLower = result.path.toLowerCase();
-  const baseLower = result.name.toLowerCase();
-  const depth = result.path.split('/').length;
-
-  // Exact basename match
-  if (baseLower === ql) return 0 + depth * 0.001;
-  // Basename starts with query
-  if (baseLower.startsWith(ql)) return 100 + depth * 0.001;
-  // Basename contains query
-  if (baseLower.includes(ql)) return 200 + depth * 0.001;
-  // Full path starts with query
-  if (pathLower.startsWith(ql)) return 300 + depth * 0.001;
-  // Full path contains query
-  if (pathLower.includes(ql)) return 400 + depth * 0.001;
-  // Fuzzy: all query chars in order in basename
-  let qi = 0;
-  for (let i = 0; i < baseLower.length && qi < ql.length; i++) {
-    if (baseLower[i] === ql[qi]) qi++;
-  }
-  if (qi === ql.length) return 500 + depth * 0.001;
-  // Fuzzy in path
-  qi = 0;
-  for (let i = 0; i < pathLower.length && qi < ql.length; i++) {
-    if (pathLower[i] === ql[qi]) qi++;
-  }
-  if (qi === ql.length) return 600 + depth * 0.001;
-  return 1000 + depth;
-}
-
-function parseFileResults(paths: string[]): FileSearchResult[] {
-  return paths.map((p) => {
-    const isDir = p.endsWith('/');
-    const clean = isDir ? p.slice(0, -1) : p;
-    return {
-      path: clean,
-      name: clean.split('/').pop() || clean,
-      isDir,
-    };
-  });
-}
+// (File search logic lives in useWorkspaceSearch hook — features/files/hooks)
 
 // ============================================================================
-// FileSearchPage — async file search sub-page for the command palette
+// FileSearchPage — uses standalone useWorkspaceSearch hook
 // ============================================================================
 
 function FileSearchPage({
@@ -175,89 +127,12 @@ function FileSearchPage({
   onSelect,
 }: {
   query: string;
-  onSelect: (filePath: string) => void;
+  onSelect: (filePath: string, isDir?: boolean) => void;
 }) {
-  const [results, setResults] = useState<FileSearchResult[]>([]);
-  const [textResults, setTextResults] = useState<FindMatch[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [searchedQuery, setSearchedQuery] = useState('');
-  const seqRef = useRef(0);
-
-  const trimmed = query.trim();
-  const isContentSearch = trimmed.startsWith('>');
-  const effectiveQuery = isContentSearch ? trimmed.slice(1).trim() : trimmed;
-
-  // Debounced search
-  useEffect(() => {
-    if (!effectiveQuery || effectiveQuery.length < 1) {
-      setResults([]);
-      setTextResults([]);
-      setSearchedQuery('');
-      setIsLoading(false);
-      return;
-    }
-
-    setIsLoading(true);
-    const seq = ++seqRef.current;
-    const timer = setTimeout(async () => {
-      try {
-        if (isContentSearch) {
-          // Content search via ripgrep
-          const matches = await findText(effectiveQuery);
-          if (seq === seqRef.current) {
-            setTextResults(matches.slice(0, 50));
-            setResults([]);
-            setSearchedQuery(effectiveQuery);
-            setIsLoading(false);
-          }
-        } else {
-          // File name search — parallel: strict file + broad (files+dirs)
-          const [fileOnly, broad] = await Promise.all([
-            findFiles(effectiveQuery, { type: 'file', limit: 100 }).catch(() => []),
-            findFiles(effectiveQuery, { limit: 100 }).catch(() => []),
-          ]);
-
-          if (seq === seqRef.current) {
-            // Merge and dedupe
-            const seen = new Set<string>();
-            const merged: string[] = [];
-            for (const p of [...fileOnly, ...broad]) {
-              const key = p.endsWith('/') ? p.slice(0, -1) : p;
-              if (!seen.has(key)) {
-                seen.add(key);
-                merged.push(p);
-              }
-            }
-
-            const parsed = parseFileResults(merged);
-            // Sort by ranking
-            parsed.sort((a, b) => {
-              const ra = rankFileResult(a, effectiveQuery);
-              const rb = rankFileResult(b, effectiveQuery);
-              if (ra !== rb) return ra - rb;
-              return a.path.localeCompare(b.path);
-            });
-
-            setResults(parsed.slice(0, 50));
-            setTextResults([]);
-            setSearchedQuery(effectiveQuery);
-            setIsLoading(false);
-          }
-        }
-      } catch {
-        if (seq === seqRef.current) {
-          setIsLoading(false);
-        }
-      }
-    }, 150);
-
-    return () => clearTimeout(timer);
-  }, [effectiveQuery, isContentSearch]);
-
-  const hasResults = results.length > 0 || textResults.length > 0;
+  const search = useWorkspaceSearch(query);
 
   // Idle: show hint
-  if (!effectiveQuery) {
+  if (!search.effectiveQuery) {
     return (
       <div className="flex flex-col items-center gap-3 py-12">
         <div className="flex items-center justify-center h-10 w-10 rounded-full bg-muted/30">
@@ -274,19 +149,19 @@ function FileSearchPage({
   }
 
   // Loading
-  if (isLoading) {
+  if (search.isLoading) {
     return (
       <div className="flex items-center justify-center gap-2 py-10">
         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground/50" />
         <span className="text-sm text-muted-foreground/50">
-          {isContentSearch ? 'Searching file contents...' : 'Searching files...'}
+          {search.isContentSearch ? 'Searching file contents...' : 'Searching files...'}
         </span>
       </div>
     );
   }
 
   // No results
-  if (!hasResults && searchedQuery) {
+  if (!search.hasResults && search.searchedQuery) {
     return (
       <div className="flex flex-col items-center gap-2 py-12">
         <div className="flex items-center justify-center h-10 w-10 rounded-full bg-muted/30">
@@ -294,9 +169,9 @@ function FileSearchPage({
         </div>
         <div className="text-center">
           <span className="text-sm text-muted-foreground/60">
-            No {isContentSearch ? 'content matches' : 'files found'} for &ldquo;{searchedQuery}&rdquo;
+            No {search.isContentSearch ? 'content matches' : 'files found'} for &ldquo;{search.searchedQuery}&rdquo;
           </span>
-          {!isContentSearch && (
+          {!search.isContentSearch && (
             <p className="text-[11px] text-muted-foreground/30 mt-1">
               Try a shorter query or prefix with &gt; for content search
             </p>
@@ -307,16 +182,12 @@ function FileSearchPage({
   }
 
   // Content search results
-  if (isContentSearch && textResults.length > 0) {
-    // Group by file path
+  if (search.isContentSearch && search.textResults.length > 0) {
     const grouped = new Map<string, FindMatch[]>();
-    for (const match of textResults) {
+    for (const match of search.textResults) {
       const existing = grouped.get(match.path);
-      if (existing) {
-        existing.push(match);
-      } else {
-        grouped.set(match.path, [match]);
-      }
+      if (existing) existing.push(match);
+      else grouped.set(match.path, [match]);
     }
 
     return (
@@ -356,9 +227,9 @@ function FileSearchPage({
     );
   }
 
-  // File name search results — split files and dirs
-  const files = results.filter((r) => !r.isDir);
-  const dirs = results.filter((r) => r.isDir);
+  // File name search results — files first, then dirs
+  const files = search.results.filter((r) => !r.isDir);
+  const dirs = search.results.filter((r) => r.isDir);
 
   return (
     <>
@@ -383,12 +254,12 @@ function FileSearchPage({
       )}
 
       {dirs.length > 0 && (
-        <CommandGroup heading={`Directories (${dirs.length})`} forceMount>
+        <CommandGroup heading={`Folders (${dirs.length})`} forceMount>
           {dirs.map((dir) => (
             <CommandItem
               key={dir.path}
               value={sanitizeCmdkValue(`dir ${dir.name} ${dir.path}`)}
-              onSelect={() => onSelect(dir.path)}
+              onSelect={() => onSelect(dir.path, true)}
             >
               <Folder className="h-4 w-4 shrink-0 text-blue-400" />
               <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0">
@@ -427,6 +298,7 @@ export function CommandPalette() {
     return match ? match[1] : null;
   }, [pathname]);
   const { toggleSidebar, open: sidebarOpen } = useSidebar();
+  const { proxyUrl: buildProxyUrl, serverUrl, subdomainOpts } = useSandboxProxy();
   const createSession = useCreateOpenCodeSession();
   const createPty = useCreatePty();
   const { theme, setTheme } = useTheme();
@@ -752,18 +624,121 @@ export function CommandPalette() {
   );
 
   const handleSelectFile = useCallback(
-    (filePath: string) => {
-      const fileName = filePath.split('/').pop() || filePath;
-      openTabAndNavigate({
-        id: `file:${filePath}`,
-        title: fileName,
-        type: 'file',
-        href: `/files/${encodeURIComponent(filePath)}`,
-      });
+    (filePath: string, isDir?: boolean) => {
+      if (isDir) {
+        // Directory: open the Files page and navigate to that path
+        const { navigateToPath } = useFilesStore.getState();
+        navigateToPath(filePath);
+        openTabAndNavigate({
+          id: 'page:/files',
+          title: 'Files',
+          type: 'page',
+          href: '/files',
+        });
+      } else {
+        // File: open in a file viewer tab
+        const fileName = filePath.split('/').pop() || filePath;
+        openTabAndNavigate({
+          id: `file:${filePath}`,
+          title: fileName,
+          type: 'file',
+          href: `/files/${encodeURIComponent(filePath)}`,
+        });
+      }
       close();
     },
     [close],
   );
+
+  // ── URL detection: localhost:PORT, http(s)://, or bare port ──
+  const detectedUrl = useMemo(() => {
+    const q = query.trim();
+    if (!q) return null;
+
+    // 1. localhost URL: "localhost:4200", "localhost:4200/api", "http://localhost:3000"
+    const localhostParsed = parseLocalhostUrl(q.startsWith('http') ? q : `http://${q}`);
+    if (localhostParsed) {
+      return { kind: 'localhost' as const, ...localhostParsed };
+    }
+
+    // 2. Bare port number: "4200", "3000"
+    if (/^\d{2,5}$/.test(q)) {
+      const port = parseInt(q, 10);
+      if (port >= 1 && port <= 65535) {
+        return {
+          kind: 'localhost' as const,
+          originalUrl: `http://localhost:${port}/`,
+          port,
+          path: '/',
+        };
+      }
+    }
+
+    // 3. External URL: "https://github.com", "google.com", "example.com/path"
+    const normalized = normalizeExternalInput(q);
+    if (normalized) {
+      // Filter out filenames that look like domains (e.g. "package.json", "style.css")
+      // Only exclude if the "domain" ends with a known code/asset file extension
+      // and has no slash (i.e. it's just "name.ext", not "domain.com/path")
+      if (!q.includes('/')) {
+        const ext = q.split('.').pop()?.toLowerCase() || '';
+        const FILE_EXTS = new Set([
+          'ts','tsx','js','jsx','json','md','mdx','css','scss','less','html','xml',
+          'yaml','yml','toml','txt','log','env','lock','sql','db','py','rb','rs',
+          'go','java','sh','bash','zsh','conf','cfg','ini','svg','png','jpg','jpeg',
+          'gif','ico','woff','woff2','ttf','eot','map','d','mjs','cjs','mts','cts',
+          'vue','svelte','astro','wasm','zip','tar','gz','pdf','docx','pptx','xlsx',
+        ]);
+        if (FILE_EXTS.has(ext)) return null;
+      }
+      return { kind: 'external' as const, url: normalized };
+    }
+
+    return null;
+  }, [query]);
+
+  const handleOpenUrl = useCallback(() => {
+    if (!detectedUrl) return;
+
+    if (detectedUrl.kind === 'localhost') {
+      const { port, path } = detectedUrl;
+      const internalUrl = toInternalUrl(port, path);
+      const proxied = buildProxyUrl(internalUrl) || internalUrl;
+      const tabId = `preview:${port}`;
+      openTabAndNavigate({
+        id: tabId,
+        title: `localhost:${port}`,
+        type: 'preview',
+        href: `/p/${port}`,
+        metadata: enrichPreviewMetadata({
+          url: proxied,
+          port,
+          originalUrl: internalUrl,
+          path,
+        }),
+      });
+    } else {
+      // External URL — proxy through backend web proxy
+      const extUrl = detectedUrl.url;
+      const proxyUrl = buildWebProxyUrl(extUrl, serverUrl, subdomainOpts) || extUrl;
+      let displayHost: string;
+      try { displayHost = new URL(extUrl).hostname; } catch { displayHost = extUrl; }
+
+      openTabAndNavigate({
+        id: `preview:web`,
+        title: displayHost,
+        type: 'preview',
+        href: '/p/web',
+        metadata: enrichPreviewMetadata({
+          url: proxyUrl,
+          port: 0,
+          originalUrl: extUrl,
+          path: '/',
+        }),
+      });
+    }
+    close();
+  }, [detectedUrl, buildProxyUrl, serverUrl, subdomainOpts, close]);
 
   const handleToggleSidebar = useCallback(() => {
     toggleSidebar();
@@ -1229,8 +1204,26 @@ export function CommandPalette() {
                     </CommandGroup>
                   )}
 
+                  {/* Open URL — shown when query looks like a URL or port */}
+                  {detectedUrl && (
+                    <CommandGroup heading="Open URL" forceMount>
+                      <CommandItem
+                        value={sanitizeCmdkValue(`open url browser preview ${query.trim()} localhost port`)}
+                        onSelect={handleOpenUrl}
+                      >
+                        <Globe className="h-4 w-4 text-blue-400" />
+                        <span className="flex-1 truncate">
+                          {detectedUrl.kind === 'localhost'
+                            ? `Open localhost:${detectedUrl.port}${detectedUrl.path !== '/' ? detectedUrl.path : ''}`
+                            : `Open ${new URL(detectedUrl.url).hostname}`}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground/40">browser</span>
+                      </CommandItem>
+                    </CommandGroup>
+                  )}
+
                   {/* Search files action — always shown when typing */}
-                  {queryLongEnough && (
+                  {queryLongEnough && !detectedUrl && (
                     <CommandGroup heading="File Search" forceMount>
                       <CommandItem
                         value={sanitizeCmdkValue(`search files ${query.trim()} workspace find open`)}
