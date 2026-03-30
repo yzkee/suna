@@ -1,5 +1,17 @@
 [
   {
+    "version": "0.8.22",
+    "date": "2026-03-31",
+    "title": "Computer use skill with agent-click",
+    "description": "Adds a new computer-use skill that enables desktop application automation via agent-click, an open-source CLI by Kortix for macOS. The skill runs through Agent Tunnel and auto-installs agent-click on the user's machine if needed.",
+    "changes": [
+      {
+        "type": "feature",
+        "text": "Add computer-use skill for desktop automation using agent-click — supports clicking, typing, scrolling, drag-and-drop, window management, snapshots, and Electron CDP"
+      }
+    ]
+  },
+  {
     "version": "0.8.21",
     "date": "2026-03-29",
     "title": "Backups, provisioning polish, and session routing fixes",
