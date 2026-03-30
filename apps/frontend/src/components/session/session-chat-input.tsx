@@ -55,9 +55,9 @@ import type {
   Command,
   ProviderListResponse,
 } from '@/hooks/opencode/use-opencode-sessions';
-import { useSummarizeOpenCodeSession, findOpenCodeFiles, useOpenCodeSessions, useOpenCodeSessionTodo } from '@/hooks/opencode/use-opencode-sessions';
+import { findOpenCodeFiles, useOpenCodeSessions, useOpenCodeSessionTodo } from '@/hooks/opencode/use-opencode-sessions';
 import type { Session } from '@/hooks/opencode/use-opencode-sessions';
-import { toast } from '@/lib/toast';
+
 import { useMessageQueueStore } from '@/stores/message-queue-store';
 import {
   CommandPopover,
@@ -751,11 +751,8 @@ function AutoContinueSelector({
 // Token Progress Circle
 // ============================================================================
 
-const AUTO_COMPACT_THRESHOLD = 0.9;
-
 interface TokenProgressProps {
   messages: MessageWithParts[] | undefined;
-  sessionId?: string;
   models?: FlatModel[];
   selectedModel?: { providerID: string; modelID: string } | null;
   onContextClick?: () => void;
@@ -782,37 +779,16 @@ function getContextLimit(models: FlatModel[] | undefined, selectedModel: { provi
   return 200000;
 }
 
-function TokenProgress({ messages, sessionId, models, selectedModel, onContextClick }: TokenProgressProps) {
-  const summarize = useSummarizeOpenCodeSession();
-  const autoCompactTriggered = useRef(false);
-  const [isCompacting, setIsCompacting] = useState(false);
-
+function TokenProgress({ messages, models, selectedModel, onContextClick }: TokenProgressProps) {
   const contextTokens = useMemo(() => getLastAssistantTokenTotal(messages), [messages]);
   const contextLimit = useMemo(() => getContextLimit(models, selectedModel), [models, selectedModel]);
   const ratio = contextTokens > 0 ? Math.min(contextTokens / contextLimit, 1) : 0;
-
-  useEffect(() => {
-    if (ratio < AUTO_COMPACT_THRESHOLD) autoCompactTriggered.current = false;
-  }, [ratio]);
-
-  useEffect(() => {
-    if (ratio >= AUTO_COMPACT_THRESHOLD && !autoCompactTriggered.current && !isCompacting && !summarize.isPending && sessionId) {
-      autoCompactTriggered.current = true;
-      setIsCompacting(true);
-      toast.info('Context is 90% full — auto-compacting session...');
-      summarize.mutate({ sessionId }, {
-        onSuccess: () => { toast.success('Session compacted successfully'); setIsCompacting(false); },
-        onError: (err) => { toast.error(err instanceof Error ? err.message : 'Failed to auto-compact'); setIsCompacting(false); },
-      });
-    }
-  }, [ratio, sessionId, isCompacting, summarize]);
 
   if (contextTokens === 0 && !onContextClick) return null;
 
   const circumference = 2 * Math.PI * 7;
   const offset = circumference * (1 - ratio);
-  const color = isCompacting ? 'text-blue-500 animate-pulse'
-    : ratio >= AUTO_COMPACT_THRESHOLD ? 'text-amber-400'
+  const color = ratio >= 0.9 ? 'text-amber-400'
     : ratio > 0.8 ? 'text-orange-500'
     : 'text-muted-foreground';
 
@@ -832,7 +808,6 @@ function TokenProgress({ messages, sessionId, models, selectedModel, onContextCl
                 <circle cx="9" cy="9" r="7" fill="none" stroke="currentColor" strokeWidth="2"
                   strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" className={color} />
               </svg>
-              {isCompacting && <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-blue-500 animate-pulse" />}
             </button>
           </span>
         </TooltipTrigger>
@@ -840,7 +815,6 @@ function TokenProgress({ messages, sessionId, models, selectedModel, onContextCl
           <div className="text-xs font-mono space-y-0.5">
             <div>Context: {(contextTokens / 1000).toFixed(1)}k / {(contextLimit / 1000).toFixed(0)}k tokens</div>
             <div className="text-muted-foreground">{Math.round(ratio * 100)}% used</div>
-            {isCompacting && <div className="text-blue-500 font-sans">Compacting...</div>}
           </div>
         </TooltipContent>
       </Tooltip>
@@ -1174,20 +1148,6 @@ function MentionPopover({
 }
 
 // ============================================================================
-// Prompt history persistence
-// ============================================================================
-
-function loadPromptHistory(key: string): string[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as string[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-// ============================================================================
 // SessionChatInput - The unified chat input
 // ============================================================================
 
@@ -1281,7 +1241,7 @@ export interface SessionChatInputProps {
   selectedVariant?: string | null;
   onVariantChange?: (variant: string | null | undefined) => void;
   messages?: MessageWithParts[];
-  /** Session ID — used for auto-compaction when context is nearly full */
+  /** Session ID — used for message queue, todo chip, and mention filtering */
   sessionId?: string;
   /** If true, disables the input (e.g. during session creation redirect) */
   disabled?: boolean;
@@ -1498,34 +1458,6 @@ export function SessionChatInput({
     return () => window.removeEventListener('focus-session-textarea', handler);
   }, []);
 
-  // ---------------------------------------------------------------------------
-  // Prompt history (Up/Down arrow) — persisted to localStorage
-  // ---------------------------------------------------------------------------
-  const HISTORY_KEY = 'opencode:prompt-history';
-  const HISTORY_MAX = 50;
-
-  const historyRef = useRef<string[]>(loadPromptHistory(HISTORY_KEY));
-  const historyIndexRef = useRef(-1);
-  const draftRef = useRef('');
-
-  /** Append a prompt to the persisted history (deduplicates consecutive). */
-  const pushHistory = useCallback((prompt: string) => {
-    const list = historyRef.current;
-    // Skip if identical to the last entry
-    if (list.length > 0 && list[list.length - 1] === prompt) return;
-    list.push(prompt);
-    // Trim to max length
-    if (list.length > HISTORY_MAX) {
-      list.splice(0, list.length - HISTORY_MAX);
-    }
-    historyIndexRef.current = -1;
-    draftRef.current = '';
-    try {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(list));
-    } catch {
-      // Storage full or unavailable — silently ignore
-    }
-  }, []);
 
   // Default autoFocus: true on desktop, false on mobile
   const shouldAutoFocus = autoFocus ?? (typeof window !== 'undefined' && window.innerWidth >= 640);
@@ -1781,9 +1713,6 @@ export function SessionChatInput({
     const trimmed = text.trim();
     if ((!trimmed && attachedFiles.length === 0) || disabled) return;
 
-    // Push to prompt history (persisted to localStorage)
-    if (trimmed) pushHistory(trimmed);
-
     // AutoContinue intercept: when a mode is armed, route through the
     // corresponding slash command instead of a plain send. The user's
     // text becomes the command's args (= the task description).
@@ -1833,7 +1762,7 @@ export function SessionChatInput({
       // Restore the text so the user can retry
       setText(trimmed);
     }
-  }, [text, isBusy, disabled, onSend, onCommand, stagedCommand, attachedFiles, mentions, sessionId, enqueue, pushHistory, lockForQuestion, onCustomAnswer, onQuestionAction, autocontinueMode, commands]);
+  }, [text, isBusy, disabled, onSend, onCommand, stagedCommand, attachedFiles, mentions, sessionId, enqueue, lockForQuestion, onCustomAnswer, onQuestionAction, autocontinueMode, commands]);
 
   const handleSelectCommand = (cmd: Command) => {
     // Stage the command — show an args input instead of executing immediately
@@ -1929,46 +1858,6 @@ export function SessionChatInput({
       if (e.key === 'Escape') {
         e.preventDefault();
         setSlashFilter(null);
-        return;
-      }
-    }
-
-    // Prompt history: Up arrow
-    // For single-line text, trigger from any cursor position.
-    // For multi-line text, only trigger when the cursor is at the very start
-    // so the user can still navigate between lines with arrow keys.
-    if (e.key === 'ArrowUp' && slashFilter === null) {
-      const ta = e.currentTarget;
-      const isSingleLine = !ta.value.includes('\n');
-      const atStart = ta.selectionStart === 0 && ta.selectionEnd === 0;
-      if ((isSingleLine || atStart) && historyRef.current.length > 0) {
-        e.preventDefault();
-        if (historyIndexRef.current === -1) {
-          draftRef.current = text;
-          historyIndexRef.current = historyRef.current.length - 1;
-        } else if (historyIndexRef.current > 0) {
-          historyIndexRef.current--;
-        }
-        setText(historyRef.current[historyIndexRef.current]);
-        return;
-      }
-    }
-
-    // Prompt history: Down arrow
-    // Same logic: single-line triggers from anywhere, multi-line only at end.
-    if (e.key === 'ArrowDown' && slashFilter === null && historyIndexRef.current >= 0) {
-      const ta = e.currentTarget;
-      const isSingleLine = !ta.value.includes('\n');
-      const atEnd = ta.selectionStart === ta.value.length;
-      if (isSingleLine || atEnd) {
-        e.preventDefault();
-        if (historyIndexRef.current < historyRef.current.length - 1) {
-          historyIndexRef.current++;
-          setText(historyRef.current[historyIndexRef.current]);
-        } else {
-          historyIndexRef.current = -1;
-          setText(draftRef.current);
-        }
         return;
       }
     }
@@ -2349,7 +2238,7 @@ export function SessionChatInput({
 
             {/* RIGHT: TokenProgress + Voice + Submit/Stop */}
             <div className="flex items-center gap-0 shrink-0">
-              <TokenProgress messages={messages} sessionId={sessionId} models={models} selectedModel={selectedModel} onContextClick={onContextClick} />
+              <TokenProgress messages={messages} models={models} selectedModel={selectedModel} onContextClick={onContextClick} />
 
               <VoiceRecorder
                 onTranscription={handleTranscription}
