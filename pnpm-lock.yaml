@@ -1292,30 +1292,33 @@ importers:
   packages/opencode-channels:
     dependencies:
       '@chat-adapter/discord':
-        specifier: ^4.15.0
+        specifier: ^4.20.2
         version: 4.20.2
       '@chat-adapter/slack':
-        specifier: ^4.14.0
+        specifier: ^4.20.2
         version: 4.20.2
       '@chat-adapter/state-memory':
-        specifier: ^4.14.0
+        specifier: ^4.20.2
         version: 4.20.2
+      '@chat-adapter/telegram':
+        specifier: ^4.20.2
+        version: 4.23.0
       '@hono/node-server':
         specifier: ^1.13.0
         version: 1.19.10(hono@4.12.3)
       chat:
-        specifier: ^4.14.0
+        specifier: ^4.20.2
         version: 4.23.0
       hono:
         specifier: ^4.12.0
         version: 4.12.3
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.13
-      tsx:
-        specifier: ^4.19.0
-        version: 4.21.0
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
@@ -3097,6 +3100,14 @@ packages:
       - supports-color
     dev: false
 
+  /@chat-adapter/shared@4.23.0:
+    resolution: {integrity: sha512-IDHgrAi3Y8Qptl1kd8zmM6jxWX+lu0cq/uZiURv8jONufWHrVwVr19pN0YK52ASnRlLZkcaNYXoa+mLFGQ2tlw==}
+    dependencies:
+      chat: 4.23.0
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
   /@chat-adapter/slack@4.20.2:
     resolution: {integrity: sha512-DCGMdB5sLG7lJ8TTv6zHUC3GQXfW3zWXLv+w5sRc+Km0Rq4tG43vLMmcCAd3AEj2Bjhl0bnWjhkTwR7txlu7TQ==}
     dependencies:
@@ -3112,6 +3123,15 @@ packages:
     resolution: {integrity: sha512-4388hp9Wsp87jMgSpkPfN4abflgIgQn5M3MLSDYdU4f20PNKrUkzhb8elkyPmYliF4MInZUau+llc26b7hZsng==}
     dependencies:
       chat: 4.20.2
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
+  /@chat-adapter/telegram@4.23.0:
+    resolution: {integrity: sha512-9ntCc+LlwSrb5Y3OFFamAt0eyA+c8V0S5XbA5O12DyPFMmCbe7ibQfbZv9qwYKgxvyBLgPG2RfwYp1ocrDs1/A==}
+    dependencies:
+      '@chat-adapter/shared': 4.23.0
+      chat: 4.23.0
     transitivePeerDependencies:
       - supports-color
     dev: false
@@ -3873,7 +3893,6 @@ packages:
     cpu: [ppc64]
     os: [aix]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/android-arm64@0.18.20:
@@ -3900,7 +3919,6 @@ packages:
     cpu: [arm64]
     os: [android]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/android-arm@0.18.20:
@@ -3927,7 +3945,6 @@ packages:
     cpu: [arm]
     os: [android]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/android-x64@0.18.20:
@@ -3954,7 +3971,6 @@ packages:
     cpu: [x64]
     os: [android]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/darwin-arm64@0.18.20:
@@ -3981,7 +3997,6 @@ packages:
     cpu: [arm64]
     os: [darwin]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/darwin-x64@0.18.20:
@@ -4008,7 +4023,6 @@ packages:
     cpu: [x64]
     os: [darwin]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/freebsd-arm64@0.18.20:
@@ -4035,7 +4049,6 @@ packages:
     cpu: [arm64]
     os: [freebsd]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/freebsd-x64@0.18.20:
@@ -4062,7 +4075,6 @@ packages:
     cpu: [x64]
     os: [freebsd]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/linux-arm64@0.18.20:
@@ -4089,7 +4101,6 @@ packages:
     cpu: [arm64]
     os: [linux]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/linux-arm@0.18.20:
@@ -4116,7 +4127,6 @@ packages:
     cpu: [arm]
     os: [linux]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/linux-ia32@0.18.20:
@@ -4143,7 +4153,6 @@ packages:
     cpu: [ia32]
     os: [linux]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/linux-loong64@0.18.20:
@@ -4170,7 +4179,6 @@ packages:
     cpu: [loong64]
     os: [linux]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/linux-mips64el@0.18.20:
@@ -4197,7 +4205,6 @@ packages:
     cpu: [mips64el]
     os: [linux]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/linux-ppc64@0.18.20:
@@ -4224,7 +4231,6 @@ packages:
     cpu: [ppc64]
     os: [linux]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/linux-riscv64@0.18.20:
@@ -4251,7 +4257,6 @@ packages:
     cpu: [riscv64]
     os: [linux]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/linux-s390x@0.18.20:
@@ -4278,7 +4283,6 @@ packages:
     cpu: [s390x]
     os: [linux]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/linux-x64@0.18.20:
@@ -4305,7 +4309,6 @@ packages:
     cpu: [x64]
     os: [linux]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/netbsd-arm64@0.25.12:
@@ -4323,7 +4326,6 @@ packages:
     cpu: [arm64]
     os: [netbsd]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/netbsd-x64@0.18.20:
@@ -4350,7 +4352,6 @@ packages:
     cpu: [x64]
     os: [netbsd]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/openbsd-arm64@0.25.12:
@@ -4368,7 +4369,6 @@ packages:
     cpu: [arm64]
     os: [openbsd]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/openbsd-x64@0.18.20:
@@ -4395,7 +4395,6 @@ packages:
     cpu: [x64]
     os: [openbsd]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/openharmony-arm64@0.25.12:
@@ -4413,7 +4412,6 @@ packages:
     cpu: [arm64]
     os: [openharmony]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/sunos-x64@0.18.20:
@@ -4440,7 +4438,6 @@ packages:
     cpu: [x64]
     os: [sunos]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/win32-arm64@0.18.20:
@@ -4467,7 +4464,6 @@ packages:
     cpu: [arm64]
     os: [win32]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/win32-ia32@0.18.20:
@@ -4494,7 +4490,6 @@ packages:
     cpu: [ia32]
     os: [win32]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@esbuild/win32-x64@0.18.20:
@@ -4521,7 +4516,6 @@ packages:
     cpu: [x64]
     os: [win32]
     requiresBuild: true
-    dev: true
     optional: true
 
   /@eslint-community/eslint-utils@4.9.1(eslint@9.39.2):
@@ -19284,7 +19278,6 @@ packages:
       '@esbuild/win32-arm64': 0.27.3
       '@esbuild/win32-ia32': 0.27.3
       '@esbuild/win32-x64': 0.27.3
-    dev: true
 
   /escalade@3.2.0:
     resolution: {integrity: sha512-WUj2qlxaQtO4g6Pq5c29GTcWGDyd8itL8zTlipgECz3JesAiiOKotd8JU6otB3PACgG6xkJUyVhboMS+bje/jA==}
@@ -28216,7 +28209,6 @@ packages:
       get-tsconfig: 4.13.6
     optionalDependencies:
       fsevents: 2.3.3
-    dev: true
 
   /tunnel-agent@0.6.0:
     resolution: {integrity: sha512-McnNiV1l8RYeY8tBgEpuodCC1mLUdbSN+CYBL7kJsJNInOP8UjDDEwdk6Mw60vdLLrr5NHKZhMAOSrR2NZuQ+w==}

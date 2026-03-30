@@ -362,6 +362,8 @@ export class JustAVPSProvider implements SandboxProvider {
 
     const serverType = opts.serverType || config.JUSTAVPS_DEFAULT_SERVER_TYPE;
     const location = opts.location || config.JUSTAVPS_DEFAULT_LOCATION;
+    const sandboxApiBase = resolveReachableKortixApiUrl().replace(/\/v1\/router\/?$/, '');
+    const routerBase = `${sandboxApiBase}/v1/router`;
 
     const serviceKey = opts.envVars?.KORTIX_TOKEN || '';
     const sandboxApiBase = resolveReachableKortixApiUrl();
@@ -373,6 +375,9 @@ export class JustAVPSProvider implements SandboxProvider {
       KORTIX_SANDBOX_VERSION: SANDBOX_VERSION,
       TUNNEL_API_URL: sandboxApiBase,
       TUNNEL_TOKEN: serviceKey,
+      TAVILY_API_URL: `${routerBase}/tavily`,
+      REPLICATE_API_URL: `${routerBase}/replicate`,
+      SERPER_API_URL: `${routerBase}/serper`,
       PUID: '1000',
       PGID: '1000',
       ...opts.envVars,

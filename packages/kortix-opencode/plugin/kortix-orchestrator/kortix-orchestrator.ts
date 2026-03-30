@@ -156,17 +156,6 @@ class Manager {
 		if (project) this.sessionProjectCache.set(sessionId, project)
 	}
 
-	/** Try to auto-detect project from a directory path */
-	autoDetectProject(directory: string): ProjectRow | null {
-		// Check if directory or any parent matches a known project path
-		let dir = directory
-		while (dir && dir !== "/" && dir !== ".") {
-			const row = this.db.prepare("SELECT * FROM projects WHERE path = $p").get({ $p: dir }) as ProjectRow | null
-			if (row) return row
-			dir = path.dirname(dir)
-		}
-		return null
-	}
 
 	// ── Projects ──
 
@@ -952,17 +941,9 @@ Also works on ANY session ID (not just spawned ones) — use session_list (built
 			// Wrap DB access in try-catch — if the DB is broken, fail OPEN (allow)
 			// rather than blocking every tool with "disk I/O error"
 			try {
-				// Check if session already has a project
+				// Check if session already has a project (in-memory cache → DB fallback, once per session)
 				const linked = mgr.getSessionProject(sessionId)
 				if (linked) return // already linked — allow
-
-				// Try auto-detection from working directory
-				const autoProject = mgr.autoDetectProject(ctx.directory || "")
-				if (autoProject) {
-					mgr.setSessionProject(sessionId, autoProject.id)
-					console.error(`[kortix-orchestrator] Auto-linked session ${sessionId.slice(-8)} to project "${autoProject.name}" (from directory ${ctx.directory})`)
-					return // auto-linked — allow
-				}
 			} catch (err) {
 				// DB error (disk I/O, corruption, etc.) — fail open, don't block work
 				console.error(`[kortix-orchestrator] Project gate DB error (allowing tool): ${err instanceof Error ? err.message : err}`)
