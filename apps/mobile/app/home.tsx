@@ -61,6 +61,7 @@ import { ScheduledTasksTabPage } from '@/components/pages/ScheduledTasksPage';
 import { ApiKeysTabPage } from '@/components/pages/ApiKeysPage';
 import { ChannelsTabPage } from '@/components/pages/ChannelsPage';
 import { TunnelTabPage } from '@/components/pages/TunnelPage';
+import { WorkspacePage, type WorkspacePageRef } from '@/components/pages/WorkspacePage';
 import type { FilesPageRef } from '@/components/pages/FilesPage';
 import { SecretsPage } from '@/components/pages/SecretsPage';
 import { MemoryPage } from '@/components/pages/MemoryPage';
@@ -72,6 +73,7 @@ import { InstanceOnboarding } from '@/components/setup/InstanceOnboarding';
 import {
   Eye, EyeOff, RefreshCw, Upload, Image, FolderPlus, LayoutGrid, List,
   FileText, Copy, Pencil, Trash2,
+  Bot, Sparkles, Terminal, FolderOpen, Plug, Settings,
 } from 'lucide-react-native';
 import type { BottomBarMenuItem } from '@/components/session/BottomBar';
 import { log } from '@/lib/logger';
@@ -363,6 +365,7 @@ export default function HomeScreen() {
 
   // Files page ref (for BottomBar menu integration)
   const filesPageRef = useRef<FilesPageRef>(null);
+  const workspacePageRef = useRef<WorkspacePageRef>(null);
   const bottomBarRef = useRef<BottomBarRef>(null);
   const viewShotRef = useRef<any>(null);
   const [filesShowHidden, setFilesShowHidden] = useState(false);
@@ -482,6 +485,26 @@ export default function HomeScreen() {
       setDrawerOpen(false);
     } catch (err: any) {
       log.error('❌ [Home] Failed to create session:', err?.message || err);
+    }
+  }, [sandboxUrl, createSession, navigateToSession]);
+
+  const handleCreateSessionWithPrompt = useCallback(async (title: string, prompt: string) => {
+    if (!sandboxUrl) return;
+    try {
+      const session = await createSession.mutateAsync({ title });
+      navigateToSession(session.id);
+      // Send the preset prompt into the new session
+      const token = await getAuthToken();
+      await fetch(`${sandboxUrl}/session/${session.id}/prompt_async`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ parts: [{ type: 'text', text: prompt }] }),
+      });
+    } catch (err: any) {
+      log.error('❌ [Home] Failed to create session with prompt:', err?.message || err);
     }
   }, [sandboxUrl, createSession, navigateToSession]);
 
@@ -1103,6 +1126,17 @@ export default function HomeScreen() {
               onOpenRightDrawer={handleRightDrawerOpen}
             />
 
+          /* Active page tab — Workspace */
+          ) : activePageId === 'page:workspace' && PAGE_TABS[activePageId] && !showTabsOverview ? (
+            <WorkspacePage
+              ref={workspacePageRef}
+              page={PAGE_TABS[activePageId]}
+              onBack={handleBack}
+              onOpenDrawer={handleDrawerOpen}
+              onOpenRightDrawer={handleRightDrawerOpen}
+              onCreateSessionWithPrompt={handleCreateSessionWithPrompt}
+            />
+
           /* Active page tab — other pages (placeholder) */
           ) : activePageId && PAGE_TABS[activePageId] && !showTabsOverview ? (
             <PlaceholderPage
@@ -1232,7 +1266,47 @@ export default function HomeScreen() {
                 onDiagnostics={() => log.log('TODO: diagnostics')}
                 onArchiveSession={() => { if (activeSessionId) handleArchive(activeSessionId); }}
                 customMenuItems={
-                  activePageId === 'page:files'
+                  activePageId === 'page:workspace'
+                    ? ([
+                        {
+                          icon: Bot,
+                          label: 'New agent',
+                          onPress: () => handleCreateSessionWithPrompt('New agent', "HEY let's build a new agent. Ask what job it should own, then scaffold it in the right workspace location and wire up any supporting skills."),
+                        },
+                        {
+                          icon: Sparkles,
+                          label: 'New skill',
+                          onPress: () => handleCreateSessionWithPrompt('New skill', "HEY let's build a new skill. Ask what should trigger it, then create the SKILL.md and any supporting files in the right workspace location."),
+                        },
+                        {
+                          icon: Terminal,
+                          label: 'New command',
+                          onPress: () => handleCreateSessionWithPrompt('New command', "HEY let's build a new slash command. Ask what the command should do, then add it in the right workspace location and connect it to the correct agent."),
+                        },
+                        {
+                          icon: FolderOpen,
+                          label: 'New project',
+                          onPress: () => handleCreateSessionWithPrompt('New project', "HEY let's set up a new project. Ask for the name and purpose, then create it in the right workspace location with a clean starting structure."),
+                        },
+                        { type: 'divider' },
+                        {
+                          icon: Plug,
+                          label: 'Add MCP server',
+                          onPress: () => workspacePageRef.current?.openSettings('mcp'),
+                        },
+                        {
+                          icon: Settings,
+                          label: 'Settings',
+                          onPress: () => workspacePageRef.current?.openSettings('general'),
+                        },
+                        { type: 'divider' },
+                        {
+                          icon: RefreshCw,
+                          label: 'Refresh workspace',
+                          onPress: () => workspacePageRef.current?.refetch(),
+                        },
+                      ] as BottomBarMenuItem[])
+                    : activePageId === 'page:files'
                     ? (filesSelectedName
                         ? ([
                             // Contextual file actions only (long-press)
