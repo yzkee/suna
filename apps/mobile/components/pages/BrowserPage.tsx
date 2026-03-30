@@ -64,9 +64,7 @@ export function BrowserPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: B
   }, [page.id]);
 
   // Get initial URL from tab metadata or default
-  // Agent Browser (page:agent-browser) auto-connects to port 9224 (CDP browser viewer)
-  const isAgentBrowser = page.id === 'page:agent-browser';
-  const initialPort = isAgentBrowser ? 9224 : ((page as any).metadata?.port as number | undefined);
+  const initialPort = (page as any).metadata?.port as number | undefined;
   const initialUrl = (page as any).metadata?.url as string | undefined;
 
   const getProxyUrl = useCallback((port: number, path?: string): string => {

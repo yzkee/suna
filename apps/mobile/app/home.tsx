@@ -62,6 +62,7 @@ import { ApiKeysTabPage } from '@/components/pages/ApiKeysPage';
 import { ChannelsTabPage } from '@/components/pages/ChannelsPage';
 import { TunnelTabPage } from '@/components/pages/TunnelPage';
 import { WorkspacePage, type WorkspacePageRef } from '@/components/pages/WorkspacePage';
+import { AgentBrowserPage } from '@/components/pages/AgentBrowserPage';
 import type { FilesPageRef } from '@/components/pages/FilesPage';
 import { SecretsPage } from '@/components/pages/SecretsPage';
 import { MemoryPage } from '@/components/pages/MemoryPage';
@@ -1074,7 +1075,7 @@ export default function HomeScreen() {
 
           /* Active page tab — Agent Browser */
           ) : activePageId === 'page:agent-browser' && PAGE_TABS[activePageId] && !showTabsOverview ? (
-            <BrowserPage
+            <AgentBrowserPage
               page={PAGE_TABS[activePageId]}
               onBack={handleBack}
               onOpenDrawer={handleDrawerOpen}
