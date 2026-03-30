@@ -19,6 +19,7 @@ Use this skill as the top-level map for the Kortix platform. It should route you
 | OAuth apps, Pipedream actions, authenticated API calls | `kortix-integrations` | Integrations, actions, proxyFetch, trigger management |
 | Slack, Telegram, Discord bridge | `kortix-channels` | Messaging bridge, session tracking, adapter setup, APIs |
 | Local machine control on the user's computer | `agent-tunnel` | Files, shell, screenshots, mouse, keyboard, accessibility tree |
+| Desktop app automation via agent-click | `computer-use` | Click, type, scroll, drag, snapshot, window management, Electron CDP |
 | Browser automation in websites and web apps | `agent-browser` | Navigation, snapshots, interaction, auth, capture, verification |
 | Scheduled or event-driven agent execution | `kortix-agent-triggers` | Cron, webhook, Pipedream triggers, frontmatter, runtime |
 | OCX marketplace discovery and installs | `ocx-registry` | Registry search, preview, install, load workflow |
@@ -30,7 +31,7 @@ Use this skill as the top-level map for the Kortix platform. It should route you
 1. Prefer the narrow standalone skill over `kortix-system` whenever the question is clearly about one domain.
 2. Load multiple skills only when the task truly spans multiple subsystems.
 3. Keep this router short; detailed operational knowledge belongs in the standalone skills.
-4. For local-machine work use `agent-tunnel`; for browser work use `agent-browser`.
+4. For local-machine work use `agent-tunnel`; for browser work use `agent-browser`; for desktop app automation use `computer-use`.
 5. For platform-wide questions, start with the closest skill above and add `kortix-system` only as the router.
 
 ## Escalation Hints
