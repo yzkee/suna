@@ -73,7 +73,7 @@ export interface OpenCodeConfig {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-async function opencodeFetch<T>(sandboxUrl: string, path: string, init?: RequestInit): Promise<T> {
+export async function opencodeFetch<T>(sandboxUrl: string, path: string, init?: RequestInit): Promise<T> {
   const token = await getAuthToken();
   const res = await fetch(`${sandboxUrl}${path}`, {
     ...init,

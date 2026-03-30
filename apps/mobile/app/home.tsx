@@ -46,6 +46,7 @@ import {
   useOpenCodeConfig,
 } from '@/lib/opencode/hooks/use-opencode-data';
 import { useResolvedConfig } from '@/lib/opencode/hooks/use-local-config';
+import { useCompactSession } from '@/lib/opencode/hooks/use-compact-session';
 import { useTabStore, PAGE_TABS } from '@/stores/tab-store';
 import { RightDrawerContent } from '@/components/session/RightDrawerContent';
 import { UserMenuSheet } from '@/components/session/UserMenuSheet';
@@ -78,6 +79,7 @@ import {
 } from 'lucide-react-native';
 import type { BottomBarMenuItem } from '@/components/session/BottomBar';
 import { log } from '@/lib/logger';
+import { KortixLogo } from '@/components/ui/KortixLogo';
 import { useTabScreenshotStore } from '@/stores/tab-screenshot-store';
 
 // Safe import of react-native-view-shot — requires native rebuild.
@@ -269,13 +271,16 @@ export default function HomeScreen() {
     let cancelled = false;
 
     (async () => {
-      const maxWaitMs = 60_000; // Wait up to 60s for sandbox to be reachable
+      // Check if we previously completed setup (persisted across app restarts).
+      // If so, keep polling longer before showing wizard — the sandbox is likely
+      // just booting and the env isn't populated yet.
+      const SETUP_DONE_KEY = 'kortix-instance-setup-done';
+      const wasSetupDone = (await AsyncStorage.getItem(SETUP_DONE_KEY)) === '1';
+      const maxWaitMs = wasSetupDone ? 90_000 : 60_000;
       const pollMs = 3_000;
       const start = Date.now();
 
-      // 1. Wait for sandbox to be reachable by polling the env endpoint directly.
-      //    The /global/health endpoint may 404 on some setups, so we test
-      //    reachability with the same endpoint we actually need.
+      // Poll the env endpoint until sandbox responds.
       let reachable = false;
       while (Date.now() - start < maxWaitMs && !cancelled) {
         try {
@@ -298,18 +303,20 @@ export default function HomeScreen() {
             const data = await res.json();
             log.log('[Home] INSTANCE_SETUP_COMPLETE value:', data?.INSTANCE_SETUP_COMPLETE);
             if (data?.INSTANCE_SETUP_COMPLETE === 'true') {
+              // Persist that setup is done so future boots show "Connecting" instead of wizard
+              await AsyncStorage.setItem(SETUP_DONE_KEY, '1').catch(() => {});
               // Setup done — check if onboarding is also done
               try {
                 const onbCtrl = new AbortController();
-              const onbTimeout = setTimeout(() => onbCtrl.abort(), 5000);
-              const onbRes = await fetch(`${sandboxUrl}/env/ONBOARDING_COMPLETE`, {
+                const onbTimeout = setTimeout(() => onbCtrl.abort(), 5000);
+                const onbRes = await fetch(`${sandboxUrl}/env/ONBOARDING_COMPLETE`, {
                   headers: {
                     'Content-Type': 'application/json',
                     ...(token ? { Authorization: `Bearer ${token}` } : {}),
                   },
                   signal: onbCtrl.signal,
                 });
-              clearTimeout(onbTimeout);
+                clearTimeout(onbTimeout);
                 if (!cancelled && onbRes.ok) {
                   const onbData = await onbRes.json();
                   if (onbData?.ONBOARDING_COMPLETE === 'true') {
@@ -324,7 +331,15 @@ export default function HomeScreen() {
               return;
             }
           }
-          // Not set or not 'true' → show wizard
+          // INSTANCE_SETUP_COMPLETE not 'true' yet.
+          // If we previously completed setup, the sandbox is likely still booting
+          // — keep polling instead of immediately showing the wizard.
+          if (wasSetupDone) {
+            log.log('[Home] Setup check: env not ready yet but setup was done before, keep polling...');
+            await new Promise((r) => setTimeout(r, pollMs));
+            continue;
+          }
+          // Fresh install — show wizard
           log.log('[Home] Setup check: INSTANCE_SETUP_COMPLETE not true, showing wizard');
           setSetupState('needed');
           return;
@@ -337,10 +352,23 @@ export default function HomeScreen() {
       if (cancelled) return;
 
       if (!reachable) {
-        log.log('[Home] Setup check: sandbox not reachable after 60s');
-        // Timed out — show wizard anyway (better than silently skipping)
-        setSetupState('needed');
+        log.log('[Home] Setup check: sandbox not reachable after timeout');
+        // If setup was done before, skip to main app (sandbox might come up later)
+        if (wasSetupDone) {
+          setSetupState('done');
+        } else {
+          setSetupState('needed');
+        }
         return;
+      }
+
+      // Sandbox is reachable but env never returned 'true' after extended polling.
+      // If setup was done before, go to main app — the sandbox just booted slowly.
+      if (wasSetupDone) {
+        log.log('[Home] Setup check: timed out but was previously set up — showing main app');
+        setSetupState('done');
+      } else {
+        setSetupState('needed');
       }
     })();
 
@@ -348,6 +376,8 @@ export default function HomeScreen() {
   }, [sandboxUrl]);
 
   const handleSetupComplete = useCallback(() => {
+    // Persist that setup completed so we don't show wizard on next boot
+    AsyncStorage.setItem('kortix-instance-setup-done', '1').catch(() => {});
     setSetupState('onboarding');
   }, []);
 
@@ -400,6 +430,9 @@ export default function HomeScreen() {
       mounted = false;
     };
   }, [colorScheme]);
+
+  // Compact session mutation
+  const compactSession = useCompactSession();
 
   // Persisted tab state (survives app restarts)
   const activeSessionId = useTabStore((s) => s.activeSessionId);
@@ -884,16 +917,23 @@ export default function HomeScreen() {
 
   // ── Render ──
 
-  // Show loading screen while checking setup status
+  // Show loading screen while checking setup status — matches frontend's
+  // "Connecting to Workspace" skeleton screen.
   if (setupState === 'checking') {
     return (
       <>
         <Stack.Screen options={{ headerShown: false }} />
         <RNStatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? '#09090b' : '#FFFFFF' }}>
-          <ActivityIndicator size="small" color={isDark ? '#71717a' : '#a1a1aa'} />
-          <Text style={{ marginTop: 12, fontSize: 13, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.4)' : 'rgba(18,18,21,0.4)' }}>
-            Connecting to instance…
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? '#09090b' : '#FFFFFF', paddingHorizontal: 40 }}>
+          <View style={{ flexDirection: 'column', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+            <KortixLogo size={22} variant="symbol" color={isDark ? 'dark' : 'light'} />
+            <Text style={{ fontSize: 13, fontFamily: 'Roobert', letterSpacing: 2, textTransform: 'uppercase', color: isDark ? 'rgba(248,248,248,0.3)' : 'rgba(18,18,21,0.3)' }}>
+              Connecting to Workspace
+            </Text>
+          </View>
+          <ActivityIndicator size="small" color={isDark ? '#ffffff' : '#000000'} />
+          <Text style={{ marginTop: 24, fontSize: 14, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.4)' : 'rgba(18,18,21,0.4)', textAlign: 'center', lineHeight: 22, maxWidth: 300 }}>
+            Checking sandbox health and restoring your session.
           </Text>
         </View>
       </>
@@ -1255,11 +1295,27 @@ export default function HomeScreen() {
                 onNewSession={handleNewSession}
                 onOpenTabs={handleOpenTabsOverview}
                 onCompactSession={() => {
-                  if (activeSessionId) {
-                    Alert.alert('Compact Session', 'Compact this session to reduce context size?', [
-                      { text: 'Cancel', style: 'cancel' },
-                      { text: 'Compact', onPress: () => log.log('TODO: compact session') },
-                    ]);
+                  if (activeSessionId && sandboxUrl) {
+                    Alert.alert(
+                      'Compact Session',
+                      'This will summarize older messages using AI to free up context space. Key information is preserved, but original messages will be condensed into a compact summary.',
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Compact',
+                          onPress: () => {
+                            compactSession.mutate(
+                              { sandboxUrl, sessionId: activeSessionId },
+                              {
+                                onError: (err) => {
+                                  Alert.alert('Compact Failed', err.message || 'Failed to compact session.');
+                                },
+                              },
+                            );
+                          },
+                        },
+                      ],
+                    );
                   }
                 }}
                 onExportTranscript={() => log.log('TODO: export transcript')}

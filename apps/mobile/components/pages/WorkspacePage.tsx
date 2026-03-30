@@ -690,6 +690,11 @@ export const WorkspacePage = forwardRef<WorkspacePageRef, WorkspacePageProps>(fu
           renderItem={renderItem}
           contentContainerStyle={{ paddingTop: 4, paddingBottom: insets.bottom + 20 }}
           showsVerticalScrollIndicator={false}
+          initialNumToRender={15}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          removeClippedSubviews
+          getItemLayout={undefined}
           refreshControl={
             <RefreshControl refreshing={false} onRefresh={refetchAll} tintColor={muted} />
           }
