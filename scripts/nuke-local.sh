@@ -16,7 +16,7 @@ set -euo pipefail
 # ─────────────────────────────────────────────────────────────────────────────
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SUPABASE_DIR="$ROOT_DIR/infra/supabase"
+SUPABASE_DIR="$ROOT_DIR/supabase"
 SUPABASE_PROJECT_ID="$(python3 - "$SUPABASE_DIR/config.toml" <<'PY'
 import pathlib, re
 import sys
@@ -79,17 +79,17 @@ fi
 # ── 4. Verify sandbox image exists ──────────────────────────────────────────
 echo "[4/5] Checking sandbox image..."
 cd "$ROOT_DIR"
-SANDBOX_IMAGE=$(python3 -c "import json; print(json.load(open('sandbox/release.json'))['images']['sandbox'])" 2>/dev/null || echo "")
+SANDBOX_IMAGE=$(python3 -c "import json; print(json.load(open('core/release.json'))['images']['sandbox'])" 2>/dev/null || echo "")
 # Fallback for old format
 if [[ -z "$SANDBOX_IMAGE" ]]; then
-  SANDBOX_IMAGE=$(python3 -c "import json; print(json.load(open('sandbox/release.json'))['sandbox']['image'])" 2>/dev/null || echo "kortix/computer:latest")
+  SANDBOX_IMAGE=$(python3 -c "import json; print(json.load(open('core/release.json'))['sandbox']['image'])" 2>/dev/null || echo "kortix/computer:latest")
 fi
 
 if docker image inspect "$SANDBOX_IMAGE" >/dev/null 2>&1; then
   echo "  $SANDBOX_IMAGE exists locally"
 else
   echo "  WARNING: $SANDBOX_IMAGE not found locally!"
-  echo "  Build it first:  docker build -f sandbox/docker/Dockerfile --build-arg SANDBOX_VERSION=\$(python3 -c \"import json; print(json.load(open('sandbox/release.json'))['version'])\") -t $SANDBOX_IMAGE ."
+  echo "  Build it first:  docker build -f core/docker/Dockerfile --build-arg SANDBOX_VERSION=\$(python3 -c \"import json; print(json.load(open('core/release.json'))['version'])\") -t $SANDBOX_IMAGE ."
   echo "  Or the API will try to pull it from Docker Hub on first init."
 fi
 

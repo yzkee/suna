@@ -1,9 +1,7 @@
 packages:
   - 'apps/*'
   - 'packages/*'
-  - 'sandbox/*'
-  - 'kortix-api'
-  - 'infra/*'
+  - 'core/*'
 
 catalog:
   '@tsconfig/bun': ^1.0.7

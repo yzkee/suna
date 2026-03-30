@@ -293,7 +293,7 @@ verify_local_image() {
 }
 
 ensure_local_build_requirements() {
-  [ -d "$KORTIX_LOCAL_REPO_ROOT/apps/frontend" ] || fatal "Local repo root not found at ${KORTIX_LOCAL_REPO_ROOT}."
+  [ -d "$KORTIX_LOCAL_REPO_ROOT/apps/web" ] || fatal "Local repo root not found at ${KORTIX_LOCAL_REPO_ROOT}."
   [ -x "$PNPM_BIN" ] || fatal "pnpm is required for --build-local."
 }
 

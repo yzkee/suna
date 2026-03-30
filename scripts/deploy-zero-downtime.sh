@@ -72,7 +72,7 @@ if [ -n "$PREBUILT_IMAGE" ]; then
 else
   echo "[2/6] Building ${IMAGE_TAG} (traffic still on $ACTIVE_SLOT:$ACTIVE_PORT)..."
   docker build \
-    --file kortix-api/Dockerfile \
+    --file apps/api/Dockerfile \
     --build-arg SERVICE=kortix-api \
     --tag "$IMAGE_TAG" \
     --tag "${IMAGE_NAME}:latest" \
@@ -86,7 +86,7 @@ docker rm -f "kortix-api-$STANDBY_SLOT" 2>/dev/null || true
 
 docker run -d \
   --name "kortix-api-$STANDBY_SLOT" \
-  --env-file kortix-api/.env \
+  --env-file apps/api/.env \
   -p "${STANDBY_PORT}:8008" \
   --restart unless-stopped \
   "$IMAGE_TAG"

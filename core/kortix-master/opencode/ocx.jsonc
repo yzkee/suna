@@ -1,0 +1,13 @@
+{
+  "$schema": "https://ocx.kdco.dev/schemas/ocx.json",
+  "registries": {
+    "kortix": {
+      "url": "https://kortix-registry-6om.pages.dev"
+    },
+    "kdco": {
+      "url": "https://registry.kdco.dev"
+    }
+  },
+  "lockRegistries": false,
+  "skipCompatCheck": false
+}

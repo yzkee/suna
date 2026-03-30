@@ -5,8 +5,8 @@
 
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 SCRIPT="$ROOT_DIR/scripts/get-kortix.sh"
-MASTER_INDEX="$ROOT_DIR/sandbox/kortix-master/src/index.ts"
-MASTER_CONFIG="$ROOT_DIR/sandbox/kortix-master/src/config.ts"
+MASTER_INDEX="$ROOT_DIR/core/kortix-master/src/index.ts"
+MASTER_CONFIG="$ROOT_DIR/core/kortix-master/src/config.ts"
 
 PASS=0; FAIL=0; TOTAL=0
 
@@ -67,7 +67,7 @@ echo ""
 echo "  Frontend Dockerfile"
 echo ""
 
-FRONTEND_DOCKERFILE="$ROOT_DIR/apps/frontend/Dockerfile"
+FRONTEND_DOCKERFILE="$ROOT_DIR/apps/web/Dockerfile"
 
 if grep -q 'standalone' "$FRONTEND_DOCKERFILE"; then
   pass "Dockerfile copies standalone output"
@@ -171,8 +171,8 @@ echo ""
 echo "  API service key forwarding"
 echo ""
 
-API_PROVIDERS="$ROOT_DIR/kortix-api/src/providers/routes.ts"
-API_SETUP="$ROOT_DIR/kortix-api/src/setup/index.ts"
+API_PROVIDERS="$ROOT_DIR/apps/api/src/providers/routes.ts"
+API_SETUP="$ROOT_DIR/apps/api/src/setup/index.ts"
 
 if grep -q 'INTERNAL_SERVICE_KEY' "$API_PROVIDERS"; then
   pass "providers/routes.ts injects INTERNAL_SERVICE_KEY"

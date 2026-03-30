@@ -7,7 +7,7 @@ const { execFileSync } = require('node:child_process')
 
 const ROOT = path.resolve(__dirname, '..', '..')
 const RELEASE_JSON = path.join(ROOT, 'sandbox', 'release.json')
-const API_ENV_PATH = path.join(ROOT, 'kortix-api', '.env')
+const API_ENV_PATH = path.join(ROOT, 'apps', 'api', '.env')
 const START_SANDBOX_SCRIPT = path.join(ROOT, 'scripts', 'start-sandbox.sh')
 
 const args = process.argv.slice(2)
@@ -83,7 +83,7 @@ Usage:
   pnpm image --yes [version]      Replace any existing image with the same release name
   pnpm image --no-verify [version]  Skip booting a verification machine from the new image
 
-Env used from kortix-api/.env:
+Env used from apps/api/.env:
   JUSTAVPS_API_URL
   JUSTAVPS_API_KEY
   JUSTAVPS_IMAGE_ID

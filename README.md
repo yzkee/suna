@@ -43,10 +43,13 @@ kortix uninstall   Remove Kortix completely
 
 - `curl -fsSL http://localhost:3000/install | bash`
 - `pnpm dev` — start frontend + API in dev mode
-- `pnpm dev:frontend` — start frontend only
+- `pnpm dev:web` — start web app only
+- `pnpm dev:frontend` — alias for `pnpm dev:web`
 - `pnpm dev:api` — start API only
-- `pnpm dev:sandbox` — start sandbox with dev bind mounts (hot reload, from `sandbox/`)
-- `pnpm dev:sandbox:build` — rebuild and start the sandbox
+- `pnpm dev:core` — start core runtime with dev bind mounts (hot reload, from `core/`)
+- `pnpm dev:core:build` — rebuild and start the core runtime
+- `pnpm dev:sandbox` — alias for `pnpm dev:core`
+- `pnpm dev:sandbox:build` — alias for `pnpm dev:core:build`
 - `pnpm build` — build all packages (`pnpm -r run build`)
 - `pnpm ship <version>` — bump versions, build + push Docker images, seed the JustAVPS image, create GitHub release
 - `pnpm ship --dry-run <version>` — validate without making changes

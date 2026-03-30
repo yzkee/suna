@@ -11,31 +11,31 @@
  *   - An attacker can inject arbitrary OAuth integrations into ANY account
  *   - The endpoint accepts account_id in the body and inserts integration records
  *   - It also auto-links the integration to all active sandboxes for that account
- *   - File: kortix-api/src/integrations/index.ts — /webhook not in auth middleware list
- *   - File: kortix-api/src/integrations/routes.ts:364-406
+ *   - File: apps/api/src/integrations/index.ts — /webhook not in auth middleware list
+ *   - File: apps/api/src/integrations/routes.ts:364-406
  *
  * [HIGH] POST /v1/setup/bootstrap-owner — LEAKS OWNER EMAIL
  *   - This public endpoint reveals the platform owner's email address
  *   - Error response: "Owner already exists (email@example.com)"
  *   - Can also reset the owner's setup wizard state
- *   - File: kortix-api/src/setup/index.ts:361-432
+ *   - File: apps/api/src/setup/index.ts:361-432
  *
  * [HIGH] POST /v1/setup/env — NO ADMIN CHECK
  *   - Any authenticated user can modify .env files
  *   - Can overwrite DATABASE_URL, API_KEY_SECRET, STRIPE_SECRET_KEY etc.
- *   - File: kortix-api/src/setup/index.ts — /env POST route
+ *   - File: apps/api/src/setup/index.ts — /env POST route
  *
  * [MEDIUM] No per-user sandbox limit on cloud
  *   - Users with a payment method can create unlimited VPS instances
- *   - File: kortix-api/src/platform/routes/sandbox-cloud.ts
+ *   - File: apps/api/src/platform/routes/sandbox-cloud.ts
  *
  * [MEDIUM] Credit check race condition on LLM routes
  *   - Check-then-deduct pattern allows concurrent request overdraft
- *   - File: kortix-api/src/router/routes/llm.ts
+ *   - File: apps/api/src/router/routes/llm.ts
  *
  * [MEDIUM] No billing check on deployments
  *   - Any authenticated user (including free tier) can create deployments
- *   - File: kortix-api/src/deployments/routes/deployments.ts
+ *   - File: apps/api/src/deployments/routes/deployments.ts
  */
 
 import { describe, test, expect } from 'bun:test';

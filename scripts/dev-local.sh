@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SUPABASE_DIR="$ROOT_DIR/infra/supabase"
+SUPABASE_DIR="$ROOT_DIR/supabase"
 
 FRONTEND_PID=""
 

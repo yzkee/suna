@@ -14,7 +14,7 @@ ENV_FILE="${1:-.env}"
 
 if [ ! -f "$ROOT_DIR/$ENV_FILE" ]; then
   echo "ERROR: $ROOT_DIR/$ENV_FILE not found."
-  echo "  Create a root .env with your values (see kortix-api/.env.example)"
+  echo "  Create a root .env with your values (see apps/api/.env.example)"
   exit 1
 fi
 
@@ -56,7 +56,7 @@ write_env() {
 echo "Generating .env files from $ENV_FILE ..."
 echo ""
 
-write_env "kortix-api/.env" \
+write_env "apps/api/.env" \
   "# Core" \
   "PORT=8008" \
   "$(kv ENV_MODE local)" \
@@ -105,7 +105,7 @@ write_env "kortix-api/.env" \
   "$(kv STRIPE_WEBHOOK_SECRET)" \
   "$(kv REVENUECAT_WEBHOOK_SECRET)"
 
-write_env "apps/frontend/.env" \
+write_env "apps/web/.env" \
   "$(kv NEXT_PUBLIC_BILLING_ENABLED false)" \
   "" \
   "$(kv NEXT_PUBLIC_SUPABASE_URL "$(e SUPABASE_URL)")" \
