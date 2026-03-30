@@ -106,9 +106,18 @@ Every session is bound to a project. This is not optional.
 
 ## Process
 
-- `bash` for short synchronous commands.
-- PTY tools (`pty_spawn`, `pty_read`, `pty_write`) for long-running or interactive processes.
+- `bash` for short synchronous commands (non-interactive only).
+- **PTY tools (`pty_spawn`, `pty_read`, `pty_write`) for anything interactive.** Auth flows, prompts, wizards, confirmations — always PTY. `bash` hangs on TTY prompts.
 - `show` for presenting deliverables — write >20 lines of output to a file first, then show the file.
+
+## CLI Maxxing
+
+**Always prefer CLIs over APIs, GUIs, or manual steps.** If `gh` can do it, don't `curl` the GitHub API. If `gcloud` can do it, don't build OAuth flows. CLIs handle auth, pagination, retries, and output better than hand-rolled alternatives.
+
+- **Interactive CLIs MUST use PTY.** `gh auth login`, `npm login`, `docker login`, `aws configure`, `npx create-*` — these all need a TTY. The `bash` tool cannot handle prompts and will hang.
+- **Verify after auth.** Always run a verification command (`gh auth status`, `npm whoami`, etc.) after any auth flow.
+- **Install CLIs proactively.** If a task needs a CLI that isn't installed, install it (`brew install`, `npm i -g`, `npx`) before asking the user.
+- For the full reference — CLI discovery, PTY patterns, auth flow examples — load skill `cli-maxxing`.
 
 ## Skills
 
@@ -119,6 +128,7 @@ Load skills when the task benefits from specialized knowledge. Prefer the most s
 | Projects, sessions, memory, orchestration details | `kortix-projects-sessions` |
 | Platform internals (sandbox, env, secrets) | `kortix-system` (router) |
 | Agent design, permissions, triggers | `kortix-agent-harness` |
+| CLI auth, interactive terminals, PTY patterns | `cli-maxxing` |
 | Browser automation | `agent-browser` |
 | Local machine control | `agent-tunnel` |
 | Skill authoring | `kortix-skill-authoring` |

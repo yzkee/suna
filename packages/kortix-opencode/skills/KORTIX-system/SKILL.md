@@ -23,6 +23,7 @@ Use this skill as the top-level map for the Kortix platform. It should route you
 | Browser automation in websites and web apps | `agent-browser` | Navigation, snapshots, interaction, auth, capture, verification |
 | Scheduled or event-driven agent execution | `kortix-agent-triggers` | Cron, webhook, Pipedream triggers, frontmatter, runtime |
 | OCX marketplace discovery and installs | `ocx-registry` | Registry search, preview, install, load workflow |
+| CLI-first workflows, interactive auth, PTY patterns | `cli-maxxing` | CLI discovery, PTY interactive flows, auth flows (gh, gcloud, npm, docker), environment setup |
 | Creating or refactoring skills | `kortix-skill-authoring` | Skill layout, SKILL.md format, progressive disclosure |
 | Agent design, permissions, composition, harness engineering | `kortix-agent-harness` | Identity, permissions, tools, triggers, composition patterns |
 
@@ -41,3 +42,4 @@ Use this skill as the top-level map for the Kortix platform. It should route you
 - Questions about `session_start_background`, `session_list_background`, `session_read`, `session_message`, `session_search`, `session_get`, `project_create`, `project_list`, `project_get`, `project_update`, project directory structure, DONE/VERIFIED protocol, worker session assignment, or project-vs-session scope should start with `kortix-projects-sessions`.
 - Questions about automation often combine `kortix-agent-triggers` with `kortix-integrations` or `kortix-agent-harness`.
 - Questions about authoring or refactoring platform knowledge should load `kortix-skill-authoring`.
+- Questions about CLI authentication, interactive terminal flows, PTY usage patterns, or "how to login to X" should start with `cli-maxxing`.
