@@ -267,6 +267,7 @@ if (DOCKER) {
   // ok(`JustAVPS image for v${version} ready`)
 }
 
+
 // ── Step 5: Commit ────────────────────────────────────────────────────────
 info('Committing version bump...')
 run(`git add \
