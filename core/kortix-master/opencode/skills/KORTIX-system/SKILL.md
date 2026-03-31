@@ -1,6 +1,6 @@
 ---
 name: kortix-system
-description: "Router skill for the Kortix platform. Load this when you need to choose the right standalone Kortix/OpenCode skill for sandbox internals, framework behavior, session orchestration, integrations, channels, triggers, operations, or agent harness design."
+description: "Router skill for the Kortix platform. Load this when you need to choose the right standalone Kortix/OpenCode skill for sandbox internals, framework behavior, session orchestration, connectors, channels, triggers, operations, or agent harness design."
 ---
 
 # Kortix System Router

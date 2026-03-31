@@ -83,27 +83,29 @@ Then write to `$MEM_DIR/USER.md` and `$MEM_DIR/MEMORY.md` using the `write` tool
 # List all discovered connectors and their status
 connector_list(filter="")
 
-# Load a specific connector's full docs
+# Load a specific connector's metadata
 connector_get(name="github")
 
-# Scaffold a new connector
-connector_setup(name="stripe", type="api-key")
+# Scaffold multiple connectors in one call
+connector_setup(connectors='[
+  {"name":"github","description":"company org","source":"cli","status":"pending"},
+  {"name":"gmail-personal","description":"personal gmail","source":"pipedream","pipedream_slug":"gmail","status":"pending"}
+]')
 ```
 
 For Pipedream connectors, use the Pipedream script:
 
 ```bash
-SCRIPT=$(find /opt/opencode ~/.opencode -name "integration.ts" 2>/dev/null | head -1)
+SCRIPT=$(find /opt/opencode ~/.opencode /workspace /ephemeral -name "integration.ts" 2>/dev/null | head -1)
 bun run "$SCRIPT" search '{"q":"gmail"}'
 bun run "$SCRIPT" connect '{"app":"gmail"}'
 bun run "$SCRIPT" list
 ```
 
 When a service is not covered by an existing connector:
-1. Create a new connector: `connector_setup(name="service-name", type="cli|api-key|pipedream|browser|custom")`
-2. Fill in the CONNECTOR.md with real auth instructions and usage patterns
-3. Save secrets via the env API
-4. Update the connector status to `connected` once authenticated
+1. Add it via `connector_setup` in the same batch as the others
+2. Save any secrets via the env API if needed
+3. Update the connector status to `connected` once authenticated
 
 ---
 
@@ -373,27 +375,34 @@ Once they list their tools, do FOUR things:
 For each tool they mention:
 
 1. **Check if a connector already exists:** `connector_list` or `connector_get(name="service")`
-2. **If it exists:** Follow its documented auth flow
-3. **If not:** Create one with the appropriate type:
+2. **If it exists:** Use that connection
+3. **If not:** Add it to the connector batch with whatever metadata matters (name, description, source, status, pipedream_slug, env, etc.)
+
+By default, use Pipedream first because it's the fastest one-click setup for the user. If Pipedream doesn't support the service, fall back to CLI or API key.
+
+Example batch:
 
 ```
-# For tools with CLIs (preferred):
-connector_setup(name="github", type="cli")
-
-# For tools needing OAuth:
-connector_setup(name="gmail", type="pipedream")
-
-# For API-key services:
-connector_setup(name="stripe", type="api-key")
+connector_setup(connectors='[
+  {"name":"github","description":"company org","source":"cli","status":"pending"},
+  {"name":"slack-workspace","description":"company slack","source":"pipedream","pipedream_slug":"slack","status":"pending"},
+  {"name":"stripe-prod","description":"production stripe","source":"api-key","status":"pending","env":"STRIPE_SECRET_KEY"}
+]')
 ```
 
 **For Pipedream connectors**, use the Pipedream script to get connect URLs:
 
 ```bash
-SCRIPT=$(find /opt/opencode ~/.opencode -name "integration.ts" 2>/dev/null | head -1)
+SCRIPT=$(find /opt/opencode ~/.opencode /workspace /ephemeral -name "integration.ts" 2>/dev/null | head -1)
 bun run "$SCRIPT" search '{"q":"service_name"}'
 bun run "$SCRIPT" connect '{"app":"APP_SLUG"}'
 ```
+
+Use `show` to present the returned connect URL so the user can just click and authorize.
+
+Also communicate this clearly:
+
+> I'll start with Pipedream because it's the easiest setup — one click and we're connected. For services you use heavily, we can upgrade later to a direct CLI or API connection for tighter integration.
 
 Batch the OAuth connects:
 
@@ -451,17 +460,12 @@ Treat browser-based auth as first-class setup, not a fallback afterthought.
 If a service is important, it MUST have a connector — even if automation is limited. Do NOT leave services as unstructured notes.
 
 ```
-connector_setup(name="service-name", type="custom")
+connector_setup(connectors='[{"name":"service-name","description":"what this is","source":"custom","status":"pending"}]')
 ```
 
-Then edit the CONNECTOR.md with:
-- What the service is used for
-- Which secrets/env vars are required
-- Whether access happens by API, CLI, browser login, or manual export/import
-- Exact steps for future agents to use it
-- Any known limitations or 2FA/browser-session requirements
+Keep connectors lightweight. They are an internal registry of what's connected where, not long manuals.
 
-After filling in the connector and saving any credentials, update the frontmatter `status` to `connected` or `pending`.
+After saving any credentials and authenticating, update the connector status to `connected` or `pending`.
 
 If the service truly cannot be automated yet, the connector should still document how to access it, where the secrets live, and what future work would be needed.
 
@@ -739,10 +743,10 @@ If the response does NOT contain `"true"`, retry the POST.
 4. **ADAPT TO THE PERSON.** Don't say "company" to a student. Don't say "project" to a Fortune 500 exec. Mirror their language and framing. Read who they are and adjust.
 5. **ASK WHERE TO FIND THEM ONLINE.** LinkedIn, GitHub, personal site, Twitter/X — any of these are gold. Always ask early in Phase 2. **Never `scrape_webpage` LinkedIn** — it's blocked. Use `web_search` to find cached LinkedIn data instead.
 6. **MAP THEIR ACCOUNTS EXHAUSTIVELY.** The connectors phase is not optional. Sweep by category and keep asking until you have a serious inventory, not a partial list.
-7. **CONNECT WHAT YOU CAN.** Use `connector_list` to check existing connectors, `connector_setup` to scaffold new ones. For Pipedream, use the Pipedream script. For CLI services, use CLI auth. For API keys, user pastes in chat and agent saves via env API.
+7. **CONNECT WHAT YOU CAN.** Use `connector_list` to check existing connectors, `connector_setup` to scaffold new ones. Default to Pipedream when available, show the returned OAuth links to the user, and only fall back to CLI or API key when needed. Direct connections are the later upgrade path for heavy usage.
 8. **SAVE SECRETS WITH SPECIFICITY.** Collect the exact env var names required for each important service and store them with `curl -X POST http://localhost:8000/env/KEY_NAME -d '{"value":"...","restart":true}'`. Retry the relevant action after saving.
 9. **BROWSER LOGINS COUNT.** If a critical system only works via website login, establish that login when appropriate, preserve the session/profile if supported, and record the login details and 2FA expectations.
-10. **EVERY SERVICE GETS A CONNECTOR.** If there is no existing connector, create one with `connector_setup`. Fill in the CONNECTOR.md with auth instructions, usage patterns, and saved secrets so future agents can use it.
+10. **EVERY SERVICE GETS A CONNECTOR.** If there is no existing connector, add it with `connector_setup`. Keep the connector lightweight — name, description, source, status, and whatever identifying metadata matters.
 11. **ALWAYS WEB-SEARCH THE USER.** No exceptions. Even if they give you a LinkedIn, search for more.
 12. **SHOW FINDINGS, ASK TO CONFIRM.** Don't assume your research is right. Present and verify.
 13. **USE `question` FOR EVERYTHING.** Every choice, every confirmation, every structured input.

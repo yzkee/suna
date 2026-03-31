@@ -145,7 +145,7 @@ Pipedream hosts the polling/trigger worker. The sandbox only receives normalized
 
 ### Prerequisites
 
-1. App connected through integrations
+1. App connected via Pipedream (see `kortix-connectors` skill)
 2. `KORTIX_TOKEN` configured
 3. `SANDBOX_PUBLIC_URL` configured
 4. Trigger plugin loaded

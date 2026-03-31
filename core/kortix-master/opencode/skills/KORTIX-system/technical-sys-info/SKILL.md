@@ -54,7 +54,7 @@ These are the main local services to care about:
 
 | Service | Port | Purpose |
 |---|---|---|
-| Kortix Master | `8000` | proxy, health, env, integration routes |
+| Kortix Master | `8000` | proxy, health, env, pipedream, connector routes |
 | OpenCode static/web service | `3211` or proxied routes | UI/assets depending on runtime setup |
 | Channels | `3456` | Slack/Telegram/Discord bridge |
 | Agent Browser stream | `9223` | browser automation stream |
