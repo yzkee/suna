@@ -1,14 +1,8 @@
 #!/usr/bin/with-contenv bash
 # opencode-channels — Chat SDK Slack/Telegram bot on port 3456
-# Only starts when channel credentials are configured.
-# After OAuth, kortix-api pushes credentials and restarts this service.
-
-# If no channel credentials are set, sleep instead of crash-looping.
-# kortix-api will restart this service after OAuth completes.
-if [ -z "$SLACK_BOT_TOKEN" ] && [ -z "$TELEGRAM_BOT_TOKEN" ] && [ -z "$DISCORD_BOT_TOKEN" ] && [ -z "$CHANNEL_CONFIG_ID" ]; then
-  echo "[opencode-channels] No channel credentials configured — sleeping until restart"
-  exec sleep infinity
-fi
+# Starts and stays running. If no channels are configured yet, the SDK
+# handles it gracefully. After OAuth, kortix-api pushes credentials as
+# s6 env vars and restarts this service.
 
 echo "[opencode-channels] Starting on port 3456"
 
