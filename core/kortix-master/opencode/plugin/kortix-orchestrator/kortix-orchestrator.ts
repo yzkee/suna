@@ -27,6 +27,26 @@ import { type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
 import type { Event } from "@opencode-ai/sdk"
 import { ensureGlobalMemoryFiles, ensureKortixDir, resolveKortixWorkspaceRoot } from "../kortix-paths"
 
+// ── Kortix System XML Tag Wrapper ───────────────────────────────────────────
+
+/**
+ * Wrap content in kortix_system XML tags so the frontend strips it from UI.
+ * Internal/system content injected by OpenCode plugins should be wrapped to prevent
+ * it from appearing in the rendered output.
+ */
+function wrapInKortixSystemTags(
+	content: string,
+	attrs?: Record<string, string>,
+): string {
+	if (!content || !content.trim()) return ""
+	const attrString = attrs
+		? " " + Object.entries(attrs)
+			.map(([k, v]) => `${k}="${v}"`)
+			.join(" ")
+		: ""
+	return `<kortix_system${attrString}>${content}</kortix_system>`
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface ProjectRow { id: string; name: string; path: string; description: string; created_at: string; opencode_id: string | null }
@@ -573,6 +593,9 @@ const KortixPlugin: Plugin = async (ctx) => {
 	const db = initDb(path.join(kortixDir, "kortix.db"))
 	const mgr = new Manager(client, workspaceRoot, db)
 
+	// Track current session ID for per-message project status injection
+	let currentOrchestratorSessionId: string | null = null
+
 	// Fetch available agent names from the runtime — no hardcoding
 	let cachedAgentNames: string[] | null = null // null = not yet loaded
 	const agentListReady = (client.agents?.() as Promise<any> | undefined)
@@ -805,28 +828,27 @@ Also works on ANY session ID (not just spawned ones) — use session_list (built
 		// fails. If the DB is broken, we must FAIL OPEN (allow) not fail closed
 		// (block everything with "disk I/O error").
 		"tool.execute.before": async (input: { tool: string; sessionID: string; callID: string }, _output: { args: any }) => {
-			// Normalize tool name: both hyphens and underscores should match
-			// (LLMs sometimes call "image_search" when the tool is "image-search")
+			// Normalize tool name to underscores so we only need one canonical form.
 			const toolName = input.tool
-			const normalized = toolName.replace(/-/g, "_")
+			const n = toolName.replace(/-/g, "_")
 
-			// Tools that are always allowed (project management, session management, search, show, etc.)
+			// Tools that are always allowed without a project selected.
+			// Listed in underscore form — the normalizer above handles hyphens.
 			const UNGATED_PREFIXES = [
-				"project_", "session_", "worktree_",     // orchestration tools
-				"web_search", "web-search",              // web search
-				"image_search", "image-search",          // image search
-				"scrape_webpage", "scrape-webpage",      // web scraping
-				"instance_dispose", "instance-dispose",  // system
-				"context7_", "context7-",                // docs
+				"project_", "session_", "worktree_",     // orchestration
+				"web_search",                            // web search
+				"image_search",                          // image search
+				"scrape_webpage",                        // web scraping
+				"instance_dispose",                      // system reload
+				"context7_",                             // docs
 			]
-			// Allow ungated tools by prefix
-			if (UNGATED_PREFIXES.some(p => toolName.startsWith(p) || normalized.startsWith(p.replace(/-/g, "_")))) return
-			// Allow ungated tools by exact name
+			if (UNGATED_PREFIXES.some(p => n.startsWith(p))) return
+
 			const UNGATED_EXACT = [
 				"todowrite", "todoread", "show", "question", "skill",
 				"webfetch", "apply_patch",
 			]
-			if (UNGATED_EXACT.includes(toolName) || UNGATED_EXACT.includes(normalized)) return
+			if (UNGATED_EXACT.includes(n)) return
 
 			const sessionId = input.sessionID
 			if (!sessionId) return // no session context — can't gate
@@ -854,6 +876,9 @@ Also works on ANY session ID (not just spawned ones) — use session_list (built
 		event: async ({ event }: { event: Event }) => {
 			const sid = (event as any).properties?.sessionID
 			if (!sid) return
+			if (event.type === "session.created") {
+				currentOrchestratorSessionId = sid
+			}
 			if (event.type === "session.idle") mgr.handleIdleDebounced(sid)
 			if (event.type === "session.error" || (event.type as string) === "session.aborted") {
 				const error = (event as any).properties?.error || (event as any).properties?.reason || "Session error"
@@ -861,13 +886,51 @@ Also works on ANY session ID (not just spawned ones) — use session_list (built
 			}
 		},
 
+		// ── Project status: injected into every message ──
+		"experimental.chat.messages.transform": async (_input: any, output: { messages: any[] }) => {
+			try {
+				if (!currentOrchestratorSessionId) return
+
+				let statusXml: string
+				try {
+					const project = mgr.getSessionProject(currentOrchestratorSessionId)
+					if (project) {
+						statusXml = `<project_status selected="${project.name}" path="${project.path}" />`
+					} else {
+						statusXml = [
+							`<project_status selected="false">`,
+							`All tools are gated. You must select or create a project first.`,
+							`1. project_list — see existing projects`,
+							`2. Decide: does this belong to an existing project, or create a new one?`,
+							`3. If unclear, ask the user with the question tool.`,
+							`4. project_select or project_create → project_select`,
+							`Load skill "kortix-projects-sessions" for full context.`,
+							`</project_status>`,
+						].join("\n")
+					}
+				} catch { return } // DB error — fail open
+
+				const messages = output.messages
+				for (let i = messages.length - 1; i >= 0; i--) {
+					if (messages[i]?.info?.role === "user") {
+						if (!Array.isArray(messages[i].parts)) messages[i].parts = []
+						messages[i].parts.push({ type: "text", text: wrapInKortixSystemTags(statusXml) })
+						break
+					}
+				}
+			} catch (err) {
+				console.error(`[kortix-orchestrator] project status injection failed: ${err}`)
+			}
+		},
+
 		"experimental.session.compacting": async (_input: any, output: { context: string[] }) => {
 			const active = db.prepare("SELECT d.*,p.name as pn FROM delegations d LEFT JOIN projects p ON d.project_id=p.id WHERE d.status='running'").all() as Array<DelegationRow & { pn: string }>
 			if (!active.length) return
-			const s = ["<orchestrator-state>", "Active workers:"]
-			for (const d of active) s.push(`- ${d.session_id.slice(-8)} [${d.agent}] in ${d.pn}: ${d.prompt.slice(0, 100)}`)
-			s.push("</orchestrator-state>")
-			output.context.push(s.join("\n"))
+			const inner = ["<orchestrator-state>", "Active workers:"]
+			for (const d of active) inner.push(`- ${d.session_id.slice(-8)} [${d.agent}] in ${d.pn}: ${d.prompt.slice(0, 100)}`)
+			inner.push("</orchestrator-state>")
+			// Wrap in kortix_system tags so frontend strips from UI
+			output.context.push(wrapInKortixSystemTags(inner.join("\n"), { type: "orchestrator-state", source: "kortix-orchestrator" }))
 		},
 	}
 }

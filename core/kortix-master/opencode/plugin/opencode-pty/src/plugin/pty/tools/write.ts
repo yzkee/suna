@@ -91,6 +91,8 @@ export const ptyWrite = tool({
       .replace(new RegExp(EOT, 'g'), '^D')
       .replace(/\n/g, '\\n')
       .replace(/\r/g, '\\r')
-    return `Sent ${args.data.length} bytes to ${args.id}: "${displayPreview}"`
+    
+    const inner = `Sent ${args.data.length} bytes to ${args.id}: "${displayPreview}"`
+    return `<kortix_system type="pty-write" source="opencode-pty">\n${inner}\n</kortix_system>`
   },
 })

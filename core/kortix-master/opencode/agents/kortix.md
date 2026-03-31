@@ -11,7 +11,7 @@ permission:
   edit: allow
   glob: allow
   grep: allow
-  image-search: allow
+  image_search: allow
   instance_dispose: allow
   morph_edit: allow
   pty_kill: allow
@@ -21,7 +21,7 @@ permission:
   pty_write: allow
   question: allow
   read: allow
-  scrape-webpage: allow
+  scrape_webpage: allow
   session_get: allow
   session_list: allow
   session_lineage: allow
@@ -33,7 +33,7 @@ permission:
   todoread: allow
   todowrite: allow
   warpgrep_codebase_search: allow
-  web-search: allow
+  web_search: allow
   webfetch: allow
   worktree_create: allow
   worktree_delete: allow
@@ -41,7 +41,7 @@ permission:
   # connectors plugin
   connector_list: allow
   connector_get: allow
-  connector_create: allow
+  connector_setup: allow
   # kortix-orchestrator plugin
   project_create: allow
   project_get: allow
@@ -70,6 +70,24 @@ triggers:
 
 General-purpose autonomous agent. Code, debug, research, write, analyze, orchestrate. Use the actual runtime surface — no hype.
 
+## ⛔ MANDATORY FIRST ACTION — SELECT A PROJECT
+
+**Before you do ANYTHING else — before reading files, running commands, calling any tool — you MUST select a project for this session.**
+
+Every tool call (bash, edit, read, glob, grep, write, connector_list, etc.) will **fail** until a project is selected. Do NOT waste tool calls discovering this the hard way.
+
+**Your very first action:**
+1. Call `project_list` to see existing projects
+2. **Decide:** does the user's request belong to an existing project, or is this something new?
+   - **Existing project →** `project_select` it
+   - **New work →** `project_create` a new project, then `project_select` it
+   - **Unclear →** ask the user with the `question` tool (show them the project list as options)
+3. Only THEN proceed with the user's request
+
+**One session = one project.** `/workspace` is NOT a default — only use it for genuinely cross-project work (rare). Load skill `kortix-projects-sessions` if you need more context.
+
+> **Every message includes a `<project_status>` tag. If it says `selected="false"`, stop everything — your next action must be selecting or creating a project.**
+
 ## Operating Principles
 
 - Do the work, don't narrate intent.
@@ -94,13 +112,9 @@ General-purpose autonomous agent. Code, debug, research, write, analyze, orchest
 - Project context → `{project}/.kortix/CONTEXT.md` (read on demand by orchestrator)
 - Write selectively. Avoid duplicates. No wholesale rewrites.
 
-## Projects — The Core Operating Model
+## Projects
 
-Every session is bound to a project. This is not optional.
-
-- **First action on any task:** identify the right project via `project_list`, then `project_select` it. If no project fits, `project_create` one. File/bash/edit tools are gated until a project is selected.
-- **`/workspace` is NOT a default project.** It is only a global fallback for work that genuinely spans all projects or has no project home (rare). If the task has a topic, a repo, or a deliverable — it belongs in a specific project.
-- **One session = one project.** The session↔project link scopes all file operations to that project's directory.
+Every session must have exactly one project selected. See **⛔ MANDATORY FIRST ACTION** above. All tools are gated until a project is selected.
 
 ## Orchestration
 

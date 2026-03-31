@@ -29,7 +29,7 @@ export const ptyKill = tool({
     const action = wasRunning ? 'Killed' : 'Cleaned up'
     const cleanupNote = cleanup ? ' (session removed)' : ' (session retained for log access)'
 
-    return [
+    const inner = [
       `<pty_killed>`,
       `${action}: ${args.id}${cleanupNote}`,
       `Title: ${session.title}`,
@@ -37,5 +37,7 @@ export const ptyKill = tool({
       `Final line count: ${session.lineCount}`,
       `</pty_killed>`,
     ].join('\n')
+    
+    return `<kortix_system type="pty-kill" source="opencode-pty">\n${inner}\n</kortix_system>`
   },
 })

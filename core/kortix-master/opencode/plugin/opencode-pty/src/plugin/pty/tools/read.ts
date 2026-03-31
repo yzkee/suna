@@ -26,14 +26,16 @@ function formatPtyOutput(
   paginationMessage: string,
   endMessage: string
 ): string {
-  const output = [
+  const inner = [
     `<pty_output id="${id}" status="${status}"${pattern ? ` pattern="${pattern}"` : ''}>`,
     ...formattedLines,
     '',
     hasMore ? paginationMessage : endMessage,
     `</pty_output>`,
-  ]
-  return output.join('\n')
+  ].join('\n')
+  
+  // Wrap in kortix_system tags so frontend renders as system/internal component
+  return `<kortix_system type="pty-output" source="opencode-pty">\n${inner}\n</kortix_system>`
 }
 
 /**
@@ -73,12 +75,13 @@ function handlePatternRead(
   }
 
   if (result.matches.length === 0) {
-    return [
+    const inner = [
       `<pty_output id="${id}" status="${session.status}" pattern="${pattern}">`,
       `No lines matched the pattern '${pattern}'.`,
       `Total lines in buffer: ${result.totalLines}`,
       `</pty_output>`,
     ].join('\n')
+    return `<kortix_system type="pty-output" source="opencode-pty">\n${inner}\n</kortix_system>`
   }
 
   const formattedLines = result.matches.map((match) =>
@@ -114,12 +117,13 @@ function handlePlainRead(
   }
 
   if (result.lines.length === 0) {
-    return [
+    const inner = [
       `<pty_output id="${args.id}" status="${session.status}">`,
       `(No output available - buffer is empty)`,
       `Total lines: ${result.totalLines}`,
       `</pty_output>`,
     ].join('\n')
+    return `<kortix_system type="pty-output" source="opencode-pty">\n${inner}\n</kortix_system>`
   }
 
   const formattedLines = result.lines.map((line, index) =>

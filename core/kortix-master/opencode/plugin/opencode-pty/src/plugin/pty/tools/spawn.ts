@@ -60,18 +60,17 @@ export const ptySpawn = tool({
         notifyOnExit: args.notifyOnExit,
       })
 
-      const output = [
-        `<pty_spawned>`,
+      const inner = [
         `ID: ${info.id}`,
         `Title: ${info.title}`,
         `Command: ${info.command} ${info.args.join(' ')}`,
         `Workdir: ${info.workdir}`,
         `PID: ${info.pid}`,
         `Status: ${info.status}`,
-        `</pty_spawned>`,
       ].join('\n')
 
-      return output
+      // Wrap in kortix_system tags so frontend renders as system/internal component
+      return `<kortix_system type="pty-spawn" source="opencode-pty">\n<pty_spawned>\n${inner}\n</pty_spawned>\n</kortix_system>`
     } catch (err: unknown) {
       // Re-throw permission errors as-is (they have good messages already)
       if (err instanceof Error && err.message.includes('PTY spawn denied')) {

@@ -9,6 +9,25 @@ Projects are named, path-bound work contexts. Sessions are conversation threads 
 
 ---
 
+## Project Selection — The First Thing You Do
+
+Every session requires a project. All file/bash/edit tools are gated until one is selected. The runtime injects `<project_status>` into every message so you always know the current state.
+
+### Decision Flow
+
+When a session starts with no project selected:
+
+1. **`project_list`** — see what exists
+2. **Decide** whether the user's request fits an existing project:
+   - **Clearly fits an existing project** → `project_select` it directly
+   - **Clearly new work** → `project_create` a new project, then `project_select` it
+   - **Ambiguous** → **ask the user** with the `question` tool. Show the existing projects as options and include "Create a new project" as a choice. **Do not assume.**
+3. **Only then** proceed with the actual work
+
+This is not optional. The `question` tool approach is the correct default when there's any doubt about which project the work belongs to.
+
+---
+
 ## Projects
 
 ### Project Tools
@@ -16,10 +35,10 @@ Projects are named, path-bound work contexts. Sessions are conversation threads 
 | Tool | Description |
 |---|---|
 | `project_create(name, description, path)` | Register a directory. Creates scaffold if new. Idempotent. |
-| `project_list()` | List all projects. Auto-discovers `.kortix/project.json` markers on disk. |
+| `project_list()` | List all projects with paths, session counts, descriptions. |
 | `project_get(name)` | Get one project. Accepts name (fuzzy) or absolute path. |
-| `project_update(project, name, description)` | Update name or description. Syncs to OpenCode and `project.json`. |
-| `project_select(project)` | Link this session to a project. **Required before file/bash/edit tools.** |
+| `project_update(project, name, description)` | Update name or description. |
+| `project_select(project)` | Select this project for the session. **Required before file/bash/edit tools.** |
 
 ### Project Directory Scaffold
 
@@ -67,7 +86,7 @@ Each project has a `.kortix/CONTEXT.md` file. This is the project's shared memor
 
 Every session must be linked to a project via `project_select` before using file/bash/edit tools. The link is stored in the `session_projects` table in the orchestrator DB and cached in-memory per session.
 
-Ungated tools (always allowed without a project): `project_*`, `session_*`, `worktree_*`, `web-search`, `image-search`, `scrape-webpage`, `instance-dispose`, `context7_*`, `todowrite`, `todoread`, `show`, `question`, `skill`, `webfetch`, `apply_patch`.
+Ungated tools (always allowed without a project): `project_*`, `session_*`, `worktree_*`, `web_search`, `image_search`, `scrape_webpage`, `instance_dispose`, `context7_*`, `todowrite`, `todoread`, `show`, `question`, `skill`, `webfetch`, `apply_patch`.
 
 ---
 
@@ -323,10 +342,13 @@ sqlite3 -readonly "$OC_DB" \
 ## Decision Guide
 
 ```text
+No project selected yet?
+  → project_list → decide (existing or new?) → ask user if unclear → project_select
+
 Need to create/manage projects?
   → project_create / project_list / project_get / project_update
 
-Need to link session to a project?
+Need to select a project for this session?
   → project_select
 
 Need one specific session?

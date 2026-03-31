@@ -10,7 +10,8 @@ export const ptyList = tool({
     const sessions = manager.list()
 
     if (sessions.length === 0) {
-      return '<pty_list>\nNo active PTY sessions.\n</pty_list>'
+      const inner = '<pty_list>\nNo active PTY sessions.\n</pty_list>'
+      return `<kortix_system type="pty-list" source="opencode-pty">\n${inner}\n</kortix_system>`
     }
 
     const lines = ['<pty_list>']
@@ -19,7 +20,8 @@ export const ptyList = tool({
     }
     lines.push(`Total: ${sessions.length} session(s)`)
     lines.push('</pty_list>')
-
-    return lines.join('\n')
+    
+    const inner = lines.join('\n')
+    return `<kortix_system type="pty-list" source="opencode-pty">\n${inner}\n</kortix_system>`
   },
 })
