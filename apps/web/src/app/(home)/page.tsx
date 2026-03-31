@@ -152,7 +152,7 @@ export default function Home() {
             <div className="w-8 h-[3px] rounded-full bg-muted-foreground/15" />
           </div>
 
-          {/* ── Launch Video ── */}
+          {/* ── Launch Video (commented out temporarily) ──
           <Reveal>
           <section className="max-w-5xl mx-auto px-6 pt-8 pb-10 sm:pb-14">
             <div className="rounded-xl overflow-hidden border border-border/50 bg-card/20 shadow-sm">
@@ -168,6 +168,7 @@ export default function Home() {
             </div>
           </section>
           </Reveal>
+          */}
 
         {/* ═══════════════ WHAT IS KORTIX ═══════════════ */}
         <section className="max-w-3xl mx-auto px-6 py-10 sm:py-14">

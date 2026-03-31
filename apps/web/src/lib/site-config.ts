@@ -5,7 +5,7 @@ export const siteConfig = {
       { id: 1, name: 'OS', href: '/' },
       { id: 2, name: 'About', href: '/about' },
       { id: 3, name: 'Careers', href: '/careers' },
-      { id: 4, name: 'Partnerships', href: '/partnerships' },
+      // { id: 4, name: 'Partnerships', href: '/partnerships' },
     ],
   },
   hero: {
@@ -18,7 +18,7 @@ export const siteConfig = {
       links: [
         { id: 1, title: 'About', url: '/about' },
         { id: 2, title: 'Careers', url: '/careers' },
-        { id: 3, title: 'Partnerships', url: '/partnerships' },
+        // { id: 3, title: 'Partnerships', url: '/partnerships' },
         { id: 4, title: 'Support', url: '/support' },
         { id: 5, title: 'Contact', url: 'mailto:hey@kortix.com' },
       ],
