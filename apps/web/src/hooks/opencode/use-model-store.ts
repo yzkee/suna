@@ -302,7 +302,16 @@ export function useModelStore(allModels: FlatModel[]) {
 
   const setGlobalDefault = useCallback((model: ModelKey | undefined) => {
     const s = getStore();
-    setStore({ ...s, globalDefault: model });
+    // When setting a new global default, clear ALL per-agent and per-session
+    // selections so the global default takes effect everywhere immediately.
+    // Without this, stale per-agent/per-session data from previous interactions
+    // would override the user's explicit setup choice.
+    setStore({
+      ...s,
+      globalDefault: model,
+      selectedModel: {},
+      sessionModel: {},
+    });
   }, []);
 
   return {

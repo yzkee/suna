@@ -50,8 +50,8 @@ export interface OpenCodeLocalModel {
   recent: FlatModel[];
   /** All available models */
   list: FlatModel[];
-  /** Set model (optionally push to recent) */
-  set: (model: ModelKey | undefined, options?: { recent?: boolean }) => void;
+  /** Set model (optionally push to recent, or mark as auto-seeded from message) */
+  set: (model: ModelKey | undefined, options?: { recent?: boolean; autoSeed?: boolean }) => void;
   /** Check if a model is visible */
   visible: (model: ModelKey) => boolean;
   /** Set visibility for a model */
@@ -295,12 +295,13 @@ export function useOpenCodeLocal({
   const currentModelKey = useMemo<ModelKey | undefined>(() => {
     if (!currentAgent) return undefined;
     return getFirstValidModel(
-      // 1. Per-session model (user's explicit choice in this session — survives reload)
-      () => sessionId ? modelStore.getSessionModel(sessionId) : undefined,
-      // 2. Per-agent model (persisted across sessions for this agent)
-      () => modelStore.getSelectedModel(currentAgent.name),
-      // 3. User's global default (set during onboarding setup wizard)
+      // 1. User's global default (set during onboarding setup wizard — wins until user
+      //    explicitly changes model in a session, which clears globalDefault)
       () => modelStore.globalDefault,
+      // 2. Per-session model (user's explicit choice in this session — survives reload)
+      () => sessionId ? modelStore.getSessionModel(sessionId) : undefined,
+      // 3. Per-agent model (persisted across sessions for this agent)
+      () => modelStore.getSelectedModel(currentAgent.name),
       // 4. Agent's configured default model
       () => currentAgent.model as ModelKey | undefined,
       // 5. Global fallback (config.model > recent > first connected)
@@ -321,7 +322,13 @@ export function useOpenCodeLocal({
 
   // ---- Model set (persists selection to localStorage) ----
   const setModel = useCallback(
-    (model: ModelKey | undefined, options?: { recent?: boolean }) => {
+    (model: ModelKey | undefined, options?: { recent?: boolean; autoSeed?: boolean }) => {
+      // When auto-seeding from a message and globalDefault is set, skip —
+      // the user's setup wizard choice takes precedence over message-seeded models.
+      if (options?.autoSeed && modelStore.globalDefault && isModelValid(modelStore.globalDefault)) {
+        return;
+      }
+
       const next = model ?? fallbackModel;
       if (currentAgent && next) {
         modelStore.setSelectedModel(currentAgent.name, next);
@@ -335,9 +342,14 @@ export function useOpenCodeLocal({
       }
       if (options?.recent && model) {
         modelStore.pushRecent(model);
+        // User explicitly changed model — clear globalDefault so their
+        // per-session/per-agent choice takes over going forward.
+        if (modelStore.globalDefault) {
+          modelStore.setGlobalDefault(undefined);
+        }
       }
     },
-    [currentAgent, sessionId, fallbackModel, modelStore],
+    [currentAgent, sessionId, fallbackModel, modelStore, isModelValid],
   );
 
   // ---- Agent set (matching SolidJS local.tsx:52-63) ----
@@ -401,7 +413,7 @@ export function useOpenCodeLocal({
         setModel({
           providerID: currentAgent.model.providerID,
           modelID: currentAgent.model.modelID,
-        });
+        }, { autoSeed: true });
       }
     }
     // Only trigger on agent change — intentionally exclude setModel/modelStore from deps

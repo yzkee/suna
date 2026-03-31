@@ -3196,7 +3196,7 @@ export function SessionChat({
 		// need to seed it here when it's empty (first open of this session).
 		if (!local.model.hasSessionModel) {
 			const parsedModel = parseModelKey(msg.model);
-			if (parsedModel) local.model.set(parsedModel);
+			if (parsedModel) local.model.set(parsedModel, { autoSeed: true });
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [lastUserMessage?.info.id]);
