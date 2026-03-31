@@ -48,7 +48,7 @@ This is not optional. The `question` tool approach is the correct default when t
 <project>/
 ├── .kortix/
 │   ├── project.json        # identity marker { name, description, created }
-│   ├── CONTEXT.md          # shared project context — read by worker sessions
+│   ├── CONTEXT.md          # shared project context — auto-injected for linked sessions
 │   ├── plans/              # plans and roadmaps
 │   ├── docs/               # shared docs for cross-session context
 │   └── sessions/           # persisted session results (auto-written on completion)
@@ -66,9 +66,11 @@ A git repo is initialized automatically if one doesn't exist.
 
 Each project has a `.kortix/CONTEXT.md` file. This is the project's shared memory:
 
+- Auto-injected into normal chat for sessions linked to that project.
 - Read by the orchestrator when spawning worker sessions — included in the worker assignment prompt.
 - Workers are instructed to update it with discoveries and decisions.
-- NOT auto-injected into every turn. Read on demand.
+
+Keep `CONTEXT.md` concise. Put deeper project notes in `.kortix/docs/*.md` and reference them from `CONTEXT.md`.
 
 **Write to CONTEXT.md:** project architecture, conventions, environment setup, discovered facts, cross-session decisions.
 

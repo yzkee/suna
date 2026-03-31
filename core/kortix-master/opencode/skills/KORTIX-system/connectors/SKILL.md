@@ -65,7 +65,7 @@ show({ type: "url", url: "<connectUrl>", title: "Connect Stripe — click to aut
 
 **When presenting to the user:**
 
-> "I'll connect these via Pipedream — just click each link and authorize. It's the fastest way. For services you use heavily, we can upgrade to a direct CLI or API connection later for tighter integration. Let's get going now and revisit later."
+> "I'll start with Pipedream because it's the easiest setup — one click and we're connected. It's great for getting everything online fast. For dev-heavy services like GitHub, AWS, Vercel, and Cloudflare, direct CLI or API integrations are tighter and usually better long-term, but they take more setup. We can absolutely configure those now if you want, or revisit them later once everything is connected."
 
 For each service:
 1. Search for it: `GET /api/pipedream/search-apps?q=name`
@@ -79,7 +79,7 @@ For heavy usage, direct connections are stronger:
 - **CLI** (`gh`, `aws`, `vercel`, `wrangler`) — pagination, streaming, complex workflows. Load `cli-maxxing` skill.
 - **API key** — user pastes in chat, agent saves.
 
-> "This is connected via Pipedream. If you want tighter integration later, we can set up the CLI / paste your API key and go direct — faster, no middleman."
+> "Pipedream is maximum convenience. Direct connections are tighter integration. We'll use Pipedream by default to get moving quickly, and if you care about a service deeply, we can switch it to CLI/API now or later."
 
 ---
 

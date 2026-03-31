@@ -57,12 +57,13 @@ function ensureFile(filePath: string, content: string): string {
 }
 
 /**
- * Ensure global USER.md exists at the workspace root .kortix/ directory.
- * This is the ONLY memory file. Project-specific context lives in
- * {project}/.kortix/CONTEXT.md instead. MEMORY.md is removed.
+ * Ensure global USER.md + MEMORY.md exist at the workspace root .kortix/ directory.
+ * Deeper notes can live in .kortix/memory/*.md and be referenced from MEMORY.md.
  */
-export function ensureGlobalMemoryFiles(anchorDir?: string): { userPath: string } {
+export function ensureGlobalMemoryFiles(anchorDir?: string): { userPath: string; memoryPath: string; memoryDir: string } {
 	const kortixDir = ensureKortixDir(anchorDir)
+	const memoryDir = join(kortixDir, "memory")
+	mkdirSync(memoryDir, { recursive: true })
 	return {
 		userPath: ensureFile(join(kortixDir, "USER.md"), [
 			"# User Profile",
@@ -74,6 +75,21 @@ export function ensureGlobalMemoryFiles(anchorDir?: string): { userPath: string 
 			"## Workflow Habits",
 			"",
 		].join("\n")),
+		memoryPath: ensureFile(join(kortixDir, "MEMORY.md"), [
+			"# Global Memory",
+			"",
+			"Keep this file concise. Put deeper notes in `.kortix/memory/*.md` and reference them here.",
+			"",
+			"## Environment",
+			"",
+			"## Stack",
+			"",
+			"## Accounts",
+			"",
+			"## References",
+			"",
+		].join("\n")),
+		memoryDir,
 	}
 }
 
@@ -117,15 +133,15 @@ function normalizeMemoryBody(text: string): string[] {
 }
 
 /**
- * Render memory context from global USER.md only.
- * Project-level memory files have been removed — project context
- * lives in {project}/.kortix/CONTEXT.md and AGENTS.md instead.
+ * Render global memory context from USER.md + MEMORY.md.
+ * Project context is handled separately and injected per selected project.
  */
 export function renderMergedMemoryContext(anchorDir?: string): string {
 	const globalFiles = ensureGlobalMemoryFiles(anchorDir)
 
 	const blocks = [
 		{ label: "User", lines: normalizeMemoryBody(readIfExists(globalFiles.userPath)) },
+		{ label: "Memory", lines: normalizeMemoryBody(readIfExists(globalFiles.memoryPath)) },
 	]
 
 	const rendered: string[] = []
@@ -138,4 +154,13 @@ export function renderMergedMemoryContext(anchorDir?: string): string {
 	}
 
 	return rendered.join("\n").trim()
+}
+
+export function renderProjectContext(projectPath: string): string {
+	const ctxPath = join(projectPath, ".kortix", "CONTEXT.md")
+	const raw = readIfExists(ctxPath)
+	if (!raw) return ""
+	const lines = normalizeMemoryBody(raw)
+	if (lines.length === 0) return ""
+	return ["## Project", ...lines].join("\n")
 }

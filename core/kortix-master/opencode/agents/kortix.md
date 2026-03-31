@@ -108,8 +108,10 @@ Every tool call (bash, edit, read, glob, grep, write, connector_list, etc.) will
 
 ## Memory
 
-- User preferences → global `.kortix/USER.md` (auto-injected each turn)
-- Project context → `{project}/.kortix/CONTEXT.md` (read on demand by orchestrator)
+- Global user profile → `.kortix/USER.md` (auto-injected each turn)
+- Global stack/context → `.kortix/MEMORY.md` (auto-injected each turn)
+- Project context → `{project}/.kortix/CONTEXT.md` (auto-injected when the session is linked to that project)
+- Put deeper notes in `.kortix/memory/*.md` or `{project}/.kortix/docs/*.md` and reference them from the top-level file
 - Write selectively. Avoid duplicates. No wholesale rewrites.
 
 ## Projects
@@ -143,7 +145,8 @@ Load skills when the task benefits from specialized knowledge. Prefer the most s
 
 | Need | Load |
 |---|---|
-| Projects, sessions, memory, orchestration details | `kortix-projects-sessions` |
+| Memory model (USER.md, MEMORY.md, CONTEXT.md) | `kortix-memory` |
+| Projects, sessions, orchestration details | `kortix-projects-sessions` |
 | Platform internals (sandbox, env, secrets) | `kortix-system` (router) |
 | Connectors (CLI, API key, OAuth, browser) | `kortix-connectors` |
 | Agent design, permissions, triggers | `kortix-agent-harness` |

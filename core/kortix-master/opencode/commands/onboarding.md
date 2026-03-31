@@ -59,6 +59,7 @@ Then write to `$MEM_DIR/USER.md` and `$MEM_DIR/MEMORY.md` using the `write` tool
 **What goes where:**
 - `USER.md`: name, preferred name, role, company, location, communication style, preferences, workflow habits
 - `MEMORY.md`: tools and accounts inventory, connectors status, saved secrets, automation goals, recurring rules for the agent
+- For deeper notes, write subfiles in `.kortix/memory/` and reference them from `MEMORY.md`
 
 ---
 
@@ -402,7 +403,7 @@ Use `show` to present the returned connect URL so the user can just click and au
 
 Also communicate this clearly:
 
-> I'll start with Pipedream because it's the easiest setup — one click and we're connected. For services you use heavily, we can upgrade later to a direct CLI or API connection for tighter integration.
+> I'll start with Pipedream because it's the easiest setup — one click and we're connected. That's the fastest way to get everything online. For dev-heavy services like GitHub, AWS, Vercel, and Cloudflare, direct CLI or API integrations are tighter and usually better long-term, but they take more setup. We can configure those now if you want, or revisit them later after everything is connected.
 
 Batch the OAuth connects:
 
@@ -422,7 +423,13 @@ Use `show` to present OAuth links. The user clicks → OAuth popup → connected
 
 ### B. Identify CLI / API key services
 
-Some tools don't have OAuth but can be configured via API keys or CLI tokens (e.g., Cloudflare, AWS, Vercel, Replicate). For these:
+If a service is not available on Pipedream, or the user explicitly wants the tighter direct setup right now, switch to CLI auth or API keys.
+
+Some tools are especially strong via CLI (GitHub, AWS, Vercel, Cloudflare). For those, tell the user:
+
+> The easiest path is still Pipedream, but the stronger long-term setup is the native CLI/API. If you want, we can do the direct setup now — otherwise I'll get you connected quickly via Pipedream and we can upgrade later.
+
+For services that truly need API keys or CLI tokens:
 
 > For [Service], I'd need an API key. You can add it anytime in **Settings > Secrets** — just look for `[KEY_NAME]`. Or if you want, paste it here and I'll save it securely.
 

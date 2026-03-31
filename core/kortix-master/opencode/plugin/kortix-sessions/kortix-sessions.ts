@@ -1,8 +1,30 @@
 import { type Plugin, tool } from "@opencode-ai/plugin"
 import type { Session, Todo } from "@opencode-ai/sdk"
-import { ensureGlobalMemoryFiles, renderMergedMemoryContext } from "../kortix-paths"
+import { Database } from "bun:sqlite"
+import { ensureGlobalMemoryFiles, renderMergedMemoryContext, renderProjectContext, resolveKortixDir } from "../kortix-paths"
 import { MEMORY_CONTEXT_MARKER, upsertMemoryContextAtPromptEnd, wrapInKortixSystemTags } from "./src/message-transform"
 import { DB_PATH, STORAGE_BASE, buildSessionLineage, changeSummary, formatMessages, getEnv, searchSessions, shortTs, ttcCompress } from "./src/session"
+
+const _projectPathCache = new Map<string, string | null>()
+
+function projectPathForSession(sessionID: string): string | null {
+	if (_projectPathCache.has(sessionID)) return _projectPathCache.get(sessionID)!
+	try {
+		const db = new Database(`${resolveKortixDir(import.meta.dir)}/kortix.db`, { readonly: true })
+		try {
+			const row = db
+				.query("SELECT p.path FROM session_projects sp JOIN projects p ON sp.project_id = p.id WHERE sp.session_id = ? LIMIT 1")
+				.get(sessionID) as { path?: string } | null
+			const result = row?.path || null
+			_projectPathCache.set(sessionID, result)
+			return result
+		} finally {
+			db.close()
+		}
+	} catch {
+		return null
+	}
+}
 
 export const KortixSessionsPlugin: Plugin = async ({ client, directory }) => {
 	let currentSessionId: string | null = null
@@ -37,6 +59,16 @@ export const KortixSessionsPlugin: Plugin = async ({ client, directory }) => {
 						// Wrap memory context in kortix_system tags so frontend strips it from UI
 						const memCtx = `<memory>\n${mergedMemory}\n</memory>`
 						parts.push(wrapInKortixSystemTags(memCtx, { type: "memory-context", source: "kortix-sessions" }))
+					}
+					if (currentSessionId) {
+						const projectPath = projectPathForSession(currentSessionId)
+						if (projectPath) {
+							const projectCtx = renderProjectContext(projectPath)
+							if (projectCtx) {
+								const ctx = `<project_context>\nPath: ${projectPath}\n\n${projectCtx}\n</project_context>`
+								parts.push(wrapInKortixSystemTags(ctx, { type: "project-context", source: "kortix-sessions" }))
+							}
+						}
 					}
 					if (parts.length === 0) return
 					upsertMemoryContextAtPromptEnd(

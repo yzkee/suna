@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { ensureGlobalMemoryFiles, ensureKortixDir, renderMergedMemoryContext, resolveKortixDir, resolveKortixWorkspaceRoot } from "./kortix-paths"
+import { ensureGlobalMemoryFiles, ensureKortixDir, renderMergedMemoryContext, renderProjectContext, resolveKortixDir, resolveKortixWorkspaceRoot } from "./kortix-paths"
 
 const envKeys = ["KORTIX_DIR", "KORTIX_WORKSPACE", "OPENCODE_STORAGE_BASE", "OPENCODE_CONFIG_DIR", "HOME"] as const
 const originalEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]])) as Record<(typeof envKeys)[number], string | undefined>
@@ -74,29 +74,49 @@ describe("kortix path resolution", () => {
 		expect(resolveKortixDir(path.join(workspace, "some", "other", "project"))).toBe(path.join(workspace, ".kortix"))
 	})
 
-	test("auto-creates global USER.md only (no MEMORY.md)", () => {
+	test("auto-creates global USER.md and MEMORY.md", () => {
 		const workspace = makeTempDir("kortix-paths-memory-global-")
 		process.env.KORTIX_WORKSPACE = workspace
 
 		const files = ensureGlobalMemoryFiles(path.join(workspace, "nested"))
 
 		expect(existsSync(files.userPath)).toBe(true)
+		expect(existsSync(files.memoryPath)).toBe(true)
+		expect(existsSync(files.memoryDir)).toBe(true)
 		expect(readFileSync(files.userPath, "utf8")).toContain("# User Profile")
-		// MEMORY.md no longer created
-		expect("memoryPath" in files).toBe(false)
+		expect(readFileSync(files.memoryPath, "utf8")).toContain("# Global Memory")
 	})
 
-	test("renderMergedMemoryContext returns user profile content", () => {
+	test("renderMergedMemoryContext returns USER.md and MEMORY.md content", () => {
 		const workspace = makeTempDir("kortix-paths-memory-render-")
 		process.env.KORTIX_WORKSPACE = workspace
 
 		const globalFiles = ensureGlobalMemoryFiles(workspace)
 		writeFileSync(globalFiles.userPath, "# User Profile\n\n## Preferences\n\n- concise responses\n- no builds unless asked\n")
+		writeFileSync(globalFiles.memoryPath, "# Global Memory\n\n## Stack\n\n- uses Supabase\n- prefers bun\n\n## References\n\n- [billing notes](memory/billing.md)\n")
 
 		const merged = renderMergedMemoryContext(workspace)
 		expect(merged).toContain("## User")
+		expect(merged).toContain("## Memory")
 		expect(merged).toContain("concise responses")
 		expect(merged).toContain("no builds unless asked")
+		expect(merged).toContain("uses Supabase")
+		expect(merged).toContain("[billing notes](memory/billing.md)")
+	})
+
+	test("renderProjectContext returns project CONTEXT.md content", () => {
+		const workspace = makeTempDir("kortix-paths-project-render-")
+		const project = path.join(workspace, "project-a")
+		mkdirSync(path.join(project, ".kortix"), { recursive: true })
+		writeFileSync(
+			path.join(project, ".kortix", "CONTEXT.md"),
+			"# Project A\n\n## Architecture\n\n- Next.js frontend\n- FastAPI backend\n\n## References\n\n- [deploy notes](docs/deploy.md)\n",
+		)
+
+		const ctx = renderProjectContext(project)
+		expect(ctx).toContain("## Project")
+		expect(ctx).toContain("Next.js frontend")
+		expect(ctx).toContain("[deploy notes](docs/deploy.md)")
 	})
 
 	test("renderMergedMemoryContext returns empty for skeleton files", () => {
