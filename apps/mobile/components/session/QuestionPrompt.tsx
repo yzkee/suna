@@ -17,6 +17,7 @@ import {
 import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
 import { Ionicons } from '@expo/vector-icons';
+import { useThemeColors } from '@/lib/theme-colors';
 import type {
   QuestionRequest,
   QuestionInfo,
@@ -234,6 +235,7 @@ export function QuestionPrompt({
   const borderColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
   const mutedColor = isDark ? '#888' : '#777';
   const fgColor = isDark ? '#F8F8F8' : '#121215';
+  const themeColors = useThemeColors();
   const pillActiveBg = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)';
   const pillActiveBorder = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)';
   const selectedBg = isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.04)';
@@ -447,7 +449,7 @@ export function QuestionPrompt({
                   onPress={submit}
                   activeOpacity={0.8}
                   style={{
-                    backgroundColor: fgColor,
+                    backgroundColor: themeColors.primary,
                     paddingHorizontal: 16,
                     paddingVertical: 7,
                     borderRadius: 8,
@@ -455,7 +457,7 @@ export function QuestionPrompt({
                 >
                   <RNText
                     style={{
-                      color: isDark ? '#121215' : '#F8F8F8',
+                      color: themeColors.primaryForeground,
                       fontSize: 13,
                       fontFamily: 'Roobert-Medium',
                     }}
@@ -599,13 +601,13 @@ export function QuestionPrompt({
                     style={{
                       height: 32,
                       paddingHorizontal: 10,
-                      backgroundColor: fgColor,
+                      backgroundColor: themeColors.primary,
                       borderRadius: 7,
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}
                   >
-                    <RNText style={{ color: isDark ? '#121215' : '#F8F8F8', fontSize: 12, fontFamily: 'Roobert-Medium' }}>
+                    <RNText style={{ color: themeColors.primaryForeground, fontSize: 12, fontFamily: 'Roobert-Medium' }}>
                       {isMulti ? 'Add' : 'Go'}
                     </RNText>
                   </TouchableOpacity>

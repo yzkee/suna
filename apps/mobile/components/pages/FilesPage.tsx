@@ -1158,9 +1158,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
             style={{
               backgroundColor:
                 newFolderName.trim() && !folderNameExists
-                  ? isDark
-                    ? '#f8f8f8'
-                    : '#121215'
+                  ? themeColors.primary
                   : isDark
                     ? 'rgba(248, 248, 248, 0.08)'
                     : 'rgba(18, 18, 21, 0.06)',
@@ -1175,9 +1173,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
               style={{
                 color:
                   newFolderName.trim() && !folderNameExists
-                    ? isDark
-                      ? '#121215'
-                      : '#f8f8f8'
+                    ? themeColors.primaryForeground
                     : isDark
                       ? 'rgba(248, 248, 248, 0.3)'
                       : 'rgba(18, 18, 21, 0.3)',
@@ -1316,9 +1312,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
                 disabled={!canRename || renameMutation.isPending}
                 style={{
                   backgroundColor: canRename
-                    ? isDark
-                      ? '#f8f8f8'
-                      : '#121215'
+                    ? themeColors.primary
                     : isDark
                       ? 'rgba(248, 248, 248, 0.08)'
                       : 'rgba(18, 18, 21, 0.06)',
@@ -1332,9 +1326,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
                   className="text-[15px] font-roobert-semibold"
                   style={{
                     color: canRename
-                      ? isDark
-                        ? '#121215'
-                        : '#f8f8f8'
+                      ? themeColors.primaryForeground
                       : isDark
                         ? 'rgba(248, 248, 248, 0.3)'
                         : 'rgba(18, 18, 21, 0.3)',
