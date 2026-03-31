@@ -33,8 +33,8 @@ const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(na
 
 function getDefaultKeyboardPreferences(): KeyboardShortcutPreferences {
   return {
-    tabSwitchModifier: isMac ? 'meta' : 'ctrl',
-    closeTabModifier: isMac ? 'meta' : 'ctrl',
+    tabSwitchModifier: 'ctrl',
+    closeTabModifier: 'ctrl',
   };
 }
 
