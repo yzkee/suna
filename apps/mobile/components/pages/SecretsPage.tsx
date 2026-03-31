@@ -47,6 +47,7 @@ import { useSandboxContext } from '@/contexts/SandboxContext';
 import { getAuthToken } from '@/api/config';
 import { log } from '@/lib/logger';
 import type { PageTab } from '@/stores/tab-store';
+import { useThemeColors } from '@/lib/theme-colors';
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 
@@ -186,6 +187,7 @@ export function SecretsPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: S
   const sheetBg = isDark ? '#161618' : '#FFFFFF';
   const inputBorder = isDark ? 'rgba(248,248,248,0.1)' : 'rgba(18,18,21,0.08)';
   const monoFont = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
+  const themeColors = useThemeColors();
 
   // Data
   const { secrets, isLoading, error, refetch } = useSecrets(sandboxUrl);
@@ -327,10 +329,10 @@ export function SecretsPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: S
           </View>
           <TouchableOpacity
             onPress={openAdd}
-            style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: fgColor, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8 }}
+            style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: themeColors.primary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8 }}
           >
-            <Plus size={14} color={bgColor} style={{ marginRight: 4 }} />
-            <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: bgColor }}>Add</Text>
+            <Plus size={14} color={themeColors.primaryForeground} style={{ marginRight: 4 }} />
+            <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Add</Text>
           </TouchableOpacity>
           {onOpenRightDrawer && (
             <TouchableOpacity onPress={onOpenRightDrawer} style={{ padding: 4 }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
@@ -471,12 +473,12 @@ export function SecretsPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: S
             onPress={handleAdd}
             disabled={!newKey.trim() || isSaving}
             style={{
-              backgroundColor: newKey.trim() ? fgColor : (isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.06)'),
+              backgroundColor: newKey.trim() ? themeColors.primary : (isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.06)'),
               borderRadius: 14, paddingVertical: 15, alignItems: 'center',
               opacity: newKey.trim() && !isSaving ? 1 : 0.5,
             }}
           >
-            <Text style={{ fontSize: 16, fontFamily: 'Roobert-SemiBold', color: newKey.trim() ? bgColor : mutedColor }}>
+            <Text style={{ fontSize: 16, fontFamily: 'Roobert-SemiBold', color: newKey.trim() ? themeColors.primaryForeground : mutedColor }}>
               {isSaving ? 'Adding...' : 'Add Secret'}
             </Text>
           </BottomSheetTouchable>
@@ -529,11 +531,11 @@ export function SecretsPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: S
             onPress={handleSave}
             disabled={isSaving}
             style={{
-              backgroundColor: fgColor, borderRadius: 14, paddingVertical: 15,
+              backgroundColor: themeColors.primary, borderRadius: 14, paddingVertical: 15,
               alignItems: 'center', opacity: isSaving ? 0.5 : 1,
             }}
           >
-            <Text style={{ fontSize: 16, fontFamily: 'Roobert-SemiBold', color: bgColor }}>
+            <Text style={{ fontSize: 16, fontFamily: 'Roobert-SemiBold', color: themeColors.primaryForeground }}>
               {isSaving ? 'Saving...' : 'Save'}
             </Text>
           </BottomSheetTouchable>

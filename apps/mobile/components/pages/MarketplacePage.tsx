@@ -16,6 +16,7 @@ import { SearchBar } from '@/components/ui/SearchBar';
 import { useSandboxContext } from '@/contexts/SandboxContext';
 import { getAuthToken } from '@/api/config';
 import type { PageTab } from '@/stores/tab-store';
+import { useThemeColors } from '@/lib/theme-colors';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   BottomSheetBackdrop,
@@ -336,6 +337,7 @@ function MarketplaceCard({
   const mutedColor = isDark ? '#71717a' : '#6b7280';
   const borderColor = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)';
   const cardBg = isDark ? '#161618' : '#FFFFFF';
+  const themeColors = useThemeColors();
   const typeLabel = getTypeLabel(component.type);
   const iconName = getTypeIcon(component.type);
 
@@ -416,22 +418,22 @@ function MarketplaceCard({
             gap: 5,
             backgroundColor: isInstalled
               ? 'transparent'
-              : fgColor,
+              : themeColors.primary,
             borderWidth: isInstalled ? 1 : 0,
             borderColor: borderColor,
             opacity: isInstalling ? 0.6 : 1,
           }}
         >
           {!isInstalled && !isInstalling && (
-            <Ionicons name="download-outline" size={13} color={isDark ? '#121215' : '#FFFFFF'} />
+            <Ionicons name="download-outline" size={13} color={themeColors.primaryForeground} />
           )}
           {isInstalling && (
-            <ActivityIndicator size={12} color={isDark ? '#121215' : '#FFFFFF'} />
+            <ActivityIndicator size={12} color={themeColors.primaryForeground} />
           )}
           <Text style={{
             fontSize: 12,
             fontFamily: 'Roobert-Medium',
-            color: isInstalled ? mutedColor : (isDark ? '#121215' : '#FFFFFF'),
+            color: isInstalled ? mutedColor : themeColors.primaryForeground,
           }}>
             {isInstalling ? 'Installing...' : isInstalled ? 'View' : 'Install'}
           </Text>

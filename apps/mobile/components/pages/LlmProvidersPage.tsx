@@ -49,6 +49,7 @@ import { getAuthToken } from '@/api/config';
 import { log } from '@/lib/logger';
 import { SearchBar } from '@/components/ui/SearchBar';
 import type { PageTab } from '@/stores/tab-store';
+import { useThemeColors } from '@/lib/theme-colors';
 
 // ─── Provider branding ───────────────────────────────────────────────────────
 
@@ -131,6 +132,7 @@ function ProviderRow({
   const fgColor = isDark ? '#F8F8F8' : '#121215';
   const mutedColor = isDark ? '#71717a' : '#a1a1aa';
   const borderColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const themeColors = useThemeColors();
   const modelCount = Object.keys(provider.models).length;
   const label = getProviderLabel(provider.id, provider.name);
 
@@ -193,12 +195,12 @@ function ProviderRow({
             onPress={() => onConnect(provider)}
             style={{
               flexDirection: 'row', alignItems: 'center',
-              backgroundColor: fgColor, borderRadius: 8,
+              backgroundColor: themeColors.primary, borderRadius: 8,
               paddingHorizontal: 10, paddingVertical: 5,
             }}
           >
-            <Plus size={12} color={isDark ? '#121215' : '#F8F8F8'} style={{ marginRight: 3 }} />
-            <Text style={{ fontSize: 11, fontFamily: 'Roobert-Medium', color: isDark ? '#121215' : '#F8F8F8' }}>Connect</Text>
+            <Plus size={12} color={themeColors.primaryForeground} style={{ marginRight: 3 }} />
+            <Text style={{ fontSize: 11, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Connect</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -238,6 +240,7 @@ export function LlmProvidersPage({ page, onBack, onOpenDrawer, onOpenRightDrawer
   const borderColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
   const sheetBg = isDark ? '#161618' : '#FFFFFF';
   const inputBorder = isDark ? 'rgba(248,248,248,0.1)' : 'rgba(18,18,21,0.08)';
+  const themeColors = useThemeColors();
 
   const { data: providers, isLoading, refetch } = useOpenCodeProviders(sandboxUrl);
 
@@ -598,12 +601,12 @@ export function LlmProvidersPage({ page, onBack, onOpenDrawer, onOpenRightDrawer
             onPress={handleConnect}
             disabled={!apiKey.trim() || isSaving}
             style={{
-              backgroundColor: apiKey.trim() ? fgColor : (isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.06)'),
+              backgroundColor: apiKey.trim() ? themeColors.primary : (isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.06)'),
               borderRadius: 14, paddingVertical: 15, alignItems: 'center',
               opacity: apiKey.trim() && !isSaving ? 1 : 0.5,
             }}
           >
-            <Text style={{ fontSize: 16, fontFamily: 'Roobert-SemiBold', color: apiKey.trim() ? bgColor : mutedColor }}>
+            <Text style={{ fontSize: 16, fontFamily: 'Roobert-SemiBold', color: apiKey.trim() ? themeColors.primaryForeground : mutedColor }}>
               {isSaving ? 'Connecting...' : 'Connect'}
             </Text>
           </BottomSheetTouchable>
