@@ -1,21 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { SecretStore } from '../../src/services/secret-store'
-import { existsSync, unlinkSync, mkdtempSync } from 'fs'
+import { existsSync, unlinkSync, mkdtempSync, writeFileSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { rmSync } from 'fs'
+import { randomBytes, scryptSync, createCipheriv } from 'crypto'
 
 /**
  * Comprehensive tests for the SecretStore service.
  *
- * Each test uses a unique temp directory for the secrets & salt files
- * so tests are fully isolated and don't pollute each other.
+ * Each test uses a unique temp directory for the secrets, salt, and
+ * encryption key files so tests are fully isolated.
  */
 
 describe('SecretStore', () => {
   let tempDir: string
   let secretsPath: string
   let saltPath: string
+  let encryptionKeyPath: string
 
   // Saved originals so we can restore after each test
   const savedEnv: Record<string, string | undefined> = {}
@@ -25,14 +27,17 @@ describe('SecretStore', () => {
     tempDir = mkdtempSync(join(tmpdir(), 'secret-store-test-'))
     secretsPath = join(tempDir, '.secrets.json')
     saltPath = join(tempDir, '.salt')
+    encryptionKeyPath = join(tempDir, '.encryption-key')
 
     // Save and override environment
     savedEnv.SECRET_FILE_PATH = process.env.SECRET_FILE_PATH
     savedEnv.SALT_FILE_PATH = process.env.SALT_FILE_PATH
+    savedEnv.ENCRYPTION_KEY_PATH = process.env.ENCRYPTION_KEY_PATH
     savedEnv.KORTIX_TOKEN = process.env.KORTIX_TOKEN
 
     process.env.SECRET_FILE_PATH = secretsPath
     process.env.SALT_FILE_PATH = saltPath
+    process.env.ENCRYPTION_KEY_PATH = encryptionKeyPath
     process.env.KORTIX_TOKEN = 'test-token-for-encryption'
   })
 
@@ -298,23 +303,14 @@ describe('SecretStore', () => {
 
   describe('concurrent writes (mutex)', () => {
     it('serializes concurrent set() calls — no data loss (deterministic)', async () => {
-      // Verify the mutex serializes by checking that ALL concurrent writes
-      // end up in the file. This is deterministic because we check the
-      // final state, not timing. If operations aren't serialized, the
-      // last writer wins and earlier keys are lost.
       const store = new SecretStore()
 
-      // Fire 10 concurrent writes — each reads the file, adds a key, writes back.
-      // Without a mutex, only the last one to write survives.
       await Promise.all(
         Array.from({ length: 10 }, (_, i) =>
           store.set(`CONCURRENT_${i}`, `value_${i}`),
         ),
       )
 
-      // ALL 10 must be present. Without mutex this is impossible when
-      // any two writes overlap (which they will — there's no sync point
-      // between the read and write inside set()).
       const keys = await store.listKeys()
       expect(keys.length).toBe(10)
       for (let i = 0; i < 10; i++) {
@@ -340,8 +336,6 @@ describe('SecretStore', () => {
     it('onboarding scenario — 4 concurrent env writes all persist (deterministic)', async () => {
       const store = new SecretStore()
 
-      // Exact reproduction of onboarding Phase 8: 4 curls hit POST /env/:key
-      // concurrently (HTTP server handles them in parallel on the event loop)
       await Promise.all([
         store.set('ONBOARDING_COMPLETE', 'true'),
         store.set('ONBOARDING_USER_NAME', 'Test User'),
@@ -349,8 +343,6 @@ describe('SecretStore', () => {
         store.set('ONBOARDING_COMPLETED_AT', '2026-03-19T00:00:00Z'),
       ])
 
-      // Without mutex: typically only 1-2 of 4 keys survive.
-      // With mutex: all 4 guaranteed.
       expect(await store.get('ONBOARDING_COMPLETE')).toBe('true')
       expect(await store.get('ONBOARDING_USER_NAME')).toBe('Test User')
       expect(await store.get('ONBOARDING_USER_SUMMARY')).toBe('Developer at Acme')
@@ -381,6 +373,238 @@ describe('SecretStore', () => {
       // A second store reads the same salt and can decrypt
       const store2 = new SecretStore()
       expect(await store2.get('KEY1')).toBe('val1')
+    })
+
+    it('encryption key is created once and reused', async () => {
+      const store1 = new SecretStore()
+      await store1.set('KEY1', 'val1')
+
+      // Encryption key file should exist now
+      expect(existsSync(encryptionKeyPath)).toBe(true)
+
+      // A second store reads the same encryption key and can decrypt
+      const store2 = new SecretStore()
+      expect(await store2.get('KEY1')).toBe('val1')
+    })
+  })
+
+  // ─── KORTIX_TOKEN independence ──────────────────────────────────────────
+
+  describe('encryption decoupled from KORTIX_TOKEN', () => {
+    it('secrets survive KORTIX_TOKEN change', async () => {
+      const store1 = new SecretStore()
+      await store1.set('API_KEY', 'sk-test-123')
+      await store1.set('OTHER_KEY', 'other-value')
+
+      // Simulate KORTIX_TOKEN change (API restart, rotation, etc.)
+      process.env.KORTIX_TOKEN = 'completely-different-token'
+
+      // New store instance with new KORTIX_TOKEN — secrets should still work
+      const store2 = new SecretStore()
+      expect(await store2.get('API_KEY')).toBe('sk-test-123')
+      expect(await store2.get('OTHER_KEY')).toBe('other-value')
+    })
+
+    it('secrets survive KORTIX_TOKEN being unset', async () => {
+      const store1 = new SecretStore()
+      await store1.set('IMPORTANT', 'must-survive')
+
+      // Simulate KORTIX_TOKEN being completely absent
+      delete process.env.KORTIX_TOKEN
+
+      const store2 = new SecretStore()
+      expect(await store2.get('IMPORTANT')).toBe('must-survive')
+    })
+
+    it('rotateToken does NOT break existing secrets', async () => {
+      const store = new SecretStore()
+      await store.set('BEFORE_ROTATE', 'original-value')
+
+      // Rotate token
+      await store.rotateToken('brand-new-token')
+
+      // Secrets should still be readable
+      expect(await store.get('BEFORE_ROTATE')).toBe('original-value')
+      expect(process.env.KORTIX_TOKEN).toBe('brand-new-token')
+    })
+  })
+
+  // ─── No auto-purge ──────────────────────────────────────────────────────
+
+  describe('no auto-purge of undecryptable secrets', () => {
+    it('loadIntoProcessEnv does NOT delete secrets it cannot decrypt', async () => {
+      // Write a secrets file with garbage encrypted data
+      const fakeSecrets = {
+        secrets: {
+          GOOD_KEY: '', // will be properly encrypted below
+          BAD_KEY: 'invalid:encrypted:data',
+        },
+        version: 2,
+      }
+
+      // We need a real encrypted value for GOOD_KEY
+      const store = new SecretStore()
+      await store.set('GOOD_KEY', 'good-value')
+
+      // Now tamper: add a bad key directly to the file
+      const data = JSON.parse(readFileSync(secretsPath, 'utf8'))
+      data.secrets.BAD_KEY = 'definitely:not:valid-encrypted-hex'
+      writeFileSync(secretsPath, JSON.stringify(data, null, 2))
+
+      // Load — should skip BAD_KEY but NOT delete it
+      const store2 = new SecretStore()
+      await store2.loadIntoProcessEnv()
+
+      // Good key should be loaded
+      expect(process.env.GOOD_KEY).toBe('good-value')
+
+      // BAD_KEY should NOT be in process.env (can't decrypt)
+      expect(process.env.BAD_KEY).toBeUndefined()
+
+      // But BAD_KEY should STILL be on disk
+      const afterData = JSON.parse(readFileSync(secretsPath, 'utf8'))
+      expect(afterData.secrets.BAD_KEY).toBe('definitely:not:valid-encrypted-hex')
+    })
+
+    it('getAll does NOT delete secrets it cannot decrypt', async () => {
+      const store = new SecretStore()
+      await store.set('REAL_KEY', 'real-value')
+
+      // Tamper the file
+      const data = JSON.parse(readFileSync(secretsPath, 'utf8'))
+      data.secrets.CORRUPTED = 'garbage:auth:data'
+      writeFileSync(secretsPath, JSON.stringify(data, null, 2))
+
+      // getAll should return only decryptable keys
+      const store2 = new SecretStore()
+      const all = await store2.getAll()
+      expect(all).toEqual({ REAL_KEY: 'real-value' })
+
+      // Corrupted key should still be on disk
+      const afterData = JSON.parse(readFileSync(secretsPath, 'utf8'))
+      expect(afterData.secrets.CORRUPTED).toBe('garbage:auth:data')
+    })
+  })
+
+  // ─── V1 → V2 Migration ─────────────────────────────────────────────────
+
+  describe('v1 → v2 migration', () => {
+    /**
+     * Helper: create a v1-style secrets file encrypted with KORTIX_TOKEN-derived key.
+     * This mimics what the old SecretStore would have written.
+     */
+    function createV1Secrets(token: string, secrets: Record<string, string>) {
+      // Generate salt
+      const salt = randomBytes(32)
+      writeFileSync(saltPath, salt, { mode: 0o600 })
+
+      // Derive key the old way: scrypt(KORTIX_TOKEN, salt, 32)
+      const key = scryptSync(token, salt, 32)
+
+      // Encrypt each value
+      const encrypted: Record<string, string> = {}
+      for (const [k, v] of Object.entries(secrets)) {
+        const iv = randomBytes(16)
+        const cipher = createCipheriv('aes-256-gcm', key, iv)
+        let enc = cipher.update(v, 'utf8', 'hex')
+        enc += cipher.final('hex')
+        const authTag = cipher.getAuthTag()
+        encrypted[k] = `${iv.toString('hex')}:${authTag.toString('hex')}:${enc}`
+      }
+
+      // Write v1 secrets file (no version field, or version: 1)
+      const data = { secrets: encrypted, version: 1 }
+      writeFileSync(secretsPath, JSON.stringify(data, null, 2), { mode: 0o600 })
+    }
+
+    it('automatically migrates v1 secrets to v2 on first access', async () => {
+      // Create v1 secrets (encrypted with KORTIX_TOKEN)
+      createV1Secrets('test-token-for-encryption', {
+        OPENAI_KEY: 'sk-old-openai',
+        CUSTOM_VAR: 'my-custom-value',
+      })
+
+      // No encryption key file yet
+      expect(existsSync(encryptionKeyPath)).toBe(false)
+
+      // Create store — should auto-migrate
+      const store = new SecretStore()
+      const val = await store.get('OPENAI_KEY')
+      expect(val).toBe('sk-old-openai')
+      expect(await store.get('CUSTOM_VAR')).toBe('my-custom-value')
+
+      // Encryption key file should now exist
+      expect(existsSync(encryptionKeyPath)).toBe(true)
+
+      // Secrets file should be v2
+      const data = JSON.parse(readFileSync(secretsPath, 'utf8'))
+      expect(data.version).toBe(2)
+    })
+
+    it('creates a backup before migration', async () => {
+      createV1Secrets('test-token-for-encryption', { KEY: 'value' })
+
+      const store = new SecretStore()
+      await store.get('KEY')
+
+      // Check backup file exists
+      const files = require('fs').readdirSync(tempDir)
+      const backups = files.filter((f: string) => f.includes('backup-pre-v2-migration'))
+      expect(backups.length).toBe(1)
+    })
+
+    it('migrated secrets survive KORTIX_TOKEN change', async () => {
+      createV1Secrets('test-token-for-encryption', {
+        PRESERVED: 'must-survive-token-change',
+      })
+
+      // Migrate
+      const store1 = new SecretStore()
+      expect(await store1.get('PRESERVED')).toBe('must-survive-token-change')
+
+      // Change token
+      process.env.KORTIX_TOKEN = 'new-completely-different-token'
+
+      // Should still work (encryption key is now independent)
+      const store2 = new SecretStore()
+      expect(await store2.get('PRESERVED')).toBe('must-survive-token-change')
+    })
+  })
+
+  // ─── Encryption key rotation ────────────────────────────────────────────
+
+  describe('rotateEncryptionKey', () => {
+    it('re-encrypts all secrets with a new key', async () => {
+      const store = new SecretStore()
+      await store.set('KEY_A', 'value-a')
+      await store.set('KEY_B', 'value-b')
+
+      // Read the raw encrypted values before rotation
+      const beforeData = JSON.parse(readFileSync(secretsPath, 'utf8'))
+      const beforeA = beforeData.secrets.KEY_A
+
+      const result = await store.rotateEncryptionKey()
+      expect(result.rotated).toBe(2)
+      expect(result.failed).toBe(0)
+
+      // Values should still be readable
+      expect(await store.get('KEY_A')).toBe('value-a')
+      expect(await store.get('KEY_B')).toBe('value-b')
+
+      // Raw encrypted data should be different (new key)
+      const afterData = JSON.parse(readFileSync(secretsPath, 'utf8'))
+      expect(afterData.secrets.KEY_A).not.toBe(beforeA)
+    })
+
+    it('creates a backup before rotation', async () => {
+      const store = new SecretStore()
+      await store.set('KEY', 'value')
+
+      await store.rotateEncryptionKey()
+
+      const files = require('fs').readdirSync(tempDir)
+      const backups = files.filter((f: string) => f.includes('backup-pre-key-rotation'))
+      expect(backups.length).toBe(1)
     })
   })
 })

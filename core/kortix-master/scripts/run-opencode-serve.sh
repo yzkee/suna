@@ -4,7 +4,7 @@
 
 export HOME=/workspace
 export XDG_DATA_HOME=/workspace/.local/share
-export OPENCODE_CONFIG_DIR=/opt/kortix-master/opencode
+export OPENCODE_CONFIG_DIR=/ephemeral/kortix-master/opencode
 export OPENCODE_FILE_ROOT=/
 export BUN_PTY_LIB=/opt/bun-pty-musl/librust_pty.so
 export PATH="/opt/bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH"

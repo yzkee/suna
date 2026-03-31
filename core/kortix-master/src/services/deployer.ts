@@ -64,7 +64,7 @@ const BASE_RESTART_DELAY = 1_000    // initial backoff delay (doubles each retry
 const MAX_RESTART_DELAY  = 30_000   // cap backoff at 30s
 
 // ECONNRESET guard — injected into NODE_OPTIONS for all deployed processes
-const ECONNRESET_GUARD_PATH = '/opt/kortix-master/econnreset-guard.cjs'
+const ECONNRESET_GUARD_PATH = '/ephemeral/kortix-master/econnreset-guard.cjs'
 
 /**
  * Build NODE_OPTIONS value that includes the ECONNRESET guard.

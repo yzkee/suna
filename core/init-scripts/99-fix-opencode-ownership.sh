@@ -31,14 +31,9 @@ chown -R "$ABC_UID:$ABC_GID" \
   /workspace/.git \
   2>/dev/null || true
 
-# /opt dirs — runtime code that abc may need to write into (plugin caches, etc.)
-# After consolidation, /opt/opencode, /opt/opencode-channels, /opt/opencode-agent-triggers
-# are symlinks into /opt/kortix-master/ — chown -R follows symlinks by default.
+# /ephemeral dirs — shipped runtime that abc may need to write into (plugin caches, etc.)
 chown -R "$ABC_UID:$ABC_GID" \
-  /opt/kortix-master \
-  /opt/kortix \
-  /opt/agent-browser-viewer \
-  /opt/services \
+  /ephemeral \
   2>/dev/null || true
 
 echo "[fix-ownership] Done."

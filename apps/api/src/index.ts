@@ -240,7 +240,7 @@ if (config.KORTIX_DEPLOYMENTS_ENABLED) {
   const { deploymentsApp } = await import('./deployments');
   app.route('/v1/deployments', deploymentsApp); // /v1/deployments/*
 }
-app.route('/v1/integrations', integrationsApp); // /v1/integrations/*
+app.route('/v1/pipedream', integrationsApp);
 
 // Access control — public endpoints for signup gating
 app.route('/v1/access', accessControlApp); // /v1/access/signup-status, /v1/access/check-email, /v1/access/request-access
@@ -388,6 +388,7 @@ app.notFound((c) => {
 async function injectSandboxToken(sandboxId: string, accountId: string): Promise<void> {
   const { db } = await import('./shared/db');
   const { kortixApiKeys } = await import('@kortix/db');
+  const { sandboxes } = await import('@kortix/db');
   const { eq, and } = await import('drizzle-orm');
   const { execSync } = await import('child_process');
   const rawDockerHost = config.DOCKER_HOST || process.env.DOCKER_HOST || '';
@@ -407,23 +408,61 @@ async function injectSandboxToken(sandboxId: string, accountId: string): Promise
     }
   } catch { /* keep default */ }
 
-  const dockerExec = (token: string) => {
+  const writeS6EnvVars = (token: string) => {
     execSync(
       `docker exec kortix-sandbox bash -c "printf '%s' '${token}' > /run/s6/container_environment/KORTIX_TOKEN && printf '%s' '${kortixApiUrl}' > /run/s6/container_environment/KORTIX_API_URL && printf '%s' '${token}' > /run/s6/container_environment/TUNNEL_TOKEN && printf '%s' '${kortixApiUrl}' > /run/s6/container_environment/TUNNEL_API_URL"`,
       { stdio: 'pipe', env: dockerEnv },
     );
   };
 
-  // Find existing sandbox API key
+  const { createApiKey } = await import('./repositories/api-keys');
+  const { validateSecretKey } = await import('./repositories/api-keys');
+
+  // ─── Try to reuse the existing key from sandbox config ─────────────────
+  // The sandbox row stores the plaintext serviceKey in config.serviceKey.
+  // If it's still valid (exists in API keys table), reuse it instead of
+  // re-issuing. This prevents changing KORTIX_TOKEN on every API restart,
+  // which would break SecretStore encryption (for v1) or require unnecessary
+  // service restarts (for v2).
+  const [sandbox] = await db.select().from(sandboxes)
+    .where(eq(sandboxes.sandboxId, sandboxId));
+  const existingServiceKey = (sandbox?.config as any)?.serviceKey as string | undefined;
+
+  if (existingServiceKey) {
+    try {
+      const validation = await validateSecretKey(existingServiceKey);
+      if (validation.isValid) {
+        // Key is still valid — just re-sync to s6 env dir (in case sandbox restarted)
+        try {
+          writeS6EnvVars(existingServiceKey);
+          console.log('[startup] KORTIX_TOKEN synced to sandbox (existing key reused — no re-issue needed)');
+          return;
+        } catch (e: any) {
+          console.warn('[startup] Failed to sync existing key to sandbox, will re-issue:', e?.message);
+        }
+      }
+    } catch {
+      // Validation failed — fall through to re-issue
+    }
+  }
+
+  // ─── Existing key invalid or missing — re-issue ────────────────────────
+  console.log('[startup] Re-issuing sandbox token (existing key invalid or missing)');
+
+  // Clean up old keys
   const [key] = await db.select().from(kortixApiKeys)
     .where(and(eq(kortixApiKeys.sandboxId, sandboxId), eq(kortixApiKeys.type, 'sandbox')));
-  const { createApiKey } = await import('./repositories/api-keys');
-
-  // Always re-issue — we can't recover plaintext from hash
   if (key) await db.delete(kortixApiKeys).where(eq(kortixApiKeys.keyId, key.keyId));
+
   const newKey = await createApiKey({ sandboxId, accountId, title: 'Sandbox Token', type: 'sandbox' });
+
+  // Persist the new key in sandbox config so we can reuse it next time
+  await db.update(sandboxes)
+    .set({ config: { serviceKey: newKey.secretKey }, updatedAt: new Date() })
+    .where(eq(sandboxes.sandboxId, sandboxId));
+
   try {
-    dockerExec(newKey.secretKey);
+    writeS6EnvVars(newKey.secretKey);
     // Restart opencode so it picks up the new token — retry until it's running
     const killOpencode = () => {
       try {
@@ -439,7 +478,7 @@ async function injectSandboxToken(sandboxId: string, accountId: string): Promise
         killOpencode();
       }
     }
-    console.log('[startup] KORTIX_TOKEN injected into sandbox');
+    console.log('[startup] KORTIX_TOKEN injected into sandbox (new key issued)');
   } catch (e: any) {
     console.error('[startup] Failed to inject KORTIX_TOKEN:', e?.message);
   }
@@ -520,7 +559,7 @@ console.log(`
 ║    /v1/router     (search, LLM, proxy)                    ║
 ║    /v1/billing    (subscriptions, credits, webhooks)       ║
 ║    /v1/platform   (sandbox lifecycle)                      ║
-${config.KORTIX_DEPLOYMENTS_ENABLED ? '║    /v1/deployments (deploy lifecycle)                      ║\n' : ''}║    /v1/integrations (OAuth integrations)                    ║
+${config.KORTIX_DEPLOYMENTS_ENABLED ? '║    /v1/deployments (deploy lifecycle)                      ║\n' : ''}║    /v1/pipedream   (Pipedream OAuth integrations)           ║
 ║    /v1/setup      (setup & env management)                 ║
 ║    /v1/queue      (persistent message queue)               ║
 ║    /v1/tunnel     (reverse-tunnel to local machines)         ║

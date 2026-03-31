@@ -414,7 +414,8 @@ export class LocalDockerProvider implements SandboxProvider {
         const cleanupContainer = await this.docker.createContainer({
           Image: 'alpine:latest',
           Cmd: ['sh', '-c', [
-            'chown -R 1000:1000 /workspace 2>/dev/null || true',
+            // Use 911:911 (abc user from linuxserver base image), NOT 1000
+            'chown -R 911:911 /workspace 2>/dev/null || true',
             'find /workspace -name "*.db-wal" -o -name "*.db-shm" 2>/dev/null | xargs rm -f',
             'echo "volume prepared"',
           ].join(' && ')],
@@ -836,12 +837,12 @@ export class LocalDockerProvider implements SandboxProvider {
     });
 
     const env = [
-      'PUID=1000',
-      'PGID=1000',
+      'PUID=911',
+      'PGID=911',
       'TZ=Etc/UTC',
       'SUBFOLDER=/',
       'TITLE=Kortix Sandbox',
-      'OPENCODE_CONFIG_DIR=/opt/opencode',
+      'OPENCODE_CONFIG_DIR=/ephemeral/kortix-master/opencode',
       'OPENCODE_PERMISSION={"*":"allow"}',
       'DISPLAY=:1',
       'LSS_DIR=/workspace/.lss',
@@ -849,8 +850,10 @@ export class LocalDockerProvider implements SandboxProvider {
       'PYTHONUSERBASE=/workspace/.local',
       'PIP_USER=1',
       'NPM_CONFIG_PREFIX=/workspace/.npm-global',
+      // ── Persistent secret paths (all under /workspace/.secrets/) ──────
       'SECRET_FILE_PATH=/workspace/.secrets/.secrets.json',
       'SALT_FILE_PATH=/workspace/.secrets/.salt',
+      // ENCRYPTION_KEY_PATH auto-derived from SECRET_FILE_PATH dir
       `KORTIX_API_URL=${getSandboxInternalApiUrl()}`,
       `KORTIX_TOKEN=${authToken}`,
       `INTERNAL_SERVICE_KEY=${serviceKey}`,

@@ -20,7 +20,7 @@ coreRouter.post('/reconcile',
   describeRoute({
     tags: ['System'],
     summary: 'Reconcile core services from disk',
-    description: 'Reloads /opt/kortix/core/service-spec.json and reconciles running services.',
+    description: 'Reloads /ephemeral/metadata/core/service-spec.json and reconciles running services.',
     responses: { 200: { description: 'Reconcile result' }, 500: { description: 'Reconcile failed' } },
   }),
   async (c) => {

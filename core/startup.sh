@@ -1,12 +1,24 @@
 #!/bin/bash
+# ─────────────────────────────────────────────────────────────────────────────
 # Container entrypoint — boots s6-overlay inside a PID namespace.
 #
-# Daytona runs its own agent as PID 1, but s6-overlay requires PID 1.
-# Solution: use `unshare --pid --fork` to create a PID namespace where
-# /init (s6-overlay) becomes PID 1. This gives 100% parity with local Docker.
+# PERSISTENCE MODEL:
+#   /workspace/  = PERSISTENT  (Docker volume — survives restart, recreate, update)
+#   /opt/        = EPHEMERAL   (image layer — replaced on every image update)
+#   /run/s6/     = EPHEMERAL   (tmpfs — rebuilt from /workspace/.secrets/ on boot)
 #
-# The sandbox runtime is baked into the Docker image at build time.
-# Updates = pull new image + recreate container. User data in /workspace volume.
+# On boot, this script:
+#   1. Ensures all persistent dirs exist under /workspace/
+#   2. Migrates legacy layouts (symlinks → real dirs)
+#   3. Fixes file ownership for the abc user
+#   4. Cleans stale locks/WAL files from previous container
+#   5. Hands off to s6-overlay (/init)
+#
+# The s6 init scripts then:
+#   - Restore secrets → s6 env dir (97-secrets-to-s6-env.sh)
+#   - Set up git, tool deps, env guards (98-kortix-env.sh)
+#   - Restore user-installed apk/pip/npm packages (99-restore-packages.sh)
+# ─────────────────────────────────────────────────────────────────────────────
 
 set -e
 
@@ -17,9 +29,10 @@ WORKSPACE_GID="$(id -g abc 2>/dev/null || echo 911)"
 
 echo "[startup] Preparing Kortix sandbox..."
 
-# ── Workspace dirs ──────────────────────────────────────────────────────────
+# ── Persistent dirs (all under /workspace/) ─────────────────────────────────
 # /workspace is the ONLY persistent volume. Everything outside /workspace
 # is ephemeral and gets reset on container recreate/update.
+# If something needs to survive, it MUST be in /workspace/.
 mkdir -p \
   /workspace/.agent-browser \
   /workspace/.browser-profile \
@@ -133,9 +146,7 @@ chmod 700 /workspace/.secrets 2>/dev/null || true
 # but if the image was built with an older Dockerfile that used 1000:1000,
 # this ensures they are corrected at runtime too.
 chown -R "$WORKSPACE_UID:$WORKSPACE_GID" \
-  /opt/kortix-master /opt/kortix \
-  /opt/agent-browser-viewer \
-  /opt/services \
+  /ephemeral \
   2>/dev/null || true
 
 # ── Initialize ocx (marketplace CLI) ────────────────────────────────────────
@@ -174,8 +185,8 @@ if [ ! -L /config ] && [ ! -d /config ]; then
 fi
 
 # ── Verify runtime exists ───────────────────────────────────────────────────
-if [ ! -e /opt/kortix-master ]; then
-  echo "[startup] WARNING: /opt/kortix-master not found! Rebuild the Docker image."
+if [ ! -e /ephemeral/kortix-master ]; then
+  echo "[startup] WARNING: /ephemeral/kortix-master not found! Rebuild the Docker image."
 fi
 
 echo "[startup] Starting s6-overlay via PID namespace..."

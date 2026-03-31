@@ -3,22 +3,46 @@
 # kortix/computer — sandbox image
 #
 # ONE image. Everything baked at build time. No OTA, no npm, no symlinks.
-# Updates = pull new image + recreate container. User data in /workspace volume.
+# Updates = pull new image + recreate container.
+#
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │                      PERSISTENCE CONTRACT                              │
+# │                                                                        │
+# │  /workspace/   = PERSISTENT  (Docker volume, survives everything)      │
+# │  /opt/         = AVAILABLE   (user/system, container layer)            │
+# │  /ephemeral/   = SHIPPED     (Kortix runtime, REPLACED on update)     │
+# │  /run/s6/      = TMPFS       (rebuilt from /workspace on boot)         │
+# │                                                                        │
+# │  Rule: ALL user state MUST live under /workspace/.                     │
+# │  Rule: NEVER store runtime state in /ephemeral/. It gets replaced.     │
+# │  Rule: /run/s6/container_environment/ is rebuilt from encrypted        │
+# │        secrets at boot via 97-secrets-to-s6-env.sh.                    │
+# └─────────────────────────────────────────────────────────────────────────┘
 #
 # Container layout:
-#   /opt/kortix-master/          Consolidated daemon — Hono server, OpenCode config, channels, triggers
-#   /opt/kortix-master/opencode/ OpenCode config dir — agents, tools, skills, plugins
-#   /opt/kortix-master/channels/ Chat SDK (Slack/Discord/Telegram)
-#   /opt/kortix-master/triggers/ Cron + webhook triggers
-#   /opt/agent-browser-viewer/   Browser viewer HTML
-#   /opt/kortix/                 Version metadata, service spec, changelog
+#   PERSISTENT (/workspace/ volume):
+#     .secrets/                    Encrypted secrets, salt, encryption key
+#     .local/share/opencode/       OpenCode state (sessions, SQLite DBs)
+#     .local/bin/, .local/lib/     User pip packages
+#     .npm-global/                 User npm -g packages
+#     .opencode/                   OpenCode config (skills, agents from marketplace)
+#     .kortix/                     Kortix state, package manifests
+#     .lss/                        LSS search index
+#     .browser-profile/            Chromium profile
+#     .cache/opencode/             OpenCode runtime cache
+#     .git/                        Workspace git repo
+#     *                            User code, projects, files
 #
-# Source layout (core/):
-#   kortix-master/               Hono proxy + service-spec.json
-#   s6-services/                 s6-rc.d longrun services (+ browser viewer HTML)
-#   init-scripts/                /custom-cont-init.d boot scripts (95-98)
-#   docker/                      Dockerfile, compose files, .env
-#   startup.sh                   Container entrypoint
+#   EPHEMERAL (/ephemeral/ — shipped runtime, replaced on update):
+#     /ephemeral/kortix-master/    Hono server, OpenCode config, channels, triggers
+#     /ephemeral/metadata/         Version metadata, service spec, changelog
+#     /ephemeral/agent-browser-viewer/ Browser viewer HTML
+#     /ephemeral/services/         Service scripts
+#     /ephemeral/startup.sh        Container entrypoint
+#
+#   THIRD-PARTY (/opt/ — baked at build, not user-modifiable):
+#     /opt/bun/                    Bun runtime
+#     /opt/bun-pty-musl/           PTY native library
 #
 
 # ── Stage 1: Build musl-compatible bun-pty Rust library ─────────────────────
@@ -85,7 +109,9 @@ COPY --from=rust-pty-builder /build/librust_pty.so /opt/bun-pty-musl/librust_pty
 RUN chmod 644 /opt/bun-pty-musl/librust_pty.so
 ENV BUN_PTY_LIB=/opt/bun-pty-musl/librust_pty.so
 
-# ── Workspace ───────────────────────────────────────────────────────────────
+# ── Workspace (PERSISTENT zone — Docker volume) ─────────────────────────────
+# Everything in /workspace/ survives container recreate/update.
+# The Docker volume is mounted here. This is the ONLY persistent storage.
 RUN mkdir -p /workspace/.browser-profile \
     /workspace/.lss /workspace/.cache/opencode /workspace/presentations \
     /workspace/.local/share/opencode /workspace/.local/share/opencode/log \
@@ -145,7 +171,7 @@ RUN for svc in svc-kortix-master svc-sshd svc-opencode-serve svc-opencode-web sv
     && chmod +x /etc/s6-overlay/s6-rc.d/svc-*/finish 2>/dev/null || true
 
 # ── Service scripts (baked-in JS — no more /tmp/ temp files) ────────────────
-COPY core/services/ /opt/services/
+COPY core/services/ /ephemeral/services/
 
 # Silence spammy base-image desktop finish script
 RUN printf '#!/bin/bash\nPID_FILE="/de-pid"\nif [ ! -r "$PID_FILE" ]; then exit 0; fi\nPARENT_PID=$(cat "$PID_FILE")\nif [ -z "$PARENT_PID" ]; then rm -f "$PID_FILE"; exit 0; fi\nPIDS=$(pstree -p "$PARENT_PID" 2>/dev/null | grep -o "([0-9]\\+)" | grep -o "[0-9]\\+" | grep -v "^${PARENT_PID}$")\n[ -n "$PIDS" ] && echo "$PIDS" | xargs kill -TERM -- 2>/dev/null && sleep 1\nrm -f "$PID_FILE"\nexit 0\n' > /etc/s6-overlay/s6-rc.d/svc-de/finish \
@@ -166,8 +192,8 @@ COPY core/scripts/apk-persist /usr/local/bin/apk-persist
 RUN chmod +x /usr/local/bin/apk-persist
 
 # ── E2E test scripts ────────────────────────────────────────────────────────
-COPY core/tests/ /opt/tests/
-RUN chmod +x /opt/tests/*.sh 2>/dev/null || true
+COPY core/tests/ /ephemeral/tests/
+RUN chmod +x /ephemeral/tests/*.sh 2>/dev/null || true
 
 # ── Copy source packages to build staging area ──────────────────────────────
 # All sandbox packages are now consolidated inside core/kortix-master/
@@ -182,27 +208,27 @@ COPY core/CHANGELOG.json /opt/build/CHANGELOG.json
 RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSION}..." && \
     \
     # ── 1. kortix-master (single bun install — includes triggers, channels, opencode deps) ── \
-    mkdir -p /opt/kortix-master && \
+    mkdir -p /ephemeral/kortix-master && \
     rsync -a --exclude=node_modules --exclude=bun.lock --exclude=.git \
-      /opt/build/kortix-master/ /opt/kortix-master/ && \
-    cd /opt/kortix-master && bun install 2>&1 && \
-    test -d /opt/kortix-master/node_modules && \
-    chmod +x /opt/kortix-master/scripts/*.sh 2>/dev/null || true && \
+      /opt/build/kortix-master/ /ephemeral/kortix-master/ && \
+    cd /ephemeral/kortix-master && bun install 2>&1 && \
+    test -d /ephemeral/kortix-master/node_modules && \
+    chmod +x /ephemeral/kortix-master/scripts/*.sh 2>/dev/null || true && \
     echo "[docker] kortix-master: bun install OK (includes triggers, channels, opencode)" && \
     \
     # ── 2. skills shipped in-tree under skills/KORTIX-system/ (recursive discovery) ── \
-    echo "[docker] skills: agent-tunnel, agent-browser, presentations in /opt/kortix-master/opencode/skills/KORTIX-system/" && \
-    bash /opt/kortix-master/opencode/patches/apply.sh /opt/kortix-master/opencode && \
+    echo "[docker] skills: agent-tunnel, agent-browser, presentations in /ephemeral/kortix-master/opencode/skills/KORTIX-system/" && \
+    bash /ephemeral/kortix-master/opencode/patches/apply.sh /ephemeral/kortix-master/opencode && \
     \
     # ── 4. Binary patches ── \
-    if [ -f /opt/kortix-master/opencode/patches/patch-opencode-streaming.js ]; then \
-      node /opt/kortix-master/opencode/patches/patch-opencode-streaming.js || true; \
+    if [ -f /ephemeral/kortix-master/opencode/patches/patch-opencode-streaming.js ]; then \
+      node /ephemeral/kortix-master/opencode/patches/patch-opencode-streaming.js || true; \
     fi && \
     \
     # ── 5. bun-pty musl patches ── \
     ARCH=$(uname -m) && \
     for PTY_DIR in \
-        /opt/kortix-master/node_modules/bun-pty/rust-pty/target/release \
+        /ephemeral/kortix-master/node_modules/bun-pty/rust-pty/target/release \
         /opt/bun/install/cache/bun-pty@*/rust-pty/target/release; do \
       [ -d "$PTY_DIR" ] || continue; \
       if [ "$ARCH" = "x86_64" ]; then \
@@ -213,15 +239,15 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
     done && \
     \
     # ── 6. Agent browser viewer ── \
-    mkdir -p /opt/agent-browser-viewer && \
-    rsync -a --delete /opt/build/browser-viewer/ /opt/agent-browser-viewer/ && \
+    mkdir -p /ephemeral/agent-browser-viewer && \
+    rsync -a --delete /opt/build/browser-viewer/ /ephemeral/agent-browser-viewer/ && \
     \
     # ── 7. Version metadata + core contract ── \
-    mkdir -p /opt/kortix/core && \
-    printf '{"version":"%s","updatedAt":"%s"}\n' "${SANDBOX_VERSION}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > /opt/kortix/.version && \
-    cp /opt/build/CHANGELOG.json /opt/kortix/CHANGELOG.json && \
-    cp /opt/build/kortix-master/service-spec.json /opt/kortix/core/service-spec.json && \
-    test -f /opt/kortix/core/service-spec.json && \
+    mkdir -p /ephemeral/metadata/core && \
+    printf '{"version":"%s","updatedAt":"%s"}\n' "${SANDBOX_VERSION}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > /ephemeral/metadata/.version && \
+    cp /opt/build/CHANGELOG.json /ephemeral/metadata/CHANGELOG.json && \
+    cp /opt/build/kortix-master/service-spec.json /ephemeral/metadata/core/service-spec.json && \
+    test -f /ephemeral/metadata/core/service-spec.json && \
     \
     # ── 8. Global CLI binaries (direct install, no intermediate package.json) ── \
     npm install -g --no-audit --no-fund \
@@ -253,8 +279,7 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
     # CRITICAL: Use abc:abc (UID 911) — NOT 1000:1000. The linuxserver base image \
     # creates user abc with UID 911. All runtime processes (opencode, kortix-master) \
     # run as abc via s6-setuidgid. Using 1000 causes EACCES everywhere at runtime. \
-    chown -R abc:abc /opt/kortix-master /opt/kortix \
-      /opt/agent-browser-viewer \
+    chown -R abc:abc /ephemeral \
       2>/dev/null || true && \
     \
     # ── 11. Cleanup ── \
@@ -262,8 +287,8 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
     echo "[docker] Build complete."
 
 # ── Startup entrypoint ────────────────────────────────────────────────────────
-COPY core/startup.sh /opt/startup.sh
-RUN chmod +x /opt/startup.sh
+COPY core/startup.sh /ephemeral/startup.sh
+RUN chmod +x /ephemeral/startup.sh
 
 # ── Runtime persistence — user-installed packages survive restarts ────────────
 # These ENVs are set AFTER the build step intentionally. During build, npm/pip
@@ -289,7 +314,7 @@ ENV AGENT_BROWSER_ARGS="--no-sandbox,--disable-gpu,--disable-dev-shm-usage,--dis
 ENV AGENT_BROWSER_USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 ENV AGENT_BROWSER_IDLE_TIMEOUT_MS=0
 ENV AGENT_BROWSER_STREAM_PORT=9223
-ENV OPENCODE_CONFIG_DIR=/opt/kortix-master/opencode
+ENV OPENCODE_CONFIG_DIR=/ephemeral/kortix-master/opencode
 ENV SANDBOX_VERSION=${SANDBOX_VERSION}
 
 # ── Desktop config — Selkies streaming ───────────────────────────────────────
@@ -317,4 +342,4 @@ ENV SELKIES_USE_BROWSER_CURSORS=true
 
 EXPOSE 22 3456 6080 6081 3111 3210 8000 9222 9223 9224
 
-ENTRYPOINT ["/opt/startup.sh"]
+ENTRYPOINT ["/ephemeral/startup.sh"]

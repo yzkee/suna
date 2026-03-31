@@ -25,13 +25,13 @@ if [ ! -f "$MUSL_SO" ]; then
 fi
 
 # ── Prerequisite: bun-pty node_modules ───────────────────────────────────────
-BUN_PTY_PKG="/opt/kortix-master/node_modules/bun-pty/package.json"
+BUN_PTY_PKG="/ephemeral/kortix-master/node_modules/bun-pty/package.json"
 if [ -f "$BUN_PTY_PKG" ]; then
     BUN_PTY_VER=$(python3 -c "import json; print(json.load(open('$BUN_PTY_PKG'))['version'])" 2>/dev/null || echo "unknown")
     echo "[fix-bun-pty] bun-pty installed: v${BUN_PTY_VER}"
 else
     echo "[fix-bun-pty] ERROR: bun-pty not found at $BUN_PTY_PKG!"
-    echo "[fix-bun-pty]   Run: cd /opt/kortix-master && bun install"
+    echo "[fix-bun-pty]   Run: cd /ephemeral/kortix-master && bun install"
 fi
 
 # ── Patch musl .so into all bun-pty locations ────────────────────────────────
@@ -40,7 +40,7 @@ REPLACED=0
 
 if [ -f "$MUSL_SO" ]; then
     for PTY_DIR in \
-        /opt/kortix-master/node_modules/bun-pty/rust-pty/target/release \
+        /ephemeral/kortix-master/node_modules/bun-pty/rust-pty/target/release \
         /opt/bun/install/cache/bun-pty@*/rust-pty/target/release \
         /workspace/.cache/opencode/node_modules/bun-pty/rust-pty/target/release; do
         [ -d "$PTY_DIR" ] || continue
@@ -96,9 +96,9 @@ if [ -d "$S6_ENV_DIR" ] && [ -f "$MUSL_SO" ]; then
 fi
 
 # ── Smoke test: verify bun can load bun-pty ──────────────────────────────────
-if command -v bun >/dev/null 2>&1 && [ -d /opt/kortix-master/node_modules/bun-pty ]; then
+if command -v bun >/dev/null 2>&1 && [ -d /ephemeral/kortix-master/node_modules/bun-pty ]; then
     echo "[fix-bun-pty] Running bun-pty smoke test..."
-    SMOKE_RESULT=$(cd /opt/kortix-master && bun -e "
+    SMOKE_RESULT=$(cd /ephemeral/kortix-master && bun -e "
       try {
         const m = require('bun-pty');
         const keys = Object.keys(m);

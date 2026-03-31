@@ -211,7 +211,7 @@ export const UpdateStatusResponse = z.object({
   message: z.string().describe('Human-readable status message'),
   targetVersion: z.string().nullable().describe('Target version being installed'),
   previousVersion: z.string().nullable().describe('Version before update started'),
-  currentVersion: z.string().describe('Version currently reported by /opt/kortix/.version'),
+  currentVersion: z.string().describe('Version currently reported by /ephemeral/metadata/.version'),
   startedAt: z.string().nullable().describe('ISO timestamp when the update started'),
   updatedAt: z.string().nullable().describe('ISO timestamp when status was last updated'),
   error: z.string().nullable().describe('Failure details when phase is failed'),

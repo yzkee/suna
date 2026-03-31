@@ -40,6 +40,7 @@ export const config = {
   // Secret storage
   SECRET_FILE_PATH: process.env.SECRET_FILE_PATH || '/workspace/.secrets/.secrets.json',
   SALT_FILE_PATH: process.env.SALT_FILE_PATH || '/workspace/.secrets/.salt',
+  ENCRYPTION_KEY_PATH: process.env.ENCRYPTION_KEY_PATH || '/workspace/.secrets/.encryption-key',
 
   // Sandbox metadata
   SANDBOX_ID: process.env.SANDBOX_ID || '',

@@ -377,8 +377,8 @@ export class JustAVPSProvider implements SandboxProvider {
       TAVILY_API_URL: `${routerBase}/tavily`,
       REPLICATE_API_URL: `${routerBase}/replicate`,
       SERPER_API_URL: `${routerBase}/serper`,
-      PUID: '1000',
-      PGID: '1000',
+      PUID: '911',
+      PGID: '911',
       ...opts.envVars,
     };
 

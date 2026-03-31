@@ -90,10 +90,12 @@ describe('ENV API Routes', () => {
     // Save and override environment so SecretStore uses temp paths
     savedEnv.SECRET_FILE_PATH = process.env.SECRET_FILE_PATH
     savedEnv.SALT_FILE_PATH = process.env.SALT_FILE_PATH
+    savedEnv.ENCRYPTION_KEY_PATH = process.env.ENCRYPTION_KEY_PATH
     savedEnv.KORTIX_TOKEN = process.env.KORTIX_TOKEN
 
     process.env.SECRET_FILE_PATH = join(tempDir, '.secrets.json')
     process.env.SALT_FILE_PATH = join(tempDir, '.salt')
+    process.env.ENCRYPTION_KEY_PATH = join(tempDir, '.encryption-key')
     process.env.KORTIX_TOKEN = 'test-token-env-routes'
 
     // Build a fresh app with a new SecretStore (reads current process.env)

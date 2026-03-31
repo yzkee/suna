@@ -4,7 +4,7 @@
     {
       "id": "opencode-serve",
       "name": "OpenCode API",
-      "run": "/opt/kortix-master/scripts/run-opencode-serve.sh",
+      "run": "/ephemeral/kortix-master/scripts/run-opencode-serve.sh",
       "deps": [],
       "autoStart": true,
       "restart": "always",

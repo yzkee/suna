@@ -1,30 +1,37 @@
-# Sandbox Docker Compose — single instance, fixed ports.
+# ─────────────────────────────────────────────────────────────────────────────
+# Kortix Sandbox — Docker Compose (single instance, fixed ports)
+# ─────────────────────────────────────────────────────────────────────────────
 #
-# This mirrors the local Docker provider behavior in kortix-api:
-# - container name is always `kortix-sandbox`
-# - host ports are stable so the frontend never chases random mappings
+# PERSISTENCE MODEL
+# =================
 #
-# Default host port range: 14000-14008
-# If you already have something running on that range, edit the mappings below.
+# The sandbox has exactly TWO zones:
 #
-# ── Networking ──────────────────────────────────────────────────────────────
+#   /workspace/   →  PERSISTENT (Docker named volume "sandbox_data")
+#                    Everything the user cares about lives here:
+#                    code, secrets, sessions, packages, config, state.
+#                    Survives container recreate, image update, restart.
+#                    This is the ONLY volume. If it's in /workspace, it persists.
 #
-# Two dev scenarios:
+#   /ephemeral/  →  SHIPPED RUNTIME (image layer, REPLACED on every update)
+#                    Kortix server, OpenCode config, services, metadata.
+#                    Rebuilt from scratch on every `docker pull` + recreate.
+#                    NEVER store user data here. NEVER modify at runtime.
 #
-#   1. API running on host (pnpm run dev)  →  default, no extra config needed
-#      Sandbox reaches API via host.docker.internal:8008
+#   /opt/        →  SYSTEM (image layer, user/system packages)
+#                    Third-party tools (bun, etc). Container-layer only.
 #
-#   2. API running in Docker (kortix stack) →  set KORTIX_NETWORK to join
-#      the API's Docker network so sandbox can use Docker DNS (kortix-api:8008)
+# On container recreate (image update):
+#   ✅ /workspace/*          — preserved (volume)
+#   ✅ secrets, encryption   — preserved (/workspace/.secrets/)
+#   ✅ OpenCode state/DB     — preserved (/workspace/.local/share/opencode/)
+#   ✅ user-installed pkgs   — preserved (/workspace/.local/, .npm-global/, .kortix/packages/)
+#   ✅ git repos, projects   — preserved (/workspace/)
+#   ❌ /opt/*                — replaced (new image)
+#   ❌ /run/s6/              — rebuilt from /workspace/.secrets/ on boot
+#   ❌ apk system packages   — re-installed from manifest on boot (99-restore-packages.sh)
 #
-#      KORTIX_NETWORK=kortix_default docker compose up
-#
-# ── Volume ──────────────────────────────────────────────────────────────────
-#
-# Single persistent volume mounted at /workspace (user data) and /config
-# (linuxserver.io home dir for abc user). Secrets stored under /workspace/.secrets.
-#
-# ────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 
 services:
   desktop:
@@ -38,7 +45,6 @@ services:
     container_name: kortix-sandbox
     privileged: true
     extra_hosts:
-      # Ensures host.docker.internal works on Linux too (macOS/Windows have it built-in)
       - "host.docker.internal:host-gateway"
     environment:
       - PUID=911
@@ -46,17 +52,20 @@ services:
       - TZ=Etc/UTC
       - SUBFOLDER=/
       - TITLE=Kortix Sandbox ${SANDBOX_NAME:-default}
-      - OPENCODE_CONFIG_DIR=/opt/kortix-master/opencode
+      - OPENCODE_CONFIG_DIR=/ephemeral/kortix-master/opencode
       - OPENCODE_PERMISSION={"*":"allow"}
       - DISPLAY=:1
       - LSS_DIR=/workspace/.lss
       - KORTIX_WORKSPACE=/workspace
+      # ── Persistent package paths (all under /workspace/) ──────────────
       - PYTHONUSERBASE=/workspace/.local
       - PIP_USER=1
       - NPM_CONFIG_PREFIX=/workspace/.npm-global
+      # ── Persistent secret paths (all under /workspace/.secrets/) ──────
       - SECRET_FILE_PATH=/workspace/.secrets/.secrets.json
       - SALT_FILE_PATH=/workspace/.secrets/.salt
-      # Default: API on host (pnpm run dev). Override for Docker-to-Docker.
+      # ENCRYPTION_KEY_PATH is auto-derived from SECRET_FILE_PATH dir
+      # ── Sandbox identity (injected by kortix-api or set manually) ─────
       - KORTIX_API_URL=${KORTIX_API_URL:-http://host.docker.internal:8008}
       - KORTIX_TOKEN=${KORTIX_TOKEN:-}
       - INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY:-}
@@ -70,6 +79,10 @@ services:
     env_file:
       - .env
     volumes:
+      # ── THE persistence volume ─────────────────────────────────────────
+      # Single volume, mounted at /workspace. This is the ONLY persistent
+      # storage. /config is a symlink to /workspace (linuxserver compat).
+      # Everything that needs to survive container recreate MUST live here.
       - sandbox_data:/workspace
       - sandbox_data:/config
     ports:
@@ -85,9 +98,6 @@ services:
     shm_size: "2gb"
     restart: unless-stopped
     healthcheck:
-      # Returns 200 only when OpenCode is reachable; 503 while starting.
-      # curl -f treats 503 as failure, so Docker marks the container as
-      # "starting" until OpenCode is ready — exactly what we want.
       test: ["CMD", "curl", "-f", "http://localhost:8000/kortix/health"]
       interval: 10s
       timeout: 5s

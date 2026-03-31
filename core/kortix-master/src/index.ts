@@ -23,7 +23,7 @@ import webProxyRouter from './routes/web-proxy'
 import { updateRoutes as updateRouter } from './routes/update'
 import deployRouter from './routes/deploy'
 import servicesRouter from './routes/services'
-import integrationsRouter from './routes/integrations'
+import pipedreamRouter, { pushPipedreamCredsToApi } from './routes/pipedream'
 import suggestionsRouter from './routes/suggestions'
 import coreRouter from './routes/core'
 import cronRouter from './routes/cron'
@@ -37,7 +37,7 @@ import { loadBootstrapEnv, saveBootstrapEnv } from './services/bootstrap-env'
 import { HealthResponse, PortsResponse } from './schemas/common'
 
 // ─── Changelog ──────────────────────────────────────────────────────────────
-const CHANGELOG_FILE = '/opt/kortix/CHANGELOG.json'
+const CHANGELOG_FILE = '/ephemeral/metadata/CHANGELOG.json'
 
 async function getChangelog(version: string) {
   try {
@@ -281,7 +281,7 @@ app.get('/kortix/health',
   async (c) => {
     let version = '0.0.0'
     try {
-      const file = Bun.file('/opt/kortix/.version')
+      const file = Bun.file('/ephemeral/metadata/.version')
       if (await file.exists()) {
         const data = await file.json()
         version = data.version || '0.0.0'
@@ -347,8 +347,8 @@ app.route('/kortix/marketplace', marketplaceRouter)
 app.route('/kortix/projects', projectsRouter)
 app.route('/kortix/projects/', projectsRouter)
 
-// Integration proxy — /api/integrations/* forwards to kortix-api
-app.route('/api/integrations', integrationsRouter)
+// Pipedream integration proxy — forwards to kortix-api
+app.route('/api/pipedream', pipedreamRouter)
 
 // Pipedream event receiver — forwards events from Pipedream to the
 // agent-triggers webhook server (port 8099). Auth is skipped for this
@@ -417,6 +417,9 @@ app.all('*',
 )
 
 console.log(`[Kortix Master] Starting on port ${config.PORT}`)
+
+// Push Pipedream creds to API after boot (async, non-blocking)
+setTimeout(() => pushPipedreamCredsToApi(), 5_000)
 console.log(`[Kortix Master] Proxying to OpenCode at ${config.OPENCODE_HOST}:${config.OPENCODE_PORT}`)
 console.log(`[Kortix Master] API docs available at http://localhost:${config.PORT}/docs`)
 

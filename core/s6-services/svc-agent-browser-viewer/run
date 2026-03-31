@@ -15,11 +15,11 @@ if [ "$(id -u)" -eq 0 ]; then
     HOME=/workspace \
     AGENT_BROWSER_SOCKET_DIR="$SOCKET_DIR" \
     AGENT_BROWSER_STREAM_PORT=9223 \
-    s6-setuidgid abc bun run /opt/services/agent-browser-viewer.js
+    s6-setuidgid abc bun run /ephemeral/services/agent-browser-viewer.js
 fi
 
 exec env \
   HOME=/workspace \
   AGENT_BROWSER_SOCKET_DIR="$SOCKET_DIR" \
   AGENT_BROWSER_STREAM_PORT=9223 \
-  bun run /opt/services/agent-browser-viewer.js
+  bun run /ephemeral/services/agent-browser-viewer.js

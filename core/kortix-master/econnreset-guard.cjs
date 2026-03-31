@@ -1,7 +1,7 @@
 /**
  * econnreset-guard.cjs — Dev server crash protection
  *
- * Preloaded via NODE_OPTIONS='--require=/opt/kortix-master/econnreset-guard.cjs'
+ * Preloaded via NODE_OPTIONS='--require=/ephemeral/kortix-master/econnreset-guard.cjs'
  *
  * Prevents dev servers (Vite 7, Astro, Next.js, etc.) from crashing when
  * clients disconnect through the Kortix reverse proxy. Socket errors like

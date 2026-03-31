@@ -233,13 +233,14 @@ envRouter.get('/:key',
   },
 )
 
-// POST /env/rotate-token — atomically rotate KORTIX_TOKEN and re-encrypt all secrets.
-// Called by the platform API after regenerating a sandbox key.
+// POST /env/rotate-token — rotate KORTIX_TOKEN.
+// Encryption is decoupled from KORTIX_TOKEN, so this just updates the token
+// value and restarts services. No re-encryption needed.
 envRouter.post('/rotate-token',
   describeRoute({
     tags: ['Secrets'],
-    summary: 'Rotate encryption token',
-    description: 'Atomically rotates the KORTIX_TOKEN and re-encrypts all secrets with the new key. Always restarts services.',
+    summary: 'Rotate KORTIX_TOKEN',
+    description: 'Rotates the KORTIX_TOKEN used for sandbox↔API authentication. Encryption is decoupled — secrets are NOT re-encrypted. Always restarts services.',
     responses: {
       200: { description: 'Token rotated', content: { 'application/json': { schema: resolver(RotateTokenResponse) } } },
       400: { description: 'Invalid body', content: { 'application/json': { schema: resolver(ErrorResponse) } } },
@@ -256,7 +257,7 @@ envRouter.post('/rotate-token',
         return c.json({ error: 'Request body must contain a "token" string' }, 400)
       }
 
-      // Atomic rotation: decrypt all with old key → switch → re-encrypt with new key
+      // Update token — encryption is decoupled, no re-encryption needed
       const result = await secretStore.rotateToken(newToken)
 
       // Persist new token to s6 env dir + bootstrap so it survives service/container restarts
@@ -266,7 +267,7 @@ envRouter.post('/rotate-token',
       // Restart OpenCode to pick up the new token
       await restartServices()
 
-      console.log(`[ENV API] Token rotated, re-encrypted ${result.rotated} secrets`)
+      console.log(`[ENV API] KORTIX_TOKEN rotated. ${result.rotated} secret(s) unaffected (encryption decoupled).`)
       return c.json({ ok: true, ...result })
     } catch (error) {
       console.error('[ENV API] Token rotation error:', error)

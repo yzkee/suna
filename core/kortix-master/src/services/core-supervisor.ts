@@ -34,7 +34,7 @@ interface ManagedProc {
   intentionallyStopped: boolean
 }
 
-const CORE_SPEC_PATH = '/opt/kortix/core/service-spec.json'
+const CORE_SPEC_PATH = '/ephemeral/metadata/core/service-spec.json'
 const LEGACY_S6_SERVICES = [
   'svc-opencode-serve',
   'svc-opencode-web',
@@ -132,7 +132,7 @@ export class CoreSupervisor {
       'sudo bash /etc/s6-overlay/s6-rc.d/svc-opencode-channels/run',
       '/usr/local/bin/opencode serve --port 4096 --hostname 0.0.0.0',
       '/usr/local/bin/opencode web --port 3111 --hostname 0.0.0.0',
-      '/opt/kortix-master/channels/src/index.ts',
+      '/ephemeral/kortix-master/channels/src/index.ts',
       '/tmp/static-web-server.js', // legacy temp file
     ]
 

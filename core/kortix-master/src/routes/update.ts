@@ -4,8 +4,8 @@ import { ErrorResponse, UpdateResponse, UpdateStatusResponse } from '../schemas/
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const VERSION_FILE = '/opt/kortix/.version';
-const CHANGELOG_FILE = '/opt/kortix/CHANGELOG.json';
+const VERSION_FILE = '/ephemeral/metadata/.version';
+const CHANGELOG_FILE = '/ephemeral/metadata/CHANGELOG.json';
 const KORTIX_DATA_DIR = '/workspace/.kortix';
 const UPDATE_STATUS_FILE = KORTIX_DATA_DIR + '/update-status.json';
 
