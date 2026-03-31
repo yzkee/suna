@@ -257,12 +257,13 @@ export default function HomeScreen() {
   const router = useRouter();
   const {
     sandboxUrl, sandboxId, isLoading: sandboxLoading, error: sandboxError,
-    isProvisioning, provisioningSandboxId, onProvisioningComplete,
+    isProvisioning, provisioningSandboxId, provisioningProvider, onProvisioningComplete,
   } = useSandboxContext();
 
   // ── Provisioning progress poller ──
   const poller = useSandboxPoller({
     sandboxId: provisioningSandboxId,
+    provider: provisioningProvider,
     enabled: isProvisioning,
   });
 
@@ -944,6 +945,7 @@ export default function HomeScreen() {
           progress={poller.progress}
           stages={poller.stages}
           currentStage={poller.currentStage}
+          stageMessage={poller.stageMessage}
           machineInfo={poller.machineInfo}
           error={poller.error}
         />

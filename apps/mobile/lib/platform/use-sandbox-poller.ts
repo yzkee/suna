@@ -25,6 +25,7 @@ export interface SandboxPollerState {
   progress: number;
   stages: ProvisioningStageInfo[] | null;
   currentStage: string | null;
+  stageMessage: string | null;
   machineInfo: { ip: string; serverType: string; location: string } | null;
   error: string | null;
   stageEnteredAt: number | null;
@@ -43,6 +44,7 @@ interface StatusResponse {
 
 interface UseSandboxPollerOpts {
   sandboxId?: string | null;
+  provider?: string | null;
   enabled?: boolean;
   timeoutMs?: number;
 }
@@ -55,6 +57,7 @@ function initial(): SandboxPollerState {
     progress: 0,
     stages: null,
     currentStage: null,
+    stageMessage: null,
     machineInfo: null,
     error: null,
     stageEnteredAt: null,
@@ -119,9 +122,12 @@ async function waitForOpenCodeHealthy(
 export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
   const {
     sandboxId = null,
+    provider = null,
     enabled = true,
     timeoutMs = 660_000,
   } = opts;
+
+  const isLocalDocker = provider === 'local_docker';
 
   const [state, setState] = useState<SandboxPollerState>(initial);
   const stateRef = useRef<SandboxPollerState>(state);
@@ -181,6 +187,48 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
       const token = await getAuthToken();
       if (!token) return null;
 
+      // Local Docker uses a different status endpoint
+      if (isLocalDocker) {
+        const res = await fetch(`${API_URL}/platform/init/local/status`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/json',
+          },
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        const d = data?.data ?? data;
+
+        // Map local docker status to our StatusResponse shape
+        if (d.status === 'ready' || d.status === 'running') {
+          return { status: 'active', stage: null, stageProgress: 100, stageMessage: 'Ready', machineInfo: null, stages: null, startedAt: null };
+        }
+        if (d.status === 'error') {
+          return { status: 'error', stage: null, stageProgress: 0, stageMessage: d.message, machineInfo: null, stages: null, error: d.message || 'Provisioning failed', startedAt: null };
+        }
+        // Map to provisioning stages the UI understands
+        const progress = d.progress ?? 0;
+        const message = d.status === 'creating' ? 'Creating container...' : d.message || 'Pulling sandbox image...';
+        let stage = 'cloud_init_running'; // generic provisioning stage
+        if (progress < 10) stage = 'server_creating';
+        else if (progress < 30) stage = 'server_created';
+        else if (progress < 60) stage = 'cloud_init_running';
+        else if (progress < 80) stage = 'cloud_init_done';
+        else if (progress < 95) stage = 'services_starting';
+        else stage = 'services_ready';
+
+        return {
+          status: 'provisioning',
+          stage,
+          stageProgress: progress,
+          stageMessage: message,
+          machineInfo: null,
+          stages: null,
+          startedAt: null,
+        };
+      }
+
+      // Cloud (JustAVPS) — standard status endpoint
       const res = await fetch(`${API_URL}/platform/sandbox/${sandboxId}/status`, {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -194,7 +242,7 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
     } catch {
       return null;
     }
-  }, [sandboxId]);
+  }, [sandboxId, isLocalDocker]);
 
   // ── Polling loop ────────────────────────────────────────────────────────
 
@@ -205,7 +253,8 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
     update({ status: 'polling', stageEnteredAt: Date.now() });
 
     // Start interpolation interval (smooth progress between polls)
-    if (!interpolationRef.current) {
+    // Skip for local docker — backend provides real progress every 2s
+    if (!isLocalDocker && !interpolationRef.current) {
       interpolationRef.current = setInterval(() => {
         const s = stateRef.current;
         if (s.status !== 'polling' || !s.currentStage || s.stageEnteredAt === null) return;
@@ -269,10 +318,16 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
         } else {
           // Still provisioning — update state
           const isNewStage = d.stage !== null && d.stage !== stateRef.current.currentStage;
+          // Local docker: use raw progress from backend (real pull %)
+          // Cloud: use max of current and backend progress (interpolation fills gaps)
+          const newProgress = isLocalDocker
+            ? (d.stageProgress ?? stateRef.current.progress)
+            : Math.max(stateRef.current.progress, d.stageProgress ?? stateRef.current.progress);
           update({
-            progress: Math.max(stateRef.current.progress, d.stageProgress ?? stateRef.current.progress),
+            progress: newProgress,
             stages: d.stages ?? stateRef.current.stages,
             currentStage: d.stage ?? stateRef.current.currentStage,
+            stageMessage: d.stageMessage ?? stateRef.current.stageMessage,
             machineInfo: d.machineInfo ?? stateRef.current.machineInfo,
             stageEnteredAt: isNewStage ? Date.now() : stateRef.current.stageEnteredAt,
           });
@@ -282,7 +337,7 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
       }
 
       if (!stoppedRef.current) {
-        pollTimerRef.current = setTimeout(tick, 5_000);
+        pollTimerRef.current = setTimeout(tick, isLocalDocker ? 2_000 : 5_000);
       }
     };
 

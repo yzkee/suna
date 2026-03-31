@@ -146,6 +146,7 @@ export interface ProvisioningProgressProps {
   progress: number;
   stages: ProvisioningStageInfo[] | null;
   currentStage: string | null;
+  stageMessage: string | null;
   machineInfo: { ip: string; serverType: string; location: string } | null;
   error: string | null;
 }
@@ -154,6 +155,7 @@ export function ProvisioningProgress({
   progress,
   stages,
   currentStage,
+  stageMessage,
   machineInfo,
   error,
 }: ProvisioningProgressProps) {
@@ -167,9 +169,11 @@ export function ProvisioningProgress({
 
   const stageDisplayText = useMemo(() => {
     if (error) return error;
+    // Prefer backend message (e.g. "Pulling sandbox image...") over static labels
+    if (stageMessage) return stageMessage;
     if (!currentStage) return 'Preparing your workspace';
     return STAGE_LABELS[currentStage] || 'Preparing your workspace';
-  }, [currentStage, error]);
+  }, [currentStage, stageMessage, error]);
 
   const primaryColor = isDark ? '#e84d8a' : '#d6336c';
   const primaryColorFaint = isDark ? 'rgba(232,77,138,0.5)' : 'rgba(214,51,108,0.5)';
