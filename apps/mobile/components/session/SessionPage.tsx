@@ -240,6 +240,9 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
     async (text: string, options: PromptOptions, mentions?: TrackedMention[]) => {
       if (!sandboxUrl) return;
 
+      // Clear the tracked input text so it isn't saved when a question appears
+      inputTextRef.current = '';
+
       // Process session mentions — append XML refs (same as frontend)
       let finalText = text;
       const sessionMentions = mentions?.filter((m) => m.kind === 'session' && m.value);
