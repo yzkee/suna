@@ -1,54 +1,42 @@
 import type { Context } from 'hono';
 import { config } from '../../config';
 import { PipedreamProvider } from './pipedream';
+import { getAccountCreds } from '../credential-store';
 import type { AuthProvider } from './types';
 
 export type { AuthProvider, ConnectedAccount, AuthToken, ConnectTokenResult, AppInfo, AppListResult } from './types';
 
-let _provider: AuthProvider | null = null;
-let _providerUnavailable = false;
+let _default: AuthProvider | null = null;
+let _defaultChecked = false;
 
 /**
- * Get or create the global (env-based) auth provider singleton.
- * Returns null if global creds are not configured.
+ * Get or create the global (env-based) provider singleton.
+ * This is tier 3 — the fallback when no request headers or account creds exist.
  */
-export function createAuthProvider(): AuthProvider | null {
-  if (_provider) return _provider;
-  if (_providerUnavailable) return null;
+function getDefaultProvider(): AuthProvider | null {
+  if (_default) return _default;
+  if (_defaultChecked) return null;
+  _defaultChecked = true;
 
-  const providerName = config.INTEGRATION_AUTH_PROVIDER;
-
-  if (providerName === 'pipedream') {
-    if (!config.PIPEDREAM_CLIENT_ID || !config.PIPEDREAM_CLIENT_SECRET || !config.PIPEDREAM_PROJECT_ID) {
-      _providerUnavailable = true;
-      console.warn('[integrations] Pipedream env creds not configured — integrations require X-Pipedream-* request headers');
-      return null;
-    }
-    _provider = new PipedreamProvider({
+  if (config.PIPEDREAM_CLIENT_ID && config.PIPEDREAM_CLIENT_SECRET && config.PIPEDREAM_PROJECT_ID) {
+    _default = new PipedreamProvider({
       clientId: config.PIPEDREAM_CLIENT_ID,
       clientSecret: config.PIPEDREAM_CLIENT_SECRET,
       projectId: config.PIPEDREAM_PROJECT_ID,
       environment: config.PIPEDREAM_ENVIRONMENT,
     });
-    return _provider;
+    return _default;
   }
 
-  _providerUnavailable = true;
+  console.warn('[pipedream] No default Pipedream creds in env — will rely on per-account or per-request creds');
   return null;
 }
 
 /**
- * Extract Pipedream credential overrides from request headers.
- * The sandbox can send its own Pipedream creds via these headers:
- *   X-Pipedream-Client-Id
- *   X-Pipedream-Client-Secret
- *   X-Pipedream-Project-Id
- *   X-Pipedream-Environment (optional, defaults to 'production')
- *
- * Returns an ephemeral PipedreamProvider if all required headers are present,
- * otherwise falls back to the global provider, or throws if neither is available.
+ * Resolve a PipedreamProvider from request headers (tier 1).
+ * Returns null if headers are incomplete.
  */
-export function getProviderFromRequest(c: Context): AuthProvider {
+function fromHeaders(c: Context): AuthProvider | null {
   const clientId = c.req.header('x-pipedream-client-id');
   const clientSecret = c.req.header('x-pipedream-client-secret');
   const projectId = c.req.header('x-pipedream-project-id');
@@ -57,13 +45,55 @@ export function getProviderFromRequest(c: Context): AuthProvider {
     const environment = c.req.header('x-pipedream-environment') || 'production';
     return new PipedreamProvider({ clientId, clientSecret, projectId, environment });
   }
-
-  const global = createAuthProvider();
-  if (!global) {
-    throw new Error(
-      'No Pipedream credentials available. Either configure PIPEDREAM_* env vars on the API, ' +
-      'or send X-Pipedream-Client-Id, X-Pipedream-Client-Secret, and X-Pipedream-Project-Id headers.',
-    );
-  }
-  return global;
+  return null;
 }
+
+/**
+ * 3-tier credential resolution:
+ *   1. Request headers (x-pipedream-*) — sandbox proxy override
+ *   2. Account credentials (DB)        — per-user, set via sandbox/frontend
+ *   3. API defaults (env vars)         — global fallback
+ *
+ * For routes that have an accountId, pass it to enable tier 2.
+ */
+export async function getProviderFromRequest(c: Context, accountId?: string): Promise<AuthProvider> {
+  // Tier 1: request headers
+  const header = fromHeaders(c);
+  if (header) return header;
+
+  // Tier 2: per-account DB credentials
+  if (accountId) {
+    const creds = await getAccountCreds(accountId);
+    if (creds) {
+      return new PipedreamProvider({
+        clientId: creds.client_id,
+        clientSecret: creds.client_secret,
+        projectId: creds.project_id,
+        environment: creds.environment,
+      });
+    }
+  }
+
+  // Tier 3: API env defaults
+  const def = getDefaultProvider();
+  if (def) return def;
+
+  throw new Error(
+    'Pipedream credentials not configured. Either: ' +
+    '(1) Set your Pipedream creds in the Integrations page or sandbox secrets manager, or ' +
+    '(2) Ask your admin to configure default PIPEDREAM_* env vars on the API. ' +
+    'Get credentials from https://pipedream.com/settings/apps.',
+  );
+}
+
+/** Sync version — only checks headers + env defaults (no DB). For non-async contexts. */
+export function getProviderSync(c: Context): AuthProvider {
+  const header = fromHeaders(c);
+  if (header) return header;
+  const def = getDefaultProvider();
+  if (def) return def;
+  throw new Error('Pipedream credentials not configured.');
+}
+
+// Keep backward compat for existing import
+export { getDefaultProvider as createAuthProvider };

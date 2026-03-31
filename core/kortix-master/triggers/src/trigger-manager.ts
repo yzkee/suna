@@ -352,7 +352,7 @@ export class TriggerManager {
   public async listAvailableTriggers(app: string, query?: string): Promise<unknown> {
     const params = new URLSearchParams({ app })
     if (query) params.set("q", query)
-    const res = await fetch(`${KORTIX_MASTER_URL}/api/integrations/triggers/available?${params.toString()}`, {
+    const res = await fetch(`${KORTIX_MASTER_URL}/api/pipedream/triggers/available?${params.toString()}`, {
       signal: AbortSignal.timeout(15_000),
     })
     if (!res.ok) {
@@ -406,7 +406,7 @@ export class TriggerManager {
     // Step 3: Deploy via kortix-master → kortix-api → Pipedream
     let deployResult: { deployedTriggerId: string; active: boolean }
     try {
-      const res = await fetch(`${KORTIX_MASTER_URL}/api/integrations/triggers/deploy`, {
+      const res = await fetch(`${KORTIX_MASTER_URL}/api/pipedream/triggers/deploy`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -454,7 +454,7 @@ export class TriggerManager {
     // Delete from Pipedream via kortix-master
     if (listener.deployedTriggerId && listener.deployedTriggerId !== "pending") {
       try {
-        await fetch(`${KORTIX_MASTER_URL}/api/integrations/triggers/deployed/${listener.deployedTriggerId}`, {
+        await fetch(`${KORTIX_MASTER_URL}/api/pipedream/triggers/deployed/${listener.deployedTriggerId}`, {
           method: "DELETE",
           signal: AbortSignal.timeout(15_000),
         })
@@ -477,7 +477,7 @@ export class TriggerManager {
 
     if (listener.deployedTriggerId && listener.deployedTriggerId !== "pending") {
       try {
-        await fetch(`${KORTIX_MASTER_URL}/api/integrations/triggers/deployed/${listener.deployedTriggerId}`, {
+        await fetch(`${KORTIX_MASTER_URL}/api/pipedream/triggers/deployed/${listener.deployedTriggerId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ active: false }),
@@ -500,7 +500,7 @@ export class TriggerManager {
 
     if (listener.deployedTriggerId && listener.deployedTriggerId !== "pending") {
       try {
-        await fetch(`${KORTIX_MASTER_URL}/api/integrations/triggers/deployed/${listener.deployedTriggerId}`, {
+        await fetch(`${KORTIX_MASTER_URL}/api/pipedream/triggers/deployed/${listener.deployedTriggerId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ active: true }),

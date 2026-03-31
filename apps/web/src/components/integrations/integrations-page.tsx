@@ -9,6 +9,7 @@ import { ConnectedSection } from './connected-section';
 import { SearchFilterBar } from './search-filter-bar';
 import { AvailableAppsGrid } from './available-apps-grid';
 import { ManageProfileDialog } from './manage-profile-dialog';
+import { PipedreamSettingsDialog } from './pipedream-settings-dialog';
 
 export function IntegrationsPage() {
   const {

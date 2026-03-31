@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { config } from '../config'
 import { ErrorResponse } from '../schemas/common'
 
-const integrationsRouter = new Hono()
+const pipedreamRouter = new Hono()
 
 /**
  * Build X-Pipedream-* headers from sandbox env vars.
@@ -28,11 +28,27 @@ function getPipedreamHeaders(): Record<string, string> {
  * The bootstrap-env service restores it at boot if needed, so this should
  * only fire if something went seriously wrong.
  */
-integrationsRouter.use('*', async (c, next) => {
+pipedreamRouter.use('*', async (c, next) => {
   if (!config.KORTIX_TOKEN) {
-    console.error('[Integrations Proxy] KORTIX_TOKEN is not set — cannot authenticate to kortix-api. Sandbox may need to be restarted.')
+    console.error('[Pipedream] KORTIX_TOKEN is not set — cannot authenticate to kortix-api.')
     return c.json({
-      error: 'Integration unavailable: sandbox authentication token (KORTIX_TOKEN) is not configured. Try restarting the sandbox.',
+      error: 'Pipedream unavailable: KORTIX_TOKEN is not configured. Restart the sandbox.',
+    }, 503)
+  }
+
+  const missing = [
+    !process.env.PIPEDREAM_CLIENT_ID && 'PIPEDREAM_CLIENT_ID',
+    !process.env.PIPEDREAM_CLIENT_SECRET && 'PIPEDREAM_CLIENT_SECRET',
+    !process.env.PIPEDREAM_PROJECT_ID && 'PIPEDREAM_PROJECT_ID',
+  ].filter(Boolean) as string[]
+
+  if (missing.length > 0) {
+    return c.json({
+      error: `Pipedream credentials not configured. Missing: ${missing.join(', ')}. ` +
+        'Set them via the secrets manager: curl -X POST "http://localhost:8000/env/<VAR>" ' +
+        '-H "Content-Type: application/json" -d \'{"value":"...","restart":true}\'. ' +
+        'Get credentials from https://pipedream.com/settings/apps.',
+      missing,
     }, 503)
   }
 
@@ -40,13 +56,13 @@ integrationsRouter.use('*', async (c, next) => {
 })
 
 /**
- * POST /api/integrations/token
- * Proxy to kortix-api: POST /v1/integrations/token
+ * POST /api/pipedream/token
+ * Proxy to kortix-api: POST /v1/pipedream/token
  * Used by agent tools to fetch OAuth tokens for third-party APIs.
  */
-integrationsRouter.post('/token',
+pipedreamRouter.post('/token',
   describeRoute({
-    tags: ['Integrations'],
+    tags: ['Pipedream'],
     summary: 'Get OAuth token',
     description: 'Proxies to kortix-api to fetch an OAuth token for a connected third-party integration. Used by agent tools.',
     responses: {
@@ -59,7 +75,7 @@ integrationsRouter.post('/token',
     try {
       const body = await c.req.json()
       const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
-      const res = await fetch(`${apiUrl}/integrations/token`, {
+      const res = await fetch(`${apiUrl}/pipedream/token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -79,15 +95,15 @@ integrationsRouter.post('/token',
       c.header('Cache-Control', 'no-store')
       return c.json(data)
     } catch (err) {
-      console.error('[Integrations Proxy] Token fetch error:', err)
+      console.error('[Pipedream] Token fetch error:', err)
       return c.json({ error: 'Failed to fetch integration token' }, 502)
     }
   },
 )
 
-integrationsRouter.post('/proxy',
+pipedreamRouter.post('/proxy',
   describeRoute({
-    tags: ['Integrations'],
+    tags: ['Pipedream'],
     summary: 'Proxy API request',
     description: 'Proxies an authenticated HTTP request to a third-party API on behalf of the user. OAuth credentials are injected automatically.',
     responses: {
@@ -100,7 +116,7 @@ integrationsRouter.post('/proxy',
     try {
       const body = await c.req.json()
       const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
-      const res = await fetch(`${apiUrl}/integrations/proxy`, {
+      const res = await fetch(`${apiUrl}/pipedream/proxy`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -120,17 +136,17 @@ integrationsRouter.post('/proxy',
       c.header('Cache-Control', 'no-store')
       return c.json(data)
     } catch (err) {
-      console.error('[Integrations Proxy] Proxy request error:', err)
+      console.error('[Pipedream] Proxy request error:', err)
       return c.json({ error: 'Failed to proxy integration request' }, 502)
     }
   },
 )
 
-integrationsRouter.get('/list',
+pipedreamRouter.get('/list',
   describeRoute({
-    tags: ['Integrations'],
-    summary: 'List connected integrations',
-    description: 'Returns the list of third-party apps that have been connected via OAuth for this sandbox.',
+    tags: ['Pipedream'],
+    summary: 'List connected Pipedream integrations',
+    description: 'Returns the list of third-party apps that have been connected via Pipedream OAuth for this sandbox.',
     responses: {
       200: { description: 'Integration list', content: { 'application/json': { schema: resolver(z.any()) } } },
       401: { description: 'Unauthorized', content: { 'application/json': { schema: resolver(ErrorResponse) } } },
@@ -140,7 +156,7 @@ integrationsRouter.get('/list',
   async (c) => {
     try {
       const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
-      const res = await fetch(`${apiUrl}/integrations/list`, {
+      const res = await fetch(`${apiUrl}/pipedream/list`, {
         headers: {
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
           ...getPipedreamHeaders(),
@@ -156,15 +172,15 @@ integrationsRouter.get('/list',
 
       return c.json(data)
     } catch (err) {
-      console.error('[Integrations Proxy] List error:', err)
+      console.error('[Pipedream] List error:', err)
       return c.json({ error: 'Failed to list integrations' }, 502)
     }
   },
 )
 
-integrationsRouter.get('/actions',
+pipedreamRouter.get('/actions',
   describeRoute({
-    tags: ['Integrations'],
+    tags: ['Pipedream'],
     summary: 'List available actions',
     description: 'Returns available actions for a connected integration app. Optionally filter by app slug and search query.',
     responses: {
@@ -185,7 +201,7 @@ integrationsRouter.get('/actions',
       if (limit) params.set('limit', limit)
 
       const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
-      const res = await fetch(`${apiUrl}/integrations/actions?${params.toString()}`, {
+      const res = await fetch(`${apiUrl}/pipedream/actions?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
           ...getPipedreamHeaders(),
@@ -201,15 +217,15 @@ integrationsRouter.get('/actions',
 
       return c.json(data)
     } catch (err) {
-      console.error('[Integrations Proxy] Actions list error:', err)
+      console.error('[Pipedream] Actions list error:', err)
       return c.json({ error: 'Failed to list actions' }, 502)
     }
   },
 )
 
-integrationsRouter.post('/connect',
+pipedreamRouter.post('/connect',
   describeRoute({
-    tags: ['Integrations'],
+    tags: ['Pipedream'],
     summary: 'Connect an app',
     description: 'Initiates OAuth connection for a third-party app. Returns a URL the user must visit to authorize the app.',
     responses: {
@@ -222,7 +238,7 @@ integrationsRouter.post('/connect',
     try {
       const body = await c.req.json()
       const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
-      const res = await fetch(`${apiUrl}/integrations/connect`, {
+      const res = await fetch(`${apiUrl}/pipedream/connect`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -241,15 +257,15 @@ integrationsRouter.post('/connect',
 
       return c.json(data)
     } catch (err) {
-      console.error('[Integrations Proxy] Connect error:', err)
+      console.error('[Pipedream] Connect error:', err)
       return c.json({ error: 'Failed to create connect token' }, 502)
     }
   },
 )
 
-integrationsRouter.get('/search-apps',
+pipedreamRouter.get('/search-apps',
   describeRoute({
-    tags: ['Integrations'],
+    tags: ['Pipedream'],
     summary: 'Search available apps',
     description: 'Search for third-party apps available for OAuth connection. Returns app slugs, names, and descriptions.',
     responses: {
@@ -268,7 +284,7 @@ integrationsRouter.get('/search-apps',
       if (limit) params.set('limit', limit)
 
       const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
-      const res = await fetch(`${apiUrl}/integrations/search-apps?${params.toString()}`, {
+      const res = await fetch(`${apiUrl}/pipedream/search-apps?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
           ...getPipedreamHeaders(),
@@ -284,15 +300,15 @@ integrationsRouter.get('/search-apps',
 
       return c.json(data)
     } catch (err) {
-      console.error('[Integrations Proxy] Search apps error:', err)
+      console.error('[Pipedream] Search apps error:', err)
       return c.json({ error: 'Failed to search apps' }, 502)
     }
   },
 )
 
-integrationsRouter.post('/run-action',
+pipedreamRouter.post('/run-action',
   describeRoute({
-    tags: ['Integrations'],
+    tags: ['Pipedream'],
     summary: 'Run an action',
     description: 'Executes a specific action for a connected integration app with the given parameters.',
     responses: {
@@ -305,7 +321,7 @@ integrationsRouter.post('/run-action',
     try {
       const body = await c.req.json()
       const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
-      const res = await fetch(`${apiUrl}/integrations/run-action`, {
+      const res = await fetch(`${apiUrl}/pipedream/run-action`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -325,7 +341,7 @@ integrationsRouter.post('/run-action',
       c.header('Cache-Control', 'no-store')
       return c.json(data)
     } catch (err) {
-      console.error('[Integrations Proxy] Run action error:', err)
+      console.error('[Pipedream] Run action error:', err)
       return c.json({ error: 'Failed to run action' }, 502)
     }
   },
@@ -333,7 +349,7 @@ integrationsRouter.post('/run-action',
 
 // ─── Trigger management proxy routes ──────────────────────────────────────────
 
-integrationsRouter.get('/triggers/available', async (c) => {
+pipedreamRouter.get('/triggers/available', async (c) => {
     try {
       const appSlug = c.req.query('app')
       const query = c.req.query('q')
@@ -345,7 +361,7 @@ integrationsRouter.get('/triggers/available', async (c) => {
       if (limit) params.set('limit', limit)
 
       const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
-      const res = await fetch(`${apiUrl}/integrations/triggers/available?${params.toString()}`, {
+      const res = await fetch(`${apiUrl}/pipedream/triggers/available?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
           ...getPipedreamHeaders(),
@@ -357,17 +373,17 @@ integrationsRouter.get('/triggers/available', async (c) => {
       if (!res.ok) return c.json(data, res.status as any)
       return c.json(data)
     } catch (err) {
-      console.error('[Integrations Proxy] List available triggers error:', err)
+      console.error('[Pipedream] List available triggers error:', err)
       return c.json({ error: 'Failed to list available triggers' }, 502)
     }
   },
 )
 
-integrationsRouter.post('/triggers/deploy', async (c) => {
+pipedreamRouter.post('/triggers/deploy', async (c) => {
     try {
       const body = await c.req.json()
       const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
-      const res = await fetch(`${apiUrl}/integrations/triggers/deploy`, {
+      const res = await fetch(`${apiUrl}/pipedream/triggers/deploy`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -384,16 +400,16 @@ integrationsRouter.post('/triggers/deploy', async (c) => {
       c.header('Cache-Control', 'no-store')
       return c.json(data)
     } catch (err) {
-      console.error('[Integrations Proxy] Deploy trigger error:', err)
+      console.error('[Pipedream] Deploy trigger error:', err)
       return c.json({ error: 'Failed to deploy trigger' }, 502)
     }
   },
 )
 
-integrationsRouter.get('/triggers/deployed', async (c) => {
+pipedreamRouter.get('/triggers/deployed', async (c) => {
     try {
       const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
-      const res = await fetch(`${apiUrl}/integrations/triggers/deployed`, {
+      const res = await fetch(`${apiUrl}/pipedream/triggers/deployed`, {
         headers: {
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
           ...getPipedreamHeaders(),
@@ -405,17 +421,17 @@ integrationsRouter.get('/triggers/deployed', async (c) => {
       if (!res.ok) return c.json(data, res.status as any)
       return c.json(data)
     } catch (err) {
-      console.error('[Integrations Proxy] List deployed triggers error:', err)
+      console.error('[Pipedream] List deployed triggers error:', err)
       return c.json({ error: 'Failed to list deployed triggers' }, 502)
     }
   },
 )
 
-integrationsRouter.delete('/triggers/deployed/:id', async (c) => {
+pipedreamRouter.delete('/triggers/deployed/:id', async (c) => {
     try {
       const id = c.req.param('id')
       const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
-      const res = await fetch(`${apiUrl}/integrations/triggers/deployed/${id}`, {
+      const res = await fetch(`${apiUrl}/pipedream/triggers/deployed/${id}`, {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${config.KORTIX_TOKEN}`,
@@ -428,18 +444,18 @@ integrationsRouter.delete('/triggers/deployed/:id', async (c) => {
       if (!res.ok) return c.json(data, res.status as any)
       return c.json(data)
     } catch (err) {
-      console.error('[Integrations Proxy] Delete trigger error:', err)
+      console.error('[Pipedream] Delete trigger error:', err)
       return c.json({ error: 'Failed to delete trigger' }, 502)
     }
   },
 )
 
-integrationsRouter.put('/triggers/deployed/:id', async (c) => {
+pipedreamRouter.put('/triggers/deployed/:id', async (c) => {
     try {
       const id = c.req.param('id')
       const body = await c.req.json()
       const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
-      const res = await fetch(`${apiUrl}/integrations/triggers/deployed/${id}`, {
+      const res = await fetch(`${apiUrl}/pipedream/triggers/deployed/${id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -454,10 +470,92 @@ integrationsRouter.put('/triggers/deployed/:id', async (c) => {
       if (!res.ok) return c.json(data, res.status as any)
       return c.json(data)
     } catch (err) {
-      console.error('[Integrations Proxy] Update trigger error:', err)
+      console.error('[Pipedream] Update trigger error:', err)
       return c.json({ error: 'Failed to update trigger' }, 502)
     }
   },
 )
 
-export default integrationsRouter
+// ─── Credential management proxy ──────────────────────────────────────────────
+
+pipedreamRouter.put('/credentials', async (c) => {
+  try {
+    const body = await c.req.json()
+    const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
+    const res = await fetch(`${apiUrl}/pipedream/credentials`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.KORTIX_TOKEN}`,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
+    })
+    const data = await res.json()
+    if (!res.ok) return c.json(data, res.status as any)
+    return c.json(data)
+  } catch (err) {
+    console.error('[Pipedream] Save credentials error:', err)
+    return c.json({ error: 'Failed to save credentials' }, 502)
+  }
+})
+
+pipedreamRouter.get('/credentials', async (c) => {
+  try {
+    const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
+    const res = await fetch(`${apiUrl}/pipedream/credentials`, {
+      headers: { Authorization: `Bearer ${config.KORTIX_TOKEN}` },
+      signal: AbortSignal.timeout(15_000),
+    })
+    const data = await res.json()
+    if (!res.ok) return c.json(data, res.status as any)
+    return c.json(data)
+  } catch (err) {
+    console.error('[Pipedream] Get credentials error:', err)
+    return c.json({ error: 'Failed to get credentials' }, 502)
+  }
+})
+
+// ─── Boot-time credential push ───────────────────────────────────────────────
+// Push sandbox Pipedream env vars to the API DB so the frontend can use them.
+
+export async function pushPipedreamCredsToApi(): Promise<void> {
+  const { PIPEDREAM_CLIENT_ID, PIPEDREAM_CLIENT_SECRET, PIPEDREAM_PROJECT_ID, PIPEDREAM_ENVIRONMENT } = process.env
+  if (!PIPEDREAM_CLIENT_ID || !PIPEDREAM_CLIENT_SECRET || !PIPEDREAM_PROJECT_ID) {
+    console.log('[Pipedream] No local creds to push to API')
+    return
+  }
+  if (!config.KORTIX_TOKEN || !config.KORTIX_API_URL) {
+    console.log('[Pipedream] No KORTIX_TOKEN/API_URL — skipping cred push')
+    return
+  }
+
+  try {
+    const apiUrl = `${config.KORTIX_API_URL.replace(/\/+$/, '')}/v1`
+    const res = await fetch(`${apiUrl}/pipedream/credentials`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.KORTIX_TOKEN}`,
+      },
+      body: JSON.stringify({
+        client_id: PIPEDREAM_CLIENT_ID,
+        client_secret: PIPEDREAM_CLIENT_SECRET,
+        project_id: PIPEDREAM_PROJECT_ID,
+        environment: PIPEDREAM_ENVIRONMENT || 'production',
+      }),
+      signal: AbortSignal.timeout(10_000),
+    })
+
+    if (res.ok) {
+      console.log('[Pipedream] Credentials pushed to API successfully')
+    } else {
+      const body = await res.text()
+      console.warn(`[Pipedream] Failed to push creds to API (${res.status}): ${body}`)
+    }
+  } catch (err) {
+    console.warn('[Pipedream] Failed to push creds to API:', err)
+  }
+}
+
+export default pipedreamRouter

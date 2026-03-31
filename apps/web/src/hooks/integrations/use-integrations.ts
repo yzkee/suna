@@ -74,7 +74,7 @@ const fetchAppsPage = async (query?: string, cursor?: string): Promise<AppsPage>
   if (cursor) params.set('cursor', cursor);
   const qs = params.toString();
   const response = await backendApi.get<AppsPage>(
-    `/integrations/apps${qs ? `?${qs}` : ''}`,
+    `/pipedream/apps${qs ? `?${qs}` : ''}`,
   );
   if (!response.success) {
     throw new Error(response.error?.message || 'Failed to fetch integration apps');
@@ -84,7 +84,7 @@ const fetchAppsPage = async (query?: string, cursor?: string): Promise<AppsPage>
 
 const fetchConnections = async (): Promise<IntegrationConnection[]> => {
   const response = await backendApi.get<{ connections: IntegrationConnection[] }>(
-    '/integrations/connections',
+    '/pipedream/connections',
   );
   if (!response.success) {
     throw new Error(response.error?.message || 'Failed to fetch connections');
@@ -94,7 +94,7 @@ const fetchConnections = async (): Promise<IntegrationConnection[]> => {
 
 const createConnectToken = async (app?: string): Promise<ConnectTokenResult> => {
   const response = await backendApi.post<ConnectTokenResult>(
-    '/integrations/connect-token',
+    '/pipedream/connect-token',
     app ? { app } : {},
   );
   if (!response.success) {
@@ -104,7 +104,7 @@ const createConnectToken = async (app?: string): Promise<ConnectTokenResult> => 
 };
 
 const deleteConnection = async (integrationId: string): Promise<void> => {
-  const response = await backendApi.delete(`/integrations/connections/${integrationId}`);
+  const response = await backendApi.delete(`/pipedream/connections/${integrationId}`);
   if (!response.success) {
     throw new Error(response.error?.message || 'Failed to disconnect integration');
   }
@@ -118,7 +118,7 @@ const linkSandbox = async ({
   sandboxId: string;
 }): Promise<void> => {
   const response = await backendApi.post(
-    `/integrations/connections/${integrationId}/link`,
+    `/pipedream/connections/${integrationId}/link`,
     { sandbox_id: sandboxId },
   );
   if (!response.success) {
@@ -134,7 +134,7 @@ const unlinkSandbox = async ({
   sandboxId: string;
 }): Promise<void> => {
   const response = await backendApi.delete(
-    `/integrations/connections/${integrationId}/link/${sandboxId}`,
+    `/pipedream/connections/${integrationId}/link/${sandboxId}`,
   );
   if (!response.success) {
     throw new Error(response.error?.message || 'Failed to unlink sandbox');
@@ -148,7 +148,7 @@ const saveConnection = async (data: {
   label?: string;
   sandbox_id?: string;
 }): Promise<{ success: boolean; integration?: IntegrationConnection; link?: { attempted: boolean; linked: boolean; reason: string | null } }> => {
-  const response = await backendApi.post<{ success: boolean; integration?: IntegrationConnection; link?: { attempted: boolean; linked: boolean; reason: string | null } }>('/integrations/connections/save', data);
+  const response = await backendApi.post<{ success: boolean; integration?: IntegrationConnection; link?: { attempted: boolean; linked: boolean; reason: string | null } }>('/pipedream/connections/save', data);
   if (!response.success) {
     throw new Error(response.error?.message || 'Failed to save connection');
   }
@@ -163,7 +163,7 @@ const renameIntegration = async ({
   label: string;
 }): Promise<void> => {
   const response = await backendApi.patch(
-    `/integrations/connections/${integrationId}/label`,
+    `/pipedream/connections/${integrationId}/label`,
     { label },
   );
   if (!response.success) {
@@ -173,7 +173,7 @@ const renameIntegration = async ({
 
 const fetchIntegrationSandboxes = async (integrationId: string): Promise<IntegrationSandboxesResult> => {
   const response = await backendApi.get<IntegrationSandboxesResult>(
-    `/integrations/connections/${integrationId}/sandboxes`,
+    `/pipedream/connections/${integrationId}/sandboxes`,
   );
   if (!response.success) {
     throw new Error(response.error?.message || 'Failed to fetch linked sandboxes');

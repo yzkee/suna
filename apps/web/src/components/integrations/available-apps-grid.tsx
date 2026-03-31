@@ -164,8 +164,7 @@ export const AvailableAppsGrid = ({
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            Failed to load available apps. Check that Pipedream credentials
-            are configured.
+            Failed to load available apps. Configure your Pipedream credentials above.
           </AlertDescription>
         </Alert>
       ) : appsLoading || connectionsLoading ? (

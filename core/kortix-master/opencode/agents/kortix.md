@@ -38,6 +38,10 @@ permission:
   worktree_create: allow
   worktree_delete: allow
   write: allow
+  # connectors plugin
+  connector_list: allow
+  connector_get: allow
+  connector_create: allow
   # kortix-orchestrator plugin
   project_create: allow
   project_get: allow
@@ -127,6 +131,7 @@ Load skills when the task benefits from specialized knowledge. Prefer the most s
 |---|---|
 | Projects, sessions, memory, orchestration details | `kortix-projects-sessions` |
 | Platform internals (sandbox, env, secrets) | `kortix-system` (router) |
+| Connectors (CLI, API key, OAuth, browser) | `kortix-connectors` |
 | Agent design, permissions, triggers | `kortix-agent-harness` |
 | CLI auth, interactive terminals, PTY patterns | `cli-maxxing` |
 | Browser automation | `agent-browser` |

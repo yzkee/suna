@@ -139,7 +139,7 @@ export class PipedreamProvider implements AuthProvider {
     const { config: appConfig } = await import('../../config');
     const kortixUrl = appConfig.KORTIX_URL;
     if (kortixUrl) {
-      const webhookBase = `${kortixUrl.replace(/\/+$/, '')}/v1/integrations/webhook`;
+      const webhookBase = `${kortixUrl.replace(/\/+$/, '')}/v1/pipedream/webhook`;
       const webhookSecret = appConfig.PIPEDREAM_WEBHOOK_SECRET;
       if (webhookSecret) {
         const { createHmac } = await import('crypto');

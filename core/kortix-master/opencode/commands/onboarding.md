@@ -21,7 +21,7 @@ This is the **gatekeeper**. The user CANNOT access the Kortix dashboard until th
 - **Adapt to who they are.** Don't robotically say "company" to a student or "project" to a CEO. Read the room. Mirror their language.
 - **Scraping fallback chain:** `scrape-webpage` → `webfetch` → `web-search` for cached content. Some sites (especially LinkedIn) block `scrape-webpage`. Never get stuck on a failed scrape — move to the next method immediately.
 - **Coverage beats brevity.** This onboarding should feel exhaustive. Ask follow-ups by category until you have a real map of their stack. If they say "I use the usual stuff," unpack what that actually means.
-- **Do not stop at integrations that already exist.** If a service matters and there is no ready-made integration, you still collect the setup details, save secrets, and create a reusable skill stub/workflow for it.
+- **Do not stop at connectors that already exist.** If a service matters and there is no ready-made connector, you still collect the setup details, save secrets, and create a connector for it via `connector_create`.
 - **Browser sessions count as setup.** If an important service only works via website login, use browser automation when appropriate, log in, and preserve the session/profile if the runtime supports it. Also record the exact login URL, account label, 2FA expectations, and what that session unlocks.
 
 ---
@@ -58,7 +58,7 @@ Then write to `$MEM_DIR/USER.md` and `$MEM_DIR/MEMORY.md` using the `write` tool
 
 **What goes where:**
 - `USER.md`: name, preferred name, role, company, location, communication style, preferences, workflow habits
-- `MEMORY.md`: tools and accounts inventory, connected integrations, saved secrets, automation goals, recurring rules for the agent
+- `MEMORY.md`: tools and accounts inventory, connectors status, saved secrets, automation goals, recurring rules for the agent
 
 ---
 
@@ -71,32 +71,39 @@ Then write to `$MEM_DIR/USER.md` and `$MEM_DIR/MEMORY.md` using the `write` tool
 | `scrape-webpage` | Deep-read websites, GitHub, etc. (**NOT LinkedIn** — blocked by Firecrawl) |
 | `webfetch` | Fetch page content as markdown — use as fallback if `scrape-webpage` fails |
 | `read` + `write` + `edit` | Read and update `.kortix/USER.md` and `.kortix/MEMORY.md` for memory |
-| `bash` | Run integration scripts, save secrets via env API, system lookups |
+| `bash` | Run connector scripts, save secrets via env API, system lookups |
+| `connector_list` | List all discovered connectors with status |
+| `connector_get` | Load a connector's full docs |
+| `connector_create` | Scaffold a new connector from template |
 | `show` | Display results, images, links visually |
 
-**Integration commands** (run via `bash`):
+**Connector commands:**
 
-```bash
-# Find the integration script
-SCRIPT=$(find /opt/opencode ~/.opencode -name "integration.ts" 2>/dev/null | head -1)
+```
+# List all discovered connectors and their status
+connector_list(filter="")
 
-# Search for available OAuth apps
-bun run "$SCRIPT" search '{"q":"gmail"}'
+# Load a specific connector's full docs
+connector_get(name="github")
 
-# Get OAuth connect URL (show to user — they click it)
-bun run "$SCRIPT" connect '{"app":"gmail"}'
-
-# List already-connected apps
-bun run "$SCRIPT" list
-
-# Make an authenticated API call
-bun run "$SCRIPT" request '{"app":"github","method":"GET","url":"https://api.github.com/user"}'
+# Scaffold a new connector
+connector_create(name="stripe", type="api-key")
 ```
 
-When a service is not covered by an integration, fall back to:
-- Secrets storage via the master env API
-- Browser login automation when applicable
-- Generating a new skill/workflow doc for that service so future sessions know how to use the saved credentials
+For Pipedream OAuth connectors, the integration script is also available:
+
+```bash
+SCRIPT=$(find /opt/opencode ~/.opencode -name "integration.ts" 2>/dev/null | head -1)
+bun run "$SCRIPT" search '{"q":"gmail"}'
+bun run "$SCRIPT" connect '{"app":"gmail"}'
+bun run "$SCRIPT" list
+```
+
+When a service is not covered by an existing connector:
+1. Create a new connector: `connector_create(name="service-name", type="cli|api-key|pipedream|browser|custom")`
+2. Fill in the CONNECTOR.md with real auth instructions and usage patterns
+3. Save secrets via the env API
+4. Update the connector status to `connected` once authenticated
 
 ---
 
@@ -107,8 +114,8 @@ The onboarding is only complete when you can answer all of these with confidence
 - Who is this user, what do they do, and what matters most to them?
 - What are they building, running, learning, selling, or operating right now?
 - What apps and services do they use across work, side projects, personal ops, and admin?
-- Which of those are already connected, which have secrets saved, which require browser sessions, and which still need follow-up?
-- For every important unsupported service, is there at least a saved secret and a reusable skill or instruction artifact describing how to use it?
+- Which of those have connectors created, which are connected, which are pending, and which still need follow-up?
+- For every important service, is there a connector in `.opencode/connectors/` documenting how to use it?
 - Are USER.md and MEMORY.md populated with everything learned so far?
 
 If any answer is still fuzzy, keep going.
@@ -316,9 +323,17 @@ Role: [their role in it]
 
 ---
 
-## Phase 4: Their World — Accounts & Integrations
+## Phase 4: Their World — Accounts & Connectors
 
 This is where you map out their digital life. The goal: understand every tool and service they use so you can connect to them and automate workflows.
+
+**Start by checking what connectors already exist:**
+
+```
+connector_list(filter="")
+```
+
+This shows all discovered connectors and their current status. Use this as a starting point.
 
 Frame it naturally based on what you already know about them:
 
@@ -353,26 +368,39 @@ Push past vague answers. Useful prompts:
 
 Once they list their tools, do FOUR things:
 
-### A. Check what's available via OAuth integrations
+### A. Match tools to connectors
 
-For each tool they mention, use the integration script to search for it:
+For each tool they mention:
+
+1. **Check if a connector already exists:** `connector_list` or `connector_get(name="service")`
+2. **If it exists:** Follow its documented auth flow
+3. **If not:** Create one with the appropriate type:
+
+```
+# For tools with CLIs (preferred):
+connector_create(name="github", type="cli")
+
+# For tools needing OAuth:
+connector_create(name="gmail", type="pipedream")
+
+# For API-key services:
+connector_create(name="stripe", type="api-key")
+```
+
+**For Pipedream OAuth connectors**, use the integration script to get connect URLs:
 
 ```bash
 SCRIPT=$(find /opt/opencode ~/.opencode -name "integration.ts" 2>/dev/null | head -1)
-
-# Search for an app
-bun run "$SCRIPT" search '{"q":"github"}'
-
-# Check what's already connected
-bun run "$SCRIPT" list
+bun run "$SCRIPT" search '{"q":"service_name"}'
+bun run "$SCRIPT" connect '{"app":"APP_SLUG"}'
 ```
 
-For the ones that have OAuth support, batch the connects:
+Batch the OAuth connects:
 
 ```
 question({
   header: "Connect your accounts",
-  question: "I can connect these right now with one click each:\n\n[List the OAuth-available ones with descriptions]\n\nWhich ones do you want to connect? You can always add more later in Settings.",
+  question: "I can connect these right now with one click each:\n\n[List available ones]\n\nWhich ones do you want to connect?",
   options: [
     { label: "Connect all of them", description: "Let's do it" },
     { label: "Let me pick", description: "I'll choose which ones" },
@@ -381,14 +409,7 @@ question({
 })
 ```
 
-For each one they want, generate a connect URL:
-
-```bash
-bun run "$SCRIPT" connect '{"app":"APP_SLUG_HERE"}'
-# Returns connectUrl — show it to the user to click
-```
-
-Use `show` to present the link visually. The user clicks it → OAuth popup → connected. You can present multiple links at once.
+Use `show` to present OAuth links. The user clicks → OAuth popup → connected.
 
 ### B. Identify CLI / API key services
 
@@ -425,43 +446,45 @@ Some services matter but do not expose a clean OAuth or API-key flow for the job
 
 Treat browser-based auth as first-class setup, not a fallback afterthought.
 
-### D. Unsupported service coverage: build a skill/workflow anyway
+### D. Every service gets a connector
 
-If a service is important and there is no Pipedream/OAuth integration or native tool support, do NOT leave it as an unstructured note. Create a reusable artifact for it.
+If a service is important, it MUST have a connector — even if automation is limited. Do NOT leave services as unstructured notes.
 
-Minimum required output for each unsupported but important service:
-- A saved secret in the env/secrets manager for every credential you collected
-- A short skill or workflow doc that explains:
-  - what the service is used for
-  - which secrets/env vars are required
-  - whether access happens by API, CLI, browser login, or manual export/import
-  - exact steps for future agents to use it safely
-  - any known limitations or 2FA/browser-session requirements
+```
+connector_create(name="service-name", type="custom")
+```
 
-Name these consistently, e.g. `skills/generated-<service>/SKILL.md` or another project-standard generated skill location. Keep them terse but operational.
+Then edit the CONNECTOR.md with:
+- What the service is used for
+- Which secrets/env vars are required
+- Whether access happens by API, CLI, browser login, or manual export/import
+- Exact steps for future agents to use it
+- Any known limitations or 2FA/browser-session requirements
 
-If the service truly cannot be automated yet, the skill should still explain how to access it, where the secrets live, and what future work would be needed.
+After filling in the connector and saving any credentials, update the frontmatter `status` to `connected` or `pending`.
+
+If the service truly cannot be automated yet, the connector should still document how to access it, where the secrets live, and what future work would be needed.
 
 ### E. Note everything for memory
 
 Even services you can't connect yet — record them. Future sessions can revisit.
 
-### Write: Accounts & Integrations to Memory
+### Write: Accounts & Connectors to Memory
 
 Read `$MEM_DIR/MEMORY.md`, then update or extend with a full accounts section:
 
 ```markdown
 ## Cross-Project Rules
-Always check integration status before attempting API calls — use integration list command.
+Always check connector status before attempting API calls — use connector_list.
 Preferred automation approach: [what they mentioned]
 
 ## Recurring Notes
-### Tools & Accounts Inventory
-**Connected via OAuth:** [list]
-**API keys configured:** [list of KEY_NAME vars]
+### Connectors Inventory
+**Connected (CLI):** [list]
+**Connected (Pipedream OAuth):** [list]
+**Connected (API keys):** [list of KEY_NAME vars]
 **Browser sessions established:** [list with login URLs]
-**Unsupported services with generated skills:** [list with skill paths]
-**Not yet connected:** [list with exact blockers and next steps]
+**Pending/disconnected:** [list with exact blockers and next steps]
 
 ### Full Stack by Category
 **Code/Dev:** [tools]
@@ -545,7 +568,7 @@ Capability set to draw from:
 - **Documents** — presentations, Word docs, spreadsheets, PDFs, LaTeX papers
 - **Communication** — email send/receive via IMAP/SMTP
 - **Automation** — browser control, web scraping, cron-scheduled recurring tasks
-- **Integrations** — OAuth connections to 2000+ services via Pipedream
+- **Connectors** — file-based integrations via CLI, API keys, Pipedream OAuth (2000+ apps), or browser sessions
 - **Agents** — can spawn sub-agents for parallel work across different domains
 
 Then offer a live taste. Use **exactly these two options — do not add more, do not generate personalized option labels** (e.g. don't add "Run a quick demo on Suna" or anything user-specific). Keep it generic:
@@ -571,10 +594,10 @@ You should be able to summarize:
 - identity and role
 - current projects / company / mission
 - all major app categories they use
-- what is already connected via OAuth
+- what connectors are created and their status (connected/pending/disconnected)
 - what secrets were saved
 - what browser logins were established
-- which important unsupported services got their own generated skill/workflow
+- every important service has a connector in `.opencode/connectors/`
 - what is still blocked and exactly why
 - whether `USER.md` and `MEMORY.md` are fully populated
 
@@ -650,16 +673,16 @@ Tech stack: [if known]
 Industry: [X]
 
 ## Cross-Project Rules
-- Always check connected integrations before making API calls
+- Always check connector status before making API calls — use connector_list
 - [Any rules they stated about automation preferences]
 
 ## Recurring Notes
-### Accounts & Integrations
-**Connected via OAuth:** [full list]
-**Secrets configured:** [KEY_NAME list]
+### Connectors
+**Connected (CLI):** [list]
+**Connected (Pipedream OAuth):** [list]
+**Connected (API keys):** [KEY_NAME list]
 **Browser sessions:** [list with login URLs]
-**Generated skills for unsupported services:** [list with paths]
-**Pending connections:** [list with blockers]
+**Pending/disconnected:** [list with blockers]
 
 ### Stack by Category
 **Code/Dev:** [tools]
@@ -715,11 +738,11 @@ If the response does NOT contain `"true"`, retry the POST.
 3. **MEMORY IS FILES, NOT TOOLS.** There is no `mem_save` tool. Use `bash` to find the memory dir, then `read`/`write`/`edit` to update the markdown files directly. Locate the dir via env vars: `$KORTIX_DIR`, `$KORTIX_WORKSPACE/.kortix`, or `/workspace/.kortix`.
 4. **ADAPT TO THE PERSON.** Don't say "company" to a student. Don't say "project" to a Fortune 500 exec. Mirror their language and framing. Read who they are and adjust.
 5. **ASK WHERE TO FIND THEM ONLINE.** LinkedIn, GitHub, personal site, Twitter/X — any of these are gold. Always ask early in Phase 2. **Never `scrape-webpage` LinkedIn** — it's blocked. Use `web-search` to find cached LinkedIn data instead.
-6. **MAP THEIR ACCOUNTS EXHAUSTIVELY.** The integrations phase is not optional. Sweep by category and keep asking until you have a serious inventory, not a partial list.
-7. **CONNECT WHAT YOU CAN.** Use the integration script (`bun run "$SCRIPT" connect '{"app":"APP_SLUG"}'`) to generate OAuth connect links. For API-key services, tell them where to add the key or save it via the env API.
+6. **MAP THEIR ACCOUNTS EXHAUSTIVELY.** The connectors phase is not optional. Sweep by category and keep asking until you have a serious inventory, not a partial list.
+7. **CONNECT WHAT YOU CAN.** Use `connector_list` to check existing connectors, `connector_create` to scaffold new ones. For Pipedream OAuth, use the integration script. For CLI services, use the native CLI auth. For API-key services, save via the env API.
 8. **SAVE SECRETS WITH SPECIFICITY.** Collect the exact env var names required for each important service and store them with `curl -X POST http://localhost:8000/env/KEY_NAME -d '{"value":"...","restart":true}'`. Retry the relevant action after saving.
 9. **BROWSER LOGINS COUNT.** If a critical system only works via website login, establish that login when appropriate, preserve the session/profile if supported, and record the login details and 2FA expectations.
-10. **UNSUPPORTED SERVICES STILL NEED COVERAGE.** If there is no native integration, create a generated skill/workflow doc for the service and point it at the saved secrets so future agents can use it.
+10. **EVERY SERVICE GETS A CONNECTOR.** If there is no existing connector, create one with `connector_create`. Fill in the CONNECTOR.md with auth instructions, usage patterns, and saved secrets so future agents can use it.
 11. **ALWAYS WEB-SEARCH THE USER.** No exceptions. Even if they give you a LinkedIn, search for more.
 12. **SHOW FINDINGS, ASK TO CONFIRM.** Don't assume your research is right. Present and verify.
 13. **USE `question` FOR EVERYTHING.** Every choice, every confirmation, every structured input.

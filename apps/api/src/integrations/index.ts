@@ -1,8 +1,12 @@
 import { Hono } from 'hono';
-import { supabaseAuth, apiKeyAuth } from '../middleware/auth';
+import { supabaseAuth, apiKeyAuth, combinedAuth } from '../middleware/auth';
 import { createIntegrationsRouter, createIntegrationsTokenRouter } from './routes';
+import { createCredentialRoutes } from './credential-routes';
 
 const integrationsApp = new Hono();
+
+// Credential management — works from both frontend (supabase) and sandbox (api key)
+integrationsApp.use('/credentials', combinedAuth);
 
 integrationsApp.use('/apps', supabaseAuth);
 integrationsApp.use('/connect-token', supabaseAuth);
@@ -20,6 +24,7 @@ integrationsApp.use('/search-apps', apiKeyAuth);
 integrationsApp.use('/triggers/*', apiKeyAuth);
 integrationsApp.use('/triggers', apiKeyAuth);
 
+integrationsApp.route('/', createCredentialRoutes());
 integrationsApp.route('/', createIntegrationsRouter());
 integrationsApp.route('/', createIntegrationsTokenRouter());
 

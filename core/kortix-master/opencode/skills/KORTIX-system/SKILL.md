@@ -16,7 +16,7 @@ Use this skill as the top-level map for the Kortix platform. It should route you
 | Agents, skills, tools, commands, sessions, providers, plugins, API | `opencode-framework` | Framework architecture, config, REST API, SSE |
 | Sessions, background sessions, projects, orchestration, SQLite | `kortix-projects-sessions` | Session retrieval, background sessions, project CRUD, worker assignment, DONE/VERIFIED protocol, filesystem persistence |
 | Local semantic search over files and SQLite | `lss` | Hybrid BM25 + embedding search, indexing, watch mode, SQLite row search |
-| OAuth apps, Pipedream actions, authenticated API calls | `kortix-integrations` | Integrations, actions, proxyFetch, trigger management |
+| Connectors (CLI, API key, Pipedream OAuth, browser) | `kortix-connectors` | File-based connector system, CONNECTOR.md format, discovery, Pipedream subsystem |
 | Slack, Telegram, Discord bridge | `kortix-channels` | Messaging bridge, session tracking, adapter setup, APIs |
 | Local machine control on the user's computer | `agent-tunnel` | Files, shell, screenshots, mouse, keyboard, accessibility tree |
 | Browser automation in websites and web apps | `agent-browser` | Navigation, snapshots, interaction, auth, capture, verification |
@@ -39,6 +39,6 @@ Use this skill as the top-level map for the Kortix platform. It should route you
 - Questions about sandbox internals, durable paths, ports, or basic service checks should start with `technical-sys-info`.
 - Questions about how OpenCode itself works usually start with `opencode-framework`.
 - Questions about `session_start_background`, `session_list_background`, `session_read`, `session_message`, `session_search`, `session_get`, `project_create`, `project_list`, `project_get`, `project_update`, project directory structure, DONE/VERIFIED protocol, worker session assignment, or project-vs-session scope should start with `kortix-projects-sessions`.
-- Questions about automation often combine `kortix-agent-triggers` with `kortix-integrations` or `kortix-agent-harness`.
+- Questions about automation often combine `kortix-agent-triggers` with `kortix-connectors` or `kortix-agent-harness`.
 - Questions about authoring or refactoring platform knowledge should load `kortix-skill-authoring`.
 - Questions about CLI authentication, interactive terminal flows, PTY usage patterns, or "how to login to X" should start with `cli-maxxing`.
