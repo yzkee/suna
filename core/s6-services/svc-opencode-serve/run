@@ -17,6 +17,15 @@ export OPENCODE_FILE_ROOT=/
 export BUN_PTY_LIB=/opt/bun-pty-musl/librust_pty.so
 export PATH="/opt/bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
+# ── PTY pre-flight diagnostics ──────────────────────────────────────────────
+# Log PTY readiness so spawn failures are diagnosable from service logs.
+echo "[opencode-serve] PTY check: bun=$(bun --version 2>/dev/null || echo 'NOT FOUND')"
+echo "[opencode-serve] PTY check: BUN_PTY_LIB=${BUN_PTY_LIB:-unset}"
+[ -f "$BUN_PTY_LIB" ] && echo "[opencode-serve] PTY check: .so exists ($(stat -c%s "$BUN_PTY_LIB" 2>/dev/null || stat -f%z "$BUN_PTY_LIB" 2>/dev/null) bytes)" \
+                       || echo "[opencode-serve] PTY check: WARNING — BUN_PTY_LIB not found at $BUN_PTY_LIB"
+[ -d /opt/kortix-master/node_modules/bun-pty ] && echo "[opencode-serve] PTY check: bun-pty module present" \
+                                                || echo "[opencode-serve] PTY check: WARNING — bun-pty not in node_modules"
+
 # Drop empty *_BASE_URL vars — empty string causes @ai-sdk to fetch("") → ERR_INVALID_URL
 [ -z "$ANTHROPIC_BASE_URL" ] && unset ANTHROPIC_BASE_URL
 [ -z "$OPENAI_BASE_URL" ] && unset OPENAI_BASE_URL

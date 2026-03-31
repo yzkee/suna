@@ -1,32 +1,74 @@
 import type { OpencodeClient } from '@opencode-ai/sdk'
-import { semver } from 'bun'
-import { Terminal } from 'bun-pty'
-import { version as bunPtyVersion } from 'bun-pty/package.json'
 import { NotificationManager } from './notification-manager.ts'
 import { OutputManager } from './output-manager.ts'
 import { SessionLifecycleManager } from './session-lifecycle.ts'
 import type { PTYSessionInfo, ReadResult, SearchResult, SpawnOptions } from './types.ts'
 import { withSession } from './utils.ts'
 
-// Monkey-patch bun-pty to fix race condition in _startReadLoop
-// Temporary workaround until https://github.com/sursaone/bun-pty/pull/37 is merged
-if (semver.order(bunPtyVersion, '0.4.8') > 0) {
-  throw new Error(
-    `bun-pty version ${bunPtyVersion} is too new for patching; remove the workaround.`
+// ── bun-pty availability probe ──────────────────────────────────────────────
+// We try-catch the import so the plugin can still load and give a clear error
+// at tool-call time instead of crashing the entire plugin at import.
+let _bunPtyAvailable = false
+let _bunPtyLoadError: string | null = null
+
+try {
+  // Dynamic require so a missing native addon doesn't kill the module graph
+  const bunPty = await import('bun-pty')
+  const Terminal = bunPty.Terminal ?? bunPty.default?.Terminal
+  const bunPtyPkg = await import('bun-pty/package.json')
+  const bunPtyVersion: string = bunPtyPkg.version ?? bunPtyPkg.default?.version ?? 'unknown'
+
+  // Monkey-patch bun-pty to fix race condition in _startReadLoop
+  // Temporary workaround until https://github.com/sursaone/bun-pty/pull/37 is merged
+  // Softened: warn instead of hard-throw if version is newer than expected.
+  const { semver } = await import('bun')
+  if (semver.order(bunPtyVersion, '0.4.8') > 0) {
+    console.warn(
+      `[opencode-pty] bun-pty ${bunPtyVersion} is newer than 0.4.8 — monkey-patch skipped. ` +
+        `If you see race conditions in _startReadLoop, remove the workaround or update the patch.`
+    )
+  } else if (Terminal) {
+    const proto = Terminal.prototype as unknown as {
+      _startReadLoop?: (...args: unknown[]) => unknown
+    }
+    const original = proto._startReadLoop
+    if (typeof original === 'function') {
+      proto._startReadLoop = async function (
+        this: InstanceType<typeof Terminal>,
+        ...args: unknown[]
+      ) {
+        await Promise.resolve() // Yield to allow event handlers to be registered
+        return original.apply(this, args)
+      }
+    }
+  }
+
+  _bunPtyAvailable = true
+  console.log(`[opencode-pty] bun-pty ${bunPtyVersion} loaded successfully`)
+} catch (err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err)
+  _bunPtyLoadError = msg
+  _bunPtyAvailable = false
+  console.error(
+    `[opencode-pty] bun-pty failed to load — PTY tools will be unavailable.\n` +
+      `  Error: ${msg}\n` +
+      `  Platform: ${process.platform}/${process.arch}\n` +
+      `  Runtime: ${typeof Bun !== 'undefined' ? `Bun ${(Bun as any).version}` : 'NOT Bun (bun-pty requires Bun!)'}\n` +
+      `  Fix: cd plugin/opencode-pty && bun install`
   )
 }
 
-const proto = Terminal.prototype as unknown as { _startReadLoop?: (...args: unknown[]) => unknown }
-
-const original = proto._startReadLoop
-
-if (typeof original === 'function') {
-  proto._startReadLoop = async function (this: InstanceType<typeof Terminal>, ...args: unknown[]) {
-    await Promise.resolve() // Yield to allow event handlers to be registered
-    return original.apply(this, args)
-  }
+/** Check if bun-pty loaded successfully. Call before any PTY operation. */
+export function isBunPtyAvailable(): boolean {
+  return _bunPtyAvailable
 }
 
+/** If bun-pty failed to load, returns the error message. */
+export function bunPtyLoadError(): string | null {
+  return _bunPtyLoadError
+}
+
+// ── Session update callbacks ────────────────────────────────────────────────
 type SessionUpdateCallback = (session: PTYSessionInfo) => void
 
 export const sessionUpdateCallbacks: SessionUpdateCallback[] = []
@@ -52,6 +94,7 @@ function notifySessionUpdate(session: PTYSessionInfo) {
   }
 }
 
+// ── Raw output callbacks ────────────────────────────────────────────────────
 type RawOutputCallback = (session: PTYSessionInfo, rawData: string) => void
 
 export const rawOutputCallbacks: RawOutputCallback[] = []
@@ -77,6 +120,7 @@ function notifyRawOutput(session: PTYSessionInfo, rawData: string): void {
   }
 }
 
+// ── PTY Manager ─────────────────────────────────────────────────────────────
 class PTYManager {
   private lifecycleManager = new SessionLifecycleManager()
   private outputManager = new OutputManager()
@@ -90,21 +134,38 @@ class PTYManager {
     this.lifecycleManager.clearAllSessions()
   }
 
-  spawn(opts: SpawnOptions): PTYSessionInfo {
-    const session = this.lifecycleManager.spawn(
-      opts,
-      (session, data) => {
-        notifyRawOutput(this.lifecycleManager.toInfo(session), data)
-      },
-      async (session, exitCode) => {
-        notifySessionUpdate(this.lifecycleManager.toInfo(session))
-        if (session?.notifyOnExit) {
-          await this.notificationManager.sendExitNotification(session, exitCode || 0)
+  async spawn(opts: SpawnOptions): Promise<PTYSessionInfo> {
+    if (!_bunPtyAvailable) {
+      throw new Error(
+        `[PTY manager] Cannot spawn: bun-pty is not available. Load error: ${_bunPtyLoadError ?? 'unknown'}`
+      )
+    }
+
+    try {
+      const session = await this.lifecycleManager.spawn(
+        opts,
+        (session, data) => {
+          notifyRawOutput(this.lifecycleManager.toInfo(session), data)
+        },
+        async (session, exitCode) => {
+          notifySessionUpdate(this.lifecycleManager.toInfo(session))
+          if (session?.notifyOnExit) {
+            await this.notificationManager.sendExitNotification(session, exitCode || 0)
+          }
         }
+      )
+      notifySessionUpdate(session)
+      return session
+    } catch (err: unknown) {
+      // Add manager-level context if not already a PTY diagnostic
+      if (err instanceof Error && err.message.includes('[PTY spawn')) {
+        throw err // Already has rich diagnostics
       }
-    )
-    notifySessionUpdate(session)
-    return session
+      const msg = err instanceof Error ? err.message : String(err)
+      throw new Error(
+        `[PTY manager] spawn failed for "${opts.command} ${(opts.args ?? []).join(' ')}": ${msg}`
+      )
+    }
   }
 
   write(id: string, data: string): boolean {

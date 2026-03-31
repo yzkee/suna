@@ -35,7 +35,7 @@
     "@opencode-ai/sdk": "^1.2.25",
     "agent-tunnel": "npm:@kortix/agent-tunnel@*",
     "jsonc-parser": "^3.3.1",
-    "bun-pty": "^0.3.0",
+    "bun-pty": "^0.4.8",
     "opencode-pty": "*",
     "@mendable/firecrawl-js": "*",
     "@tavily/core": "*",

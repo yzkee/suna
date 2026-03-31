@@ -1,5 +1,5 @@
 import { tool } from '@opencode-ai/plugin'
-import { manager } from '../manager.ts'
+import { manager, isBunPtyAvailable, bunPtyLoadError } from '../manager.ts'
 import { checkCommandPermission, checkWorkdirPermission } from '../permissions.ts'
 import DESCRIPTION from './spawn.txt'
 
@@ -25,36 +25,77 @@ export const ptySpawn = tool({
       ),
   },
   async execute(args, ctx) {
-    await checkCommandPermission(args.command, args.args ?? [])
-
-    if (args.workdir) {
-      await checkWorkdirPermission(args.workdir)
+    // Gate: is bun-pty even available?
+    if (!isBunPtyAvailable()) {
+      const loadErr = bunPtyLoadError()
+      throw new Error(
+        [
+          `[pty_spawn] bun-pty native module is not available — PTY tools cannot work.`,
+          `  Load error: ${loadErr ?? 'unknown'}`,
+          `  Platform: ${process.platform}/${process.arch}, Runtime: ${typeof Bun !== 'undefined' ? `Bun ${Bun.version}` : 'Node.js (bun-pty requires Bun!)'}`,
+          `  Fix: Ensure you are running under Bun and bun-pty is installed:`,
+          `    cd plugin/opencode-pty && bun install`,
+          `  If running in a container, ensure the bun-pty native addon was compiled for this arch.`,
+        ].join('\n')
+      )
     }
 
-    const sessionId = ctx.sessionID
-    const info = manager.spawn({
-      command: args.command,
-      args: args.args,
-      workdir: args.workdir,
-      env: args.env,
-      title: args.title,
-      description: args.description,
-      parentSessionId: sessionId,
-      parentAgent: ctx.agent,
-      notifyOnExit: args.notifyOnExit,
-    })
+    try {
+      await checkCommandPermission(args.command, args.args ?? [])
 
-    const output = [
-      `<pty_spawned>`,
-      `ID: ${info.id}`,
-      `Title: ${info.title}`,
-      `Command: ${info.command} ${info.args.join(' ')}`,
-      `Workdir: ${info.workdir}`,
-      `PID: ${info.pid}`,
-      `Status: ${info.status}`,
-      `</pty_spawned>`,
-    ].join('\n')
+      if (args.workdir) {
+        await checkWorkdirPermission(args.workdir)
+      }
 
-    return output
+      const sessionId = ctx.sessionID
+      const info = await manager.spawn({
+        command: args.command,
+        args: args.args,
+        workdir: args.workdir,
+        env: args.env,
+        title: args.title,
+        description: args.description,
+        parentSessionId: sessionId,
+        parentAgent: ctx.agent,
+        notifyOnExit: args.notifyOnExit,
+      })
+
+      const output = [
+        `<pty_spawned>`,
+        `ID: ${info.id}`,
+        `Title: ${info.title}`,
+        `Command: ${info.command} ${info.args.join(' ')}`,
+        `Workdir: ${info.workdir}`,
+        `PID: ${info.pid}`,
+        `Status: ${info.status}`,
+        `</pty_spawned>`,
+      ].join('\n')
+
+      return output
+    } catch (err: unknown) {
+      // Re-throw permission errors as-is (they have good messages already)
+      if (err instanceof Error && err.message.includes('PTY spawn denied')) {
+        throw err
+      }
+      // Re-throw our own diagnostics as-is
+      if (err instanceof Error && err.message.includes('[PTY spawn')) {
+        throw err
+      }
+
+      // Wrap unexpected errors with context
+      const msg = err instanceof Error ? err.message : String(err)
+      const stack = err instanceof Error ? err.stack : undefined
+      throw new Error(
+        [
+          `[pty_spawn] Failed to spawn PTY session.`,
+          `  Command: ${args.command} ${(args.args ?? []).join(' ')}`,
+          `  Workdir: ${args.workdir ?? '(default)'}`,
+          `  Error: ${msg}`,
+          stack ? `  Stack: ${stack.split('\n').slice(1, 4).join('\n    ')}` : null,
+        ]
+          .filter(Boolean)
+          .join('\n')
+      )
+    }
   },
 })

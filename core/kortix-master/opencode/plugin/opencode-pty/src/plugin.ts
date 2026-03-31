@@ -1,5 +1,5 @@
 import type { PluginContext, PluginResult } from './plugin/types.ts'
-import { initManager, manager } from './plugin/pty/manager.ts'
+import { initManager, isBunPtyAvailable, bunPtyLoadError, manager } from './plugin/pty/manager.ts'
 import { initPermissions } from './plugin/pty/permissions.ts'
 import { ptySpawn } from './plugin/pty/tools/spawn.ts'
 import { ptyWrite } from './plugin/pty/tools/write.ts'
@@ -13,6 +13,29 @@ const ptyOpenClientCommand = 'pty-open-background-spy'
 const ptyShowServerUrlCommand = 'pty-show-server-url'
 
 export const PTYPlugin = async ({ client, directory }: PluginContext): Promise<PluginResult> => {
+  // ── Load-time diagnostics ───────────────────────────────────────────────
+  const available = isBunPtyAvailable()
+  if (!available) {
+    const loadErr = bunPtyLoadError()
+    console.error(
+      `[opencode-pty] ⚠ Plugin loaded but bun-pty is NOT available.\n` +
+        `  PTY tools (pty_spawn, pty_read, pty_write, pty_list, pty_kill) will return errors.\n` +
+        `  Load error: ${loadErr}\n` +
+        `  Platform: ${process.platform}/${process.arch}\n` +
+        `  Runtime: ${typeof Bun !== 'undefined' ? `Bun ${(Bun as any).version}` : 'NOT Bun'}\n` +
+        `  cwd: ${process.cwd()}\n` +
+        `  directory: ${directory}\n` +
+        `  Troubleshooting:\n` +
+        `    1. Are you running under Bun? (bun-pty is a Bun-native module)\n` +
+        `    2. Was 'bun install' run in the opencode-pty directory?\n` +
+        `    3. Is the native addon compiled for ${process.platform}/${process.arch}?\n`
+    )
+  } else {
+    console.log(
+      `[opencode-pty] ✓ Plugin loaded. bun-pty available. Platform: ${process.platform}/${process.arch}`
+    )
+  }
+
   initPermissions(client, directory)
   initManager(client)
   let ptyServer: PTYServer | undefined

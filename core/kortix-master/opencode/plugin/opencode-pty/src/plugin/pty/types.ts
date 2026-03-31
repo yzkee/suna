@@ -1,6 +1,16 @@
-import type { IPty } from 'bun-pty'
 import type { RingBuffer } from './buffer.ts'
 import type moment from 'moment'
+
+// IPty interface from bun-pty — defined inline so we don't need a static
+// import of the native module (which crashes if bun-pty isn't available).
+export interface IPtyLike {
+  pid: number
+  onData: (callback: (data: string) => void) => void
+  onExit: (callback: (event: { exitCode: number; signal?: number | string }) => void) => void
+  write: (data: string) => void
+  kill: (signal?: string) => void
+  resize?: (cols: number, rows: number) => void
+}
 
 export type PTYStatus = 'running' | 'exited' | 'killing' | 'killed'
 
@@ -21,7 +31,7 @@ export interface PTYSession {
   parentAgent?: string
   notifyOnExit: boolean
   buffer: RingBuffer
-  process: IPty | null
+  process: IPtyLike | null
 }
 
 export interface PTYSessionInfo {
