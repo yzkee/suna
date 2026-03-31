@@ -62,9 +62,9 @@ const PresentationViewerWrapper = lazy(() =>
 	})),
 );
 
-const OnboardingProvider = lazy(() =>
-	import("@/components/onboarding/onboarding-provider").then((mod) => ({
-		default: mod.OnboardingProvider,
+const SetupWizard = lazy(() =>
+	import("@/components/onboarding/setup-wizard").then((mod) => ({
+		default: mod.SetupWizard,
 	})),
 );
 
@@ -130,6 +130,8 @@ const ConnectingScreen = lazy(() =>
 		default: mod.ConnectingScreen,
 	})),
 );
+
+
 
 const SessionLayout = lazy(() =>
 	import("@/components/session/session-layout").then((mod) => ({
@@ -548,9 +550,9 @@ export default function DashboardLayoutContent({
 				if (data?.ONBOARDING_COMPLETE === 'true') {
 					setOnboardingChecked(true);
 				} else {
-					// Enter onboarding mode. Check for existing session to skip boot.
-					const existing = await readEnv("ONBOARDING_SESSION_ID");
-					ob.enter({ skipBoot: !!existing });
+				// Enter onboarding mode. If there's an existing session, skip boot + setup.
+				const existing = await readEnv("ONBOARDING_SESSION_ID");
+				ob.enter({ skipBoot: !!existing, skipSetup: !!existing });
 					setOnboardingChecked(true);
 				}
 			} catch { setOnboardingChecked(true); }
@@ -559,9 +561,9 @@ export default function DashboardLayoutContent({
 	// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [activeServerId, routeInstanceId, routeSyncing, paramHandled]);
 
-	// ── Onboarding: create / resume session ──
+	// ── Onboarding: create / resume session (only after boot + setup are done) ──
 	useEffect(() => {
-		if (!ob.active || ob.showBoot || ob.sessionId) return;
+		if (!ob.active || ob.showBoot || ob.showSetup || ob.sessionId) return;
 		if (obCreating.current) return;
 		obCreating.current = true;
 
@@ -616,7 +618,7 @@ export default function DashboardLayoutContent({
 		})();
 		return () => clearTimeout(retryTimer);
 	// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ob.active, ob.showBoot, ob.sessionId]);
+	}, [ob.active, ob.showBoot, ob.showSetup, ob.sessionId]);
 
 	// ── Onboarding: liveness fallback — re-fire /onboarding if assistant never starts ──
 	useEffect(() => {
@@ -652,6 +654,9 @@ export default function DashboardLayoutContent({
 
 	// ── Boot overlay callback ──
 	const handleBootDone = useCallback(() => ob.hideBoot(), [ob]);
+
+	// ── Setup wizard callback ──
+	const handleSetupDone = useCallback(() => ob.hideSetup(), [ob]);
 
 	// Keep the active server in sync with the current instance.
 	// Source of truth: URL path (/instances/:id/...) OR active-instance cookie
@@ -774,6 +779,16 @@ export default function DashboardLayoutContent({
 			<Suspense fallback={null}>
 				<ConnectingScreen />
 			</Suspense>
+			<Suspense fallback={null}>
+				<GlobalProviderModal />
+			</Suspense>
+
+			{/* Setup wizard — shown after boot, before chat session */}
+			{ob.showSetup && (
+				<Suspense fallback={null}>
+					<SetupWizard onComplete={handleSetupDone} />
+				</Suspense>
+			)}
 
 			{!hideChrome && (
 				<Suspense fallback={null}>
@@ -792,42 +807,37 @@ export default function DashboardLayoutContent({
 					<Suspense fallback={null}>
 						<CommandPalette />
 					</Suspense>
-					<Suspense fallback={null}>
-						<GlobalProviderModal />
-					</Suspense>
-					<Suspense fallback={null}>
-						<OnboardingProvider>
-							{/* Tab bar — hidden during onboarding, morphs in */}
-							<AnimatePresence initial={false}>
-								{!hideChrome && (
-									<motion.div
-										key="tab-bar"
-										initial={{ height: 0, opacity: 0 }}
-										animate={{ height: "auto", opacity: 1 }}
-										exit={{ height: 0, opacity: 0 }}
-										transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-										style={{ overflow: "hidden" }}
-									>
-										<TabBar />
-									</motion.div>
-								)}
-							</AnimatePresence>
 
-							<div className="flex-1 min-h-0 flex flex-col md:border md:border-b-0 md:border-border/50 overflow-hidden md:rounded-t-xl relative">
-								<SessionTabsContainer>{children}</SessionTabsContainer>
+					{/* Tab bar — hidden during onboarding, morphs in */}
+					<AnimatePresence initial={false}>
+						{!hideChrome && (
+							<motion.div
+								key="tab-bar"
+								initial={{ height: 0, opacity: 0 }}
+								animate={{ height: "auto", opacity: 1 }}
+								exit={{ height: 0, opacity: 0 }}
+								transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+								style={{ overflow: "hidden" }}
+							>
+								<TabBar />
+							</motion.div>
+						)}
+					</AnimatePresence>
 
-								{/* Loading state while creating onboarding session */}
-								{ob.active && !ob.sessionId && !ob.showBoot && (
-									<div className="absolute inset-0 z-10 flex items-center justify-center bg-background">
-										<div className="flex flex-col items-center gap-3">
-											<KortixLoader size="medium" />
-											<p className="text-xs text-muted-foreground">Setting up your workspace…</p>
-										</div>
-									</div>
-								)}
+					<div className="flex-1 min-h-0 flex flex-col md:border md:border-b-0 md:border-border/50 overflow-hidden md:rounded-t-xl relative">
+						<SessionTabsContainer>{children}</SessionTabsContainer>
+
+						{/* Loading state while creating onboarding session */}
+						{ob.active && !ob.sessionId && !ob.showBoot && !ob.showSetup && (
+							<div className="absolute inset-0 z-10 flex items-center justify-center bg-background">
+								<div className="flex flex-col items-center gap-3">
+									<KortixLoader size="medium" />
+									<p className="text-xs text-muted-foreground">Setting up your workspace…</p>
+								</div>
 							</div>
-						</OnboardingProvider>
-					</Suspense>
+						)}
+					</div>
+
 					<Suspense fallback={null}>
 						<PresentationViewerWrapper />
 					</Suspense>

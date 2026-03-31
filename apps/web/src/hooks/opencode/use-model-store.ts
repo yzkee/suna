@@ -39,6 +39,12 @@ interface ModelStore {
   sessionAgentName?: Record<string, string | undefined>;
   /** Per-session model selection — keyed by sessionId so each session remembers its own model across reloads */
   sessionModel?: Record<string, ModelKey | undefined>;
+  /**
+   * User-chosen global default model (set during onboarding setup wizard).
+   * Takes priority over agent.model but yields to per-session and per-agent selections.
+   * This ensures the user's explicit choice during setup is respected everywhere.
+   */
+  globalDefault?: ModelKey;
 }
 
 // ============================================================================
@@ -291,6 +297,14 @@ export function useModelStore(allModels: FlatModel[]) {
     setStore({ ...s, sessionModel: next });
   }, []);
 
+  // Global default model (set during onboarding setup wizard)
+  const globalDefault = useMemo(() => store.globalDefault, [store.globalDefault]);
+
+  const setGlobalDefault = useCallback((model: ModelKey | undefined) => {
+    const s = getStore();
+    setStore({ ...s, globalDefault: model });
+  }, []);
+
   return {
     isVisible,
     isLatest,
@@ -305,6 +319,8 @@ export function useModelStore(allModels: FlatModel[]) {
     setSessionAgentName,
     getSessionModel,
     setSessionModel,
+    globalDefault,
+    setGlobalDefault,
     /** All user visibility preferences (for manage models dialog) */
     userPrefs: store.user,
   };

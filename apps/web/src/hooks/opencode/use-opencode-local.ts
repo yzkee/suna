@@ -289,8 +289,9 @@ export function useOpenCodeLocal({
   }, [config?.model, modelStore.recent, providers, isModelValid]);
 
   // ---- Current model resolution ----
-  // Priority: per-session > per-agent > agent.model > fallback
+  // Priority: per-session > per-agent > globalDefault > agent.model > fallback
   // Per-session persists the user's explicit pick for THIS session across reloads.
+  // globalDefault is set during onboarding setup and overrides agent defaults.
   const currentModelKey = useMemo<ModelKey | undefined>(() => {
     if (!currentAgent) return undefined;
     return getFirstValidModel(
@@ -298,9 +299,11 @@ export function useOpenCodeLocal({
       () => sessionId ? modelStore.getSessionModel(sessionId) : undefined,
       // 2. Per-agent model (persisted across sessions for this agent)
       () => modelStore.getSelectedModel(currentAgent.name),
-      // 3. Agent's configured default model
+      // 3. User's global default (set during onboarding setup wizard)
+      () => modelStore.globalDefault,
+      // 4. Agent's configured default model
       () => currentAgent.model as ModelKey | undefined,
-      // 4. Global fallback (config.model > recent > first connected)
+      // 5. Global fallback (config.model > recent > first connected)
       () => fallbackModel,
     );
   }, [currentAgent, sessionId, modelStore, getFirstValidModel, fallbackModel]);
@@ -382,7 +385,7 @@ export function useOpenCodeLocal({
   );
 
   // ---- When agent changes externally (via setAgent), auto-set model if agent has one ----
-  // Only applies when there's no persisted selection for this agent yet.
+  // Only applies when there's no persisted selection for this agent yet AND no global default.
   const prevAgentRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (!currentAgent) return;
@@ -391,6 +394,8 @@ export function useOpenCodeLocal({
     // Don't override if user already has a persisted selection for this agent
     const persisted = modelStore.getSelectedModel(currentAgent.name);
     if (persisted && isModelValid(persisted)) return;
+    // Don't override if user set a global default during onboarding setup
+    if (modelStore.globalDefault && isModelValid(modelStore.globalDefault)) return;
     if (currentAgent.model) {
       if (isModelValid(currentAgent.model as ModelKey)) {
         setModel({

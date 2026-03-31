@@ -121,4 +121,3 @@ export const canProceedFromStep = (stepIndex: number, context?: any): boolean =>
       return true;
   }
 };
-
