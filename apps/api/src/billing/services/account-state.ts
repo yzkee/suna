@@ -13,6 +13,7 @@ import {
 } from './tiers';
 import { getCreditSummary } from './credits';
 import { getAutoTopupSettings } from './auto-topup';
+import { isPlatformAdmin } from '../../shared/platform-roles';
 import type {
   AccountStateResponse,
   ScheduledChange,
@@ -42,6 +43,7 @@ function getModelsForTier(tierName: string): ModelInfo[] {
 export async function buildMinimalAccountState(accountId: string): Promise<AccountStateResponse> {
   const credits = await getCreditSummary(accountId);
   const sub = await getSubscriptionInfo(accountId);
+  const isAdmin = await isPlatformAdmin(accountId);
 
   // If no credit_accounts row exists, user hasn't been initialized yet.
   // Return 'none' so middleware redirects to /setting-up for auto-initialization.
@@ -123,19 +125,21 @@ export async function buildMinimalAccountState(accountId: string): Promise<Accou
   const hasActiveMachine = instances.some((i: any) => i.status === 'active' || i.status === 'provisioning');
   const canClaimComputer = isLegacyPaidTier(tierName) && !hasActiveMachine;
 
-  return {
+  const state = {
     credits: {
       total: credits.total,
       daily: credits.daily,
       monthly: credits.monthly,
       extra: credits.extra,
-      can_run: credits.canRun,
+      can_run: isAdmin ? true : credits.canRun,
       daily_refresh: dailyRefresh,
     },
     subscription: {
       tier_key: tierName,
-      tier_display_name: tier.displayName,
-      status: sub?.stripeSubscriptionStatus ?? (tierName === 'free' ? 'active' : 'no_subscription'),
+      tier_display_name: isAdmin && tierName === 'none' ? 'Admin' : tier.displayName,
+      status: isAdmin && tierName === 'none'
+        ? 'active'
+        : (sub?.stripeSubscriptionStatus ?? (tierName === 'free' ? 'active' : 'no_subscription')),
       billing_period: (sub?.planType as any) ?? null,
       provider: (sub?.provider as any) ?? 'stripe',
       subscription_id: sub?.stripeSubscriptionId ?? null,
@@ -149,20 +153,22 @@ export async function buildMinimalAccountState(accountId: string): Promise<Accou
       has_scheduled_change: scheduledChange !== null,
       scheduled_change: scheduledChange,
       commitment,
-      can_purchase_credits: tier.canPurchaseCredits,
+      can_purchase_credits: isAdmin ? true : tier.canPurchaseCredits,
     },
-    models: getModelsForTier(tierName),
+    models: getModelsForTier(isAdmin ? 'ultra' : tierName),
     tier: {
       name: tier.name,
-      display_name: tier.displayName,
+      display_name: isAdmin && tierName === 'none' ? 'Admin' : tier.displayName,
       monthly_credits: tier.monthlyCredits,
-      can_purchase_credits: tier.canPurchaseCredits,
+      can_purchase_credits: isAdmin ? true : tier.canPurchaseCredits,
     },
     auto_topup: autoTopup,
     instances,
-    can_add_instances: isPaidTier(tierName),
+    can_add_instances: isAdmin || isPaidTier(tierName),
     can_claim_computer: canClaimComputer,
   };
+
+  return state;
 }
 
 export async function buildAccountState(accountId: string): Promise<AccountStateResponse> {

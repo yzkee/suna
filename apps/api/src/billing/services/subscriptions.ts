@@ -1,6 +1,5 @@
 import { getStripe } from '../../shared/stripe';
 import { db } from '../../shared/db';
-import { platformUserRoles } from '@kortix/db';
 import { eq } from 'drizzle-orm';
 import {
   getCreditAccount,
@@ -11,17 +10,8 @@ import { getCustomerByAccountId, upsertCustomer } from '../repositories/customer
 import { BillingError, SubscriptionError } from '../../errors';
 import { getTier, isUpgrade, isDowngrade, getMonthlyCredits, resolvePriceId, getComputeDisplayPriceCents, getComputeProductId, getComputeDescription } from './tiers';
 import { grantCredits, resetExpiringCredits } from './credits';
+import { isPlatformAdmin } from '../../shared/platform-roles';
 import Stripe from 'stripe';
-
-async function isPlatformAdmin(accountId: string): Promise<boolean> {
-  const [row] = await db
-    .select({ role: platformUserRoles.role })
-    .from(platformUserRoles)
-    .where(eq(platformUserRoles.accountId, accountId))
-    .limit(1);
-
-  return row?.role === 'admin' || row?.role === 'super_admin';
-}
 
 export async function getOrCreateStripeCustomer(
   accountId: string,

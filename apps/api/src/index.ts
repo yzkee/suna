@@ -221,18 +221,10 @@ app.get('/v1/accounts', supabaseAuth, async (c: any) => {
 
 
 app.get('/v1/user-roles', supabaseAuth, async (c: any) => {
-  const { eq } = await import('drizzle-orm');
-  const { platformUserRoles } = await import('@kortix/db');
-  const { db: database } = await import('./shared/db');
+  const { getPlatformRole } = await import('./shared/platform-roles');
 
   const accountId = c.get('userId') as string;
-  const [row] = await database
-    .select({ role: platformUserRoles.role })
-    .from(platformUserRoles)
-    .where(eq(platformUserRoles.accountId, accountId))
-    .limit(1);
-
-  const role = row?.role || 'user';
+  const role = await getPlatformRole(accountId);
   const isAdmin = role === 'admin' || role === 'super_admin';
 
   return c.json({ isAdmin, role });
