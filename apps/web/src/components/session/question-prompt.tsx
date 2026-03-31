@@ -287,8 +287,8 @@ export const QuestionPrompt = React.forwardRef<QuestionPromptHandle, QuestionPro
 				</span>
 			</div>
 
-			{/* Body */}
-			<div className="border-t border-border/30">
+			{/* Body — scrollable so long option lists don't blow up the card */}
+			<div className="border-t border-border/30 max-h-[420px] overflow-y-auto">
 					{/* Tab bar (multi-question only) */}
 					{!isSingle && (
 						<div className="flex items-center gap-0.5 px-2 py-1 overflow-x-auto scrollbar-hide border-b border-border/30 bg-muted/20">
