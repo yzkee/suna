@@ -132,7 +132,8 @@ export function useOpenCodeSessions() {
     queryKey: opencodeKeys.sessions(),
     queryFn: async () => {
       const client = getClient();
-      const result = await client.session.list();
+      // Server defaults to limit=100. Fetch all sessions.
+      const result = await client.session.list({ limit: 10000 });
       const sessions = unwrap(result);
       return sessions.sort((a: Session, b: Session) => b.time.updated - a.time.updated);
     },

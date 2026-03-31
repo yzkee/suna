@@ -109,7 +109,6 @@ export interface TriggerSyncResult {
 
 export interface AgentTriggersPluginOptions {
   agentPaths?: string[]
-  cronStatePath?: string
   listenerStatePath?: string
   webhookPort?: number
   webhookHost?: string

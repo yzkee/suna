@@ -400,6 +400,8 @@ export function SessionList({ projectId }: SessionListProps = {}) {
   const [isArchiveDialogOpen, setIsArchiveDialogOpen] = useState(false);
   const [sessionToArchive, setSessionToArchive] = useState<{ id: string; name: string } | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const SESSION_PAGE_SIZE = 50;
+  const [displayLimit, setDisplayLimit] = useState(SESSION_PAGE_SIZE);
 
   const { data: sessions, isLoading, error, refetch } = useOpenCodeSessions();
   const { mutate: deleteSession, isPending: isDeleting } = useDeleteOpenCodeSession();
@@ -818,26 +820,44 @@ export function SessionList({ projectId }: SessionListProps = {}) {
             ))}
 
 
-            {/* Remaining sessions */}
-            {rootSessions.filter((s) => getPendingCount(s.id) === 0).map((session) => (
-              <SessionTreeNode
-                key={session.id}
-                session={session}
-                depth={0}
-                allSessions={sessions || []}
-                childMap={childMap}
-                expandedNodes={expandedNodes}
-                forkIds={forkIds}
-                onToggleExpand={handleToggleExpand}
-                isActiveSession={isActiveSession}
-                getStatus={getStatus}
-                onClick={handleSessionClick}
-                onDelete={handleDeleteSession}
-                onRename={handleRenameSession}
-                onArchive={handleArchiveSession}
-                onCompact={handleCompactSession}
-              />
-            ))}
+            {/* Remaining sessions (paginated) */}
+            {(() => {
+              const remaining = rootSessions.filter((s) => getPendingCount(s.id) === 0);
+              const visible = remaining.slice(0, displayLimit);
+              const hasMore = remaining.length > displayLimit;
+              return (
+                <>
+                  {visible.map((session) => (
+                    <SessionTreeNode
+                      key={session.id}
+                      session={session}
+                      depth={0}
+                      allSessions={sessions || []}
+                      childMap={childMap}
+                      expandedNodes={expandedNodes}
+                      forkIds={forkIds}
+                      onToggleExpand={handleToggleExpand}
+                      isActiveSession={isActiveSession}
+                      getStatus={getStatus}
+                      onClick={handleSessionClick}
+                      onDelete={handleDeleteSession}
+                      onRename={handleRenameSession}
+                      onArchive={handleArchiveSession}
+                      onCompact={handleCompactSession}
+                    />
+                  ))}
+                  {hasMore && (
+                    <button
+                      type="button"
+                      onClick={() => setDisplayLimit((l) => l + SESSION_PAGE_SIZE)}
+                      className="w-full py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-sidebar-accent rounded-lg transition-colors cursor-pointer"
+                    >
+                      Show more ({remaining.length - displayLimit} remaining)
+                    </button>
+                  )}
+                </>
+              );
+            })()}
           </div>
         )}
       </div>

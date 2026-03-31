@@ -2,7 +2,7 @@ import { createAgentTriggersPlugin } from "../../triggers/src/index"
 
 export default createAgentTriggersPlugin({
   directory: "/workspace",
-  cronStatePath: "/workspace/.kortix/agent-triggers/cron-state.json",
+  // Trigger state stored in /workspace/.kortix/agent-triggers/triggers.sqlite
   listenerStatePath: "/workspace/.kortix/agent-triggers/listener-state.json",
   webhookHost: "0.0.0.0",
   webhookPort: 8099,

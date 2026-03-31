@@ -1,5 +1,5 @@
 import { Cron } from "croner"
-import { CronStore } from "./cron-store.js"
+import { CronStoreSqlite as CronStore } from "./cron-store-sqlite.js"
 import type { CronExecutionRecord, CronTriggerRecord } from "./types.js"
 
 export interface CronDispatchResult {

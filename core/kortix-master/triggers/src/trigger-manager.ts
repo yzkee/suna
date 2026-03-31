@@ -1,10 +1,11 @@
+import { watch, type FSWatcher } from "node:fs"
 import path from "node:path"
 import type { MinimalOpenCodeClient, AgentTriggersPluginOptions, CronTriggerConfig, DiscoveredAgent, TriggerSyncResult, WebhookDispatchResult, WebhookTriggerConfig, CronTriggerRecord, EventListenerRecord } from "./types.js"
 import { CronClient } from "./cron-client.js"
 import { CronManager } from "./cron-manager.js"
-import { CronStore } from "./cron-store.js"
+import { CronStoreSqlite } from "./cron-store-sqlite.js"
 import { ListenerStore } from "./listener-store.js"
-import { discoverAgentsWithTriggers } from "./parser.js"
+import { discoverAgentsWithTriggers, resolveAgentPaths } from "./parser.js"
 import { WebhookTriggerServer, type WebhookRoute } from "./webhook-server.js"
 
 const KORTIX_MASTER_URL = "http://localhost:8000"
@@ -40,6 +41,8 @@ export class TriggerManager {
   private discovered: DiscoveredAgent[] = []
   private readonly reusedSessions = new Map<string, string>()
   private started = false
+  private watchers: FSWatcher[] = []
+  private syncDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(
     private readonly client: MinimalOpenCodeClient,
@@ -47,11 +50,12 @@ export class TriggerManager {
   ) {
     const host = options.webhookHost ?? "0.0.0.0"
     const port = options.webhookPort ?? 8099
-    const statePath = options.cronStatePath
-      ?? path.join(options.directory ?? process.cwd(), ".opencode", "agent-triggers", "cron-state.json")
-    const listenerStatePath = options.listenerStatePath
-      ?? path.join(options.directory ?? process.cwd(), ".opencode", "agent-triggers", "listener-state.json")
-    const cronStore = new CronStore(statePath)
+    // Store trigger state in .kortix/ (persisted across container restarts)
+    const stateDir = path.join(options.directory ?? process.cwd(), ".kortix", "agent-triggers")
+    const dbPath = path.join(stateDir, "triggers.sqlite")
+    const listenerStatePath = options.listenerStatePath ?? path.join(stateDir, "listener-state.json")
+
+    const cronStore = new CronStoreSqlite(dbPath)
     this.cronManager = new CronManager(cronStore, (trigger, event) => this.dispatchCron(trigger, event))
     this.cronClient = new CronClient(this.cronManager)
     this.listenerStore = new ListenerStore(listenerStatePath)
@@ -63,6 +67,8 @@ export class TriggerManager {
     this.options.logger?.(level, message)
   }
 
+  // JSON store removed — SQLite (bun:sqlite) is the only backend.
+
   public getPublicBaseUrl(): string {
     return this.options.publicBaseUrl ?? `http://localhost:${this.options.webhookPort ?? 8099}`
   }
@@ -71,6 +77,7 @@ export class TriggerManager {
     if (!this.started) {
       this.cronManager.start()
       await this.webhookServer.start()
+      this.watchAgentDirs()
       this.started = true
     }
     try {
@@ -97,7 +104,45 @@ export class TriggerManager {
   public async stop(): Promise<void> {
     this.cronManager.stop()
     await this.webhookServer.stop()
+    this.unwatchAgentDirs()
     this.started = false
+  }
+
+  /**
+   * Watch all agent directories for file changes (add/remove/modify .md files).
+   * Debounces re-sync to avoid thrashing on rapid saves.
+   */
+  private watchAgentDirs(): void {
+    this.unwatchAgentDirs()
+    for (const dirPath of resolveAgentPaths(this.options)) {
+      try {
+        const watcher = watch(dirPath, { persistent: false }, (_event, filename) => {
+          if (filename && !filename.endsWith(".md")) return
+          this.debouncedSync()
+        })
+        this.watchers.push(watcher)
+        this.log("info", `[agent-triggers] Watching ${dirPath} for agent changes`)
+      } catch {
+        // Directory may not exist yet — that's fine
+      }
+    }
+  }
+
+  private unwatchAgentDirs(): void {
+    for (const watcher of this.watchers) {
+      try { watcher.close() } catch {}
+    }
+    this.watchers = []
+  }
+
+  private debouncedSync(): void {
+    if (this.syncDebounceTimer) clearTimeout(this.syncDebounceTimer)
+    this.syncDebounceTimer = setTimeout(() => {
+      this.syncDebounceTimer = null
+      this.sync().catch((err) => {
+        this.log("error", `[agent-triggers] Auto-sync failed: ${err instanceof Error ? err.message : String(err)}`)
+      })
+    }, 1000)
   }
 
   public discover(): DiscoveredAgent[] {

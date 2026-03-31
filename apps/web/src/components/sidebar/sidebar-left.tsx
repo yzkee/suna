@@ -190,8 +190,7 @@ function SessionsFlyout() {
     if (!sessions) return [];
     return sessions
       .filter((s) => !s.parentID && !(s.time as any).archived)
-      .sort((a, b) => b.time.updated - a.time.updated)
-      .slice(0, 40);
+      .sort((a, b) => b.time.updated - a.time.updated);
   }, [sessions]);
 
   const getPendingCount = (sessionId: string) => {
