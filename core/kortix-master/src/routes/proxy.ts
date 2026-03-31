@@ -134,7 +134,10 @@ proxyRouter.all('/:port{[0-9]+}/*',
 
         // ── Connection refused — server is down, no point retrying ─────
         if (isConnectionRefused(errMsg)) {
-          console.error(`[proxy] Port ${port} unreachable on ${c.req.method} ${remainingPath}: nothing is listening on localhost:${port}`)
+          // Only log for non-probe requests. HEAD / and POST /v1/p/auth are
+          // the frontend's port health checks — don't spam logs for dead ports.
+          const isProbe = c.req.method === 'HEAD' || remainingPath === '/v1/p/auth'
+          if (!isProbe) console.error(`[proxy] Port ${port} unreachable on ${c.req.method} ${remainingPath}: nothing is listening on localhost:${port}`)
           return c.json({
             error: 'Failed to connect to service',
             port,
