@@ -1,7 +1,7 @@
 import { createAgentTriggersPlugin } from "./plugin.js"
 
 export { discoverAgentsWithTriggers, resolveAgentPaths } from "./parser.js"
-export { isValidCronExpression, getNextRun, describeCron, CronStore } from "./cron-store.js"
+export { CronStoreSqlite, CronStoreSqlite as CronStore, isValidCronExpression, getNextRun, describeCron } from "./cron-store-sqlite.js"
 export { CronManager } from "./cron-manager.js"
 export { CronClient } from "./cron-client.js"
 export { buildCronTriggerEventText, dispatchCronTriggerViaHttp } from "./opencode-http-dispatch.js"

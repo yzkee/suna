@@ -132,7 +132,7 @@ export class CoreSupervisor {
       'sudo bash /etc/s6-overlay/s6-rc.d/svc-opencode-channels/run',
       '/usr/local/bin/opencode serve --port 4096 --hostname 0.0.0.0',
       '/usr/local/bin/opencode web --port 3111 --hostname 0.0.0.0',
-      '/opt/opencode-channels/src/index.ts',
+      '/opt/kortix-master/channels/src/index.ts',
       '/tmp/static-web-server.js', // legacy temp file
     ]
 

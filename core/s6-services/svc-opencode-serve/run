@@ -21,13 +21,19 @@ export PATH="/opt/bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 [ -z "$ANTHROPIC_BASE_URL" ] && unset ANTHROPIC_BASE_URL
 [ -z "$OPENAI_BASE_URL" ] && unset OPENAI_BASE_URL
 
-# If the port is already in use (previous instance still alive), wait instead of crash-looping.
+# If another instance is already serving on this port, just hold the slot.
+# This prevents the "DB still locked" crash-loop where s6 keeps restarting
+# a second instance that can't acquire the SQLite lock.
 if netstat -tln 2>/dev/null | grep -q ":${PORT} "; then
-  echo "[opencode-serve] Port ${PORT} already in use — waiting for it to free up"
-  while netstat -tln 2>/dev/null | grep -q ":${PORT} "; do
-    sleep 5
-  done
+  echo "[opencode-serve] Port ${PORT} already in use — holding slot"
+  exec sleep infinity
 fi
+
+# Also check for stale SQLite WAL/SHM files that prevent startup
+for f in /workspace/.local/share/opencode/storage/*.db-wal \
+         /workspace/.local/share/opencode/storage/*.db-shm; do
+  [ -f "$f" ] && rm -f "$f" 2>/dev/null && echo "[opencode-serve] Cleaned stale lock: $f"
+done
 
 cd /workspace
 

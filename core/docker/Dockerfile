@@ -6,10 +6,10 @@
 # Updates = pull new image + recreate container. User data in /workspace volume.
 #
 # Container layout:
-#   /opt/opencode/               OpenCode config dir — agents, tools, skills, plugins, deps
-#   /opt/kortix-master/          Hono proxy server + deps
-#   /opt/opencode-channels/      Chat SDK + deps
-#   /opt/opencode-agent-triggers/ Trigger definitions
+#   /opt/kortix-master/          Consolidated daemon — Hono server, OpenCode config, channels, triggers
+#   /opt/kortix-master/opencode/ OpenCode config dir — agents, tools, skills, plugins
+#   /opt/kortix-master/channels/ Chat SDK (Slack/Discord/Telegram)
+#   /opt/kortix-master/triggers/ Cron + webhook triggers
 #   /opt/agent-browser-viewer/   Browser viewer HTML
 #   /opt/kortix/                 Version metadata, service spec, changelog
 #
@@ -190,21 +190,13 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
     chmod +x /opt/kortix-master/scripts/*.sh 2>/dev/null || true && \
     echo "[docker] kortix-master: bun install OK (includes triggers, channels, opencode)" && \
     \
-    # ── 2. Symlink legacy /opt/ paths to consolidated locations ── \
-    # These symlinks preserve backward compatibility with s6 services, init scripts, \
-    # and skill docs that reference /opt/opencode, /opt/opencode-channels, etc. \
-    ln -sfn /opt/kortix-master/opencode /opt/opencode && \
-    ln -sfn /opt/kortix-master/channels /opt/opencode-channels && \
-    ln -sfn /opt/kortix-master/triggers /opt/opencode-agent-triggers && \
-    echo "[docker] Legacy symlinks created" && \
-    \
-    # ── 3. skills shipped in-tree under skills/KORTIX-system/ (recursive discovery) ── \
-    echo "[docker] skills: agent-tunnel, agent-browser, presentations in /opt/opencode/skills/KORTIX-system/" && \
-    bash /opt/opencode/patches/apply.sh /opt/opencode && \
+    # ── 2. skills shipped in-tree under skills/KORTIX-system/ (recursive discovery) ── \
+    echo "[docker] skills: agent-tunnel, agent-browser, presentations in /opt/kortix-master/opencode/skills/KORTIX-system/" && \
+    bash /opt/kortix-master/opencode/patches/apply.sh /opt/kortix-master/opencode && \
     \
     # ── 4. Binary patches ── \
-    if [ -f /opt/opencode/patches/patch-opencode-streaming.js ]; then \
-      node /opt/opencode/patches/patch-opencode-streaming.js || true; \
+    if [ -f /opt/kortix-master/opencode/patches/patch-opencode-streaming.js ]; then \
+      node /opt/kortix-master/opencode/patches/patch-opencode-streaming.js || true; \
     fi && \
     \
     # ── 5. bun-pty musl patches ── \

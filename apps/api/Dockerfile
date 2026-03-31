@@ -1,7 +1,7 @@
 # syntax=docker.io/docker/dockerfile:1
 
 # Shared Dockerfile for the Bun API
-# Build from repo root: docker build --build-arg SERVICE=kortix-api -f kortix-api/Dockerfile .
+# Build from repo root: docker build --build-arg SERVICE=apps/api -f apps/api/Dockerfile .
 
 ARG BUN_VERSION=1.2
 FROM oven/bun:${BUN_VERSION}-slim AS base
@@ -22,15 +22,14 @@ COPY ${SERVICE} ./${SERVICE}
 COPY packages/shared ./packages/shared
 COPY packages/db ./packages/db
 COPY packages/agent-tunnel ./packages/agent-tunnel
-COPY packages/opencode-channels ./packages/opencode-channels
-COPY packages/kortix-opencode ./packages/kortix-opencode
-COPY sandbox/CHANGELOG.json ./packages/sandbox/CHANGELOG.json
-COPY sandbox/package.json ./packages/sandbox/package.json
+
+# Copy release metadata (read by version endpoint)
+COPY core/CHANGELOG.json ./core/CHANGELOG.json
+COPY core/package.json ./core/package.json
 
 # Install pnpm and deps for this app + workspace packages it depends on.
 # --shamefully-hoist flattens node_modules (no symlinks) so COPY works on all Docker versions.
 # Include devDeps so drizzle-kit is available for schema push at runtime.
-# opencode-channels is now a public npm package (@kortix/opencode-channels) — no workspace filter needed.
 RUN corepack enable pnpm && \
     pnpm install --filter ./${SERVICE}... --shamefully-hoist --prod=false --ignore-scripts
 
@@ -48,12 +47,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssh-client 
 # License
 COPY LICENSE /LICENSE
 
-# Changelog (read by version endpoint — avoids GitHub raw fetch for private repos)
-COPY sandbox/CHANGELOG.json /app/CHANGELOG.json
-COPY sandbox/release.json /app/release.json
+# Changelog + release metadata (read by version endpoint)
+COPY core/CHANGELOG.json /app/CHANGELOG.json
+COPY core/release.json /app/release.json
 
-# Sandbox package.json — single source of truth for SANDBOX_VERSION
-COPY sandbox/package.json /app/packages/sandbox/package.json
+# Core package.json — single source of truth for SANDBOX_VERSION
+COPY core/package.json /app/core/package.json
 
 # Copy installed node_modules and source from deps stage.
 # Root node_modules contains all hoisted deps (--shamefully-hoist).
@@ -72,7 +71,7 @@ COPY --from=deps /app/packages/agent-tunnel/src ./packages/agent-tunnel/src
 COPY --from=deps /app/packages/agent-tunnel/package.json ./packages/agent-tunnel/package.json
 
 # Copy SQL migrations used by ensureSchema() at runtime.
-COPY infra/supabase/migrations ./infra/supabase/migrations
+COPY supabase/migrations ./supabase/migrations
 
 # Copy the app (source + its node_modules if any)
 COPY --from=deps /app/${SERVICE} ./${SERVICE}
@@ -96,5 +95,3 @@ RUN mkdir -p /app/${SERVICE}/.kortix-data && \
 USER bun
 
 CMD ["bun", "run", "src/index.ts"]
-# CI/CD test: 2026-03-26T07:34:20Z
-# zero-downtime test 1774611899

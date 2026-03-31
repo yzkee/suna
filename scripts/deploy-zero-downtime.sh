@@ -73,7 +73,7 @@ else
   echo "[2/6] Building ${IMAGE_TAG} (traffic still on $ACTIVE_SLOT:$ACTIVE_PORT)..."
   docker build \
     --file apps/api/Dockerfile \
-    --build-arg SERVICE=kortix-api \
+    --build-arg SERVICE=apps/api \
     --tag "$IMAGE_TAG" \
     --tag "${IMAGE_NAME}:latest" \
     --no-cache \

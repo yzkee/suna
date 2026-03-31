@@ -8,6 +8,10 @@ echo "[opencode-channels] Starting on port 3456"
 # Kill any stale process holding the port (e.g. after unclean shutdown)
 fuser -k 3456/tcp 2>/dev/null || true
 
+# Run from kortix-master so bun resolves node_modules from the consolidated package.
+# /opt/opencode-channels is a symlink to /opt/kortix-master/channels
+cd /opt/kortix-master
+
 if [ "$(id -u)" -eq 0 ]; then
   exec s6-setuidgid abc \
     env HOME=/workspace \
@@ -17,7 +21,7 @@ if [ "$(id -u)" -eq 0 ]; then
         KORTIX_API_URL="${KORTIX_API_URL:-http://localhost:8008}" \
         KORTIX_TOKEN="${KORTIX_TOKEN:-}" \
         CHANNEL_CONFIG_ID="${CHANNEL_CONFIG_ID:-}" \
-    /opt/bun/bin/bun run /opt/opencode-channels/src/index.ts
+    /opt/bun/bin/bun run channels/src/index.ts
 fi
 
 exec env HOME=/workspace \
@@ -27,4 +31,4 @@ exec env HOME=/workspace \
     KORTIX_API_URL="${KORTIX_API_URL:-http://localhost:8008}" \
     KORTIX_TOKEN="${KORTIX_TOKEN:-}" \
     CHANNEL_CONFIG_ID="${CHANNEL_CONFIG_ID:-}" \
-  /opt/bun/bin/bun run /opt/opencode-channels/src/index.ts
+  /opt/bun/bin/bun run channels/src/index.ts

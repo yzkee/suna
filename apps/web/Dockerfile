@@ -3,14 +3,14 @@
 # Lightweight runner-only image.
 #
 # Build the frontend on the HOST first:
-#   cd apps/frontend && NEXT_OUTPUT=standalone pnpm run build
+#   cd apps/web && NEXT_OUTPUT=standalone pnpm run build
 #
 # Then from repo root:
-#   docker build -f apps/frontend/Dockerfile -t kortix/kortix-frontend:latest .
+#   docker build -f apps/web/Dockerfile -t kortix/kortix-frontend:latest .
 #
 # For CLOUD builds (kortix.ai), override billing at build time:
 #   NEXT_PUBLIC_BILLING_ENABLED=true pnpm build
-#   docker build -f apps/frontend/Dockerfile -t kortix/kortix-frontend:cloud .
+#   docker build -f apps/web/Dockerfile -t kortix/kortix-frontend:cloud .
 #
 # Build-time env vars (baked into the image):
 #   NEXT_PUBLIC_ENV_MODE       - "local" or "cloud"
@@ -33,17 +33,17 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY LICENSE /LICENSE
 
 # Copy pre-built standalone output from the host.
-COPY --chown=nextjs:nodejs apps/frontend/.next/standalone ./
-COPY --chown=nextjs:nodejs apps/frontend/.next/static ./apps/frontend/.next/static
-COPY --chown=nextjs:nodejs apps/frontend/public ./apps/frontend/public
+COPY --chown=nextjs:nodejs apps/web/.next/standalone ./
+COPY --chown=nextjs:nodejs apps/web/.next/static ./apps/web/.next/static
+COPY --chown=nextjs:nodejs apps/web/public ./apps/web/public
 
 # Remove any .env files from the standalone output — runtime env vars
 # (set in docker-compose) must take precedence. Next.js .env files override
 # process.env for server components, which breaks local/VPS deploys.
-RUN rm -f /app/apps/frontend/.env /app/apps/frontend/.env.local /app/apps/frontend/.env.production /app/.env
+RUN rm -f /app/apps/web/.env /app/apps/web/.env.local /app/apps/web/.env.production /app/.env
 
 # Copy entrypoint script (needs to run as root for VPS URL rewriting)
-COPY apps/frontend/docker-entrypoint.sh /docker-entrypoint.sh
+COPY apps/web/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 # In local mode (no KORTIX_PUBLIC_URL), runs as nextjs user via CMD.
