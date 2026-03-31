@@ -985,14 +985,21 @@ export function createCloudSandboxRouter(
 
       // 3. One-time credit migration: set expiring credits to new tier amount + $5 machine bonus
       try {
-        const { resetExpiringCredits, grantCredits } = await import('../../billing/services/credits');
-        const { getTier, MACHINE_CREDIT_BONUS } = await import('../../billing/services/tiers');
+        const { resetExpiringCredits } = await import('../../billing/services/credits');
+        const { getTier } = await import('../../billing/services/tiers');
+        const {
+          grantMachineBonusOnce,
+          getLegacyClaimMachineBonusKey,
+        } = await import('../../billing/services/machine-bonus');
         const tierConfig = getTier(tier);
         if (tierConfig.monthlyCredits > 0) {
           await resetExpiringCredits(accountId, tierConfig.monthlyCredits, `Welcome: ${tierConfig.displayName} — $${tierConfig.monthlyCredits} credits`);
         }
-        await grantCredits(accountId, MACHINE_CREDIT_BONUS, 'machine_bonus', `Machine bonus: $${MACHINE_CREDIT_BONUS}`, false, `machine_bonus:claim:${accountId}`);
-        console.log(`[claim-computer] Granted $${tierConfig.monthlyCredits} tier credits + $${MACHINE_CREDIT_BONUS} bonus for ${accountId}`);
+        await grantMachineBonusOnce({
+          accountId,
+          idempotencyKey: getLegacyClaimMachineBonusKey(accountId),
+        });
+        console.log(`[claim-computer] Granted $${tierConfig.monthlyCredits} tier credits + machine bonus for ${accountId}`);
       } catch (creditErr) {
         console.error(`[claim-computer] Credit grant failed for ${accountId}:`, creditErr);
       }

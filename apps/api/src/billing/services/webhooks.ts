@@ -19,6 +19,7 @@ import {
   isRevenueCatAnonymous,
 } from './tiers';
 import { grantCredits, resetExpiringCredits } from './credits';
+import { grantMachineBonusOnce, getStripeMachineBonusKey } from './machine-bonus';
 import { cancelFreeSubscriptionForUpgrade } from './subscriptions';
 
 // ─── Stripe Webhook Processing ──────────────────────────────────────────────
@@ -193,22 +194,14 @@ async function handleSubscriptionCheckout(session: Stripe.Checkout.Session, acco
   const location = session.metadata?.location;
 
   if (serverType) {
-    // Grant one-time $5 machine credit bonus (only when paying for a machine)
-    const { MACHINE_CREDIT_BONUS } = await import('./tiers');
-    if (MACHINE_CREDIT_BONUS > 0) {
-      try {
-        await grantCredits(
-          accountId,
-          MACHINE_CREDIT_BONUS,
-          'machine_bonus',
-          `Machine credit bonus: $${MACHINE_CREDIT_BONUS}`,
-          false, // non-expiring
-          `machine_bonus:checkout:${session.id}`,
-        );
-        console.log(`[Webhook] Granted $${MACHINE_CREDIT_BONUS} machine bonus for ${accountId}`);
-      } catch (err) {
-        console.error(`[Webhook] Failed to grant machine bonus for ${accountId}:`, err);
-      }
+    try {
+      await grantMachineBonusOnce({
+        accountId,
+        idempotencyKey: getStripeMachineBonusKey(subscriptionId),
+      });
+      console.log(`[Webhook] Granted machine bonus for ${accountId} (sub=${subscriptionId})`);
+    } catch (err) {
+      console.error(`[Webhook] Failed to grant machine bonus for ${accountId} (sub=${subscriptionId}):`, err);
     }
 
     try {

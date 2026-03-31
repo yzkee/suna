@@ -133,11 +133,12 @@ describe('checkout.session.completed: instance provisioning', () => {
 
     await processStripeWebhook(JSON.stringify(event), 'sig');
 
-    // Pro tier has 0 monthly credits, but $5 machine bonus is granted at checkout
+    // Pro tier has 0 monthly credits, but $5 machine bonus is granted once per subscription
     expect(grantCreditsCalls.length).toBe(1);
     expect(grantCreditsCalls[0][0]).toBe('acc_test_123');
     expect(grantCreditsCalls[0][1]).toBe(5); // $5 machine bonus
     expect(grantCreditsCalls[0][2]).toBe('machine_bonus');
+    expect(grantCreditsCalls[0][5]).toBe('machine_bonus:subscription:sub_test_123');
 
     // Provisioning also happened
     expect(provisionCalls.length).toBe(1);
