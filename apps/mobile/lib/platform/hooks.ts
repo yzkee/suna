@@ -72,11 +72,24 @@ export function useSandbox(enabled: boolean = true) {
     queryFn: async () => {
       log.log('📦 [useSandbox] Checking sandbox...');
 
-      // First try to get existing sandbox
+      // First try to get existing active sandbox
       let sandbox = await getActiveSandbox();
 
-      // If none, provision one
+      // If no active sandbox, check if there's one still provisioning
       if (!sandbox) {
+        log.log('📦 [useSandbox] No active sandbox, checking for provisioning...');
+        const allSandboxes = await listSandboxes();
+        const provisioning = allSandboxes.find((s) => s.status === 'provisioning');
+        if (provisioning) {
+          log.log('⏳ [useSandbox] Found provisioning sandbox:', provisioning.external_id);
+          return {
+            sandbox: provisioning,
+            sandboxUrl: getSandboxUrl(provisioning.external_id),
+            sandboxId: provisioning.external_id,
+          };
+        }
+
+        // No sandbox at all — provision one
         log.log('📦 [useSandbox] No sandbox found, provisioning...');
         const result = await ensureSandbox();
         sandbox = result.sandbox;

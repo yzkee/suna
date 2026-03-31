@@ -72,6 +72,8 @@ import { MarketplacePage } from '@/components/pages/MarketplacePage';
 import { TerminalPage } from '@/components/pages/TerminalPage';
 import { SetupWizard } from '@/components/setup/SetupWizard';
 import { InstanceOnboarding } from '@/components/setup/InstanceOnboarding';
+import { ProvisioningProgress } from '@/components/provisioning/ProvisioningProgress';
+import { useSandboxPoller } from '@/lib/platform/use-sandbox-poller';
 import {
   Eye, EyeOff, RefreshCw, Upload, Image, FolderPlus, LayoutGrid, List,
   FileText, Copy, Pencil, Trash2,
@@ -253,8 +255,23 @@ export default function HomeScreen() {
   const { colorScheme, setColorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const router = useRouter();
-  const { sandboxUrl, sandboxId, isLoading: sandboxLoading, error: sandboxError } =
-    useSandboxContext();
+  const {
+    sandboxUrl, sandboxId, isLoading: sandboxLoading, error: sandboxError,
+    isProvisioning, provisioningSandboxId, onProvisioningComplete,
+  } = useSandboxContext();
+
+  // ── Provisioning progress poller ──
+  const poller = useSandboxPoller({
+    sandboxId: provisioningSandboxId,
+    enabled: isProvisioning,
+  });
+
+  // When poller reaches 'ready', trigger refetch in sandbox context
+  useEffect(() => {
+    if (poller.status === 'ready') {
+      onProvisioningComplete();
+    }
+  }, [poller.status, onProvisioningComplete]);
 
   // ── Instance setup wizard check ──
   // 'checking' = waiting for sandbox to be reachable, then checking env
@@ -339,9 +356,9 @@ export default function HomeScreen() {
             await new Promise((r) => setTimeout(r, pollMs));
             continue;
           }
-          // Fresh install — show wizard
-          log.log('[Home] Setup check: INSTANCE_SETUP_COMPLETE not true, showing wizard');
-          setSetupState('needed');
+          // Fresh install — go straight to agent-driven onboarding (matches frontend flow)
+          log.log('[Home] Setup check: INSTANCE_SETUP_COMPLETE not true, showing onboarding');
+          setSetupState('onboarding');
           return;
         } catch (err: any) {
           log.error('[Home] Setup check poll error:', err?.message || err);
@@ -357,7 +374,8 @@ export default function HomeScreen() {
         if (wasSetupDone) {
           setSetupState('done');
         } else {
-          setSetupState('needed');
+          // Fresh install — go to agent-driven onboarding (matches frontend flow)
+          setSetupState('onboarding');
         }
         return;
       }
@@ -368,7 +386,8 @@ export default function HomeScreen() {
         log.log('[Home] Setup check: timed out but was previously set up — showing main app');
         setSetupState('done');
       } else {
-        setSetupState('needed');
+        // Fresh install — go to agent-driven onboarding (matches frontend flow)
+        setSetupState('onboarding');
       }
     })();
 
@@ -917,6 +936,23 @@ export default function HomeScreen() {
 
   // ── Render ──
 
+  // Show provisioning progress when sandbox is being created
+  if (isProvisioning) {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <RNStatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+        <ProvisioningProgress
+          progress={poller.progress}
+          stages={poller.stages}
+          currentStage={poller.currentStage}
+          machineInfo={poller.machineInfo}
+          error={poller.error}
+        />
+      </>
+    );
+  }
+
   // Show loading screen while checking setup status — matches frontend's
   // "Connecting to Workspace" skeleton screen.
   if (setupState === 'checking') {
@@ -940,19 +976,8 @@ export default function HomeScreen() {
     );
   }
 
-  // Show setup wizard if instance setup is not complete
-  if (setupState === 'needed') {
-    return (
-      <>
-        <Stack.Screen options={{ headerShown: false }} />
-        <RNStatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
-        <SetupWizard onComplete={handleSetupComplete} />
-      </>
-    );
-  }
-
-  // Show agent-driven onboarding after wizard completes
-  if (setupState === 'onboarding') {
+  // Show agent-driven onboarding (matches frontend flow — no separate setup wizard)
+  if (setupState === 'needed' || setupState === 'onboarding') {
     return (
       <>
         <Stack.Screen options={{ headerShown: false }} />
