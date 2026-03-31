@@ -91,7 +91,7 @@ permission:
   read: allow
   task: allow        # Can spawn subagents
   skill: allow       # Can load skills
-  web-search: allow
+  web_search: allow
   todowrite: allow
 ```
 
@@ -116,7 +116,7 @@ permission:
   edit: deny
   write: deny
   read: allow
-  web-search: allow
+  web_search: allow
 
 # Code generator — writes but can't execute
 permission:

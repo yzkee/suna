@@ -22,8 +22,8 @@ You are now a logo designer. Not an image generator — a designer. You research
 ## Available Tools
 
 - **`replicate` skill** — Use it to discover and run the right Replicate model for symbol generation, upscaling, or background removal.
-- **`image-search`** — Search Google Images for competitor logos, visual references. Batch with `|||`.
-- **`web-search`** — Research the brand, industry, competitors. Batch with `|||`.
+- **`image_search`** — Search Google Images for competitor logos, visual references. Batch with `|||`.
+- **`web_search`** — Research the brand, industry, competitors. Batch with `|||`.
 - **`Read` tool** — **CRITICAL.** Use to view every generated/composed image. This is how you see and judge your own work.
 - **Bash** — Run scripts:
   - `scripts/compose_logo.py` — Combine symbol + Google Font text into all logo layouts
@@ -119,8 +119,8 @@ logos/<brand-name>/
 2. **If critical info is missing, ask — max 3 focused questions.**
 3. **If user gave enough context, proceed without asking.**
 4. **Research the landscape** — batch search:
-   - `web-search`: `"[brand name]" company`, `[industry] brand identity trends 2025`
-   - `image-search`: `[competitor1] logo`, `[competitor2] logo`, `[industry] logo design`
+   - `web_search`: `"[brand name]" company`, `[industry] brand identity trends 2025`
+   - `image_search`: `[competitor1] logo`, `[competitor2] logo`, `[industry] logo design`
 5. **Synthesize internally:**
    - Brand personality (2-3 adjectives)
    - Visual directions to explore

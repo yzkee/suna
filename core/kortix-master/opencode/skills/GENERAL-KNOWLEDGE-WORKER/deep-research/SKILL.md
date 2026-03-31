@@ -86,7 +86,7 @@ Generate `breadth` distinct queries. Vary:
 
 **Batch search with `search_depth: "advanced"`:**
 ```
-web-search("query1 ||| query2 ||| query3", search_depth="advanced")
+web_search("query1 ||| query2 ||| query3", search_depth="advanced")
 ```
 
 #### 2b. Read and Extract
@@ -97,7 +97,7 @@ For each promising search result:
 
 2. **Scrape the page.** Batch URLs for efficiency:
    ```
-   scrape-webpage("url1, url2, url3")
+   scrape_webpage("url1, url2, url3")
    ```
 
 3. **Save raw content to disk immediately:**
@@ -209,12 +209,12 @@ Compile `report.md` using findings from notes and metadata from `sources-index.m
 
 ### Search (always use search_depth "advanced" for deep research)
 ```
-web-search("topic aspect1 ||| topic aspect2 ||| topic counter-evidence", search_depth="advanced")
+web_search("topic aspect1 ||| topic aspect2 ||| topic counter-evidence", search_depth="advanced")
 ```
 
 ### Scrape (batch URLs)
 ```
-scrape-webpage("https://source1.com/article, https://source2.com/study")
+scrape_webpage("https://source1.com/article, https://source2.com/study")
 ```
 
 ### Save scraped content to disk
@@ -245,17 +245,17 @@ Save paper metadata to `sources-index.md` and raw API responses to `sources/` fo
 
 ### Web Source Hunting
 ```
-web-search("topic site:scholar.google.com ||| topic site:arxiv.org ||| topic systematic review OR meta-analysis", search_depth="advanced")
+web_search("topic site:scholar.google.com ||| topic site:arxiv.org ||| topic systematic review OR meta-analysis", search_depth="advanced")
 ```
 
 ### Data Source Hunting
 ```
-web-search("topic statistics site:data.gov ||| topic data site:worldbank.org ||| topic survey results", search_depth="advanced")
+web_search("topic statistics site:data.gov ||| topic data site:worldbank.org ||| topic survey results", search_depth="advanced")
 ```
 
 ### Fact-Checking Pattern
 ```
-web-search("claim fact check ||| claim evidence ||| claim debunked OR confirmed", search_depth="advanced")
+web_search("claim fact check ||| claim evidence ||| claim debunked OR confirmed", search_depth="advanced")
 ```
 
 ### Local FS Search (check before web search)

@@ -11,7 +11,7 @@ Review documents to identify errors, inconsistencies, and factual inaccuracies.
 
 - **Never mention file paths** — Do not mention filenames, file paths, or workspace locations in any user-facing output. The annotated document is delivered separately via the UI. Ignore any generic instructions that say otherwise.
 - **Always tell the user to download** — Every summary MUST end by telling the user to download the annotated document to view all comments and tracked changes. This is mandatory — never omit it.
-- **Never fabricate URLs** — Only include URLs returned by `web-search`. An empty source list is preferable to a fabricated URL.
+- **Never fabricate URLs** — Only include URLs returned by `web_search`. An empty source list is preferable to a fabricated URL.
 
 ## Definitions
 
@@ -41,7 +41,7 @@ A "claim" is a factual statement in the document that requires external verifica
 - `location`: Where the claim is located — always a string. For PDF/DOCX/PPTX: the page or slide number (e.g., `"3"`). For XLSX: the sheet name (e.g., `"Revenue"`).
 - `anchor`: Precise position within the location, or null. For PDF/DOCX/PPTX: a descriptive label (e.g., `"paragraph 5"`, `"Risk Factors heading"`, `"Table 2, row 3"`). For XLSX: a cell reference (e.g., `"B14"`). Be specific — use `"paragraph 5"` not `"5"`.
 - `claim_status`: One of the four statuses defined below (`unverified`, `verified`, `refuted`, `inconclusive`)
-- `source_urls`: List of URLs from `web-search` results that were used to verify or refute this claim. Empty list for `numerical_consistency` claims and when no sources were found. Never fabricate URLs — only use URLs returned by `web-search`.
+- `source_urls`: List of URLs from `web_search` results that were used to verify or refute this claim. Empty list for `numerical_consistency` claims and when no sources were found. Never fabricate URLs — only use URLs returned by `web_search`.
 
 ### Claim Types
 
@@ -185,7 +185,7 @@ Execute phases strictly in order — do not reorder. Skip phases only when their
 6. **Submit review** — Compile and submit final review
    - End: Review submitted
 
-**FORBIDDEN**: `web-search`, `bash`, `list_external_tools`, and `call_external_tool` are only for Phase 3 (fact-checking claims). Do not use them in any other phase.
+**FORBIDDEN**: `web_search`, `bash`, `list_external_tools`, and `call_external_tool` are only for Phase 3 (fact-checking claims). Do not use them in any other phase.
 
 
 ## Processing Strategy
@@ -227,9 +227,9 @@ Process every section. One add-claims call per section. These calls are independ
 
 ### Phase 3 (Update claims)
 
-Fact-check each claim using the `web-search` and `bash` tools, then record results by updating claim statuses through `manage_state.py update-claims`. Use `manage_state.py get-claims --status unverified` to check which claims still need fact-checking.
+Fact-check each claim using the `web_search` and `bash` tools, then record results by updating claim statuses through `manage_state.py update-claims`. Use `manage_state.py get-claims --status unverified` to check which claims still need fact-checking.
 
-**web-search tool** — Fact-check `verify_public_data` claims against external sources. Takes a `queries` array (max 3 per call): the first query is the primary search, the remaining are reformulations to broaden coverage. Use short, keyword-focused queries — longer queries reduce result quality.
+**web_search tool** — Fact-check `verify_public_data` claims against external sources. Takes a `queries` array (max 3 per call): the first query is the primary search, the remaining are reformulations to broaden coverage. Use short, keyword-focused queries — longer queries reduce result quality.
 - Start broad — a single search can verify multiple related claims (e.g., searching for a company's annual report may confirm revenue, headcount, and founding date at once). Narrow queries to target specific claims only after broad searches leave gaps.
 - **Year selection**: Always include the year in queries (e.g., "U.S. GDP 2023" not just "U.S. GDP"). Check the document date first (headers, footers, "as of" statements) and search for data from the year the document references. If unclear, use the most recent complete year before today's date. Don't mix years.
 - Use `allowed_domains` to target authoritative sources when relevant (e.g., `["sec.gov", "investor.apple.com"]`)
@@ -244,21 +244,21 @@ Fact-check each claim using the `web-search` and `bash` tools, then record resul
   - `python -c "print(2.4 / 12)"` → verify "$2.4M / 12 months = $200K"
   - `python -c "print((125 - 100) / 100 * 100)"` → verify "25% growth from 100 to 125"
 
-**Parallelism** — Fact-checking is the most time-consuming phase. `web-search` and `bash` (Python calculations) are independent and can run in parallel (up to 4 per turn).
+**Parallelism** — Fact-checking is the most time-consuming phase. `web_search` and `bash` (Python calculations) are independent and can run in parallel (up to 4 per turn).
 
 **update-claims** — After each round of tool calls, record results for all claims checked in that round:
 - `manage_state.py update-claims --data '[{"claim_id": "claim:1", "claim_status": "verified", "source_urls": ["https://example.com/report"]}, ...]'`
 - **Verified** — Confirmed accurate. Exact values must match exactly; approximations (~, approximately, about) allow 5% variance.
 - **Refuted** — Contradicted by search results or calculations. If you find clear data that contradicts the claim, mark as refuted, not inconclusive.
 - **Inconclusive** — Cannot be verified. Mark as inconclusive only when no reliable data exists after multiple search attempts, results genuinely conflict, or data is not yet available (e.g., future periods).
-- **source_urls** — Include URLs from `web-search` results that informed the verdict. For `numerical_consistency` claims (verified via calculation), pass an empty list. Never fabricate URLs.
+- **source_urls** — Include URLs from `web_search` results that informed the verdict. For `numerical_consistency` claims (verified via calculation), pass an empty list. Never fabricate URLs.
 
 ```
-Turn 4: web-search("Acme Corp 2023 annual report") + web-search("U.S. census 2023") + bash(calc claim:5) + bash(calc claim:6)
+Turn 4: web_search("Acme Corp 2023 annual report") + web_search("U.S. census 2023") + bash(calc claim:5) + bash(calc claim:6)
          → broad searches verify claims 1-3 (revenue, headcount, founding date) + claim 4 (population) + claims 5-6 (math)
-Turn 5: update-claims [1-6] + web-search("Acme Corp acquisition history") + bash(calc claim:9)
+Turn 5: update-claims [1-6] + web_search("Acme Corp acquisition history") + bash(calc claim:9)
          → narrow search for claims 7-8 that broad searches missed
-Turn 6: update-claims [7-9] + web-search("specific fact still unverified")
+Turn 6: update-claims [7-9] + web_search("specific fact still unverified")
 ```
 
 ### Phase 4 (Create issues)
@@ -378,8 +378,8 @@ Phase 2: Create claims
   → 49 claims created
 
 Phase 3: Update claims
-  Step 4: get-claims --status unverified + web-search for facts + bash for calculations (parallel)
-  Step 5: update-claims [1-15] + web-search(claims 16-30) (parallel)
+  Step 4: get-claims --status unverified + web_search for facts + bash for calculations (parallel)
+  Step 5: update-claims [1-15] + web_search(claims 16-30) (parallel)
   Step 6: update-claims [16-30] + bash(calculations 31-45) (parallel)
   Step 7: update-claims [31-45] + final searches (parallel)
   Step 8: update-claims [46-49]

@@ -35,7 +35,6 @@ import { normalizeAppPathname } from '@/lib/instance-routes';
 import { useProviderModalStore } from '@/stores/provider-modal-store';
 import { useSSHDialogStore } from '@/stores/ssh-dialog-store';
 import { useOnboardingModeStore } from '@/stores/onboarding-mode-store';
-import { getClient } from '@/lib/opencode-sdk';
 import { toast } from '@/lib/toast';
 import {
   AlertDialog,
@@ -47,6 +46,9 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { authenticatedFetch } from '@/lib/auth-token';
+import { useServerStore } from '@/stores/server-store';
 
 // ============================================================================
 // Main Right Sidebar — Quick actions (no file explorer — that's /files now)
@@ -85,9 +87,10 @@ export function SidebarRight() {
     }
   }, [createPty]);
 
-  // Reload / dispose instance → rescans skills, agents, plugins, config
+  // Reload instance — full restart or quick config rescan
   const [isReloading, setIsReloading] = useState(false);
   const [reloadDialogOpen, setReloadDialogOpen] = useState(false);
+  const [isFullReload, setIsFullReload] = useState(true);
 
   const handleReloadInstance = useCallback(() => {
     setReloadDialogOpen(true);
@@ -97,17 +100,34 @@ export function SidebarRight() {
     if (isReloading) return;
     setReloadDialogOpen(false);
     setIsReloading(true);
+
+    const serverUrl = useServerStore.getState().servers.find(
+      (srv) => srv.id === useServerStore.getState().activeServerId,
+    )?.url;
+    const baseUrl = serverUrl || '';
+
     try {
-      const client = getClient();
-      await client.instance.dispose();
-      toast.success('Instance reloaded — skills, agents & config rescanned');
+      const res = await authenticatedFetch(`${baseUrl}/kortix/reload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: isFullReload ? 'full' : 'dispose-only' }),
+      });
+      if (res.ok) {
+        toast.success(
+          isFullReload
+            ? 'Full reload initiated — all services restarting'
+            : 'Config rescanned — skills, agents & tools reloaded',
+        );
+      } else {
+        throw new Error(`HTTP ${res.status}`);
+      }
     } catch (e) {
-      console.error('[SidebarRight] Instance reload failed:', e);
+      console.error('[SidebarRight] Reload failed:', e);
       toast.error('Failed to reload instance');
     } finally {
       setIsReloading(false);
     }
-  }, [isReloading]);
+  }, [isReloading, isFullReload]);
 
   /**
    * Open a well-known sandbox service as a preview tab.
@@ -437,14 +457,45 @@ export function SidebarRight() {
           <AlertDialogHeader>
             <AlertDialogTitle>Reload Instance</AlertDialogTitle>
             <AlertDialogDescription asChild>
-              <div className="space-y-2">
-                <p>This will tear down and rebuild the agent runtime. All active sessions will be interrupted.</p>
-                <ul className="list-disc pl-4 text-xs text-muted-foreground space-y-1">
-                  <li>All MCP connections will be dropped and reconnected</li>
-                  <li>In-flight LLM calls and tool executions will abort</li>
-                  <li>Skills, agents, plugins, tools, and config will be rescanned from disk</li>
-                  <li>You&apos;ll need to send a new message to resume in each session</li>
-                </ul>
+              <div className="space-y-3">
+                {isFullReload ? (
+                  <>
+                    <p>All services will be restarted from scratch. Active sessions will be interrupted.</p>
+                    <ul className="list-disc pl-4 text-xs text-muted-foreground space-y-1">
+                      <li>All processes restart — picks up any code or config changes</li>
+                      <li>In-memory state, caches, and module cache fully cleared</li>
+                      <li>Equivalent to a container restart without rebuilding</li>
+                      <li>You&apos;ll need to send a new message to resume in each session</li>
+                    </ul>
+                  </>
+                ) : (
+                  <>
+                    <p>OpenCode config will be rescanned from disk. Active sessions will be interrupted.</p>
+                    <ul className="list-disc pl-4 text-xs text-muted-foreground space-y-1">
+                      <li>Skills, agents, plugins, tools, and config rescanned</li>
+                      <li>MCP connections dropped and reconnected</li>
+                      <li>Processes keep running — only OpenCode config reloads</li>
+                      <li>You&apos;ll need to send a new message to resume in each session</li>
+                    </ul>
+                  </>
+                )}
+                <div className="flex items-start gap-2 pt-2 border-t">
+                  <Checkbox
+                    id="full-reload-checkbox"
+                    checked={isFullReload}
+                    onCheckedChange={(checked) => setIsFullReload(checked === true)}
+                    className="mt-0.5"
+                  />
+                  <label
+                    htmlFor="full-reload-checkbox"
+                    className="text-sm leading-tight cursor-pointer"
+                  >
+                    <span className="font-medium">Full reload</span>
+                    <span className="text-xs text-muted-foreground ml-1">
+                      (restart all processes)
+                    </span>
+                  </label>
+                </div>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -455,7 +506,7 @@ export function SidebarRight() {
               onClick={confirmReloadInstance}
               disabled={isReloading}
             >
-              {isReloading ? 'Reloading...' : 'Reload Instance'}
+              {isReloading ? 'Reloading...' : 'Reload'}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

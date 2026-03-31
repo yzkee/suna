@@ -1,7 +1,7 @@
 import { tool } from "@opencode-ai/plugin";
 
 /**
- * instance-dispose — Agent tool to manually trigger OpenCode instance dispose.
+ * instance_dispose — Agent tool to manually trigger OpenCode instance dispose.
  *
  * When called, this sends POST /instance/dispose to the OpenCode server,
  * causing it to rescan skills, agents, plugins, tools, and config from disk.

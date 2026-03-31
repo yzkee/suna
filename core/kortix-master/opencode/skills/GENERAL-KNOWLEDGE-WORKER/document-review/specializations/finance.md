@@ -328,14 +328,14 @@ call_external_tool(tool_name="finance_tickers_lookup", source_id="finance", argu
 | EPS beat/miss history | `finance_earnings` | `data_types: ["earnings_history"]` |
 | Historical stock prices | `finance_ohlcv_histories` | `ticker_symbols`, `query`, `start_date_yyyy_mm_dd`, `end_date_yyyy_mm_dd`, `fields: ["close"]` |
 
-**Step 4: Fall back to web search.** If a finance tool returns no data for a claim, or the claim is outside finance tool scope (see "Use web search for" above), use `web-search` with the Search Strategy guidance above.
+**Step 4: Fall back to web search.** If a finance tool returns no data for a claim, or the claim is outside finance tool scope (see "Use web search for" above), use `web_search` with the Search Strategy guidance above.
 
 ### Rules
 
 - Always pass `as_of_fiscal_year` and `as_of_fiscal_quarter` to `finance_financials` and `finance_earnings` — never omit them.
 - Always resolve tickers with `finance_tickers_lookup` first.
 - All finance tools use `call_external_tool(tool_name="<name>", source_id="finance", arguments={...})`.
-- Finance tool calls count toward the Phase 3 parallelism limit (up to 4 tool calls per turn). Combine finance tool calls with `bash` calculations and `web-search` in the same turn when possible.
+- Finance tool calls count toward the Phase 3 parallelism limit (up to 4 tool calls per turn). Combine finance tool calls with `bash` calculations and `web_search` in the same turn when possible.
 - If a finance tool returns unexpected or empty results, fall back to web search. Do not retry the same finance tool call more than once.
 
 ### Examples

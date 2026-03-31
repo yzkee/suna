@@ -19,9 +19,9 @@ This is the **gatekeeper**. The user CANNOT access the Kortix dashboard until th
 - **Use the `question` tool for all confirmations and choices.** It renders interactive UI with buttons and text inputs.
 - **Write memory as you go, not at the end.** Each phase should update the memory files before moving on. If the session drops, nothing is lost.
 - **Adapt to who they are.** Don't robotically say "company" to a student or "project" to a CEO. Read the room. Mirror their language.
-- **Scraping fallback chain:** `scrape-webpage` → `webfetch` → `web-search` for cached content. Some sites (especially LinkedIn) block `scrape-webpage`. Never get stuck on a failed scrape — move to the next method immediately.
+- **Scraping fallback chain:** `scrape_webpage` → `webfetch` → `web_search` for cached content. Some sites (especially LinkedIn) block `scrape_webpage`. Never get stuck on a failed scrape — move to the next method immediately.
 - **Coverage beats brevity.** This onboarding should feel exhaustive. Ask follow-ups by category until you have a real map of their stack. If they say "I use the usual stuff," unpack what that actually means.
-- **Do not stop at connectors that already exist.** If a service matters and there is no ready-made connector, you still collect the setup details, save secrets, and create a connector for it via `connector_create`.
+- **Do not stop at connectors that already exist.** If a service matters and there is no ready-made connector, you still collect the setup details, save secrets, and create a connector for it via `connector_setup`.
 - **Browser sessions count as setup.** If an important service only works via website login, use browser automation when appropriate, log in, and preserve the session/profile if the runtime supports it. Also record the exact login URL, account label, 2FA expectations, and what that session unlocks.
 
 ---
@@ -67,14 +67,14 @@ Then write to `$MEM_DIR/USER.md` and `$MEM_DIR/MEMORY.md` using the `write` tool
 | Tool | Purpose |
 |---|---|
 | `question` | Every structured input, every confirmation, every choice |
-| `web-search` | Research the user, their company/project, their industry |
-| `scrape-webpage` | Deep-read websites, GitHub, etc. (**NOT LinkedIn** — blocked by Firecrawl) |
-| `webfetch` | Fetch page content as markdown — use as fallback if `scrape-webpage` fails |
+| `web_search` | Research the user, their company/project, their industry |
+| `scrape_webpage` | Deep-read websites, GitHub, etc. (**NOT LinkedIn** — blocked by Firecrawl) |
+| `webfetch` | Fetch page content as markdown — use as fallback if `scrape_webpage` fails |
 | `read` + `write` + `edit` | Read and update `.kortix/USER.md` and `.kortix/MEMORY.md` for memory |
 | `bash` | Run connector scripts, save secrets via env API, system lookups |
 | `connector_list` | List all discovered connectors with status |
 | `connector_get` | Load a connector's full docs |
-| `connector_create` | Scaffold a new connector from template |
+| `connector_setup` | Scaffold a new connector from template |
 | `show` | Display results, images, links visually |
 
 **Connector commands:**
@@ -87,10 +87,10 @@ connector_list(filter="")
 connector_get(name="github")
 
 # Scaffold a new connector
-connector_create(name="stripe", type="api-key")
+connector_setup(name="stripe", type="api-key")
 ```
 
-For Pipedream OAuth connectors, the integration script is also available:
+For Pipedream connectors, use the Pipedream script:
 
 ```bash
 SCRIPT=$(find /opt/opencode ~/.opencode -name "integration.ts" 2>/dev/null | head -1)
@@ -100,7 +100,7 @@ bun run "$SCRIPT" list
 ```
 
 When a service is not covered by an existing connector:
-1. Create a new connector: `connector_create(name="service-name", type="cli|api-key|pipedream|browser|custom")`
+1. Create a new connector: `connector_setup(name="service-name", type="cli|api-key|pipedream|browser|custom")`
 2. Fill in the CONNECTOR.md with real auth instructions and usage patterns
 3. Save secrets via the env API
 4. Update the connector status to `connected` once authenticated
@@ -198,9 +198,9 @@ Note it, continue the flow without that capability, and remind them once at the 
 
 The moment you have their **full name and company/project context**, **research immediately**. Run multiple searches in parallel:
 
-- `web-search("{full_name}")` — broad search
-- `web-search("{full_name} {company/project}")` — targeted search
-- `web-search("{full_name}" + any other context they gave — city, handle, etc.)`
+- `web_search("{full_name}")` — broad search
+- `web_search("{full_name} {company/project}")` — targeted search
+- `web_search("{full_name}" + any other context they gave — city, handle, etc.)`
 
 Also ask where to find them online — LinkedIn, GitHub, personal site, Twitter/X, etc.:
 
@@ -215,10 +215,10 @@ question({
 ```
 
 **How to handle the URL they give:**
-- **LinkedIn**: Do NOT use `scrape-webpage` — LinkedIn blocks scrapers. Instead, run `web-search("site:linkedin.com/in/{username}")` or `web-search("{full_name} LinkedIn")` to pull cached/indexed profile data. You can also try `webfetch` on the LinkedIn URL as a fallback, but don't rely on it.
-- **GitHub**: `scrape-webpage` works fine on GitHub. Use it.
-- **Personal site / blog / Twitter**: `scrape-webpage` or `webfetch` — either works.
-- **Any URL that fails with `scrape-webpage`**: Fall back to `webfetch`, then to `web-search` for cached content.
+- **LinkedIn**: Do NOT use `scrape_webpage` — LinkedIn blocks scrapers. Instead, run `web_search("site:linkedin.com/in/{username}")` or `web_search("{full_name} LinkedIn")` to pull cached/indexed profile data. You can also try `webfetch` on the LinkedIn URL as a fallback, but don't rely on it.
+- **GitHub**: `scrape_webpage` works fine on GitHub. Use it.
+- **Personal site / blog / Twitter**: `scrape_webpage` or `webfetch` — either works.
+- **Any URL that fails with `scrape_webpage`**: Fall back to `webfetch`, then to `web_search` for cached content.
 
 Compile what you find into a direct, specific profile — their role, background, what they've built, where they are. Then confirm:
 
@@ -302,7 +302,7 @@ question({
 })
 ```
 
-Once you have a URL → **`scrape-webpage`** it. Present a tight summary: what the product does, who it's for, tech stack if visible, stage, industry.
+Once you have a URL → **`scrape_webpage`** it. Present a tight summary: what the product does, who it's for, tech stack if visible, stage, industry.
 
 For students/hobbyists/freelancers: ask what they're learning or building instead. Adapt naturally.
 
@@ -378,16 +378,16 @@ For each tool they mention:
 
 ```
 # For tools with CLIs (preferred):
-connector_create(name="github", type="cli")
+connector_setup(name="github", type="cli")
 
 # For tools needing OAuth:
-connector_create(name="gmail", type="pipedream")
+connector_setup(name="gmail", type="pipedream")
 
 # For API-key services:
-connector_create(name="stripe", type="api-key")
+connector_setup(name="stripe", type="api-key")
 ```
 
-**For Pipedream OAuth connectors**, use the integration script to get connect URLs:
+**For Pipedream connectors**, use the Pipedream script to get connect URLs:
 
 ```bash
 SCRIPT=$(find /opt/opencode ~/.opencode -name "integration.ts" 2>/dev/null | head -1)
@@ -451,7 +451,7 @@ Treat browser-based auth as first-class setup, not a fallback afterthought.
 If a service is important, it MUST have a connector — even if automation is limited. Do NOT leave services as unstructured notes.
 
 ```
-connector_create(name="service-name", type="custom")
+connector_setup(name="service-name", type="custom")
 ```
 
 Then edit the CONNECTOR.md with:
@@ -568,7 +568,7 @@ Capability set to draw from:
 - **Documents** — presentations, Word docs, spreadsheets, PDFs, LaTeX papers
 - **Communication** — email send/receive via IMAP/SMTP
 - **Automation** — browser control, web scraping, cron-scheduled recurring tasks
-- **Connectors** — file-based integrations via CLI, API keys, Pipedream OAuth (2000+ apps), or browser sessions
+- **Connectors** — registry of connected services via CLI, API keys, Pipedream (2000+ apps), MCP, or custom
 - **Agents** — can spawn sub-agents for parallel work across different domains
 
 Then offer a live taste. Use **exactly these two options — do not add more, do not generate personalized option labels** (e.g. don't add "Run a quick demo on Suna" or anything user-specific). Keep it generic:
@@ -610,7 +610,7 @@ If any of these are missing, go back and ask or fill in the gaps.
 If they said yes, pick ONE task that maps to their world and **actually execute it**. Make it impressive and specific to them.
 
 Ideas based on persona:
-- **Founder/exec**: competitor landscape → use `web-search` to find and present key players, funding, positioning
+- **Founder/exec**: competitor landscape → use `web_search` to find and present key players, funding, positioning
 - **Developer**: find their GitHub → scrape it, summarize repos, recent activity, tech stack
 - **Researcher**: find 3-5 recent papers on their topic via `openalex-paper-search` skill
 - **Designer/marketer**: screenshot and analyze their website or a competitor's
@@ -737,12 +737,12 @@ If the response does NOT contain `"true"`, retry the POST.
 2. **SEED THE MEMORY FILES.** Write to `.kortix/USER.md` and `.kortix/MEMORY.md` after every phase. These files are injected into every future session automatically. They ARE the long-term memory. If the session crashes after Phase 3, at least identity and company are saved.
 3. **MEMORY IS FILES, NOT TOOLS.** There is no `mem_save` tool. Use `bash` to find the memory dir, then `read`/`write`/`edit` to update the markdown files directly. Locate the dir via env vars: `$KORTIX_DIR`, `$KORTIX_WORKSPACE/.kortix`, or `/workspace/.kortix`.
 4. **ADAPT TO THE PERSON.** Don't say "company" to a student. Don't say "project" to a Fortune 500 exec. Mirror their language and framing. Read who they are and adjust.
-5. **ASK WHERE TO FIND THEM ONLINE.** LinkedIn, GitHub, personal site, Twitter/X — any of these are gold. Always ask early in Phase 2. **Never `scrape-webpage` LinkedIn** — it's blocked. Use `web-search` to find cached LinkedIn data instead.
+5. **ASK WHERE TO FIND THEM ONLINE.** LinkedIn, GitHub, personal site, Twitter/X — any of these are gold. Always ask early in Phase 2. **Never `scrape_webpage` LinkedIn** — it's blocked. Use `web_search` to find cached LinkedIn data instead.
 6. **MAP THEIR ACCOUNTS EXHAUSTIVELY.** The connectors phase is not optional. Sweep by category and keep asking until you have a serious inventory, not a partial list.
-7. **CONNECT WHAT YOU CAN.** Use `connector_list` to check existing connectors, `connector_create` to scaffold new ones. For Pipedream OAuth, use the integration script. For CLI services, use the native CLI auth. For API-key services, save via the env API.
+7. **CONNECT WHAT YOU CAN.** Use `connector_list` to check existing connectors, `connector_setup` to scaffold new ones. For Pipedream, use the Pipedream script. For CLI services, use CLI auth. For API keys, user pastes in chat and agent saves via env API.
 8. **SAVE SECRETS WITH SPECIFICITY.** Collect the exact env var names required for each important service and store them with `curl -X POST http://localhost:8000/env/KEY_NAME -d '{"value":"...","restart":true}'`. Retry the relevant action after saving.
 9. **BROWSER LOGINS COUNT.** If a critical system only works via website login, establish that login when appropriate, preserve the session/profile if supported, and record the login details and 2FA expectations.
-10. **EVERY SERVICE GETS A CONNECTOR.** If there is no existing connector, create one with `connector_create`. Fill in the CONNECTOR.md with auth instructions, usage patterns, and saved secrets so future agents can use it.
+10. **EVERY SERVICE GETS A CONNECTOR.** If there is no existing connector, create one with `connector_setup`. Fill in the CONNECTOR.md with auth instructions, usage patterns, and saved secrets so future agents can use it.
 11. **ALWAYS WEB-SEARCH THE USER.** No exceptions. Even if they give you a LinkedIn, search for more.
 12. **SHOW FINDINGS, ASK TO CONFIRM.** Don't assume your research is right. Present and verify.
 13. **USE `question` FOR EVERYTHING.** Every choice, every confirmation, every structured input.

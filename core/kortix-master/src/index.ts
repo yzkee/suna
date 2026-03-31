@@ -26,6 +26,7 @@ import servicesRouter from './routes/services'
 import pipedreamRouter, { pushPipedreamCredsToApi } from './routes/pipedream'
 import suggestionsRouter from './routes/suggestions'
 import coreRouter from './routes/core'
+import reloadRouter from './routes/reload'
 import cronRouter from './routes/cron'
 import triggersRouter from './routes/triggers'
 import marketplaceRouter from './routes/marketplace'
@@ -338,6 +339,9 @@ app.route('/kortix/triggers', triggersRouter)
 
 // Core supervisor management
 app.route('/kortix/core', coreRouter)
+
+// Full reload — restarts OpenCode instance and optionally all services
+app.route('/kortix/reload', reloadRouter)
 
 // Marketplace — skill/component install from registry
 app.route('/kortix/marketplace', marketplaceRouter)

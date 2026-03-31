@@ -18,8 +18,8 @@ Use this skill for substantial research tasks where depth, source quality, and s
 ## Tooling
 
 Preferred research flow:
-- `web-search` for discovery and breadth
-- `webfetch` or `scrape-webpage` for source reading
+- `web_search` for discovery and breadth
+- `webfetch` or `scrape_webpage` for source reading
 - `session_search` and `session_get` for continuity when prior work may exist
 - `bash` for calculations, parsing, or chart generation when needed
 
