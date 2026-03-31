@@ -28,6 +28,8 @@ interface SandboxContextValue {
   isProvisioning: boolean;
   /** The sandbox_id (UUID) to use for polling provisioning status */
   provisioningSandboxId: string | undefined;
+  /** The external_id (e.g. 'kortix-sandbox') for proxy URL construction */
+  provisioningExternalId: string | undefined;
   /** The provider of the provisioning sandbox (local_docker, justavps, etc.) */
   provisioningProvider: string | undefined;
   /** Call this when provisioning completes to refetch sandbox data */
@@ -44,6 +46,7 @@ const SandboxContext = createContext<SandboxContextValue>({
   error: null,
   isProvisioning: false,
   provisioningSandboxId: undefined,
+  provisioningExternalId: undefined,
   provisioningProvider: undefined,
   onProvisioningComplete: () => {},
   switchSandbox: () => {},
@@ -74,6 +77,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
   // Detect provisioning state from useSandbox result
   const isProvisioning = !!(data?.sandbox && data.sandbox.status === 'provisioning');
   const provisioningSandboxId = isProvisioning ? data?.sandbox?.sandbox_id : undefined;
+  const provisioningExternalId = isProvisioning ? data?.sandbox?.external_id : undefined;
   const provisioningProvider = isProvisioning ? data?.sandbox?.provider : undefined;
 
   // Derive values — override takes precedence
@@ -123,6 +127,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
         error: shouldFetch ? (error as Error | null) : null,
         isProvisioning,
         provisioningSandboxId,
+        provisioningExternalId,
         provisioningProvider,
         onProvisioningComplete,
         switchSandbox,

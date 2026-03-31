@@ -257,12 +257,13 @@ export default function HomeScreen() {
   const router = useRouter();
   const {
     sandboxUrl, sandboxId, isLoading: sandboxLoading, error: sandboxError,
-    isProvisioning, provisioningSandboxId, provisioningProvider, onProvisioningComplete,
+    isProvisioning, provisioningSandboxId, provisioningExternalId, provisioningProvider, onProvisioningComplete,
   } = useSandboxContext();
 
   // ── Provisioning progress poller ──
   const poller = useSandboxPoller({
     sandboxId: provisioningSandboxId,
+    externalId: provisioningExternalId,
     provider: provisioningProvider,
     enabled: isProvisioning,
   });

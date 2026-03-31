@@ -44,6 +44,7 @@ interface StatusResponse {
 
 interface UseSandboxPollerOpts {
   sandboxId?: string | null;
+  externalId?: string | null;
   provider?: string | null;
   enabled?: boolean;
   timeoutMs?: number;
@@ -122,6 +123,7 @@ async function waitForOpenCodeHealthy(
 export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
   const {
     sandboxId = null,
+    externalId = null,
     provider = null,
     enabled = true,
     timeoutMs = 660_000,
@@ -285,7 +287,19 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
         if (!d || stoppedRef.current) {
           // No data — keep polling
         } else if (d.status === 'active') {
+          // Local docker: /init/local/status returning 'ready' is sufficient — skip health check
+          if (isLocalDocker) {
+            log.log('[SandboxPoller] Local sandbox ready!');
+            set({ ...initial(), status: 'ready', progress: 100 });
+            pollingRef.current = false;
+            cleanup();
+            return;
+          }
+
+          // Cloud: verify workspace health via proxy
           log.log('[SandboxPoller] Sandbox active, verifying health...');
+          const healthId = externalId || sandboxId;
+          if (!healthId) return;
           update({
             status: 'polling',
             currentStage: 'verifying_opencode',
@@ -297,7 +311,7 @@ export function useSandboxPoller(opts: UseSandboxPollerOpts = {}) {
           const ac = new AbortController();
           healthAbortRef.current = ac;
 
-          waitForOpenCodeHealthy(sandboxId, ac.signal).then((healthy) => {
+          waitForOpenCodeHealthy(healthId, ac.signal).then((healthy) => {
             if (stoppedRef.current) return;
             if (healthy) {
               log.log('[SandboxPoller] Health check passed — ready!');
