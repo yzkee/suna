@@ -1,7 +1,7 @@
 import { type Plugin, tool } from "@opencode-ai/plugin"
 import type { Session, Todo } from "@opencode-ai/sdk"
 import { ensureGlobalMemoryFiles, renderMergedMemoryContext } from "../kortix-paths"
-import { MEMORY_CONTEXT_MARKER, upsertMemoryContextAtPromptEnd } from "./src/message-transform"
+import { MEMORY_CONTEXT_MARKER, upsertMemoryContextAtPromptEnd, wrapInKortixSystemTags } from "./src/message-transform"
 import { DB_PATH, STORAGE_BASE, buildSessionLineage, changeSummary, formatMessages, getEnv, searchSessions, shortTs, ttcCompress } from "./src/session"
 
 export const KortixSessionsPlugin: Plugin = async ({ client, directory }) => {
@@ -28,11 +28,15 @@ export const KortixSessionsPlugin: Plugin = async ({ client, directory }) => {
 				try {
 					const parts: string[] = []
 					if (currentSessionId) {
-						parts.push(`<session_context>\nSession ID: ${currentSessionId}\n</session_context>`)
+						// Wrap session context in kortix_system tags so frontend strips it from UI
+						const sessionCtx = `<session_context>\nSession ID: ${currentSessionId}\n</session_context>`
+						parts.push(wrapInKortixSystemTags(sessionCtx, { type: "session-context", source: "kortix-sessions" }))
 					}
 					const mergedMemory = renderMergedMemoryContext(import.meta.dir)
 					if (mergedMemory) {
-						parts.push(`<memory>\n${mergedMemory}\n</memory>`)
+						// Wrap memory context in kortix_system tags so frontend strips it from UI
+						const memCtx = `<memory>\n${mergedMemory}\n</memory>`
+						parts.push(wrapInKortixSystemTags(memCtx, { type: "memory-context", source: "kortix-sessions" }))
 					}
 					if (parts.length === 0) return
 					upsertMemoryContextAtPromptEnd(

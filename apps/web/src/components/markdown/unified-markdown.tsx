@@ -18,6 +18,7 @@ import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
 import { useFilePreviewStore } from '@/stores/file-preview-store';
 import { wrapChildrenWithPaths } from '@/components/common/clickable-path';
 import { looksLikeFilePath as sharedLooksLikeFilePath } from '@/lib/utils/path-detection';
+import { stripKortixSystemTags } from '@/lib/utils/kortix-system-tags';
 
 // ---------------------------------------------------------------------------
 // LaTeX / KaTeX support: custom remark + rehype plugin overrides
@@ -929,8 +930,8 @@ export const UnifiedMarkdown = React.memo<UnifiedMarkdownProps>(({
     );
   }
 
-  // Auto-link plain URLs before rendering
-  const processedContent = autoLinkUrls(safeContent);
+  // Strip <kortix_system> tags, then auto-link URLs
+  const finalContent = autoLinkUrls(stripKortixSystemTags(safeContent));
 
   return (
     <div
@@ -944,7 +945,7 @@ export const UnifiedMarkdown = React.memo<UnifiedMarkdownProps>(({
         remarkPlugins={customRemarkPlugins}
         rehypePlugins={customRehypePlugins}
       >
-        {processedContent}
+        {finalContent}
       </Streamdown>
     </div>
   );

@@ -93,6 +93,7 @@ import { getClient } from "@/lib/opencode-sdk";
 // billingApi / invalidateAccountState / useQueryClient removed — billing is handled server-side by the router
 import { playSound } from "@/lib/sounds";
 import { cn } from "@/lib/utils";
+import { stripKortixSystemTags } from "@/lib/utils/kortix-system-tags";
 import { toast as sonnerToast } from "sonner";
 import { useKortixComputerStore } from "@/stores/kortix-computer-store";
 import { useMessageQueueStore } from "@/stores/message-queue-store";
@@ -676,7 +677,7 @@ function parsePtyExitedNotifications(text: string): {
 
 function stripSystemPtyText(text: string): string {
 	if (!text) return "";
-	return text
+	return stripKortixSystemTags(text)
 		.replace(PTY_EXITED_BLOCK_REGEX, " ")
 		.replace(PTY_FAILURE_HINT_REGEX, " ")
 		.replace(/\n{3,}/g, "\n\n")

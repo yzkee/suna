@@ -76,6 +76,11 @@ import {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Wrap a continuation prompt in <kortix_system> tags so frontend renders it as a system block */
+function wrapSystemPrompt(text: string, type: string): string {
+	return `<kortix_system type="${type}" source="kortix-continuation">\n${text}\n</kortix_system>`
+}
+
 type LogFn = (level: "info" | "warn" | "error", message: string) => void
 
 function extractMessageText(input: any): string {
@@ -106,6 +111,7 @@ function cleanTextForKeywordDetection(text: string): string {
 function isInternalMessage(text: string): boolean {
 	if (text.includes(INTERNAL_MARKER)) return true
 	if (text.includes("[SYSTEM REMINDER")) return true
+	if (text.includes("<kortix_system")) return true
 	return false
 }
 
@@ -544,7 +550,7 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 						// the normal continuation for this iteration. Only during work
 						// phase (not during verification).
 						if (kubetShouldRunCritic(loopState) && !loopState.inVerification) {
-							const criticPrompt = buildKubetCriticPrompt(loopState, allTexts)
+							const criticPrompt = wrapSystemPrompt(buildKubetCriticPrompt(loopState, allTexts), "autowork-critic")
 							loopState = kubetRecordCritic(advanceIteration(loopState))
 							loopStates.set(sessionId, loopState)
 							log("info", `[autowork:kubet][${sid(sessionId)}] Critic intervention #${loopState.kubetCriticCount}`)
@@ -576,7 +582,7 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 							loopStates.set(sessionId, loopState)
 							await client.session.promptAsync({
 								path: { id: sessionId },
-								body: { parts: [{ type: "text" as const, text: decision.prompt }] },
+								body: { parts: [{ type: "text" as const, text: wrapSystemPrompt(decision.prompt, "autowork-verify") }] },
 							}).catch((err: unknown) => {
 								log("warn", `[autowork${algTag}][${sid(sessionId)}] promptAsync failed: ${err}`)
 								loopState = recordFailure(loopState)
@@ -587,7 +593,7 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 							loopStates.set(sessionId, loopState)
 							await client.session.promptAsync({
 								path: { id: sessionId },
-								body: { parts: [{ type: "text" as const, text: decision.prompt }] },
+								body: { parts: [{ type: "text" as const, text: wrapSystemPrompt(decision.prompt, "autowork-continue") }] },
 							}).catch((err: unknown) => {
 								log("warn", `[autowork${algTag}][${sid(sessionId)}] promptAsync failed: ${err}`)
 								loopState = recordFailure(loopState)
@@ -646,7 +652,7 @@ const KortixContinuationPlugin: Plugin = async ({ client }) => {
 						contState.lastContinuationAt = Date.now()
 						await client.session.promptAsync({
 							path: { id: sessionId },
-							body: { parts: [{ type: "text" as const, text: decision.prompt }] },
+							body: { parts: [{ type: "text" as const, text: wrapSystemPrompt(decision.prompt, "passive-continuation") }] },
 						}).catch((err: unknown) => {
 							log("warn", `[autowork/passive][${sid(sessionId)}] promptAsync failed: ${err}`)
 						}).finally(() => {

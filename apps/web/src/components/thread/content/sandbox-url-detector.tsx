@@ -24,6 +24,7 @@ import {
 } from '@/lib/utils/sandbox-url';
 import { useAuthenticatedPreviewUrl } from '@/hooks/use-authenticated-preview-url';
 import { enrichPreviewMetadata } from '@/lib/utils/session-context';
+import { stripKortixSystemTags } from '@/lib/utils/kortix-system-tags';
 
 interface SandboxUrlDetectorProps {
   content: string;
@@ -541,7 +542,11 @@ export const SandboxUrlDetector: React.FC<SandboxUrlDetectorProps> = ({
   content,
   isStreaming = false,
 }) => {
-  const safeContent = typeof content === 'string' ? content : content ? String(content) : '';
+  // Strip kortix_system XML tags before any processing/rendering.
+  // These tags contain internal/system content injected by OpenCode plugins
+  // that should not appear in the UI.
+  const rawContent = typeof content === 'string' ? content : content ? String(content) : '';
+  const safeContent = stripKortixSystemTags(rawContent);
 
   const { proxyUrl } = useSandboxProxy();
 
