@@ -356,9 +356,9 @@ export default function HomeScreen() {
             await new Promise((r) => setTimeout(r, pollMs));
             continue;
           }
-          // Fresh install — go straight to agent-driven onboarding (matches frontend flow)
-          log.log('[Home] Setup check: INSTANCE_SETUP_COMPLETE not true, showing onboarding');
-          setSetupState('onboarding');
+          // Fresh install — show setup wizard
+          log.log('[Home] Setup check: INSTANCE_SETUP_COMPLETE not true, showing wizard');
+          setSetupState('needed');
           return;
         } catch (err: any) {
           log.error('[Home] Setup check poll error:', err?.message || err);
@@ -374,8 +374,7 @@ export default function HomeScreen() {
         if (wasSetupDone) {
           setSetupState('done');
         } else {
-          // Fresh install — go to agent-driven onboarding (matches frontend flow)
-          setSetupState('onboarding');
+          setSetupState('needed');
         }
         return;
       }
@@ -386,8 +385,7 @@ export default function HomeScreen() {
         log.log('[Home] Setup check: timed out but was previously set up — showing main app');
         setSetupState('done');
       } else {
-        // Fresh install — go to agent-driven onboarding (matches frontend flow)
-        setSetupState('onboarding');
+        setSetupState('needed');
       }
     })();
 
@@ -976,8 +974,19 @@ export default function HomeScreen() {
     );
   }
 
-  // Show agent-driven onboarding (matches frontend flow — no separate setup wizard)
-  if (setupState === 'needed' || setupState === 'onboarding') {
+  // Show setup wizard if instance setup is not complete
+  if (setupState === 'needed') {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <RNStatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+        <SetupWizard onComplete={handleSetupComplete} />
+      </>
+    );
+  }
+
+  // Show agent-driven onboarding after wizard completes
+  if (setupState === 'onboarding') {
     return (
       <>
         <Stack.Screen options={{ headerShown: false }} />
