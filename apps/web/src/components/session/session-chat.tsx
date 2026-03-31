@@ -24,15 +24,12 @@ import {
 	Send,
 	Terminal,
 	Timer,
-	Undo2,
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { UnifiedMarkdown } from "@/components/markdown/unified-markdown";
 import { ImagePreview } from "@/components/session/image-preview";
-import {
-	ConfirmDialog,
-} from "@/components/session/message-actions";
+
 import { ConnectProviderDialog } from "@/components/session/model-selector";
 import {
 	type AttachedFile,
@@ -44,7 +41,6 @@ import { TurnErrorDisplay } from "@/components/session/session-error-banner";
 import { SessionSiteHeader } from "@/components/session/session-site-header";
 import { QuestionPrompt, type QuestionPromptHandle, type QuestionAction } from "@/components/session/question-prompt";
 import { SessionWelcome } from "@/components/session/session-welcome";
-import type { RevertDockItem } from "@/components/session/session-revert-dock";
 import { FileCard } from "@/components/file-previews/FileCard";
 
 import { ToolPartRenderer } from "@/components/session/tool-renderers";
@@ -88,8 +84,6 @@ import {
 	useOpenCodeProviders,
 	useOpenCodeSession,
 	useOpenCodeSessions,
-	useRevertSession,
-	useUnrevertSession,
 	useSendOpenCodeMessage,
 
 } from "@/hooks/opencode/use-opencode-sessions";
@@ -1085,14 +1079,12 @@ function EditPartDialog({
 function PartActions({
 	part,
 	isBusy,
-	isReverted,
 	onEditFork,
 	loading,
 	className,
 }: {
 	part: Part;
 	isBusy: boolean;
-	isReverted: boolean;
 	onEditFork: (newText: string) => void;
 	loading?: boolean;
 	className?: string;
@@ -1113,7 +1105,7 @@ function PartActions({
 					<TooltipTrigger asChild>
 						<button
 							onClick={() => setEditOpen(true)}
-							disabled={isBusy || isReverted}
+							disabled={isBusy}
 							className={cn(
 								"p-1.5 rounded-md transition-colors cursor-pointer",
 								"text-muted-foreground/50 hover:text-foreground hover:bg-muted/60",
@@ -1935,16 +1927,12 @@ interface SessionTurnProps {
 	isFirstTurn: boolean;
 	/** Whether the session is busy */
 	isBusy: boolean;
-	/** Whether the session is in a reverted state */
-	isReverted: boolean;
 	/** Whether this turn contains a compaction */
 	isCompaction?: boolean;
-	/** Fork the session at a specific message */
-	onFork: (messageId: string) => Promise<void>;
+	/** Fork the session at a user message (copies messages before this point) */
+	onFork: (userMessageId: string) => Promise<void>;
 	/** Fork the session at a user message and resend with edited text */
 	onEditFork: (userMessageId: string, newText: string) => Promise<void>;
-	/** Revert the session — undoes file changes after this point (restorable) */
-	onRevert: (messageId: string) => Promise<void>;
 	/** Providers data for the Connect Provider dialog */
 	providers?: ProviderListResponse;
 	/** Map of user message IDs to command info for rendering command pills */
@@ -1968,11 +1956,9 @@ function SessionTurn({
 	agentNames,
 	isFirstTurn,
 	isBusy,
-	isReverted,
 	isCompaction,
 	onFork,
 	onEditFork,
-	onRevert,
 	providers,
 	commandMessages,
 	commands,
@@ -1980,9 +1966,7 @@ function SessionTurn({
 }: SessionTurnProps) {
 	const [copied, setCopied] = useState(false);
 	const [userCopied, setUserCopied] = useState(false);
-	const [revertDialogOpen, setRevertDialogOpen] = useState(false);
 	const [connectProviderOpen, setConnectProviderOpen] = useState(false);
-	const [revertLoading, setRevertLoading] = useState(false);
 	const [editForkLoading, setEditForkLoading] = useState(false);
 
 	// Derived state from shared helpers
@@ -2289,12 +2273,6 @@ function SessionTurn({
 	}, [allParts, answeredQuestionPartsById, answeredQuestionParts.length]);
 	const shouldUseInlineContent = !hasSteps && !!inlineContentParts;
 
-	// Last assistant message ID — used for "fork from response" action
-	const lastAssistantMessageId = useMemo(() => {
-		const msgs = turn.assistantMessages;
-		return msgs.length > 0 ? msgs[msgs.length - 1].info.id : undefined;
-	}, [turn.assistantMessages]);
-
 	// Whether the user message has any visible content (non-synthetic, non-ignored
 	// text, or attachments). Background task notifications inject synthetic-only
 	// user messages that should not render a user bubble.
@@ -2542,12 +2520,25 @@ function SessionTurn({
 							<PartActions
 								part={userTextPart}
 								isBusy={isBusy}
-								isReverted={isReverted}
 								onEditFork={(newText) => onEditFork(turn.userMessage.info.id, newText)}
 								loading={editForkLoading}
 							/>
 						);
 					})()}
+						{/* Fork button — on user messages */}
+						{!isBusy && (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<button
+										onClick={() => onFork(turn.userMessage.info.id)}
+										className="p-1.5 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
+									>
+										<GitFork className="size-3.5" />
+									</button>
+								</TooltipTrigger>
+								<TooltipContent>Fork to new session</TooltipContent>
+							</Tooltip>
+						)}
 					</div>
 				)}
 			</div>
@@ -2801,80 +2792,34 @@ function SessionTurn({
 
 			{/* Question prompt — now rendered inside the chat input card (questionSlot) */}
 
-			{/* ── Action bar (copy, fork, revert) ── */}
+			{/* ── Action bar (copy + duration/cost only — fork & revert live on user messages) ── */}
 			{!working && response && (
-				<>
-					<div className="flex items-center gap-0.5 opacity-0 group-hover/turn:opacity-100 transition-opacity duration-150">
-						{/* Duration & cost */}
-						{duration && (
-							<span className="text-[11px] text-muted-foreground/50 mr-1">
-								{duration}
-								{costInfo && (
-									<> · {formatCost(costInfo.cost)} · {formatTokens(costInfo.tokens.input + costInfo.tokens.output)}t</>
+				<div className="flex items-center gap-0.5 opacity-0 group-hover/turn:opacity-100 transition-opacity duration-150">
+					{/* Duration & cost */}
+					{duration && (
+						<span className="text-[11px] text-muted-foreground/50 mr-1">
+							{duration}
+							{costInfo && (
+								<> · {formatCost(costInfo.cost)} · {formatTokens(costInfo.tokens.input + costInfo.tokens.output)}t</>
+							)}
+						</span>
+					)}
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<button
+								onClick={handleCopy}
+								className="p-1.5 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
+							>
+								{copied ? (
+									<Check className="size-3.5" />
+								) : (
+									<Copy className="size-3.5" />
 								)}
-							</span>
-						)}
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<button
-									onClick={handleCopy}
-									className="p-1.5 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
-								>
-									{copied ? (
-										<Check className="size-3.5" />
-									) : (
-										<Copy className="size-3.5" />
-									)}
-								</button>
-							</TooltipTrigger>
-							<TooltipContent>{copied ? "Copied!" : "Copy"}</TooltipContent>
-						</Tooltip>
-						{!isBusy && !isReverted && lastAssistantMessageId && (
-							<Tooltip>
-								<TooltipTrigger asChild>
-									<button
-										onClick={() => onFork(lastAssistantMessageId)}
-										className="p-1.5 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
-									>
-										<GitFork className="size-3.5" />
-									</button>
-								</TooltipTrigger>
-								<TooltipContent>Fork from here</TooltipContent>
-							</Tooltip>
-						)}
-						{!isFirstTurn && !isBusy && !isReverted && (
-							<Tooltip>
-								<TooltipTrigger asChild>
-									<button
-										onClick={() => setRevertDialogOpen(true)}
-										className="p-1.5 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
-									>
-										<Undo2 className="size-3.5" />
-									</button>
-								</TooltipTrigger>
-								<TooltipContent>Revert to before this</TooltipContent>
-							</Tooltip>
-						)}
-					</div>
-					<ConfirmDialog
-						open={revertDialogOpen}
-						onOpenChange={setRevertDialogOpen}
-						title="Revert to this point?"
-						description="All file changes made after this point will be undone. You can restore them later."
-						action={async () => {
-							setRevertLoading(true);
-							try {
-								await onRevert(turn.userMessage.info.id);
-							} finally {
-								setRevertLoading(false);
-								setRevertDialogOpen(false);
-							}
-						}}
-						actionLabel="Revert"
-						variant="destructive"
-						loading={revertLoading}
-					/>
-				</>
+							</button>
+						</TooltipTrigger>
+						<TooltipContent>{copied ? "Copied!" : "Copy"}</TooltipContent>
+					</Tooltip>
+				</div>
 			)}
 
 			<ConnectProviderDialog
@@ -3008,8 +2953,7 @@ export function SessionChat({
 	const sendMessage = useSendOpenCodeMessage();
 	const abortSession = useAbortOpenCodeSession();
 	const forkSession = useForkSession();
-	const revertSession = useRevertSession();
-	const unrevertSession = useUnrevertSession();
+
 
 	// ---- Unified model/agent/variant state (1:1 port of SolidJS local.tsx) ----
 	const local = useOpenCodeLocal({ agents, providers, config, sessionId });
@@ -4119,29 +4063,6 @@ export function SessionChat({
 		[turns],
 	);
 
-	// ---- Revert: filter visible turns and compute rolled-back items ----
-	const revertMessageID = session?.revert?.messageID;
-
-	const visibleTurns = useMemo(() => {
-		if (!revertMessageID) return turns;
-		return turns.filter((turn) => turn.userMessage.info.id < revertMessageID);
-	}, [turns, revertMessageID]);
-
-	const rolledItems: RevertDockItem[] = useMemo(() => {
-		if (!revertMessageID) return [];
-		return turns
-			.filter((turn) => turn.userMessage.info.id >= revertMessageID)
-			.map((turn) => {
-				const textPart = turn.userMessage.parts.find(
-					(p) => p.type === "text" && "text" in p && (p as any).text?.trim(),
-				);
-				const text = textPart && "text" in textPart
-					? String((textPart as any).text).replace(/\s+/g, " ").trim()
-					: "[attachment]";
-				return { id: turn.userMessage.info.id, text };
-			});
-	}, [turns, revertMessageID]);
-
 	// Reset on session change
 	useEffect(() => {
 		setPollingActive(false);
@@ -4162,33 +4083,18 @@ export function SessionChat({
 	// ============================================================================
 
 	// ============================================================================
-	// Fork / Revert / Unrevert handlers
+	// Fork handlers
 	// ============================================================================
 
-	const isReverted = !!session?.revert;
-	const [restoringId, setRestoringId] = useState<string | undefined>(undefined);
-	const [reverting, setReverting] = useState(false);
-
 	const handleFork = useCallback(
-		async (messageId: string) => {
-			// The server's fork copies all messages BEFORE the given messageID
-			// (exclusive: msg.id >= messageID → break). Since the user clicks
-			// "Fork from here" on an assistant response and expects that response
-			// to be included, we pass the ID of the first message AFTER the
-			// assistant message as the cut-off. If the assistant message is the
-			// last one in the session, we omit messageID entirely to copy everything.
-			let forkAtMessageId: string | undefined;
-			if (messages) {
-				const idx = messages.findIndex((m) => m.info.id === messageId);
-				if (idx >= 0 && idx < messages.length - 1) {
-					forkAtMessageId = messages[idx + 1].info.id;
-				}
-				// else: last message — omit messageID to copy all
-			}
-
+		async (userMessageId: string) => {
+			// Fork at a user message. The server copies all messages BEFORE the
+			// given messageID (exclusive: msg.id >= messageID → break).
+			// Passing the user message ID forks the conversation up to (but not
+			// including) that user turn — matching OpenCode's fork-from-user-message UX.
 			const forkedSession = await forkSession.mutateAsync({
 				sessionId,
-				messageId: forkAtMessageId,
+				messageId: userMessageId,
 			});
 
 			// Open the forked session in a new tab and navigate
@@ -4205,7 +4111,7 @@ export function SessionChat({
 			// session can show the "Forked from" indicator.
 			localStorage.setItem(`fork_origin_${forkedSession.id}`, sessionId);
 		},
-		[sessionId, forkSession, messages],
+		[sessionId, forkSession],
 	);
 
 	const handleEditFork = useCallback(
@@ -4239,59 +4145,6 @@ export function SessionChat({
 		[sessionId, forkSession, sendMessage],
 	);
 
-	const handleRevert = useCallback(
-		async (messageId: string) => {
-			if (reverting) return;
-			setReverting(true);
-			try {
-				// Halt session if busy (matches OpenCode: abort before revert)
-				if (isBusy && !abortSession.isPending) {
-					try { abortSession.mutate(sessionId); } catch {}
-				}
-				await revertSession.mutateAsync({ sessionId, messageId });
-			} catch {
-				sonnerToast.error("Revert failed");
-			} finally {
-				setReverting(false);
-			}
-		},
-		[sessionId, revertSession, isBusy, abortSession, reverting],
-	);
-
-	/**
-	 * Restore a rolled-back message. Matches OpenCode behavior:
-	 * - Last rolled item → full unrevert.
-	 * - Otherwise → move revert point to the NEXT user message (partial restore).
-	 */
-	const handleRestore = useCallback(
-		async (messageId: string) => {
-			if (reverting || restoringId) return;
-			setRestoringId(messageId);
-			setReverting(true);
-			try {
-				if (isBusy && !abortSession.isPending) {
-					try { abortSession.mutate(sessionId); } catch {}
-				}
-				const rolledIdx = rolledItems.findIndex((item) => item.id === messageId);
-				const nextRolled = rolledIdx >= 0 ? rolledItems[rolledIdx + 1] : undefined;
-
-				if (!nextRolled) {
-					// Last rolled item — full unrevert
-					await unrevertSession.mutateAsync(sessionId);
-				} else {
-					// Partial restore — move revert point to the next message
-					await revertSession.mutateAsync({ sessionId, messageId: nextRolled.id });
-				}
-			} catch {
-				sonnerToast.error("Restore failed");
-			} finally {
-				setRestoringId(undefined);
-				setReverting(false);
-			}
-		},
-		[sessionId, revertSession, unrevertSession, isBusy, abortSession, reverting, restoringId, rolledItems],
-	);
-
 	// ============================================================================
 	// Send / Stop / Command handlers
 	// ============================================================================
@@ -4303,6 +4156,7 @@ export function SessionChat({
 			mentions?: TrackedMention[],
 		) => {
 			setCommandError(null);
+
 			// Wrap reply context in XML if present, then clear it
 			let text = rawText;
 			if (replyTo) {
@@ -4618,26 +4472,23 @@ export function SessionChat({
 	);
 
 	// Detect if this session was forked and resolve its parent.
-	// Must be above early returns to preserve hook order.
-	// localStorage is the source of truth (set by handleFork). The server may
-	// or may not populate parentID on the forked session.
+	// Only used for the ForkContextDivider at the top of the message list.
 	const forkParentId = useMemo(() => {
 		if (typeof window === "undefined") return null;
 		return localStorage.getItem(`fork_origin_${sessionId}`);
 	}, [sessionId]);
-	const isSubSession = !!session?.parentID || !!forkParentId;
 	const isFork = !!forkParentId;
-	// The effective parent ID: prefer server parentID, fall back to localStorage
 	const effectiveParentId = session?.parentID || forkParentId;
 
-	// Parent session data — used for SubSessionBar and threadContext on chat input
+	// Thread context for subsessions only (real parentID, NOT forks).
+	// Forks are independent sessions — no indicator in the chat input.
 	const { data: parentSessionData } = useOpenCodeSession(
-		effectiveParentId || "",
+		session?.parentID || "",
 	);
 	const threadContext = useMemo(() => {
-		if (!effectiveParentId || !parentSessionData) return undefined;
+		if (!session?.parentID || !parentSessionData) return undefined;
 		return {
-			variant: isFork ? ("fork" as const) : ("thread" as const),
+			variant: "thread" as const,
 			parentTitle: parentSessionData.title || "Parent session",
 			onBackToParent: () => {
 				openTabAndNavigate({
@@ -4649,7 +4500,7 @@ export function SessionChat({
 				});
 			},
 		};
-	}, [effectiveParentId, parentSessionData, isFork]);
+	}, [session?.parentID, parentSessionData]);
 
 	// ============================================================================
 	// Loading / Not-found states
@@ -4828,7 +4679,7 @@ export function SessionChat({
 										)}
 
 									{/* Turn-based message rendering */}
-									{visibleTurns.map((turn, turnIndex) => {
+									{turns.map((turn, turnIndex) => {
 									// Check if this turn is a compaction summary
 									// The server sets `summary: true` on assistant messages that are compaction summaries
 									const hasCompaction =
@@ -4864,11 +4715,9 @@ export function SessionChat({
 												agentNames={agentNames}
 												isFirstTurn={turnIndex === 0}
 												isBusy={isBusy}
-												isReverted={isReverted}
 												isCompaction={hasCompaction}
 											onFork={handleFork}
 											onEditFork={handleEditFork}
-											onRevert={handleRevert}
 												providers={providers}
 												commandMessages={commandMessagesRef.current}
 												commands={commands}
@@ -4878,28 +4727,9 @@ export function SessionChat({
 									);
 								})}
 
-								{/* Rolled-back messages divider — inline in chat flow */}
-								{rolledItems.length > 0 && (
-									<div className="flex items-center gap-3 py-3 my-1">
-										<div className="flex-1 h-px bg-border/60" />
-										<span className="text-[11px] text-muted-foreground/70">
-											{rolledItems.length === 1 ? "1 message" : `${rolledItems.length} messages`} rolled back
-										</span>
-										<button
-											type="button"
-											onClick={() => handleRestore(rolledItems[0].id)}
-											disabled={reverting}
-											className="text-[11px] font-medium text-primary hover:text-primary/80 transition-colors cursor-pointer disabled:opacity-50"
-										>
-											{reverting ? "Restoring..." : "Restore"}
-										</button>
-										<div className="flex-1 h-px bg-border/60" />
-									</div>
-								)}
-
 								{/* Busy indicator when no turns yet but session is busy */}
 								{commandError && <TurnErrorDisplay errorText={commandError} className="mt-2" />}
-								{!showOptimistic && isBusy && visibleTurns.length === 0 && (
+								{!showOptimistic && isBusy && turns.length === 0 && (
 									<div className="flex items-center gap-3">
 										{/* eslint-disable-next-line @next/next/no-img-element */}
 										<img

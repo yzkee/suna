@@ -709,7 +709,7 @@ export function useSummarizeOpenCodeSession() {
 }
 
 // ============================================================================
-// Fork / Revert / Unrevert Hooks
+// Fork Hook
 // ============================================================================
 
 /**
@@ -753,79 +753,7 @@ export function useForkSession() {
   });
 }
 
-/**
- * Revert a session to a specific message, undoing all subsequent changes.
- * The session enters a "reverted" state (session.revert is populated).
- */
-export function useRevertSession() {
-  const queryClient = useQueryClient();
 
-  return useMutation({
-    mutationFn: async ({
-      sessionId,
-      messageId,
-      partId,
-    }: {
-      sessionId: string;
-      messageId: string;
-      partId?: string;
-    }) => {
-      const client = getClient();
-      const result = await client.session.revert({
-        sessionID: sessionId,
-        messageID: messageId,
-        ...(partId && { partID: partId }),
-      });
-      return unwrap(result) as Session;
-    },
-    onSuccess: (updatedSession, variables) => {
-      // Update session in cache with the reverted state
-      queryClient.setQueryData<Session[]>(opencodeKeys.sessions(), (old) => {
-        if (!old) return old;
-        const idx = old.findIndex((s) => s.id === updatedSession.id);
-        if (idx < 0) return old;
-        const next = [...old];
-        next[idx] = updatedSession;
-        return next.sort((a, b) => b.time.updated - a.time.updated);
-      });
-      queryClient.setQueryData(opencodeKeys.session(updatedSession.id), updatedSession);
-      // Messages changed significantly after revert — refetch just this session's messages
-      queryClient.refetchQueries({ queryKey: opencodeKeys.messages(variables.sessionId) });
-    },
-  });
-}
-
-/**
- * Unrevert a session — restores all previously reverted messages.
- * Clears the session.revert field.
- */
-export function useUnrevertSession() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (sessionId: string) => {
-      const client = getClient();
-      const result = await client.session.unrevert({
-        sessionID: sessionId,
-      });
-      return unwrap(result) as Session;
-    },
-    onSuccess: (updatedSession, sessionId) => {
-      // Update session in cache with the unreverted state
-      queryClient.setQueryData<Session[]>(opencodeKeys.sessions(), (old) => {
-        if (!old) return old;
-        const idx = old.findIndex((s) => s.id === updatedSession.id);
-        if (idx < 0) return old;
-        const next = [...old];
-        next[idx] = updatedSession;
-        return next.sort((a, b) => b.time.updated - a.time.updated);
-      });
-      queryClient.setQueryData(opencodeKeys.session(updatedSession.id), updatedSession);
-      // Messages changed after unrevert — refetch just this session's messages
-      queryClient.refetchQueries({ queryKey: opencodeKeys.messages(sessionId) });
-    },
-  });
-}
 
 // ============================================================================
 // Init Hook — analyze project and create AGENTS.md (via /init command)
