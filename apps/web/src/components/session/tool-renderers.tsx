@@ -24,6 +24,7 @@ import {
 	FileIcon,
 	FileText,
 	Fingerprint,
+	Folder,
 	Glasses,
 	Globe,
 	Hash,
@@ -37,6 +38,7 @@ import {
 	Minimize2,
 	MonitorPlay,
 	Music,
+	Plug,
 	Presentation,
 	RefreshCw,
 	Scissors,
@@ -111,6 +113,7 @@ import { parseMemorySearchOutput } from "@/lib/utils/memory-search-output";
 import { parseMemoryEntryOutput } from "@/lib/utils/memory-entry-output";
 import { useIntegrationConnectStore } from "@/stores/integration-connect-store";
 import { useAuth } from "@/components/AuthProvider";
+import { Badge } from "@/components/ui/badge";
 
 import {
 	type ApplyPatchFile,
@@ -5429,6 +5432,325 @@ function SkillTool({ part, forceOpen }: ToolProps) {
 	);
 }
 ToolRegistry.register("skill", SkillTool);
+
+// ============================================================================
+// Project Tools — Kortix Orchestrator project management
+// ============================================================================
+
+import {
+	parseProjectListOutput,
+	parseProjectSelectOutput,
+	parseProjectCreateOutput,
+	type ProjectEntry,
+} from "@/lib/utils/kortix-tool-output";
+
+function ProjectListTool({ part, defaultOpen, forceOpen }: ToolProps) {
+	const output = partOutput(part);
+	const projects = useMemo(() => parseProjectListOutput(output || ''), [output]);
+
+	return (
+		<BasicTool
+			icon={<Folder className="size-3.5 text-muted-foreground" />}
+			trigger={{
+				title: 'Project List',
+				subtitle: projects.length > 0 ? `${projects.length} project${projects.length !== 1 ? 's' : ''}` : 'All projects',
+			}}
+			defaultOpen={defaultOpen || projects.length === 0}
+			forceOpen={forceOpen}
+		>
+			{projects.length > 0 ? (
+				<div className="p-2 space-y-1">
+					{projects.map((project: ProjectEntry) => (
+						<div key={project.path} className="flex items-start gap-2 text-xs py-1 px-2 rounded hover:bg-muted/30">
+							<Folder className="size-3.5 mt-0.5 flex-shrink-0 text-muted-foreground" />
+							<div className="min-w-0 flex-1">
+								<div className="font-medium text-foreground truncate">{project.name}</div>
+								<div className="text-muted-foreground/60 font-mono truncate">{project.path}</div>
+							</div>
+							{project.sessions > 0 && (
+								<Badge variant="outline" className="h-5 py-0 text-[10px] flex-shrink-0">
+									{project.sessions}
+								</Badge>
+							)}
+						</div>
+					))}
+				</div>
+			) : (
+				<div className="p-3 text-xs text-muted-foreground">
+					{output ? 'No projects found' : 'Loading...'}
+				</div>
+			)}
+		</BasicTool>
+	);
+}
+ToolRegistry.register("project_list", ProjectListTool);
+ToolRegistry.register("project-list", ProjectListTool);
+ToolRegistry.register("oc-project_list", ProjectListTool);
+ToolRegistry.register("oc-project-list", ProjectListTool);
+
+function ProjectGetTool({ part, defaultOpen, forceOpen }: ToolProps) {
+	const input = partInput(part);
+	const output = partOutput(part);
+	const name = (input.name as string) || '';
+
+	return (
+		<BasicTool
+			icon={<Folder className="size-3.5 text-muted-foreground" />}
+			trigger={{
+				title: 'Project Details',
+				subtitle: name || 'Fetching...',
+			}}
+			defaultOpen={defaultOpen}
+			forceOpen={forceOpen}
+		>
+			<div className="p-2">
+				{output ? (
+					<div className="text-xs text-muted-foreground whitespace-pre-wrap font-mono max-h-48 overflow-y-auto">
+						{output}
+					</div>
+				) : (
+					<div className="p-3 text-xs text-muted-foreground">Loading...</div>
+				)}
+			</div>
+		</BasicTool>
+	);
+}
+ToolRegistry.register("project_get", ProjectGetTool);
+ToolRegistry.register("project-get", ProjectGetTool);
+ToolRegistry.register("oc-project_get", ProjectGetTool);
+ToolRegistry.register("oc-project-get", ProjectGetTool);
+ToolRegistry.register("project_update", ProjectGetTool);
+ToolRegistry.register("project-update", ProjectGetTool);
+ToolRegistry.register("oc-project_update", ProjectGetTool);
+ToolRegistry.register("oc-project-update", ProjectGetTool);
+
+function ProjectSelectTool({ part, defaultOpen, forceOpen }: ToolProps) {
+	const input = partInput(part);
+	const output = partOutput(part);
+	const project = (input.project as string) || '';
+	const data = useMemo(() => parseProjectSelectOutput(output || ''), [output]);
+
+	return (
+		<BasicTool
+			icon={<Folder className="size-3.5 text-muted-foreground" />}
+			trigger={{
+				title: 'Project Select',
+				subtitle: project || (data?.name ? `${data.name} selected` : 'Selecting...'),
+				args: data?.success ? ['selected'] : undefined,
+			}}
+			defaultOpen={defaultOpen}
+			forceOpen={forceOpen}
+		>
+			<div className="p-2">
+				{output ? (
+					<div className="text-xs text-muted-foreground whitespace-pre-wrap font-mono max-h-48 overflow-y-auto">
+						{output}
+					</div>
+				) : (
+					<div className="p-3 text-xs text-muted-foreground">Loading...</div>
+				)}
+			</div>
+		</BasicTool>
+	);
+}
+ToolRegistry.register("project_select", ProjectSelectTool);
+ToolRegistry.register("project-select", ProjectSelectTool);
+ToolRegistry.register("oc-project_select", ProjectSelectTool);
+ToolRegistry.register("oc-project-select", ProjectSelectTool);
+
+function ProjectCreateTool({ part, defaultOpen, forceOpen }: ToolProps) {
+	const input = partInput(part);
+	const output = partOutput(part);
+	const name = (input.name as string) || '';
+	const data = useMemo(() => parseProjectCreateOutput(output || ''), [output]);
+
+	return (
+		<BasicTool
+			icon={<Folder className="size-3.5 text-muted-foreground" />}
+			trigger={{
+				title: 'Project Create',
+				subtitle: name || (data?.name || 'Creating...'),
+				args: data?.success ? ['created'] : undefined,
+			}}
+			defaultOpen={defaultOpen}
+			forceOpen={forceOpen}
+		>
+			<div className="p-2">
+				{output ? (
+					<div className="text-xs text-muted-foreground whitespace-pre-wrap font-mono max-h-48 overflow-y-auto">
+						{output}
+					</div>
+				) : (
+					<div className="p-3 text-xs text-muted-foreground">Creating project...</div>
+				)}
+			</div>
+		</BasicTool>
+	);
+}
+ToolRegistry.register("project_create", ProjectCreateTool);
+ToolRegistry.register("project-create", ProjectCreateTool);
+ToolRegistry.register("oc-project_create", ProjectCreateTool);
+ToolRegistry.register("oc-project-create", ProjectCreateTool);
+
+// ============================================================================
+// Connector Tools — Kortix Connectors plugin
+// ============================================================================
+
+import {
+	parseConnectorListOutput,
+	parseConnectorGetOutput,
+	parseConnectorSetupOutput,
+	type ConnectorEntry,
+} from "@/lib/utils/kortix-tool-output";
+
+function ConnectorListTool({ part, defaultOpen, forceOpen }: ToolProps) {
+	const input = partInput(part);
+	const output = partOutput(part);
+	const filter = (input.filter as string) || '';
+	const connectors = useMemo(() => parseConnectorListOutput(output || ''), [output]);
+
+	return (
+		<BasicTool
+			icon={<Plug className="size-3.5 text-muted-foreground" />}
+			trigger={{
+				title: 'Connector List',
+				subtitle: filter ? `Filter: ${filter}` : `${connectors.length} connector${connectors.length !== 1 ? 's' : ''}`,
+			}}
+			defaultOpen={defaultOpen || connectors.length === 0}
+			forceOpen={forceOpen}
+		>
+			{connectors.length > 0 ? (
+				<div className="p-2 space-y-1">
+					{connectors.map((conn: ConnectorEntry) => (
+						<div key={conn.name} className="flex items-start gap-2 text-xs py-1 px-2 rounded hover:bg-muted/30">
+							<Plug className="size-3.5 mt-0.5 flex-shrink-0 text-muted-foreground" />
+							<div className="min-w-0 flex-1">
+								<div className="font-medium text-foreground truncate">{conn.name}</div>
+								<div className="text-muted-foreground/60 flex gap-2">
+									<span className="capitalize">{conn.type}</span>
+									<span>{conn.status}</span>
+								</div>
+							</div>
+							{conn.secrets !== 'none' && (
+								<Badge variant="outline" className="h-5 py-0 text-[10px] flex-shrink-0 font-mono">
+									{conn.secrets}
+								</Badge>
+							)}
+						</div>
+					))}
+				</div>
+			) : (
+				<div className="p-3 text-xs text-muted-foreground">
+					{output ? 'No connectors found' : 'Loading...'}
+				</div>
+			)}
+		</BasicTool>
+	);
+}
+ToolRegistry.register("connector_list", ConnectorListTool);
+ToolRegistry.register("connector-list", ConnectorListTool);
+ToolRegistry.register("oc-connector_list", ConnectorListTool);
+ToolRegistry.register("oc-connector-list", ConnectorListTool);
+
+function ConnectorGetTool({ part, defaultOpen, forceOpen }: ToolProps) {
+	const input = partInput(part);
+	const output = partOutput(part);
+	const name = (input.name as string) || '';
+	const data = useMemo(() => parseConnectorGetOutput(output || ''), [output]);
+
+	return (
+		<BasicTool
+			icon={<Plug className="size-3.5 text-muted-foreground" />}
+			trigger={{
+				title: data?.name || 'Connector Details',
+				subtitle: name && name !== data?.name ? name : (data?.type || 'Fetching...'),
+			}}
+			defaultOpen={defaultOpen}
+			forceOpen={forceOpen}
+		>
+			<div className="p-2">
+				{output ? (
+					<div className="space-y-2">
+						{data ? (
+							<>
+								<div className="flex gap-2 text-xs">
+									<Badge variant="outline" className="h-5 py-0 capitalize">{data.type}</Badge>
+									<Badge variant="outline" className="h-5 py-0">{data.status}</Badge>
+								</div>
+								{data.secrets !== 'none' && (
+									<div className="text-xs">
+										<span className="text-muted-foreground/60">Secrets: </span>
+										<code className="bg-muted px-1 rounded text-[10px]">{data.secrets}</code>
+									</div>
+								)}
+								{data.notes && (
+									<div className="text-xs text-muted-foreground whitespace-pre-wrap mt-2 pt-2 border-t border-border/30">
+										{data.notes}
+									</div>
+								)}
+							</>
+						) : (
+							<div className="text-xs text-muted-foreground whitespace-pre-wrap font-mono max-h-48 overflow-y-auto">
+								{output}
+							</div>
+						)}
+					</div>
+				) : (
+					<div className="p-3 text-xs text-muted-foreground">Loading...</div>
+				)}
+			</div>
+		</BasicTool>
+	);
+}
+ToolRegistry.register("connector_get", ConnectorGetTool);
+ToolRegistry.register("connector-get", ConnectorGetTool);
+ToolRegistry.register("oc-connector_get", ConnectorGetTool);
+ToolRegistry.register("oc-connector-get", ConnectorGetTool);
+
+function ConnectorSetupTool({ part, defaultOpen, forceOpen }: ToolProps) {
+	const input = partInput(part);
+	const output = partOutput(part);
+	const data = useMemo(() => parseConnectorSetupOutput(output || ''), [output]);
+
+	return (
+		<BasicTool
+			icon={<Plug className="size-3.5 text-muted-foreground" />}
+			trigger={{
+				title: 'Connector Setup',
+				subtitle: data ? `${data.count} connector${data.count !== 1 ? 's' : ''} scaffolded` : 'Setting up...',
+				args: data?.success ? ['scaffolded'] : undefined,
+			}}
+			defaultOpen={defaultOpen}
+			forceOpen={forceOpen}
+		>
+			<div className="p-2">
+				{output ? (
+					<div className="space-y-1">
+						{data?.connectors.map((conn, i) => (
+							<div key={i} className="flex items-center gap-2 text-xs py-1">
+								<Plug className="size-3.5 flex-shrink-0 text-muted-foreground" />
+								<span className="font-medium">{conn.name}</span>
+								<Badge variant="outline" className="h-4 py-0 text-[9px] capitalize">{conn.type}</Badge>
+								<span className="text-muted-foreground/60">{conn.status}</span>
+							</div>
+						))}
+						{!data && (
+							<div className="text-xs text-muted-foreground whitespace-pre-wrap font-mono max-h-48 overflow-y-auto">
+								{output}
+							</div>
+						)}
+					</div>
+				) : (
+					<div className="p-3 text-xs text-muted-foreground">Setting up connectors...</div>
+				)}
+			</div>
+		</BasicTool>
+	);
+}
+ToolRegistry.register("connector_setup", ConnectorSetupTool);
+ToolRegistry.register("connector-setup", ConnectorSetupTool);
+ToolRegistry.register("oc-connector_setup", ConnectorSetupTool);
+ToolRegistry.register("oc-connector-setup", ConnectorSetupTool);
 
 // ============================================================================
 // ToolError

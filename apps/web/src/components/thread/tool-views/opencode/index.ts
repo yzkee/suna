@@ -32,6 +32,13 @@ export { OcMemSaveToolView } from './OcMemSaveToolView';
 export { OcSessionListToolView } from './OcSessionListToolView';
 export { OcSessionGetToolView } from './OcSessionGetToolView';
 export { OcGetMemToolView } from './OcGetMemToolView';
+export { OcProjectListToolView } from './OcProjectListToolView';
+export { OcProjectGetToolView } from './OcProjectGetToolView';
+export { OcProjectSelectToolView } from './OcProjectSelectToolView';
+export { OcProjectCreateToolView } from './OcProjectCreateToolView';
+export { OcConnectorListToolView } from './OcConnectorListToolView';
+export { OcConnectorGetToolView } from './OcConnectorGetToolView';
+export { OcConnectorSetupToolView } from './OcConnectorSetupToolView';
 
 import type { ToolViewComponent } from '../wrapper/ToolViewRegistry';
 import { OcBashToolView } from './OcBashToolView';
@@ -62,6 +69,13 @@ import { OcMemSaveToolView } from './OcMemSaveToolView';
 import { OcSessionListToolView } from './OcSessionListToolView';
 import { OcSessionGetToolView } from './OcSessionGetToolView';
 import { OcGetMemToolView } from './OcGetMemToolView';
+import { OcProjectListToolView } from './OcProjectListToolView';
+import { OcProjectGetToolView } from './OcProjectGetToolView';
+import { OcProjectSelectToolView } from './OcProjectSelectToolView';
+import { OcProjectCreateToolView } from './OcProjectCreateToolView';
+import { OcConnectorListToolView } from './OcConnectorListToolView';
+import { OcConnectorGetToolView } from './OcConnectorGetToolView';
+import { OcConnectorSetupToolView } from './OcConnectorSetupToolView';
 
 /**
  * Registry entries for OpenCode tools.
@@ -181,6 +195,34 @@ export const ocToolViewRegistrations: Record<string, ToolViewComponent> = {
   'oc-session-list': OcSessionListToolView,
   'oc-session_get': OcSessionGetToolView,
   'oc-session-get': OcSessionGetToolView,
+
+  // Project tools (kortix-orchestrator)
+  'oc-project_list': OcProjectListToolView,
+  'oc-project-list': OcProjectListToolView,
+  'project_list': OcProjectListToolView,
+  'oc-project_get': OcProjectGetToolView,
+  'oc-project-get': OcProjectGetToolView,
+  'project_get': OcProjectGetToolView,
+  'oc-project_select': OcProjectSelectToolView,
+  'oc-project-select': OcProjectSelectToolView,
+  'project_select': OcProjectSelectToolView,
+  'oc-project_create': OcProjectCreateToolView,
+  'oc-project-create': OcProjectCreateToolView,
+  'project_create': OcProjectCreateToolView,
+  'oc-project_update': OcProjectGetToolView,
+  'oc-project-update': OcProjectGetToolView,
+  'project_update': OcProjectGetToolView,
+
+  // Connector tools (kortix-connectors plugin)
+  'oc-connector_list': OcConnectorListToolView,
+  'oc-connector-list': OcConnectorListToolView,
+  'connector_list': OcConnectorListToolView,
+  'oc-connector_get': OcConnectorGetToolView,
+  'oc-connector-get': OcConnectorGetToolView,
+  'connector_get': OcConnectorGetToolView,
+  'oc-connector_setup': OcConnectorSetupToolView,
+  'oc-connector-setup': OcConnectorSetupToolView,
+  'connector_setup': OcConnectorSetupToolView,
 
   // Legacy / compatibility memory retrieval tool
   'oc-get_mem': OcGetMemToolView,
