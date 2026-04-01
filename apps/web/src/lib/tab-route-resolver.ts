@@ -41,11 +41,17 @@ const STATIC_TAB_ROUTES: Record<string, TabDescriptor> = {
     type: 'desktop',
     href: '/desktop',
   },
-  '/services/running': {
-    id: 'services:running',
+  '/service-manager': {
+    id: 'service-manager',
     title: 'Service Manager',
     type: 'services',
-    href: '/services/running',
+    href: '/service-manager',
+  },
+  '/services/running': {
+    id: 'service-manager',
+    title: 'Service Manager',
+    type: 'services',
+    href: '/service-manager',
   },
 
   // ── Page / settings tabs (rendered by PageTabContent) ────────────────────

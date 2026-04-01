@@ -4,10 +4,12 @@ import { useEffect, useRef } from 'react';
 import { useTabStore } from '@/stores/tab-store';
 
 /**
- * /services/running — redirects to service-manager tab.
- * Kept for backwards compatibility with old bookmarks/links.
+ * /service-manager — Service Manager tab
+ *
+ * Opens or activates the service-manager tab so the pre-mounted
+ * RunningServicesPanel in SessionTabsContainer becomes visible.
  */
-export default function RunningServicesPage() {
+export default function ServiceManagerPage() {
   const { tabs, openTab, setActiveTab } = useTabStore();
   const handledRef = useRef(false);
 
