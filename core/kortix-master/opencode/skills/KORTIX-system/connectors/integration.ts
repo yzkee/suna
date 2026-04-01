@@ -58,16 +58,31 @@ async function search(q?: string) {
   out({ success: true, apps: data.apps.map(a => ({ slug: a.slug, name: a.name, description: a.description })), totalCount: data.pageInfo.totalCount });
 }
 
-async function connect(app: string) {
-  const res = await fetch(`${masterUrl}/api/pipedream/connect`, {
-    method: "POST",
-    headers: authHeaders(),
-    body: JSON.stringify({ app }),
+async function connect(apps: string | string[]) {
+  const list = Array.isArray(apps) ? apps : [apps];
+  const results: Array<{ app: string; connectUrl?: string; error?: string }> = [];
+  await Promise.all(list.map(async (app) => {
+    try {
+      const res = await fetch(`${masterUrl}/api/pipedream/connect`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ app }),
+      });
+      if (!res.ok) { results.push({ app, error: `${res.status}: ${await res.text()}` }); return; }
+      const data = await res.json() as { connectUrl?: string; app: string };
+      results.push({ app: data.app || app, connectUrl: data.connectUrl });
+    } catch (e: any) {
+      results.push({ app, error: e.message });
+    }
+  }));
+  const ok = results.filter(r => r.connectUrl);
+  const failed = results.filter(r => r.error);
+  out({
+    success: ok.length > 0,
+    connections: ok.map(r => ({ app: r.app, connectUrl: r.connectUrl })),
+    errors: failed.length > 0 ? failed : undefined,
+    message: `${ok.length} connect URL(s) generated${failed.length ? `, ${failed.length} failed` : ""}`,
   });
-  if (!res.ok) return out({ success: false, error: `${res.status}: ${await res.text()}` });
-  const data = await res.json() as { connectUrl?: string; app: string };
-  if (!data.connectUrl) return out({ success: false, error: "No connect URL returned" });
-  out({ success: true, app: data.app, connectUrl: data.connectUrl, message: `Click to connect ${data.app}: ${data.connectUrl}` });
 }
 
 async function list() {
@@ -171,7 +186,7 @@ const args = rawArgs ? JSON.parse(rawArgs) : {};
 
 switch (cmd) {
   case "search":  await search(args.q); break;
-  case "connect": await connect(args.app); break;
+  case "connect": await connect(args.apps || args.app); break;
   case "list":    await list(); break;
   case "request": await request(args.app, args.method, args.url, args.headers, args.body); break;
   case "actions": await actions(args.app, args.q); break;

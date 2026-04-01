@@ -43,9 +43,18 @@ bun run "$SCRIPT" request '{"app":"google_drive","method":"GET","url":"..."}'
 bun run "$SCRIPT" exec '{"app":"google_drive","code":"const r = await proxyFetch(\"...\"); return await r.json();"}'
 ```
 
-Not connected → connect:
+Not connected → batch connect (one call, all URLs back):
 ```bash
-bun run "$SCRIPT" connect '{"app":"google_drive"}'
+bun run "$SCRIPT" connect '{"apps":["gmail","slack","stripe","github"]}'
+```
+
+Show all links to the user in one clean output:
+```
+show({
+  type: "markdown",
+  title: "Connect your services",
+  content: "Click each link to authorize:\n\n| Service | Connect |\n|---|---|\n| Gmail | [Connect →](url1) |\n| Slack | [Connect →](url2) |\n| Stripe | [Connect →](url3) |"
+})
 ```
 
 ---
