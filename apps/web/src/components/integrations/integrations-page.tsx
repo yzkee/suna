@@ -5,11 +5,11 @@ import { Plug, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { PageHeader } from '@/components/ui/page-header';
 import { useIntegrationsPage } from './use-integrations-page';
+import { ConnectorRegistrySection } from './connector-registry-section';
 import { ConnectedSection } from './connected-section';
 import { SearchFilterBar } from './search-filter-bar';
 import { AvailableAppsGrid } from './available-apps-grid';
 import { ManageProfileDialog } from './manage-profile-dialog';
-import { PipedreamSettingsDialog } from './pipedream-settings-dialog';
 
 export function IntegrationsPage() {
   const {
@@ -43,7 +43,7 @@ export function IntegrationsPage() {
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
-              Failed to load integrations. Please try refreshing the page.
+              Failed to load connectors. Please try refreshing the page.
             </AlertDescription>
           </Alert>
         </div>
@@ -63,13 +63,21 @@ export function IntegrationsPage() {
         </PageHeader>
       </div>
       <div className="container mx-auto max-w-7xl px-3 sm:px-4">
+        {/* Your Connectors — file-based registry with live status */}
         <div className="animate-in fade-in-0 slide-in-from-bottom-4 duration-500 delay-75 fill-mode-both">
+          <ConnectorRegistrySection pipedreamConnections={connections} />
+        </div>
+
+        {/* Pipedream Connected — OAuth connections */}
+        <div className="animate-in fade-in-0 slide-in-from-bottom-4 duration-500 delay-100 fill-mode-both">
           <ConnectedSection
             connections={connections}
             appImgMap={appImgMap}
             onManage={handleManage}
           />
         </div>
+
+        {/* Add via Pipedream — search 2000+ apps */}
         <div className="animate-in fade-in-0 slide-in-from-bottom-4 duration-500 delay-150 fill-mode-both">
           <SearchFilterBar
             searchQuery={searchQuery}
