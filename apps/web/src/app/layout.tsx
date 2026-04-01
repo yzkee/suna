@@ -12,6 +12,7 @@ import { Suspense, lazy } from 'react';
 import { I18nProvider } from '@/components/i18n-provider';
 import { getServerPublicEnv } from '@/lib/public-env-server';
 import { featureFlags } from '@/lib/feature-flags';
+import { connection } from 'next/server';
 
 // Lazy load non-critical analytics and global components
 const Analytics = lazy(() => import('@vercel/analytics/react').then(mod => ({ default: mod.Analytics })));
@@ -100,18 +101,19 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  // Read at server request time via our runtime helper (bypasses webpack inlining).
+  // Opt into dynamic rendering so process.env is evaluated at request time,
+  // not baked at build time. Critical for Docker images with runtime env vars.
+  await connection();
   const runtimeEnv = getServerPublicEnv();
 
   return (
     <html lang="en" suppressHydrationWarning className={`${roobert.variable} ${roobertMono.variable}`}>
       <head>
-        {/* Inline runtime config — server-renders real env vars into HTML before
-            any JS executes. getServerPublicEnv() reads process.env at request
-            time so pre-built Docker images get correct runtime values. */}
+        {/* Runtime config — evaluated at request time via connection() above.
+            Docker images get correct env vars regardless of build-time defaults. */}
         <script
           dangerouslySetInnerHTML={{
             __html: `window.__KORTIX_RUNTIME_CONFIG=${JSON.stringify(runtimeEnv)};window.__RUNTIME_ENV=window.__KORTIX_RUNTIME_CONFIG;`,

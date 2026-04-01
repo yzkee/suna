@@ -498,6 +498,27 @@ async function injectSandboxToken(sandboxId: string, accountId: string): Promise
   ]);
   if (hasToken && hasUrl) {
     console.log('[startup] Sandbox already has correct KORTIX_TOKEN + KORTIX_API_URL — skipping sync');
+    // Still ensure ONBOARDING_COMPLETE is set for self-hosted mode
+    if (config.SANDBOX_NETWORK) {
+      try {
+        const res = await fetch(`${sandboxBaseUrl}/env/ONBOARDING_COMPLETE`, {
+          headers: { Authorization: `Bearer ${config.INTERNAL_SERVICE_KEY}` },
+          signal: AbortSignal.timeout(3_000),
+        });
+        if (res.ok) {
+          const data = await res.json() as Record<string, string | null>;
+          if (data?.ONBOARDING_COMPLETE !== 'true') {
+            await fetch(`${sandboxBaseUrl}/env/ONBOARDING_COMPLETE`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.INTERNAL_SERVICE_KEY}` },
+              body: JSON.stringify({ value: 'true' }),
+              signal: AbortSignal.timeout(5_000),
+            });
+            console.log('[startup] Set ONBOARDING_COMPLETE=true for self-hosted');
+          }
+        }
+      } catch { /* non-critical */ }
+    }
     return;
   }
 
@@ -511,8 +532,9 @@ async function injectSandboxToken(sandboxId: string, accountId: string): Promise
   const keysToSync: Record<string, string> = {
     KORTIX_TOKEN: token,
     KORTIX_API_URL: kortixApiUrl,
-    TUNNEL_TOKEN: token,
     TUNNEL_API_URL: kortixApiUrl,
+    // Self-hosted: skip onboarding wizard (no setup needed for local Docker)
+    ...(config.SANDBOX_NETWORK ? { ONBOARDING_COMPLETE: 'true' } : {}),
   };
 
   const syncViaEnvApi = async (): Promise<boolean> => {

@@ -15,5 +15,6 @@ export function getServerPublicEnv(): PublicRuntimeEnv {
     BACKEND_URL: read('BACKEND_URL') || process.env.BACKEND_URL,
     ENV_MODE: (read('ENV_MODE') || 'local') as 'local' | 'cloud',
     APP_URL: read('APP_URL') || process.env.PUBLIC_URL,
+    SANDBOX_ID: read('SANDBOX_ID') || undefined,
   })
 }

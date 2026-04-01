@@ -198,11 +198,29 @@ async function authFetch(...args: Parameters<typeof fetch>) {
 
 async function persistEnv(key: string, value: string) {
 	const u = getInstanceUrl();
-	await authFetch(`${u}/env/${key}`, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ value }),
-	}).catch(() => {});
+	// Retry a few times — on fresh login the auth session may still be hydrating
+	// and authFetch returns a synthetic 401 if the token isn't available yet.
+	for (let attempt = 0; attempt < 5; attempt++) {
+		try {
+			const res = await authFetch(`${u}/env/${key}`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ value }),
+			});
+			if (res.ok) return;
+			if (res.status === 401 && attempt < 4) {
+				await new Promise(r => setTimeout(r, 1000));
+				continue;
+			}
+			return;
+		} catch {
+			if (attempt < 4) {
+				await new Promise(r => setTimeout(r, 1000));
+				continue;
+			}
+			return;
+		}
+	}
 }
 
 async function readEnv(key: string): Promise<string | null> {
@@ -507,24 +525,35 @@ export default function DashboardLayoutContent({
 		const params = new URLSearchParams(window.location.search);
 		const wantsSkip = params.has("onboarding-skip");
 		const wantsRedo = params.has("onboarding-redo");
-		if (!wantsSkip && !wantsRedo) { setParamHandled(true); return; }
 
-		const instanceUrl = getActiveOpenCodeUrl();
-		if (!instanceUrl) return; // wait for sandbox URL
+		// Persist skip/redo intent in sessionStorage so it survives auth redirects.
+		// The auth callback strips query params, so we stash the intent before redirect
+		// and check it after login when we land back on the dashboard.
+		if (wantsSkip) sessionStorage.setItem("kortix-onboarding-skip", "1");
+		if (wantsRedo) sessionStorage.setItem("kortix-onboarding-redo", "1");
+
+		const storedSkip = sessionStorage.getItem("kortix-onboarding-skip") === "1";
+		const storedRedo = sessionStorage.getItem("kortix-onboarding-redo") === "1";
+		const shouldSkip = wantsSkip || storedSkip;
+		const shouldRedo = wantsRedo || storedRedo;
+
+		if (!shouldSkip && !shouldRedo) { setParamHandled(true); return; }
 
 		(async () => {
-			if (wantsSkip) {
+			if (shouldSkip) {
 				await persistEnv("ONBOARDING_COMPLETE", "true");
+				sessionStorage.removeItem("kortix-onboarding-skip");
 				// Clean URL and let the normal check pass through
 				const clean = new URL(window.location.href);
 				clean.searchParams.delete("onboarding-skip");
 				window.history.replaceState({}, "", clean.pathname + clean.search);
 				ob.done(); // exit onboarding mode if active
 				setParamHandled(true);
-			} else if (wantsRedo) {
+			} else if (shouldRedo) {
 				await persistEnv("ONBOARDING_COMPLETE", "false");
 				await persistEnv("ONBOARDING_SESSION_ID", "");
 				await persistEnv("ONBOARDING_COMMAND_FIRED", "");
+				sessionStorage.removeItem("kortix-onboarding-redo");
 				const clean = new URL(window.location.href);
 				clean.searchParams.delete("onboarding-redo");
 				window.history.replaceState({}, "", clean.pathname + clean.search);

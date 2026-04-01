@@ -129,7 +129,8 @@ function getBackendUrl(): string {
 }
 
 function getDefaultSandboxUrl(): string {
-  return `${getBackendUrl()}/p/kortix-sandbox/8000`;
+  const sandboxId = getEnv().SANDBOX_ID || 'kortix-sandbox';
+  return `${getBackendUrl()}/p/${sandboxId}/8000`;
 }
 
 function getServersApi(): string {
@@ -663,7 +664,7 @@ export function getInstanceSubdomainOpts(
 ): { sandboxId: string; backendPort: number; apiBaseUrl?: string } | undefined {
   if (isCloudMode()) return undefined;
   return {
-    sandboxId: getActiveSandboxId() ?? 'kortix-sandbox',
+    sandboxId: getActiveSandboxId() ?? getEnv().SANDBOX_ID ?? 'kortix-sandbox',
     backendPort,
     apiBaseUrl: getBackendUrl(),
   };
@@ -686,10 +687,10 @@ export function deriveSubdomainOpts(
   // Cloud providers use their own URL scheme — no subdomain proxy.
   if (server?.provider === 'daytona' || server?.provider === 'justavps') return undefined;
   // For all local/self-hosted modes (local_docker, null server, unknown provider),
-  // always fall back to 'kortix-sandbox' — the Docker container name.
+  // fall back to the configured sandbox ID (from runtime env) or 'kortix-sandbox'.
   // This ensures proxy rewriting NEVER silently degrades to raw localhost URLs
   // just because the store hasn't hydrated the sandboxId yet.
-  const sandboxId = server?.sandboxId || 'kortix-sandbox';
+  const sandboxId = server?.sandboxId || getEnv().SANDBOX_ID || 'kortix-sandbox';
   return {
     sandboxId,
     backendPort: getBackendPort(),

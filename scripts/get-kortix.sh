@@ -637,6 +637,7 @@ generate_secrets() {
   CRON_SECRET=$(generate_password)
   INTERNAL_SERVICE_KEY=$(generate_token)
   API_KEY_SECRET=$(generate_token)
+  TUNNEL_SIGNING_SECRET=$(generate_token)
 
   # Generate Supabase credentials for Docker mode
   if [ "$DB_MODE" = "docker" ]; then
@@ -991,6 +992,7 @@ ${supabase_ports}
       - KORTIX_PUBLIC_BILLING_ENABLED=false
       - KORTIX_PUBLIC_ENV_MODE=local
       - KORTIX_PUBLIC_APP_URL=\${PUBLIC_URL}
+      - KORTIX_PUBLIC_SANDBOX_ID=\${SANDBOX_CONTAINER_NAME}
       - SUPABASE_URL=\${SUPABASE_PUBLIC_URL}
       - SUPABASE_SERVER_URL=http://supabase-kong:8000
       - SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
@@ -1008,6 +1010,7 @@ ${supabase_ports}
       - KORTIX_PUBLIC_BILLING_ENABLED=false
       - KORTIX_PUBLIC_ENV_MODE=local
       - KORTIX_PUBLIC_APP_URL=\${PUBLIC_URL}
+      - KORTIX_PUBLIC_SANDBOX_ID=\${SANDBOX_CONTAINER_NAME}
       - SUPABASE_URL=\${SUPABASE_URL}
       - SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
       - BACKEND_URL=\${API_PUBLIC_URL}/v1"
@@ -1052,6 +1055,7 @@ ${supabase_db_env}
       - CORS_ALLOWED_ORIGINS=\${PUBLIC_URL}
       - SANDBOX_IMAGE=\${SANDBOX_IMAGE}
       - SANDBOX_VERSION=\${KORTIX_VERSION}
+      - TUNNEL_SIGNING_SECRET=\${TUNNEL_SIGNING_SECRET}
       - KORTIX_ROUTER_INTERNAL_ENABLED=false
       - KORTIX_BILLING_INTERNAL_ENABLED=false
     env_file:
@@ -1100,6 +1104,7 @@ POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 # ─── Security ────────────────────────────────────────────────────────────────
 INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY}
 API_KEY_SECRET=${API_KEY_SECRET}
+TUNNEL_SIGNING_SECRET=${TUNNEL_SIGNING_SECRET}
 
 # ─── Integrations (Pipedream) ────────────────────────────────────────────────
 INTEGRATION_AUTH_PROVIDER=${INTEGRATION_AUTH_PROVIDER}
@@ -1344,6 +1349,13 @@ case "${1:-help}" in
     [ "$(_mode)" = "local" ] && _free_kortix_ports
     _sync_supabase_passwords
     docker compose up -d || true
+    # Also restart the sandbox container if it exists but is stopped
+    if docker ps -a --format '{{.Names}}' | grep -q "^${SANDBOX_NAME}$"; then
+      if ! docker ps --format '{{.Names}}' | grep -q "^${SANDBOX_NAME}$"; then
+        _info "Restarting sandbox container..."
+        docker start "$SANDBOX_NAME" 2>/dev/null || true
+      fi
+    fi
     echo ""
     _ok "Kortix is running!"
     printf "  ${W}Dashboard${N}:  ${C}$(_url)${N}\n\n"
@@ -1615,9 +1627,6 @@ main() {
     docker volume rm kortix_supabase-db-data 2>/dev/null || true
     docker volume rm supabase_db_kortix-local 2>/dev/null || true
     docker volume rm "${SANDBOX_CONTAINER_NAME}-data" 2>/dev/null || true
-    # Clean up legacy name if migrating from older install
-    docker rm -f kortix-sandbox 2>/dev/null || true
-    docker volume rm kortix-sandbox-data 2>/dev/null || true
     echo ""
   fi
 
