@@ -577,7 +577,24 @@ pipedreamRouter.post('/connector-sync', async (c) => {
 
     // Only write if the file doesn't exist — don't overwrite user edits
     if (!existsSync(file)) {
-      writeFileSync(file, `---\nname: ${name}\ndescription: "${app_name || app} — connected via Pipedream"\nsource: pipedream\n---\n`, 'utf8')
+      const content = [
+        '---',
+        `name: ${name}`,
+        `description: "${app_name || app}"`,
+        `source: pipedream`,
+        `pipedream_slug: ${app}`,
+        `auto_generated: true`,
+        '---',
+        `Connected via Pipedream OAuth. Use proxyFetch or the integration script to interact:`,
+        '',
+        '```bash',
+        `SCRIPT=$(find /opt/opencode ~/.opencode /workspace /ephemeral -name "integration.ts" 2>/dev/null | head -1)`,
+        `bun run "$SCRIPT" request '{"app":"${app}","method":"GET","url":"..."}'`,
+        `bun run "$SCRIPT" exec '{"app":"${app}","code":"const r = await proxyFetch(\\"...\\"); return await r.json();"}'`,
+        '```',
+        '',
+      ].join('\n')
+      writeFileSync(file, content, 'utf8')
       console.log(`[Pipedream] Auto-scaffolded connector: ${name}`)
     } else {
       console.log(`[Pipedream] Connector already exists: ${name}`)
