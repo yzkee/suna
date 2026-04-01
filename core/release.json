@@ -2,11 +2,11 @@
   "version": "0.8.23",
   "channel": "stable",
   "images": {
-    "sandbox": "kortix/computer:0.8.23",
-    "api": "kortix/kortix-api:0.8.23",
-    "frontend": "kortix/kortix-frontend:0.8.23"
+    "sandbox": "kortix/computer:0.8.24",
+    "api": "kortix/kortix-api:0.8.24",
+    "frontend": "kortix/kortix-frontend:0.8.24"
   },
   "snapshots": {
-    "daytona": "kortix-sandbox-v0.8.23"
+    "daytona": "kortix-sandbox-v0.8.24"
   }
 }
