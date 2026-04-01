@@ -57,10 +57,15 @@ SCRIPT=$(find /opt/opencode ~/.opencode /workspace /ephemeral -name "integration
 bun run "$SCRIPT" list
 ```
 
-**If the service appears in the list → it's connected. Use it immediately:**
+**If the service appears in the list → it's connected. Use it immediately.** Also ensure a connector file exists — if not, create one:
 
 ```bash
 bun run "$SCRIPT" request '{"app":"google_drive","method":"GET","url":"https://www.googleapis.com/drive/v3/files?pageSize=10"}'
+```
+
+```
+# Create the connector file if it doesn't exist yet
+connector_setup(connectors='[{"name":"google-drive","description":"connected via Pipedream","source":"pipedream"}]')
 ```
 
 **If the service is NOT in the list → connect it NOW and show the link:**
