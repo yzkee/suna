@@ -18,9 +18,10 @@ accountStateRouter.get('/', async (c) => {
       state.credits.can_run = true;
     }
     return c.json(state);
-  } catch {
+  } catch (err) {
     // DB schema may not have billing tables (e.g. local dev without kortix schema).
     // Fall back to local account state so the app isn't blocked.
+    console.error('[billing] account-state failed, falling back to local:', (err as Error)?.message || err);
     return c.json(buildLocalAccountState());
   }
 });
@@ -36,7 +37,8 @@ accountStateRouter.get('/minimal', async (c) => {
       state.credits.can_run = true;
     }
     return c.json(state);
-  } catch {
+  } catch (err) {
+    console.error('[billing] minimal account-state failed, falling back to local:', (err as Error)?.message || err);
     return c.json(buildLocalAccountState());
   }
 });
