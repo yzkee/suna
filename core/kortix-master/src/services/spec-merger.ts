@@ -370,10 +370,11 @@ export async function buildMergedSpec(
   }
 
   // ── x-tagGroups for Scalar sidebar grouping ───────────────────────────
-  const gwTagNames = GATEWAY_TAGS.filter(t => merged.tags.some(mt => mt.name === t.name)).map(t => t.name)
-  const ocTagNames = OPENCODE_TAGS.filter(t => merged.tags.some(mt => mt.name === t.name)).map(t => t.name)
+  const mergedTags = merged.tags || []
+  const gwTagNames = GATEWAY_TAGS.filter(t => mergedTags.some(mt => mt.name === t.name)).map(t => t.name)
+  const ocTagNames = OPENCODE_TAGS.filter(t => mergedTags.some(mt => mt.name === t.name)).map(t => t.name)
   // Catch any extra tags not in either list
-  const extraTagNames = merged.tags
+  const extraTagNames = mergedTags
     .filter(t => !gwTagNames.includes(t.name) && !ocTagNames.includes(t.name))
     .map(t => t.name)
   if (extraTagNames.length > 0) {

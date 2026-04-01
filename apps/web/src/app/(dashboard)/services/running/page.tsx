@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import { useTabStore } from '@/stores/tab-store';
 
 /**
- * /services/running — Running Services tab
+ * /services/running — Service Manager tab
  *
  * Handles direct navigation (hard reload, shared link, bookmarked URL).
  * Opens or activates the services:running tab so the pre-mounted
@@ -27,7 +27,7 @@ export default function RunningServicesPage() {
     } else {
       openTab({
         id: tabId,
-        title: 'Running Services',
+        title: 'Service Manager',
         type: 'services',
         href: '/services/running',
       });

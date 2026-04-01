@@ -5,6 +5,9 @@
 # OPENAI_API_KEY is optional. If not set, lss-sync is skipped entirely.
 # auth-sync (kortix-master) writes the key to s6 env at boot.
 
+source /ephemeral/services/service-manager-gate.sh
+service_manager_require_enabled "lss-sync" "lss-sync"
+
 # Quick check — don't block startup with a long wait loop
 if [ -f /run/s6/container_environment/OPENAI_API_KEY ]; then
     OPENAI_API_KEY="$(cat /run/s6/container_environment/OPENAI_API_KEY)"

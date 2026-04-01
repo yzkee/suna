@@ -4,6 +4,9 @@
 # slot via sleep (no crash-loop). After OAuth, kortix-api pushes credentials
 # as s6 env vars and restarts this service via: s6-svc -r /run/service/svc-opencode-channels
 
+source /ephemeral/services/service-manager-gate.sh
+service_manager_require_enabled "opencode-channels" "opencode-channels"
+
 echo "[opencode-channels] Starting on port 3456"
 
 # ── Quick pre-check: are any channel adapters configured? ────────────────────
