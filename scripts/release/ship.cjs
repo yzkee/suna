@@ -131,7 +131,7 @@ ok(`Changelog: "${entry.title}"`)
 
 let releaseExists = false
 try {
-  run(`gh release view "v${version}" --repo kortix-ai/computer`)
+  run(`gh release view "v${version}" --repo kortix-ai/suna`)
   releaseExists = true
   warn(`GitHub release v${version} already exists — reusing`)
 } catch (e) {
@@ -206,7 +206,7 @@ fs.writeFileSync(notesFile, releaseNotes)
 
 if (!releaseExists) {
   run(`gh release create "v${version}" \
-    --repo kortix-ai/computer \
+    --repo kortix-ai/suna \
     --title "v${version} — ${entry.title}" \
     --notes-file "${notesFile}" \
     --latest`)
