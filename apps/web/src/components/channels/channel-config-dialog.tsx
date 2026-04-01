@@ -31,6 +31,7 @@ import { useSandbox } from '@/hooks/platform/use-sandbox';
 import { useServerStore } from '@/stores/server-store';
 import { ensureSandbox } from '@/lib/platform-client';
 import { toast } from 'sonner';
+import { DEFAULT_CHANNEL_AGENT, buildDefaultChannelInstructions } from './channel-defaults';
 
 interface ChannelConfigDialogProps {
   open: boolean;
@@ -108,6 +109,9 @@ export function ChannelConfigDialog({ open, onOpenChange, onCreated }: ChannelCo
         sandbox_id: sandboxId,
         channel_type: channelType,
         name,
+        agent_name: DEFAULT_CHANNEL_AGENT,
+        instructions: buildDefaultChannelInstructions(channelType, name),
+        metadata: {},
       });
       toast.success('Channel created successfully');
       handleClose();

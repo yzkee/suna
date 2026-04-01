@@ -36,7 +36,7 @@ export function createServer(
     Promise.resolve(input).then((bot) => {
       legacyBotCache = bot;
     }).catch((err) => {
-      console.error('[opencode-channels] Bot initialization failed:', err);
+      console.error('[kortix-channels] Bot initialization failed:', err);
     });
   }
 
@@ -56,7 +56,7 @@ export function createServer(
   app.get('/health', (c) =>
     c.json({
       ok: true,
-      service: 'opencode-channels',
+      service: 'kortix-channels',
       adapters: getAdapterNames(),
       activeSessions: getActiveSessions(),
     }),
@@ -85,15 +85,12 @@ export function createServer(
     }
     try {
       const body = await c.req.json() as ReloadRequest;
-      if (!body?.credentials) {
-        return c.json({ error: 'Missing credentials in request body' }, 400);
-      }
       const result = await input.reload(body.credentials);
       return c.json(result);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       const errStack = err instanceof Error ? err.stack : undefined;
-      console.error('[opencode-channels] Reload failed:', errMsg);
+      console.error('[kortix-channels] Reload failed:', errMsg);
       if (errStack) console.error(errStack);
       return c.json({
         error: 'Reload failed',
@@ -191,7 +188,7 @@ export function createServer(
   const waitUntilOpts = {
     waitUntil: (task: Promise<unknown>) => {
       task.catch((err: unknown) => {
-        console.error('[opencode-channels] Background task failed:', err);
+        console.error('[kortix-channels] Background task failed:', err);
       });
     },
   };
@@ -226,22 +223,23 @@ export function createServer(
 
   // Use Bun.serve when available (keeps event loop alive), fall back to @hono/node-server
   let stopFn: () => void;
-  if (typeof Bun !== 'undefined' && Bun.serve) {
-    const bunServer = Bun.serve({ port, hostname: host, fetch: app.fetch });
-    console.log(`[opencode-channels] Server listening on ${host}:${bunServer.port}`);
-    stopFn = () => { bunServer.stop(true); console.log('[opencode-channels] Server stopped'); };
+  const BunRef = (globalThis as { Bun?: { serve?: (opts: { port: number; hostname: string; fetch: typeof app.fetch }) => { port: number; stop: (close?: boolean) => void } } }).Bun;
+  if (BunRef?.serve) {
+    const bunServer = BunRef.serve({ port, hostname: host, fetch: app.fetch });
+    console.log(`[kortix-channels] Server listening on ${host}:${bunServer.port}`);
+    stopFn = () => { bunServer.stop(true); console.log('[kortix-channels] Server stopped'); };
   } else {
     const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
-      console.log(`[opencode-channels] Server listening on ${host}:${info.port}`);
+      console.log(`[kortix-channels] Server listening on ${host}:${info.port}`);
     });
     server.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
-        console.error(`[opencode-channels] Port ${port} already in use`);
+        console.error(`[kortix-channels] Port ${port} already in use`);
         process.exit(1);
       }
       throw err;
     });
-    stopFn = () => { server.close(); console.log('[opencode-channels] Server stopped'); };
+    stopFn = () => { server.close(); console.log('[kortix-channels] Server stopped'); };
   }
 
   return { app, stop: stopFn };

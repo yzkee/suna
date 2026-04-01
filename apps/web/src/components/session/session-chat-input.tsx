@@ -162,7 +162,7 @@ export function flattenModels(providers: ProviderListResponse | undefined): Flat
 // Agent Selector
 // ============================================================================
 
-function AgentSelector({
+export function AgentSelector({
   agents,
   selectedAgent,
   onSelect,

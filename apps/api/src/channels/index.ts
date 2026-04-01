@@ -3,7 +3,7 @@
  *
  * CRUD for channel configurations (Slack, Discord, Telegram, etc.).
  * Each channel config records which platform is connected, which sandbox
- * it's linked to, and lightweight metadata (name, session strategy, etc.).
+ * it's linked to, and lightweight metadata (name, instructions, selected agent/model, etc.).
  *
  * Credentials are NOT stored here — they live in the sandbox's SecretStore
  * (pushed as env vars). The actual bot runtime is `opencode-channels`
@@ -24,6 +24,7 @@
 import { Hono } from 'hono';
 import { sql } from 'drizzle-orm';
 import { db } from '../shared/db';
+import { resolveAccountId } from '../shared/resolve-account';
 import { slackWizardApp } from './slack-wizard';
 
 export const channelsApp = new Hono();
@@ -43,8 +44,7 @@ const CHANNEL_SELECT = sql`
     cc.name,
     cc.enabled,
     cc.platform_config     AS "platformConfig",
-    cc.session_strategy    AS "sessionStrategy",
-    cc.system_prompt       AS "systemPrompt",
+    cc.system_prompt       AS "instructions",
     cc.agent_name          AS "agentName",
     cc.metadata,
     cc.created_at          AS "createdAt",
@@ -64,8 +64,7 @@ function formatRow(r: any) {
     name: r.name,
     enabled: r.enabled,
     platformConfig: r.platformConfig ?? {},
-    sessionStrategy: r.sessionStrategy,
-    systemPrompt: r.systemPrompt ?? null,
+    instructions: r.instructions ?? null,
     agentName: r.agentName ?? null,
     metadata: r.metadata ?? {},
     createdAt: r.createdAt,
@@ -75,6 +74,34 @@ function formatRow(r: any) {
       : {}),
   };
 }
+
+async function resolveChannelAccount(c: any): Promise<string> {
+  const direct = c.get('accountId') as string | undefined;
+  if (direct) return direct;
+  const userId = c.get('userId') as string | undefined;
+  if (userId) return resolveAccountId(userId);
+  throw new Error('Unable to determine account');
+}
+
+// ─── GET /internal/config/:id ───────────────────────────────────────────────
+// Sandbox/channels runtime lookup. Authenticated via sandbox api key / KORTIX_TOKEN.
+
+channelsApp.get('/internal/config/:id', async (c: any) => {
+  const id = c.req.param('id');
+  try {
+    const accountId = await resolveChannelAccount(c);
+    const rows = await db.execute(sql`
+      ${CHANNEL_SELECT}
+      WHERE cc.channel_config_id = ${id} AND cc.account_id = ${accountId}
+      LIMIT 1
+    `);
+    if (!rows.length) return c.json({ success: false, error: 'Channel not found' }, 404);
+    return c.json({ success: true, data: formatRow(rows[0]) });
+  } catch (err) {
+    console.error('[channels] GET /internal/config/:id error:', err);
+    return c.json({ success: false, error: 'Failed to fetch channel config' }, 500);
+  }
+});
 
 // ─── GET / ────────────────────────────────────────────────────────────────────
 
@@ -110,8 +137,7 @@ channelsApp.post('/', async (c: any) => {
       name,
       enabled = true,
       platform_config = {},
-      session_strategy = 'per-thread',
-      system_prompt = null,
+      instructions = null,
       agent_name = null,
       metadata = {},
     } = body;
@@ -122,12 +148,12 @@ channelsApp.post('/', async (c: any) => {
 
     const rows = await db.execute(sql`
       INSERT INTO kortix.channel_configs
-        (account_id, sandbox_id, channel_type, name, enabled, platform_config,
-         session_strategy, system_prompt, agent_name, metadata)
+         (account_id, sandbox_id, channel_type, name, enabled, platform_config,
+          system_prompt, agent_name, metadata)
       VALUES
         (${accountId}, ${sandbox_id}, ${channel_type}::kortix.channel_type, ${name}, ${enabled},
-         ${JSON.stringify(platform_config)}::jsonb, ${session_strategy}::kortix.session_strategy,
-         ${system_prompt}, ${agent_name}, ${JSON.stringify(metadata)}::jsonb)
+         ${JSON.stringify(platform_config)}::jsonb,
+         ${instructions}, ${agent_name}, ${JSON.stringify(metadata)}::jsonb)
       RETURNING
         channel_config_id AS "channelConfigId",
         account_id AS "accountId",
@@ -135,8 +161,7 @@ channelsApp.post('/', async (c: any) => {
         channel_type AS "channelType",
         name, enabled,
         platform_config AS "platformConfig",
-        session_strategy AS "sessionStrategy",
-        system_prompt AS "systemPrompt",
+        system_prompt AS "instructions",
         agent_name AS "agentName",
         metadata,
         created_at AS "createdAt",
@@ -189,10 +214,8 @@ channelsApp.patch('/:id', async (c: any) => {
     if (body.enabled !== undefined) setClauses.push(sql`enabled = ${body.enabled}`);
     if (body.platform_config !== undefined)
       setClauses.push(sql`platform_config = ${JSON.stringify(body.platform_config)}::jsonb`);
-    if (body.session_strategy !== undefined)
-      setClauses.push(sql`session_strategy = ${body.session_strategy}::kortix.session_strategy`);
-    if (body.system_prompt !== undefined)
-      setClauses.push(sql`system_prompt = ${body.system_prompt}`);
+    if (body.instructions !== undefined)
+      setClauses.push(sql`system_prompt = ${body.instructions}`);
     if (body.agent_name !== undefined) setClauses.push(sql`agent_name = ${body.agent_name}`);
     if (body.metadata !== undefined)
       setClauses.push(sql`metadata = ${JSON.stringify(body.metadata)}::jsonb`);
@@ -211,8 +234,7 @@ channelsApp.patch('/:id', async (c: any) => {
         channel_type AS "channelType",
         name, enabled,
         platform_config AS "platformConfig",
-        session_strategy AS "sessionStrategy",
-        system_prompt AS "systemPrompt",
+        system_prompt AS "instructions",
         agent_name AS "agentName",
         metadata, created_at AS "createdAt", updated_at AS "updatedAt"
     `);

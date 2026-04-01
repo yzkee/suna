@@ -70,7 +70,7 @@ function fail(error: string, platform?: string): never {
 
 function printHelp(): void {
   console.log(`
-channels-send — Outbound messaging CLI for Kortix Channels
+kortix-channels-send — Outbound messaging CLI for Kortix Channels
 
 USAGE:
   bun run cli.ts <command> [options]
@@ -229,7 +229,7 @@ async function checkHealth(): Promise<void> {
   try {
     const res = await fetch(`${channelsUrl}/health`, { signal: AbortSignal.timeout(5_000) });
     const data = await res.json() as { ok: boolean; adapters?: string[] };
-    success({ service: 'opencode-channels', url: channelsUrl, ...data });
+    success({ service: 'kortix-channels', url: channelsUrl, ...data });
   } catch (err) {
     fail(`channels service unreachable at ${channelsUrl}: ${err instanceof Error ? err.message : String(err)}`);
   }

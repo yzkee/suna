@@ -9,7 +9,6 @@ export {
   useUnlinkChannel,
   type ChannelConfig,
   type ChannelType,
-  type SessionStrategy,
   type CreateChannelData,
   type UpdateChannelData,
 } from './use-channels';

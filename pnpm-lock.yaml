@@ -1192,16 +1192,16 @@ importers:
   core/kortix-master:
     dependencies:
       '@chat-adapter/discord':
-        specifier: ^4.20.2
-        version: 4.20.2
+        specifier: ^4.23.0
+        version: 4.23.0
       '@chat-adapter/slack':
-        specifier: ^4.20.2
-        version: 4.20.2
+        specifier: ^4.23.0
+        version: 4.23.0
       '@chat-adapter/state-memory':
-        specifier: ^4.20.2
-        version: 4.20.2
+        specifier: ^4.23.0
+        version: 4.23.0
       '@chat-adapter/telegram':
-        specifier: ^4.20.2
+        specifier: ^4.23.0
         version: 4.23.0
       '@hono/node-server':
         specifier: ^1.13.0
@@ -1234,8 +1234,8 @@ importers:
         specifier: ^0.4.8
         version: 0.4.8
       chat:
-        specifier: ^4.20.2
-        version: 4.20.2
+        specifier: ^4.23.0
+        version: 4.23.0
       croner:
         specifier: ^8.1.2
         version: 8.1.2
@@ -1312,36 +1312,11 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  packages/opencode-channels:
+  packages/kortix-opencode:
     dependencies:
-      '@chat-adapter/discord':
-        specifier: ^4.15.0
-        version: 4.20.2
-      '@chat-adapter/slack':
-        specifier: ^4.14.0
-        version: 4.20.2
-      '@chat-adapter/state-memory':
-        specifier: ^4.14.0
-        version: 4.20.2
-      '@hono/node-server':
-        specifier: ^1.13.0
-        version: 1.19.10(hono@4.12.3)
-      chat:
-        specifier: ^4.14.0
-        version: 4.20.2
-      hono:
-        specifier: ^4.12.0
-        version: 4.12.3
-    devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.13
-      tsx:
-        specifier: ^4.19.0
-        version: 4.21.0
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
+      '@opencode-ai/plugin':
+        specifier: 1.2.25
+        version: 1.2.25
 
   packages/shared:
     devDependencies:
@@ -3067,11 +3042,11 @@ packages:
       '@calcom/embed-core': 1.5.3
     dev: false
 
-  /@chat-adapter/discord@4.20.2:
-    resolution: {integrity: sha512-hA9kKLpfyxmJdgIpldFy64aPc6/3iPQySW/GtfDfDTuUVsAYm9lw5UlW90RNciwLgIL9sqqZLsQ4wJmM4PeJfQ==}
+  /@chat-adapter/discord@4.23.0:
+    resolution: {integrity: sha512-rxK652CEoG1J8R26H3xcisiGVmSnUEXWIm5eEcQxjHRyiEClFi4T1KeS6ekYhZmzPBuU6wkOwiToqcTs/2C3hg==}
     dependencies:
-      '@chat-adapter/shared': 4.20.2
-      chat: 4.20.2
+      '@chat-adapter/shared': 4.23.0
+      chat: 4.23.0
       discord-api-types: 0.37.120
       discord-interactions: 4.4.0
       discord.js: 14.25.1
@@ -3079,14 +3054,6 @@ packages:
       - bufferutil
       - supports-color
       - utf-8-validate
-    dev: false
-
-  /@chat-adapter/shared@4.20.2:
-    resolution: {integrity: sha512-cTtTVHgH/2l9/+ILSExCr/kZwzz2Y8tp7WKRweMRWFOBcXZ0U5ZtviZCCDWBqU/YOBilQUgON8vIP9eo1w0m5w==}
-    dependencies:
-      chat: 4.20.2
-    transitivePeerDependencies:
-      - supports-color
     dev: false
 
   /@chat-adapter/shared@4.23.0:
@@ -3097,21 +3064,21 @@ packages:
       - supports-color
     dev: false
 
-  /@chat-adapter/slack@4.20.2:
-    resolution: {integrity: sha512-DCGMdB5sLG7lJ8TTv6zHUC3GQXfW3zWXLv+w5sRc+Km0Rq4tG43vLMmcCAd3AEj2Bjhl0bnWjhkTwR7txlu7TQ==}
+  /@chat-adapter/slack@4.23.0:
+    resolution: {integrity: sha512-J5Ml/Ug8Zdb3zVIcbMhkei9U9aTeY+uqpzuuzcHkwdJC6FDFhwj5TSiuocckctqW9tMCqzFl4h4gU5q9f6KSGA==}
     dependencies:
-      '@chat-adapter/shared': 4.20.2
+      '@chat-adapter/shared': 4.23.0
       '@slack/web-api': 7.14.1
-      chat: 4.20.2
+      chat: 4.23.0
     transitivePeerDependencies:
       - debug
       - supports-color
     dev: false
 
-  /@chat-adapter/state-memory@4.20.2:
-    resolution: {integrity: sha512-4388hp9Wsp87jMgSpkPfN4abflgIgQn5M3MLSDYdU4f20PNKrUkzhb8elkyPmYliF4MInZUau+llc26b7hZsng==}
+  /@chat-adapter/state-memory@4.23.0:
+    resolution: {integrity: sha512-IlAVV4MGpjdassiI4haNAzWdFl66xFAfqM5DnWAGZdndkQj0LNMigcxhOgyS++yQUUWWvT1yRKwCswenCvxWVw==}
     dependencies:
-      chat: 4.20.2
+      chat: 4.23.0
     transitivePeerDependencies:
       - supports-color
     dev: false
@@ -6508,6 +6475,13 @@ packages:
       jose: 5.9.6
     dev: false
 
+  /@opencode-ai/plugin@1.2.25:
+    resolution: {integrity: sha512-IQnjkcN7cvI/zoiDNx1d2qnGzn5BR/Bu95Kq05/vdd8oX4ARgYkqfaJgKkNSpjUVoNBKHTd8m9q1TtzuKlyGUg==}
+    dependencies:
+      '@opencode-ai/sdk': 1.2.25
+      zod: 4.1.8
+    dev: false
+
   /@opencode-ai/plugin@1.3.7:
     resolution: {integrity: sha512-pVBIcYtHiniQ93Gj/KRkhrIz1oIAwGRifb7+dfGWdHRy00gr9DyEHFYmgHcBYgfrBavZrWw2xmqEDJdjdBuC7g==}
     peerDependencies:
@@ -6521,6 +6495,10 @@ packages:
     dependencies:
       '@opencode-ai/sdk': 1.3.7
       zod: 4.1.8
+    dev: false
+
+  /@opencode-ai/sdk@1.2.25:
+    resolution: {integrity: sha512-ikuGWob48OM7LTgfXFqGOZKVOqh50FEjvtIBhXGhGowJhifmjZ+xuq/ypP8nPjTwUX73pbu1C3X9ZBWVkCN9mA==}
     dev: false
 
   /@opencode-ai/sdk@1.2.27:
@@ -17518,20 +17496,6 @@ packages:
     engines: {pnpm: '>=8'}
     dependencies:
       '@kurkle/color': 0.3.4
-    dev: false
-
-  /chat@4.20.2:
-    resolution: {integrity: sha512-iTyMjE3ZRnubw1t4HgSyhU+sOG5coIBYxNS4DZbBmjQCJ9DnArmiejtG3cMigb11E2OlilZ97oKuRGigIOPh4g==}
-    dependencies:
-      '@workflow/serde': 4.1.0-beta.2
-      mdast-util-to-string: 4.0.0
-      remark-gfm: 4.0.1
-      remark-parse: 11.0.0
-      remark-stringify: 11.0.0
-      remend: 1.2.1
-      unified: 11.0.5
-    transitivePeerDependencies:
-      - supports-color
     dev: false
 
   /chat@4.23.0:

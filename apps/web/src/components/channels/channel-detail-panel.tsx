@@ -33,6 +33,11 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { listSandboxes, type SandboxInfo } from '@/lib/platform-client';
+import { useOpenCodeAgents, useOpenCodeProviders } from '@/hooks/opencode/use-opencode-sessions';
+import { AgentSelector, flattenModels } from '@/components/session/session-chat-input';
+import { ModelSelector } from '@/components/session/model-selector';
+import { authenticatedFetch } from '@/lib/auth-token';
+import { getActiveOpenCodeUrl } from '@/stores/server-store';
 import { SlackIcon } from '@/components/ui/icons/slack';
 import { TelegramIcon } from '@/components/ui/icons/telegram';
 import { DiscordIcon } from '@/components/ui/icons/discord';
@@ -69,6 +74,13 @@ interface ChannelEditDialogProps {
 
 export function ChannelEditDialog({ channel, open, onOpenChange }: ChannelEditDialogProps) {
   const [name, setName] = useState(channel.name);
+  const [agentName, setAgentName] = useState(channel.agentName || '');
+  const [instructions, setInstructions] = useState(channel.instructions || '');
+  const [modelKey, setModelKey] = useState(() => {
+    const providerID = typeof channel.metadata?.modelProviderID === 'string' ? channel.metadata.modelProviderID : '';
+    const modelID = typeof channel.metadata?.modelID === 'string' ? channel.metadata.modelID : '';
+    return providerID && modelID ? `${providerID}:${modelID}` : '';
+  });
   const [isDirty, setIsDirty] = useState(false);
 
   const [instances, setInstances] = useState<SandboxInfo[]>([]);
@@ -79,18 +91,51 @@ export function ChannelEditDialog({ channel, open, onOpenChange }: ChannelEditDi
   const linkMutation = useLinkChannel();
   const unlinkMutation = useUnlinkChannel();
 
+  const { data: agents = [] } = useOpenCodeAgents();
+  const { data: providers } = useOpenCodeProviders();
+  const models = React.useMemo(() => flattenModels(providers), [providers]);
+
   // Sync state when channel prop changes
   React.useEffect(() => {
     setName(channel.name);
+    setAgentName(channel.agentName || '');
+    setInstructions(channel.instructions || '');
+    const providerID = typeof channel.metadata?.modelProviderID === 'string' ? channel.metadata.modelProviderID : '';
+    const modelID = typeof channel.metadata?.modelID === 'string' ? channel.metadata.modelID : '';
+    setModelKey(providerID && modelID ? `${providerID}:${modelID}` : '');
     setIsDirty(false);
-  }, [channel.channelConfigId, channel.name]);
+  }, [channel.channelConfigId, channel.name, channel.agentName, channel.instructions, channel.metadata]);
 
   const handleSave = async () => {
     try {
       await updateMutation.mutateAsync({
         id: channel.channelConfigId,
-        data: { name },
+        data: {
+          name,
+          agent_name: agentName.trim() || null,
+          instructions: instructions.trim() || null,
+          metadata: {
+            ...channel.metadata,
+            ...(modelKey
+              ? {
+                  modelProviderID: modelKey.split(':')[0],
+                  modelID: modelKey.split(':').slice(1).join(':'),
+                }
+              : {
+                  modelProviderID: null,
+                  modelID: null,
+                }),
+          },
+        },
       });
+      const baseUrl = getActiveOpenCodeUrl();
+      if (baseUrl) {
+        await authenticatedFetch(`${baseUrl}/channels/reload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        }).catch(() => {});
+      }
       toast.success('Channel updated');
       setIsDirty(false);
     } catch (err) {
@@ -144,7 +189,7 @@ export function ChannelEditDialog({ channel, open, onOpenChange }: ChannelEditDi
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg gap-0 p-0 overflow-hidden">
+      <DialogContent className="sm:max-w-lg gap-0 p-0 overflow-visible">
         <div className="bg-muted/30 border-b px-6 pt-6 pb-4">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
@@ -182,6 +227,46 @@ export function ChannelEditDialog({ channel, open, onOpenChange }: ChannelEditDi
                 value={name}
                 onChange={(e) => { setName(e.target.value); setIsDirty(true); }}
                 className="h-9 rounded-xl focus:ring-2 focus:ring-primary/50"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Agent</Label>
+              <div className="rounded-xl border bg-card px-2 py-1">
+                <AgentSelector
+                  agents={agents}
+                  selectedAgent={agentName || null}
+                  onSelect={(next) => { setAgentName(next || ''); setIsDirty(true); }}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Model</Label>
+              <div className="rounded-xl border bg-card px-2 py-1">
+                <ModelSelector
+                  models={models}
+                  selectedModel={modelKey ? {
+                    providerID: modelKey.split(':')[0],
+                    modelID: modelKey.split(':').slice(1).join(':'),
+                  } : null}
+                  onSelect={(next) => {
+                    setModelKey(next ? `${next.providerID}:${next.modelID}` : '');
+                    setIsDirty(true);
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-instructions" className="text-xs">Instructions</Label>
+              <textarea
+                id="edit-instructions"
+                value={instructions}
+                onChange={(e) => { setInstructions(e.target.value); setIsDirty(true); }}
+                rows={5}
+                className="flex w-full rounded-xl border bg-card px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/50"
+                placeholder="Optional bot instructions for this channel"
               />
             </div>
 

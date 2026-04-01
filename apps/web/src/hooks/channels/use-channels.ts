@@ -13,8 +13,6 @@ export type ChannelType =
   | 'email'
   | 'sms';
 
-export type SessionStrategy = 'single' | 'per-thread' | 'per-user' | 'per-message';
-
 export interface ChannelConfig {
   channelConfigId: string;
   sandboxId: string | null;
@@ -23,8 +21,7 @@ export interface ChannelConfig {
   name: string;
   enabled: boolean;
   platformConfig: Record<string, unknown>;
-  sessionStrategy: SessionStrategy;
-  systemPrompt: string | null;
+  instructions: string | null;
   agentName: string | null;
   metadata: Record<string, unknown>;
   createdAt: string;
@@ -38,8 +35,7 @@ export interface CreateChannelData {
   name: string;
   enabled?: boolean;
   platform_config?: Record<string, unknown>;
-  session_strategy?: SessionStrategy;
-  system_prompt?: string | null;
+  instructions?: string | null;
   agent_name?: string | null;
   metadata?: Record<string, unknown>;
 }
@@ -49,8 +45,7 @@ export interface UpdateChannelData {
   name?: string;
   enabled?: boolean;
   platform_config?: Record<string, unknown>;
-  session_strategy?: SessionStrategy;
-  system_prompt?: string | null;
+  instructions?: string | null;
   agent_name?: string | null;
   metadata?: Record<string, unknown>;
 }

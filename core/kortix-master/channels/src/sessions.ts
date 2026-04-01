@@ -1,7 +1,5 @@
 import { OpenCodeClient } from './opencode.js';
 
-export type SessionStrategy = 'per-thread' | 'per-message';
-
 interface SessionEntry {
   opencodeSessionId: string;
   lastUsedAt: number;
@@ -37,22 +35,15 @@ export interface ChannelSessionContext {
 
 export class SessionManager {
   private readonly cache = new Map<string, SessionEntry>();
-  private strategy: SessionStrategy;
   private agentName?: string;
   private persistConfig?: ChannelSessionPersistConfig;
 
   constructor(
-    strategy: SessionStrategy = 'per-thread',
     agentName?: string,
     persistConfig?: ChannelSessionPersistConfig,
   ) {
-    this.strategy = strategy;
     this.agentName = agentName;
     this.persistConfig = persistConfig;
-  }
-
-  setStrategy(strategy: SessionStrategy): void {
-    this.strategy = strategy;
   }
 
   setAgent(agentName: string | undefined): void {
@@ -82,13 +73,6 @@ export class SessionManager {
   }
 
   async resolve(threadId: string, client: OpenCodeClient): Promise<string> {
-    if (this.strategy === 'per-message') {
-      const sessionId = await client.createSession(this.agentName);
-      // per-message: each call gets a fresh session, still persist for tracking
-      void this.persistSession(threadId, sessionId);
-      return sessionId;
-    }
-
     const existing = this.cache.get(threadId);
     if (existing) {
       existing.lastUsedAt = Date.now();
@@ -140,7 +124,7 @@ export class SessionManager {
         body: JSON.stringify({
           strategy_key: strategyKey,
           session_id: sessionId,
-          metadata: { strategy: this.strategy },
+          metadata: {},
         }),
         signal: AbortSignal.timeout(8_000),
       });

@@ -112,7 +112,12 @@ export class OpenCodeClient {
 
   constructor(config: OpenCodeClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
-    this.headers = { 'Content-Type': 'application/json', ...config.headers };
+    const internalServiceKey = process.env.INTERNAL_SERVICE_KEY;
+    this.headers = {
+      'Content-Type': 'application/json',
+      ...(internalServiceKey ? { Authorization: `Bearer ${internalServiceKey}` } : {}),
+      ...config.headers,
+    };
   }
 
   async isReady(): Promise<boolean> {
@@ -267,6 +272,7 @@ export class OpenCodeClient {
           if (evt === 'session.idle' && (sawBusy || gotText)) return;
 
           if (evt === 'session.error') {
+            if (sid !== sessionId) continue;
             const err = ((props.error as Record<string, unknown>)?.data as Record<string, unknown>)?.message as string;
             throw new Error(err || 'Agent error');
           }
@@ -496,6 +502,7 @@ export class OpenCodeClient {
           }
 
           if (evt === 'session.error') {
+            if (sid !== sessionId) continue;
             const err = ((props.error as Record<string, unknown>)?.data as Record<string, unknown>)?.message as string;
             yield { type: 'error', data: err || 'unknown error' };
             return;

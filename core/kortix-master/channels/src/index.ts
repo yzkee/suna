@@ -7,7 +7,7 @@ export { createChatInstance, readAdaptersFromEnv, type ChatInstanceDeps } from '
 export { createServer, type ServerConfig } from './server.js';
 export { ChannelsService, type ChannelsServiceConfig } from './service.js';
 export { OpenCodeClient, type OpenCodeClientConfig, type FileOutput, type StreamEvent } from './opencode.js';
-export { SessionManager, type SessionStrategy } from './sessions.js';
+export { SessionManager } from './sessions.js';
 export type { AdapterCredentials, AdapterModule, ReloadRequest, ReloadResult } from './types.js';
 
 export async function start(
@@ -18,7 +18,7 @@ export async function start(
     opencodeUrl: botConfig?.opencodeUrl,
     botName: botConfig?.botName,
     agentName: botConfig?.agentName,
-    systemPrompt: botConfig?.systemPrompt,
+    instructions: botConfig?.instructions,
     model: botConfig?.model,
   });
 
@@ -26,9 +26,9 @@ export async function start(
 
   const ready = await service.client.isReady();
   if (ready) {
-    console.log(`[opencode-channels] OpenCode server is ready`);
+    console.log(`[kortix-channels] Kortix runtime is ready`);
   } else {
-    console.warn(`[opencode-channels] OpenCode server not reachable — will retry on first message`);
+    console.warn(`[kortix-channels] Kortix runtime not reachable — will retry on first message`);
   }
 
   const server = createServer(service, serverConfig);
@@ -46,7 +46,7 @@ const isDirectRun = (entryFile.endsWith('index.ts') || entryFile.endsWith('index
   && (entryFile.includes('channels') || entryFile.includes('opencode-channels'));
 if (isDirectRun) {
   start().catch((err) => {
-    console.error('[opencode-channels] Fatal:', err);
+    console.error('[kortix-channels] Fatal:', err);
     process.exit(1);
   });
 }
