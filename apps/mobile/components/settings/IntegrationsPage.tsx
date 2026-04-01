@@ -25,6 +25,12 @@ import {
   Plug,
   Globe,
   Zap,
+  Settings,
+  KeyRound,
+  Eye,
+  EyeOff,
+  Trash2,
+  Shield,
 } from 'lucide-react-native';
 import { useColorScheme } from 'nativewind';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -42,6 +48,18 @@ import { useLanguage } from '@/contexts';
 import { useRouter } from 'expo-router';
 import { useThemeColors } from '@/lib/theme-colors';
 import { log } from '@/lib/logger';
+import {
+  usePipedreamCredentialStatus,
+  useSavePipedreamCredentials,
+  useDeletePipedreamCredentials,
+} from '@/hooks/usePipedreamCredentials';
+import {
+  BottomSheetModal,
+  BottomSheetBackdrop,
+  BottomSheetView,
+  BottomSheetTextInput,
+} from '@gorhom/bottom-sheet';
+import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
 
 import {
   useIntegrationApps,
@@ -117,12 +135,48 @@ function IntegrationsContent({
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const { t } = useLanguage();
+  const themeColors = useThemeColors();
 
   // ── State ──
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [connectingApp, setConnectingApp] = useState<string | null>(null);
   const [managingConnection, setManagingConnection] = useState<IntegrationConnection | null>(null);
+
+  // ── Pipedream credentials ──
+  const { data: credStatus } = usePipedreamCredentialStatus();
+  const saveCreds = useSavePipedreamCredentials();
+  const deleteCreds = useDeletePipedreamCredentials();
+  const credSheetRef = useRef<BottomSheetModal>(null);
+  const [credValues, setCredValues] = useState({ client_id: '', client_secret: '', project_id: '' });
+  const [showSecrets, setShowSecrets] = useState(false);
+  const isCustomCreds = credStatus?.configured && credStatus?.source === 'account';
+  const canSaveCreds = credValues.client_id.trim() && credValues.client_secret.trim() && credValues.project_id.trim();
+
+  const renderCredBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.5} />
+    ),
+    [],
+  );
+
+  const handleSaveCreds = useCallback(async () => {
+    if (!canSaveCreds) return;
+    await saveCreds.mutateAsync({
+      client_id: credValues.client_id.trim(),
+      client_secret: credValues.client_secret.trim(),
+      project_id: credValues.project_id.trim(),
+      environment: 'production',
+    });
+    setCredValues({ client_id: '', client_secret: '', project_id: '' });
+    credSheetRef.current?.dismiss();
+  }, [canSaveCreds, credValues, saveCreds]);
+
+  const handleDeleteCreds = useCallback(async () => {
+    await deleteCreds.mutateAsync();
+    setCredValues({ client_id: '', client_secret: '', project_id: '' });
+    credSheetRef.current?.dismiss();
+  }, [deleteCreds]);
 
   // Debounce search
   useEffect(() => {
@@ -240,9 +294,10 @@ function IntegrationsContent({
 
   // ── Sticky search bar (rendered outside FlatList) ──
   const SearchBar = (
-    <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 8, backgroundColor: isDark ? '#121215' : '#F8F8F8' }}>
+    <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 8, backgroundColor: isDark ? '#121215' : '#F8F8F8', flexDirection: 'row', alignItems: 'center' }}>
       <View
         style={{
+          flex: 1,
           flexDirection: 'row',
           alignItems: 'center',
           backgroundColor: inputBg,
@@ -274,6 +329,29 @@ function IntegrationsContent({
           </Pressable>
         )}
       </View>
+      {/* Pipedream settings gear */}
+      <Pressable
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          credSheetRef.current?.present();
+        }}
+        style={{
+          width: 42,
+          height: 42,
+          borderRadius: 12,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.04)',
+          borderWidth: 1,
+          borderColor: isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.06)',
+          marginLeft: 8,
+        }}
+      >
+        <Icon as={Settings} size={16} color={muted} />
+        {isCustomCreds && (
+          <View style={{ position: 'absolute', top: -2, right: -2, width: 10, height: 10, borderRadius: 5, backgroundColor: '#10b981', borderWidth: 2, borderColor: isDark ? '#121215' : '#F8F8F8' }} />
+        )}
+      </Pressable>
     </View>
   );
 
@@ -402,7 +480,146 @@ function IntegrationsContent({
         onDismiss={() => setManagingConnection(null)}
       />
 
+      {/* Pipedream Credentials Sheet */}
+      <BottomSheetModal
+        ref={credSheetRef}
+        enableDynamicSizing
+        enablePanDownToClose
+        backdropComponent={renderCredBackdrop}
+        keyboardBehavior="interactive"
+        keyboardBlurBehavior="restore"
+        android_keyboardInputMode="adjustResize"
+        onDismiss={() => { setCredValues({ client_id: '', client_secret: '', project_id: '' }); setShowSecrets(false); }}
+        backgroundStyle={{
+          backgroundColor: isDark ? '#161618' : '#FFFFFF',
+          borderTopLeftRadius: 24,
+          borderTopRightRadius: 24,
+        }}
+        handleIndicatorStyle={{
+          backgroundColor: isDark ? '#3F3F46' : '#D4D4D8',
+          width: 36,
+          height: 5,
+          borderRadius: 3,
+        }}
+      >
+        <BottomSheetView style={{ paddingHorizontal: 24, paddingTop: 8, paddingBottom: Math.max(insets.bottom, 20) + 16 }}>
+          {/* Header */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+            <View
+              style={{
+                width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12,
+                backgroundColor: isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.05)',
+              }}
+            >
+              <Icon as={KeyRound} size={20} color={fg} strokeWidth={1.8} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 18, fontFamily: 'Roobert-SemiBold', color: fg }}>Pipedream Credentials</Text>
+              <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: muted, marginTop: 2 }}>
+                {isCustomCreds ? 'Using your own Pipedream project' : 'Using Kortix defaults'}
+              </Text>
+            </View>
+          </View>
 
+          {/* Status badge */}
+          <View style={{
+            flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+            backgroundColor: isDark ? 'rgba(248,248,248,0.04)' : 'rgba(18,18,21,0.02)',
+            borderWidth: 1, borderColor: isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.06)',
+            borderRadius: 12, padding: 12, marginBottom: 16,
+          }}>
+            <Text style={{ fontSize: 12, fontFamily: 'Roobert', color: muted }}>Current source</Text>
+            <View style={{
+              flexDirection: 'row', alignItems: 'center',
+              backgroundColor: isCustomCreds ? 'rgba(16,185,129,0.12)' : (isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.04)'),
+              paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6,
+            }}>
+              <Icon as={isCustomCreds ? Check : Shield} size={10} color={isCustomCreds ? '#10b981' : muted} strokeWidth={2} />
+              <Text style={{ fontSize: 10, fontFamily: 'Roobert-Medium', color: isCustomCreds ? '#10b981' : muted, marginLeft: 4 }}>
+                {isCustomCreds ? 'Your credentials' : 'Kortix Default'}
+              </Text>
+            </View>
+          </View>
+
+          {/* Credential fields */}
+          {([
+            { key: 'client_id' as const, label: 'Client ID', placeholder: 'e.g. z8PKS...' },
+            { key: 'client_secret' as const, label: 'Client Secret', placeholder: 'e.g. UeZCz...' },
+            { key: 'project_id' as const, label: 'Project ID', placeholder: 'e.g. proj_xxxxx' },
+          ]).map((field) => (
+            <View key={field.key} style={{ marginBottom: 12 }}>
+              <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: muted, marginBottom: 6 }}>
+                {field.label}
+              </Text>
+              <BottomSheetTextInput
+                value={credValues[field.key]}
+                onChangeText={(text) => setCredValues((v) => ({ ...v, [field.key]: text }))}
+                placeholder={isCustomCreds ? '••••••••  (keep existing)' : field.placeholder}
+                placeholderTextColor={isDark ? 'rgba(248,248,248,0.25)' : 'rgba(18,18,21,0.3)'}
+                secureTextEntry={!showSecrets}
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={{
+                  backgroundColor: isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.04)',
+                  borderWidth: 1,
+                  borderColor: isDark ? 'rgba(248,248,248,0.1)' : 'rgba(18,18,21,0.08)',
+                  borderRadius: 12,
+                  paddingHorizontal: 14,
+                  paddingVertical: 12,
+                  fontSize: 14,
+                  fontFamily: 'Roobert',
+                  color: fg,
+                }}
+              />
+            </View>
+          ))}
+
+          {/* Actions row */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
+            <Pressable
+              onPress={handleSaveCreds}
+              disabled={!canSaveCreds || saveCreds.isPending}
+              style={{
+                backgroundColor: canSaveCreds ? themeColors.primary : (isDark ? 'rgba(248,248,248,0.08)' : 'rgba(18,18,21,0.06)'),
+                borderRadius: 12,
+                paddingVertical: 12,
+                paddingHorizontal: 20,
+                opacity: canSaveCreds ? 1 : 0.5,
+              }}
+            >
+              <Text style={{ fontSize: 14, fontFamily: 'Roobert-SemiBold', color: canSaveCreds ? themeColors.primaryForeground : muted }}>
+                {saveCreds.isPending ? 'Saving...' : isCustomCreds ? 'Update' : 'Save'}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => setShowSecrets(!showSecrets)}
+              style={{
+                width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+                backgroundColor: isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.04)',
+              }}
+            >
+              <Icon as={showSecrets ? EyeOff : Eye} size={16} color={muted} />
+            </Pressable>
+
+            {isCustomCreds && (
+              <Pressable
+                onPress={handleDeleteCreds}
+                disabled={deleteCreds.isPending}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', marginLeft: 'auto',
+                  paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10,
+                }}
+              >
+                <Icon as={Trash2} size={14} color="#ef4444" strokeWidth={1.8} />
+                <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: '#ef4444', marginLeft: 4 }}>
+                  {deleteCreds.isPending ? 'Reverting...' : 'Revert'}
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        </BottomSheetView>
+      </BottomSheetModal>
 
     </>
   );

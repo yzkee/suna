@@ -35,7 +35,7 @@ export const PAGE_TABS: Record<string, PageTab> = {
   'page:channels':          { id: 'page:channels',          label: 'Channels',          icon: 'chatbox-outline' },
   'page:tunnel':            { id: 'page:tunnel',            label: 'Tunnel',            icon: 'swap-horizontal-outline' },
   'page:integrations':      { id: 'page:integrations',      label: 'Integrations',      icon: 'git-branch-outline' },
-  'page:running-services':  { id: 'page:running-services',  label: 'Running Services',  icon: 'pulse-outline' },
+  'page:running-services':  { id: 'page:running-services',  label: 'Service Manager',  icon: 'pulse-outline' },
   'page:browser':           { id: 'page:browser',           label: 'Browser',           icon: 'compass-outline' },
   'page:agent-browser':     { id: 'page:agent-browser',     label: 'Agent Browser',     icon: 'globe-outline' },
   'page:updates':           { id: 'page:updates',           label: 'Updates',           icon: 'arrow-down-circle-outline' },

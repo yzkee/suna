@@ -847,6 +847,14 @@ export function getRetryInfo(status: SessionStatus | undefined): RetryInfo | und
   };
 }
 
+/**
+ * Extract the full retry error message from session status (not truncated).
+ */
+export function getRetryMessage(status: SessionStatus | undefined): string | undefined {
+  if (!status || status.type !== 'retry') return undefined;
+  return unwrapError(status.message);
+}
+
 // ============================================================================
 // hasDiffs check
 // ============================================================================

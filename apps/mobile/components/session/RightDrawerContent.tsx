@@ -54,7 +54,7 @@ const sections: MenuSection[] = [
       { icon: 'chatbox-outline', label: 'Channels', pageId: 'page:channels' },
       { icon: 'swap-horizontal-outline', label: 'Tunnel', pageId: 'page:tunnel' },
       { icon: 'git-branch-outline', label: 'Integrations', pageId: 'page:integrations' },
-      { icon: 'pulse-outline', label: 'Running Services', pageId: 'page:running-services' },
+      { icon: 'pulse-outline', label: 'Service Manager', pageId: 'page:running-services' },
       { icon: 'compass-outline', label: 'Browser', pageId: 'page:browser' },
       { icon: 'globe-outline', label: 'Agent Browser', pageId: 'page:agent-browser' },
     ],
