@@ -132,9 +132,9 @@ const ConnectorsPlugin: Plugin = async () => {
 			}),
 
 			connector_setup: tool({
-				description: `Batch-scaffold connectors. Pass a JSON array of objects. Only "name" is required — everything else is optional freeform fields (description, source, pipedream_slug, env, account, url, whatever is relevant). Overwrites existing.`,
+				description: `Batch-scaffold connectors. Pass a JSON array of objects. Only "name" is required — everything else is optional freeform fields (description, source, env, account, url, whatever is relevant). Overwrites existing.`,
 				args: {
-					connectors: tool.schema.string().describe('JSON array. E.g. [{"name":"gmail-marko","description":"personal gmail","source":"pipedream","pipedream_slug":"gmail"},{"name":"github","description":"kortix-ai org","source":"cli"}]'),
+					connectors: tool.schema.string().describe('JSON array. E.g. [{"name":"google-drive","description":"company shared drive","source":"pipedream"},{"name":"github","description":"kortix-ai org","source":"cli"}]'),
 				},
 				async execute(args: { connectors: string }): Promise<string> {
 					let items: Array<Record<string, string>>

@@ -5,7 +5,7 @@ description: "Kortix connectors: internal registry of what's connected where. Fr
 
 # Connectors
 
-Internal registry of what's connected where. A connector = freeform YAML frontmatter in a `CONNECTOR.md`. Only `name` is required. No `status` field — connection status is always checked live.
+Internal registry of what's connected where. A connector = freeform YAML frontmatter in a `CONNECTOR.md`. Only `name` is required. Everything else is freeform — describe what it is and how to use it.
 
 Nothing ships by default. Scaffolded on demand via `connector_setup`.
 
@@ -13,24 +13,17 @@ Nothing ships by default. Scaffolded on demand via `connector_setup`.
 
 ## Format
 
-Just key-value pairs. No enforced schema:
+Just key-value pairs describing what the service is:
 
 ```yaml
 ---
 name: google-drive
 description: "Company shared drive"
 source: pipedream
-pipedream_slug: google_drive
 ---
 ```
 
-```yaml
----
-name: github
-description: "kortix-ai org"
-source: cli
----
-```
+That's it. No slugs, no status, no credentials list. The file just documents that this service exists and how it's connected.
 
 ---
 
@@ -38,56 +31,68 @@ source: cli
 
 | Tool | Purpose |
 |---|---|
-| `connector_list` | List registered connectors (what's set up, not whether it's live) |
+| `connector_list` | List registered connectors |
 | `connector_get` | Get one connector's metadata |
 | `connector_setup` | Batch-scaffold from JSON array |
 
 ---
 
-## Checking Pipedream connection status
+## Checking what's actually connected
 
-**This is the only source of truth for whether a Pipedream service is actually connected:**
+**Before using any service, check both:**
+
+### 1. Pipedream (live status)
 
 ```bash
 SCRIPT=$(find /opt/opencode ~/.opencode /workspace /ephemeral -name "integration.ts" 2>/dev/null | head -1)
 bun run "$SCRIPT" list
 ```
 
-Returns the actual connected apps with their real status. Always run this before telling the user whether something is connected or before trying to use a service.
+This is the truth. If a service appears here, it's connected and usable — even if no CONNECTOR.md exists for it. Use it immediately.
 
-If a service shows as connected in `list` → it works. Use it.
-If not → run `connect` to get the OAuth URL.
+### 2. Connector files (registry)
+
+```
+connector_list(filter="")
+```
+
+This shows what's been registered. A service can be connected via Pipedream but not have a connector file, or have a file but not be connected. **Both should be checked and synced.**
+
+### Syncing
+
+When you find a mismatch (Pipedream says connected but no connector file, or vice versa), fix it:
+
+- Connected on Pipedream but no file → scaffold one via `connector_setup`
+- Has a file but not connected → either connect it or note it in the file
 
 ---
 
 ## Connecting Services
 
-### Pipedream (default for most services)
-
-Pipedream is always configured. One-click OAuth for the user.
+### Pipedream (default)
 
 ```bash
 SCRIPT=$(find /opt/opencode ~/.opencode /workspace /ephemeral -name "integration.ts" 2>/dev/null | head -1)
 
-# Check what's actually connected
+# What's connected right now
 bun run "$SCRIPT" list
 
-# Search for an app
+# Search
 bun run "$SCRIPT" search '{"q":"stripe"}'
 
-# Connect — returns OAuth URL
+# Connect — returns OAuth URL for user
 bun run "$SCRIPT" connect '{"app":"stripe"}'
 ```
 
-Show the OAuth URL to the user via `show`. Pipedream is maximum convenience — one click. For dev-heavy services (GitHub, AWS, Vercel), direct CLI is tighter long-term but takes more setup. Default to Pipedream, upgrade later.
+Pipedream is maximum convenience — one click. For dev-heavy services, direct CLI is tighter but more setup. Default to Pipedream, upgrade later.
 
-### CLI (when the CLI is significantly better)
+### CLI
 
-Load `cli-maxxing` skill. GitHub (`gh`), AWS (`aws`), Vercel (`vercel`), Cloudflare (`wrangler`).
+Load `cli-maxxing` skill. `gh`, `aws`, `vercel`, `wrangler`.
 
-### API keys (when not on Pipedream and no useful CLI)
+### API keys
 
-User pastes key in chat. Agent saves:
+User pastes in chat. Agent saves:
 ```bash
 curl -s -X POST "http://localhost:8000/env/KEY_NAME" \
   -H "Content-Type: application/json" -d '{"value":"...","restart":true}'
@@ -95,23 +100,21 @@ curl -s -X POST "http://localhost:8000/env/KEY_NAME" \
 
 ---
 
-## Using Pipedream-connected services
-
-Use `exec` with `proxyFetch` — authenticated `fetch()`:
+## Using connected services
 
 ```bash
-bun run "$SCRIPT" exec '{"app":"google_drive","code":"const r = await proxyFetch(\"https://www.googleapis.com/drive/v3/files?pageSize=10\"); return await r.json();"}'
-
+# Authenticated API call via Pipedream
 bun run "$SCRIPT" request '{"app":"google_drive","method":"GET","url":"https://www.googleapis.com/drive/v3/files?pageSize=10"}'
+
+# Programmatic code with proxyFetch
+bun run "$SCRIPT" exec '{"app":"google_drive","code":"const r = await proxyFetch(\"https://www.googleapis.com/drive/v3/files?pageSize=10\"); return await r.json();"}'
 ```
 
 ---
 
 ## Workflow
 
-1. User asks about or wants to use a service
-2. **Run `list` to check actual Pipedream status**
-3. Connected → use it immediately via `request` or `exec`
-4. Not connected → `search` → `connect` → show OAuth link
-5. For CLI services → CLI auth (load `cli-maxxing`)
-6. For API key services → user pastes in chat
+1. User asks to use a service
+2. Run Pipedream `list` — if it's there, use it immediately
+3. If not connected → `search` → `connect` → show OAuth link
+4. Sync: ensure a connector file exists for anything that's connected
