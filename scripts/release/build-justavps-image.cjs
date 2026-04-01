@@ -8,6 +8,7 @@ const { execFileSync } = require('node:child_process')
 const ROOT = path.resolve(__dirname, '..', '..')
 const RELEASE_JSON = path.join(ROOT, 'core', 'release.json')
 const API_ENV_PATH = path.join(ROOT, 'apps', 'api', '.env')
+const API_ENV_PROD_PATH = path.join(ROOT, 'apps', 'api', '.env.prod')
 const START_SANDBOX_SCRIPT = path.join(ROOT, 'scripts', 'start-sandbox.sh')
 
 const args = process.argv.slice(2)
@@ -75,16 +76,63 @@ function getVersion() {
   return release.version
 }
 
+// ─── Dual-org target support ────────────────────────────────────────────────
+// Both dev and prod JustAVPS orgs need snapshot images.
+// The script reads keys from apps/api/.env (dev) and apps/api/.env.prod (prod).
+const targetFlag = args.find((arg) => arg.startsWith('--target='))
+const targetArgIndex = args.findIndex((arg) => arg === '--target')
+const targetArg = targetFlag
+  ? targetFlag.split('=')[1]
+  : (targetArgIndex !== -1 && args[targetArgIndex + 1] ? args[targetArgIndex + 1] : '')
+const TARGETS = targetArg
+  ? targetArg.split(',').map((v) => v.trim()).filter(Boolean)
+  : ['dev', 'prod']
+
+function getTargetConfig(target) {
+  const normalized = target === 'production' ? 'prod' : target
+  if (!['dev', 'prod'].includes(normalized)) fail(`Unknown --target value: ${target}. Use dev or prod.`)
+  const envPath = normalized === 'prod' ? API_ENV_PROD_PATH : API_ENV_PATH
+  return {
+    target: normalized,
+    envPath,
+    imageName: `kortix-computer-v${getVersion()}`,
+  }
+}
+
+function loadTargetEnv(envPath) {
+  const keysToReset = [
+    'JUSTAVPS_API_URL', 'JUSTAVPS_API_KEY', 'JUSTAVPS_IMAGE_ID',
+    'JUSTAVPS_DEFAULT_SERVER_TYPE', 'JUSTAVPS_DEFAULT_LOCATION',
+    'JUSTAVPS_IMAGE_BUILD_SERVER_TYPE', 'JUSTAVPS_IMAGE_BUILD_LOCATION',
+    'JUSTAVPS_IMAGE_BUILD_TIMEOUT_MS', 'JUSTAVPS_IMAGE_CREATE_TIMEOUT_MS',
+    'JUSTAVPS_PROXY_DOMAIN', 'JUSTAVPS_WEBHOOK_URL',
+  ]
+  for (const key of keysToReset) delete process.env[key]
+  loadDotEnv(envPath)
+  if (!process.env.JUSTAVPS_API_URL) {
+    process.env.JUSTAVPS_API_URL = 'https://justavps.com/api/v1'
+  }
+  if (/dev\.justavps\.com/i.test(process.env.JUSTAVPS_API_URL || '')) {
+    fail(`JUSTAVPS_API_URL must point to justavps.com, not dev.justavps.com (${process.env.JUSTAVPS_API_URL})`)
+  }
+}
+
 if (HELP) {
   console.log(`
 Usage:
-  pnpm image [version]            Build a JustAVPS image for the release version
-  pnpm image --dry-run [version]  Validate config without creating resources
-  pnpm image --yes [version]      Replace any existing image with the same release name
-  pnpm image --no-verify [version]  Skip booting a verification machine from the new image
+  pnpm image [version]                Build JustAVPS images for dev + prod orgs in parallel
+  pnpm image --target dev [version]   Build only the dev org image
+  pnpm image --target prod [version]  Build only the prod org image
+  pnpm image --dry-run [version]      Validate config without creating resources
+  pnpm image --yes [version]          Replace any existing image with the same release name
+  pnpm image --no-verify [version]    Skip booting a verification machine from the new image
 
-Env used from apps/api/.env:
-  JUSTAVPS_API_URL
+Env files:
+  dev  -> apps/api/.env       (override with JUSTAVPS_DEV_ENV_FILE)
+  prod -> apps/api/.env.prod  (override with JUSTAVPS_PROD_ENV_FILE)
+
+Env used from the selected env file:
+  JUSTAVPS_API_URL    (always justavps.com, never dev.justavps.com)
   JUSTAVPS_API_KEY
   JUSTAVPS_IMAGE_ID
   JUSTAVPS_DEFAULT_SERVER_TYPE
@@ -330,17 +378,17 @@ async function verifySandboxRuntime(machineId, { dockerImage, bootstrap = false,
   throw new Error(`Sandbox runtime verification failed for ${machineId}: ${lastError instanceof Error ? lastError.message : String(lastError)}`)
 }
 
-async function main() {
-  loadDotEnv(API_ENV_PATH)
+async function mainForTarget(target) {
+  const { envPath, imageName } = getTargetConfig(target)
+  loadTargetEnv(envPath)
 
   const version = getVersion()
   const dockerImage = `kortix/computer:${version}`
   const buildServerType = process.env.JUSTAVPS_IMAGE_BUILD_SERVER_TYPE || process.env.JUSTAVPS_DEFAULT_SERVER_TYPE || 'cpx31'
   const buildRegion = process.env.JUSTAVPS_IMAGE_BUILD_LOCATION || 'nbg1'
-  const imageName = `kortix-computer-v${version}`
   const previousImageId = process.env.JUSTAVPS_IMAGE_ID || ''
-  const machineTimeoutMs = Number(process.env.JUSTAVPS_IMAGE_BUILD_TIMEOUT_MS || 15 * 60 * 1000)
-  const imageTimeoutMs = Number(process.env.JUSTAVPS_IMAGE_CREATE_TIMEOUT_MS || 15 * 60 * 1000)
+  const machineTimeoutMs = Number(process.env.JUSTAVPS_IMAGE_BUILD_TIMEOUT_MS || 20 * 60 * 1000)
+  const imageTimeoutMs = Number(process.env.JUSTAVPS_IMAGE_CREATE_TIMEOUT_MS || 45 * 60 * 1000)
 
   console.log('')
   console.log(`  ${B}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${X}`)
@@ -466,6 +514,14 @@ async function main() {
       info(`Deleting temporary build machine ${machineId}...`)
       await deleteMachineIfPresent(machineId)
     }
+  }
+}
+
+async function main() {
+  // Run targets sequentially (they share process.env for API key)
+  for (const target of TARGETS) {
+    info(`\n━━━ Building for target: ${target} ━━━`)
+    await mainForTarget(target)
   }
 }
 
