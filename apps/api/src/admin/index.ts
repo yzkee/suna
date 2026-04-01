@@ -20,7 +20,7 @@ import { Hono } from 'hono';
 import { eq, desc } from 'drizzle-orm';
 import type { AppEnv } from '../types';
 import { config } from '../config';
-import { PROVIDER_REGISTRY, toLegacySchema, LLM_PROVIDERS, TOOL_PROVIDERS } from '../providers/registry';
+import { PROVIDER_REGISTRY, buildProviderKeySchema, LLM_PROVIDERS, TOOL_PROVIDERS } from '../providers/registry';
 import { supabaseAuth } from '../middleware/auth';
 import { requireAdmin } from '../middleware/require-admin';
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
@@ -174,7 +174,7 @@ interface KeyGroup {
 }
 
 function getAdminKeySchema(): Record<string, KeyGroup> {
-  const schema = toLegacySchema();
+  const schema = buildProviderKeySchema();
 
   // Add platform-level key groups not in the provider registry
   return {
@@ -528,12 +528,12 @@ adminApp.get('/api/health', async (c) => {
 
   if (!repoRoot) {
     try {
-      const health = await fetchMasterJson<{ status: string; opencode?: boolean }>('/kortix/health', {}, 5000);
+      const health = await fetchMasterJson<{ status: string; runtimeReady?: boolean }>('/kortix/health', {}, 5000);
       checks.sandbox = { ok: true };
       checks.docker = { ok: true };
-      // If OpenCode isn't ready, sandbox is reachable but not fully operational
-      if (health.status === 'starting' || health.opencode === false) {
-        checks.sandbox = { ok: false, error: 'Sandbox reachable but OpenCode is still starting' };
+      // If runtime isn't ready, sandbox is reachable but not fully operational
+      if (health.status === 'starting' || health.runtimeReady === false) {
+        checks.sandbox = { ok: false, error: 'Sandbox reachable but runtime is still starting' };
       }
     } catch (e: any) {
       checks.sandbox = { ok: false, error: e?.message || String(e) };

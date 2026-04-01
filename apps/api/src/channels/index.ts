@@ -17,8 +17,6 @@
  *   DELETE /:id           — delete a channel config
  *   POST   /:id/enable    — set enabled=true
  *   POST   /:id/disable   — set enabled=false
- *   POST   /:id/link      — link channel to a sandbox
- *   POST   /:id/unlink    — unlink channel from a sandbox
  */
 
 import { Hono } from 'hono';
@@ -44,7 +42,7 @@ const CHANNEL_SELECT = sql`
     cc.name,
     cc.enabled,
     cc.platform_config     AS "platformConfig",
-    cc.system_prompt       AS "instructions",
+    cc.instructions        AS "instructions",
     cc.agent_name          AS "agentName",
     cc.metadata,
     cc.created_at          AS "createdAt",
@@ -149,7 +147,7 @@ channelsApp.post('/', async (c: any) => {
     const rows = await db.execute(sql`
       INSERT INTO kortix.channel_configs
          (account_id, sandbox_id, channel_type, name, enabled, platform_config,
-          system_prompt, agent_name, metadata)
+          instructions, agent_name, metadata)
       VALUES
         (${accountId}, ${sandbox_id}, ${channel_type}::kortix.channel_type, ${name}, ${enabled},
          ${JSON.stringify(platform_config)}::jsonb,
@@ -161,7 +159,7 @@ channelsApp.post('/', async (c: any) => {
         channel_type AS "channelType",
         name, enabled,
         platform_config AS "platformConfig",
-        system_prompt AS "instructions",
+        instructions AS "instructions",
         agent_name AS "agentName",
         metadata,
         created_at AS "createdAt",
@@ -215,7 +213,7 @@ channelsApp.patch('/:id', async (c: any) => {
     if (body.platform_config !== undefined)
       setClauses.push(sql`platform_config = ${JSON.stringify(body.platform_config)}::jsonb`);
     if (body.instructions !== undefined)
-      setClauses.push(sql`system_prompt = ${body.instructions}`);
+      setClauses.push(sql`instructions = ${body.instructions}`);
     if (body.agent_name !== undefined) setClauses.push(sql`agent_name = ${body.agent_name}`);
     if (body.metadata !== undefined)
       setClauses.push(sql`metadata = ${JSON.stringify(body.metadata)}::jsonb`);
@@ -234,7 +232,7 @@ channelsApp.patch('/:id', async (c: any) => {
         channel_type AS "channelType",
         name, enabled,
         platform_config AS "platformConfig",
-        system_prompt AS "instructions",
+        instructions AS "instructions",
         agent_name AS "agentName",
         metadata, created_at AS "createdAt", updated_at AS "updatedAt"
     `);
@@ -302,45 +300,5 @@ channelsApp.post('/:id/disable', async (c: any) => {
   } catch (err) {
     console.error('[channels] POST /:id/disable error:', err);
     return c.json({ success: false, error: 'Failed to disable channel' }, 500);
-  }
-});
-
-// ─── POST /:id/link ───────────────────────────────────────────────────────────
-
-channelsApp.post('/:id/link', async (c: any) => {
-  const accountId = c.get('userId') as string;
-  const id = c.req.param('id');
-  try {
-    const body = await c.req.json();
-    if (!body.sandbox_id) return c.json({ success: false, error: 'sandbox_id is required' }, 400);
-    const rows = await db.execute(sql`
-      UPDATE kortix.channel_configs SET sandbox_id = ${body.sandbox_id}, updated_at = now()
-      WHERE channel_config_id = ${id} AND account_id = ${accountId}
-      RETURNING channel_config_id AS "channelConfigId", sandbox_id AS "sandboxId", updated_at AS "updatedAt"
-    `);
-    if (!rows.length) return c.json({ success: false, error: 'Channel not found' }, 404);
-    return c.json({ success: true, data: rows[0] });
-  } catch (err) {
-    console.error('[channels] POST /:id/link error:', err);
-    return c.json({ success: false, error: 'Failed to link channel' }, 500);
-  }
-});
-
-// ─── POST /:id/unlink ────────────────────────────────────────────────────────
-
-channelsApp.post('/:id/unlink', async (c: any) => {
-  const accountId = c.get('userId') as string;
-  const id = c.req.param('id');
-  try {
-    const rows = await db.execute(sql`
-      UPDATE kortix.channel_configs SET sandbox_id = NULL, updated_at = now()
-      WHERE channel_config_id = ${id} AND account_id = ${accountId}
-      RETURNING channel_config_id AS "channelConfigId", sandbox_id AS "sandboxId", updated_at AS "updatedAt"
-    `);
-    if (!rows.length) return c.json({ success: false, error: 'Channel not found' }, 404);
-    return c.json({ success: true, data: rows[0] });
-  } catch (err) {
-    console.error('[channels] POST /:id/unlink error:', err);
-    return c.json({ success: false, error: 'Failed to unlink channel' }, 500);
   }
 });

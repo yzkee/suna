@@ -14,7 +14,7 @@
       "npm": "@ai-sdk/openai-compatible",
       "env": ["KORTIX_TOKEN", "KORTIX_API_URL"],
       "options": {
-        "baseURL": "{env:KORTIX_API_URL}/v1/router",
+        "baseURL": "{env:KORTIX_API_URL}",
         "apiKey": "{env:KORTIX_TOKEN}"
       },
       "models": {

@@ -149,7 +149,6 @@ export function useTelegramConnect() {
             name: channelName,
             enabled: true,
             platform_config: { webhook_url: webhookUrl, bot_username: botUsername || null },
-            session_strategy: 'per-thread',
           }),
         });
       } catch {
@@ -268,7 +267,6 @@ export function useSlackConnect() {
             name: 'Slack Bot',
             enabled: true,
             platform_config: { webhook_url: `${publicUrl.replace(/\/$/, '')}/webhooks/slack/events` },
-            session_strategy: 'per-thread',
           }),
         });
       } catch {

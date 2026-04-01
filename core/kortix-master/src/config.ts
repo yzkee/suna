@@ -1,3 +1,5 @@
+import { getEnv } from "../opencode/tools/lib/get-env.js"
+
 /**
  * Parse SANDBOX_PORT_MAP env var into a Record<containerPort, hostPort>.
  * Format: JSON object, e.g. {"8000":"14000","6080":"14002"}
@@ -22,17 +24,14 @@ export const config = {
   OPENCODE_PORT: parseInt(process.env.OPENCODE_PORT || '4096'),
 
   // ─── Kortix Backend ─────────────────────────────────────────────────────────
-  // KORTIX_API_URL: base URL of kortix-api. Set by kortix-api at container creation.
-  //   Inside Docker: http://host.docker.internal:8008 (or Docker DNS name).
-  //   Fallback for native dev only.
-  KORTIX_API_URL: process.env.KORTIX_API_URL || 'http://localhost:8008',
+  // KORTIX_API_URL: base URL of kortix-api. Source of truth is the secrets-manager-
+  // backed s6 env file when present; process.env/.env are fallbacks for native dev.
+  get KORTIX_API_URL() { return getEnv('KORTIX_API_URL') || 'http://localhost:8008' },
 
   // KORTIX_TOKEN — direction: sandbox → kortix-api.
-  // This is how the sandbox authenticates itself TO kortix-api. Sent as
-  // `Authorization: Bearer <KORTIX_TOKEN>` on outbound requests (cron, tunnel,
-  // integrations, LLM proxy). Also used as the encryption key for SecretStore.
-  // Created by kortix-api at sandbox provisioning time. Injected as Docker env var.
-  get KORTIX_TOKEN() { return process.env.KORTIX_TOKEN || '' },
+  // Source of truth is the secrets-manager-backed s6 env file. This allows token
+  // rotation and sync without trusting stale container process.env values.
+  get KORTIX_TOKEN() { return getEnv('KORTIX_TOKEN') || '' },
 
   // Feature flag: enable or disable local deployment routes (/kortix/deploy/*)
   KORTIX_DEPLOYMENTS_ENABLED: process.env.KORTIX_DEPLOYMENTS_ENABLED === 'true',

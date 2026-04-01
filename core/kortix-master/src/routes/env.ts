@@ -78,11 +78,9 @@ async function restartServices(services?: string[]): Promise<void> {
   // namespace. `pgrep`/`kill`/`killall` all fail because they resolve PIDs
   // in the outer namespace but kill() operates in the inner namespace.
   // We read NSpid from /proc/{pid}/status to get the inner namespace PID.
-  //
-  // NOTE: opencode-channels is NOT restarted here — it uses hot-reload via
-  // POST /channels/reload instead. Only OpenCode itself needs process restart.
   const restartAll = !services || services.length === 0
   const restartOpencode = restartAll || services?.includes('opencode')
+  const restartChannels = restartAll || services?.includes('opencode-channels')
 
   try {
     const killed: number[] = []
@@ -105,6 +103,14 @@ async function restartServices(services?: string[]): Promise<void> {
         if (comm === 'node' || comm === 'MainThread' || comm === 'bun') {
           const cmdline = readFileSync(`/proc/${pid}/cmdline`, 'utf-8')
           if (restartOpencode && cmdline.includes('/usr/local/bin/opencode')) {
+            const innerPid = getInnerNsPid(pid)
+            if (innerPid) {
+              process.kill(innerPid, 9)
+              killed.push(innerPid)
+            }
+            continue
+          }
+          if (restartChannels && cmdline.includes('channels/src/index.ts')) {
             const innerPid = getInnerNsPid(pid)
             if (innerPid) {
               process.kill(innerPid, 9)
@@ -193,9 +199,9 @@ envRouter.post('/',
       }
       // Restart OpenCode if core identity vars changed so it picks up the new provider URL/token.
       if (needsRestart) {
-        console.log('[ENV API] Core var changed — restarting OpenCode to pick up new config')
-        restartServices(['opencode']).catch(err =>
-          console.error('[ENV API] Failed to restart OpenCode after core var change:', err)
+        console.log('[ENV API] Core var changed — restarting OpenCode + channels to pick up new config')
+        restartServices(['opencode', 'opencode-channels']).catch(err =>
+          console.error('[ENV API] Failed to restart services after core var change:', err)
         )
       }
       return c.json({ ok: true, updated, restarted: needsRestart })
@@ -265,7 +271,7 @@ envRouter.post('/rotate-token',
       updateBootstrapKey('KORTIX_TOKEN', newToken)
 
       // Restart OpenCode to pick up the new token
-      await restartServices()
+      await restartServices(['opencode', 'opencode-channels'])
 
       console.log(`[ENV API] KORTIX_TOKEN rotated. ${result.rotated} secret(s) unaffected (encryption decoupled).`)
       return c.json({ ok: true, ...result })

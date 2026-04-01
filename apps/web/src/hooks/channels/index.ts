@@ -5,8 +5,6 @@ export {
   useUpdateChannel,
   useDeleteChannel,
   useToggleChannel,
-  useLinkChannel,
-  useUnlinkChannel,
   type ChannelConfig,
   type ChannelType,
   type CreateChannelData,

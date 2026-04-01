@@ -96,12 +96,7 @@ mock.module('../middleware/auth', () => ({
     c.set('userEmail', 'test@example.com');
     await next();
   },
-  dualAuth: async (c: any, next: any) => { await next(); },
-  supabaseAuthWithQueryParam: async (c: any, next: any) => {
-    c.set('userId', TEST_ACCOUNT_ID);
-    c.set('userEmail', 'test@example.com');
-    await next();
-  },
+  combinedAuth: async (c: any, next: any) => { await next(); },
 }));
 
 mock.module('../router/services/tavily', () => ({

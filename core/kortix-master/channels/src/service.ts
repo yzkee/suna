@@ -7,6 +7,7 @@ import { adapterModules } from './adapters/registry.js';
 import type { AdapterCredentials } from './adapters/types.js';
 import type { TelegramDirectConfig } from './telegram-api.js';
 import type { ReloadResult } from './types.js';
+import { getEnv } from '../../opencode/tools/lib/get-env.js';
 
 /** Build TelegramDirectConfig from env (or credentials) if available. */
 function buildTelegramConfig(credentials: AdapterCredentials): TelegramDirectConfig | undefined {
@@ -17,10 +18,14 @@ function buildTelegramConfig(credentials: AdapterCredentials): TelegramDirectCon
 }
 
 /** Build persistence config from environment, if available. */
-function buildPersistConfig(channelConfigId?: string): ChannelSessionPersistConfig | undefined {
-  const kortixApiUrl = process.env.KORTIX_API_URL;
-  const kortixToken = process.env.KORTIX_TOKEN;
-  const configId = channelConfigId ?? process.env.CHANNEL_CONFIG_ID;
+function buildPersistConfig(opts: {
+  channelConfigId?: string;
+  kortixApiUrl?: string;
+  kortixToken?: string;
+} = {}): ChannelSessionPersistConfig | undefined {
+  const kortixApiUrl = opts.kortixApiUrl ?? getEnv('KORTIX_API_URL');
+  const kortixToken = opts.kortixToken ?? getEnv('KORTIX_TOKEN');
+  const configId = opts.channelConfigId ?? getEnv('CHANNEL_CONFIG_ID');
   if (!kortixApiUrl || !kortixToken || !configId) return undefined;
   return { kortixApiUrl, kortixToken, channelConfigId: configId };
 }
@@ -63,15 +68,19 @@ export class ChannelsService {
     const opencodeUrl = config.opencodeUrl || process.env.OPENCODE_URL || 'http://localhost:1707';
     this.botName = config.botName || process.env.OPENCODE_BOT_NAME || 'kortix';
 
-    this._channelConfigId = config.channelConfigId ?? process.env.CHANNEL_CONFIG_ID;
+    this._channelConfigId = config.channelConfigId ?? getEnv('CHANNEL_CONFIG_ID');
     this._channelContext = config.channelContext;
-    this._kortixApiUrl = config.kortixApiUrl ?? process.env.KORTIX_API_URL;
-    this._kortixToken = config.kortixToken ?? process.env.KORTIX_TOKEN;
+    this._kortixApiUrl = config.kortixApiUrl;
+    this._kortixToken = config.kortixToken;
 
     this.client = new OpenCodeClient({ baseUrl: opencodeUrl });
     this.sessions = new SessionManager(
       config.agentName,
-      buildPersistConfig(this._channelConfigId),
+      () => buildPersistConfig({
+        channelConfigId: this._channelConfigId,
+        kortixApiUrl: this._kortixApiUrl,
+        kortixToken: this._kortixToken,
+      }),
     );
     this._currentModel = config.model;
     this._instructions = config.instructions;
@@ -188,11 +197,16 @@ export class ChannelsService {
   }
 
   private async loadRemoteConfig(): Promise<void> {
-    if (!this._channelConfigId || !this._kortixApiUrl || !this._kortixToken) return;
+    const cfg = buildPersistConfig({
+      channelConfigId: this._channelConfigId,
+      kortixApiUrl: this._kortixApiUrl,
+      kortixToken: this._kortixToken,
+    });
+    if (!cfg) return;
 
-    const res = await fetch(`${this._kortixApiUrl}/v1/channels/internal/config/${this._channelConfigId}`, {
+    const res = await fetch(`${cfg.kortixApiUrl}/v1/channels/internal/config/${cfg.channelConfigId}`, {
       headers: {
-        Authorization: `Bearer ${this._kortixToken}`,
+        Authorization: `Bearer ${cfg.kortixToken}`,
       },
       signal: AbortSignal.timeout(8_000),
     });

@@ -195,6 +195,8 @@ export async function validateSecretKey(secretKey: string): Promise<ApiKeyValida
       .limit(1);
 
     if (!row) {
+      const hasAnyKeys = await db.select({ keyId: kortixApiKeys.keyId }).from(kortixApiKeys).limit(1);
+      console.warn(`[validateSecretKey] Token not found in DB. hash=${secretKeyHash.slice(0, 8)}... prefix="${secretKey.slice(0, 20)}..." anyKeysInDb=${hasAnyKeys.length > 0}`);
       return { isValid: false, error: 'API key not found or invalid' };
     }
 

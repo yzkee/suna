@@ -36,14 +36,21 @@ export interface ChannelSessionContext {
 export class SessionManager {
   private readonly cache = new Map<string, SessionEntry>();
   private agentName?: string;
-  private persistConfig?: ChannelSessionPersistConfig;
+  private readonly persistSource?: ChannelSessionPersistConfig | (() => ChannelSessionPersistConfig | undefined);
 
   constructor(
     agentName?: string,
-    persistConfig?: ChannelSessionPersistConfig,
+    persistSource?: ChannelSessionPersistConfig | (() => ChannelSessionPersistConfig | undefined),
   ) {
     this.agentName = agentName;
-    this.persistConfig = persistConfig;
+    this.persistSource = persistSource;
+  }
+
+  private getPersistConfig(): ChannelSessionPersistConfig | undefined {
+    if (!this.persistSource) return undefined;
+    return typeof this.persistSource === 'function'
+      ? this.persistSource()
+      : this.persistSource;
   }
 
   setAgent(agentName: string | undefined): void {
@@ -109,7 +116,7 @@ export class SessionManager {
    * from the frontend and other services. Fire-and-forget from callers.
    */
   private async persistSession(strategyKey: string, sessionId: string): Promise<void> {
-    const cfg = this.persistConfig;
+    const cfg = this.getPersistConfig();
     if (!cfg) return;
 
     try {

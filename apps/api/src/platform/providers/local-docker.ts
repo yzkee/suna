@@ -659,13 +659,17 @@ export class LocalDockerProvider implements SandboxProvider {
     const writes = Object.entries(stale)
       .map(([key, val]) => `printf '%s' '${val}' > /run/s6/container_environment/${key}`)
       .join(' && ');
+    const needsRestart = ['KORTIX_TOKEN', 'KORTIX_API_URL'].some((key) => key in stale);
+    const restart = needsRestart
+      ? ` && (pkill -f '/usr/local/bin/opencode' || true; pkill -f 'opencode-linux-arm64-musl' || true; pkill -f 'channels/src/index.ts' || true)`
+      : '';
 
     const cmd =
       `docker exec ${CONTAINER_NAME} bash -c ` +
-      `"mkdir -p /run/s6/container_environment && ${writes}"`;
+      `"mkdir -p /run/s6/container_environment && ${writes}${restart}"`;
 
     execSync(cmd, { timeout: 15_000, stdio: 'pipe', env });
-    console.log(`[LOCAL-DOCKER] Core env vars synced via fallback (docker exec): ${Object.keys(stale).join(', ')}`);
+    console.log(`[LOCAL-DOCKER] Core env vars synced via fallback (docker exec): ${Object.keys(stale).join(', ')}${needsRestart ? ' + restarted opencode/channels' : ''}`);
   }
 
   /**

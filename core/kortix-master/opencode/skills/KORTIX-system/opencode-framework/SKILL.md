@@ -256,8 +256,8 @@ Main config file. In sandbox: `$OPENCODE_CONFIG_DIR/opencode.jsonc`
   "provider": {
     "kortix": {
       "npm": "@ai-sdk/openai-compatible",
-      "options": { "baseURL": "{env:KORTIX_API_URL}/v1/router", "apiKey": "{env:KORTIX_TOKEN}" },
-      "models": { "kortix/power": { "name": "Kortix Power", "cost": { "input": 5, "output": 25 } } }
+      "options": { "baseURL": "{env:KORTIX_API_URL}", "apiKey": "{env:KORTIX_TOKEN}" },
+      "models": { "minimax-m27": { "name": "MiniMax M2.7", "id": "minimax/minimax-m2.7" } }
     }
   },
   "mcp": { "context7": { "type": "remote", "url": "https://mcp.context7.com/mcp" } }
@@ -272,7 +272,7 @@ Main config file. In sandbox: `$OPENCODE_CONFIG_DIR/opencode.jsonc`
 
 ### Environment Variable Interpolation
 
-`{env:VAR_NAME}` in config values: `{ "baseURL": "{env:KORTIX_API_URL}/v1/router" }`
+`{env:VAR_NAME}` in config values: `{ "baseURL": "{env:KORTIX_API_URL}" }`
 
 ---
 

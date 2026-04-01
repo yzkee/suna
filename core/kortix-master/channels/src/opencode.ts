@@ -1,3 +1,5 @@
+import { getEnv } from '../../opencode/tools/lib/get-env.js';
+
 export interface OpenCodeClientConfig {
   baseUrl: string;
   headers?: Record<string, string>;
@@ -108,15 +110,23 @@ function extractFileFromToolOutput(
 
 export class OpenCodeClient {
   private readonly baseUrl: string;
-  private readonly headers: Record<string, string>;
+  private readonly baseHeaders: Record<string, string>;
 
   constructor(config: OpenCodeClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
-    const internalServiceKey = process.env.INTERNAL_SERVICE_KEY;
-    this.headers = {
+    this.baseHeaders = {
       'Content-Type': 'application/json',
-      ...(internalServiceKey ? { Authorization: `Bearer ${internalServiceKey}` } : {}),
       ...config.headers,
+    };
+  }
+
+  private get headers(): Record<string, string> {
+    if (this.baseHeaders.Authorization) return this.baseHeaders;
+    const key = getEnv('INTERNAL_SERVICE_KEY');
+    if (!key) return this.baseHeaders;
+    return {
+      ...this.baseHeaders,
+      Authorization: `Bearer ${key}`,
     };
   }
 

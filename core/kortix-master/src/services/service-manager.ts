@@ -189,7 +189,7 @@ function s6svc(id: string, name: string, scope: ServiceScope, s6Name: string, op
 const BUILTIN_SERVICES: RegisteredServiceSpec[] = [
   // opencode-serve is spawn — managed directly by Kortix Master (not s6)
   {
-    id: 'opencode-serve', name: 'OpenCode API', adapter: 'spawn', scope: 'core', description: '', builtin: true,
+    id: 'opencode-serve', name: 'Agent Runtime API', adapter: 'spawn', scope: 'core', description: '', builtin: true,
     userVisible: false, projectId: null, template: 'opencode-serve', framework: 'node',
     sourcePath: WORKSPACE_ROOT, sourceType: 'files', sourceRef: null,
     startCommand: 'bash /ephemeral/kortix-master/scripts/run-opencode-serve.sh',
@@ -199,9 +199,9 @@ const BUILTIN_SERVICES: RegisteredServiceSpec[] = [
     healthCheck: { type: 'none' }, createdAt: '', updatedAt: '',
   },
   // All other system services: s6 supervised, controlled via s6-svc
-  s6svc('opencode-web', 'OpenCode Web', 'core', 'svc-opencode-web',
+  s6svc('opencode-web', 'Runtime Web UI', 'core', 'svc-opencode-web',
     { port: 3111, deps: ['opencode-serve'], processPatterns: ['opencode web --port 3111'] }),
-  s6svc('opencode-channels', 'OpenCode Channels', 'core', 'svc-opencode-channels',
+  s6svc('opencode-channels', 'Channels Service', 'core', 'svc-opencode-channels',
     { port: 3456, deps: ['opencode-serve'], processPatterns: ['channels/src/index.ts'] }),
   s6svc('chromium-persistent', 'Chromium', 'core', 'svc-chromium-persistent',
     { port: 9222, processPatterns: ['chromium-browser'] }),

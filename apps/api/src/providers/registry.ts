@@ -175,11 +175,8 @@ export const PROVIDER_BY_ENV_KEY = new Map(
 /** Lookup: provider ID → ProviderDef */
 export const PROVIDER_BY_ID = new Map(PROVIDER_REGISTRY.map((p) => [p.id, p] as const));
 
-/**
- * Build the legacy KEY_SCHEMA format from the registry.
- * This is used for backward compatibility with the existing GET /v1/setup/schema endpoint.
- */
-export function toLegacySchema() {
+/** Build grouped provider key schema from the registry. */
+export function buildProviderKeySchema() {
   const groups: Record<string, {
     title: string;
     description: string;

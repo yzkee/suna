@@ -1,21 +1,10 @@
-import type { Chat } from 'chat';
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 
-import { readAdaptersFromEnv } from './bot.js';
 import type { ChannelsService } from './service.js';
 import type { ReloadRequest } from './types.js';
 import { adapterModules } from './adapters/registry.js';
 import { sendMessageDirect, type TelegramDirectConfig } from './telegram-api.js';
-
-type ServerInput = ChannelsService | Chat | Promise<Chat | null> | null;
-
-function isChannelsService(input: ServerInput): input is ChannelsService {
-  return !!input && typeof input === 'object'
-    && 'reload' in input
-    && 'sessions' in input
-    && 'activeAdapters' in input;
-}
 
 export interface ServerConfig {
   port?: number;
@@ -23,35 +12,17 @@ export interface ServerConfig {
 }
 
 export function createServer(
-  input: ServerInput,
+  input: ChannelsService,
   config: ServerConfig = {},
 ) {
   const port = config.port ?? (process.env.PORT ? Number(process.env.PORT) : 3456);
   const host = config.host ?? '0.0.0.0';
 
   const app = new Hono();
-  let legacyBotCache: Chat | null = null;
-
-  if (!isChannelsService(input) && input) {
-    Promise.resolve(input).then((bot) => {
-      legacyBotCache = bot;
-    }).catch((err) => {
-      console.error('[kortix-channels] Bot initialization failed:', err);
-    });
-  }
-
-  const getBot = () => (isChannelsService(input) ? input.bot : legacyBotCache);
-  const getAdapterNames = () => (isChannelsService(input)
-    ? input.activeAdapters
-    : Object.keys(readAdaptersFromEnv()));
-  const getActiveSessions = () => (isChannelsService(input) ? input.sessions.size : 0);
-  const getCredentials = () => (isChannelsService(input) ? input.credentials : readAdaptersFromEnv());
-  const resolveBot = async () => {
-    if (isChannelsService(input)) return input.bot;
-    if (legacyBotCache) return legacyBotCache;
-    legacyBotCache = await Promise.resolve(input);
-    return legacyBotCache;
-  };
+  const getBot = () => input.bot;
+  const getAdapterNames = () => input.activeAdapters;
+  const getActiveSessions = () => input.sessions.size;
+  const getCredentials = () => input.credentials;
 
   app.get('/health', (c) =>
     c.json({
@@ -80,9 +51,6 @@ export function createServer(
   });
 
   app.post('/reload', async (c) => {
-    if (!isChannelsService(input)) {
-      return c.json({ error: 'Reload requires a ChannelsService instance (service not initialized)' }, 501);
-    }
     try {
       const body = await c.req.json() as ReloadRequest;
       const result = await input.reload(body.credentials);
@@ -195,7 +163,7 @@ export function createServer(
 
   for (const mod of adapterModules) {
     app.post(`/api/webhooks/${mod.name}`, async (c) => {
-      const bot = await resolveBot();
+      const bot = input.bot;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const handler = (bot as any)?.webhooks?.[mod.name];
       if (!handler) {
@@ -208,7 +176,7 @@ export function createServer(
     // Telegram needs a GET handler for webhook verification
     if (mod.name === 'telegram') {
       app.get(`/api/webhooks/${mod.name}`, async (c) => {
-        const bot = await resolveBot();
+        const bot = input.bot;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const adapter = (bot as any)?.adapters?.[mod.name];
         if (!adapter?.handleWebhook) {

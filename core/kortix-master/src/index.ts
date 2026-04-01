@@ -206,7 +206,7 @@ app.use('*', async (c, next) => {
   return next()
 })
 
-// ─── OpenCode readiness tracking ─────────────────────────────────────────────
+// ─── Runtime readiness tracking ──────────────────────────────────────────────
 let openCodeReady = false
 let openCodeLastCheck = 0
 const OPENCODE_CHECK_INTERVAL = 5_000 // recheck every 5s when not ready
@@ -271,17 +271,17 @@ app.get('/docs',
 )
 
 // Health check — includes current sandbox version
-// Returns 200 when OpenCode is reachable, 503 when it's still starting up.
+// Returns 200 when the agent runtime is reachable, 503 when it's still starting up.
 // This ensures Docker/orchestrators treat the container as unhealthy until
 // the core API backend (OpenCode) is ready to serve requests.
 app.get('/kortix/health',
   describeRoute({
     tags: ['System'],
     summary: 'Health check',
-    description: 'Returns sandbox health status, current version, active WebSocket connections, and OpenCode readiness. Returns 200 when OpenCode is reachable, 503 when still starting.',
+    description: 'Returns sandbox health status, current version, active WebSocket connections, and runtime readiness. Returns 200 when the runtime is reachable, 503 when still starting.',
     responses: {
-      200: { description: 'Healthy — OpenCode is reachable', content: { 'application/json': { schema: resolver(HealthResponse) } } },
-      503: { description: 'Starting — OpenCode is not yet reachable', content: { 'application/json': { schema: resolver(HealthResponse) } } },
+      200: { description: 'Healthy — runtime is reachable', content: { 'application/json': { schema: resolver(HealthResponse) } } },
+      503: { description: 'Starting — runtime is not yet reachable', content: { 'application/json': { schema: resolver(HealthResponse) } } },
     },
   }),
   async (c) => {
@@ -298,7 +298,7 @@ app.get('/kortix/health',
     const changelog = await getChangelog(version)
     const status = openCodeReady ? 'ok' : 'starting'
     const httpStatus = openCodeReady ? 200 : 503
-    return c.json({ status, version, imageVersion, changelog, activeWs: activeConnections, opencode: openCodeReady }, httpStatus)
+    return c.json({ status, version, imageVersion, changelog, activeWs: activeConnections, runtimeReady: openCodeReady }, httpStatus)
   },
 )
 
@@ -449,14 +449,14 @@ app.all('/channels/*', async (c) => {
       // Timeout — no point retrying
       if (error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
         console.error(`[channels-proxy] Timeout on ${c.req.method} ${subPath}`)
-        return c.json({ error: 'opencode-channels request timed out', hint: 'The channels service on port 3456 did not respond in time' }, 504)
+        return c.json({ error: 'Channels service request timed out', hint: 'The channels service on port 3456 did not respond in time' }, 504)
       }
 
       // Connection refused — service is not running
       if (errMsg.includes('ECONNREFUSED') || errMsg.includes('Unable to connect') || errMsg.includes('Connection refused')) {
-        console.error(`[channels-proxy] Port 3456 unreachable on ${c.req.method} ${subPath}: opencode-channels is not running`)
+        console.error(`[channels-proxy] Port 3456 unreachable on ${c.req.method} ${subPath}: channels service is not running`)
         return c.json({
-          error: 'opencode-channels service is not running',
+          error: 'Channels service is not running',
           hint: 'Nothing listening on localhost:3456. The service may still be starting up — try again in a few seconds.',
           details: errMsg,
         }, 502)
@@ -476,7 +476,7 @@ app.all('/channels/*', async (c) => {
   }
 
   return c.json({
-    error: 'Failed to connect to opencode-channels',
+    error: 'Failed to connect to channels service',
     details: lastError,
     hint: 'The channels service on port 3456 is unreachable after retries',
   }, 502)

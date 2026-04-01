@@ -1,5 +1,5 @@
 import { eq, desc, sql, and, gte, inArray } from 'drizzle-orm';
-import { creditLedger, creditUsage, creditPurchases } from '../../shared/db-schema';
+import { creditLedger, creditUsage, creditPurchases } from '@kortix/db';
 import { db } from '../../shared/db';
 
 export async function insertLedgerEntry(data: typeof creditLedger.$inferInsert) {

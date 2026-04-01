@@ -245,11 +245,11 @@ export const IntegrationRunActionBody = z.object({
 // ─── Health schemas ─────────────────────────────────────────────────────────
 
 export const HealthResponse = z.object({
-  status: z.enum(['ok', 'starting']).describe("'ok' when OpenCode is reachable, 'starting' otherwise"),
+  status: z.enum(['ok', 'starting']).describe("'ok' when the agent runtime is reachable, 'starting' otherwise"),
   version: z.string().describe('Current sandbox version'),
   changelog: z.any().nullable().describe('Changelog entry for current version'),
   activeWs: z.number().int().describe('Active WebSocket connections'),
-  opencode: z.boolean().describe('Whether OpenCode is ready'),
+  runtimeReady: z.boolean().describe('Whether the agent runtime is ready'),
 })
 
 export const PortsResponse = z.object({

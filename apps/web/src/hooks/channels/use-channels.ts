@@ -119,22 +119,6 @@ const disableChannel = async (id: string): Promise<ChannelConfig> => {
   return response.data!.data;
 };
 
-const linkChannel = async ({ id, sandboxId }: { id: string; sandboxId: string }): Promise<ChannelConfig> => {
-  const response = await backendApi.post<ApiSingleResponse>(`/channels/${id}/link`, { sandbox_id: sandboxId });
-  if (!response.success) {
-    throw new Error(response.error?.message || 'Failed to link channel');
-  }
-  return response.data!.data;
-};
-
-const unlinkChannel = async (id: string): Promise<ChannelConfig> => {
-  const response = await backendApi.post<ApiSingleResponse>(`/channels/${id}/unlink`);
-  if (!response.success) {
-    throw new Error(response.error?.message || 'Failed to unlink channel');
-  }
-  return response.data!.data;
-};
-
 // ─── Hooks ──────────────────────────────────────────────────────────────────
 
 export const useChannels = (sandboxId?: string) => {
@@ -196,28 +180,6 @@ export const useToggleChannel = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['channels'] });
-    },
-  });
-};
-
-export const useLinkChannel = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: linkChannel,
-    onSuccess: (updated) => {
-      queryClient.invalidateQueries({ queryKey: ['channels'] });
-      queryClient.invalidateQueries({ queryKey: ['channel', updated.channelConfigId] });
-    },
-  });
-};
-
-export const useUnlinkChannel = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: unlinkChannel,
-    onSuccess: (updated) => {
-      queryClient.invalidateQueries({ queryKey: ['channels'] });
-      queryClient.invalidateQueries({ queryKey: ['channel', updated.channelConfigId] });
     },
   });
 };

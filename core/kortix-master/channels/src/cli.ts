@@ -19,6 +19,7 @@
  */
 
 import { markdownToTelegramV2 } from './telegram-api.js';
+import { getEnv } from '../../opencode/tools/lib/get-env.js';
 
 // ── Argument parsing ──────────────────────────────────────────────────────────
 
@@ -236,8 +237,8 @@ async function checkHealth(): Promise<void> {
 }
 
 async function listChannels(): Promise<void> {
-  const kortixApiUrl = process.env.KORTIX_API_URL || 'http://localhost:8008';
-  const kortixToken = process.env.KORTIX_TOKEN;
+  const kortixApiUrl = getEnv('KORTIX_API_URL') || 'http://localhost:8008';
+  const kortixToken = getEnv('KORTIX_TOKEN');
 
   if (!kortixToken) {
     // Fall back to local health check if no token

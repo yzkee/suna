@@ -422,11 +422,11 @@ providersApp.get('/health', async (c) => {
   if (!repoRoot) {
     // Docker mode: check sandbox via HTTP
     try {
-      const health = await fetchMasterJson<{ status: string; opencode?: boolean }>('/kortix/health', {}, 5000);
+      const health = await fetchMasterJson<{ status: string; runtimeReady?: boolean }>('/kortix/health', {}, 5000);
       checks.sandbox = { ok: true };
       checks.docker = { ok: true };
-      if (health.status === 'starting' || health.opencode === false) {
-        checks.sandbox = { ok: false, error: 'Sandbox reachable but OpenCode is still starting' };
+      if (health.status === 'starting' || health.runtimeReady === false) {
+        checks.sandbox = { ok: false, error: 'Sandbox reachable but runtime is still starting' };
       }
     } catch (e: any) {
       const msg = e?.message || String(e);
