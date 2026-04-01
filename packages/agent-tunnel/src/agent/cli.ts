@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+import '../node-ws-polyfill';
 import { loadConfig, type TunnelConfig } from './config';
 import { TunnelAgent } from './agent';
 import { CapabilityRegistry } from './capabilities/index';
