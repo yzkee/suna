@@ -711,7 +711,7 @@ export function createIntegrationsTokenRouter(): Hono<SandboxEnv> {
       const provider = await getProviderFromRequest(c, accountId);
       const result = await provider.createConnectToken(accountId, appSlug);
 
-      const dashboardUrl = `${config.FRONTEND_URL}/integrations?connect=${encodeURIComponent(appSlug)}&sandbox_id=${encodeURIComponent(sandboxId)}`;
+      const dashboardUrl = `${config.FRONTEND_URL}/connectors?connect=${encodeURIComponent(appSlug)}&sandbox_id=${encodeURIComponent(sandboxId)}`;
       console.log(`[INTEGRATIONS] Connect token created: app=${appSlug} sandbox=${sandboxId} account=${accountId}`);
       return c.json({
         connectUrl: dashboardUrl,
