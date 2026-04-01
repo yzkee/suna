@@ -428,12 +428,38 @@ export function useSendOpenCodeMessage() {
 export function useAbortOpenCodeSession() {
   return useMutation({
     mutationFn: async (sessionId: string) => {
+      console.log(`[useAbortOpenCodeSession] Aborting session ${sessionId}`);
       const client = getClient();
       const result = await client.session.abort({ sessionID: sessionId });
       unwrap(result);
+      console.log(`[useAbortOpenCodeSession] Session ${sessionId} aborted successfully`);
+      // After abort succeeds, the SSE stream should deliver session.idle event.
+      // If the UI stays stuck, it means the SSE event wasn't received/processed.
+      // The optimistic idle status we set in handleStop should handle this, but
+      // if for some reason the abort HTTP call returned but SSE didn't update,
+      // we force-refresh the session status from the server.
+      try {
+        const statusResult = await client.session.status();
+        const statuses = statusResult.data as Record<string, any>;
+        const serverStatus = statuses[sessionId];
+        console.log(`[useAbortOpenCodeSession] Post-abort server status for ${sessionId}:`, serverStatus);
+        if (serverStatus && serverStatus.type !== 'idle') {
+          // Server still thinks we're busy - update the store with server's view
+          // This can happen if SSE events were missed
+          useSyncStore.getState().setStatus(sessionId, serverStatus);
+        }
+      } catch (e) {
+        console.log(`[useAbortOpenCodeSession] Could not fetch post-abort status:`, e);
+      }
     },
     retry: 2,
     retryDelay: 300,
+    onError: (err, sessionId) => {
+      console.error(`[useAbortOpenCodeSession] Abort failed for session ${sessionId} after retries:`, err);
+    },
+    onSuccess: (data, sessionId) => {
+      console.log(`[useAbortOpenCodeSession] Abort confirmed for session ${sessionId}`);
+    },
   });
 }
 

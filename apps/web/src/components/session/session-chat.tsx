@@ -4390,7 +4390,11 @@ export function SessionChat({
 
 	const handleStop = useCallback(() => {
 		// Guard against rapid clicks — ignore if an abort is already in flight
-		if (abortSession.isPending) return;
+		if (abortSession.isPending) {
+			console.log(`[handleStop] Ignoring - abort already in flight for session ${sessionId}`);
+			return;
+		}
+		console.log(`[handleStop] Stopping session ${sessionId}`);
 		// Optimistically mark the session idle so the UI updates immediately
 		// (stop button hides, input re-enables) without waiting for the SSE
 		// round-trip. Also clear the busy debounce timer to bypass the 2s delay.
