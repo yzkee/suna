@@ -66,7 +66,7 @@ dots_ok()   { printf "${GREEN}✓${NC}\n"; }
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 INSTALL_DIR="${KORTIX_HOME:-$HOME/.kortix}"
-DEFAULT_KORTIX_VERSION="0.8.22"
+DEFAULT_KORTIX_VERSION="0.8.23"
 KORTIX_VERSION="${KORTIX_VERSION:-$DEFAULT_KORTIX_VERSION}"
 KORTIX_LOCAL_IMAGES="${KORTIX_LOCAL_IMAGES:-0}"
 KORTIX_LOCAL_TAG="${KORTIX_LOCAL_TAG:-latest}"
@@ -461,8 +461,13 @@ free_kortix_ports() {
   # First, clean up any lingering containers that might hold ports
   # Use project-specific pattern if project_name is provided
   if [ -n "$project_name" ]; then
-    # Clean up containers from this specific project (including old Created state containers)
-    docker ps -a --format '{{.Names}}' | grep -E "^${project_name}-" | xargs -r docker rm -f 2>/dev/null || true
+    # Clean up containers from this compose project (e.g. kortix-frontend-1).
+    # EXCLUDES standalone sandbox containers (kortix-sandbox, kortix-hosted-sandbox)
+    # which are managed by the API, not compose — killing them breaks dev mode.
+    docker ps -a --format '{{.Names}}' 2>/dev/null \
+      | grep -E "^${project_name}-" \
+      | grep -v -E "^(kortix-sandbox|kortix-hosted-sandbox)$" \
+      | xargs -r docker rm -f 2>/dev/null || true
   fi
   
   # Kill any processes using the ports
@@ -1248,8 +1253,12 @@ _free_kortix_ports() {
   local ports=(13737 13738 13740 13741)
   local freed=0
 
-  # Clean up any lingering containers from this project
-  docker ps -a --format '{{.Names}}' 2>/dev/null | grep -E "^${project_name}-" | xargs -r docker rm -f 2>/dev/null || true
+  # Clean up lingering compose containers from this project.
+  # EXCLUDES standalone sandbox containers (managed by the API, not compose).
+  docker ps -a --format '{{.Names}}' 2>/dev/null \
+    | grep -E "^${project_name}-" \
+    | grep -v -E "^(kortix-sandbox|${SANDBOX_NAME})$" \
+    | xargs -r docker rm -f 2>/dev/null || true
 
   # Kill any processes using the ports
   for port in "${ports[@]}"; do

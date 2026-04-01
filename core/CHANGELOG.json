@@ -1,5 +1,25 @@
 [
   {
+    "version": "0.8.23",
+    "date": "2026-04-01",
+    "title": "Configurable sandbox naming and installer UX overhaul",
+    "description": "Dev and self-hosted instances can now run simultaneously on the same machine. The installer gets a modern terminal UI refresh.",
+    "changes": [
+      {
+        "type": "feature",
+        "text": "Add SANDBOX_CONTAINER_NAME config so dev and self-hosted sandboxes use different Docker container names, volumes, and port ranges — eliminating all resource collisions"
+      },
+      {
+        "type": "improvement",
+        "text": "Overhaul installer UX with KORTIX ASCII banner, section headers, architecture diagram, progress indicators, and polished CLI output"
+      },
+      {
+        "type": "fix",
+        "text": "Harden sandbox container name resolution with empty-string guard in zod schema to prevent edge cases when env vars are unset"
+      }
+    ]
+  },
+  {
     "version": "0.8.21",
     "date": "2026-03-29",
     "title": "Backups, provisioning polish, and session routing fixes",
