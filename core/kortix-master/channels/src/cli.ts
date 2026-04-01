@@ -3,11 +3,11 @@
  * channels-send CLI — outbound messaging from the agent to Slack, Telegram, Discord.
  *
  * Usage:
- *   bun run /opt/opencode-channels/src/cli.ts send slack --to "#general" --text "Hello"
- *   bun run /opt/opencode-channels/src/cli.ts send telegram --to "123456789" --text "Done"
- *   bun run /opt/opencode-channels/src/cli.ts send discord --to "987654321098765432" --text "Build passed"
- *   bun run /opt/opencode-channels/src/cli.ts list
- *   bun run /opt/opencode-channels/src/cli.ts health
+ *   bun run /ephemeral/kortix-master/channels/src/cli.ts send slack --to "#general" --text "Hello"
+ *   bun run /ephemeral/kortix-master/channels/src/cli.ts send telegram --to "123456789" --text "Done"
+ *   bun run /ephemeral/kortix-master/channels/src/cli.ts send discord --to "987654321098765432" --text "Build passed"
+ *   bun run /ephemeral/kortix-master/channels/src/cli.ts list
+ *   bun run /ephemeral/kortix-master/channels/src/cli.ts health
  *
  * Credentials are read from environment variables:
  *   Slack:    SLACK_BOT_TOKEN

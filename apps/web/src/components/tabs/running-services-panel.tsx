@@ -3,77 +3,82 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   Activity,
-  Braces,
-  CheckCircle2,
-  Clock,
-  Code2,
   ExternalLink,
-  FileCode2,
-  FolderOpen,
-  Gem,
-  Globe,
-  Hexagon,
   Loader2,
+  Play,
+  Plus,
+  RefreshCw,
+  RotateCcw,
   Search,
   Server,
-  Settings,
-  TerminalSquare,
+  Square,
+  Trash2,
   X,
-  Zap,
-  type LucideIcon,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { toast } from '@/lib/toast';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { PageHeader } from '@/components/ui/page-header';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SpotlightCard } from '@/components/ui/spotlight-card';
 import { Ripple } from '@/components/ui/ripple';
-import { PageHeader } from '@/components/ui/page-header';
-import { useTabStore, openTabAndNavigate, type Tab } from '@/stores/tab-store';
-import { getCurrentInstanceIdFromWindow, toInstanceAwarePath } from '@/lib/instance-routes';
-import { useOpenCodePtyList } from '@/hooks/opencode/use-opencode-pty';
-import { useSandboxServices, type SandboxService } from '@/hooks/use-sandbox-services';
-import { useOpenCodeSessions, type Session } from '@/hooks/opencode/use-opencode-sessions';
-import { useServerStore } from '@/stores/server-store';
+import { Textarea } from '@/components/ui/textarea';
 import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
+import {
+  useRegisterSandboxService,
+  useSandboxServiceAction,
+  useSandboxServiceLogs,
+  useSandboxServiceReconcile,
+  useSandboxRuntimeReload,
+  useSandboxServiceTemplates,
+  useSandboxServices,
+  type RegisterSandboxServicePayload,
+  type SandboxService,
+} from '@/hooks/use-sandbox-services';
+import { openTabAndNavigate } from '@/stores/tab-store';
 
-// ============================================================================
-// Types
-// ============================================================================
+// ─── Types ──────────────────────────────────────────────────────────────────
 
-interface RunningService {
+type ServiceFilter = 'all' | 'managed' | 'projects' | 'system' | 'unmanaged';
+
+interface RegisterFormState {
   id: string;
-  kind: 'preview' | 'deployment' | 'terminal';
   name: string;
-  port?: number;
-  framework?: string;
-  status: 'running' | 'stopped' | 'unknown';
-  sessionId?: string;
-  sessionTitle?: string;
-  tabId?: string;
-  deploymentId?: string;
-  proxyUrl?: string;
-  startedAt?: string;
-  sourcePath?: string;
-  pid?: number;
-  hasTab?: boolean;
-  managed?: boolean;
+  template: string;
+  sourcePath: string;
+  startCommand: string;
+  port: string;
+  framework: string;
 }
 
-type FilterKey = 'all' | 'apps' | 'terminals';
+const DEFAULT_FORM: RegisterFormState = {
+  id: '',
+  name: '',
+  template: 'custom-command',
+  sourcePath: '/workspace',
+  startCommand: '',
+  port: '',
+  framework: 'node',
+};
 
-// ============================================================================
-// Helpers
-// ============================================================================
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function formatTimeAgo(dateStr: string | undefined): string {
   if (!dateStr) return '';
   try {
-    const date = new Date(dateStr);
-    const now = Date.now();
-    const diff = now - date.getTime();
-    if (diff < 0) return '';
+    const diff = Date.now() - new Date(dateStr).getTime();
     if (diff < 60_000) return 'just now';
     if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
     if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
@@ -83,76 +88,33 @@ function formatTimeAgo(dateStr: string | undefined): string {
   }
 }
 
-const FRAMEWORK_LABELS: Record<string, string> = {
-  nextjs: 'Next.js',
-  vite: 'Vite',
-  cra: 'CRA',
-  node: 'Node.js',
-  python: 'Python',
-  static: 'Static',
-  go: 'Go',
-  ruby: 'Ruby',
-  java: 'Java',
-  rust: 'Rust',
-};
-
-function getFrameworkLabel(fw: string): string | null {
-  if (!fw || fw === 'unknown') return null;
-  return FRAMEWORK_LABELS[fw] || fw;
-}
-
-function shortenPath(path: string): string {
+function shortenPath(path: string | undefined): string {
   if (!path) return '';
   return path.replace(/^\/workspace\/?/, '') || '/';
 }
 
-function compactUrl(url: string): string {
-  if (!url) return '';
-  try {
-    const parsed = new URL(url);
-    const path = parsed.pathname === '/' ? '' : parsed.pathname;
-    return `${parsed.host}${path}`;
-  } catch {
-    return url.replace(/^https?:\/\//, '').replace(/\/$/, '');
-  }
-}
+// ─── ServiceCard (Kortix SpotlightCard pattern) ─────────────────────────────
 
-// ============================================================================
-// ServiceCard
-// ============================================================================
-
-function ServiceCard({ service, index }: { service: RunningService; index: number }) {
-  const handleOpen = useCallback(() => {
-    if (service.tabId) {
-      const store = useTabStore.getState();
-      const tab = store.tabs[service.tabId];
-      if (tab) {
-        store.setActiveTab(service.tabId);
-        window.history.pushState(null, '', toInstanceAwarePath(tab.href, getCurrentInstanceIdFromWindow()));
-        return;
-      }
-    }
-    if (service.port && service.proxyUrl) {
-      openTabAndNavigate({
-        id: `preview:${service.port}`,
-        title: service.name || `localhost:${service.port}`,
-        type: 'preview',
-        href: `/preview/${service.port}`,
-        metadata: {
-          url: service.proxyUrl,
-          port: service.port,
-          originalUrl: `http://localhost:${service.port}/`,
-        },
-      });
-    }
-  }, [service]);
-
-  const isTerminal = service.kind === 'terminal';
-  const isDeployment = service.kind === 'deployment' || !!service.deploymentId;
-  const isRunning = service.status === 'running' || (service.status === 'unknown' && !!service.hasTab);
-  const fwLabel = service.framework ? getFrameworkLabel(service.framework) : null;
-
-  const Icon = isTerminal ? TerminalSquare : isDeployment ? Server : Globe;
+function ServiceCard({
+  service,
+  index,
+  pendingAction,
+  onOpen,
+  onShowLogs,
+  onAction,
+}: {
+  service: SandboxService;
+  index: number;
+  pendingAction: string | null;
+  onOpen: (s: SandboxService) => void;
+  onShowLogs: (id: string) => void;
+  onAction: (s: SandboxService, a: 'start' | 'stop' | 'restart' | 'delete') => void;
+}) {
+  const isRunning = service.status === 'running' || service.status === 'starting';
+  const canOpen = service.port > 0 && service.status === 'running';
+  const isManaged = service.managed;
+  const mainAction = isRunning ? 'stop' : 'start';
+  const busy = (a: string) => pendingAction === `${service.id}:${a}`;
 
   return (
     <motion.div
@@ -163,11 +125,12 @@ function ServiceCard({ service, index }: { service: RunningService; index: numbe
       transition={{ duration: 0.3, delay: Math.min(index * 0.03, 0.6) }}
     >
       <SpotlightCard className="bg-card border border-border/50">
-        <div onClick={handleOpen} className="p-4 sm:p-5 flex flex-col h-full cursor-pointer group">
+        <div className="p-4 sm:p-5 flex flex-col h-full group">
+          {/* Header row */}
           <div className="flex items-center gap-3 mb-3">
             <div className="relative">
               <div className="flex items-center justify-center w-9 h-9 rounded-[10px] bg-muted border border-border/50 shrink-0">
-                <Icon className="h-4.5 w-4.5 text-foreground" />
+                <Server className="h-4.5 w-4.5 text-foreground" />
               </div>
               {isRunning && (
                 <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3">
@@ -179,48 +142,95 @@ function ServiceCard({ service, index }: { service: RunningService; index: numbe
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
                 <h3 className="text-sm font-semibold text-foreground truncate">{service.name}</h3>
-                {isRunning ? (
-                  <Badge variant="highlight" className="text-[10px] shrink-0">Running</Badge>
-                ) : (
-                  <Badge variant="secondary" className="text-[10px] shrink-0">{service.status}</Badge>
-                )}
+                <Badge
+                  variant={service.status === 'running' ? 'highlight' : service.status === 'failed' ? 'destructive' : 'secondary'}
+                  className="text-[10px] shrink-0"
+                >
+                  {service.status === 'running' ? 'Running' : service.status === 'starting' ? 'Starting' : service.status === 'failed' ? 'Failed' : 'Stopped'}
+                </Badge>
               </div>
               <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="text-xs text-muted-foreground">
-                  {isTerminal ? 'Terminal' : isDeployment ? 'Deployment' : 'Preview'}
-                </span>
-                {service.port != null && service.port > 0 && (
+                {service.adapter && (
+                  <span className="text-xs text-muted-foreground">{service.adapter}</span>
+                )}
+                {service.port > 0 && (
                   <span className="text-xs text-muted-foreground/50 font-mono">:{service.port}</span>
                 )}
-                {fwLabel && (
-                  <span className="text-xs text-muted-foreground/50">{fwLabel}</span>
+                {service.framework && service.framework !== 'unknown' && (
+                  <span className="text-xs text-muted-foreground/50">{service.framework}</span>
                 )}
               </div>
             </div>
           </div>
 
+          {/* Description area */}
           <div className="h-[34px] mb-3">
             <p className="text-xs text-muted-foreground/80 leading-relaxed line-clamp-2">
-              {service.proxyUrl ? compactUrl(service.proxyUrl) : service.sourcePath ? shortenPath(service.sourcePath) : service.sessionTitle || '\u00A0'}
+              {service.sourcePath ? shortenPath(service.sourcePath) : service.scope ? `${service.scope} service` : '\u00A0'}
             </p>
           </div>
 
+          {/* Footer: time + actions */}
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-muted-foreground/50">
-              {service.startedAt ? formatTimeAgo(service.startedAt) : ''}
-            </span>
-            <div className="flex items-center gap-1">
-              {service.hasTab && (
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Tab open</Badge>
+            <div className="flex items-center gap-2">
+              {service.startedAt && (
+                <span className="text-[11px] text-muted-foreground/50">{formatTimeAgo(service.startedAt)}</span>
               )}
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 px-2.5 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-                Open
-              </Button>
+              {service.builtin && (
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Built-in</Badge>
+              )}
+              {!service.managed && (
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 border-dashed">Observed</Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-0.5">
+              {canOpen && (
+                <Button
+                  variant="ghost" size="sm"
+                  className="h-8 px-2 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={() => onOpen(service)}
+                >
+                  <ExternalLink className="h-3.5 w-3.5 mr-1" />
+                  Open
+                </Button>
+              )}
+              {isManaged && (
+                <>
+                  <Button
+                    variant="ghost" size="sm"
+                    className="h-8 px-2 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                    disabled={!!pendingAction}
+                    onClick={() => onAction(service, mainAction)}
+                  >
+                    {busy(mainAction) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : mainAction === 'start' ? <Play className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
+                  </Button>
+                  <Button
+                    variant="ghost" size="sm"
+                    className="h-8 px-2 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                    disabled={!!pendingAction}
+                    onClick={() => onAction(service, 'restart')}
+                  >
+                    {busy('restart') ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                  </Button>
+                  <Button
+                    variant="ghost" size="sm"
+                    className="h-8 px-2 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => onShowLogs(service.id)}
+                  >
+                    <Activity className="h-3.5 w-3.5" />
+                  </Button>
+                  {!service.builtin && (
+                    <Button
+                      variant="ghost" size="sm"
+                      className="h-8 px-2 text-xs text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                      disabled={!!pendingAction}
+                      onClick={() => onAction(service, 'delete')}
+                    >
+                      {busy('delete') ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                    </Button>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -229,14 +239,12 @@ function ServiceCard({ service, index }: { service: RunningService; index: numbe
   );
 }
 
-// ============================================================================
-// Loading skeleton
-// ============================================================================
+// ─── Loading skeleton ───────────────────────────────────────────────────────
 
 function LoadingSkeleton() {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-      {[1, 2, 3, 4].map((i) => (
+      {[1, 2, 3, 4, 5, 6].map((i) => (
         <div key={i} className="rounded-2xl border dark:bg-card p-4 sm:p-5">
           <div className="flex items-center gap-3 mb-3">
             <Skeleton className="h-9 w-9 rounded-[10px]" />
@@ -256,9 +264,7 @@ function LoadingSkeleton() {
   );
 }
 
-// ============================================================================
-// Empty state
-// ============================================================================
+// ─── Empty state ────────────────────────────────────────────────────────────
 
 function EmptyState() {
   return (
@@ -266,190 +272,173 @@ function EmptyState() {
       <Ripple mainCircleSize={160} mainCircleOpacity={0.12} numCircles={6} />
       <div className="relative z-10 flex flex-col items-center">
         <div className="w-16 h-16 bg-muted border rounded-2xl flex items-center justify-center mb-4">
-          <Activity className="h-7 w-7 text-muted-foreground" />
+          <Server className="h-7 w-7 text-muted-foreground" />
         </div>
-        <h3 className="text-lg font-semibold text-foreground mb-2">No running services</h3>
+        <h3 className="text-lg font-semibold text-foreground mb-2">No services found</h3>
         <p className="text-sm text-muted-foreground text-center leading-relaxed max-w-md">
-          Services will appear here when you deploy apps, open previews, or start terminals.
+          Services will appear here when Kortix Master starts managing them. Register a project app or wait for the built-in services to come online.
         </p>
       </div>
     </div>
   );
 }
 
-// ============================================================================
-// RunningServicesPanel
-// ============================================================================
+// ─── Main panel ─────────────────────────────────────────────────────────────
 
 export function RunningServicesPanel() {
-  const { data: services, isLoading: servicesLoading } = useSandboxServices();
-  const { data: ptys, isLoading: ptysLoading } = useOpenCodePtyList();
-  const { data: sessions } = useOpenCodeSessions();
-  const tabs = useTabStore((s) => s.tabs);
-  const tabOrder = useTabStore((s) => s.tabOrder);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
-
-  const activeServer = useServerStore((s) => {
-    return s.servers.find((srv) => srv.id === s.activeServerId) ?? null;
-  });
   const { getServiceUrl } = useSandboxProxy();
+  const { data: services = [], isLoading, error } = useSandboxServices({ includeAll: true });
+  const { data: templates = [] } = useSandboxServiceTemplates();
+  const actionMutation = useSandboxServiceAction();
+  const reconcileMutation = useSandboxServiceReconcile();
+  const runtimeReloadMutation = useSandboxRuntimeReload();
+  const registerMutation = useRegisterSandboxService();
 
-  const sessionMap = useMemo(() => {
-    const map = new Map<string, Session>();
-    if (sessions) {
-      for (const s of sessions) map.set(s.id, s);
-    }
-    return map;
-  }, [sessions]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filter, setFilter] = useState<ServiceFilter>('all');
+  const [logsServiceId, setLogsServiceId] = useState<string | null>(null);
+  const [isRegisterOpen, setIsRegisterOpen] = useState(false);
+  const [form, setForm] = useState<RegisterFormState>(DEFAULT_FORM);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [pendingGlobal, setPendingGlobal] = useState<string | null>(null);
 
-  const previewTabByPort = useMemo(() => {
-    const map = new Map<number, Tab>();
-    for (const id of tabOrder) {
-      const tab = tabs[id];
-      if (tab?.type === 'preview') {
-        const port = (tab.metadata?.port as number) || 0;
-        if (port > 0) map.set(port, tab);
-      }
-    }
-    return map;
-  }, [tabs, tabOrder]);
+  const selectedLogService = useMemo(() => services.find((s) => s.id === logsServiceId) ?? null, [logsServiceId, services]);
+  const { data: logLines = [], isLoading: logsLoading } = useSandboxServiceLogs(logsServiceId, { enabled: !!logsServiceId });
 
-  const { appServices, terminalServices } = useMemo(() => {
-    const apps: RunningService[] = [];
-    const terminals: RunningService[] = [];
-    const seenPorts = new Set<number>();
-
-    if (services) {
-      for (const svc of services) {
-        seenPorts.add(svc.port);
-        const tab = previewTabByPort.get(svc.port);
-
-        let sessionTitle: string | undefined;
-        if (tab) {
-          const sourceSessionId = tab.metadata?.sourceSessionId as string | undefined;
-          const sourceSessionTitle = tab.metadata?.sourceSessionTitle as string | undefined;
-          sessionTitle = sourceSessionTitle;
-          if (!sessionTitle && sourceSessionId) {
-            sessionTitle = sessionMap.get(sourceSessionId)?.title;
-          }
-        }
-
-        let proxyUrl = tab ? ((tab.metadata?.url as string) || '') : '';
-        if (!proxyUrl) {
-          proxyUrl = getServiceUrl(svc.port);
-        }
-
-        const svcNameIsGeneric = !svc.name || svc.name === `service:${svc.port}` || svc.name === `port-${svc.port}`;
-        const name = svcNameIsGeneric
-          ? (tab?.title || svc.name || `localhost:${svc.port}`)
-          : svc.name;
-
-        apps.push({
-          id: `app:${svc.port}`,
-          kind: 'deployment',
-          name,
-          port: svc.port,
-          framework: svc.framework,
-          status: svc.status,
-          sessionId: tab ? (tab.metadata?.sourceSessionId as string | undefined) : undefined,
-          sessionTitle,
-          tabId: tab?.id,
-          deploymentId: svc.id,
-          proxyUrl,
-          startedAt: svc.startedAt || undefined,
-          sourcePath: svc.sourcePath || undefined,
-          pid: svc.pid,
-          hasTab: !!tab,
-          managed: svc.managed,
-        });
-      }
-    }
-
-    for (const [port, tab] of previewTabByPort) {
-      if (seenPorts.has(port)) continue;
-      const sourceSessionId = tab.metadata?.sourceSessionId as string | undefined;
-      const sourceSessionTitle = tab.metadata?.sourceSessionTitle as string | undefined;
-      let sessionTitle = sourceSessionTitle;
-      if (!sessionTitle && sourceSessionId) {
-        sessionTitle = sessionMap.get(sourceSessionId)?.title;
-      }
-      apps.push({
-        id: `app:${port}`,
-        kind: 'preview',
-        name: tab.title || `localhost:${port}`,
-        port,
-        status: 'unknown',
-        sessionId: sourceSessionId,
-        sessionTitle,
-        tabId: tab.id,
-        proxyUrl: (tab.metadata?.url as string) || '',
-        hasTab: true,
-      });
-    }
-
-    const terminalTabs = tabOrder
-      .map((id) => tabs[id])
-      .filter((t): t is Tab => !!t && t.type === 'terminal');
-
-    for (const tab of terminalTabs) {
-      terminals.push({
-        id: `terminal:${tab.id}`,
-        kind: 'terminal',
-        name: tab.title || 'Terminal',
-        status: 'running',
-        tabId: tab.id,
-        hasTab: true,
-      });
-    }
-
-    return { appServices: apps, terminalServices: terminals };
-  }, [tabs, tabOrder, services, previewTabByPort, getServiceUrl, sessionMap]);
-
-  const isLoading = servicesLoading || ptysLoading;
+  // ── Derived data ──
 
   const counts = useMemo(() => ({
-    all: appServices.length + terminalServices.length,
-    apps: appServices.length,
-    terminals: terminalServices.length,
-  }), [appServices, terminalServices]);
+    all: services.length,
+    managed: services.filter((s) => s.managed).length,
+    projects: services.filter((s) => s.managed && (s.scope === 'project' || s.scope === 'session')).length,
+    system: services.filter((s) => s.managed && (s.scope === 'core' || s.scope === 'bootstrap')).length,
+    unmanaged: services.filter((s) => !s.managed).length,
+  }), [services]);
 
-  const filteredServices = useMemo(() => {
-    let items: RunningService[] = [];
-    if (activeFilter === 'all') items = [...appServices, ...terminalServices];
-    else if (activeFilter === 'apps') items = appServices;
-    else items = terminalServices;
+  const filtered = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return services
+      .filter((s) => {
+        if (filter === 'managed') return s.managed;
+        if (filter === 'projects') return s.managed && (s.scope === 'project' || s.scope === 'session');
+        if (filter === 'system') return s.managed && (s.scope === 'core' || s.scope === 'bootstrap');
+        if (filter === 'unmanaged') return !s.managed;
+        return true;
+      })
+      .filter((s) => !q || [s.id, s.name, s.framework, s.scope, s.adapter, s.status].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)))
+      .sort((a, b) => {
+        if (a.managed !== b.managed) return a.managed ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+  }, [services, filter, searchQuery]);
 
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      items = items.filter(
-        (s) =>
-          s.name.toLowerCase().includes(q) ||
-          s.framework?.toLowerCase().includes(q) ||
-          s.proxyUrl?.toLowerCase().includes(q) ||
-          s.sessionTitle?.toLowerCase().includes(q),
-      );
+  const templateOptions = useMemo(() => {
+    const hasCustom = templates.some((t) => t.id === 'custom-command');
+    const base = hasCustom ? [] : [{ id: 'custom-command', name: 'Custom command', description: '', framework: undefined, defaultPort: undefined }];
+    return [...base, ...templates];
+  }, [templates]);
+
+  const selectedTemplate = useMemo(
+    () => templateOptions.find((t) => t.id === form.template) ?? templateOptions[0],
+    [form.template, templateOptions],
+  );
+  const needsCustomCmd = selectedTemplate?.id === 'custom-command';
+
+  // ── Handlers ──
+
+  const handleOpen = useCallback((s: SandboxService) => {
+    if (s.port <= 0 || s.status !== 'running') return;
+    openTabAndNavigate({
+      id: `preview:${s.port}`,
+      title: s.name || `localhost:${s.port}`,
+      type: 'preview',
+      href: `/preview/${s.port}`,
+      metadata: { url: getServiceUrl(s.port), port: s.port, originalUrl: `http://localhost:${s.port}/` },
+    });
+  }, [getServiceUrl]);
+
+  const handleAction = useCallback(async (s: SandboxService, action: 'start' | 'stop' | 'restart' | 'delete') => {
+    setPendingAction(`${s.id}:${action}`);
+    try {
+      await actionMutation.mutateAsync({ serviceId: s.id, action });
+      if (action === 'delete' && logsServiceId === s.id) setLogsServiceId(null);
+    } catch (e) {
+      toast.warning(e instanceof Error ? e.message : `Failed to ${action} ${s.name}`);
+    } finally {
+      setPendingAction(null);
     }
+  }, [actionMutation, logsServiceId]);
 
-    return items;
-  }, [appServices, terminalServices, activeFilter, searchQuery]);
+  const handleReconcile = useCallback(async (reload: boolean) => {
+    setPendingGlobal(reload ? 'reload' : 'reconcile');
+    try { await reconcileMutation.mutateAsync({ reload }); } catch (e) {
+      toast.warning(e instanceof Error ? e.message : 'Reconcile failed');
+    } finally { setPendingGlobal(null); }
+  }, [reconcileMutation]);
+
+  const handleFullReload = useCallback(async () => {
+    setPendingGlobal('full-reload');
+    try { await runtimeReloadMutation.mutateAsync({ mode: 'full' }); } catch (e) {
+      toast.warning(e instanceof Error ? e.message : 'Reload failed');
+    } finally { setPendingGlobal(null); }
+  }, [runtimeReloadMutation]);
+
+  const handleRegister = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.id.trim()) { toast.warning('Service ID is required'); return; }
+    if (needsCustomCmd && !form.startCommand.trim()) { toast.warning('Start command is required'); return; }
+    const port = form.port.trim() ? Number(form.port) : undefined;
+
+    const payload: RegisterSandboxServicePayload = {
+      id: form.id.trim(),
+      name: form.name.trim() || form.id.trim(),
+      scope: 'project',
+      sourcePath: form.sourcePath.trim(),
+      template: selectedTemplate?.id,
+      framework: form.framework.trim() || undefined,
+      port,
+      desiredState: 'running',
+      autoStart: true,
+      userVisible: true,
+      startNow: true,
+    };
+    if (needsCustomCmd) {
+      payload.adapter = 'spawn';
+      payload.startCommand = form.startCommand.trim();
+    }
+    try {
+      await registerMutation.mutateAsync(payload);
+      setIsRegisterOpen(false);
+      setForm(DEFAULT_FORM);
+    } catch (e) {
+      toast.warning(e instanceof Error ? e.message : 'Registration failed');
+    }
+  }, [form, registerMutation, needsCustomCmd, selectedTemplate?.id]);
+
+  // ── Filters config ──
+  const filters: { key: ServiceFilter; label: string; count: number }[] = [
+    { key: 'all', label: 'All', count: counts.all },
+    { key: 'system', label: 'System', count: counts.system },
+    { key: 'projects', label: 'Projects', count: counts.projects },
+    { key: 'unmanaged', label: 'Observed', count: counts.unmanaged },
+  ];
 
   return (
     <div className="flex-1 overflow-y-auto">
       {/* Page header */}
       <div className="container mx-auto max-w-7xl px-3 sm:px-4 py-4 sm:py-8 animate-in fade-in-0 slide-in-from-bottom-4 duration-500 fill-mode-both">
-        <PageHeader icon={Activity}>
+        <PageHeader icon={Server}>
           <div className="space-y-2 sm:space-y-4">
             <div className="text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight">
-              <span className="text-primary">Running Services</span>
+              <span className="text-primary">Service Manager</span>
             </div>
           </div>
         </PageHeader>
       </div>
 
       <div className="container mx-auto max-w-7xl px-3 sm:px-4">
-        {/* Search + filter bar */}
-        <div className="flex items-center gap-2 sm:gap-4 pb-3 sm:pb-4 pt-2 sm:pt-3 animate-in fade-in-0 slide-in-from-bottom-4 duration-500 fill-mode-both delay-75">
+        {/* Search + filter + actions bar */}
+        <div className="flex items-center justify-between gap-2 sm:gap-4 pb-3 sm:pb-4 pt-2 sm:pt-3 animate-in fade-in-0 slide-in-from-bottom-4 duration-500 fill-mode-both delay-75">
           <div className="flex-1 max-w-md">
             <div className="relative group">
               <input
@@ -475,68 +464,93 @@ export function RunningServicesPanel() {
 
           {/* Filter segmented control */}
           <div className="hidden sm:flex items-center gap-1 rounded-2xl border border-border bg-muted/30 p-1">
-            {([
-              { key: 'all' as FilterKey, label: 'All' },
-              { key: 'apps' as FilterKey, label: 'Apps & Previews' },
-              { key: 'terminals' as FilterKey, label: 'Terminals' },
-            ] as const).map((f) => (
+            {filters.map((f) => (
               <button
                 key={f.key}
-                onClick={() => setActiveFilter(f.key)}
+                onClick={() => setFilter(f.key)}
                 className={cn(
                   'px-3 py-1.5 text-xs font-medium rounded-xl transition-all cursor-pointer',
-                  activeFilter === f.key
+                  filter === f.key
                     ? 'bg-background text-foreground border border-border/50 shadow-sm'
                     : 'text-muted-foreground hover:text-foreground hover:bg-background/70 border border-transparent',
                 )}
               >
                 {f.label}
-                {counts[f.key] > 0 && (
-                  <span className="ml-1 tabular-nums opacity-60">{counts[f.key]}</span>
-                )}
+                {f.count > 0 && <span className="ml-1 tabular-nums opacity-60">{f.count}</span>}
               </button>
             ))}
           </div>
 
-          {/* Mobile filter */}
-          <div className="sm:hidden">
-            <select
-              value={activeFilter}
-              onChange={(e) => setActiveFilter(e.target.value as FilterKey)}
-              className="h-11 rounded-2xl border border-input bg-card px-3 text-sm"
+          {/* Actions */}
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="ghost" size="sm"
+              className="h-9 px-2.5 text-xs"
+              disabled={pendingGlobal !== null}
+              onClick={() => void handleReconcile(false)}
+              title="Reconcile services"
             >
-              <option value="all">All ({counts.all})</option>
-              <option value="apps">Apps ({counts.apps})</option>
-              <option value="terminals">Terminals ({counts.terminals})</option>
-            </select>
+              {pendingGlobal === 'reconcile' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            </Button>
+            <Button
+              variant="ghost" size="sm"
+              className="h-9 px-2.5 text-xs"
+              disabled={pendingGlobal !== null}
+              onClick={() => void handleFullReload()}
+              title="Full runtime reload"
+            >
+              {pendingGlobal === 'full-reload' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+            </Button>
+            <Button
+              variant="default" size="sm"
+              className="h-9 px-3 sm:px-4 rounded-xl gap-1.5 text-sm"
+              onClick={() => setIsRegisterOpen(true)}
+            >
+              <Plus className="h-4 w-4" />
+              <span className="hidden xs:inline">Register</span>
+            </Button>
           </div>
         </div>
 
         {/* Content */}
         <div className="pb-6 sm:pb-8 animate-in fade-in-0 slide-in-from-bottom-4 duration-500 fill-mode-both delay-150">
-          {isLoading ? (
-            <LoadingSkeleton />
-          ) : counts.all === 0 ? (
-            <EmptyState />
-          ) : filteredServices.length === 0 && searchQuery ? (
-            <div className="text-center py-12 text-muted-foreground text-sm">
-              No services matching &ldquo;{searchQuery}&rdquo;
+          {error ? (
+            <div className="text-center py-12 text-destructive text-sm">
+              {error instanceof Error ? error.message : 'Failed to load services'}
             </div>
+          ) : isLoading ? (
+            <LoadingSkeleton />
+          ) : filtered.length === 0 ? (
+            searchQuery ? (
+              <div className="text-center py-12 text-muted-foreground text-sm">
+                No services matching &ldquo;{searchQuery}&rdquo;
+              </div>
+            ) : (
+              <EmptyState />
+            )
           ) : (
             <>
               <div className="flex items-center gap-2 mb-4">
                 <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  {activeFilter === 'all' ? 'All Services' : activeFilter === 'apps' ? 'Apps & Previews' : 'Terminals'}
+                  Services
                 </span>
                 <Badge variant="secondary" className="text-xs tabular-nums">
-                  {filteredServices.length}
+                  {filtered.length}
                 </Badge>
               </div>
 
               <AnimatePresence mode="popLayout">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {filteredServices.map((s, i) => (
-                    <ServiceCard key={s.id} service={s} index={i} />
+                  {filtered.map((s, i) => (
+                    <ServiceCard
+                      key={s.id}
+                      service={s}
+                      index={i}
+                      pendingAction={pendingAction}
+                      onOpen={handleOpen}
+                      onShowLogs={setLogsServiceId}
+                      onAction={(svc, action) => void handleAction(svc, action)}
+                    />
                   ))}
                 </div>
               </AnimatePresence>
@@ -544,6 +558,68 @@ export function RunningServicesPanel() {
           )}
         </div>
       </div>
+
+      {/* Logs dialog */}
+      <Dialog open={!!selectedLogService} onOpenChange={(open) => !open && setLogsServiceId(null)}>
+        <DialogContent className="max-w-4xl p-0">
+          <DialogHeader className="border-b border-border/60 px-6 py-5">
+            <DialogTitle>{selectedLogService?.name || 'Service logs'}</DialogTitle>
+            <DialogDescription>{selectedLogService?.id || ''}</DialogDescription>
+          </DialogHeader>
+          <div className="px-6 py-5">
+            <ScrollArea className="h-[28rem] rounded-2xl border border-border/60 bg-muted/20">
+              <div className="p-4">
+                {logsLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+                  </div>
+                ) : logLines.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No logs captured yet.</p>
+                ) : (
+                  <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-6 text-foreground">{logLines.join('\n')}</pre>
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Register dialog — simple */}
+      <Dialog open={isRegisterOpen} onOpenChange={setIsRegisterOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Register a service</DialogTitle>
+            <DialogDescription>
+              Register a project app. It will autostart and survive reloads.
+            </DialogDescription>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={handleRegister}>
+            <label className="space-y-2 text-sm font-medium">
+              <span>Service ID</span>
+              <Input value={form.id} onChange={(e) => setForm((c) => ({ ...c, id: e.target.value }))} placeholder="my-web-app" />
+            </label>
+            <label className="space-y-2 text-sm font-medium">
+              <span>Source path</span>
+              <Input value={form.sourcePath} onChange={(e) => setForm((c) => ({ ...c, sourcePath: e.target.value }))} placeholder="/workspace/my-app" />
+            </label>
+            <label className="space-y-2 text-sm font-medium">
+              <span>Start command</span>
+              <Input value={form.startCommand} onChange={(e) => setForm((c) => ({ ...c, startCommand: e.target.value }))} placeholder="bun server.js" />
+            </label>
+            <label className="space-y-2 text-sm font-medium">
+              <span>Port <span className="text-muted-foreground font-normal">(optional — auto-assigned if empty)</span></span>
+              <Input value={form.port} onChange={(e) => setForm((c) => ({ ...c, port: e.target.value }))} placeholder="3000" inputMode="numeric" />
+            </label>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsRegisterOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={registerMutation.isPending}>
+                {registerMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Start
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

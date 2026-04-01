@@ -15,7 +15,7 @@ Control desktop applications on the user's machine via `agent-click`, an open-so
 Before using agent-click, verify it's installed on the user's machine. Run these via Agent Tunnel:
 
 ```bash
-TUNNEL=/opt/opencode/skills/KORTIX-system/agent-tunnel/tunnel.ts
+TUNNEL=$OPENCODE_CONFIG_DIR/skills/KORTIX-system/agent-tunnel/tunnel.ts
 
 # 1. Check tunnel connection
 bun run "$TUNNEL" status

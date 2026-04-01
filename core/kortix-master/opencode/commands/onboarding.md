@@ -97,7 +97,7 @@ connector_setup(connectors='[
 For Pipedream connectors, use the Pipedream script:
 
 ```bash
-SCRIPT=$(find /opt/opencode ~/.opencode /workspace /ephemeral -name "integration.ts" 2>/dev/null | head -1)
+SCRIPT=$(find "$OPENCODE_CONFIG_DIR" ~/.opencode /workspace /ephemeral -name "integration.ts" 2>/dev/null | head -1)
 bun run "$SCRIPT" search '{"q":"gmail"}'
 bun run "$SCRIPT" connect '{"app":"gmail"}'
 bun run "$SCRIPT" list
@@ -394,7 +394,7 @@ connector_setup(connectors='[
 **For Pipedream connectors**, use the Pipedream script to get connect URLs:
 
 ```bash
-SCRIPT=$(find /opt/opencode ~/.opencode /workspace /ephemeral -name "integration.ts" 2>/dev/null | head -1)
+SCRIPT=$(find "$OPENCODE_CONFIG_DIR" ~/.opencode /workspace /ephemeral -name "integration.ts" 2>/dev/null | head -1)
 bun run "$SCRIPT" search '{"q":"service_name"}'
 bun run "$SCRIPT" connect '{"app":"APP_SLUG"}'
 ```

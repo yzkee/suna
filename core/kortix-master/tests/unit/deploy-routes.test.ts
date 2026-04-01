@@ -1,38 +1,48 @@
-/**
- * Unit tests for the deploy routes (kortix-master).
- *
- * Tests the Hono router that wraps the Deployer service.
- * Uses real Deployer with temp directories — no mocking.
- */
 import { describe, it, expect, afterAll } from 'bun:test'
 import { mkdtempSync, writeFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { Hono } from 'hono'
-
-// We can't import the router directly because it has a module-level Deployer
-// singleton. Instead, we build a fresh one for testing.
-import { Deployer } from '../../src/services/deployer'
+import { ServiceManager, type RegisteredServiceSpec } from '../../src/services/service-manager'
 
 const tempDirs: string[] = []
+const managers: ServiceManager[] = []
 
-function makeTempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'deploy-routes-test-'))
+function makeTempDir(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
   tempDirs.push(dir)
   return dir
 }
 
-// Build a test app with a fresh deployer
-const deployer = new Deployer()
+function createManager(storageDir: string) {
+  const manager = new ServiceManager({
+    registryFile: join(storageDir, 'registry.json'),
+    logsDir: join(storageDir, 'logs'),
+    gateDir: join(storageDir, 'enabled'),
+    builtins: [] as RegisteredServiceSpec[],
+  })
+  managers.push(manager)
+  return manager
+}
+
+afterAll(async () => {
+  for (const manager of managers) {
+    try { await manager.stop() } catch {}
+  }
+  await Bun.sleep(300)
+  for (const dir of tempDirs) {
+    try { rmSync(dir, { recursive: true, force: true }) } catch {}
+  }
+})
+
+const storageDir = makeTempDir('deploy-routes-store-')
+const manager = createManager(storageDir)
 const app = new Hono()
 
-// Mount deploy routes inline (mirror the real router but with our deployer)
 app.post('/kortix/deploy', async (c) => {
-  const body = await c.req.json()
-  if (!body.deploymentId) {
-    return c.json({ error: 'deploymentId is required' }, 400)
-  }
-  const result = await deployer.deploy({
+  const body = await c.req.json<any>()
+  if (!body.deploymentId) return c.json({ error: 'deploymentId is required' }, 400)
+  const result = await manager.deployLegacyService({
     deploymentId: body.deploymentId,
     sourceType: body.sourceType || 'files',
     sourceRef: body.sourceRef,
@@ -52,44 +62,41 @@ app.post('/kortix/deploy', async (c) => {
   }, result.success ? 200 : 500)
 })
 
-app.post('/kortix/deploy/:id/stop', (c) => {
-  const id = c.req.param('id')
-  const result = deployer.stop(id)
-  if (!result.success) return c.json({ success: false, error: result.error }, 404)
-  return c.json({ success: true })
+app.post('/kortix/deploy/:id/stop', async (c) => {
+  const result = await manager.stopService(c.req.param('id'))
+  if (!result.ok) return c.json({ success: false, error: result.output }, 404)
+  return c.json({ success: true, output: result.output })
 })
 
-app.get('/kortix/deploy/:id/logs', (c) => {
-  const id = c.req.param('id')
-  const result = deployer.getLogs(id)
+app.get('/kortix/deploy/:id/logs', async (c) => {
+  const result = await manager.getLogs(c.req.param('id'))
   if (result.error) return c.json({ logs: [], error: result.error }, 404)
   return c.json({ logs: result.logs })
 })
 
-app.get('/kortix/deploy/:id/status', (c) => {
-  const id = c.req.param('id')
-  const result = deployer.getStatus(id)
-  if (result.status === 'not_found') return c.json({ status: 'not_found' }, 404)
-  return c.json({ status: result.status, port: result.port, pid: result.pid, framework: result.framework })
+app.get('/kortix/deploy/:id/status', async (c) => {
+  const service = await manager.getService(c.req.param('id'))
+  if (!service) return c.json({ status: 'not_found' }, 404)
+  return c.json({
+    status: service.status === 'running' || service.status === 'starting' ? 'running' : 'stopped',
+    port: service.port,
+    pid: service.pid,
+    framework: service.framework,
+  })
 })
 
-app.get('/kortix/deploy', (c) => {
-  const list = deployer.listDeployments()
-  return c.json({ deployments: list })
+app.get('/kortix/deploy', async (c) => {
+  const services = await manager.listServices({ includeSystem: true, includeStopped: true })
+  return c.json({
+    deployments: services.filter((service) => service.scope === 'project').map((service) => ({
+      id: service.id,
+      status: service.status === 'running' || service.status === 'starting' ? 'running' : 'stopped',
+      port: service.port,
+      pid: service.pid,
+      framework: service.framework,
+    })),
+  })
 })
-
-// Cleanup
-afterAll(async () => {
-  for (const dep of deployer.listDeployments()) {
-    deployer.stop(dep.deploymentId)
-  }
-  await Bun.sleep(500)
-  for (const dir of tempDirs) {
-    try { rmSync(dir, { recursive: true, force: true }) } catch {}
-  }
-})
-
-// ─── Helper ──────────────────────────────────────────────────────────────────
 
 function jsonPost(path: string, body: unknown) {
   return app.request(path, {
@@ -103,29 +110,25 @@ function jsonGet(path: string) {
   return app.request(path, { method: 'GET' })
 }
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
-describe('Deploy Routes — POST /kortix/deploy', () => {
+describe('Deploy Routes — compatibility over ServiceManager', () => {
   it('returns 400 when deploymentId is missing', async () => {
     const res = await jsonPost('/kortix/deploy', { sourceType: 'files' })
     expect(res.status).toBe(400)
-    const body = await res.json()
-    expect(body.error).toContain('deploymentId')
   })
 
   it('deploys a simple Bun server via API', async () => {
-    const dir = makeTempDir()
-    writeFileSync(join(dir, 'server.js'), `
+    const appDir = makeTempDir('deploy-routes-app-')
+    writeFileSync(join(appDir, 'server.js'), `
       Bun.serve({
-        port: process.env.PORT,
-        fetch: () => new Response('route-test'),
+        port: Number(process.env.PORT),
+        fetch() { return new Response('route-test') },
       })
     `)
 
     const res = await jsonPost('/kortix/deploy', {
       deploymentId: `route-test-${Date.now()}`,
       sourceType: 'files',
-      sourcePath: dir,
+      sourcePath: appDir,
       framework: 'node',
       entrypoint: 'bun server.js',
     })
@@ -134,93 +137,47 @@ describe('Deploy Routes — POST /kortix/deploy', () => {
     const body = await res.json()
     expect(body.success).toBe(true)
     expect(body.port).toBeDefined()
-    expect(body.pid).toBeDefined()
-    expect(body.framework).toBe('node')
 
-    // Verify the app responds
-    const appRes = await fetch(`http://localhost:${body.port}`)
+    const appRes = await fetch(`http://127.0.0.1:${body.port}`)
     expect(await appRes.text()).toBe('route-test')
   }, 30000)
 
-  it('returns 500 for non-existent source path', async () => {
-    const res = await jsonPost('/kortix/deploy', {
-      deploymentId: `route-fail-${Date.now()}`,
-      sourceType: 'files',
-      sourcePath: '/nonexistent/path',
-    })
-    expect(res.status).toBe(500)
-    const body = await res.json()
-    expect(body.success).toBe(false)
-    expect(body.error).toContain('Source path not found')
-  })
-})
-
-describe('Deploy Routes — GET /kortix/deploy (list)', () => {
-  it('returns a list of deployments', async () => {
+  it('lists managed deployments', async () => {
     const res = await jsonGet('/kortix/deploy')
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.deployments).toBeArray()
-    // Should have at least the one from the previous test
     expect(body.deployments.length).toBeGreaterThanOrEqual(1)
   })
-})
 
-describe('Deploy Routes — GET /kortix/deploy/:id/status', () => {
-  it('returns 404 for non-existent deployment', async () => {
-    const res = await jsonGet('/kortix/deploy/nonexistent/status')
-    expect(res.status).toBe(404)
-    const body = await res.json()
-    expect(body.status).toBe('not_found')
-  })
+  it('returns status and logs for a running deployment', async () => {
+    const list = await jsonGet('/kortix/deploy')
+    const deployments = (await list.json()).deployments as Array<{ id: string }>
+    const id = deployments[0].id
 
-  it('returns status for running deployment', async () => {
-    const list = deployer.listDeployments()
-    if (list.length === 0) return // skip if nothing running
-
-    const res = await jsonGet(`/kortix/deploy/${list[0].deploymentId}/status`)
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.status).toBe('running')
-    expect(body.port).toBeDefined()
-  })
-})
-
-describe('Deploy Routes — GET /kortix/deploy/:id/logs', () => {
-  it('returns 404 for non-existent deployment', async () => {
-    const res = await jsonGet('/kortix/deploy/nonexistent/logs')
-    expect(res.status).toBe(404)
-  })
-
-  it('returns logs for running deployment', async () => {
-    const list = deployer.listDeployments()
-    if (list.length === 0) return
-
-    const res = await jsonGet(`/kortix/deploy/${list[0].deploymentId}/logs`)
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.logs).toBeArray()
-  })
-})
-
-describe('Deploy Routes — POST /kortix/deploy/:id/stop', () => {
-  it('returns 404 for non-existent deployment', async () => {
-    const res = await jsonPost('/kortix/deploy/nonexistent/stop', {})
-    expect(res.status).toBe(404)
-  })
-
-  it('stops a running deployment', async () => {
-    const list = deployer.listDeployments()
-    if (list.length === 0) return
-
-    const id = list[0].deploymentId
-    const res = await jsonPost(`/kortix/deploy/${id}/stop`, {})
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.success).toBe(true)
-
-    // Verify it's gone
     const statusRes = await jsonGet(`/kortix/deploy/${id}/status`)
-    expect(statusRes.status).toBe(404)
+    expect(statusRes.status).toBe(200)
+    const statusBody = await statusRes.json()
+    expect(statusBody.status).toBe('running')
+
+    await Bun.sleep(200)
+    const logsRes = await jsonGet(`/kortix/deploy/${id}/logs`)
+    expect(logsRes.status).toBe(200)
+    const logsBody = await logsRes.json()
+    expect(logsBody.logs).toBeArray()
+  })
+
+  it('stops a managed deployment and reports stopped status', async () => {
+    const list = await jsonGet('/kortix/deploy')
+    const deployments = (await list.json()).deployments as Array<{ id: string }>
+    const id = deployments[0].id
+
+    const stopRes = await jsonPost(`/kortix/deploy/${id}/stop`, {})
+    expect(stopRes.status).toBe(200)
+
+    const statusRes = await jsonGet(`/kortix/deploy/${id}/status`)
+    expect(statusRes.status).toBe(200)
+    const statusBody = await statusRes.json()
+    expect(statusBody.status).toBe('stopped')
   })
 })

@@ -1,52 +1,33 @@
 import { Hono } from 'hono'
-import { existsSync, readFileSync, readdirSync } from 'fs'
+import { existsSync } from 'fs'
 import { join } from 'path'
 import type { ListeningProcess } from '../services/port-scanner'
-import { config } from '../config'
+import { serviceManager } from '../services/service-manager'
+import { initiateRuntimeReload, type ReloadMode } from '../services/runtime-reload'
 
 const servicesRouter = new Hono()
-console.log('[Services] Route module loaded')
-
-async function getDeployer() {
-  if (!config.KORTIX_DEPLOYMENTS_ENABLED) return null
-  const mod = await import('./deploy')
-  return mod.deployer
-}
-
-// ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface ServiceEntry {
-  /** Unique service identifier */
   id: string
-  /** Human-readable name */
   name: string
-  /** Port the service is listening on */
   port: number
-  /** Process ID */
   pid: number
-  /** Detected framework (nextjs, vite, python, static, node, go, etc.) */
   framework: string
-  /** Source directory path */
   sourcePath: string
-  /** ISO timestamp when the service started */
   startedAt: string
-  /** Current status */
-  status: 'running' | 'stopped'
-  /** Whether this service is managed by the deployer (vs manually started) */
+  status: 'running' | 'stopped' | 'starting' | 'failed' | 'backoff'
   managed: boolean
+  adapter?: 'spawn' | 's6'
+  scope?: 'bootstrap' | 'core' | 'project' | 'session'
+  desiredState?: 'running' | 'stopped'
+  builtin?: boolean
+  autoStart?: boolean
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-/**
- * Guess a framework label from the process command/cmdline/cwd.
- * For compiled binaries (Go, Rust, etc.), falls back to filesystem detection.
- */
 function guessFramework(command: string, cmdline: string, cwd?: string): string {
   const cmd = command.toLowerCase()
   const args = cmdline.toLowerCase()
 
-  // ── Direct command/args detection ──
   if (cmd === 'go' || cmd.startsWith('go-') || args.includes('go run') || args.includes('go build')) return 'go'
   if (cmd === 'python' || cmd === 'python3' || cmd === 'uvicorn' || cmd === 'gunicorn') return 'python'
   if (cmd === 'ruby' || cmd === 'rails' || cmd === 'puma') return 'ruby'
@@ -59,20 +40,13 @@ function guessFramework(command: string, cmdline: string, cwd?: string): string 
   if (args.includes('serve ') || args.includes('http-server')) return 'static'
   if (cmd === 'node' || cmd === 'bun' || cmd === 'deno') return 'node'
 
-  // ── Compiled binary detection via filesystem ──
-  // For compiled Go/Rust/etc. binaries, check the CWD or binary parent dir for project markers.
   if (cwd && cwd.startsWith('/workspace')) {
-    // Check CWD first, then walk up to /workspace
     const dirsToCheck = [cwd]
-    // Also check the directory the binary lives in (cmdline first arg)
     const binaryPath = cmdline.split(/\s+/)[0]
     if (binaryPath) {
       const binDir = binaryPath.replace(/\/[^/]+$/, '')
-      if (binDir && binDir !== cwd && binDir.startsWith('/workspace')) {
-        dirsToCheck.push(binDir)
-      }
+      if (binDir && binDir !== cwd && binDir.startsWith('/workspace')) dirsToCheck.push(binDir)
     }
-
     for (const dir of dirsToCheck) {
       try {
         if (existsSync(join(dir, 'go.mod'))) return 'go'
@@ -81,57 +55,45 @@ function guessFramework(command: string, cmdline: string, cwd?: string): string 
         if (existsSync(join(dir, 'pom.xml')) || existsSync(join(dir, 'build.gradle'))) return 'java'
         if (existsSync(join(dir, 'requirements.txt')) || existsSync(join(dir, 'pyproject.toml'))) return 'python'
         if (existsSync(join(dir, 'package.json'))) return 'node'
-      } catch { /* permission denied or similar */ }
+      } catch {
+        // ignore filesystem errors
+      }
     }
   }
 
   return 'unknown'
 }
 
-/**
- * Guess a human-friendly name from the process info.
- */
 function guessName(command: string, cmdline: string, cwd: string, port: number): string {
-  // Use the directory name from cwd if it's inside /workspace
   if (cwd && cwd !== '/' && cwd !== '/workspace') {
     const relative = cwd.replace(/^\/workspace\/?/, '')
     const dirName = relative.split('/').filter(Boolean).pop()
-    if (dirName) {
-      return dirName
-    }
+    if (dirName) return dirName
   }
 
-  // Try to extract from the binary path in cmdline
   const binaryPath = cmdline.split(/\s+/)[0]
   if (binaryPath && binaryPath.startsWith('/workspace/')) {
     const relative = binaryPath.replace(/^\/workspace\/?/, '')
     const parts = relative.split('/').filter(Boolean)
-    // Use the directory name if it's a nested binary (e.g. /workspace/go-server/server)
-    if (parts.length > 1) {
-      return parts[0]
-    }
+    if (parts.length > 1) return parts[0]
   }
 
-  // Try to extract a meaningful name from cmdline
-  // e.g. "go run main.go" → "go-app", "python app.py" → "app"
   const cmd = command.toLowerCase()
   if (cmd === 'go' || cmdline.includes('go run') || cmdline.includes('go build')) {
-    // Try to get script/binary name
-    const goMatch = cmdline.match(/go\s+run\s+(\S+)/)
-    if (goMatch) {
-      const file = goMatch[1].replace(/\.\w+$/, '') // strip extension
+    const match = cmdline.match(/go\s+run\s+(\S+)/)
+    if (match) {
+      const file = match[1].replace(/\.\w+$/, '')
       if (file !== 'main' && file !== '.') return file
     }
   }
   if (cmd === 'python' || cmd === 'python3') {
-    const pyMatch = cmdline.match(/python3?\s+(\S+)/)
-    if (pyMatch) {
-      const file = pyMatch[1].replace(/\.\w+$/, '')
+    const match = cmdline.match(/python3?\s+(\S+)/)
+    if (match) {
+      const file = match[1].replace(/\.\w+$/, '')
       if (file && file !== '-m') return file
     }
   }
 
-  // Fallback: command name if it's not super generic
   if (command && !['node', 'python3', 'python', 'sh', 'bash', 'bun'].includes(cmd)) {
     return command
   }
@@ -139,67 +101,58 @@ function guessName(command: string, cmdline: string, cwd: string, port: number):
   return `service:${port}`
 }
 
-// ─── Routes ─────────────────────────────────────────────────────────────────
+async function scanUnmanagedServices(): Promise<ServiceEntry[]> {
+  let scanned: ListeningProcess[] = []
+  try {
+    const { scanListeningProcesses } = await import('../services/port-scanner')
+    scanned = scanListeningProcesses()
+  } catch (err) {
+    console.warn('[Services API] Port scanner failed:', err)
+  }
 
-/**
- * GET / — List all running services.
- *
- * Merges two sources:
- * 1. Deployer-tracked services (managed — started via POST /kortix/deploy)
- * 2. Port-scanned processes (unmanaged — started manually in terminals)
- *
- * Deployer entries take priority when both exist for the same port.
- */
+  return scanned.map((proc) => ({
+    id: `port-${proc.port}`,
+    name: guessName(proc.command, proc.cmdline, proc.cwd, proc.port),
+    port: proc.port,
+    pid: proc.pid,
+    framework: guessFramework(proc.command, proc.cmdline, proc.cwd),
+    sourcePath: proc.cwd,
+    startedAt: '',
+    status: 'running',
+    managed: false,
+  }))
+}
+
 servicesRouter.get('/', async (c) => {
   try {
-    const results: ServiceEntry[] = []
-    const seenPorts = new Set<number>()
+    const includeAll = c.req.query('all') === 'true'
+    const managedServices = await serviceManager.listServices({
+      includeSystem: includeAll,
+      includeStopped: includeAll,
+    })
 
-    // 1. Deployer-tracked services (managed)
-    const deployer = await getDeployer()
-    if (deployer) {
-      const deployments = deployer.listDeployments()
-      console.log(`[Services API] Deployer has ${deployments.length} tracked service(s)`)
-      for (const dep of deployments) {
-        seenPorts.add(dep.port)
-        results.push({
-          id: dep.deploymentId,
-          name: dep.deploymentId,
-          port: dep.port,
-          pid: dep.pid,
-          framework: dep.framework,
-          sourcePath: dep.sourcePath,
-          startedAt: dep.startedAt instanceof Date ? dep.startedAt.toISOString() : String(dep.startedAt),
-          status: dep.status,
-          managed: true,
-        })
-      }
-    }
+    const results: ServiceEntry[] = managedServices.map((service) => ({
+      id: service.id,
+      name: service.name,
+      port: service.port ?? 0,
+      pid: service.pid ?? 0,
+      framework: service.framework ?? 'unknown',
+      sourcePath: service.sourcePath ?? '',
+      startedAt: service.startedAt ?? '',
+      status: service.status,
+      managed: true,
+      adapter: service.adapter,
+      scope: service.scope,
+      desiredState: service.desiredState,
+      builtin: service.builtin,
+      autoStart: service.autoStart,
+    }))
 
-    // 2. Port-scanned processes (unmanaged)
-    let scanned: ListeningProcess[] = []
-    try {
-      const { scanListeningProcesses } = await import('../services/port-scanner')
-      scanned = scanListeningProcesses()
-      console.log(`[Services API] Port scanner found ${scanned.length} listening process(es):`, scanned.map(p => `${p.command}:${p.port} (pid=${p.pid}, cwd=${p.cwd})`))
-    } catch (err) {
-      console.warn(`[Services API] Port scanner failed (non-fatal):`, err)
-    }
-    for (const proc of scanned) {
-      if (seenPorts.has(proc.port)) continue
-      seenPorts.add(proc.port)
-
-      results.push({
-        id: `port-${proc.port}`,
-        name: guessName(proc.command, proc.cmdline, proc.cwd, proc.port),
-        port: proc.port,
-        pid: proc.pid,
-        framework: guessFramework(proc.command, proc.cmdline, proc.cwd),
-        sourcePath: proc.cwd,
-        startedAt: '', // Not available from /proc
-        status: 'running',
-        managed: false,
-      })
+    const seenPorts = new Set(results.map((service) => service.port).filter((port) => port > 0))
+    const unmanaged = await scanUnmanagedServices()
+    for (const service of unmanaged) {
+      if (service.port > 0 && seenPorts.has(service.port)) continue
+      results.push(service)
     }
 
     return c.json({ services: results })
@@ -209,64 +162,152 @@ servicesRouter.get('/', async (c) => {
   }
 })
 
-/**
- * GET /:id — Get a specific service's details.
- */
+servicesRouter.get('/templates', async (c) => {
+  try {
+    return c.json({ templates: serviceManager.listTemplates() })
+  } catch (error) {
+    return c.json({ error: 'Failed to list service templates', details: String(error) }, 500)
+  }
+})
+
+servicesRouter.post('/register', async (c) => {
+  try {
+    const body = await c.req.json<{
+      id: string
+      name?: string
+      adapter?: 'spawn' | 's6'
+      scope?: 'bootstrap' | 'core' | 'project' | 'session'
+      description?: string
+      projectId?: string | null
+      template?: string | null
+      framework?: string | null
+      sourcePath?: string | null
+      startCommand?: string | null
+      installCommand?: string | null
+      buildCommand?: string | null
+      envVarKeys?: string[]
+      deps?: string[]
+      port?: number | null
+      desiredState?: 'running' | 'stopped'
+      autoStart?: boolean
+      restartPolicy?: 'always' | 'on-failure' | 'never'
+      restartDelayMs?: number
+      s6ServiceName?: string | null
+      processPatterns?: string[]
+      userVisible?: boolean
+      healthCheck?: { type?: 'none' | 'tcp' | 'http'; path?: string; timeoutMs?: number }
+      startNow?: boolean
+    }>()
+
+    if (!body?.id) return c.json({ error: 'id is required' }, 400)
+
+    if (body.template && !body.startCommand && !body.s6ServiceName) {
+      const template = serviceManager.listTemplates().find((entry) => entry.id === body.template)
+      if (!template) return c.json({ error: `Unknown template: ${body.template}` }, 400)
+      body.adapter = body.adapter || template.adapter
+      body.framework = body.framework || template.framework || null
+      body.installCommand = body.installCommand ?? template.installCommand ?? null
+      body.buildCommand = body.buildCommand ?? template.buildCommand ?? null
+      if (body.port == null && template.defaultPort != null) body.port = template.defaultPort
+      if (template.startCommand) {
+        body.startCommand = template.startCommand.replace(/__PORT__/g, String(body.port ?? template.defaultPort ?? 3000))
+      }
+    }
+
+    const service = await serviceManager.registerService(body)
+    let action: { ok: boolean; output: string } = { ok: true, output: 'registered' }
+    if ((body.startNow ?? body.desiredState === 'running') && service.desiredState === 'running') {
+      action = await serviceManager.startService(body.id)
+    }
+
+    return c.json({ success: action.ok, output: action.output, service: await serviceManager.getService(body.id) }, action.ok ? 200 : 500)
+  } catch (error) {
+    return c.json({ error: 'Failed to register service', details: String(error) }, 500)
+  }
+})
+
+servicesRouter.post('/reconcile', async (c) => {
+  try {
+    const reload = c.req.query('reload') === 'true'
+    const result = reload
+      ? await serviceManager.reloadFromDiskAndReconcile()
+      : await serviceManager.reconcile()
+    if (!result.ok) return c.json({ success: false, error: result.output }, 500)
+    return c.json({ success: true, output: result.output, services: await serviceManager.listServices({ includeSystem: true, includeStopped: true }) })
+  } catch (error) {
+    return c.json({ success: false, error: String(error) }, 500)
+  }
+})
+
+servicesRouter.post('/system/reload', async (c) => {
+  try {
+    const body = await c.req.json<{ mode?: ReloadMode }>().catch(() => ({} as { mode?: ReloadMode }))
+    const mode: ReloadMode = body.mode || 'full'
+    return c.json(await initiateRuntimeReload(mode))
+  } catch (error) {
+    return c.json({ success: false, error: String(error) }, 500)
+  }
+})
+
+servicesRouter.get('/:id/logs', async (c) => {
+  try {
+    const id = c.req.param('id')
+    const result = await serviceManager.getLogs(id)
+    if (result.error) return c.json({ logs: [], error: result.error }, 404)
+    return c.json({ logs: result.logs })
+  } catch (error) {
+    return c.json({ logs: [], error: String(error) }, 500)
+  }
+})
+
 servicesRouter.get('/:id', async (c) => {
   try {
-    const deployer = await getDeployer()
-    if (!deployer) {
-      return c.json({ error: 'Deployment system disabled' }, 404)
-    }
-
-    const id = c.req.param('id')
-    const status = deployer.getStatus(id)
-
-    if (status.status === 'not_found') {
-      return c.json({ error: `Service not found: ${id}` }, 404)
-    }
-
-    const service: ServiceEntry = {
-      id,
-      name: id,
-      port: status.port ?? 0,
-      pid: status.pid ?? 0,
-      framework: status.framework ?? 'unknown',
-      sourcePath: '',
-      startedAt: status.startedAt instanceof Date ? status.startedAt.toISOString() : '',
-      status: status.status,
-      managed: true,
-    }
-
+    const service = await serviceManager.getService(c.req.param('id'))
+    if (!service) return c.json({ error: `Service not found: ${c.req.param('id')}` }, 404)
     return c.json({ service })
   } catch (error) {
-    console.error('[Services API] Error getting service:', error)
     return c.json({ error: 'Failed to get service', details: String(error) }, 500)
   }
 })
 
-/**
- * POST /:id/stop — Stop a running service.
- * Only works for deployer-managed services.
- */
+servicesRouter.post('/:id/start', async (c) => {
+  try {
+    const result = await serviceManager.startService(c.req.param('id'))
+    if (!result.ok && result.output.includes('Unknown service')) return c.json({ success: false, error: result.output }, 404)
+    return c.json({ success: result.ok, output: result.output, service: result.service }, result.ok ? 200 : 500)
+  } catch (error) {
+    return c.json({ success: false, error: String(error) }, 500)
+  }
+})
+
 servicesRouter.post('/:id/stop', async (c) => {
   try {
-    const deployer = await getDeployer()
-    if (!deployer) {
-      return c.json({ success: false, error: 'Deployment system disabled' }, 404)
-    }
-
-    const id = c.req.param('id')
-    const result = deployer.stop(id)
-
-    if (!result.success) {
-      return c.json({ success: false, error: result.error }, 404)
-    }
-
-    return c.json({ success: true })
+    const result = await serviceManager.stopService(c.req.param('id'))
+    if (!result.ok && result.output.includes('Unknown service')) return c.json({ success: false, error: result.output }, 404)
+    return c.json({ success: result.ok, output: result.output, service: result.service }, result.ok ? 200 : 500)
   } catch (error) {
-    console.error('[Services API] Error stopping service:', error)
-    return c.json({ error: 'Failed to stop service', details: String(error) }, 500)
+    return c.json({ success: false, error: String(error) }, 500)
+  }
+})
+
+servicesRouter.post('/:id/restart', async (c) => {
+  try {
+    const result = await serviceManager.restartService(c.req.param('id'))
+    if (!result.ok && result.output.includes('Unknown service')) return c.json({ success: false, error: result.output }, 404)
+    return c.json({ success: result.ok, output: result.output, service: result.service }, result.ok ? 200 : 500)
+  } catch (error) {
+    return c.json({ success: false, error: String(error) }, 500)
+  }
+})
+
+servicesRouter.delete('/:id', async (c) => {
+  try {
+    const result = await serviceManager.unregisterService(c.req.param('id'))
+    if (!result.ok && result.output.includes('Unknown service')) return c.json({ success: false, error: result.output }, 404)
+    if (!result.ok && result.output.includes('builtin')) return c.json({ success: false, error: result.output }, 400)
+    return c.json({ success: result.ok, output: result.output }, result.ok ? 200 : 500)
+  } catch (error) {
+    return c.json({ success: false, error: String(error) }, 500)
   }
 })
 

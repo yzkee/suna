@@ -445,7 +445,7 @@ export const menuRegistry: MenuItemDef[] = [
     : []),
   {
     id: 'running-services',
-    label: 'Running Services',
+    label: 'Service Manager',
     icon: Activity,
     group: 'navigation',
     subGroup: 'services',
@@ -512,7 +512,7 @@ export const menuRegistry: MenuItemDef[] = [
   },
   {
     id: 'running-services-cmd',
-    label: 'Running Services',
+    label: 'Service Manager',
     icon: Activity,
     group: 'navigation',
     showIn: ['commandPalette'],
@@ -520,7 +520,7 @@ export const menuRegistry: MenuItemDef[] = [
     href: '/services/running',
     tabId: 'services:running',
     tabType: 'services',
-    keywords: 'running services processes background sandbox active',
+    keywords: 'service manager services orchestration process manager sandbox active',
   },
   {
     id: 'agent-browser-cmd',

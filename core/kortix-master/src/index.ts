@@ -31,7 +31,7 @@ import cronRouter from './routes/cron'
 import triggersRouter from './routes/triggers'
 import marketplaceRouter from './routes/marketplace'
 import projectsRouter from './routes/projects'
-import { coreSupervisor } from './services/core-supervisor'
+import { serviceManager } from './services/service-manager'
 import { getCronManager } from './services/cron-manager'
 import { config } from './config'
 import { loadBootstrapEnv, saveBootstrapEnv } from './services/bootstrap-env'
@@ -115,8 +115,8 @@ if (!authSyncDisabled) {
 // Updates are Docker image-based — no crash recovery needed
 
 if (process.env.KORTIX_DISABLE_CORE_SUPERVISOR !== 'true') {
-  await coreSupervisor.start().catch(err =>
-    console.error('[Kortix Master] core supervisor start error:', err)
+  await serviceManager.start().catch(err =>
+    console.error('[Kortix Master] service manager start error:', err)
   )
 }
 

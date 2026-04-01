@@ -547,6 +547,11 @@ export class LocalDockerProvider implements SandboxProvider {
    * Since getEnv() reads s6 first (always fresh from disk), updated values
    * take effect immediately — no service restart needed.
    * Only POSTs when values actually differ from what's currently set.
+   *
+   * NOTE: KORTIX_TOKEN and TUNNEL_TOKEN are NOT synced here. They are managed
+   * by injectSandboxToken (at API startup) and syncTokenToContainer (at runtime
+   * when ensure() is called with a caller-provided token). This prevents
+   * clobbering the authoritative DB token with stale Docker creation-time values.
    */
   async syncCoreEnvVars(): Promise<void> {
     if (this._serviceKeySynced) return;
@@ -557,23 +562,26 @@ export class LocalDockerProvider implements SandboxProvider {
       return;
     }
 
-    const containerEnv = await this.getContainerEnv();
-
     const sandboxApiBase = getSandboxInternalApiUrl();
-    const sandboxToken = containerEnv['KORTIX_TOKEN'] || '';
     const desired: Record<string, string> = {
       KORTIX_API_URL: sandboxApiBase,
-      KORTIX_TOKEN: sandboxToken,
       INTERNAL_SERVICE_KEY: config.INTERNAL_SERVICE_KEY,
       TUNNEL_API_URL: sandboxApiBase,
-      TUNNEL_TOKEN: sandboxToken,
     };
 
+    // Read current state from the live master env (s6 env dir) — NOT from
+    // Docker inspect which only has stale creation-time values.
     let currentEnv: Record<string, string> = {};
     try {
       currentEnv = await this.fetchMasterEnv();
     } catch {
-      currentEnv = containerEnv;
+      // Master not ready yet — fall back to Docker inspect for URL/key only
+      const containerEnv = await this.getContainerEnv();
+      currentEnv = {
+        KORTIX_API_URL: containerEnv['KORTIX_API_URL'] || '',
+        INTERNAL_SERVICE_KEY: containerEnv['INTERNAL_SERVICE_KEY'] || '',
+        TUNNEL_API_URL: containerEnv['TUNNEL_API_URL'] || '',
+      };
     }
 
     const stale: Record<string, string> = {};
@@ -585,7 +593,7 @@ export class LocalDockerProvider implements SandboxProvider {
 
     if (Object.keys(stale).length === 0) {
       this._serviceKeySynced = true;
-      console.log('[LOCAL-DOCKER] syncCoreEnvVars: all 3 core vars in sync');
+      console.log('[LOCAL-DOCKER] syncCoreEnvVars: all core vars in sync');
       return;
     }
 

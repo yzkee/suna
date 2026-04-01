@@ -1,33 +1,36 @@
 import { Hono } from 'hono'
 import { describeRoute } from 'hono-openapi'
-import { coreSupervisor } from '../services/core-supervisor'
+import { serviceManager } from '../services/service-manager'
 
 const coreRouter = new Hono()
 
 coreRouter.get('/status',
   describeRoute({
     tags: ['System'],
-    summary: 'Core supervisor status',
-    description: 'Returns current core supervisor state and managed service statuses.',
-    responses: { 200: { description: 'Core status' } },
+    summary: 'Central service manager status',
+    description: 'Returns Kortix Master service-manager state for core and bootstrap services.',
+    responses: { 200: { description: 'Core service status' } },
   }),
-  (c) => {
-    return c.json(coreSupervisor.getStatus())
+  async (c) => {
+    return c.json(await serviceManager.getCoreStatus())
   },
 )
 
 coreRouter.post('/reconcile',
   describeRoute({
     tags: ['System'],
-    summary: 'Reconcile core services from disk',
-    description: 'Reloads /ephemeral/metadata/core/service-spec.json and reconciles running services.',
+    summary: 'Reconcile central service registry',
+    description: 'Reloads the service registry from disk when requested and reconciles managed services.',
     responses: { 200: { description: 'Reconcile result' }, 500: { description: 'Reconcile failed' } },
   }),
   async (c) => {
     try {
-      const result = await coreSupervisor.reconcileFromDisk()
+      const reload = c.req.query('reload') === 'true'
+      const result = reload
+        ? await serviceManager.reloadFromDiskAndReconcile()
+        : await serviceManager.reconcile()
       if (!result.ok) return c.json({ success: false, error: result.output }, 500)
-      return c.json({ success: true, output: result.output, status: coreSupervisor.getStatus() })
+      return c.json({ success: true, output: result.output, status: await serviceManager.getCoreStatus() })
     } catch (e) {
       return c.json({ success: false, error: String(e) }, 500)
     }
@@ -37,24 +40,23 @@ coreRouter.post('/reconcile',
 coreRouter.post('/restart/:service',
   describeRoute({
     tags: ['System'],
-    summary: 'Restart a core-managed service',
-    description: 'Restarts a single service managed by the core supervisor.',
+    summary: 'Restart a managed service',
+    description: 'Restarts a single service managed by Kortix Master.',
     responses: { 200: { description: 'Restart result' }, 404: { description: 'Service not found' }, 500: { description: 'Restart failed' } },
   }),
   async (c) => {
     const service = c.req.param('service')
-    const result = await coreSupervisor.restartService(service)
+    const result = await serviceManager.restartService(service)
     if (!result.ok && result.output.includes('Unknown service')) {
       return c.json({ success: false, error: result.output }, 404)
     }
     if (!result.ok) {
       return c.json({ success: false, error: result.output }, 500)
     }
-    return c.json({ success: true, output: result.output, status: coreSupervisor.getStatus() })
+    return c.json({ success: true, output: result.output, status: await serviceManager.getCoreStatus() })
   },
 )
 
-// Debug: run a shell command and return stdout+stderr (internal/localhost only)
 coreRouter.post('/exec',
   describeRoute({
     tags: ['System'],

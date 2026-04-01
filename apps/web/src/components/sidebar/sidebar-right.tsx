@@ -46,7 +46,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { authenticatedFetch } from '@/lib/auth-token';
 import { useServerStore } from '@/stores/server-store';
 
@@ -101,13 +100,10 @@ export function SidebarRight() {
     setReloadDialogOpen(false);
     setIsReloading(true);
 
-    const serverUrl = useServerStore.getState().servers.find(
-      (srv) => srv.id === useServerStore.getState().activeServerId,
-    )?.url;
-    const baseUrl = serverUrl || '';
+    const baseUrl = useServerStore.getState().getActiveServerUrl();
 
     try {
-      const res = await authenticatedFetch(`${baseUrl}/kortix/reload`, {
+      const res = await authenticatedFetch(`${baseUrl}/kortix/services/system/reload`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: isFullReload ? 'full' : 'dispose-only' }),
@@ -115,7 +111,7 @@ export function SidebarRight() {
       if (res.ok) {
         toast.success(
           isFullReload
-            ? 'Full reload initiated — all services restarting'
+            ? 'Restarting — all managed services will come back up'
             : 'Config rescanned — skills, agents & tools reloaded',
         );
       } else {
@@ -123,7 +119,7 @@ export function SidebarRight() {
       }
     } catch (e) {
       console.error('[SidebarRight] Reload failed:', e);
-      toast.error('Failed to reload instance');
+      toast.error('Failed to restart instance');
     } finally {
       setIsReloading(false);
     }
@@ -455,58 +451,26 @@ export function SidebarRight() {
       <AlertDialog open={reloadDialogOpen} onOpenChange={setReloadDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reload Instance</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                {isFullReload ? (
-                  <>
-                    <p>All services will be restarted from scratch. Active sessions will be interrupted.</p>
-                    <ul className="list-disc pl-4 text-xs text-muted-foreground space-y-1">
-                      <li>All processes restart — picks up any code or config changes</li>
-                      <li>In-memory state, caches, and module cache fully cleared</li>
-                      <li>Equivalent to a container restart without rebuilding</li>
-                      <li>You&apos;ll need to send a new message to resume in each session</li>
-                    </ul>
-                  </>
-                ) : (
-                  <>
-                    <p>OpenCode config will be rescanned from disk. Active sessions will be interrupted.</p>
-                    <ul className="list-disc pl-4 text-xs text-muted-foreground space-y-1">
-                      <li>Skills, agents, plugins, tools, and config rescanned</li>
-                      <li>MCP connections dropped and reconnected</li>
-                      <li>Processes keep running — only OpenCode config reloads</li>
-                      <li>You&apos;ll need to send a new message to resume in each session</li>
-                    </ul>
-                  </>
-                )}
-                <div className="flex items-start gap-2 pt-2 border-t">
-                  <Checkbox
-                    id="full-reload-checkbox"
-                    checked={isFullReload}
-                    onCheckedChange={(checked) => setIsFullReload(checked === true)}
-                    className="mt-0.5"
-                  />
-                  <label
-                    htmlFor="full-reload-checkbox"
-                    className="text-sm leading-tight cursor-pointer"
-                  >
-                    <span className="font-medium">Full reload</span>
-                    <span className="text-xs text-muted-foreground ml-1">
-                      (restart all processes)
-                    </span>
-                  </label>
-                </div>
-              </div>
+            <AlertDialogTitle>Restart Instance</AlertDialogTitle>
+            <AlertDialogDescription>
+              All managed services will be stopped and restarted. Active sessions will be interrupted.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <Button
-              variant="destructive"
-              onClick={confirmReloadInstance}
+              variant="outline"
+              onClick={() => { setIsFullReload(false); void confirmReloadInstance(); }}
               disabled={isReloading}
             >
-              {isReloading ? 'Reloading...' : 'Reload'}
+              Config Only
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => { setIsFullReload(true); void confirmReloadInstance(); }}
+              disabled={isReloading}
+            >
+              {isReloading ? 'Restarting…' : 'Full Restart'}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

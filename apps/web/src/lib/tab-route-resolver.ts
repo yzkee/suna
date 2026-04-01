@@ -43,7 +43,7 @@ const STATIC_TAB_ROUTES: Record<string, TabDescriptor> = {
   },
   '/services/running': {
     id: 'services:running',
-    title: 'Running Services',
+    title: 'Service Manager',
     type: 'services',
     href: '/services/running',
   },

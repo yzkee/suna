@@ -153,7 +153,7 @@ RUN mkdir -p /workspace/.browser-profile \
     && rm -rf /config \
     && ln -s /workspace /config \
     && git config --system --add safe.directory '*' \
-    && echo "abc ALL=(root) NOPASSWD: /usr/bin/s6-svc, /bin/s6-svc, /usr/sbin/s6-svc" >> /etc/sudoers
+    && echo "abc ALL=(root) NOPASSWD: /usr/bin/s6-svc, /bin/s6-svc, /usr/sbin/s6-svc, /usr/bin/s6-rc, /bin/s6-rc" >> /etc/sudoers
 WORKDIR /workspace
 ENV KORTIX_WORKSPACE=/workspace
 
@@ -164,7 +164,7 @@ ENV KORTIX_WORKSPACE=/workspace
 
 # ── Services (s6-rc.d longrun) ──────────────────────────────────────────────
 COPY core/s6-services/ /etc/s6-overlay/s6-rc.d/
-RUN for svc in svc-kortix-master svc-sshd svc-opencode-serve svc-opencode-web svc-opencode-channels svc-chromium-persistent svc-agent-browser-viewer svc-agent-browser-session; do \
+RUN for svc in svc-kortix-master; do \
         touch "/etc/s6-overlay/s6-rc.d/user/contents.d/${svc}"; \
     done \
     && chmod +x /etc/s6-overlay/s6-rc.d/svc-*/run \
@@ -242,12 +242,10 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
     mkdir -p /ephemeral/agent-browser-viewer && \
     rsync -a --delete /opt/build/browser-viewer/ /ephemeral/agent-browser-viewer/ && \
     \
-    # ── 7. Version metadata + core contract ── \
-    mkdir -p /ephemeral/metadata/core && \
+    # ── 7. Version metadata ── \
+    mkdir -p /ephemeral/metadata && \
     printf '{"version":"%s","updatedAt":"%s"}\n' "${SANDBOX_VERSION}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > /ephemeral/metadata/.version && \
     cp /opt/build/CHANGELOG.json /ephemeral/metadata/CHANGELOG.json && \
-    cp /opt/build/kortix-master/service-spec.json /ephemeral/metadata/core/service-spec.json && \
-    test -f /ephemeral/metadata/core/service-spec.json && \
     \
     # ── 8. Global CLI binaries (direct install, no intermediate package.json) ── \
     npm install -g --no-audit --no-fund \

@@ -48,6 +48,7 @@ import {
   useOpenCodeProviders,
 } from '@/hooks/opencode/use-opencode-sessions';
 import { toast } from '@/lib/toast';
+import { authenticatedFetch } from '@/lib/auth-token';
 import { useCreateOpenCodeSession } from '@/hooks/opencode/use-opencode-sessions';
 import { openTabAndNavigate } from '@/stores/tab-store';
 import { useCreatePty } from '@/hooks/opencode/use-opencode-pty';
@@ -69,6 +70,7 @@ import {
 } from '@/components/providers/provider-branding';
 import { useWorkspaceSearch, useFilesStore } from '@/features/files';
 import { useKortixProjects, type KortixProject } from '@/hooks/kortix/use-kortix-projects';
+import { useServerStore } from '@/stores/server-store';
 import { getFileIcon } from '@/features/files/components/file-icon';
 import type { FindMatch } from '@/features/files';
 import {
@@ -778,12 +780,21 @@ export function CommandPalette() {
       + 'You\'ll need to send a new message to resume in each session.'
     );
     if (!confirmed) return;
-    import('@/lib/opencode-sdk').then(({ getClient }) => {
-      const client = getClient();
-      client.instance.dispose()
-        .then(() => toast.success('Instance reloaded — skills, agents & config rescanned'))
-        .catch(() => toast.error('Failed to reload instance'));
-    });
+    const serverUrl = useServerStore.getState().servers.find(
+      (srv) => srv.id === useServerStore.getState().activeServerId,
+    )?.url || '';
+
+    authenticatedFetch(`${serverUrl}/kortix/services/system/reload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'full' }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(() => toast.success('Instance reload initiated'))
+      .catch(() => toast.error('Failed to reload instance'));
   }, [close]);
 
   const handleGenerateSSHKey = useCallback(() => {

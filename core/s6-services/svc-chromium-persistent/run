@@ -3,6 +3,9 @@
 # agent-browser connects to this single instance via --cdp 9222.
 # Profile in /workspace/.browser-profile survives container restarts.
 
+source /ephemeral/services/service-manager-gate.sh
+service_manager_require_enabled "chromium-persistent" "chromium-persistent"
+
 echo "[chromium-persistent] Starting"
 
 PROFILE_DIR="/workspace/.browser-profile"

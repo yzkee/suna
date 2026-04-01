@@ -46,7 +46,7 @@ Pipedream is always configured. Use it by default for every service. Run `connec
 The integration script is bundled with this skill at `connectors/integration.ts`:
 
 ```bash
-SCRIPT=$(find /opt/opencode ~/.opencode -name "integration.ts" 2>/dev/null | head -1)
+SCRIPT=$(find "$OPENCODE_CONFIG_DIR" ~/.opencode /ephemeral -name "integration.ts" 2>/dev/null | head -1)
 
 # Search for an app
 bun run "$SCRIPT" search '{"q":"stripe"}'

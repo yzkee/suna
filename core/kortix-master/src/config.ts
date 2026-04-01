@@ -82,7 +82,7 @@ export const config = {
         '  Set INTERNAL_SERVICE_KEY env var to avoid this warning.'
       )
     }
-    return process.env.INTERNAL_SERVICE_KEY
+    return process.env.INTERNAL_SERVICE_KEY || ''
   },
 
   // Container-port → host-port mappings (set by docker-compose)
