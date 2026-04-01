@@ -1,10 +1,12 @@
 /**
  * SetupWizard — Instance setup flow for first-time configuration.
  *
- * Mirrors the frontend's InstanceSetupFlow (setup-flow.tsx):
+ * Mirrors the frontend's SetupWizard (setup-wizard.tsx):
  *   Step 1: Connect an LLM provider (required for agent to work)
- *   Step 2: Tool API keys (optional — web search, scraping, etc.)
- *   Step 3: Pipedream integrations (optional — 3,000+ app integrations)
+ *   Step 2: Default model selection (choose which model to use)
+ *   Step 3: Tool API keys (optional — web search, scraping, etc.)
+ *   Step 4: Pipedream integrations (optional — 3,000+ app integrations)
+ *   Step 5: Get started — confirmation before onboarding chat
  *
  * After completion, writes INSTANCE_SETUP_COMPLETE=true to sandbox env.
  */
@@ -48,6 +50,8 @@ import {
   Link,
   ChevronLeft,
   Cpu,
+  Bot,
+  MessageSquare,
 } from 'lucide-react-native';
 
 import {
@@ -61,7 +65,8 @@ import type { BottomSheetBackdropProps } from '@gorhom/bottom-sheet';
 
 import { KortixLogo } from '@/components/ui/KortixLogo';
 import { useSandboxContext } from '@/contexts/SandboxContext';
-import { useOpenCodeProviders } from '@/lib/opencode/hooks/use-opencode-data';
+import { useOpenCodeProviders, flattenModels, type FlatModel } from '@/lib/opencode/hooks/use-opencode-data';
+import { useLocalConfigStore } from '@/lib/opencode/hooks/use-local-config';
 import { useThemeColors } from '@/lib/theme-colors';
 import { getAuthToken } from '@/api/config';
 import { useTabStore } from '@/stores/tab-store';
@@ -431,7 +436,137 @@ function ProviderStep({ onContinue, isDark, themeColors }: StepProps & { onConti
   );
 }
 
-// ─── Step 2: Tool Secrets ────────────────────────────────────────────────────
+// ─── Step 2: Default Model Selection ─────────────────────────────────────────
+
+function DefaultModelStep({ onContinue, isDark, themeColors }: StepProps & { onContinue: () => void }) {
+  const { sandboxUrl } = useSandboxContext();
+  const { data: providersData, isLoading } = useOpenCodeProviders(sandboxUrl);
+  const allModels = useMemo(() => (providersData ? flattenModels(providersData) : []), [providersData]);
+  const store = useLocalConfigStore();
+  const colors = useStepColors(isDark);
+
+  const [selected, setSelected] = useState<{ providerID: string; modelID: string } | null>(
+    store.globalDefault ?? null,
+  );
+
+  // Group visible models by provider
+  const grouped = useMemo(() => {
+    const groups = new Map<string, FlatModel[]>();
+    for (const m of allModels) {
+      const list = groups.get(m.providerID) || [];
+      list.push(m);
+      groups.set(m.providerID, list);
+    }
+    return Array.from(groups.entries()).sort((a, b) => {
+      const la = PROVIDER_LABELS[a[0]] || a[0];
+      const lb = PROVIDER_LABELS[b[0]] || b[0];
+      return la.localeCompare(lb);
+    });
+  }, [allModels]);
+
+  const handleSelect = useCallback((model: FlatModel) => {
+    const key = { providerID: model.providerID, modelID: model.modelID };
+    setSelected(key);
+    store.setGlobalDefault(key);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, [store]);
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 48 }}>
+        <ActivityIndicator size="small" color={themeColors.primary} />
+        <Text style={{ marginTop: 12, fontSize: 12, fontFamily: 'Roobert', color: colors.muted }}>Loading models…</Text>
+      </View>
+    );
+  }
+
+  const hasModels = grouped.length > 0;
+
+  return (
+    <View style={{ flex: 1 }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
+        {/* Header */}
+        <View style={{ alignItems: 'center', marginBottom: 24 }}>
+          <View style={{ width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.04)', marginBottom: 16 }}>
+            <Bot size={22} color={colors.muted} strokeWidth={1.8} />
+          </View>
+          <Text style={{ fontSize: 18, fontFamily: 'Roobert-SemiBold', color: colors.fg, marginBottom: 6 }}>Default Model</Text>
+          <Text style={{ fontSize: 13, fontFamily: 'Roobert', color: colors.muted, textAlign: 'center', lineHeight: 18, maxWidth: 280 }}>
+            {hasModels
+              ? 'Choose which model your agent uses by default. You can switch models anytime in chat.'
+              : 'Connect a provider first to see available models.'}
+          </Text>
+        </View>
+
+        {/* Model list grouped by provider */}
+        {hasModels && grouped.map(([providerID, models]) => (
+          <View key={providerID} style={{ marginBottom: 16 }}>
+            <Text style={{ fontSize: 11, fontFamily: 'Roobert-Medium', color: colors.muted, letterSpacing: 1, textTransform: 'uppercase', paddingLeft: 4, marginBottom: 8 }}>
+              {PROVIDER_LABELS[providerID] || providerID}
+            </Text>
+            {models.map((model) => {
+              const isSelected = selected?.providerID === model.providerID && selected?.modelID === model.modelID;
+              return (
+                <Pressable
+                  key={`${model.providerID}:${model.modelID}`}
+                  onPress={() => handleSelect(model)}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingHorizontal: 14,
+                    paddingVertical: 12,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: isSelected
+                      ? (isDark ? 'rgba(248,248,248,0.2)' : 'rgba(18,18,21,0.2)')
+                      : colors.cardBorder,
+                    backgroundColor: isSelected
+                      ? (isDark ? 'rgba(248,248,248,0.04)' : 'rgba(18,18,21,0.02)')
+                      : colors.cardBg,
+                    marginBottom: 6,
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: isDark ? 'rgba(248,248,248,0.8)' : 'rgba(18,18,21,0.8)' }} numberOfLines={1}>
+                      {model.modelName}
+                    </Text>
+                    <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: isDark ? 'rgba(248,248,248,0.3)' : 'rgba(18,18,21,0.3)', marginTop: 1 }} numberOfLines={1}>
+                      {model.modelID}
+                    </Text>
+                  </View>
+                  {isSelected && <Check size={16} color="#34D399" strokeWidth={2.5} />}
+                </Pressable>
+              );
+            })}
+          </View>
+        ))}
+      </ScrollView>
+
+      {/* Sticky bottom button */}
+      <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
+        <Pressable
+          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onContinue(); }}
+          style={{
+            backgroundColor: themeColors.primary,
+            borderRadius: 14,
+            paddingVertical: 15,
+            alignItems: 'center',
+            flexDirection: 'row',
+            justifyContent: 'center',
+            gap: 6,
+          }}
+        >
+          <Text style={{ fontSize: 15, fontFamily: 'Roobert-SemiBold', color: themeColors.primaryForeground }}>
+            {selected ? 'Continue' : 'Skip for now'}
+          </Text>
+          <ChevronRight size={16} color={themeColors.primaryForeground} strokeWidth={2} />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+// ─── Step 3: Tool Secrets ────────────────────────────────────────────────────
 
 function ToolSecretsStep({ onContinue, isDark, themeColors }: StepProps & { onContinue: () => void }) {
   const { sandboxUrl } = useSandboxContext();
@@ -662,6 +797,50 @@ function PipedreamStep({ onComplete, completing, isDark, themeColors }: StepProp
   );
 }
 
+// ─── Step 5: Get Started ─────────────────────────────────────────────────────
+
+function GetStartedStep({ onComplete, completing, isDark, themeColors }: StepProps & { onComplete: () => void; completing: boolean }) {
+  const colors = useStepColors(isDark);
+
+  return (
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ alignItems: 'center', marginBottom: 32 }}>
+        <View style={{ width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: `${themeColors.primary}18`, marginBottom: 16 }}>
+          <MessageSquare size={22} color={themeColors.primary} strokeWidth={1.8} />
+        </View>
+        <Text style={{ fontSize: 18, fontFamily: 'Roobert-SemiBold', color: colors.fg, marginBottom: 6 }}>
+          You're all set
+        </Text>
+        <Text style={{ fontSize: 13, fontFamily: 'Roobert', color: colors.muted, textAlign: 'center', lineHeight: 18, maxWidth: 280 }}>
+          Your Kortix agent is configured and ready. We'll walk you through the basics in a quick guided conversation.
+        </Text>
+      </View>
+
+      <Pressable
+        onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onComplete(); }}
+        disabled={completing}
+        style={{
+          backgroundColor: themeColors.primary,
+          borderRadius: 14,
+          paddingVertical: 15,
+          paddingHorizontal: 32,
+          alignItems: 'center',
+          flexDirection: 'row',
+          justifyContent: 'center',
+          gap: 6,
+          width: '100%',
+          opacity: completing ? 0.6 : 1,
+        }}
+      >
+        <Text style={{ fontSize: 15, fontFamily: 'Roobert-SemiBold', color: themeColors.primaryForeground }}>
+          {completing ? 'Starting…' : 'Start onboarding'}
+        </Text>
+        {!completing && <ChevronRight size={16} color={themeColors.primaryForeground} strokeWidth={2} />}
+      </Pressable>
+    </View>
+  );
+}
+
 // ─── Main SetupWizard ────────────────────────────────────────────────────────
 
 export function SetupWizard({ onComplete }: SetupWizardProps) {
@@ -671,12 +850,12 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   const themeColors = useThemeColors();
   const { sandboxUrl } = useSandboxContext();
 
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [completing, setCompleting] = useState(false);
   const stepRef = useRef(step);
   stepRef.current = step;
 
-  const totalSteps = 3;
+  const totalSteps = 5;
 
   // Swipe right to go back to previous step
   const panResponder = useRef(
@@ -688,7 +867,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
       onPanResponderRelease: (_, gestureState) => {
         if (gestureState.dx > 80 && stepRef.current > 1) {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          setStep((prev) => (prev > 1 ? (prev - 1) as 1 | 2 | 3 : prev));
+          setStep((prev) => (prev > 1 ? (prev - 1) as 1 | 2 | 3 | 4 | 5 : prev));
         }
       },
     }),
@@ -718,7 +897,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   }, [sandboxUrl, onComplete]);
 
   const handleStepPress = useCallback((s: number) => {
-    if (s < step) setStep(s as 1 | 2 | 3);
+    if (s < step) setStep(s as 1 | 2 | 3 | 4 | 5);
   }, [step]);
 
   const bg = isDark ? '#09090b' : '#FFFFFF';
@@ -745,8 +924,10 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         {/* ── Step content ── */}
         <View style={{ flex: 1, width: '100%', maxWidth: 380, alignSelf: 'center' }}>
           {step === 1 && <ProviderStep onContinue={() => setStep(2)} isDark={isDark} themeColors={themeColors} />}
-          {step === 2 && <ToolSecretsStep onContinue={() => setStep(3)} isDark={isDark} themeColors={themeColors} />}
-          {step === 3 && <PipedreamStep onComplete={markSetupComplete} completing={completing} isDark={isDark} themeColors={themeColors} />}
+          {step === 2 && <DefaultModelStep onContinue={() => setStep(3)} isDark={isDark} themeColors={themeColors} />}
+          {step === 3 && <ToolSecretsStep onContinue={() => setStep(4)} isDark={isDark} themeColors={themeColors} />}
+          {step === 4 && <PipedreamStep onComplete={() => setStep(5)} completing={false} isDark={isDark} themeColors={themeColors} />}
+          {step === 5 && <GetStartedStep onComplete={markSetupComplete} completing={completing} isDark={isDark} themeColors={themeColors} />}
         </View>
       </View>
 
