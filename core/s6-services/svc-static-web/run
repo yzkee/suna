@@ -1,8 +1,6 @@
 #!/usr/bin/with-contenv bash
 # Static Web Server on port 3211
 
-source /ephemeral/services/service-manager-gate.sh
-service_manager_require_enabled "static-web" "static-web"
 
 echo "[static-web] Starting persistent static server on port 3211"
 

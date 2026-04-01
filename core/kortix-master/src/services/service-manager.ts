@@ -165,7 +165,6 @@ const WORKSPACE_ROOT = process.env.KORTIX_WORKSPACE || '/workspace'
 const SERVICE_STATE_DIR = join(WORKSPACE_ROOT, '.kortix', 'services')
 const REGISTRY_FILE = join(SERVICE_STATE_DIR, 'registry.json')
 const LOG_DIR = join(SERVICE_STATE_DIR, 'logs')
-const DEFAULT_GATE_DIR = join(SERVICE_STATE_DIR, 'enabled')
 
 const INSTALL_TIMEOUT_MS = 120_000
 const BUILD_TIMEOUT_MS = 120_000
@@ -175,307 +174,49 @@ const PORT_MAX = 60_000
 const PERSISTED_SOURCE_ROOT = WORKSPACE_ROOT
 const ECONNRESET_GUARD_PATH = '/ephemeral/kortix-master/econnreset-guard.cjs'
 
+function s6svc(id: string, name: string, scope: ServiceScope, s6Name: string, opts: Partial<RegisteredServiceSpec> = {}): RegisteredServiceSpec {
+  return {
+    id, name, adapter: 's6', scope, description: '', builtin: true, userVisible: false,
+    projectId: null, template: id, framework: null, sourcePath: null,
+    sourceType: 'files', sourceRef: null, startCommand: null, installCommand: null, buildCommand: null,
+    envVarKeys: [], deps: [], port: null, desiredState: 'running', autoStart: true,
+    restartPolicy: 'always', restartDelayMs: 2000, s6ServiceName: s6Name,
+    processPatterns: [], healthCheck: { type: 'none' }, createdAt: '', updatedAt: '',
+    ...opts,
+  }
+}
+
 const BUILTIN_SERVICES: RegisteredServiceSpec[] = [
+  // opencode-serve is spawn — managed directly by Kortix Master (not s6)
   {
-    id: 'opencode-serve',
-    name: 'OpenCode API',
-    adapter: 'spawn',
-    scope: 'core',
-    description: 'OpenCode API server managed directly by Kortix Master',
-    builtin: true,
-    userVisible: false,
-    projectId: null,
-    template: 'opencode-serve',
-    framework: 'node',
-    sourcePath: WORKSPACE_ROOT,
-    sourceType: 'files',
-    sourceRef: null,
+    id: 'opencode-serve', name: 'OpenCode API', adapter: 'spawn', scope: 'core', description: '', builtin: true,
+    userVisible: false, projectId: null, template: 'opencode-serve', framework: 'node',
+    sourcePath: WORKSPACE_ROOT, sourceType: 'files', sourceRef: null,
     startCommand: 'bash /ephemeral/kortix-master/scripts/run-opencode-serve.sh',
-    installCommand: null,
-    buildCommand: null,
-    envVarKeys: [],
-    deps: [],
-    port: 4096,
-    desiredState: 'running',
-    autoStart: true,
-    restartPolicy: 'always',
-    restartDelayMs: 3000,
-    s6ServiceName: null,
-    processPatterns: ['/usr/local/bin/opencode serve --port 4096'],
-    healthCheck: { type: 'none', timeoutMs: 2000 },
-    createdAt: '',
-    updatedAt: '',
+    installCommand: null, buildCommand: null, envVarKeys: [], deps: [], port: 4096,
+    desiredState: 'running', autoStart: true, restartPolicy: 'always', restartDelayMs: 3000,
+    s6ServiceName: null, processPatterns: ['opencode serve --port 4096'],
+    healthCheck: { type: 'none' }, createdAt: '', updatedAt: '',
   },
-  {
-    id: 'opencode-web',
-    name: 'OpenCode Web',
-    adapter: 's6',
-    scope: 'core',
-    description: 'OpenCode web UI supervised by s6 and orchestrated by Kortix Master',
-    builtin: true,
-    userVisible: false,
-    projectId: null,
-    template: 'opencode-web',
-    framework: null,
-    sourcePath: null,
-    sourceType: 'files',
-    sourceRef: null,
-    startCommand: null,
-    installCommand: null,
-    buildCommand: null,
-    envVarKeys: [],
-    deps: ['opencode-serve'],
-    port: 3111,
-    desiredState: 'running',
-    autoStart: true,
-    restartPolicy: 'always',
-    restartDelayMs: 1500,
-    s6ServiceName: 'svc-opencode-web',
-    processPatterns: ['/usr/local/bin/opencode web --port 3111'],
-    healthCheck: { type: 'none', timeoutMs: 2000 },
-    createdAt: '',
-    updatedAt: '',
-  },
-  {
-    id: 'opencode-channels',
-    name: 'OpenCode Channels',
-    adapter: 's6',
-    scope: 'core',
-    description: 'Chat channel bridge supervised by s6 and orchestrated by Kortix Master',
-    builtin: true,
-    userVisible: false,
-    projectId: null,
-    template: 'opencode-channels',
-    framework: null,
-    sourcePath: null,
-    sourceType: 'files',
-    sourceRef: null,
-    startCommand: null,
-    installCommand: null,
-    buildCommand: null,
-    envVarKeys: [],
-    deps: ['opencode-serve'],
-    port: 3456,
-    desiredState: 'running',
-    autoStart: true,
-    restartPolicy: 'always',
-    restartDelayMs: 1500,
-    s6ServiceName: 'svc-opencode-channels',
-    processPatterns: ['/ephemeral/kortix-master/channels/src/index.ts'],
-    healthCheck: { type: 'none', timeoutMs: 2000 },
-    createdAt: '',
-    updatedAt: '',
-  },
-  {
-    id: 'chromium-persistent',
-    name: 'Chromium Persistent',
-    adapter: 's6',
-    scope: 'core',
-    description: 'Persistent Chromium instance for browser automation',
-    builtin: true,
-    userVisible: false,
-    projectId: null,
-    template: 'chromium-persistent',
-    framework: null,
-    sourcePath: null,
-    sourceType: 'files',
-    sourceRef: null,
-    startCommand: null,
-    installCommand: null,
-    buildCommand: null,
-    envVarKeys: [],
-    deps: [],
-    port: 9222,
-    desiredState: 'running',
-    autoStart: true,
-    restartPolicy: 'always',
-    restartDelayMs: 1500,
-    s6ServiceName: 'svc-chromium-persistent',
-    processPatterns: ['/usr/bin/chromium-browser'],
-    healthCheck: { type: 'tcp', timeoutMs: 2000 },
-    createdAt: '',
-    updatedAt: '',
-  },
-  {
-    id: 'agent-browser-session',
-    name: 'Agent Browser Session',
-    adapter: 's6',
-    scope: 'core',
-    description: 'Agent browser monitor/orchestration service',
-    builtin: true,
-    userVisible: false,
-    projectId: null,
-    template: 'agent-browser-session',
-    framework: null,
-    sourcePath: null,
-    sourceType: 'files',
-    sourceRef: null,
-    startCommand: null,
-    installCommand: null,
-    buildCommand: null,
-    envVarKeys: [],
-    deps: ['chromium-persistent'],
-    port: null,
-    desiredState: 'running',
-    autoStart: true,
-    restartPolicy: 'always',
-    restartDelayMs: 1500,
-    s6ServiceName: 'svc-agent-browser-session',
-    processPatterns: ['svc-agent-browser-session/run'],
-    healthCheck: { type: 'none' },
-    createdAt: '',
-    updatedAt: '',
-  },
-  {
-    id: 'agent-browser-viewer',
-    name: 'Agent Browser Viewer',
-    adapter: 's6',
-    scope: 'core',
-    description: 'Agent browser viewer UI',
-    builtin: true,
-    userVisible: false,
-    projectId: null,
-    template: 'agent-browser-viewer',
-    framework: null,
-    sourcePath: null,
-    sourceType: 'files',
-    sourceRef: null,
-    startCommand: null,
-    installCommand: null,
-    buildCommand: null,
-    envVarKeys: [],
-    deps: ['agent-browser-session'],
-    port: 9224,
-    desiredState: 'running',
-    autoStart: true,
-    restartPolicy: 'always',
-    restartDelayMs: 1500,
-    s6ServiceName: 'svc-agent-browser-viewer',
-    processPatterns: ['/ephemeral/services/agent-browser-viewer.js'],
-    healthCheck: { type: 'tcp', timeoutMs: 2000 },
-    createdAt: '',
-    updatedAt: '',
-  },
-  {
-    id: 'static-web',
-    name: 'Static Web Server',
-    adapter: 's6',
-    scope: 'core',
-    description: 'Persistent static file server for generated artifacts',
-    builtin: true,
-    userVisible: false,
-    projectId: null,
-    template: 'static-web',
-    framework: null,
-    sourcePath: null,
-    sourceType: 'files',
-    sourceRef: null,
-    startCommand: null,
-    installCommand: null,
-    buildCommand: null,
-    envVarKeys: [],
-    deps: [],
-    port: 3211,
-    desiredState: 'running',
-    autoStart: true,
-    restartPolicy: 'always',
-    restartDelayMs: 1500,
-    s6ServiceName: 'svc-static-web',
-    processPatterns: ['/ephemeral/services/static-web.js'],
-    healthCheck: { type: 'tcp', timeoutMs: 2000 },
-    createdAt: '',
-    updatedAt: '',
-  },
-  {
-    id: 'lss-sync',
-    name: 'LSS Sync',
-    adapter: 's6',
-    scope: 'core',
-    description: 'Semantic search indexing daemon',
-    builtin: true,
-    userVisible: false,
-    projectId: null,
-    template: 'lss-sync',
-    framework: null,
-    sourcePath: null,
-    sourceType: 'files',
-    sourceRef: null,
-    startCommand: null,
-    installCommand: null,
-    buildCommand: null,
-    envVarKeys: ['OPENAI_API_KEY'],
-    deps: [],
-    port: null,
-    desiredState: 'running',
-    autoStart: true,
-    restartPolicy: 'always',
-    restartDelayMs: 1500,
-    s6ServiceName: 'svc-lss-sync',
-    processPatterns: ['lss-sync --watch /workspace'],
-    healthCheck: { type: 'none' },
-    createdAt: '',
-    updatedAt: '',
-  },
-  {
-    id: 'sshd',
-    name: 'SSH Daemon',
-    adapter: 's6',
-    scope: 'bootstrap',
-    description: 'SSH access to the sandbox',
-    builtin: true,
-    userVisible: false,
-    projectId: null,
-    template: 'sshd',
-    framework: null,
-    sourcePath: null,
-    sourceType: 'files',
-    sourceRef: null,
-    startCommand: null,
-    installCommand: null,
-    buildCommand: null,
-    envVarKeys: [],
-    deps: [],
-    port: 22,
-    desiredState: 'running',
-    autoStart: true,
-    restartPolicy: 'always',
-    restartDelayMs: 1500,
-    s6ServiceName: 'svc-sshd',
-    processPatterns: ['/usr/sbin/sshd -D -e'],
-    healthCheck: { type: 'tcp', timeoutMs: 2000 },
-    createdAt: '',
-    updatedAt: '',
-  },
-  {
-    id: 'docker',
-    name: 'Docker Daemon',
-    adapter: 's6',
-    scope: 'bootstrap',
-    description: 'Container-side Docker daemon',
-    builtin: true,
-    userVisible: false,
-    projectId: null,
-    template: 'docker',
-    framework: null,
-    sourcePath: null,
-    sourceType: 'files',
-    sourceRef: null,
-    startCommand: null,
-    installCommand: null,
-    buildCommand: null,
-    envVarKeys: [],
-    deps: [],
-    port: null,
-    desiredState: 'running',
-    autoStart: true,
-    restartPolicy: 'always',
-    restartDelayMs: 1500,
-    s6ServiceName: 'svc-docker',
-    processPatterns: ['dockerd --host=unix:///var/run/docker.sock -l error'],
-    healthCheck: { type: 'none' },
-    createdAt: '',
-    updatedAt: '',
-  },
+  // All other system services: s6 supervised, controlled via s6-svc
+  s6svc('opencode-web', 'OpenCode Web', 'core', 'svc-opencode-web',
+    { port: 3111, deps: ['opencode-serve'], processPatterns: ['opencode web --port 3111'] }),
+  s6svc('opencode-channels', 'OpenCode Channels', 'core', 'svc-opencode-channels',
+    { port: 3456, deps: ['opencode-serve'], processPatterns: ['channels/src/index.ts'] }),
+  s6svc('chromium-persistent', 'Chromium', 'core', 'svc-chromium-persistent',
+    { port: 9222, processPatterns: ['chromium-browser'] }),
+  s6svc('agent-browser-session', 'Agent Browser Session', 'core', 'svc-agent-browser-session',
+    { deps: ['chromium-persistent'], processPatterns: ['agent-browser-session'] }),
+  s6svc('agent-browser-viewer', 'Agent Browser Viewer', 'core', 'svc-agent-browser-viewer',
+    { port: 9224, processPatterns: ['agent-browser-viewer.js'] }),
+  s6svc('static-web', 'Static Web Server', 'core', 'svc-static-web',
+    { port: 3211, processPatterns: ['static-web.js'] }),
+  s6svc('lss-sync', 'LSS Sync', 'core', 'svc-lss-sync',
+    { envVarKeys: ['OPENAI_API_KEY'], processPatterns: ['lss-sync'] }),
+  s6svc('sshd', 'SSH Daemon', 'bootstrap', 'svc-sshd',
+    { port: 22, processPatterns: ['sshd -D'] }),
+  s6svc('docker', 'Docker Daemon', 'bootstrap', 'svc-docker',
+    { processPatterns: ['dockerd'] }),
 ]
 
 const SERVICE_TEMPLATES: ServiceTemplate[] = [
@@ -616,14 +357,11 @@ async function runShell(
     FORCE_COLOR: '0',
   }
 
-  const parts = normalizeCommandParts(splitCommand(cmd))
-  if (parts.length === 0) {
-    return { ok: false, output: 'Empty command' }
-  }
+  if (!cmd.trim()) return { ok: false, output: 'Empty command' }
 
   let proc: ReturnType<typeof Bun.spawn>
   try {
-    proc = Bun.spawn(parts, {
+    proc = Bun.spawn(['/bin/sh', '-c', cmd], {
       cwd,
       env: mergedEnv,
       stdout: 'pipe',
@@ -639,11 +377,11 @@ async function runShell(
     try { proc.kill() } catch {}
   }, timeoutMs)
 
-    try {
-      const [stdoutBuf, stderrBuf] = await Promise.all([
-        new Response(proc.stdout as ReadableStream<Uint8Array> | null).text(),
-        new Response(proc.stderr as ReadableStream<Uint8Array> | null).text(),
-      ])
+  try {
+    const [stdoutBuf, stderrBuf] = await Promise.all([
+      new Response(proc.stdout as ReadableStream<Uint8Array> | null).text(),
+      new Response(proc.stderr as ReadableStream<Uint8Array> | null).text(),
+    ])
     const exitCode = await proc.exited
     clearTimeout(timer)
     const output = `${stdoutBuf}\n${stderrBuf}`.trim()
@@ -749,15 +487,6 @@ async function findPidByPort(port: number): Promise<number | null> {
   }
 
   return null
-}
-
-async function getS6ServicePid(serviceName: string): Promise<number | null> {
-  const result = await runShell(`s6-svstat /run/service/${serviceName}`, WORKSPACE_ROOT, undefined, 5000)
-  if (!result.ok || !result.output) return null
-  const match = result.output.match(/up \(pid (\d+)/)
-  if (!match) return null
-  const value = parseInt(match[1], 10)
-  return Number.isFinite(value) && value > 0 ? value : null
 }
 
 function getInnerNsPid(procPid: number): number | null {
@@ -872,20 +601,17 @@ export class ServiceManager {
   private started = false
   private readonly registryFile: string
   private readonly logsDir: string
-  private readonly gateDir: string
   private readonly builtins: RegisteredServiceSpec[]
 
-  constructor(options?: { registryFile?: string; logsDir?: string; gateDir?: string; builtins?: RegisteredServiceSpec[] }) {
+  constructor(options?: { registryFile?: string; logsDir?: string; builtins?: RegisteredServiceSpec[] }) {
     this.registryFile = options?.registryFile || REGISTRY_FILE
     this.logsDir = options?.logsDir || LOG_DIR
-    this.gateDir = options?.gateDir || DEFAULT_GATE_DIR
     this.builtins = options?.builtins?.map(cloneServiceSpec) || BUILTIN_SERVICES.map(cloneServiceSpec)
   }
 
   private ensureStorage(): void {
     mkdirSync(dirname(this.registryFile), { recursive: true })
     mkdirSync(this.logsDir, { recursive: true })
-    mkdirSync(this.gateDir, { recursive: true })
   }
 
   private logFilePath(id: string): string {
@@ -894,10 +620,6 @@ export class ServiceManager {
 
   private pidFilePath(id: string): string {
     return join(this.logsDir, `${id.replace(/[^a-zA-Z0-9._-]/g, '_')}.pid`)
-  }
-
-  private gateFilePath(id: string): string {
-    return join(this.gateDir, `${id.replace(/[^a-zA-Z0-9._-]/g, '_')}.enabled`)
   }
 
   private appendLog(id: string, line: string): void {
@@ -924,78 +646,38 @@ export class ServiceManager {
     }
   }
 
-  private setGate(id: string, enabled: boolean): void {
-    this.ensureStorage()
-    const gatePath = this.gateFilePath(id)
-    if (enabled) {
-      writeFileSync(gatePath, '1')
-      return
-    }
-    try { rmSync(gatePath, { force: true }) } catch {}
-  }
-
   private emptyState(spec: RegisteredServiceSpec): ServiceStateSnapshot {
     return {
-      id: spec.id,
-      name: spec.name,
-      adapter: spec.adapter,
-      scope: spec.scope,
-      status: 'stopped',
-      desiredState: spec.desiredState,
-      builtin: spec.builtin,
-      userVisible: spec.userVisible,
-      pid: null,
-      port: spec.port ?? null,
-      framework: spec.framework ?? null,
-      sourcePath: spec.sourcePath ?? null,
-      projectId: spec.projectId ?? null,
-      template: spec.template ?? null,
-      autoStart: spec.autoStart,
-      restarts: 0,
-      startedAt: null,
-      stoppedAt: null,
-      lastError: null,
-      managed: true,
+      id: spec.id, name: spec.name, adapter: spec.adapter, scope: spec.scope,
+      status: 'stopped', desiredState: spec.desiredState, builtin: spec.builtin,
+      userVisible: spec.userVisible, pid: null, port: spec.port ?? null,
+      framework: spec.framework ?? null, sourcePath: spec.sourcePath ?? null,
+      projectId: spec.projectId ?? null, template: spec.template ?? null,
+      autoStart: spec.autoStart, restarts: 0, startedAt: null, stoppedAt: null,
+      lastError: null, managed: true,
     }
   }
 
   private hydrateManagedService(spec: RegisteredServiceSpec): ManagedService {
-    return {
-      spec,
-      proc: null,
-      state: this.emptyState(spec),
-      intentionallyStopped: false,
-    }
+    return { spec, proc: null, state: this.emptyState(spec), intentionallyStopped: false }
   }
 
   private mergeBuiltins(persisted: RegisteredServiceSpec[]): RegisteredServiceSpec[] {
-    const persistedMap = new Map(persisted.map((spec) => [spec.id, spec]))
+    const persistedMap = new Map(persisted.map((s) => [s.id, s]))
     const merged: RegisteredServiceSpec[] = []
-
     for (const builtin of this.builtins) {
-      const persistedBuiltin = persistedMap.get(builtin.id)
+      const p = persistedMap.get(builtin.id)
       const now = nowIso()
       const next = cloneServiceSpec(builtin)
-      next.createdAt = persistedBuiltin?.createdAt || now
+      next.createdAt = p?.createdAt || now
       next.updatedAt = now
-      if (persistedBuiltin) {
-        next.desiredState = persistedBuiltin.desiredState || next.desiredState
-        next.autoStart = persistedBuiltin.autoStart ?? next.autoStart
-        next.port = persistedBuiltin.port ?? next.port
-        next.projectId = persistedBuiltin.projectId ?? next.projectId
-      }
+      if (p) { next.desiredState = p.desiredState || next.desiredState; next.autoStart = p.autoStart ?? next.autoStart; next.port = p.port ?? next.port }
       merged.push(next)
       persistedMap.delete(builtin.id)
     }
-
     for (const spec of persistedMap.values()) {
-      merged.push({
-        ...cloneServiceSpec(spec),
-        createdAt: spec.createdAt || nowIso(),
-        updatedAt: spec.updatedAt || nowIso(),
-      })
+      merged.push({ ...cloneServiceSpec(spec), createdAt: spec.createdAt || nowIso(), updatedAt: spec.updatedAt || nowIso() })
     }
-
     sortServices(merged)
     return merged
   }
@@ -1006,25 +688,76 @@ export class ServiceManager {
     if (existsSync(this.registryFile)) {
       try {
         const raw = JSON.parse(readFileSync(this.registryFile, 'utf-8')) as ServiceRegistryFile
-        if (raw.version === REGISTRY_VERSION && Array.isArray(raw.services)) {
-          persisted = raw.services
-        }
-      } catch (err) {
-        console.warn('[ServiceManager] Failed to read registry file, rebuilding:', err)
-      }
+        if (raw.version === REGISTRY_VERSION && Array.isArray(raw.services)) persisted = raw.services
+      } catch { /* rebuild */ }
     }
     return this.mergeBuiltins(persisted)
   }
 
   private persistRegistry(): void {
     this.ensureStorage()
-    const payload: ServiceRegistryFile = {
-      version: REGISTRY_VERSION,
-      services: [...this.services.values()].map(({ spec }) => cloneServiceSpec(spec)),
-    }
+    const payload: ServiceRegistryFile = { version: REGISTRY_VERSION, services: [...this.services.values()].map(({ spec }) => cloneServiceSpec(spec)) }
     const tempPath = `${this.registryFile}.tmp-${process.pid}`
     writeFileSync(tempPath, JSON.stringify(payload, null, 2))
     renameSync(tempPath, this.registryFile)
+  }
+
+  private async probeS6Service(item: ManagedService): Promise<void> {
+    const { spec, state } = item
+
+    // s6-svstat requires root access to supervise dirs.
+    // Instead, probe by port (if service has one) or by process pattern.
+    if (spec.port) {
+      const portOk = await probeTcpPort(spec.port, spec.healthCheck.timeoutMs || 1500)
+      if (portOk) {
+        const pid = await findPidByPort(spec.port)
+        state.pid = pid ? (getInnerNsPid(pid) || pid) : null
+        state.status = 'running'
+        return
+      }
+    }
+
+    // No port or port not bound — check by process pattern
+    if (spec.processPatterns.length > 0) {
+      const pid = await findPidByPattern(spec.processPatterns[0])
+      if (pid) {
+        state.pid = getInnerNsPid(pid) || pid
+        state.status = spec.port ? 'starting' : 'running'
+        return
+      }
+    }
+
+    state.pid = null
+    state.status = state.status === 'failed' ? 'failed' : 'stopped'
+  }
+
+  private async probeManagedService(item: ManagedService): Promise<void> {
+    const { spec, state } = item
+
+    if (spec.adapter === 's6') {
+      return this.probeS6Service(item)
+    }
+
+    // Spawn adapter
+    if (!item.proc) {
+      const persistedPid = this.readPidFile(spec.id)
+      const adoptedPid = (spec.port ? await findPidByPort(spec.port) : null)
+        || (spec.processPatterns.length > 0 ? await findPidByPattern(spec.processPatterns[0]) : null)
+      const effectivePid = persistedPid || adoptedPid
+      if (effectivePid) {
+        const portOk = spec.port ? await probeTcpPort(spec.port, spec.healthCheck.timeoutMs || 1500) : true
+        state.pid = getInnerNsPid(effectivePid) || effectivePid
+        state.status = portOk ? 'running' : 'starting'
+        return
+      }
+      state.pid = null
+      state.status = state.status === 'failed' ? 'failed' : 'stopped'
+      return
+    }
+    if (spec.port) {
+      const healthy = await probeTcpPort(spec.port, spec.healthCheck.timeoutMs || 1500)
+      state.status = healthy ? 'running' : (state.status === 'starting' ? 'starting' : 'running')
+    }
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -1075,49 +808,6 @@ export class ServiceManager {
     void readStream(proc.stderr as ReadableStream<Uint8Array> | null, 'stderr')
   }
 
-  private async probeManagedService(item: ManagedService): Promise<void> {
-    const { spec, state } = item
-
-    if (spec.adapter === 'spawn') {
-      if (!item.proc) {
-        if (state.status !== 'failed') state.status = spec.desiredState === 'stopped' ? 'stopped' : state.status
-        state.pid = null
-        return
-      }
-      if (spec.port) {
-        const healthy = await probeTcpPort(spec.port, spec.healthCheck.timeoutMs || 1500)
-        state.status = healthy ? 'running' : (state.status === 'starting' ? 'starting' : 'running')
-      }
-      return
-    }
-
-    const s6Pid = spec.s6ServiceName ? await getS6ServicePid(spec.s6ServiceName) : null
-    const patternPid = spec.processPatterns.length > 0
-      ? await findPidByPattern(spec.processPatterns[0])
-      : null
-    const portHealthy = spec.port ? await probeTcpPort(spec.port, spec.healthCheck.timeoutMs || 1500) : false
-    const effectivePid = patternPid || s6Pid
-
-    state.pid = effectivePid ? (getInnerNsPid(effectivePid) || effectivePid) : null
-
-    if (spec.healthCheck.type === 'none') {
-      state.status = effectivePid ? 'running' : (state.status === 'failed' ? 'failed' : 'stopped')
-      return
-    }
-
-    if (portHealthy) {
-      state.status = 'running'
-      return
-    }
-
-    if (effectivePid) {
-      state.status = 'starting'
-      return
-    }
-
-    state.status = state.status === 'failed' ? 'failed' : 'stopped'
-  }
-
   private async startSpawnService(item: ManagedService): Promise<ServiceActionResult> {
     const { spec, state } = item
     if (!spec.startCommand) return { ok: false, output: `Missing start command for ${spec.id}` }
@@ -1150,7 +840,7 @@ export class ServiceManager {
 
     let proc: ReturnType<typeof Bun.spawn>
     try {
-      proc = Bun.spawn(normalizeCommandParts(splitCommand(spec.startCommand)), {
+      proc = Bun.spawn(['/bin/sh', '-c', spec.startCommand], {
         cwd,
         env: {
           ...process.env as Record<string, string>,
@@ -1262,40 +952,41 @@ export class ServiceManager {
     return { ok: true, output: exited ? 'stopped' : 'killed', service: { ...state } }
   }
 
+  // ── s6 adapter: system services supervised by s6, controlled via s6-svc ──
+
   private async startS6Service(item: ManagedService): Promise<ServiceActionResult> {
     const spec = item.spec
-    if (!spec.s6ServiceName) return { ok: false, output: `Missing s6 service name for ${spec.id}` }
-    this.setGate(spec.id, true)
-    await runShell(`sudo s6-rc -d change ${spec.s6ServiceName}`, WORKSPACE_ROOT, undefined, 10_000).catch(() => {})
-    const result = await runShell(`sudo s6-rc -u change ${spec.s6ServiceName}`, WORKSPACE_ROOT, undefined, 10_000)
-    if (!result.ok) {
-      item.state.status = 'failed'
-      item.state.lastError = result.output || `Failed to start ${spec.s6ServiceName}`
-      return { ok: false, output: item.state.lastError, service: { ...item.state } }
-    }
-    item.state.status = 'starting'
-    item.state.desiredState = 'running'
-    await this.probeManagedService(item)
-    const startedStatus = item.state.status as ServiceStatus
-    item.state.status = (startedStatus === 'running' || startedStatus === 'failed') ? startedStatus : 'starting'
-    return { ok: true, output: 'started', service: { ...item.state } }
+    if (!spec.s6ServiceName) return { ok: false, output: `No s6ServiceName for ${spec.id}` }
+    // s6-svc -u brings up a supervised longrun. Idempotent if already up.
+    try { Bun.spawnSync(['/usr/bin/s6-svc', '-u', `/run/service/${spec.s6ServiceName}`]) } catch {}
+    await Bun.sleep(1000)
+    await this.probeS6Service(item)
+    return { ok: true, output: item.state.status === 'running' ? 'running' : 'starting', service: { ...item.state } }
   }
 
   private async stopS6Service(item: ManagedService): Promise<ServiceActionResult> {
     const spec = item.spec
-    if (!spec.s6ServiceName) return { ok: false, output: `Missing s6 service name for ${spec.id}` }
-    this.setGate(spec.id, false)
-    const result = await runShell(`sudo s6-rc -d change ${spec.s6ServiceName}`, WORKSPACE_ROOT, undefined, 10_000)
-    if (!result.ok) {
-      item.state.status = 'failed'
-      item.state.lastError = result.output || `Failed to stop ${spec.s6ServiceName}`
-      return { ok: false, output: item.state.lastError, service: { ...item.state } }
-    }
+    if (!spec.s6ServiceName) return { ok: false, output: `No s6ServiceName for ${spec.id}` }
+    try { Bun.spawnSync(['/usr/bin/s6-svc', '-d', `/run/service/${spec.s6ServiceName}`]) } catch {}
     if (spec.port) await waitForPortToClose(spec.port, 5000).catch(() => {})
     item.state.status = 'stopped'
     item.state.pid = null
     item.state.stoppedAt = nowIso()
     return { ok: true, output: 'stopped', service: { ...item.state } }
+  }
+
+  private async restartS6Service(item: ManagedService): Promise<ServiceActionResult> {
+    const spec = item.spec
+    if (!spec.s6ServiceName) return { ok: false, output: `No s6ServiceName for ${spec.id}` }
+    try { Bun.spawnSync(['/usr/bin/s6-svc', '-r', `/run/service/${spec.s6ServiceName}`]) } catch {}
+    if (spec.port) {
+      await waitForPortToClose(spec.port, 3000).catch(() => {})
+      await waitForPort(spec.port, START_WAIT_MS).catch(() => {})
+    } else {
+      await Bun.sleep(1000)
+    }
+    await this.probeS6Service(item)
+    return { ok: true, output: 'restarted', service: { ...item.state } }
   }
 
   private async cleanupLegacyOrphans(): Promise<void> {
@@ -1305,7 +996,7 @@ export class ServiceManager {
       '/tmp/static-web-server.js',
     ]
     for (const pattern of patterns) {
-      await runShell(`sudo pkill -f ${JSON.stringify(pattern)}`, WORKSPACE_ROOT, undefined, 10_000).catch(() => {})
+      await runShell(`pkill -f ${JSON.stringify(pattern)}`, WORKSPACE_ROOT, undefined, 10_000).catch(() => {})
     }
   }
 
@@ -1396,7 +1087,7 @@ export class ServiceManager {
       return this.buildServiceSnapshot(existing)
     }
 
-    const adapter = input.adapter || (input.s6ServiceName ? 's6' : 'spawn')
+    const adapter: ServiceAdapter = 'spawn'
     const next: RegisteredServiceSpec = {
       id: input.id,
       name: input.name || existing?.spec.name || input.id,
@@ -1406,7 +1097,7 @@ export class ServiceManager {
       builtin: false,
       userVisible: input.userVisible ?? existing?.spec.userVisible ?? true,
       projectId: input.projectId ?? existing?.spec.projectId ?? null,
-      template: input.template ?? existing?.spec.template ?? (adapter === 's6' ? 'custom-s6' : 'custom-command'),
+      template: input.template ?? existing?.spec.template ?? 'custom-command',
       framework: input.framework ?? existing?.spec.framework ?? null,
       sourcePath: resolveSourcePath(input.sourcePath ?? existing?.spec.sourcePath ?? WORKSPACE_ROOT),
       sourceType: existing?.spec.sourceType || 'files',
@@ -1424,7 +1115,7 @@ export class ServiceManager {
       s6ServiceName: input.s6ServiceName ?? existing?.spec.s6ServiceName ?? null,
       processPatterns: [...new Set(input.processPatterns ?? existing?.spec.processPatterns ?? [])],
       healthCheck: {
-        type: input.healthCheck?.type || existing?.spec.healthCheck.type || (adapter === 'spawn' ? 'tcp' : 'none'),
+        type: input.healthCheck?.type || existing?.spec.healthCheck.type || 'none',
         path: input.healthCheck?.path ?? existing?.spec.healthCheck.path,
         timeoutMs: input.healthCheck?.timeoutMs ?? existing?.spec.healthCheck.timeoutMs ?? 2000,
       },
@@ -1432,11 +1123,8 @@ export class ServiceManager {
       updatedAt: now,
     }
 
-    if (next.adapter === 'spawn' && !next.startCommand) {
-      throw new Error(`Spawn service ${next.id} requires a startCommand`)
-    }
-    if (next.adapter === 's6' && !next.s6ServiceName) {
-      throw new Error(`s6 service ${next.id} requires s6ServiceName`)
+    if (!next.startCommand) {
+      throw new Error(`Service ${next.id} requires a startCommand`)
     }
 
     if (existing) {
@@ -1493,14 +1181,10 @@ export class ServiceManager {
     item.spec.updatedAt = nowIso()
     this.persistRegistry()
 
-    const result = item.spec.adapter === 'spawn'
-      ? await this.startSpawnService(item)
-      : await this.startS6Service(item)
-
-    return {
-      ...result,
-      service: this.buildServiceSnapshot(item),
-    }
+    const result = item.spec.adapter === 's6'
+      ? await this.startS6Service(item)
+      : await this.startSpawnService(item)
+    return { ...result, service: this.buildServiceSnapshot(item) }
   }
 
   async stopService(id: string, options?: { persistDesiredState?: boolean }): Promise<ServiceActionResult> {
@@ -1514,14 +1198,10 @@ export class ServiceManager {
       this.persistRegistry()
     }
 
-    const result = item.spec.adapter === 'spawn'
-      ? await this.stopSpawnService(item)
-      : await this.stopS6Service(item)
-
-    return {
-      ...result,
-      service: this.buildServiceSnapshot(item),
-    }
+    const result = item.spec.adapter === 's6'
+      ? await this.stopS6Service(item)
+      : await this.stopSpawnService(item)
+    return { ...result, service: this.buildServiceSnapshot(item) }
   }
 
   async restartService(id: string): Promise<ServiceActionResult> {
@@ -1529,30 +1209,7 @@ export class ServiceManager {
     const item = this.services.get(id)
     if (!item) return { ok: false, output: `Unknown service: ${id}` }
 
-    if (item.spec.adapter === 's6' && item.spec.s6ServiceName) {
-      item.spec.desiredState = 'running'
-      item.spec.updatedAt = nowIso()
-      this.persistRegistry()
-      this.setGate(item.spec.id, true)
-      const downResult = await runShell(`sudo s6-rc -d change ${item.spec.s6ServiceName}`, WORKSPACE_ROOT, undefined, 10_000)
-      if (!downResult.ok) {
-        item.state.status = 'failed'
-        item.state.lastError = downResult.output
-        return { ok: false, output: downResult.output, service: this.buildServiceSnapshot(item) }
-      }
-      const result = await runShell(`sudo s6-rc -u change ${item.spec.s6ServiceName}`, WORKSPACE_ROOT, undefined, 10_000)
-      if (!result.ok) {
-        item.state.status = 'failed'
-        item.state.lastError = result.output
-        return { ok: false, output: result.output, service: this.buildServiceSnapshot(item) }
-      }
-      item.state.status = 'starting'
-      await this.probeManagedService(item)
-      const restartedStatus = item.state.status as ServiceStatus
-      item.state.status = (restartedStatus === 'running' || restartedStatus === 'failed') ? restartedStatus : 'starting'
-      return { ok: true, output: 'restarted', service: this.buildServiceSnapshot(item) }
-    }
-
+    if (item.spec.adapter === 's6') return this.restartS6Service(item)
     await this.stopSpawnService(item)
     return this.startService(id)
   }
@@ -1567,21 +1224,19 @@ export class ServiceManager {
         continue
       }
       if (spec.desiredState === 'running') {
-        if (spec.adapter === 'spawn' && item.proc) {
+        // s6 services are auto-started by s6 — just probe status
+        if (spec.adapter === 's6') {
           await this.probeManagedService(item)
           continue
         }
-        if (spec.adapter === 's6') {
-          await this.startS6Service(item)
+        if (item.proc) {
+          await this.probeManagedService(item)
           continue
         }
         await this.startSpawnService(item)
       } else {
         if (spec.adapter === 'spawn' && item.proc) {
           await this.stopSpawnService(item)
-        }
-        if (spec.adapter === 's6') {
-          await this.stopS6Service(item)
         }
       }
     }

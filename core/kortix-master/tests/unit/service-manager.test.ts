@@ -17,7 +17,6 @@ function createManager(storageDir: string) {
   const manager = new ServiceManager({
     registryFile: join(storageDir, 'registry.json'),
     logsDir: join(storageDir, 'logs'),
-    gateDir: join(storageDir, 'enabled'),
     builtins: [] as RegisteredServiceSpec[],
   })
   managers.push(manager)
