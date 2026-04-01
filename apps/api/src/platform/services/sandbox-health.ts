@@ -244,17 +244,14 @@ async function attemptKeySyncFallback(keys: Record<string, string>): Promise<boo
     const writes = Object.entries(keys)
       .map(([key, val]) => `printf '%s' '${val}' > /run/s6/container_environment/${key}`)
       .join(' && ');
-    const needsRestart = ['KORTIX_TOKEN', 'KORTIX_API_URL'].some((key) => key in keys);
-    const restart = needsRestart
-      ? ` && (pkill -f '/usr/local/bin/opencode' || true; pkill -f 'opencode-linux-arm64-musl' || true; pkill -f 'channels/src/index.ts' || true)`
-      : '';
+    // No restart — getEnv() reads from s6 env dir live.
 
     execSync(
-      `docker exec ${config.SANDBOX_CONTAINER_NAME} bash -c "mkdir -p /run/s6/container_environment && ${writes}${restart}"`,
+      `docker exec ${config.SANDBOX_CONTAINER_NAME} bash -c "mkdir -p /run/s6/container_environment && ${writes}"`,
       { timeout: 15_000, stdio: 'pipe', env },
     );
 
-    console.log(`[sandbox-health] Core env sync successful via docker exec fallback${needsRestart ? ' + restarted opencode/channels' : ''}`);
+    console.log(`[sandbox-health] Core env sync successful via docker exec fallback`);
     return true;
   } catch (err: any) {
     console.error(`[sandbox-health] Docker exec fallback failed:`, err.message || err);

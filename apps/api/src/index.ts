@@ -406,7 +406,10 @@ async function injectSandboxToken(sandboxId: string, accountId: string): Promise
   const rawDockerHost = config.DOCKER_HOST || process.env.DOCKER_HOST || '';
   const dockerHost = rawDockerHost.startsWith('/') ? `unix://${rawDockerHost}` : rawDockerHost;
   const dockerEnv = { ...process.env, DOCKER_HOST: dockerHost.startsWith('/') ? `unix://${dockerHost}` : dockerHost };
-  const sandboxBaseUrl = `http://localhost:${config.SANDBOX_PORT_BASE}`;
+  // Use Docker DNS when on a shared network (self-hosted), localhost when on host (dev)
+  const sandboxBaseUrl = config.SANDBOX_NETWORK
+    ? `http://${config.SANDBOX_CONTAINER_NAME}:8000`
+    : `http://localhost:${config.SANDBOX_PORT_BASE}`;
 
   // Resolve how sandbox reaches kortix-api
   const rawUrl = (config.KORTIX_URL || '').replace(/\/v1\/router\/?$/, '');
@@ -455,9 +458,56 @@ async function injectSandboxToken(sandboxId: string, accountId: string): Promise
       .where(eq(sandboxes.sandboxId, sandboxId));
   }
 
+  // ─── Check if sandbox already has the correct token ─────────────────────
+  // Read the sandbox's current KORTIX_TOKEN via its /env API. If it already
+  // matches, skip the sync entirely — no restart, no downtime.
+  const sandboxAlreadyHasToken = async (): Promise<boolean> => {
+    try {
+      const res = await fetch(`${sandboxBaseUrl}/env/KORTIX_TOKEN`, {
+        headers: { Authorization: `Bearer ${config.INTERNAL_SERVICE_KEY}` },
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (!res.ok) return false;
+      const data = await res.json() as Record<string, string | null>;
+      return data?.KORTIX_TOKEN === token;
+    } catch {
+      return false;
+    }
+  };
+
+  // Also check KORTIX_API_URL
+  const sandboxAlreadyHasUrl = async (): Promise<boolean> => {
+    try {
+      const res = await fetch(`${sandboxBaseUrl}/env/KORTIX_API_URL`, {
+        headers: { Authorization: `Bearer ${config.INTERNAL_SERVICE_KEY}` },
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (!res.ok) return false;
+      const data = await res.json() as Record<string, string | null>;
+      return data?.KORTIX_API_URL === kortixApiUrl;
+    } catch {
+      return false;
+    }
+  };
+
+  // Fast path: if the sandbox already has the correct token AND URL, skip sync.
+  // This is the common case on normal startup — no restart, no downtime.
+  const [hasToken, hasUrl] = await Promise.all([
+    sandboxAlreadyHasToken(),
+    sandboxAlreadyHasUrl(),
+  ]);
+  if (hasToken && hasUrl) {
+    console.log('[startup] Sandbox already has correct KORTIX_TOKEN + KORTIX_API_URL — skipping sync');
+    return;
+  }
+
+  console.log(`[startup] Sandbox needs token sync (hasToken=${hasToken}, hasUrl=${hasUrl})`);
+
   // ─── Sync token to sandbox ─────────────────────────────────────────────
   // Primary: POST to sandbox's /env API (handles triple-write + restart)
   // Fallback: docker exec raw write (when /env API is not yet up)
+  // NOTE: The /env POST handler is now idempotent — it won't restart
+  // OpenCode if the values are unchanged (belt-and-suspenders with the check above).
   const keysToSync: Record<string, string> = {
     KORTIX_TOKEN: token,
     KORTIX_API_URL: kortixApiUrl,
@@ -477,7 +527,8 @@ async function injectSandboxToken(sandboxId: string, accountId: string): Promise
         signal: AbortSignal.timeout(10_000),
       });
       if (res.ok) {
-        console.log('[startup] KORTIX_TOKEN synced via /env API (triple-write + restart)');
+        const result = await res.json() as { restarted?: boolean };
+        console.log(`[startup] KORTIX_TOKEN synced via /env API (restarted=${result?.restarted ?? 'unknown'})`);
         return true;
       }
       console.warn(`[startup] /env API returned ${res.status} — falling back to docker exec`);
@@ -502,12 +553,9 @@ async function injectSandboxToken(sandboxId: string, accountId: string): Promise
         `docker exec ${config.SANDBOX_CONTAINER_NAME} bash -c 'mkdir -p /workspace/.secrets && cat /workspace/.secrets/.bootstrap-env.json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin) if sys.stdin.readable() else {}; d.update(${JSON.stringify(JSON.stringify({ KORTIX_TOKEN: token, KORTIX_API_URL: kortixApiUrl }))}); print(json.dumps(d))" > /workspace/.secrets/.bootstrap-env.json.tmp && mv /workspace/.secrets/.bootstrap-env.json.tmp /workspace/.secrets/.bootstrap-env.json'`,
         { stdio: 'pipe', timeout: 15_000, env: dockerEnv },
       ).toString();
-      // Restart OpenCode + channels so they pick up the new token
-      rawExecSync(
-        `docker exec ${config.SANDBOX_CONTAINER_NAME} bash -lc "pkill -f '/usr/local/bin/opencode' || true; pkill -f 'opencode-linux-arm64-musl' || true; pkill -f 'channels/src/index.ts' || true"`,
-        { stdio: 'pipe', timeout: 10_000, env: dockerEnv },
-      );
-      console.log('[startup] KORTIX_TOKEN synced via docker exec fallback + bootstrap file + restart');
+      // No restart — getEnv() reads from s6 env dir live. OpenCode picks up
+      // the new values on the next tool call without a process restart.
+      console.log('[startup] KORTIX_TOKEN synced via docker exec fallback + bootstrap file');
       return true;
     } catch (e: any) {
       console.error(`[startup] docker exec fallback failed: ${e?.message}`);
@@ -551,7 +599,9 @@ async function ensureLocalSandboxRegistered() {
     } else {
       console.log(`[startup] Local sandbox already registered (${existing.sandboxId})`);
     }
-    // Always re-inject the token on startup in case the container was recreated
+    // Inject token — injectSandboxToken is now idempotent: it checks if the
+    // sandbox already has the correct token and skips sync + restart if so.
+    // Safe to call on every tick without causing OpenCode restarts.
     await injectSandboxToken(existing.sandboxId, existing.accountId);
     return;
   }
