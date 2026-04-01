@@ -408,6 +408,10 @@ export async function setupSSH(): Promise<SSHSetupResult> {
 
 // ─── Running Services API ───────────────────────────────────────────────────
 
+export type SandboxServiceStatus = 'running' | 'stopped' | 'starting' | 'failed' | 'backoff';
+export type SandboxServiceAdapter = 'spawn' | 's6';
+export type SandboxServiceScope = 'bootstrap' | 'core' | 'project' | 'session';
+
 export interface SandboxService {
   id: string;
   name: string;
@@ -416,45 +420,110 @@ export interface SandboxService {
   framework: string;
   sourcePath: string;
   startedAt: string;
-  status: 'running' | 'stopped';
+  status: SandboxServiceStatus;
   managed: boolean;
+  adapter?: SandboxServiceAdapter;
+  scope?: SandboxServiceScope;
+  desiredState?: 'running' | 'stopped';
+  builtin?: boolean;
+  autoStart?: boolean;
 }
 
-export async function getSandboxServices(sandboxUrl: string): Promise<SandboxService[]> {
+export type ServiceAction = 'start' | 'stop' | 'restart' | 'delete';
+
+async function serviceRequest<T = any>(
+  sandboxUrl: string,
+  path: string,
+  init?: RequestInit,
+): Promise<T | null> {
   try {
     const token = await getAuthToken();
-    const headers: Record<string, string> = { Accept: 'application/json' };
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      ...(init?.headers as Record<string, string> || {}),
+    };
     if (token) headers.Authorization = `Bearer ${token}`;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    const res = await fetch(`${sandboxUrl}/kortix/services`, { headers, signal: controller.signal });
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch(`${sandboxUrl}${path}`, {
+      ...init,
+      headers,
+      signal: controller.signal,
+    });
     clearTimeout(timeout);
 
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data?.services ?? [];
+    if (!res.ok) return null;
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
   } catch {
-    return [];
+    return null;
   }
 }
 
-export async function stopSandboxService(sandboxUrl: string, serviceId: string): Promise<boolean> {
-  try {
-    const token = await getAuthToken();
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (token) headers.Authorization = `Bearer ${token}`;
+export async function getSandboxServices(
+  sandboxUrl: string,
+  includeAll = false,
+): Promise<SandboxService[]> {
+  const query = includeAll ? '?all=true' : '';
+  const data = await serviceRequest<{ services?: SandboxService[] }>(
+    sandboxUrl,
+    `/kortix/services${query}`,
+  );
+  return data?.services ?? [];
+}
 
-    const res = await fetch(`${sandboxUrl}/kortix/services/${serviceId}/stop`, {
-      method: 'POST',
-      headers,
-    });
-    if (!res.ok) return false;
-    const data = await res.json();
-    return data?.success ?? false;
-  } catch {
-    return false;
-  }
+export async function sandboxServiceAction(
+  sandboxUrl: string,
+  serviceId: string,
+  action: ServiceAction,
+): Promise<boolean> {
+  const isDelete = action === 'delete';
+  const method = isDelete ? 'DELETE' : 'POST';
+  const path = isDelete
+    ? `/kortix/services/${encodeURIComponent(serviceId)}`
+    : `/kortix/services/${encodeURIComponent(serviceId)}/${action}`;
+  const data = await serviceRequest(sandboxUrl, path, { method });
+  return data !== null;
+}
+
+export async function getSandboxServiceLogs(
+  sandboxUrl: string,
+  serviceId: string,
+): Promise<string[]> {
+  const data = await serviceRequest<{ logs?: string[] }>(
+    sandboxUrl,
+    `/kortix/services/${encodeURIComponent(serviceId)}/logs`,
+  );
+  return data?.logs ?? [];
+}
+
+export async function reconcileSandboxServices(
+  sandboxUrl: string,
+  reload = false,
+): Promise<boolean> {
+  const query = reload ? '?reload=true' : '';
+  const data = await serviceRequest(sandboxUrl, `/kortix/services/reconcile${query}`, {
+    method: 'POST',
+  });
+  return data !== null;
+}
+
+export async function sandboxRuntimeReload(
+  sandboxUrl: string,
+  mode: 'dispose-only' | 'full',
+): Promise<boolean> {
+  const data = await serviceRequest(sandboxUrl, `/kortix/services/system/reload`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+  });
+  return data !== null;
+}
+
+/** @deprecated Use sandboxServiceAction instead */
+export async function stopSandboxService(sandboxUrl: string, serviceId: string): Promise<boolean> {
+  return sandboxServiceAction(sandboxUrl, serviceId, 'stop');
 }
 
 export interface PtySession {
