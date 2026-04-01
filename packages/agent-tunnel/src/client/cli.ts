@@ -1,8 +1,7 @@
-#!/usr/bin/env bun
 /**
  * Agent Tunnel CLI — interact with the user's local machine via Agent Tunnel.
  *
- * Usage: bun run cli.ts <command> [args as JSON]
+ * Usage: agent-tunnel-cli <command> [args as JSON]
  *
  * Commands:
  *   status                                          — list all tunnel connections
@@ -621,7 +620,7 @@ const [cmd, rawArgs] = process.argv.slice(2);
 
 if (!cmd) {
   console.error(
-    `Usage: bun run cli.ts <command> [args as JSON]\n\nAvailable: ${ALL_COMMANDS.join(" | ")}`
+    `Usage: agent-tunnel-cli <command> [args as JSON]\n\nAvailable: ${ALL_COMMANDS.join(" | ")}`
   );
   process.exit(1);
 }

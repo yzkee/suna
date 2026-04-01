@@ -3,7 +3,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Cable, Plus, Monitor, Trash2, Search, X, Terminal, Copy, Check } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { getEnv } from '@/lib/env-config';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,6 +10,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { SpotlightCard } from '@/components/ui/spotlight-card';
 import { Ripple } from '@/components/ui/ripple';
 import { PageHeader } from '@/components/ui/page-header';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -140,7 +146,7 @@ function ConnectionItem({
 // ─── Empty state ─────────────────────────────────────────────────────────────
 
 function ConnectButton() {
-  const [showCommand, setShowCommand] = useState(false);
+  const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const apiUrl = `${getEnv().BACKEND_URL}/tunnel`;
   const command = `npx @kortix/agent-tunnel connect --api-url ${apiUrl}`;
@@ -152,36 +158,36 @@ function ConnectButton() {
   };
 
   return (
-    <div className="relative">
+    <>
       <Button
         variant="default"
         className="px-3 sm:px-4 rounded-2xl gap-1.5 sm:gap-2 text-sm"
-        onClick={() => setShowCommand(!showCommand)}
+        onClick={() => setOpen(true)}
       >
         <Plus className="h-4 w-4" />
         <span className="hidden xs:inline">Add Connection</span>
         <span className="xs:hidden">Add</span>
       </Button>
 
-      <AnimatePresence>
-        {showCommand && (
-          <motion.div
-            initial={{ opacity: 0, y: 4, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 4, scale: 0.97 }}
-            transition={{ duration: 0.15 }}
-            className="absolute right-0 top-full mt-2 z-50 w-[480px] rounded-xl border border-border bg-card shadow-lg p-4 space-y-3"
-          >
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
             <div className="flex items-center gap-2">
-              <Terminal className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Connect a machine</span>
+              <div className="flex items-center justify-center w-9 h-9 rounded-[10px] bg-muted border border-border/50">
+                <Terminal className="h-4.5 w-4.5 text-foreground" />
+              </div>
+              <div>
+                <DialogTitle>Connect a machine</DialogTitle>
+                <DialogDescription>
+                  Run this command on the machine you want to connect.
+                </DialogDescription>
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Run this command on the machine you want to connect. You&apos;ll approve it in your browser.
-            </p>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
             <button
               onClick={handleCopy}
-              className="group flex items-center gap-2 w-full bg-foreground/[0.04] hover:bg-foreground/[0.07] border border-foreground/[0.08] rounded-lg px-3 py-2.5 transition-colors"
+              className="group flex items-center gap-2 w-full bg-foreground/[0.04] hover:bg-foreground/[0.07] border border-foreground/[0.08] rounded-lg px-3 py-2.5 transition-colors cursor-pointer"
             >
               <code className="text-xs font-mono text-foreground/80 flex-1 text-left break-all">
                 {command}
@@ -192,10 +198,17 @@ function ConnectButton() {
                 <Copy className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
               )}
             </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+            <div className="flex items-center justify-center gap-6 text-xs text-muted-foreground/60">
+              <span>1. Run the command</span>
+              <span className="text-foreground/10">|</span>
+              <span>2. Approve in browser</span>
+              <span className="text-foreground/10">|</span>
+              <span>3. Connected</span>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
