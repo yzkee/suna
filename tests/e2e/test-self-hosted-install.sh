@@ -202,12 +202,12 @@ section "STEP 8: Verify Frontend Configuration"
 info "Checking frontend bundle configuration..."
 
 # Check that frontend has correct Supabase URL
-docker exec kortix-frontend-1 sh -c 'grep -q "localhost:13740" /app/apps/frontend/.next/static/chunks/*.js' && \
+docker exec kortix-frontend-1 sh -c 'grep -q "localhost:13740" /app/apps/web/.next/static/chunks/*.js' && \
     pass "Frontend has correct Supabase URL" || \
     fail "Frontend missing correct Supabase URL"
 
 # Check that frontend doesn't have dev URLs
-docker exec kortix-frontend-1 sh -c 'grep -q "127.0.0.1:54321" /app/apps/frontend/.next/static/chunks/*.js 2>/dev/null' && \
+docker exec kortix-frontend-1 sh -c 'grep -q "127.0.0.1:54321" /app/apps/web/.next/static/chunks/*.js 2>/dev/null' && \
     fail "Frontend still has dev Supabase URL" || \
     pass "Frontend doesn't have dev URLs"
 

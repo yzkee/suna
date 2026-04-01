@@ -31,7 +31,7 @@ fatal()   { error "$*"; exit 1; }
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 INSTALL_DIR="${KORTIX_HOME:-$HOME/.kortix}"
-DEFAULT_KORTIX_VERSION="0.8.21"
+DEFAULT_KORTIX_VERSION="0.8.22"
 KORTIX_VERSION="${KORTIX_VERSION:-$DEFAULT_KORTIX_VERSION}"
 KORTIX_LOCAL_IMAGES="${KORTIX_LOCAL_IMAGES:-0}"
 KORTIX_LOCAL_TAG="${KORTIX_LOCAL_TAG:-latest}"
@@ -293,7 +293,7 @@ verify_local_image() {
 }
 
 ensure_local_build_requirements() {
-  [ -d "$KORTIX_LOCAL_REPO_ROOT/apps/frontend" ] || fatal "Local repo root not found at ${KORTIX_LOCAL_REPO_ROOT}."
+  [ -d "$KORTIX_LOCAL_REPO_ROOT/apps/web" ] || fatal "Local repo root not found at ${KORTIX_LOCAL_REPO_ROOT}."
   [ -x "$PNPM_BIN" ] || fatal "pnpm is required for --build-local."
 }
 

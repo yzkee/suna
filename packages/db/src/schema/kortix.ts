@@ -252,6 +252,27 @@ export const kortixApiKeys = kortixSchema.table(
   ],
 );
 
+// ─── Integration Credentials (per-account provider credentials) ─────────────
+// Stores Pipedream (or future provider) credentials per account.
+// Resolution order: request headers → account DB → API env defaults.
+
+export const integrationCredentials = kortixSchema.table(
+  'integration_credentials',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    accountId: uuid('account_id').notNull(),
+    provider: varchar('provider', { length: 50 }).notNull().default('pipedream'),
+    credentials: jsonb('credentials').notNull().default({}).$type<Record<string, string>>(),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('idx_integration_credentials_account_provider').on(table.accountId, table.provider),
+    index('idx_integration_credentials_account').on(table.accountId),
+  ],
+);
+
 // ─── Integrations (account-level OAuth connections) ─────────────────────────
 
 export const integrations = kortixSchema.table(

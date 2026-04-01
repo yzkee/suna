@@ -45,7 +45,7 @@ command -v pnpm >/dev/null 2>&1 || { echo "pnpm is required" >&2; exit 1; }
 
 printf "[build-local-images] Building frontend standalone output...\n"
 (
-  cd "$REPO_ROOT/apps/frontend"
+  cd "$REPO_ROOT/apps/web"
   rm -rf .next
   NEXT_PUBLIC_ENV_MODE=local \
   NEXT_PUBLIC_BACKEND_URL=http://localhost:8008/v1 \
@@ -56,15 +56,15 @@ printf "[build-local-images] Building frontend standalone output...\n"
 )
 
 printf "[build-local-images] Building kortix/kortix-frontend:%s...\n" "$TAG"
-docker build --no-cache -f "$REPO_ROOT/apps/frontend/Dockerfile" -t "kortix/kortix-frontend:${TAG}" "$REPO_ROOT"
+docker build --no-cache -f "$REPO_ROOT/apps/web/Dockerfile" -t "kortix/kortix-frontend:${TAG}" "$REPO_ROOT"
 
 printf "[build-local-images] Building kortix/kortix-api:%s...\n" "$TAG"
-docker build --build-arg SERVICE=kortix-api -f "$REPO_ROOT/kortix-api/Dockerfile" -t "kortix/kortix-api:${TAG}" "$REPO_ROOT"
+docker build --build-arg SERVICE=kortix-api -f "$REPO_ROOT/apps/api/Dockerfile" -t "kortix/kortix-api:${TAG}" "$REPO_ROOT"
 
 printf "[build-local-images] Building kortix/computer:%s...\n" "$TAG"
-docker build --build-arg PREBAKE_LOCAL_SANDBOX=1 -f "$REPO_ROOT/sandbox/docker/Dockerfile" -t "kortix/computer:${TAG}" "$REPO_ROOT"
+docker build --build-arg PREBAKE_LOCAL_SANDBOX=1 -f "$REPO_ROOT/core/docker/Dockerfile" -t "kortix/computer:${TAG}" "$REPO_ROOT"
 
-printf "[build-local-images] Build a local sandbox with compose via: docker compose -f %s/sandbox/docker/docker-compose.yml up --build\n" "$REPO_ROOT"
+printf "[build-local-images] Build a local sandbox with compose via: docker compose -f %s/core/docker/docker-compose.yml up --build\n" "$REPO_ROOT"
 
 if [ "$INCLUDE_POSTGRES" = "1" ]; then
   printf "[build-local-images] Building kortix/postgres:%s...\n" "$TAG"

@@ -5,7 +5,7 @@ services:
   frontend:
     build:
       context: .
-      dockerfile: apps/frontend/Dockerfile
+      dockerfile: apps/web/Dockerfile
       args:
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
@@ -20,13 +20,13 @@ services:
   kortix-api:
     build:
       context: .
-      dockerfile: kortix-api/Dockerfile
+      dockerfile: apps/api/Dockerfile
       args:
         SERVICE: kortix-api
     ports:
       - "8008:8008"
     env_file:
-      - path: kortix-api/.env
+      - path: apps/api/.env
         required: false
     profiles: [backend, all]
     restart: unless-stopped

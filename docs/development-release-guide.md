@@ -25,7 +25,7 @@
 ```bash
 # 1. Start Supabase (auth + DB)
 supabase start
-supabase status -o env  # copy values into kortix-api/.env and apps/frontend/.env.local
+supabase status -o env  # copy values into apps/api/.env and apps/web/.env.local
 
 # 2. Start dev servers (frontend + API)
 pnpm dev
@@ -95,7 +95,7 @@ When a new release ships, running sandboxes update by pulling the new tagged Doc
 ```bash
 pnpm dev:frontend
 # Runs: Next.js dev server on http://localhost:3000
-# Source: apps/frontend/
+# Source: apps/web/
 ```
 
 ### 2. API
@@ -103,7 +103,7 @@ pnpm dev:frontend
 ```bash
 pnpm dev:api
 # Runs: kortix-api on http://localhost:8008
-# Source: kortix-api/
+# Source: apps/api/
 ```
 
 ### 3. Both (common case)
@@ -135,10 +135,10 @@ With the dev overlay, **code changes are live immediately**. You only need `--bu
 
 | Local path | Container path |
 |---|---|
-| `sandbox/kortix-master/src` | `/opt/kortix-master/src` |
-| `packages/kortix-opencode/` | `/opt/opencode/` (agents, tools, skills, plugin, commands) |
-| `packages/opencode-channels/src` | `/opt/opencode-channels/src` |
-| `packages/opencode-agent-triggers/src` | `/opt/opencode-agent-triggers/src` |
+| `core/kortix-master/src` | `/opt/kortix-master/src` |
+| `core/kortix-master/opencode/` | `/opt/kortix-master/opencode/` (agents, tools, skills, plugin, commands) |
+| `core/kortix-master/channels/src` | `/opt/kortix-master/channels/src` |
+| `core/kortix-master/triggers/src` | `/opt/kortix-master/triggers/src` |
 
 These mounts land directly in the running code path inside the dev container.
 
@@ -150,7 +150,7 @@ You **do not** need to rebuild for:
 
 You **do** need `pnpm dev:sandbox --build` when:
 - `Dockerfile` changes
-- `sandbox/package.json` changes (new/removed dep)
+- `core/package.json` changes (new/removed dep)
 - `kortix-master/package.json` or `bun.lock` changes
 - `kortix-opencode/package.json` changes
 
@@ -188,18 +188,18 @@ curl http://127.0.0.1:14000/kortix/health
 
 ### Version locations
 
-The single source of version truth is `sandbox/package.json`. The `ship` script keeps all other locations in sync:
+The single source of version truth is `core/package.json`. The `ship` script keeps all other locations in sync:
 
 | File | Field |
 |---|---|
-| `sandbox/package.json` | `"version"` |
-| `sandbox/release.json` | `version`, `images.*`, `snapshots.*` |
-| `sandbox/startup.sh` | `DEFAULT_KORTIX_SANDBOX_VERSION` |
+| `core/package.json` | `"version"` |
+| `core/release.json` | `version`, `images.*`, `snapshots.*` |
+| `core/startup.sh` | `DEFAULT_KORTIX_SANDBOX_VERSION` |
 | `scripts/get-kortix.sh` | `DEFAULT_KORTIX_VERSION` |
 
 ### Changelog
 
-Before releasing, add an entry to `sandbox/CHANGELOG.json`:
+Before releasing, add an entry to `core/CHANGELOG.json`:
 
 ```json
 {
@@ -224,7 +224,7 @@ The project uses **two independent deployment tracks**:
 
 ### Track 1: API + Frontend (Continuous Deployment)
 
-The API (`kortix-api`) and frontend (`apps/frontend`) deploy independently of sandbox releases.
+The API (`kortix-api`) and frontend (`apps/web`) deploy independently of sandbox releases.
 
 ```
 push to main
@@ -238,7 +238,7 @@ ready for prod?
             new-api.kortix.com ✓
 ```
 
-- **Dev**: auto-deploys on every push to `main` (when `kortix-api/`, `packages/`, or `scripts/compose/` change)
+- **Dev**: auto-deploys on every push to `main` (when `apps/api/`, `packages/`, or `scripts/compose/` change)
 - **Prod**: manual workflow dispatch — `gh workflow run deploy-api.yml -f target=prod`
 - **Frontend**: Vercel auto-deploys from `main`
 - **Rollback**: re-run the workflow on a previous commit
@@ -284,7 +284,7 @@ pnpm image 0.8.0                # Rebuild only the JustAVPS image for this versi
 2. **Bump versions** — updates all 4 version locations (package.json, release.json, startup.sh, get-kortix.sh)
 3. **GitHub Release** — creates `v{version}` release with changelog as notes, or reuses the existing release
 4. **Docker** — `docker buildx build --platform linux/amd64,linux/arm64 --push` for `kortix/computer`, `kortix/kortix-api`, and `kortix/kortix-frontend` unless you pass `--no-docker`
-5. **JustAVPS image** — creates a temporary JustAVPS machine, waits until it is ready, captures a JustAVPS image from it, boots a fresh verification machine from the new image, updates `kortix-api/.env` with `JUSTAVPS_IMAGE_ID`, and deletes both temporary machines
+5. **JustAVPS image** — creates a temporary JustAVPS machine, waits until it is ready, captures a JustAVPS image from it, boots a fresh verification machine from the new image, updates `apps/api/.env` with `JUSTAVPS_IMAGE_ID`, and deletes both temporary machines
 6. **Commit** — `git commit -m "release: v{version}"` when there are version-bump changes to record (you still run `git push`)
 
 By default the image-builder script uses `nbg1` for the temporary build machine unless you override `JUSTAVPS_IMAGE_BUILD_LOCATION`.
@@ -314,7 +314,7 @@ Running sandboxes update by replacing the container image, not by staging OTA ta
 ### How a sandbox updates
 
 1. User clicks **Update** in the sidebar, or the platform hits the sandbox update API
-2. The control plane resolves the target version from `sandbox/release.json`
+2. The control plane resolves the target version from `core/release.json`
 3. The host pulls the matching image tags such as `kortix/computer:{version}`
 4. The sandbox container is recreated with the same mounted workspace and env
 5. Health checks wait for `kortix-master` and dependent services to come back cleanly
@@ -354,12 +354,12 @@ Everything needed to run, with zero network calls on container start:
 
 ```bash
 # Just the sandbox image (local, for dev):
-docker compose -f sandbox/docker/docker-compose.yml build
+docker compose -f core/docker/docker-compose.yml build
 
 # Multi-platform release push:
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  -f sandbox/docker/Dockerfile \
+  -f core/docker/Dockerfile \
   -t kortix/computer:0.8.0 \
   -t kortix/computer:latest \
   --push .
@@ -371,7 +371,7 @@ Only when something in the Dockerfile or its dependency chain changes:
 - `Dockerfile` itself
 - Any `apk add` package needed
 - Bun version
-- `sandbox/package.json` (adds/removes a dep that needs prebaking)
+- `core/package.json` (adds/removes a dep that needs prebaking)
 - `bun.lock` in a sandbox package
 
 For everything else, `pnpm ship` and a container recreate are sufficient.
@@ -427,7 +427,7 @@ docker exec -it kortix-sandbox bash
 ### Release a new version
 
 ```bash
-# 1. Add changelog entry to sandbox/CHANGELOG.json
+# 1. Add changelog entry to core/CHANGELOG.json
 # 2. Ship everything:
 pnpm ship 0.8.0
 git push
@@ -459,7 +459,7 @@ pnpm check
 ### Build sandbox image manually
 
 ```bash
-docker compose -f sandbox/docker/docker-compose.yml build
+docker compose -f core/docker/docker-compose.yml build
 ```
 
 ### Deploy API to prod

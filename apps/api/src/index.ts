@@ -1,0 +1,1176 @@
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import { logger } from 'hono/logger';
+import { prettyJSON } from 'hono/pretty-json';
+import { HTTPException } from 'hono/http-exception';
+import { config } from './config';
+import { BillingError } from './errors';
+
+// ─── Sub-Service Imports ──────────────────────────────────────────────────── 
+
+import { router } from './router';
+import { billingApp } from './billing';
+import { platformApp } from './platform';
+import { sandboxProxyApp, resolveProvider } from './sandbox-proxy';
+import { getSandboxBaseUrl, proxyToSandbox } from './sandbox-proxy/routes/local-preview';
+import { validateSecretKey } from './repositories/api-keys';
+import { isKortixToken } from './shared/crypto';
+import { getSupabase } from './shared/supabase';
+import { verifySupabaseJwt } from './shared/jwt-verify';
+import { canAccessPreviewSandbox } from './shared/preview-ownership';
+import { setupApp } from './setup';
+import { providersApp } from './providers/routes';
+import { secretsApp } from './secrets/routes';
+import { integrationsApp } from './integrations';
+import { queueApp, startDrainer, stopDrainer } from './queue';
+import { serversApp } from './servers';
+// WoA is now mounted under the router at /v1/router/woa (see router/index.ts)
+import { supabaseAuth, combinedAuth } from './middleware/auth';
+import { ensureSchema } from './ensure-schema';
+import { initModelPricing, stopModelPricing } from './router/config/model-pricing';
+import { tunnelApp, wsHandlers as tunnelWsHandlers, startTunnelService, stopTunnelService, getTunnelServiceStatus } from './tunnel';
+import { startSandboxHealthMonitor, stopSandboxHealthMonitor } from './platform/services/sandbox-health';
+import { startProvisionPoller, stopProvisionPoller } from './platform/services/sandbox-provision-poller';
+import { startAutoReplenish, stopAutoReplenish } from './pool';
+import { accessControlApp } from './access-control';
+import { startAccessControlCache, stopAccessControlCache } from './shared/access-control-cache';
+import { legacyApp } from './legacy';
+import { channelsApp } from './channels';
+import { channelWebhooksApp } from './channels/webhooks';
+import { adminApp } from './admin';
+import { sandboxPoolAdminApp } from './platform/routes/sandbox-pool-admin';
+import { oauthApp } from './oauth';
+
+// ─── App Setup ──────────────────────────────────────────────────────────────
+
+const app = new Hono();
+
+// === Global Middleware === 
+
+// CORS origins: production domains + localhost for local dev + any extras from env.
+const cloudOrigins = [
+  'https://www.kortix.com',
+  'https://kortix.com',
+  'https://dev.kortix.com',
+  'https://new-dev.kortix.com',
+  'https://dev-new.kortix.com',
+  'https://staging.kortix.com',
+  'https://kortix.cloud',
+  'https://www.kortix.cloud',
+  'https://new.kortix.com',
+];
+const justavpsOrigins = [
+  'https://justavps.com',
+  'http://localhost:3001',
+];
+const localOrigins = [
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+];
+const extraOrigins = process.env.CORS_ALLOWED_ORIGINS
+  ? process.env.CORS_ALLOWED_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
+  : [];
+const corsOrigins = [
+  ...new Set([
+    ...cloudOrigins,
+    ...justavpsOrigins,
+    ...localOrigins,  // Always include — needed for local dev and self-hosted
+    ...extraOrigins,
+  ]),
+];
+
+app.use(
+  '*',
+  cors({
+    origin: corsOrigins,
+    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Kortix-Token', 'X-Api-Key', 'Accept'],
+    credentials: true,
+  })
+);
+
+app.use('*', logger());
+
+// Pretty JSON in dev mode for easier debugging
+if (config.INTERNAL_KORTIX_ENV === 'dev') {
+  app.use('*', prettyJSON());
+}
+
+// === Top-Level Health Check (no auth) ===
+
+app.get('/health', (c) => {
+  return c.json({
+    status: 'ok',
+    service: 'kortix-api',
+    timestamp: new Date().toISOString(),
+    env: config.ENV_MODE,
+    tunnel: getTunnelServiceStatus(),
+  });
+});
+
+// Health check under /v1 prefix (frontend uses NEXT_PUBLIC_BACKEND_URL which includes /v1)
+app.get('/v1/health', (c) => {
+  return c.json({
+    status: 'ok',
+    service: 'kortix-api',
+    timestamp: new Date().toISOString(),
+    env: config.ENV_MODE,
+    tunnel: getTunnelServiceStatus(),
+  });
+});
+
+// Also expose system status at root for backward compat with frontend
+app.get('/v1/system/status', (c) => {
+  return c.json({
+    maintenanceNotice: { enabled: false },
+    technicalIssue: { enabled: false },
+    updatedAt: new Date().toISOString(),
+  });
+});
+
+// ─── Stub Endpoints ─────────────────────────────────────────────────────────
+// These endpoints are called by the frontend but were never implemented.
+// Adding proper stubs stops 404 noise and provides correct responses.
+
+// POST /v1/prewarm — no-op pre-warm. Frontend fires this on login.
+app.post('/v1/prewarm', (c) => {
+  return c.json({ success: true });
+});
+
+// GET /v1/accounts — returns user's accounts.
+// Dual-read: kortix.account_members first, falls back to basejump.account_user.
+app.get('/v1/accounts', supabaseAuth, async (c: any) => {
+  const userId = c.get('userId') as string;
+  const userEmail = c.get('userEmail') as string;
+
+  const { eq } = await import('drizzle-orm');
+  const { accountMembers, accounts, accountUser } = await import('@kortix/db');
+  const { db } = await import('./shared/db');
+
+  // 1. Try kortix.account_members (new table)
+  try {
+    const memberships = await db
+      .select({
+        accountId: accountMembers.accountId,
+        accountRole: accountMembers.accountRole,
+        name: accounts.name,
+        personalAccount: accounts.personalAccount,
+        createdAt: accounts.createdAt,
+        updatedAt: accounts.updatedAt,
+      })
+      .from(accountMembers)
+      .innerJoin(accounts, eq(accountMembers.accountId, accounts.accountId))
+      .where(eq(accountMembers.userId, userId));
+
+    if (memberships.length > 0) {
+      return c.json(memberships.map(m => ({
+        account_id: m.accountId,
+        name: m.name || userEmail || 'User',
+        slug: m.accountId.slice(0, 8),
+        personal_account: m.personalAccount,
+        created_at: m.createdAt?.toISOString() ?? new Date().toISOString(),
+        updated_at: m.updatedAt?.toISOString() ?? new Date().toISOString(),
+        account_role: m.accountRole || 'owner',
+        is_primary_owner: m.accountRole === 'owner',
+      })));
+    }
+  } catch {
+    // Table doesn't exist yet — continue to basejump fallback
+  }
+
+  // 2. Fall back to basejump.account_user (legacy, cloud prod)
+  try {
+    const legacyMemberships = await db
+      .select({
+        accountId: accountUser.accountId,
+        accountRole: accountUser.accountRole,
+      })
+      .from(accountUser)
+      .where(eq(accountUser.userId, userId));
+
+    if (legacyMemberships.length > 0) {
+      return c.json(legacyMemberships.map(m => ({
+        account_id: m.accountId,
+        name: userEmail || 'User',
+        slug: m.accountId.slice(0, 8),
+        personal_account: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        account_role: m.accountRole || 'owner',
+        is_primary_owner: m.accountRole === 'owner',
+      })));
+    }
+  } catch {
+    // basejump doesn't exist — continue to fallback
+  }
+
+  // 3. No memberships anywhere — return userId as personal account
+  return c.json([
+    {
+      account_id: userId,
+      name: userEmail || 'User',
+      slug: userId.slice(0, 8),
+      personal_account: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      account_role: 'owner',
+      is_primary_owner: true,
+    },
+  ]);
+});
+
+
+app.get('/v1/user-roles', supabaseAuth, async (c: any) => {
+  const { getPlatformRole } = await import('./shared/platform-roles');
+
+  const accountId = c.get('userId') as string;
+  const role = await getPlatformRole(accountId);
+  const isAdmin = role === 'admin' || role === 'super_admin';
+
+  return c.json({ isAdmin, role });
+});
+
+// ─── Mount Sub-Services ─────────────────────────────────────────────────────
+// All services follow the pattern: /v1/{serviceName}/...
+
+app.route('/v1/router', router);        // /v1/router/chat/completions, /v1/router/models, /v1/router/web-search, /v1/router/tavily/*, etc.
+app.route('/v1/billing', billingApp);   // /v1/billing/account-state, /v1/billing/webhooks/*, /v1/billing/setup/*
+app.route('/v1/platform', platformApp); // /v1/platform/providers, /v1/platform/sandbox/*, /v1/platform/sandbox/version
+if (config.KORTIX_DEPLOYMENTS_ENABLED) {
+  const { deploymentsApp } = await import('./deployments');
+  app.route('/v1/deployments', deploymentsApp); // /v1/deployments/*
+}
+app.route('/v1/pipedream', integrationsApp);
+
+// Access control — public endpoints for signup gating
+app.route('/v1/access', accessControlApp); // /v1/access/signup-status, /v1/access/check-email, /v1/access/request-access
+
+// Legacy thread migration — authenticated endpoints
+app.route('/v1/legacy', legacyApp); // /v1/legacy/threads, /v1/legacy/threads/:id/migrate
+
+// Channel Webhooks — PUBLIC (no auth), platforms can't send JWTs.
+// Security: each adapter verifies requests (Slack signing secret, Telegram secret token).
+// MUST be registered before the channels auth middleware.
+app.route('/webhooks', channelWebhooksApp); // /webhooks/slack, /webhooks/telegram, etc.
+
+// Channels — Slack/Discord/Telegram channel configs (authenticated CRUD)
+app.use('/v1/channels/*', combinedAuth);
+app.use('/v1/channels', combinedAuth);
+app.route('/v1/channels', channelsApp); // /v1/channels, /v1/channels/:id, etc.
+
+// Setup — local/self-hosted only. Disabled in cloud mode (not needed, exposes admin surface).
+if (config.isLocal()) {
+  app.route('/v1/setup', setupApp);        // /v1/setup/install-status (public), rest (auth inside router)
+}
+app.route('/v1/admin', adminApp);          // /v1/admin/api/sandboxes, /v1/admin/api/env, /v1/admin/api/health, etc.
+app.route('/v1/admin/sandbox-pool', sandboxPoolAdminApp); // /v1/admin/sandbox-pool/health, /v1/admin/sandbox-pool/list, etc.
+
+// OAuth2 provider — public token endpoint, auth on authorize/consent
+app.route('/v1/oauth', oauthApp);
+
+// All remaining routes require authentication (JWT or kortix_ token).
+app.use('/v1/providers/*', combinedAuth);
+app.route('/v1/providers', providersApp);   // /v1/providers, /v1/providers/schema, /v1/providers/:id/connect, /v1/providers/:id/disconnect, /v1/providers/health
+
+app.use('/v1/secrets/*', combinedAuth);
+app.route('/v1/secrets', secretsApp);       // /v1/secrets, /v1/secrets/:key (PUT/DELETE)
+
+app.use('/v1/servers/*', combinedAuth);
+app.route('/v1/servers', serversApp);        // /v1/servers, /v1/servers/:id, /v1/servers/sync
+
+app.use('/v1/queue/*', combinedAuth);
+app.route('/v1/queue', queueApp);            // /v1/queue/sessions/:id, /v1/queue/messages/:id, /v1/queue/all, /v1/queue/status
+
+// Public device-auth endpoints (no auth — CLI uses these)
+import { createDeviceAuthPublicRouter } from './tunnel/routes/device-auth';
+app.route('/v1/tunnel/device-auth', createDeviceAuthPublicRouter());
+
+app.use('/v1/tunnel/*', async (c, next) => {
+  // Skip auth for public device-auth routes: POST /device-auth and GET /device-auth/:code/status
+  const path = c.req.path.replace('/v1/tunnel/device-auth', '');
+  if (c.req.path.startsWith('/v1/tunnel/device-auth')) {
+    if (c.req.method === 'POST' && (path === '' || path === '/')) return next();
+    if (c.req.method === 'GET' && path.endsWith('/status')) return next();
+  }
+  return combinedAuth(c, next);
+});
+app.route('/v1/tunnel', tunnelApp);
+
+// WoA moved to /v1/router/woa — see router/index.ts
+
+// ── Kortix API — proxies /v1/kortix/* to the sandbox's /kortix/* ─────────────
+// Direct server-to-server proxy. Avoids double-CORS from the /v1/p/ path.
+// Auth: Supabase JWT (global middleware). Sandbox auth: INTERNAL_SERVICE_KEY.
+import { kortixProxyHandler } from './routes/kortix-projects';
+app.all('/v1/kortix/*', kortixProxyHandler);
+app.all('/v1/kortix', kortixProxyHandler);
+
+// Preview Proxy — unified route for both cloud (Daytona) and local mode.
+// Pattern: /v1/p/{sandboxId}/{port}/* for ALL modes.
+// Cloud:  sandboxId = Daytona external ID → proxied via Daytona SDK
+// Local:  sandboxId = container name (e.g. 'kortix-sandbox') → Docker DNS resolution
+// JustAVPS: sandboxId → CF Worker proxy at {port}--{slug}.kortix.cloud
+// Auth: unified previewProxyAuth (accepts Supabase JWT and kortix_ tokens).
+// MUST be after all explicit routes (wildcard catch-all).
+app.route('/v1/p', sandboxProxyApp);
+
+// === Error Handling ===
+
+app.onError((err, c) => {
+  const method = c.req.method;
+  const path = c.req.path;
+  const errName = err.constructor?.name || 'Error';
+
+  if (err instanceof BillingError) {
+    console.error(`[ERROR] ${method} ${path} -> ${err.statusCode} [BillingError] ${err.message}`);
+    return c.json({ error: err.message }, err.statusCode as any);
+  }
+
+  if (err instanceof HTTPException) {
+    console.error(`[ERROR] ${method} ${path} -> ${err.status} [HTTPException] ${err.message}`);
+
+    const response: Record<string, unknown> = {
+      error: true,
+      message: err.message,
+      status: err.status,
+    };
+
+    // Add Retry-After header for 503s (sandbox waking up)
+    if (err.status === 503) {
+      c.header('Retry-After', '10');
+    }
+
+    return c.json(response, err.status);
+  }
+
+  // Database / postgres.js errors — extract the useful info, not the full SQL dump
+  const isDbError = errName === 'PostgresError' || (err as any).severity || (err as any).code?.match?.(/^[0-9]{5}$/);
+  if (isDbError) {
+    const pgErr = err as any;
+    const severity = pgErr.severity || 'ERROR';
+    const pgCode = pgErr.code || '?';
+    const table = pgErr.table ? ` table=${pgErr.table}` : '';
+    const schema = pgErr.schema_name || pgErr.schema || '';
+    const hint = pgErr.hint ? ` hint="${pgErr.hint}"` : '';
+    const detail = pgErr.detail ? ` detail="${pgErr.detail}"` : '';
+    console.error(`[ERROR] ${method} ${path} -> 500 [DB ${severity} ${pgCode}]${schema ? ` schema=${schema}` : ''}${table}${detail}${hint} ${err.message.split('\n')[0]}`);
+  } else {
+    // Generic unhandled error — log concisely with truncated stack
+    const stack = err.stack ? '\n' + err.stack.split('\n').slice(1, 4).join('\n') : '';
+    console.error(`[ERROR] ${method} ${path} -> 500 [${errName}] ${err.message}${stack}`);
+  }
+
+  return c.json(
+    {
+      error: true,
+      message: 'Internal server error',
+      status: 500,
+    },
+    500
+  );
+});
+
+// === 404 Handler ===
+
+app.notFound((c) => {
+  return c.json(
+    {
+      error: true,
+      message: 'Not found',
+      status: 404,
+    },
+    404
+  );
+});
+
+// ─── Auto-register local Docker sandbox in DB ──────────────────────────────
+
+async function injectSandboxToken(sandboxId: string, accountId: string): Promise<void> {
+  const { db } = await import('./shared/db');
+  const { kortixApiKeys } = await import('@kortix/db');
+  const { sandboxes } = await import('@kortix/db');
+  const { eq, and } = await import('drizzle-orm');
+  const { execSync } = await import('child_process');
+  const rawDockerHost = config.DOCKER_HOST || process.env.DOCKER_HOST || '';
+  const dockerHost = rawDockerHost.startsWith('/') ? `unix://${rawDockerHost}` : rawDockerHost;
+  const dockerEnv = { ...process.env, DOCKER_HOST: dockerHost };
+
+  // Resolve how sandbox reaches kortix-api (same logic as local-docker.ts)
+  const rawUrl = (config.KORTIX_URL || '').replace(/\/v1\/router\/?$/, '');
+  let kortixApiUrl = `http://host.docker.internal:${config.PORT}`;
+  try {
+    const parsed = new URL(rawUrl || `http://localhost:${config.PORT}`);
+    if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+      parsed.hostname = 'host.docker.internal';
+      kortixApiUrl = parsed.toString().replace(/\/$/, '');
+    } else if (rawUrl) {
+      kortixApiUrl = rawUrl.replace(/\/$/, '');
+    }
+  } catch { /* keep default */ }
+
+  const writeS6EnvVars = (token: string) => {
+    execSync(
+      `docker exec kortix-sandbox bash -c "printf '%s' '${token}' > /run/s6/container_environment/KORTIX_TOKEN && printf '%s' '${kortixApiUrl}' > /run/s6/container_environment/KORTIX_API_URL && printf '%s' '${token}' > /run/s6/container_environment/TUNNEL_TOKEN && printf '%s' '${kortixApiUrl}' > /run/s6/container_environment/TUNNEL_API_URL"`,
+      { stdio: 'pipe', env: dockerEnv },
+    );
+  };
+
+  const { createApiKey } = await import('./repositories/api-keys');
+  const { validateSecretKey } = await import('./repositories/api-keys');
+
+  // ─── Try to reuse the existing key from sandbox config ─────────────────
+  // The sandbox row stores the plaintext serviceKey in config.serviceKey.
+  // If it's still valid (exists in API keys table), reuse it instead of
+  // re-issuing. This prevents changing KORTIX_TOKEN on every API restart,
+  // which would break SecretStore encryption (for v1) or require unnecessary
+  // service restarts (for v2).
+  const [sandbox] = await db.select().from(sandboxes)
+    .where(eq(sandboxes.sandboxId, sandboxId));
+  const existingServiceKey = (sandbox?.config as any)?.serviceKey as string | undefined;
+
+  if (existingServiceKey) {
+    try {
+      const validation = await validateSecretKey(existingServiceKey);
+      if (validation.isValid) {
+        // Key is still valid — just re-sync to s6 env dir (in case sandbox restarted)
+        try {
+          writeS6EnvVars(existingServiceKey);
+          console.log('[startup] KORTIX_TOKEN synced to sandbox (existing key reused — no re-issue needed)');
+          return;
+        } catch (e: any) {
+          console.warn('[startup] Failed to sync existing key to sandbox, will re-issue:', e?.message);
+        }
+      }
+    } catch {
+      // Validation failed — fall through to re-issue
+    }
+  }
+
+  // ─── Existing key invalid or missing — re-issue ────────────────────────
+  console.log('[startup] Re-issuing sandbox token (existing key invalid or missing)');
+
+  // Clean up old keys
+  const [key] = await db.select().from(kortixApiKeys)
+    .where(and(eq(kortixApiKeys.sandboxId, sandboxId), eq(kortixApiKeys.type, 'sandbox')));
+  if (key) await db.delete(kortixApiKeys).where(eq(kortixApiKeys.keyId, key.keyId));
+
+  const newKey = await createApiKey({ sandboxId, accountId, title: 'Sandbox Token', type: 'sandbox' });
+
+  // Persist the new key in sandbox config so we can reuse it next time
+  await db.update(sandboxes)
+    .set({ config: { serviceKey: newKey.secretKey }, updatedAt: new Date() })
+    .where(eq(sandboxes.sandboxId, sandboxId));
+
+  try {
+    writeS6EnvVars(newKey.secretKey);
+    // Restart opencode so it picks up the new token — retry until it's running
+    const killOpencode = () => {
+      try {
+        execSync(`docker exec kortix-sandbox pkill -f opencode-linux-arm64-musl`, { stdio: 'pipe', env: dockerEnv });
+        return true;
+      } catch { return false; }
+    };
+    if (!killOpencode()) {
+      // Opencode not running yet — wait and retry a few times
+      await new Promise(r => setTimeout(r, 3000));
+      if (!killOpencode()) {
+        await new Promise(r => setTimeout(r, 5000));
+        killOpencode();
+      }
+    }
+    console.log('[startup] KORTIX_TOKEN injected into sandbox (new key issued)');
+  } catch (e: any) {
+    console.error('[startup] Failed to inject KORTIX_TOKEN:', e?.message);
+  }
+}
+
+async function ensureLocalSandboxRegistered() {
+  const { db } = await import('./shared/db');
+  const { sandboxes } = await import('@kortix/db');
+  const { eq, and } = await import('drizzle-orm');
+
+  // Use a well-known account ID for the self-hosted single-owner case.
+  // When Supabase auth is active, the real user ID will be used via POST /init.
+  // This bootstrap is for the case where we need a sandbox before any user logs in.
+  const CONTAINER_NAME = 'kortix-sandbox';
+  const portBase = config.SANDBOX_PORT_BASE;
+  const baseUrl = `http://localhost:${portBase}`;
+
+  // Check if already registered
+  const [existing] = await db
+    .select()
+    .from(sandboxes)
+    .where(eq(sandboxes.externalId, CONTAINER_NAME));
+
+  if (existing) {
+    // Ensure it's active with current baseUrl
+    if (existing.status !== 'active' || existing.baseUrl !== baseUrl) {
+      await db
+        .update(sandboxes)
+        .set({ status: 'active', baseUrl, updatedAt: new Date() })
+        .where(eq(sandboxes.sandboxId, existing.sandboxId));
+      console.log(`[startup] Updated local sandbox registration (${existing.sandboxId})`);
+    } else {
+      console.log(`[startup] Local sandbox already registered (${existing.sandboxId})`);
+    }
+    // Always re-inject the token on startup in case the container was recreated
+    await injectSandboxToken(existing.sandboxId, existing.accountId);
+    return;
+  }
+
+  // No existing sandbox — auto-provision for local single-user setup.
+  const { accounts } = await import('@kortix/db');
+  const [account] = await db.select().from(accounts).limit(1);
+  if (!account) {
+    console.log('[startup] No account yet — sandbox will be created on first login via POST /init');
+    return;
+  }
+
+  const sandbox = await db
+    .insert(sandboxes)
+    .values({
+      accountId: account.accountId,
+      name: 'sandbox-local',
+      provider: 'local_docker',
+      status: 'active',
+      externalId: CONTAINER_NAME,
+      baseUrl,
+      config: {},
+      metadata: {},
+    })
+    .returning()
+    .then(([r]) => r);
+
+  await injectSandboxToken(sandbox.sandboxId, account.accountId);
+  console.log(`[startup] Local sandbox auto-provisioned (${sandbox.sandboxId}), token injected`);
+}
+
+// === Start Server ===
+
+console.log(`
+╔═══════════════════════════════════════════════════════════╗
+║                  Kortix API Starting                      ║
+╠═══════════════════════════════════════════════════════════╣
+║  Port: ${config.PORT.toString().padEnd(49)}║
+║  Mode: ${config.ENV_MODE.padEnd(49)}║
+║  Env:  ${config.INTERNAL_KORTIX_ENV.padEnd(49)}║
+╠═══════════════════════════════════════════════════════════╣
+║  Services:                                                ║
+║    /v1/router     (search, LLM, proxy)                    ║
+║    /v1/billing    (subscriptions, credits, webhooks)       ║
+║    /v1/platform   (sandbox lifecycle)                      ║
+${config.KORTIX_DEPLOYMENTS_ENABLED ? '║    /v1/deployments (deploy lifecycle)                      ║\n' : ''}║    /v1/pipedream   (Pipedream OAuth integrations)           ║
+║    /v1/setup      (setup & env management)                 ║
+║    /v1/queue      (persistent message queue)               ║
+║    /v1/tunnel     (reverse-tunnel to local machines)         ║
+║    /v1/p         (sandbox proxy — local + cloud)            ║
+╠═══════════════════════════════════════════════════════════╣
+║  Database:   ${config.DATABASE_URL ? '✓ Configured'.padEnd(42) : '✗ NOT SET'.padEnd(42)}║
+║  Supabase:   ${config.SUPABASE_URL ? '✓ Configured'.padEnd(42) : '✗ NOT SET'.padEnd(42)}║
+║  Stripe:     ${config.STRIPE_SECRET_KEY ? '✓ Configured'.padEnd(42) : '✗ NOT SET'.padEnd(42)}║
+║  Billing:    ${(config.KORTIX_BILLING_INTERNAL_ENABLED ? 'ENABLED' : 'DISABLED').padEnd(42)}║
+║  Tunnel:     ${(config.TUNNEL_ENABLED ? 'ENABLED' : 'DISABLED').padEnd(42)}║
+║  Providers:  ${config.ALLOWED_SANDBOX_PROVIDERS.join(', ').padEnd(42)}║
+╚═══════════════════════════════════════════════════════════╝
+`);
+
+// Load LLM pricing from models.dev (non-blocking if it fails).
+// Awaited so pricing is available before the first billing request.
+initModelPricing().catch((err) =>
+  console.error('[startup] Model pricing init failed (will retry in 24h):', err),
+);
+
+// Schema readiness gate — blocks DB-dependent requests until push completes.
+let schemaReady = false;
+export function isSchemaReady() { return schemaReady; }
+
+// Ensure DB schema exists before starting services that depend on it.
+// This is idempotent — safe to run on every startup.
+ensureSchema()
+  .then(async () => {
+    schemaReady = true;
+    startAccessControlCache();
+    startDrainer();
+    startTunnelService();
+    startAutoReplenish();
+
+    if (config.isLocalDockerEnabled() && config.DATABASE_URL) {
+      ensureLocalSandboxRegistered().catch((err) =>
+        console.error('[startup] Failed to register local sandbox:', err),
+      );
+      startSandboxHealthMonitor();
+    }
+
+    // Start provision poller for cloud mode (compensates for broken/missing webhooks)
+    if (config.isJustAVPSEnabled()) {
+      startProvisionPoller();
+    }
+  })
+  .catch(async (err) => {
+    console.error('[startup] ensureSchema failed, starting services anyway:', err);
+    schemaReady = true;
+    startAccessControlCache();
+    startDrainer();
+    startTunnelService();
+    startAutoReplenish();
+
+    if (config.isLocalDockerEnabled() && config.DATABASE_URL) {
+      ensureLocalSandboxRegistered().catch((e) =>
+        console.error('[startup] Failed to register local sandbox:', e),
+      );
+      startSandboxHealthMonitor();
+    }
+
+    if (config.isJustAVPSEnabled()) {
+      startProvisionPoller();
+    }
+  });
+
+// Graceful shutdown
+function shutdown(signal: string) {
+  console.log(`\n[${signal}] Shutting down gracefully...`);
+  stopDrainer();
+  stopModelPricing();
+  stopTunnelService();
+  stopSandboxHealthMonitor();
+  stopProvisionPoller();
+  stopAutoReplenish();
+  stopAccessControlCache();
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+// ─── WebSocket proxy for sandbox PTY ─────────────────────────────────────────
+// The Bun server needs to handle WebSocket upgrades at the top level.
+// We intercept WS upgrade requests for /v1/p/{sandboxId}/* and proxy them
+// to the sandbox's Kortix Master (which further proxies to OpenCode).
+
+const WS_CONNECT_TIMEOUT_MS = 10_000;
+const WS_BUFFER_MAX_BYTES = 1024 * 1024; // 1MB
+const WS_IDLE_TIMEOUT_MS = 5 * 60_000;   // 5min
+
+interface WsProxyData {
+  targetUrl: string;
+  upstreamHeaders?: Record<string, string>;
+  upstream: WebSocket | null;
+  buffered: (string | Buffer | ArrayBuffer)[];
+  bufferBytes: number;
+  connectTimer: ReturnType<typeof setTimeout> | null;
+  idleTimer: ReturnType<typeof setTimeout> | null;
+  closed: boolean;
+}
+
+function clearWsTimers(data: WsProxyData) {
+  if (data.connectTimer) { clearTimeout(data.connectTimer); data.connectTimer = null; }
+  if (data.idleTimer) { clearTimeout(data.idleTimer); data.idleTimer = null; }
+}
+
+function resetIdleTimer(ws: { data: WsProxyData; close: (code?: number, reason?: string) => void }) {
+  if (ws.data.idleTimer) clearTimeout(ws.data.idleTimer);
+  ws.data.idleTimer = setTimeout(() => {
+    console.warn(`[sandbox-proxy] WS idle timeout`);
+    try { ws.close(1000, 'idle timeout'); } catch {}
+  }, WS_IDLE_TIMEOUT_MS);
+}
+
+let activeWsConnections = 0;
+
+// ── Subdomain preview routing ───────────────────────────────────────────────
+// Pattern: p{port}-{sandboxId}.localhost:{serverPort}
+// Parsed from the Host header before Hono routing kicks in.
+
+const SUBDOMAIN_REGEX = /^p(\d+)-([^.]+)\.localhost/;
+const PREVIEW_SESSION_COOKIE = '__preview_session';
+
+function parsePreviewSubdomain(host: string): { port: number; sandboxId: string } | null {
+  const match = host.match(SUBDOMAIN_REGEX);
+  if (!match) return null;
+  const port = parseInt(match[1], 10);
+  if (isNaN(port) || port < 1 || port > 65535) return null;
+  return { port, sandboxId: match[2] };
+}
+
+function extractCookieToken(req: Request): string | null {
+  const cookieHeader = req.headers.get('Cookie') || '';
+  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${PREVIEW_SESSION_COOKIE}=([^;]+)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+async function validatePreviewToken(token: string, sandboxId: string): Promise<boolean> {
+  if (isKortixToken(token)) {
+    const result = await validateSecretKey(token);
+    return !!result.isValid && !!result.accountId && await canAccessPreviewSandbox({
+      previewSandboxId: sandboxId,
+      accountId: result.accountId,
+    });
+  }
+  // Fast path: local JWT verification (no network roundtrip)
+  const local = await verifySupabaseJwt(token);
+  if (local.ok) {
+    return canAccessPreviewSandbox({
+      previewSandboxId: sandboxId,
+      userId: local.userId,
+    });
+  }
+  // Definitively invalid (bad sig, expired, malformed) — reject without network call
+  if (local.reason !== 'no-keys' && local.reason !== 'no-key-for-kid') return false;
+  // JWKS not yet available — fall back to network call
+  try {
+    const supabase = getSupabase();
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) return false;
+    return canAccessPreviewSandbox({
+      previewSandboxId: sandboxId,
+      userId: user.id,
+    });
+  } catch {
+    return false;
+  }
+}
+
+// ── Local-mode session tracking ─────────────────────────────────────────────
+// Once a subdomain is authenticated via Bearer header on the first request,
+// all subsequent requests to that subdomain pass through without auth.
+// This avoids third-party cookie issues in iframes (Chrome blocks them).
+// Like ngrok free tier — auth on first load, then open access.
+// Map key: "p{port}-{sandboxId}" → timestamp when authenticated.
+const authenticatedSubdomains = new Map<string, number>();
+const AUTH_SESSION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+
+function getSubdomainKey(sandboxId: string, port: number): string {
+  return `p${port}-${sandboxId}`;
+}
+
+function isSubdomainAuthenticated(sandboxId: string, port: number): boolean {
+  const key = getSubdomainKey(sandboxId, port);
+  const ts = authenticatedSubdomains.get(key);
+  if (!ts) return false;
+  if (Date.now() - ts > AUTH_SESSION_TTL_MS) {
+    authenticatedSubdomains.delete(key);
+    return false;
+  }
+  return true;
+}
+
+function markSubdomainAuthenticated(sandboxId: string, port: number): void {
+  authenticatedSubdomains.set(getSubdomainKey(sandboxId, port), Date.now());
+}
+
+// Periodic cleanup of expired sessions (every 30 min)
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, ts] of authenticatedSubdomains) {
+    if (now - ts > AUTH_SESSION_TTL_MS) authenticatedSubdomains.delete(key);
+  }
+}, 30 * 60 * 1000);
+
+/** Build WS target URL for local_docker sandbox. */
+function buildLocalDockerWsTarget(sandboxId: string, port: number, remainingPath: string, searchParams: URLSearchParams): { url: string; headers?: Record<string, string> } {
+  const sandboxBaseUrl = getSandboxBaseUrl(sandboxId);
+  const wsBase = sandboxBaseUrl.replace('http://', 'ws://').replace('https://', 'wss://');
+  const targetPath = port === 8000 ? remainingPath : `/proxy/${port}${remainingPath}`;
+
+  const upstreamParams = new URLSearchParams(searchParams);
+  upstreamParams.delete('token');
+  if (config.INTERNAL_SERVICE_KEY) {
+    upstreamParams.set('token', config.INTERNAL_SERVICE_KEY);
+  }
+  const search = upstreamParams.toString() ? `?${upstreamParams.toString()}` : '';
+  return { url: `${wsBase}${targetPath}${search}` };
+}
+
+/** Build WS target URL for justavps sandbox (routes through CF Worker proxy). */
+function buildJustavpsWsTarget(opts: {
+  port: number;
+  remainingPath: string;
+  slug: string;
+  serviceKey?: string;
+  proxyToken?: string;
+}): { url: string; headers?: Record<string, string> } {
+  const proxyDomain = config.JUSTAVPS_PROXY_DOMAIN;
+  const cfBase = `wss://${opts.port}--${opts.slug}.${proxyDomain}`;
+  const params = new URLSearchParams();
+  if (opts.serviceKey) params.set('token', opts.serviceKey);
+  const search = params.toString() ? `?${params.toString()}` : '';
+  const headers: Record<string, string> = {};
+  if (opts.proxyToken) headers['X-Proxy-Token'] = opts.proxyToken;
+  return { url: `${cfBase}${opts.remainingPath}${search}`, headers };
+}
+
+/**
+ * Resolve the upstream WebSocket target for a sandbox, dispatching by provider.
+ * Each provider builds the URL + auth headers differently.
+ * Add new providers as cases here.
+ */
+function resolveWsTarget(
+  provider: string,
+  opts: {
+    sandboxId: string;
+    port: number;
+    remainingPath: string;
+    searchParams: URLSearchParams;
+    slug?: string;
+    serviceKey?: string;
+    proxyToken?: string;
+  },
+): { url: string; headers?: Record<string, string> } {
+  switch (provider) {
+    case 'justavps':
+      if (!opts.slug) break;
+      return buildJustavpsWsTarget({
+        port: opts.port,
+        remainingPath: opts.remainingPath,
+        slug: opts.slug,
+        serviceKey: opts.serviceKey,
+        proxyToken: opts.proxyToken,
+      });
+
+    // case 'daytona':
+    //   return buildDaytonaWsTarget(...);
+
+    default:
+      break;
+  }
+
+  return buildLocalDockerWsTarget(opts.sandboxId, opts.port, opts.remainingPath, opts.searchParams);
+}
+
+export default {
+  port: config.PORT,
+
+  async fetch(req: Request, server: any): Promise<Response | undefined> {
+    const host = req.headers.get('host') || '';
+    const url = new URL(req.url);
+    const isWsUpgrade = req.headers.get('upgrade')?.toLowerCase() === 'websocket';
+
+    // ── Subdomain preview routing (primary) ────────────────────────────
+    // Matches: p{port}-{sandboxId}.localhost:{serverPort}
+    // Only for local_docker mode (Daytona has its own preview URLs).
+    const subdomain = !config.isDaytonaEnabled() ? parsePreviewSubdomain(host) : null;
+
+    if (subdomain) {
+      const { port, sandboxId } = subdomain;
+
+      // ── CORS preflight must be handled BEFORE auth ──────────────────
+      // Browsers send OPTIONS without Authorization headers. If we block
+      // the preflight with 401, the browser can never send the actual
+      // request that carries the Bearer token to authenticate the subdomain.
+      if (req.method === 'OPTIONS') {
+        const origin = req.headers.get('Origin') || '';
+        return new Response(null, {
+          status: 204,
+          headers: {
+            'Access-Control-Allow-Origin': origin || '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS',
+            'Access-Control-Allow-Headers': req.headers.get('Access-Control-Request-Headers') || '*',
+            'Access-Control-Allow-Credentials': 'true',
+            'Access-Control-Max-Age': '86400',
+          },
+        });
+      }
+
+      // ── Auth: first request validates, then the subdomain is "open" ──
+      // Bearer header or cookie on first load proves you're legit,
+      // then all subsequent requests (sub-resources, WS, etc.) pass through.
+      // This avoids third-party cookie issues in iframes.
+      if (!isSubdomainAuthenticated(sandboxId, port)) {
+        const authHeader = req.headers.get('Authorization');
+        const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        const kortixTokenHeader = req.headers.get('X-Kortix-Token');
+        const cookieToken = extractCookieToken(req);
+        // Also accept ?token= query param — browser WebSocket API can't set
+        // custom headers, and initial page loads may not have cookies yet.
+        const queryToken = url.searchParams.get('token');
+        const token = bearerToken || cookieToken || kortixTokenHeader || queryToken;
+
+        if (!token || !(await validatePreviewToken(token, sandboxId))) {
+          return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+            status: 401,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': req.headers.get('Origin') || '*',
+              'Access-Control-Allow-Credentials': 'true',
+            },
+          });
+        }
+        // Auth succeeded — mark this subdomain as authenticated
+        markSubdomainAuthenticated(sandboxId, port);
+      }
+
+      // ── WebSocket upgrade via subdomain ──────────────────────────────
+      if (isWsUpgrade) {
+        const resolved = await resolveProvider(sandboxId).catch(() => null);
+        const provider = resolved?.provider ?? 'local_docker';
+
+        const wsTarget = resolveWsTarget(provider, {
+          sandboxId,
+          port,
+          remainingPath: url.pathname,
+          searchParams: url.searchParams,
+          slug: resolved?.slug,
+          serviceKey: resolved?.serviceKey,
+          proxyToken: resolved?.proxyToken,
+        });
+
+        const success = server.upgrade(req, {
+          data: {
+            targetUrl: wsTarget.url,
+            upstreamHeaders: wsTarget.headers,
+            upstream: null,
+            buffered: [],
+            bufferBytes: 0,
+            connectTimer: null,
+            idleTimer: null,
+            closed: false,
+          } satisfies WsProxyData,
+        });
+        if (success) return undefined;
+      }
+
+      // ── HTTP/SSE via subdomain — direct proxy, no Hono ───────────────
+      const origin = req.headers.get('Origin') || '';
+      let body: ArrayBuffer | undefined;
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        body = await req.arrayBuffer();
+      }
+
+      // NOTE: CORS preflight (OPTIONS) is handled above, before the auth check.
+
+      try {
+        // JustAVPS: route through CF Worker proxy at {port}--{slug}.{domain}
+        if (config.isJustAVPSEnabled()) {
+          const { sandboxes } = await import('@kortix/db');
+          const { db } = await import('./shared/db');
+          const { eq, and, ne } = await import('drizzle-orm');
+          const [sandbox] = await db
+            .select({ provider: sandboxes.provider, config: sandboxes.config, metadata: sandboxes.metadata })
+            .from(sandboxes)
+            .where(and(eq(sandboxes.externalId, sandboxId), ne(sandboxes.status, 'pooled')))
+            .limit(1);
+
+          if (sandbox?.provider === 'justavps') {
+            const meta = (sandbox.metadata || {}) as Record<string, unknown>;
+            const slug = meta.justavpsSlug as string || '';
+            const proxyToken = meta.justavpsProxyToken as string || '';
+            const svcKey = (sandbox.config as Record<string, unknown>)?.serviceKey as string || '';
+            const proxyDomain = config.JUSTAVPS_PROXY_DOMAIN;
+            const cfProxyUrl = `https://${port}--${slug}.${proxyDomain}`;
+            const extra: Record<string, string> = {};
+            if (proxyToken) {
+              extra['X-Proxy-Token'] = proxyToken;
+            }
+            return await proxyToSandbox(
+              sandboxId, 8000, req.method, url.pathname, url.search,
+              req.headers, body, false, origin, cfProxyUrl, svcKey, extra,
+            );
+          }
+        }
+
+        return await proxyToSandbox(
+          sandboxId, port, req.method, url.pathname, url.search,
+          req.headers, body, false, origin,
+        );
+      } catch (error) {
+        console.error(`[subdomain-proxy] Error for ${sandboxId}:${port}${url.pathname}: ${error instanceof Error ? error.message : String(error)}`);
+        return new Response(JSON.stringify({ error: 'Failed to proxy to sandbox', details: String(error) }), {
+          status: 502,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // ── Tunnel Agent WebSocket ──────────────────────────────────────────
+    // Agent connects, then authenticates via first message (auth handshake).
+    // Token is never sent in URL — only tunnelId is in the query string.
+    if (isWsUpgrade && url.pathname === '/v1/tunnel/ws') {
+      if (!schemaReady) {
+        return new Response(JSON.stringify({ error: 'Service starting up, try again shortly' }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '5' },
+        });
+      }
+
+      const tunnelId = url.searchParams.get('tunnelId');
+
+      if (!tunnelId) {
+        return new Response(JSON.stringify({ error: 'Missing tunnelId' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Rate limit WS connections (keyed by tunnelId to prevent connection spam)
+      const { tunnelRateLimiter } = await import('./tunnel/core/rate-limiter');
+      const wsRateCheck = tunnelRateLimiter.check('wsConnect', tunnelId);
+      if (!wsRateCheck.allowed) {
+        return new Response(JSON.stringify({
+          error: 'Too many connection attempts',
+          retryAfterMs: wsRateCheck.retryAfterMs,
+        }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      const success = server.upgrade(req, {
+        data: {
+          type: 'tunnel-agent',
+          tunnelId,
+        },
+      });
+      if (success) return undefined;
+    }
+
+    // ── Path-based WebSocket proxy ─────────────────────────────────────────
+    // Matches: ws://localhost:8008/v1/p/{sandboxId}/{port}/*
+    // Used for OpenCode PTY terminals, SSE-over-WS, etc.
+    // Must be handled HERE (at Bun server level) because Hono can't do WS upgrades.
+    // Each provider resolves the upstream WebSocket URL differently.
+    if (isWsUpgrade && !config.isDaytonaEnabled()) {
+      const wsPathMatch = url.pathname.match(/^\/v1\/p\/([^/]+)\/(\d+)(\/.*)?$/);
+      if (wsPathMatch) {
+        const wsSandboxId = wsPathMatch[1];
+        const wsPort = parseInt(wsPathMatch[2], 10);
+        const wsRemainingPath = wsPathMatch[3] || '/';
+
+        const wsAuthHeader = req.headers.get('Authorization');
+        const wsBearerToken = wsAuthHeader?.startsWith('Bearer ') ? wsAuthHeader.slice(7) : null;
+        const wsKortixTokenHeader = req.headers.get('X-Kortix-Token');
+        const wsCookieToken = extractCookieToken(req);
+        const wsQueryToken = url.searchParams.get('token');
+        const wsToken = wsBearerToken || wsCookieToken || wsKortixTokenHeader || wsQueryToken;
+
+        if (wsToken && (await validatePreviewToken(wsToken, wsSandboxId))) {
+          const resolved = await resolveProvider(wsSandboxId).catch(() => null);
+          const provider = resolved?.provider ?? 'local_docker';
+
+          const wsTarget = resolveWsTarget(provider, {
+            sandboxId: wsSandboxId,
+            port: wsPort,
+            remainingPath: wsRemainingPath,
+            searchParams: url.searchParams,
+            slug: resolved?.slug,
+            serviceKey: resolved?.serviceKey,
+            proxyToken: resolved?.proxyToken,
+          });
+
+          const success = server.upgrade(req, {
+            data: {
+              targetUrl: wsTarget.url,
+              upstreamHeaders: wsTarget.headers,
+              upstream: null,
+              buffered: [],
+              bufferBytes: 0,
+              connectTimer: null,
+              idleTimer: null,
+              closed: false,
+            } satisfies WsProxyData,
+          });
+          if (success) return undefined;
+        }
+      }
+    }
+
+    return app.fetch(req, server);
+  },
+
+  websocket: {
+    // Disable Bun's default 120s idle timeout — tunnel agents use their own
+    // heartbeat mechanism (30s ping/pong) for liveness detection.
+    idleTimeout: 0,
+
+    open(ws: { data: any; send: (data: any) => void; close: (code?: number, reason?: string) => void }) {
+      if (ws.data?.type === 'tunnel-agent') {
+        tunnelWsHandlers.onOpen(ws.data.tunnelId, ws as any);
+        return;
+      }
+
+      activeWsConnections++;
+      resetIdleTimer(ws);
+
+      ws.data.connectTimer = setTimeout(() => {
+        if (ws.data.upstream?.readyState === WebSocket.CONNECTING) {
+          console.warn(`[preview-proxy] WS upstream connect timeout`);
+          try { ws.data.upstream.close(); } catch {}
+          try { ws.close(1011, 'upstream connect timeout'); } catch {}
+        }
+      }, WS_CONNECT_TIMEOUT_MS);
+
+      try {
+        const upstream = new WebSocket(ws.data.targetUrl, { headers: ws.data.upstreamHeaders || {} } as any);
+        ws.data.upstream = upstream;
+
+        upstream.addEventListener('open', () => {
+          if (ws.data.connectTimer) { clearTimeout(ws.data.connectTimer); ws.data.connectTimer = null; }
+          for (const msg of ws.data.buffered) {
+            upstream.send(msg);
+          }
+          ws.data.buffered = [];
+          ws.data.bufferBytes = 0;
+        });
+
+        upstream.addEventListener('message', (e: MessageEvent) => {
+          resetIdleTimer(ws);
+          try { ws.send(e.data); } catch {
+            try { upstream.close(); } catch {}
+          }
+        });
+
+        upstream.addEventListener('close', () => {
+          if (!ws.data.closed) {
+            try { ws.close(); } catch {}
+          }
+        });
+
+        upstream.addEventListener('error', () => {
+          if (!ws.data.closed) {
+            try { ws.close(1011, 'upstream error'); } catch {}
+          }
+        });
+      } catch (err) {
+        console.error(`[preview-proxy] WS connect failed:`, err);
+        try { ws.close(1011, 'upstream connection failed'); } catch {}
+      }
+    },
+
+    message(ws: { data: any; close: (code?: number, reason?: string) => void }, message: string | Buffer) {
+      if (ws.data?.type === 'tunnel-agent') {
+        tunnelWsHandlers.onMessage(ws.data.tunnelId, message);
+        return;
+      }
+
+      resetIdleTimer(ws);
+      const upstream = ws.data.upstream;
+      if (upstream && upstream.readyState === WebSocket.OPEN) {
+        upstream.send(message);
+      } else if (upstream && upstream.readyState === WebSocket.CONNECTING) {
+        const size = typeof message === 'string' ? message.length : (message as Buffer).byteLength;
+        if (ws.data.bufferBytes + size > WS_BUFFER_MAX_BYTES) {
+          console.warn(`[preview-proxy] WS buffer overflow, closing`);
+          try { ws.close(1011, 'buffer overflow'); } catch {}
+          return;
+        }
+        ws.data.buffered.push(message);
+        ws.data.bufferBytes += size;
+      }
+    },
+
+    close(ws: { data: any }) {
+      if (ws.data?.type === 'tunnel-agent') {
+        tunnelWsHandlers.onClose(ws.data.tunnelId);
+        return;
+      }
+
+      activeWsConnections--;
+      ws.data.closed = true;
+      clearWsTimers(ws.data);
+      try { ws.data.upstream?.close(); } catch {}
+      ws.data.upstream = null;
+      ws.data.buffered = [];
+      ws.data.bufferBytes = 0;
+    },
+  },
+};
+ 

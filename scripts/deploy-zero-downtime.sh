@@ -61,6 +61,11 @@ git reset --hard origin/main
 git submodule sync --recursive
 git submodule update --init --recursive --remote
 
+# Migrate .env from old paths to new paths (one-time after repo restructure)
+[ -f kortix-api/.env ] && [ ! -f apps/api/.env ] && mkdir -p apps/api && mv kortix-api/.env apps/api/.env && echo "  Migrated kortix-api/.env → apps/api/.env"
+[ -f apps/frontend/.env ] && [ ! -f apps/web/.env ] && mkdir -p apps/web && mv apps/frontend/.env apps/web/.env && echo "  Migrated apps/frontend/.env → apps/web/.env"
+[ -f sandbox/docker/.env ] && [ ! -f core/docker/.env ] && mkdir -p core/docker && mv sandbox/docker/.env core/docker/.env && echo "  Migrated sandbox/docker/.env → core/docker/.env"
+
 COMMIT=$(git rev-parse --short HEAD)
 IMAGE_TAG="${IMAGE_NAME}:${COMMIT}"
 
@@ -72,8 +77,8 @@ if [ -n "$PREBUILT_IMAGE" ]; then
 else
   echo "[2/6] Building ${IMAGE_TAG} (traffic still on $ACTIVE_SLOT:$ACTIVE_PORT)..."
   docker build \
-    --file kortix-api/Dockerfile \
-    --build-arg SERVICE=kortix-api \
+    --file apps/api/Dockerfile \
+    --build-arg SERVICE=apps/api \
     --tag "$IMAGE_TAG" \
     --tag "${IMAGE_NAME}:latest" \
     --no-cache \
@@ -86,7 +91,7 @@ docker rm -f "kortix-api-$STANDBY_SLOT" 2>/dev/null || true
 
 docker run -d \
   --name "kortix-api-$STANDBY_SLOT" \
-  --env-file kortix-api/.env \
+  --env-file apps/api/.env \
   -p "${STANDBY_PORT}:8008" \
   --restart unless-stopped \
   "$IMAGE_TAG"

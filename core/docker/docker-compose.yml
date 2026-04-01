@@ -1,0 +1,108 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Kortix Sandbox — Docker Compose (single instance, fixed ports)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# PERSISTENCE MODEL
+# =================
+#
+# The sandbox has exactly TWO zones:
+#
+#   /workspace/   →  PERSISTENT (Docker named volume "sandbox_data")
+#                    Everything the user cares about lives here:
+#                    code, secrets, sessions, packages, config, state.
+#                    Survives container recreate, image update, restart.
+#                    This is the ONLY volume. If it's in /workspace, it persists.
+#
+#   /ephemeral/  →  SHIPPED RUNTIME (image layer, REPLACED on every update)
+#                    Kortix server, OpenCode config, services, metadata.
+#                    Rebuilt from scratch on every `docker pull` + recreate.
+#                    NEVER store user data here. NEVER modify at runtime.
+#
+#   /opt/        →  SYSTEM (image layer, user/system packages)
+#                    Third-party tools (bun, etc). Container-layer only.
+#
+# On container recreate (image update):
+#   ✅ /workspace/*          — preserved (volume)
+#   ✅ secrets, encryption   — preserved (/workspace/.secrets/)
+#   ✅ OpenCode state/DB     — preserved (/workspace/.local/share/opencode/)
+#   ✅ user-installed pkgs   — preserved (/workspace/.local/, .npm-global/, .kortix/packages/)
+#   ✅ git repos, projects   — preserved (/workspace/)
+#   ❌ /opt/*                — replaced (new image)
+#   ❌ /run/s6/              — rebuilt from /workspace/.secrets/ on boot
+#   ❌ apk system packages   — re-installed from manifest on boot (99-restore-packages.sh)
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  desktop:
+    pull_policy: never
+    build:
+      context: ../..
+      dockerfile: core/docker/Dockerfile
+      args:
+        SANDBOX_VERSION: ${SANDBOX_VERSION:-0.8.1}
+    image: kortix/computer:${SANDBOX_VERSION:-0.8.1}
+    container_name: kortix-sandbox
+    privileged: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - PUID=911
+      - PGID=911
+      - TZ=Etc/UTC
+      - SUBFOLDER=/
+      - TITLE=Kortix Sandbox ${SANDBOX_NAME:-default}
+      - OPENCODE_CONFIG_DIR=/ephemeral/kortix-master/opencode
+      - OPENCODE_PERMISSION={"*":"allow"}
+      - DISPLAY=:1
+      - LSS_DIR=/workspace/.lss
+      - KORTIX_WORKSPACE=/workspace
+      # ── Persistent package paths (all under /workspace/) ──────────────
+      - PYTHONUSERBASE=/workspace/.local
+      - PIP_USER=1
+      - NPM_CONFIG_PREFIX=/workspace/.npm-global
+      # ── Persistent secret paths (all under /workspace/.secrets/) ──────
+      - SECRET_FILE_PATH=/workspace/.secrets/.secrets.json
+      - SALT_FILE_PATH=/workspace/.secrets/.salt
+      # ENCRYPTION_KEY_PATH is auto-derived from SECRET_FILE_PATH dir
+      # ── Sandbox identity (injected by kortix-api or set manually) ─────
+      - KORTIX_API_URL=${KORTIX_API_URL:-http://host.docker.internal:8008}
+      - KORTIX_TOKEN=${KORTIX_TOKEN:-}
+      - INTERNAL_SERVICE_KEY=${INTERNAL_SERVICE_KEY:-}
+      - TUNNEL_API_URL=${KORTIX_API_URL:-http://host.docker.internal:8008}
+      - TUNNEL_TOKEN=${KORTIX_TOKEN:-}
+      - SANDBOX_ID=${SANDBOX_ID:-local}
+      - PROJECT_ID=${PROJECT_ID:-local}
+      - ENV_MODE=${ENV_MODE:-local}
+      - KORTIX_LOCAL_SOURCE=${KORTIX_LOCAL_SOURCE:-1}
+      - START_DOCKER=true
+    env_file:
+      - .env
+    volumes:
+      # ── THE persistence volume ─────────────────────────────────────────
+      # Single volume, mounted at /workspace. This is the ONLY persistent
+      # storage. /config is a symlink to /workspace (linuxserver compat).
+      # Everything that needs to survive container recreate MUST live here.
+      - sandbox_data:/workspace
+      - sandbox_data:/config
+    ports:
+      - "127.0.0.1:14000:8000"  # Kortix Master (proxy entry point)
+      - "127.0.0.1:14001:3111"  # OpenCode Web UI
+      - "127.0.0.1:14002:6080"  # Desktop (noVNC)
+      - "127.0.0.1:14003:6081"  # Desktop (HTTPS)
+      - "127.0.0.1:14004:3210"  # Presentation Viewer
+      - "127.0.0.1:14005:9223"  # Agent Browser Stream (WS)
+      - "127.0.0.1:14006:9224"  # Agent Browser Viewer
+      - "127.0.0.1:14007:22"    # SSH
+      - "127.0.0.1:14008:3211"  # Static Web Server (standalone HTML/assets)
+    shm_size: "2gb"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/kortix/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  sandbox_data:

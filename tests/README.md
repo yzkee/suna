@@ -111,7 +111,7 @@ npm run test:shell:auth     # Auth E2E (needs running stack)
 
 ## Note on Unit Tests
 
-Unit tests that live with their packages (e.g. `kortix-api/src/__tests__/`,
-`sandbox/kortix-master/tests/`, `packages/*/test/`) stay in-place. They are
+Unit tests that live with their packages (e.g. `apps/api/src/__tests__/`,
+`core/kortix-master/tests/`, `packages/*/test/`) stay in-place. They are
 run via each package's own `npm test` command. This directory only centralises
 integration, E2E, and cross-cutting tests.

@@ -125,7 +125,7 @@ info('Validating...')
 const changelog = JSON.parse(fs.readFileSync(CHANGELOG_JSON))
 const entry = changelog.find(e => e.version === version)
 if (!entry) {
-  fail(`No changelog entry for v${version}. Add one to sandbox/CHANGELOG.json first.`)
+  fail(`No changelog entry for v${version}. Add one to core/CHANGELOG.json first.`)
 }
 ok(`Changelog: "${entry.title}"`)
 
@@ -226,7 +226,7 @@ if (DOCKER) {
     --platform linux/amd64,linux/arm64 \
     --provenance=false \
     --sbom=false \
-    -f sandbox/docker/Dockerfile \
+    -f core/docker/Dockerfile \
     --build-arg SANDBOX_VERSION=${version} \
     -t kortix/computer:${version} \
     -t kortix/computer:latest \
@@ -239,7 +239,7 @@ if (DOCKER) {
     --provenance=false \
     --sbom=false \
     --build-arg SERVICE=kortix-api \
-    -f kortix-api/Dockerfile \
+    -f apps/api/Dockerfile \
     -t kortix/kortix-api:${version} \
     -t kortix/kortix-api:latest \
     --push "${ROOT}"`, { stdio: 'inherit' })
@@ -251,7 +251,7 @@ if (DOCKER) {
     --platform linux/amd64,linux/arm64 \
     --provenance=false \
     --sbom=false \
-    -f apps/frontend/Dockerfile \
+    -f apps/web/Dockerfile \
     -t kortix/kortix-frontend:${version} \
     -t kortix/kortix-frontend:latest \
     --push "${ROOT}"`, { stdio: 'inherit' })
@@ -267,13 +267,14 @@ if (DOCKER) {
   // ok(`JustAVPS image for v${version} ready`)
 }
 
+
 // ── Step 5: Commit ────────────────────────────────────────────────────────
 info('Committing version bump...')
 run(`git add \
-  sandbox/package.json \
-  sandbox/release.json \
-  sandbox/CHANGELOG.json \
-  sandbox/startup.sh \
+  core/package.json \
+  core/release.json \
+  core/CHANGELOG.json \
+  core/startup.sh \
   scripts/get-kortix.sh`)
 const hasStagedChanges = run('git diff --cached --name-only')
 if (hasStagedChanges) {

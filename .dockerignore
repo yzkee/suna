@@ -20,8 +20,10 @@
 # ── Test files ──
 tests
 **/tests
-!sandbox/tests
-!sandbox/tests/**
+!core/tests
+!core/tests/**
+!core/kortix-master/tests
+!core/kortix-master/tests/**
 *.test.ts
 *.test.tsx
 *.spec.ts
@@ -37,7 +39,7 @@ dist
 docs
 **/docs
 *.md
-!packages/kortix-opencode/**/*.md
+!core/kortix-master/opencode/**/*.md
 
 # ── Node modules (exclude all EXCEPT standalone output) ──
 # The standalone output is self-contained and MUST keep its node_modules.
@@ -50,8 +52,8 @@ node_modules
 **/.next
 
 # ── Whitelist: frontend standalone output (MUST come LAST to override excludes above) ──
-!apps/frontend/.next
-!apps/frontend/.next/standalone
-!apps/frontend/.next/standalone/**
-!apps/frontend/.next/static
-!apps/frontend/.next/static/**
+!apps/web/.next
+!apps/web/.next/standalone
+!apps/web/.next/standalone/**
+!apps/web/.next/static
+!apps/web/.next/static/**

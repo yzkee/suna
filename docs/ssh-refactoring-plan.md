@@ -6,7 +6,7 @@ When a user clicks "SSH" on a **JustAVPS sandbox**, they get SSH access to the *
 
 ## Root Cause
 
-**File:** `kortix-api/src/platform/routes/ssh.ts`
+**File:** `apps/api/src/platform/routes/ssh.ts`
 
 There are two completely separate SSH setup paths:
 
@@ -31,8 +31,8 @@ setupJustavpsSSH() → GET /machines/{id} → returns VPS host SSH keys → ssh 
 ### The Irony
 
 The Docker container already has a fully working sshd inside it:
-- `sandbox/init-scripts/95-setup-sshd.sh` — configures sshd with key-only auth, user `abc`
-- `sandbox/s6-services/svc-sshd/run` — runs sshd as a supervised service
+- `core/init-scripts/95-setup-sshd.sh` — configures sshd with key-only auth, user `abc`
+- `core/s6-services/svc-sshd/run` — runs sshd as a supervised service
 - Container port 22 is mapped to **host port 22222** (`-p 22222:22` in `start-sandbox.sh`)
 - The `authorized_keys` injection mechanism is fully set up at `/config/.ssh/authorized_keys`
 
@@ -215,6 +215,6 @@ Where `resolveSSHConnection` returns `{ ssh_command, host, port, username }`:
 
 ## Files to Modify
 
-1. **`kortix-api/src/platform/routes/ssh.ts`** — Main refactoring target
+1. **`apps/api/src/platform/routes/ssh.ts`** — Main refactoring target
 2. **JustAVPS cloud-init / firewall** — Ensure port 22222 is open (external to this repo)
 3. **`tests/shell/vps/test-ssh-e2e.sh`** — Update expected port from 22 to 22222 for JustAVPS tests

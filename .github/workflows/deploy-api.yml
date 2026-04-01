@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'kortix-api/**'
+      - 'apps/api/**'
       - 'scripts/compose/**'
       - 'scripts/deploy-zero-downtime.sh'
       - 'packages/**'
@@ -58,8 +58,8 @@ jobs:
       - name: Build and push
         run: |
           docker build \
-            --file kortix-api/Dockerfile \
-            --build-arg SERVICE=kortix-api \
+            --file apps/api/Dockerfile \
+            --build-arg SERVICE=apps/api \
             --tag "${{ steps.meta.outputs.image }}" \
             --tag "ghcr.io/kortix-ai/kortix-api:latest" \
             .

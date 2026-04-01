@@ -1,0 +1,48 @@
+#!/usr/bin/with-contenv bash
+# opencode-channels — Chat SDK Slack/Telegram bot on port 3456
+# Starts and stays running. If no channels are configured yet, holds the s6
+# slot via sleep (no crash-loop). After OAuth, kortix-api pushes credentials
+# as s6 env vars and restarts this service via: s6-svc -r /run/service/svc-opencode-channels
+
+echo "[opencode-channels] Starting on port 3456"
+
+# ── Quick pre-check: are any channel adapters configured? ────────────────────
+# If no Slack/Telegram/Discord credentials are in the environment, there's no
+# point starting the SDK — it will just exit immediately, causing a restart loop.
+# Instead, hold the s6 slot and wait for credentials to be pushed.
+HAS_CHANNELS=false
+[ -n "$SLACK_BOT_TOKEN" ] && HAS_CHANNELS=true
+[ -n "$SLACK_APP_TOKEN" ] && HAS_CHANNELS=true
+[ -n "$TELEGRAM_BOT_TOKEN" ] && HAS_CHANNELS=true
+[ -n "$DISCORD_BOT_TOKEN" ] && HAS_CHANNELS=true
+[ -n "$CHANNEL_CONFIG_ID" ] && HAS_CHANNELS=true
+
+if [ "$HAS_CHANNELS" = "false" ]; then
+  echo "[opencode-channels] No channel adapters configured — holding slot. Configure channels and restart this service."
+  exec sleep infinity
+fi
+
+fuser -k 3456/tcp 2>/dev/null || true
+
+cd /ephemeral/kortix-master
+
+if [ "$(id -u)" -eq 0 ]; then
+  exec s6-setuidgid abc \
+    env HOME=/workspace \
+        OPENCODE_URL=http://localhost:4096 \
+        PORT=3456 \
+        PATH="/opt/bun/bin:/usr/local/bin:/usr/bin:/bin" \
+        KORTIX_API_URL="${KORTIX_API_URL:-http://localhost:8008}" \
+        KORTIX_TOKEN="${KORTIX_TOKEN:-}" \
+        CHANNEL_CONFIG_ID="${CHANNEL_CONFIG_ID:-}" \
+    /opt/bun/bin/bun run channels/src/index.ts
+fi
+
+exec env HOME=/workspace \
+    OPENCODE_URL=http://localhost:4096 \
+    PORT=3456 \
+    PATH="/opt/bun/bin:/usr/local/bin:/usr/bin:/bin" \
+    KORTIX_API_URL="${KORTIX_API_URL:-http://localhost:8008}" \
+    KORTIX_TOKEN="${KORTIX_TOKEN:-}" \
+    CHANNEL_CONFIG_ID="${CHANNEL_CONFIG_ID:-}" \
+  /opt/bun/bin/bun run channels/src/index.ts

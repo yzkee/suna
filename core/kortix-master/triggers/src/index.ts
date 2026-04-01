@@ -1,0 +1,30 @@
+import { createAgentTriggersPlugin } from "./plugin.js"
+
+export { discoverAgentsWithTriggers, resolveAgentPaths } from "./parser.js"
+export { CronStoreSqlite, CronStoreSqlite as CronStore, isValidCronExpression, getNextRun, describeCron } from "./cron-store-sqlite.js"
+export { CronManager } from "./cron-manager.js"
+export { CronClient } from "./cron-client.js"
+export { buildCronTriggerEventText, dispatchCronTriggerViaHttp } from "./opencode-http-dispatch.js"
+export { WebhookTriggerServer } from "./webhook-server.js"
+export { ListenerStore } from "./listener-store.js"
+export { TriggerManager } from "./trigger-manager.js"
+export { createAgentTriggersPlugin } from "./plugin.js"
+export type {
+  AgentTriggerConfig,
+  AgentTriggersPluginOptions,
+  CronExecutionRecord,
+  CronExecutionStatus,
+  CronTriggerConfig,
+  CronTriggerRecord,
+  DiscoveredAgent,
+  EventListenerRecord,
+  MinimalOpenCodeClient,
+  PipedreamSourceConfig,
+  PipedreamTriggerConfig,
+  PluginContextShape,
+  TriggerKind,
+  TriggerSyncResult,
+  WebhookTriggerConfig,
+} from "./types.js"
+
+export default createAgentTriggersPlugin()
