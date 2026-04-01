@@ -4,7 +4,7 @@ import { Hono } from 'hono'
 /**
  * Tests for GET /kortix/health
  *
- * The health endpoint reads /opt/kortix/.version (a JSON file with { version })
+ * The health endpoint reads /ephemeral/metadata/.version (a JSON file with { version })
  * and checks OpenCode readiness. Behaviour:
  *
  *   - OpenCode ready   → 200 { status: 'ok',       opencode: true,  ... }
@@ -35,7 +35,7 @@ describe('GET /kortix/health', () => {
     app.get('/kortix/health', async (c) => {
       let version = '0.0.0'
       try {
-        const file = Bun.file('/opt/kortix/.version')
+        const file = Bun.file('/ephemeral/metadata/.version')
         if (await file.exists()) {
           const data = await file.json()
           version = data.version || '0.0.0'
@@ -52,7 +52,7 @@ describe('GET /kortix/health', () => {
 
   it('returns 200 with status "ok" when OpenCode is ready', async () => {
     ;(Bun as any).file = (path: string) => {
-      if (path === '/opt/kortix/.version') {
+      if (path === '/ephemeral/metadata/.version') {
         return {
           exists: async () => true,
           json: async () => ({ version: '1.2.3' }),
@@ -75,7 +75,7 @@ describe('GET /kortix/health', () => {
 
   it('returns 503 with status "starting" when OpenCode is not ready', async () => {
     ;(Bun as any).file = (path: string) => {
-      if (path === '/opt/kortix/.version') {
+      if (path === '/ephemeral/metadata/.version') {
         return {
           exists: async () => true,
           json: async () => ({ version: '1.2.3' }),
@@ -98,7 +98,7 @@ describe('GET /kortix/health', () => {
 
   it('returns version "0.0.0" when the file does not exist', async () => {
     ;(Bun as any).file = (path: string) => {
-      if (path === '/opt/kortix/.version') {
+      if (path === '/ephemeral/metadata/.version') {
         return {
           exists: async () => false,
           json: async () => { throw new Error('no file') },
@@ -117,7 +117,7 @@ describe('GET /kortix/health', () => {
 
   it('returns version "0.0.0" when the file contains invalid JSON', async () => {
     ;(Bun as any).file = (path: string) => {
-      if (path === '/opt/kortix/.version') {
+      if (path === '/ephemeral/metadata/.version') {
         return {
           exists: async () => true,
           json: async () => { throw new SyntaxError('Unexpected token') },
@@ -136,7 +136,7 @@ describe('GET /kortix/health', () => {
 
   it('returns version "0.0.0" when JSON has no "version" field', async () => {
     ;(Bun as any).file = (path: string) => {
-      if (path === '/opt/kortix/.version') {
+      if (path === '/ephemeral/metadata/.version') {
         return {
           exists: async () => true,
           json: async () => ({ other: 'data' }),
@@ -155,7 +155,7 @@ describe('GET /kortix/health', () => {
 
   it('returns version "0.0.0" when file.exists() throws', async () => {
     ;(Bun as any).file = (path: string) => {
-      if (path === '/opt/kortix/.version') {
+      if (path === '/ephemeral/metadata/.version') {
         return {
           exists: async () => { throw new Error('permission denied') },
           json: async () => { throw new Error('not called') },
@@ -174,7 +174,7 @@ describe('GET /kortix/health', () => {
 
   it('returns correct Content-Type header', async () => {
     ;(Bun as any).file = (path: string) => {
-      if (path === '/opt/kortix/.version') {
+      if (path === '/ephemeral/metadata/.version') {
         return {
           exists: async () => true,
           json: async () => ({ version: '2.0.0' }),
@@ -191,7 +191,7 @@ describe('GET /kortix/health', () => {
 
   it('handles version strings with pre-release tags', async () => {
     ;(Bun as any).file = (path: string) => {
-      if (path === '/opt/kortix/.version') {
+      if (path === '/ephemeral/metadata/.version') {
         return {
           exists: async () => true,
           json: async () => ({ version: '1.0.0-beta.3' }),
@@ -212,7 +212,7 @@ describe('GET /kortix/health', () => {
 
   it('503 response still includes version and content-type for debugging', async () => {
     ;(Bun as any).file = (path: string) => {
-      if (path === '/opt/kortix/.version') {
+      if (path === '/ephemeral/metadata/.version') {
         return {
           exists: async () => true,
           json: async () => ({ version: '3.1.0' }),

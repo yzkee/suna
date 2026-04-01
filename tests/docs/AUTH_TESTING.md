@@ -214,7 +214,7 @@ docker exec kortix-sandbox sudo s6-svc -r /run/service/svc-kortix-master
 ### CORS returns `*` instead of allowlist
 The updated sandbox code hasn't been deployed. Run:
 ```bash
-docker cp computer/core/kortix-master/src/index.ts kortix-sandbox:/opt/kortix-master/src/index.ts
+docker cp computer/core/kortix-master/src/index.ts kortix-sandbox:/ephemeral/kortix-master/src/index.ts
 docker exec kortix-sandbox sudo s6-svc -r /run/service/svc-kortix-master
 ```
 

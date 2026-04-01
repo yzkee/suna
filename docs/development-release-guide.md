@@ -46,12 +46,12 @@ The sandbox is built in 4 layers:
 │  OS: Alpine XFCE, Bun, uv, chromium, SSH, s6-overlay       │
 │  Prebaked at: docker build time                             │
 │                                                             │
-│  /opt/kortix-master/            ← proxy/API server          │
-│  /opt/opencode/                 ← OpenCode config/runtime   │
-│  /opt/opencode-channels/        ← chat adapters             │
-│  /opt/opencode-agent-triggers/  ← cron/triggers             │
-│  /opt/agent-browser-viewer/     ← browser viewer UI         │
-│  /opt/kortix/                   ← version + CHANGELOG       │
+│  /ephemeral/kortix-master/            ← proxy/API server    │
+│  /ephemeral/kortix-master/opencode/   ← OpenCode config     │
+│  /ephemeral/kortix-master/channels/   ← chat adapters       │
+│  /ephemeral/kortix-master/triggers/   ← cron/triggers       │
+│  /ephemeral/agent-browser-viewer/     ← browser viewer UI   │
+│  /ephemeral/metadata/                 ← version + CHANGELOG │
 │                                                             │
 │  Versioned releases are shipped as Docker image tags        │
 │  (`kortix/computer:<version>`) instead of staged OTA trees  │
@@ -59,7 +59,7 @@ The sandbox is built in 4 layers:
 
 ┌─────────────────────────────────────────────────────────────┐
 │  s6-overlay services (managed by s6-rc)                     │
-│  svc-kortix-master  — starts /opt/kortix-master             │
+│  svc-kortix-master  — starts /ephemeral/kortix-master       │
 │  svc-sshd           — SSH daemon                            │
 │  svc-de             — desktop environment (webtop)          │
 └─────────────────────────────────────────────────────────────┘
@@ -135,10 +135,10 @@ With the dev overlay, **code changes are live immediately**. You only need `--bu
 
 | Local path | Container path |
 |---|---|
-| `core/kortix-master/src` | `/opt/kortix-master/src` |
-| `core/kortix-master/opencode/` | `/opt/kortix-master/opencode/` (agents, tools, skills, plugin, commands) |
-| `core/kortix-master/channels/src` | `/opt/kortix-master/channels/src` |
-| `core/kortix-master/triggers/src` | `/opt/kortix-master/triggers/src` |
+| `core/kortix-master/src` | `/ephemeral/kortix-master/src` |
+| `core/kortix-master/opencode/` | `/ephemeral/kortix-master/opencode/` (agents, tools, skills, plugin, commands) |
+| `core/kortix-master/channels/src` | `/ephemeral/kortix-master/channels/src` |
+| `core/kortix-master/triggers/src` | `/ephemeral/kortix-master/triggers/src` |
 
 These mounts land directly in the running code path inside the dev container.
 
@@ -339,8 +339,8 @@ Everything needed to run, with zero network calls on container start:
 | `/opt/bun/` | Bun runtime |
 | `/usr/local/bin/uv` | uv (Python package runner) |
 | `/opt/bun-pty-musl/librust_pty.so` | musl-compiled bun-pty Rust lib |
-| `/opt/kortix-master/` | Proxy + control server runtime |
-| `/opt/opencode/` | OpenCode config, agents, tools, skills, plugins |
+| `/ephemeral/kortix-master/` | Proxy + control server runtime |
+| `/ephemeral/kortix-master/opencode/` | OpenCode config, agents, tools, skills, plugins |
 | `/etc/s6-overlay/s6-rc.d/` | Service definitions |
 | `/custom-cont-init.d/` | Init scripts |
 
