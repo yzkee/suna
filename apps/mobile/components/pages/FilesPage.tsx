@@ -63,6 +63,7 @@ import {
 } from '@/lib/files/hooks';
 import type { SandboxFile } from '@/api/types';
 import { useTabStore, type PageTab } from '@/stores/tab-store';
+import { useThemeColors } from '@/lib/theme-colors';
 
 interface FilesTabState {
   viewMode?: 'list' | 'grid';
@@ -146,6 +147,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
 
   const fgColor = isDark ? '#F8F8F8' : '#121215';
   const mutedColor = isDark ? '#888' : '#777';
+  const themeColors = useThemeColors();
 
   // View mode state
   const [viewMode, setViewMode] = useState<'list' | 'grid'>(savedTabState?.viewMode ?? 'list');
@@ -842,19 +844,19 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
                 onPress={handleUploadDocument}
                 className="flex-row items-center px-5 py-3 rounded-2xl active:opacity-70"
                 style={{
-                  backgroundColor: isDark ? '#f8f8f8' : '#121215',
+                  backgroundColor: themeColors.primary,
                 }}
               >
                 <Icon
                   as={Upload}
                   size={16}
-                  color={isDark ? '#121215' : '#f8f8f8'}
+                  color={themeColors.primaryForeground}
                   strokeWidth={2}
                   style={{ marginRight: 8 }}
                 />
                 <Text
                   className="text-sm font-roobert-medium"
-                  style={{ color: isDark ? '#121215' : '#f8f8f8' }}
+                  style={{ color: themeColors.primaryForeground }}
                 >
                   Upload
                 </Text>
@@ -1156,9 +1158,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
             style={{
               backgroundColor:
                 newFolderName.trim() && !folderNameExists
-                  ? isDark
-                    ? '#f8f8f8'
-                    : '#121215'
+                  ? themeColors.primary
                   : isDark
                     ? 'rgba(248, 248, 248, 0.08)'
                     : 'rgba(18, 18, 21, 0.06)',
@@ -1173,9 +1173,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
               style={{
                 color:
                   newFolderName.trim() && !folderNameExists
-                    ? isDark
-                      ? '#121215'
-                      : '#f8f8f8'
+                    ? themeColors.primaryForeground
                     : isDark
                       ? 'rgba(248, 248, 248, 0.3)'
                       : 'rgba(18, 18, 21, 0.3)',
@@ -1314,9 +1312,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
                 disabled={!canRename || renameMutation.isPending}
                 style={{
                   backgroundColor: canRename
-                    ? isDark
-                      ? '#f8f8f8'
-                      : '#121215'
+                    ? themeColors.primary
                     : isDark
                       ? 'rgba(248, 248, 248, 0.08)'
                       : 'rgba(18, 18, 21, 0.06)',
@@ -1330,9 +1326,7 @@ export const FilesPage = forwardRef<FilesPageRef, FilesPageProps>(function Files
                   className="text-[15px] font-roobert-semibold"
                   style={{
                     color: canRename
-                      ? isDark
-                        ? '#121215'
-                        : '#f8f8f8'
+                      ? themeColors.primaryForeground
                       : isDark
                         ? 'rgba(248, 248, 248, 0.3)'
                         : 'rgba(18, 18, 21, 0.3)',

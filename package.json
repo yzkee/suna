@@ -5,6 +5,7 @@
     "dev": "bash scripts/dev-local.sh",
     "dev:web": "pnpm --filter Kortix-Computer-Frontend dev",
     "dev:frontend": "pnpm --filter Kortix-Computer-Frontend dev",
+    "dev:mobile": "pnpm --filter ./apps/mobile dev",
     "dev:api": "pnpm --filter kortix-api dev",
     "dev:core": "docker compose -f core/docker/docker-compose.yml -f core/docker/docker-compose.dev.yml up",
     "dev:core:build": "docker compose -f core/docker/docker-compose.yml -f core/docker/docker-compose.dev.yml up --build",

@@ -31,6 +31,7 @@ import { useSandboxContext } from '@/contexts/SandboxContext';
 import { getAuthToken } from '@/api/config';
 import { log } from '@/lib/logger';
 import type { PageTab } from '@/stores/tab-store';
+import { useThemeColors } from '@/lib/theme-colors';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -385,6 +386,7 @@ export function TerminalPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: 
   const borderColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
   // Terminal area is always dark
   const terminalBg = '#0f0f14';
+  const themeColors = useThemeColors();
 
   // Create PTY, build HTML with baked-in connection params
   useEffect(() => {
@@ -619,14 +621,14 @@ export function TerminalPage({ page, onBack, onOpenDrawer, onOpenRightDrawer }: 
             style={{
               flexDirection: 'row',
               alignItems: 'center',
-              backgroundColor: fgColor,
+              backgroundColor: themeColors.primary,
               borderRadius: 8,
               paddingHorizontal: 16,
               paddingVertical: 8,
             }}
           >
-            <Ionicons name="refresh-outline" size={14} color={terminalBg} style={{ marginRight: 6 }} />
-            <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: terminalBg }}>Retry</Text>
+            <Ionicons name="refresh-outline" size={14} color={themeColors.primaryForeground} style={{ marginRight: 6 }} />
+            <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: themeColors.primaryForeground }}>Retry</Text>
           </TouchableOpacity>
         </View>
       ) : !terminalHtml ? (

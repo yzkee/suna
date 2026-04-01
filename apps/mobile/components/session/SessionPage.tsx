@@ -80,6 +80,13 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
   const lastSavedOffsetRef = useRef(savedScrollOffset);
   const didRestoreScrollRef = useRef(false);
 
+  // Auto-scroll tracking
+  const isFollowingRef = useRef(true);       // true = scroll with AI output
+  const isAutoScrollingRef = useRef(false);  // suppress follow-disable during programmatic scrolls
+  const listHeightRef = useRef(0);           // visible list viewport height
+  const contentHeightRef = useRef(0);        // total scrollable content height
+  const AT_BOTTOM_THRESHOLD = 80;            // px from bottom considered "at bottom"
+
 
 
   // Session metadata
@@ -239,6 +246,11 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
   const handleSend = useCallback(
     async (text: string, options: PromptOptions, mentions?: TrackedMention[]) => {
       if (!sandboxUrl) return;
+
+      // Clear the tracked input text so it isn't saved when a question appears
+      inputTextRef.current = '';
+      // Re-enable auto-scroll follow when user sends a new message
+      isFollowingRef.current = true;
 
       // Process session mentions — append XML refs (same as frontend)
       let finalText = text;
@@ -473,11 +485,47 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
   const handleListScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const offset = Math.max(0, event.nativeEvent.contentOffset.y || 0);
+
+      // Determine if user is near the bottom
+      const distanceFromBottom = contentHeightRef.current - offset - listHeightRef.current;
+      const atBottom = distanceFromBottom <= AT_BOTTOM_THRESHOLD;
+
+      if (isAutoScrollingRef.current) {
+        // This scroll event was triggered programmatically — don't touch follow state
+      } else if (atBottom) {
+        // User scrolled back to the bottom — resume following
+        isFollowingRef.current = true;
+      } else {
+        // User scrolled up manually — stop following
+        isFollowingRef.current = false;
+      }
+
       if (Math.abs(offset - lastSavedOffsetRef.current) < 24) return;
       lastSavedOffsetRef.current = offset;
       setTabState(sessionId, { scrollOffset: offset });
     },
     [sessionId, setTabState],
+  );
+
+  // Auto-scroll to bottom while AI is typing, if user hasn't scrolled up
+  const handleContentSizeChange = useCallback(
+    (_w: number, h: number) => {
+      contentHeightRef.current = h;
+      if (isBusy && isFollowingRef.current) {
+        isAutoScrollingRef.current = true;
+        flatListRef.current?.scrollToEnd({ animated: false });
+        // Reset flag after scroll event propagates
+        setTimeout(() => { isAutoScrollingRef.current = false; }, 80);
+      }
+    },
+    [isBusy],
+  );
+
+  const handleListLayout = useCallback(
+    (event: { nativeEvent: { layout: { height: number } } }) => {
+      listHeightRef.current = event.nativeEvent.layout.height;
+    },
+    [],
   );
 
   // Question reply/reject handlers
@@ -669,8 +717,10 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
           keyExtractor={(item) => item.userMessage.info.id}
           contentContainerStyle={{ paddingTop: 16 }}
           showsVerticalScrollIndicator={false}
-          scrollEventThrottle={100}
+          scrollEventThrottle={16}
           onScroll={handleListScroll}
+          onContentSizeChange={handleContentSizeChange}
+          onLayout={handleListLayout}
           ListHeaderComponent={
             forkParentId ? (
               <ForkBanner

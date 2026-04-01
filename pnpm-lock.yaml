@@ -41,7 +41,7 @@ importers:
         version: link:../../packages/db
       '@supabase/supabase-js':
         specifier: ^2.95.3
-        version: 2.101.0
+        version: 2.101.1
       agent-tunnel:
         specifier: workspace:@kortix/agent-tunnel@*
         version: link:../../packages/agent-tunnel
@@ -526,7 +526,7 @@ importers:
         version: 0.5.11(react-dom@18.3.1)(react@18.3.1)
       '@opencode-ai/sdk':
         specifier: ^1.2.17
-        version: 1.3.7
+        version: 1.2.27
       '@pipedream/sdk':
         specifier: ^2.3.7
         version: 2.3.7
@@ -625,10 +625,10 @@ importers:
         version: 8.7.0
       '@supabase/ssr':
         specifier: latest
-        version: 0.10.0(@supabase/supabase-js@2.101.0)
+        version: 0.10.0(@supabase/supabase-js@2.101.1)
       '@supabase/supabase-js':
         specifier: latest
-        version: 2.101.0
+        version: 2.101.1
       '@syncfusion/ej2-base':
         specifier: ^32.1.19
         version: 32.2.3
@@ -1220,7 +1220,7 @@ importers:
         version: 1.3.7
       '@opencode-ai/sdk':
         specifier: ^1.2.25
-        version: 1.3.7
+        version: 1.2.27
       '@scalar/hono-api-reference':
         specifier: ^0.9.45
         version: 0.9.48(hono@4.12.3)
@@ -1235,7 +1235,7 @@ importers:
         version: 0.4.8
       chat:
         specifier: ^4.20.2
-        version: 4.23.0
+        version: 4.20.2
       croner:
         specifier: ^8.1.2
         version: 8.1.2
@@ -1310,6 +1310,37 @@ importers:
         version: 1.3.9
       typescript:
         specifier: ^5.4.0
+        version: 5.9.3
+
+  packages/opencode-channels:
+    dependencies:
+      '@chat-adapter/discord':
+        specifier: ^4.15.0
+        version: 4.20.2
+      '@chat-adapter/slack':
+        specifier: ^4.14.0
+        version: 4.20.2
+      '@chat-adapter/state-memory':
+        specifier: ^4.14.0
+        version: 4.20.2
+      '@hono/node-server':
+        specifier: ^1.13.0
+        version: 1.19.10(hono@4.12.3)
+      chat:
+        specifier: ^4.14.0
+        version: 4.20.2
+      hono:
+        specifier: ^4.12.0
+        version: 4.12.3
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.13
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.7.0
         version: 5.9.3
 
   packages/shared:
@@ -5763,7 +5794,7 @@ packages:
     resolution: {integrity: sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w==}
     engines: {node: '>=18.0.0'}
     dependencies:
-      minipass: 7.1.3
+      minipass: 7.1.2
 
   /@isaacs/ttlcache@1.4.1:
     resolution: {integrity: sha512-RQgQ4uQ+pLbqXfOmieB91ejmLwvSgv9nLx6sT6sD83s7umBypgg+OIBOBbEUiJXrfpnp9j0mRhYYdzp9uqq3lA==}
@@ -5795,7 +5826,7 @@ packages:
     dependencies:
       '@jest/fake-timers': 29.7.0
       '@jest/types': 29.6.3
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
       jest-mock: 29.7.0
 
   /@jest/fake-timers@29.7.0:
@@ -5804,7 +5835,7 @@ packages:
     dependencies:
       '@jest/types': 29.6.3
       '@sinonjs/fake-timers': 10.3.0
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
       jest-message-util: 29.7.0
       jest-mock: 29.7.0
       jest-util: 29.7.0
@@ -5844,7 +5875,7 @@ packages:
       '@jest/schemas': 29.6.3
       '@types/istanbul-lib-coverage': 2.0.6
       '@types/istanbul-reports': 3.0.4
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
       '@types/yargs': 17.0.35
       chalk: 4.1.2
 
@@ -6490,6 +6521,10 @@ packages:
     dependencies:
       '@opencode-ai/sdk': 1.3.7
       zod: 4.1.8
+    dev: false
+
+  /@opencode-ai/sdk@1.2.27:
+    resolution: {integrity: sha512-Wk0o/I+Fo+wE3zgvlJDs8Fb67KlKqX0PrV8dK5adSDkANq6r4Z25zXJg2iOir+a8ntg3rAcpel1OY4FV/TwRUA==}
     dev: false
 
   /@opencode-ai/sdk@1.3.7:
@@ -11333,7 +11368,7 @@ packages:
     resolution: {integrity: sha512-Wz7QYfPAlG/DR+DfABddUZeNgoeY7d1J39OCR2jR+v7VBsB8ezulDK5szTnDDPDwLH5IWhLvXIHlCFZV7MSKgA==}
     engines: {node: '>= 18', npm: '>= 8.6.0'}
     dependencies:
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
     dev: false
 
   /@slack/types@2.20.0:
@@ -11347,7 +11382,7 @@ packages:
     dependencies:
       '@slack/logger': 4.0.0
       '@slack/types': 2.20.0
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
       '@types/retry': 0.12.0
       axios: 1.13.5
       eventemitter3: 5.0.4
@@ -12079,8 +12114,8 @@ packages:
     engines: {node: '>=12.16'}
     dev: false
 
-  /@supabase/auth-js@2.101.0:
-    resolution: {integrity: sha512-00v22bzJ1LvLPQFZ8OKV5Qb1z2UkglyADQPh3PWcvUvHgAL86FdQrtMu6FewjU0CeROMpWQ4F/ExYhKKK45D0Q==}
+  /@supabase/auth-js@2.101.1:
+    resolution: {integrity: sha512-Kd0Wey+RkFHgyVep7adS6UOE2pN6MJ3mZ32PAXSvfw6IjUkFRC7IQpdZZjUOcUe5pXr1ejufCRgF6lsGINe4Tw==}
     engines: {node: '>=20.0.0'}
     dependencies:
       tslib: 2.8.1
@@ -12093,8 +12128,8 @@ packages:
       tslib: 2.8.1
     dev: false
 
-  /@supabase/functions-js@2.101.0:
-    resolution: {integrity: sha512-oEdCj5GmIGQwjII1fcbb/+hvUF94ZQmeFmFRoToz5Gbf2T8KPTX4vtanUmED+ekTB9Tyfap1IXFUx7klQprIaw==}
+  /@supabase/functions-js@2.101.1:
+    resolution: {integrity: sha512-OZWU7YtaG+NNNFZK8p/FuJ6gpq7pFyrG2fLOopP73HAIDHDGpOttPJapvO8ADu3RkqfQfkwrB354vPkSBbZ20A==}
     engines: {node: '>=20.0.0'}
     dependencies:
       tslib: 2.8.1
@@ -12111,8 +12146,8 @@ packages:
     resolution: {integrity: sha512-RHSx8bHS02xwfHdAbX5Lpbo6PXbgyf7lTaXTlwtFDPwOIw64NnVRwFAXGojHhjtVYI+PEPNSWwkL90f4agN3bw==}
     dev: false
 
-  /@supabase/postgrest-js@2.101.0:
-    resolution: {integrity: sha512-CJVsIdzRkEwH5F1NAwVq/Ewh0T/LpEpYro5hQKhfRqtZ6ghUnH0TCaA4PgyCCSWjESTqAuocBmX4ajlVK/1BPg==}
+  /@supabase/postgrest-js@2.101.1:
+    resolution: {integrity: sha512-UW1RajH5jbZoK+ldAJ1I6VZ+HWwZ2oaKjEQ6Gn+AQ67CHQVxGl8wNQoLYyumbyaExm41I+wn7arulcY1eHeZJw==}
     engines: {node: '>=20.0.0'}
     dependencies:
       tslib: 2.8.1
@@ -12125,8 +12160,8 @@ packages:
       tslib: 2.8.1
     dev: false
 
-  /@supabase/realtime-js@2.101.0:
-    resolution: {integrity: sha512-Y2sSZhP8QtIukIJEAUPavP5LPmAKVwyuZqdAua68ECFoqiFxNZFCaxglzaeEaSg22rba9TN83n+tnP5gnQuQrg==}
+  /@supabase/realtime-js@2.101.1:
+    resolution: {integrity: sha512-Oa6dno0OB9I+hv5do5zsZHbFu41ViZnE9IWjmkeeF/8fPmB5fWoHGqeTYEC3/0DAgtpUoFJa4FpvzFH0SBHo1Q==}
     engines: {node: '>=20.0.0'}
     dependencies:
       '@supabase/phoenix': 0.4.0
@@ -12151,17 +12186,17 @@ packages:
       - utf-8-validate
     dev: false
 
-  /@supabase/ssr@0.10.0(@supabase/supabase-js@2.101.0):
+  /@supabase/ssr@0.10.0(@supabase/supabase-js@2.101.1):
     resolution: {integrity: sha512-36jIu+DuKzg5EgA3fnH+zHvwASvpKcL4zPgmHoZaULroS5Q4mzeHcM69zJ0sXUHddO5IcHjQNZJ9Vyhl/DdbRw==}
     peerDependencies:
       '@supabase/supabase-js': ^2.100.1
     dependencies:
-      '@supabase/supabase-js': 2.101.0
+      '@supabase/supabase-js': 2.101.1
       cookie: 1.1.1
     dev: false
 
-  /@supabase/storage-js@2.101.0:
-    resolution: {integrity: sha512-bFw/kBR4bfOGc2L6DjD+mC+dDsEurvQXg+QVcbFg0uDFiSREfUjjwSUtz+pkLFuu75Uy1/KzHzB2L+WpoJ9fCA==}
+  /@supabase/storage-js@2.101.1:
+    resolution: {integrity: sha512-WhTaUOBgeEvnKLy95Cdlp6+D5igSF/65yC727w1olxbet5nzUvMlajKUWyzNtQu2efrz2cQ7FcdVBdQqgT9YKQ==}
     engines: {node: '>=20.0.0'}
     dependencies:
       iceberg-js: 0.8.1
@@ -12176,15 +12211,15 @@ packages:
       tslib: 2.8.1
     dev: false
 
-  /@supabase/supabase-js@2.101.0:
-    resolution: {integrity: sha512-SIFrI4Fqny+dlUNkzXQjLP6HOxTPjmEPjZc1C4MCL/naeBKNJc+h/ExxkOtGcY8nDt6BZmVSB7Hb4PSzVEUWKg==}
+  /@supabase/supabase-js@2.101.1:
+    resolution: {integrity: sha512-Jnhm3LfuACwjIzvk2pfUbGQn7pa7hi6MFzfSyPrRYWVCCu69RPLCFyHSBl7HSBwadbQ3UZOznnD3gPca3ePrRA==}
     engines: {node: '>=20.0.0'}
     dependencies:
-      '@supabase/auth-js': 2.101.0
-      '@supabase/functions-js': 2.101.0
-      '@supabase/postgrest-js': 2.101.0
-      '@supabase/realtime-js': 2.101.0
-      '@supabase/storage-js': 2.101.0
+      '@supabase/auth-js': 2.101.1
+      '@supabase/functions-js': 2.101.1
+      '@supabase/postgrest-js': 2.101.1
+      '@supabase/realtime-js': 2.101.1
+      '@supabase/storage-js': 2.101.1
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -13539,7 +13574,7 @@ packages:
   /@types/colorthief@2.6.1:
     resolution: {integrity: sha512-3hlRky7ybPuQDNx3RV29P/CTvuC7zkk//Xt/NyOwNg5RhL/y54a0q4aW7MNMkvBkGJqX2g2igNCoCh3ZtK4gZQ==}
     dependencies:
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
     dev: true
 
   /@types/d3-array@3.2.2:
@@ -13734,7 +13769,7 @@ packages:
   /@types/docker-modem@3.0.6:
     resolution: {integrity: sha512-yKpAGEuKRSS8wwx0joknWxsmLha78wNMe9R2S3UNsVOkZded8UqOrV8KoeDXoXsjndxwyF3eIhyClGbO1SEhEg==}
     dependencies:
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
       '@types/ssh2': 1.15.5
     dev: true
 
@@ -13766,7 +13801,7 @@ packages:
   /@types/graceful-fs@4.1.9:
     resolution: {integrity: sha512-olP3sd1qOEe5dXTSaFvQG+02VdRXcdytWLAZsAq1PecU8uqQAhkrnbli7DagjtXKW/Bl7YJbUsa8MPcuc8LHEQ==}
     dependencies:
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
 
   /@types/hammerjs@2.0.46:
     resolution: {integrity: sha512-ynRvcq6wvqexJ9brDMS4BnBLzmr0e14d6ZJTEShTBWKymQiHwlAyGu0ZPEFI2Fh1U53F7tN9ufClWM5KvqkKOw==}
@@ -13869,6 +13904,7 @@ packages:
     resolution: {integrity: sha512-Rs1bVAIdBs5gbTIKza/tgpMuG1k3U/UMJLWecIMxNdJFDMzcM5LOiLVRYh3PilWEYDIeUDv7bpiHPLPsbydGcw==}
     dependencies:
       undici-types: 6.21.0
+    dev: true
 
   /@types/node@22.19.13:
     resolution: {integrity: sha512-akNQMv0wW5uyRpD2v2IEyRSZiR+BeGuoB6L310EgGObO44HSMNT8z1xzio28V8qOrgYaopIDNA18YgdXd+qTiw==}
@@ -13886,7 +13922,7 @@ packages:
   /@types/papaparse@5.5.2:
     resolution: {integrity: sha512-gFnFp/JMzLHCwRf7tQHrNnfhN4eYBVYYI897CGX4MY1tzY9l2aLkVyx2IlKZ/SAqDbB3I1AOZW5gTMGGsqWliA==}
     dependencies:
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
     dev: false
 
   /@types/parse-json@4.0.2:
@@ -14006,7 +14042,7 @@ packages:
   /@types/ws@8.18.1:
     resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
     dependencies:
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
     dev: false
 
   /@types/yargs-parser@21.0.3:
@@ -17560,7 +17596,7 @@ packages:
     engines: {node: '>=12.13.0'}
     hasBin: true
     dependencies:
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
       escape-string-regexp: 4.0.0
       is-wsl: 2.2.0
       lighthouse-logger: 1.4.2
@@ -17570,7 +17606,7 @@ packages:
   /chromium-edge-launcher@0.2.0:
     resolution: {integrity: sha512-JfJjUnq25y9yg4FABRRVPmBGWPZZi+AQXT4mxupb67766/0UlhG8PAZCz6xzEMXTbW3CsSoE8PcCWA49n35mKg==}
     dependencies:
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
       escape-string-regexp: 4.0.0
       is-wsl: 2.2.0
       lighthouse-logger: 1.4.2
@@ -21884,7 +21920,7 @@ packages:
       '@jest/environment': 29.7.0
       '@jest/fake-timers': 29.7.0
       '@jest/types': 29.6.3
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
       jest-mock: 29.7.0
       jest-util: 29.7.0
 
@@ -21898,7 +21934,7 @@ packages:
     dependencies:
       '@jest/types': 29.6.3
       '@types/graceful-fs': 4.1.9
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
       anymatch: 3.1.3
       fb-watchman: 2.0.2
       graceful-fs: 4.2.11
@@ -21929,7 +21965,7 @@ packages:
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
     dependencies:
       '@jest/types': 29.6.3
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
       jest-util: 29.7.0
 
   /jest-regex-util@29.6.3:
@@ -21941,7 +21977,7 @@ packages:
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
     dependencies:
       '@jest/types': 29.6.3
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
       chalk: 4.1.2
       ci-info: 3.9.0
       graceful-fs: 4.2.11
@@ -21962,7 +21998,7 @@ packages:
     resolution: {integrity: sha512-eIz2msL/EzL9UFTFFx7jBTkeZfku0yUAyZZZmJ93H2TYEiroIx2PQjEXcwYtYl8zXCxb+PAmA2hLIt/6ZEkPHw==}
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
     dependencies:
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
       jest-util: 29.7.0
       merge-stream: 2.0.0
       supports-color: 8.1.1
@@ -23884,6 +23920,10 @@ packages:
   /minimist@1.2.8:
     resolution: {integrity: sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA==}
 
+  /minipass@7.1.2:
+    resolution: {integrity: sha512-qOOzS1cBTWYF4BH8fVePDBOO9iptMnGUEZwNc/cMWnTV2nVLZ7VoNWEPHkYczZA0pdoA7dl6e7FL659nX9S2aw==}
+    engines: {node: '>=16 || 14 >=14.17'}
+
   /minipass@7.1.3:
     resolution: {integrity: sha512-tEBHqDnIoM/1rXME1zgka9g6Q2lcoCkxHLuc7ODJ5BxbP5d4c2Z5cGgtXAku59200Cx7diuHTOYfSBD8n6mm8A==}
     engines: {node: '>=16 || 14 >=14.17'}
@@ -23892,7 +23932,7 @@ packages:
     resolution: {integrity: sha512-KZxYo1BUkWD2TVFLr0MQoM8vUUigWD3LlD83a/75BqC+4qE0Hb1Vo5v1FgcfaNXvfXzr+5EhQ6ing/CaBijTlw==}
     engines: {node: '>= 18'}
     dependencies:
-      minipass: 7.1.3
+      minipass: 7.1.2
 
   /mitt@3.0.1:
     resolution: {integrity: sha512-vKivATfr97l2/QBCYAkXYDbrIWPM2IIKEl7YPhjCvKlG3kE2gm+uBo6nEXK3M5/Ffh/FLpKExzOQ3JJoJGFKBw==}
@@ -24475,7 +24515,7 @@ packages:
       typescript: ^5
     dependencies:
       '@opencode-ai/plugin': 1.3.7
-      '@opencode-ai/sdk': 1.3.7
+      '@opencode-ai/sdk': 1.2.27
       bun-pty: 0.4.8
       moment: 2.30.1
       open: 11.0.0
@@ -24730,7 +24770,7 @@ packages:
     engines: {node: '>=16 || 14 >=14.18'}
     dependencies:
       lru-cache: 10.4.3
-      minipass: 7.1.3
+      minipass: 7.1.2
     dev: false
 
   /path-scurry@2.0.2:
@@ -25351,7 +25391,7 @@ packages:
       '@protobufjs/path': 1.1.2
       '@protobufjs/pool': 1.1.0
       '@protobufjs/utf8': 1.1.0
-      '@types/node': 20.19.33
+      '@types/node': 22.19.13
       long: 5.3.2
     dev: false
 

@@ -18,14 +18,20 @@ import {
   Platform,
   Animated,
   StyleSheet,
+  ActionSheetIOS,
+  Alert,
+  Image,
   type NativeSyntheticEvent,
   type TextInputSelectionChangeEventData,
 } from 'react-native';
 import { Text } from '@/components/ui/text';
 import { useColorScheme } from 'nativewind';
 import { Ionicons } from '@expo/vector-icons';
-import { Infinity as InfinityIcon, Slash as SlashIcon, Info as InfoIcon } from 'lucide-react-native';
+import { Infinity as InfinityIcon, Slash as SlashIcon, Info as InfoIcon, X as XIcon } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
+import { getAuthToken } from '@/api/config';
 
 import type { Agent, FlatModel, Command } from '@/lib/opencode/hooks/use-opencode-data';
 import type { Session } from '@/lib/platform/types';
@@ -35,6 +41,19 @@ import { Text as RNText } from 'react-native';
 import { useThemeColors } from '@/lib/theme-colors';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+
+export interface AttachedFile {
+  /** Local URI on device (file:// or content://) */
+  uri: string;
+  /** Display name */
+  name: string;
+  /** MIME type */
+  mimeType: string;
+  /** File size in bytes (may be undefined for some pickers) */
+  size?: number;
+  /** True if this is an image and should show a preview thumbnail */
+  isImage: boolean;
+}
 
 export interface PromptOptions {
   agent?: string;
@@ -261,6 +280,114 @@ export function SessionChatInput({
   const [autocontinueMode, setAutocontinueMode] = useState<AutoContinueMode | null>(null);
   const [showAutoSheet, setShowAutoSheet] = useState(false);
 
+  // ── File attachments ─────────────────────────────────────────────────────
+
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const removeAttachedFile = useCallback((index: number) => {
+    setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const addFiles = useCallback((files: AttachedFile[]) => {
+    setAttachedFiles((prev) => [...prev, ...files]);
+  }, []);
+
+  const handleAttachPress = useCallback(() => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Photo Library', 'Camera', 'Browse Files'],
+          cancelButtonIndex: 0,
+        },
+        async (buttonIndex) => {
+          if (buttonIndex === 1) {
+            const result = await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ['images'],
+              allowsMultipleSelection: true,
+              quality: 0.9,
+            });
+            if (!result.canceled) {
+              addFiles(result.assets.map((a) => ({
+                uri: a.uri,
+                name: a.fileName || a.uri.split('/').pop() || 'image.jpg',
+                mimeType: a.mimeType || 'image/jpeg',
+                size: a.fileSize,
+                isImage: true,
+              })));
+            }
+          } else if (buttonIndex === 2) {
+            const { status } = await ImagePicker.requestCameraPermissionsAsync();
+            if (status !== 'granted') {
+              Alert.alert('Permission required', 'Camera access is needed to take photos.');
+              return;
+            }
+            const result = await ImagePicker.launchCameraAsync({ quality: 0.9 });
+            if (!result.canceled) {
+              addFiles([{
+                uri: result.assets[0].uri,
+                name: result.assets[0].fileName || `photo_${Date.now()}.jpg`,
+                mimeType: result.assets[0].mimeType || 'image/jpeg',
+                size: result.assets[0].fileSize,
+                isImage: true,
+              }]);
+            }
+          } else if (buttonIndex === 3) {
+            const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true });
+            if (!result.canceled) {
+              addFiles(result.assets.map((a) => ({
+                uri: a.uri,
+                name: a.name,
+                mimeType: a.mimeType || 'application/octet-stream',
+                size: a.size,
+                isImage: (a.mimeType || '').startsWith('image/'),
+              })));
+            }
+          }
+        },
+      );
+    } else {
+      // Android: use a simple Alert for choice
+      Alert.alert('Attach file', 'Choose source', [
+        {
+          text: 'Photo Library',
+          onPress: async () => {
+            const result = await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ['images'],
+              allowsMultipleSelection: true,
+              quality: 0.9,
+            });
+            if (!result.canceled) {
+              addFiles(result.assets.map((a) => ({
+                uri: a.uri,
+                name: a.fileName || a.uri.split('/').pop() || 'image.jpg',
+                mimeType: a.mimeType || 'image/jpeg',
+                size: a.fileSize,
+                isImage: true,
+              })));
+            }
+          },
+        },
+        {
+          text: 'Browse Files',
+          onPress: async () => {
+            const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true });
+            if (!result.canceled) {
+              addFiles(result.assets.map((a) => ({
+                uri: a.uri,
+                name: a.name,
+                mimeType: a.mimeType || 'application/octet-stream',
+                size: a.size,
+                isImage: (a.mimeType || '').startsWith('image/'),
+              })));
+            }
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    }
+  }, [addFiles]);
+
   const availableAutoAlgorithms = useMemo(
     () =>
       AUTOCONTINUE_ALGORITHMS.filter((alg) =>
@@ -406,7 +533,7 @@ export function SessionChatInput({
   const showAnimatedPlaceholder = text.trim().length === 0 && !inputSlot && !stagedCommand;
   // ────────────────────────────────────────────────────────────────────────
 
-  const canSend = text.trim().length > 0 && !disabled;
+  const canSend = (text.trim().length > 0 || attachedFiles.length > 0) && !disabled && !isUploading;
   const hasDraftText = text.trim().length > 0;
 
   useEffect(() => {
@@ -415,7 +542,7 @@ export function SessionChatInput({
 
   const hasToolbar = agents.length > 0 || models.length > 0;
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     // Slash command popover open — select highlighted command
     if (slashFilter !== null && filteredCommands.length > 0) {
       handleSelectCommand(filteredCommands[slashIndex]);
@@ -466,10 +593,57 @@ export function SessionChatInput({
     if (variant) options.variant = variant;
 
     const trackedMentions = mention.mentions.length > 0 ? [...mention.mentions] : undefined;
-    onSend(trimmed, options, trackedMentions);
+    const filesToUpload = [...attachedFiles];
+
+    // Clear input immediately for snappy UX
     setText('');
+    setAttachedFiles([]);
     mention.reset();
-  }, [text, disabled, onSend, agent, modelKey, variant, mention, isBusy, onEnqueue, slashFilter, filteredCommands, slashIndex, handleSelectCommand, stagedCommand, onCommand, autocontinueMode, commands]);
+
+    if (filesToUpload.length > 0 && sandboxUrl) {
+      setIsUploading(true);
+      try {
+        const batchTs = Date.now();
+        const xmlParts: string[] = [];
+
+        await Promise.all(
+          filesToUpload.map(async (f, idx) => {
+            const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+            const uniqueName = `${batchTs}-${idx}-${safeName}`;
+            const targetPath = `/workspace/uploads/${uniqueName}`;
+
+            const formData = new FormData();
+            formData.append('path', '/workspace/uploads');
+            formData.append('file', { uri: f.uri, name: uniqueName, type: f.mimeType } as any);
+
+            const token = await getAuthToken();
+            const res = await fetch(`${sandboxUrl}/file/upload`, {
+              method: 'POST',
+              headers: token ? { Authorization: `Bearer ${token}` } : {},
+              body: formData,
+            });
+
+            const uploadedPath = res.ok
+              ? ((await res.json() as Array<{ path: string }>)[0]?.path ?? targetPath)
+              : targetPath;
+
+            xmlParts[idx] = `<file path="${uploadedPath}" mime="${f.mimeType}" filename="${f.name}">\nThis file has been uploaded and is available at the path above.\n</file>`;
+          }),
+        );
+
+        const xmlBlock = xmlParts.join('\n');
+        const finalText = xmlBlock ? `${trimmed}\n\n${xmlBlock}` : trimmed;
+        onSend(finalText, options, trackedMentions);
+      } catch {
+        // Upload failed — still send the message without file refs
+        onSend(trimmed, options, trackedMentions);
+      } finally {
+        setIsUploading(false);
+      }
+    } else {
+      onSend(trimmed, options, trackedMentions);
+    }
+  }, [text, disabled, onSend, agent, modelKey, variant, mention, isBusy, onEnqueue, slashFilter, filteredCommands, slashIndex, handleSelectCommand, stagedCommand, onCommand, autocontinueMode, commands, attachedFiles, sandboxUrl]);
 
   // Variant display
   const variantLabel = variant
@@ -504,6 +678,64 @@ export function SessionChatInput({
           <View className="rounded-2xl px-4 pt-2 pb-1 bg-card border border-border">
             {/* Queue / question slot — rendered above textarea */}
             {inputSlot}
+
+            {/* Attached file previews */}
+            {attachedFiles.length > 0 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={{ marginBottom: 6 }}
+                contentContainerStyle={{ gap: 6, paddingVertical: 2 }}
+              >
+                {attachedFiles.map((f, idx) => (
+                  <View
+                    key={idx}
+                    style={{
+                      position: 'relative',
+                      borderRadius: 8,
+                      overflow: 'hidden',
+                      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                    }}
+                  >
+                    {f.isImage ? (
+                      <Image
+                        source={{ uri: f.uri }}
+                        style={{ width: 52, height: 52, borderRadius: 8 }}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center', padding: 4 }}>
+                        <Ionicons name="document-outline" size={22} color={isDark ? '#a1a1aa' : '#71717a'} />
+                        <RNText
+                          numberOfLines={2}
+                          style={{ fontSize: 9, color: isDark ? '#a1a1aa' : '#71717a', textAlign: 'center', marginTop: 2 }}
+                        >
+                          {f.name}
+                        </RNText>
+                      </View>
+                    )}
+                    {/* Remove button */}
+                    <TouchableOpacity
+                      onPress={() => removeAttachedFile(idx)}
+                      style={{
+                        position: 'absolute',
+                        top: 2,
+                        right: 2,
+                        width: 16,
+                        height: 16,
+                        borderRadius: 8,
+                        backgroundColor: 'rgba(0,0,0,0.55)',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                      hitSlop={4}
+                    >
+                      <XIcon size={9} color="#fff" strokeWidth={3} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
 
             {/* Staged command badge */}
             {stagedCommand && (
@@ -614,8 +846,32 @@ export function SessionChatInput({
 
             {/* Toolbar row — inside the input card */}
             <View className="flex-row items-center justify-between py-1.5">
-              {/* Left: config + AutoContinue */}
-              <View className="flex-row items-center" style={{ gap: 8 }}>
+              {/* Left: attach + config + AutoContinue */}
+              <View className="flex-row items-center" style={{ gap: 6 }}>
+                {/* File attachment button */}
+                {!onboardingMode && (
+                  <TouchableOpacity
+                    onPress={handleAttachPress}
+                    activeOpacity={0.7}
+                    hitSlop={6}
+                    style={{
+                      width: 28,
+                      height: 28,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: 14,
+                      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                    }}
+                  >
+                    <Ionicons
+                      name="attach"
+                      size={16}
+                      color={isDark ? '#a1a1aa' : '#71717a'}
+                    />
+                  </TouchableOpacity>
+                )}
+
+                {/* Config button — text only, no leading icon */}
                 <TouchableOpacity
                   onPress={() => setShowConfigSheet(true)}
                   activeOpacity={0.7}
@@ -623,25 +879,19 @@ export function SessionChatInput({
                   style={{
                     flexDirection: 'row',
                     alignItems: 'center',
-                    paddingHorizontal: 10,
+                    paddingHorizontal: 8,
                     paddingVertical: 5,
                     borderRadius: 20,
                     backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
                   }}
                 >
-                  <Ionicons
-                    name="options-outline"
-                    size={14}
-                    color={isDark ? '#a1a1aa' : '#71717a'}
-                    style={{ marginRight: 6 }}
-                  />
                   <Text
                     numberOfLines={1}
                     style={{
                       fontSize: 12,
                       fontFamily: 'Roobert-Medium',
                       color: isDark ? '#a1a1aa' : '#71717a',
-                      maxWidth: 200,
+                      maxWidth: 140,
                     }}
                   >
                     {agent?.name || 'Agent'}
@@ -652,10 +902,11 @@ export function SessionChatInput({
                     name="chevron-down"
                     size={10}
                     color={isDark ? '#52525b' : '#a1a1aa'}
-                    style={{ marginLeft: 4 }}
+                    style={{ marginLeft: 3 }}
                   />
                 </TouchableOpacity>
 
+                {/* AutoContinue — text only, no leading icon */}
                 {!onboardingMode && availableAutoAlgorithms.length > 0 && (
                   <AutoContinueButton
                     isDark={isDark}
@@ -796,17 +1047,12 @@ function AutoContinueButton({
       }}
       hitSlop={6}
     >
-      {isActive ? (
-        <InfinityIcon color={activeColor} size={14} strokeWidth={2.4} />
-      ) : (
-        <InfinityOffIcon color={mutedColor} size={14} />
-      )}
       <Text
         style={{
           fontSize: 12,
           fontFamily: 'Roobert-Medium',
           color: isActive ? (isDark ? '#F8F8F8' : '#1f2937') : mutedColor,
-          marginLeft: 6,
+          marginLeft: 0,
         }}
         numberOfLines={1}
       >

@@ -72,6 +72,8 @@ import { MarketplacePage } from '@/components/pages/MarketplacePage';
 import { TerminalPage } from '@/components/pages/TerminalPage';
 import { SetupWizard } from '@/components/setup/SetupWizard';
 import { InstanceOnboarding } from '@/components/setup/InstanceOnboarding';
+import { ProvisioningProgress } from '@/components/provisioning/ProvisioningProgress';
+import { useSandboxPoller } from '@/lib/platform/use-sandbox-poller';
 import {
   Eye, EyeOff, RefreshCw, Upload, Image, FolderPlus, LayoutGrid, List,
   FileText, Copy, Pencil, Trash2,
@@ -253,8 +255,25 @@ export default function HomeScreen() {
   const { colorScheme, setColorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const router = useRouter();
-  const { sandboxUrl, sandboxId, isLoading: sandboxLoading, error: sandboxError } =
-    useSandboxContext();
+  const {
+    sandboxUrl, sandboxId, isLoading: sandboxLoading, error: sandboxError,
+    isProvisioning, provisioningSandboxId, provisioningExternalId, provisioningProvider, onProvisioningComplete,
+  } = useSandboxContext();
+
+  // ── Provisioning progress poller ──
+  const poller = useSandboxPoller({
+    sandboxId: provisioningSandboxId,
+    externalId: provisioningExternalId,
+    provider: provisioningProvider,
+    enabled: isProvisioning,
+  });
+
+  // When poller reaches 'ready', trigger refetch in sandbox context
+  useEffect(() => {
+    if (poller.status === 'ready') {
+      onProvisioningComplete();
+    }
+  }, [poller.status, onProvisioningComplete]);
 
   // ── Instance setup wizard check ──
   // 'checking' = waiting for sandbox to be reachable, then checking env
@@ -339,7 +358,7 @@ export default function HomeScreen() {
             await new Promise((r) => setTimeout(r, pollMs));
             continue;
           }
-          // Fresh install — show wizard
+          // Fresh install — show setup wizard
           log.log('[Home] Setup check: INSTANCE_SETUP_COMPLETE not true, showing wizard');
           setSetupState('needed');
           return;
@@ -916,6 +935,24 @@ export default function HomeScreen() {
   );
 
   // ── Render ──
+
+  // Show provisioning progress when sandbox is being created
+  if (isProvisioning) {
+    return (
+      <>
+        <Stack.Screen options={{ headerShown: false }} />
+        <RNStatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+        <ProvisioningProgress
+          progress={poller.progress}
+          stages={poller.stages}
+          currentStage={poller.currentStage}
+          stageMessage={poller.stageMessage}
+          machineInfo={poller.machineInfo}
+          error={poller.error}
+        />
+      </>
+    );
+  }
 
   // Show loading screen while checking setup status — matches frontend's
   // "Connecting to Workspace" skeleton screen.
