@@ -5,15 +5,25 @@ description: "Kortix connectors: internal registry of what's connected where. Fr
 
 # Connectors
 
-Internal registry of what's connected where. A connector = freeform YAML frontmatter in a `CONNECTOR.md`. Only `name` is required. Everything else is freeform — describe what it is and how to use it.
+Internal registry of what's connected where. A connector = freeform YAML frontmatter in a `CONNECTOR.md`. Only `name` is required.
 
 Nothing ships by default. Scaffolded on demand via `connector_setup`.
 
 ---
 
-## Format
+## RULES — read these first
 
-Just key-value pairs describing what the service is:
+1. **NEVER tell the user to go somewhere to connect a service.** Always run the connect command yourself and show them the OAuth link directly in chat.
+
+2. **NEVER trust connector files for connection status.** Always run the Pipedream `list` command to check what's actually connected.
+
+3. **If a service is connected on Pipedream, use it immediately** — even if no connector file exists.
+
+4. **If a service is NOT connected, connect it yourself** — run `connect`, get the OAuth URL, show it to the user with `show`. One click for them, done.
+
+---
+
+## Format
 
 ```yaml
 ---
@@ -22,8 +32,6 @@ description: "Company shared drive"
 source: pipedream
 ---
 ```
-
-That's it. No slugs, no status, no credentials list. The file just documents that this service exists and how it's connected.
 
 ---
 
@@ -37,54 +45,54 @@ That's it. No slugs, no status, no credentials list. The file just documents tha
 
 ---
 
-## Checking what's actually connected
+## When the user asks to use a service
 
-**Before using any service, check both:**
-
-### 1. Pipedream (live status)
+**Always follow this exact flow:**
 
 ```bash
+# Step 1: Find the integration script
 SCRIPT=$(find /opt/opencode ~/.opencode /workspace /ephemeral -name "integration.ts" 2>/dev/null | head -1)
+
+# Step 2: Check what's ACTUALLY connected right now
 bun run "$SCRIPT" list
 ```
 
-This is the truth. If a service appears here, it's connected and usable — even if no CONNECTOR.md exists for it. Use it immediately.
+**If the service appears in the list → it's connected. Use it immediately:**
 
-### 2. Connector files (registry)
-
-```
-connector_list(filter="")
+```bash
+bun run "$SCRIPT" request '{"app":"google_drive","method":"GET","url":"https://www.googleapis.com/drive/v3/files?pageSize=10"}'
 ```
 
-This shows what's been registered. A service can be connected via Pipedream but not have a connector file, or have a file but not be connected. **Both should be checked and synced.**
+**If the service is NOT in the list → connect it NOW and show the link:**
 
-### Syncing
+```bash
+# Search for the app slug
+bun run "$SCRIPT" search '{"q":"google drive"}'
 
-When you find a mismatch (Pipedream says connected but no connector file, or vice versa), fix it:
+# Connect — this returns a URL
+bun run "$SCRIPT" connect '{"app":"google_drive"}'
 
-- Connected on Pipedream but no file → scaffold one via `connector_setup`
-- Has a file but not connected → either connect it or note it in the file
+# Show the URL to the user so they can click it directly
+# Use the show tool: show({ type: "url", url: "<connectUrl>", title: "Connect Google Drive — click to authorize" })
+```
+
+**NEVER say "go to settings" or "go to the integrations page."** The user should never leave the chat. You handle the connection flow, show them the link, they click, done.
 
 ---
 
-## Connecting Services
-
-### Pipedream (default)
+## Using connected services
 
 ```bash
-SCRIPT=$(find /opt/opencode ~/.opencode /workspace /ephemeral -name "integration.ts" 2>/dev/null | head -1)
+# Authenticated API call
+bun run "$SCRIPT" request '{"app":"google_drive","method":"GET","url":"https://www.googleapis.com/drive/v3/files?pageSize=10"}'
 
-# What's connected right now
-bun run "$SCRIPT" list
-
-# Search
-bun run "$SCRIPT" search '{"q":"stripe"}'
-
-# Connect — returns OAuth URL for user
-bun run "$SCRIPT" connect '{"app":"stripe"}'
+# Programmatic code with proxyFetch
+bun run "$SCRIPT" exec '{"app":"google_drive","code":"const r = await proxyFetch(\"https://www.googleapis.com/drive/v3/files?pageSize=10\"); return await r.json();"}'
 ```
 
-Pipedream is maximum convenience — one click. For dev-heavy services, direct CLI is tighter but more setup. Default to Pipedream, upgrade later.
+---
+
+## Connecting via CLI or API key
 
 ### CLI
 
@@ -100,21 +108,10 @@ curl -s -X POST "http://localhost:8000/env/KEY_NAME" \
 
 ---
 
-## Using connected services
+## Syncing
 
-```bash
-# Authenticated API call via Pipedream
-bun run "$SCRIPT" request '{"app":"google_drive","method":"GET","url":"https://www.googleapis.com/drive/v3/files?pageSize=10"}'
+When you discover a service is connected on Pipedream but has no connector file, scaffold one:
 
-# Programmatic code with proxyFetch
-bun run "$SCRIPT" exec '{"app":"google_drive","code":"const r = await proxyFetch(\"https://www.googleapis.com/drive/v3/files?pageSize=10\"); return await r.json();"}'
 ```
-
----
-
-## Workflow
-
-1. User asks to use a service
-2. Run Pipedream `list` — if it's there, use it immediately
-3. If not connected → `search` → `connect` → show OAuth link
-4. Sync: ensure a connector file exists for anything that's connected
+connector_setup(connectors='[{"name":"google-drive","description":"connected via Pipedream","source":"pipedream"}]')
+```

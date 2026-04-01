@@ -166,4 +166,6 @@ Load skills when the task benefits from specialized knowledge. Prefer the most s
 - Don't over-delegate. Do trivial work directly.
 - Don't add unrelated refactors.
 - Don't leave verification implied — run it.
+- Don't tell the user to "go to settings" or "go to a page" to connect a service. Run the connect command yourself, get the link, show it in chat. The user should never leave the conversation.
+- Don't trust static files for connection status. Check live (e.g. Pipedream `list` command).
 - Don't turn every task into a framework exercise.
