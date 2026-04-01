@@ -106,7 +106,7 @@ async function fetchAppsPage(query?: string, cursor?: string): Promise<AppsPage>
   if (cursor) params.set('cursor', cursor);
   const qs = params.toString();
 
-  const res = await fetch(`${API_URL}/integrations/apps${qs ? `?${qs}` : ''}`, {
+  const res = await fetch(`${API_URL}/pipedream/apps${qs ? `?${qs}` : ''}`, {
     headers: authHeaders(session.access_token),
   });
   if (!res.ok) throw new Error('Failed to fetch integration apps');
@@ -115,7 +115,7 @@ async function fetchAppsPage(query?: string, cursor?: string): Promise<AppsPage>
 
 async function fetchConnections(): Promise<IntegrationConnection[]> {
   const session = await getSession();
-  const res = await fetch(`${API_URL}/integrations/connections`, {
+  const res = await fetch(`${API_URL}/pipedream/connections`, {
     headers: authHeaders(session.access_token),
   });
   if (!res.ok) throw new Error('Failed to fetch connections');
@@ -129,7 +129,7 @@ async function createConnectToken(opts: { app?: string; successRedirectUri?: str
   if (opts.app) body.app = opts.app;
   if (opts.successRedirectUri) body.success_redirect_uri = opts.successRedirectUri;
   if (opts.errorRedirectUri) body.error_redirect_uri = opts.errorRedirectUri;
-  const res = await fetch(`${API_URL}/integrations/connect-token`, {
+  const res = await fetch(`${API_URL}/pipedream/connect-token`, {
     method: 'POST',
     headers: authHeaders(session.access_token),
     body: JSON.stringify(body),
@@ -140,7 +140,7 @@ async function createConnectToken(opts: { app?: string; successRedirectUri?: str
 
 export async function syncConnections(): Promise<{ connections: IntegrationConnection[]; synced: number }> {
   const session = await getSession();
-  const res = await fetch(`${API_URL}/integrations/connections/sync`, {
+  const res = await fetch(`${API_URL}/pipedream/connections/sync`, {
     method: 'POST',
     headers: authHeaders(session.access_token),
   });
@@ -150,7 +150,7 @@ export async function syncConnections(): Promise<{ connections: IntegrationConne
 
 async function deleteConnection(integrationId: string): Promise<void> {
   const session = await getSession();
-  const res = await fetch(`${API_URL}/integrations/connections/${integrationId}`, {
+  const res = await fetch(`${API_URL}/pipedream/connections/${integrationId}`, {
     method: 'DELETE',
     headers: authHeaders(session.access_token),
   });
@@ -165,7 +165,7 @@ async function saveConnection(data: {
   sandbox_id?: string;
 }): Promise<{ success: boolean; integration?: IntegrationConnection }> {
   const session = await getSession();
-  const res = await fetch(`${API_URL}/integrations/connections/save`, {
+  const res = await fetch(`${API_URL}/pipedream/connections/save`, {
     method: 'POST',
     headers: authHeaders(session.access_token),
     body: JSON.stringify(data),
@@ -176,7 +176,7 @@ async function saveConnection(data: {
 
 async function renameIntegration({ integrationId, label }: { integrationId: string; label: string }): Promise<void> {
   const session = await getSession();
-  const res = await fetch(`${API_URL}/integrations/connections/${integrationId}/label`, {
+  const res = await fetch(`${API_URL}/pipedream/connections/${integrationId}/label`, {
     method: 'PATCH',
     headers: authHeaders(session.access_token),
     body: JSON.stringify({ label }),
@@ -186,7 +186,7 @@ async function renameIntegration({ integrationId, label }: { integrationId: stri
 
 async function fetchSandboxes(integrationId: string): Promise<IntegrationSandboxesResult> {
   const session = await getSession();
-  const res = await fetch(`${API_URL}/integrations/connections/${integrationId}/sandboxes`, {
+  const res = await fetch(`${API_URL}/pipedream/connections/${integrationId}/sandboxes`, {
     headers: authHeaders(session.access_token),
   });
   if (!res.ok) throw new Error('Failed to fetch linked sandboxes');
@@ -195,7 +195,7 @@ async function fetchSandboxes(integrationId: string): Promise<IntegrationSandbox
 
 async function linkSandbox({ integrationId, sandboxId }: { integrationId: string; sandboxId: string }): Promise<void> {
   const session = await getSession();
-  const url = `${API_URL}/integrations/connections/${integrationId}/link`;
+  const url = `${API_URL}/pipedream/connections/${integrationId}/link`;
   console.log('[linkSandbox] POST', url, { sandbox_id: sandboxId });
   const res = await fetch(url, {
     method: 'POST',
@@ -212,7 +212,7 @@ async function linkSandbox({ integrationId, sandboxId }: { integrationId: string
 
 async function unlinkSandbox({ integrationId, sandboxId }: { integrationId: string; sandboxId: string }): Promise<void> {
   const session = await getSession();
-  const res = await fetch(`${API_URL}/integrations/connections/${integrationId}/link/${sandboxId}`, {
+  const res = await fetch(`${API_URL}/pipedream/connections/${integrationId}/link/${sandboxId}`, {
     method: 'DELETE',
     headers: authHeaders(session.access_token),
   });
