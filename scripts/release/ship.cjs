@@ -238,7 +238,7 @@ if (DOCKER) {
     --platform linux/amd64,linux/arm64 \
     --provenance=false \
     --sbom=false \
-    --build-arg SERVICE=kortix-api \
+    --build-arg SERVICE=apps/api \
     -f apps/api/Dockerfile \
     -t kortix/kortix-api:${version} \
     -t kortix/kortix-api:latest \
