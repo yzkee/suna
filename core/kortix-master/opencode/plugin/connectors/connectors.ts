@@ -128,6 +128,28 @@ const ConnectorsPlugin: Plugin = async () => {
 					return `Created/updated ${results.length} connectors:\n${results.join("\n")}`
 				},
 			}),
+
+			connector_remove: tool({
+				description: "Remove one or more connectors by name.",
+				args: {
+					names: tool.schema.string().describe('Comma-separated names or JSON array. E.g. "github,stripe" or ["github","stripe"]'),
+				},
+				async execute(args: { names: string }): Promise<string> {
+					let list: string[]
+					try { list = JSON.parse(args.names) } catch { list = args.names.split(",").map(s => s.trim()) }
+					list = list.filter(Boolean)
+					if (!list.length) return "No names provided."
+
+					const d = db()
+					const stmt = d.prepare("DELETE FROM connectors WHERE name = ?")
+					const removed: string[] = []
+					for (const name of list) {
+						const r = stmt.run(name)
+						if (r.changes > 0) removed.push(name)
+					}
+					return removed.length ? `Removed: ${removed.join(", ")}` : "None found."
+				},
+			}),
 		},
 	}
 }

@@ -41,6 +41,7 @@ permission:
   connector_list: allow
   connector_get: allow
   connector_setup: allow
+  connector_remove: allow
   project_create: allow
   project_get: allow
   project_list: allow
