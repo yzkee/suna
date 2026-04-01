@@ -356,6 +356,31 @@ app.route('/kortix/marketplace', marketplaceRouter)
 app.route('/kortix/projects', projectsRouter)
 app.route('/kortix/projects/', projectsRouter)
 
+// Connectors REST endpoint — reads .opencode/connectors/ filesystem
+app.get('/kortix/connectors', async (c) => {
+  const { existsSync, readdirSync, readFileSync, statSync } = await import('node:fs')
+  const { join } = await import('node:path')
+  const root = process.env.KORTIX_WORKSPACE || '/workspace'
+  const base = join(root, '.opencode', 'connectors')
+  if (!existsSync(base)) return c.json({ connectors: [] })
+  const connectors: Array<Record<string, string>> = []
+  for (const entry of readdirSync(base)) {
+    const file = join(base, entry, 'CONNECTOR.md')
+    if (!existsSync(file)) continue
+    const raw = readFileSync(file, 'utf8').trimStart()
+    if (!raw.startsWith('---')) continue
+    const end = raw.indexOf('---', 3)
+    if (end === -1) continue
+    const fields: Record<string, string> = { _dir: entry }
+    for (const line of raw.slice(3, end).trim().split('\n')) {
+      const m = line.match(/^(\w[\w_-]*)\s*:\s*(.*)$/)
+      if (m) fields[m[1]!] = m[2]!.trim().replace(/^["']|["']$/g, '')
+    }
+    connectors.push(fields)
+  }
+  return c.json({ connectors })
+})
+
 // Pipedream integration proxy — forwards to kortix-api
 app.route('/api/pipedream', pipedreamRouter)
 

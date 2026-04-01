@@ -9,6 +9,7 @@ import {
   Copy,
   FileText,
   FolderOpen,
+  Link,
   Loader2,
   Plug,
   Search,
@@ -45,6 +46,7 @@ import {
   type McpStatus,
 } from '@/hooks/opencode/use-opencode-sessions';
 import { useKortixProjects, type KortixProject } from '@/hooks/kortix/use-kortix-projects';
+import { useKortixConnectors, type KortixConnector } from '@/hooks/kortix/use-kortix-connectors';
 
 // Re-export as Project for backward compat in this file
 type Project = KortixProject;
@@ -57,7 +59,7 @@ import { useServerStore } from '@/stores/server-store';
 // Types
 // ---------------------------------------------------------------------------
 
-type ItemKind = 'project' | 'agent' | 'skill' | 'command' | 'tool' | 'mcp';
+type ItemKind = 'project' | 'agent' | 'skill' | 'command' | 'tool' | 'mcp' | 'connector';
 type ItemScope = 'project' | 'global' | 'external' | 'built-in';
 type KindFilter = 'all' | ItemKind;
 type ScopeFilter = 'all' | ItemScope;
@@ -101,12 +103,13 @@ function mcpServerName(id: string): string | undefined {
 // ---------------------------------------------------------------------------
 
 const KIND_CONFIG: Record<ItemKind, { icon: typeof Bot; label: string }> = {
-  project: { icon: FolderOpen, label: 'Project' },
-  agent:   { icon: Bot,        label: 'Agent' },
-  skill:   { icon: Sparkles,   label: 'Skill' },
-  command: { icon: Terminal,   label: 'Command' },
-  tool:    { icon: Wrench,     label: 'Tool' },
-  mcp:     { icon: Plug,       label: 'MCP' },
+  project:   { icon: FolderOpen, label: 'Project' },
+  agent:     { icon: Bot,        label: 'Agent' },
+  skill:     { icon: Sparkles,   label: 'Skill' },
+  command:   { icon: Terminal,    label: 'Command' },
+  tool:      { icon: Wrench,     label: 'Tool' },
+  mcp:       { icon: Plug,       label: 'MCP' },
+  connector: { icon: Link,       label: 'Connector' },
 };
 
 const SCOPE_LABEL: Record<ItemScope, string> = {
@@ -411,8 +414,9 @@ export default function WorkspacePage() {
   const { data: commands,  isLoading: lCommands  } = useOpenCodeCommands();
   const { data: toolIds,   isLoading: lTools     } = useOpenCodeToolIds();
   const { data: mcpStatus, isLoading: lMcp       } = useOpenCodeMcpStatus();
+  const { data: connectors, isLoading: lConnectors } = useKortixConnectors();
 
-  const isLoading = lProjects || lAgents || lSkills || lCommands || lTools || lMcp;
+  const isLoading = lProjects || lAgents || lSkills || lCommands || lTools || lMcp || lConnectors;
 
   const allItems = useMemo<WorkspaceItem[]>(() => {
     const items: WorkspaceItem[] = [];
@@ -463,11 +467,25 @@ export default function WorkspacePage() {
       });
     }
 
+    if (connectors && Array.isArray(connectors)) {
+      for (const c of connectors) {
+        items.push({
+          id: `connector:${c._dir}`,
+          name: c.name || c._dir,
+          description: c.description,
+          kind: 'connector',
+          scope: 'project',
+          meta: c.source || 'custom',
+          raw: c,
+        });
+      }
+    }
+
     return items;
-  }, [projects, agents, skills, commands, toolIds, mcpStatus]);
+  }, [projects, agents, skills, commands, toolIds, mcpStatus, connectors]);
 
   const kindCounts = useMemo(() => {
-    const c: Record<KindFilter, number> = { all: allItems.length, project: 0, agent: 0, skill: 0, command: 0, tool: 0, mcp: 0 };
+    const c: Record<KindFilter, number> = { all: allItems.length, project: 0, agent: 0, skill: 0, command: 0, tool: 0, mcp: 0, connector: 0 };
     allItems.forEach((i) => c[i.kind]++);
     return c;
   }, [allItems]);
