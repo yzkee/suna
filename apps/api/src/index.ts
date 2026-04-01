@@ -98,10 +98,13 @@ if (config.INTERNAL_KORTIX_ENV === 'dev') {
 
 // === Top-Level Health Check (no auth) ===
 
+const API_VERSION = process.env.SANDBOX_VERSION || process.env.KORTIX_VERSION || 'dev';
+
 app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     service: 'kortix-api',
+    version: API_VERSION,
     timestamp: new Date().toISOString(),
     env: config.ENV_MODE,
     tunnel: getTunnelServiceStatus(),
@@ -113,6 +116,7 @@ app.get('/v1/health', (c) => {
   return c.json({
     status: 'ok',
     service: 'kortix-api',
+    version: API_VERSION,
     timestamp: new Date().toISOString(),
     env: config.ENV_MODE,
     tunnel: getTunnelServiceStatus(),

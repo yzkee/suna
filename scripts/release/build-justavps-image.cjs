@@ -6,7 +6,7 @@ const path = require('node:path')
 const { execFileSync } = require('node:child_process')
 
 const ROOT = path.resolve(__dirname, '..', '..')
-const RELEASE_JSON = path.join(ROOT, 'sandbox', 'release.json')
+const RELEASE_JSON = path.join(ROOT, 'core', 'release.json')
 const API_ENV_PATH = path.join(ROOT, 'apps', 'api', '.env')
 const START_SANDBOX_SCRIPT = path.join(ROOT, 'scripts', 'start-sandbox.sh')
 

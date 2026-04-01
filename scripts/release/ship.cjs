@@ -257,14 +257,14 @@ if (DOCKER) {
     --push "${ROOT}"`, { stdio: 'inherit' })
   ok(`kortix/kortix-frontend:${version} pushed`)
 
-  // info('Seeding JustAVPS image...')
-  // if (!fs.existsSync(BUILD_JUSTAVPS_IMAGE)) {
-  //   fail(`Missing JustAVPS image script: ${BUILD_JUSTAVPS_IMAGE}`)
-  // }
-  // run(`${JSON.stringify(process.execPath)} ${JSON.stringify(BUILD_JUSTAVPS_IMAGE)} --yes ${version}`, {
-  //   stdio: 'inherit',
-  // })
-  // ok(`JustAVPS image for v${version} ready`)
+  info('Seeding JustAVPS image...')
+  if (!fs.existsSync(BUILD_JUSTAVPS_IMAGE)) {
+    fail(`Missing JustAVPS image script: ${BUILD_JUSTAVPS_IMAGE}`)
+  }
+  run(`${JSON.stringify(process.execPath)} ${JSON.stringify(BUILD_JUSTAVPS_IMAGE)} --yes ${version}`, {
+    stdio: 'inherit',
+  })
+  ok(`JustAVPS image for v${version} ready`)
 }
 
 
