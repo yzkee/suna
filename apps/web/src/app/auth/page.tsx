@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect, Suspense, lazy, useRef, useCallback, useActionState } from 'react';
-import { signUp, verifyOtp, requestAccess, signInWithPassword } from './actions';
+import { signUp, verifyOtp, requestAccess, signInWithPassword, sendOtpCode } from './actions';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Mail, MailCheck, Clock, ExternalLink, ChevronRight } from 'lucide-react';
 import { KortixLoader } from '@/components/ui/kortix-loader';
@@ -19,7 +19,6 @@ import { KortixLogo } from '@/components/sidebar/kortix-logo';
 import { ReferralCodeDialog } from '@/components/referrals/referral-code-dialog';
 import { isElectron, getAuthOrigin } from '@/lib/utils/is-electron';
 import { trackSendAuthLink } from '@/lib/analytics/gtm';
-import { backendApi } from '@/lib/api-client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { WallpaperBackground } from '@/components/ui/wallpaper-background';
 import { cn } from '@/lib/utils';
@@ -192,6 +191,15 @@ function LoginContent() {
   const [showOtpModal, setShowOtpModal] = useState(false);
   const autoSendAttempted = useRef(false);
 
+  const sendOtpCodeForEmail = useCallback(async (email: string) => {
+    const formData = new FormData();
+    formData.set('email', email);
+    formData.set('returnUrl', returnUrl || '/instances');
+    formData.set('origin', isElectron() ? getAuthOrigin() : window.location.origin);
+    if (isElectron()) formData.set('isDesktopApp', 'true');
+    return sendOtpCode({}, formData);
+  }, [returnUrl]);
+
   useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
@@ -220,8 +228,8 @@ function LoginContent() {
       autoSendAttempted.current = true;
       setAutoSendingCode(true);
       try {
-        const response = await backendApi.post('/auth/send-otp', { email: expiredEmail });
-        if (response.success) {
+        const response = await sendOtpCodeForEmail(expiredEmail);
+        if (response && typeof response === 'object' && 'success' in response && response.success) {
           setNewCodeSent(true);
           setAutoSendError(false);
         } else {
@@ -234,7 +242,7 @@ function LoginContent() {
       }
     };
     autoSendNewCode();
-  }, [isExpired, expiredEmail, isLoading, user]);
+  }, [isExpired, expiredEmail, isLoading, user, sendOtpCodeForEmail]);
 
   // Keyboard controls: Enter/Space opens form, Escape closes it
   useEffect(() => {
@@ -329,8 +337,8 @@ function LoginContent() {
     const email = expiredEmailState || formData.get('email') as string;
     if (!email) { toast.error(t('pleaseEnterValidEmail')); return {}; }
     try {
-      const response = await backendApi.post('/auth/send-otp', { email });
-      if (response.success) {
+      const response = await sendOtpCodeForEmail(email);
+      if (response && typeof response === 'object' && 'success' in response && response.success) {
         setRegistrationEmail(email);
         setExpiredEmailState(email);
         setNewCodeSent(true);
@@ -338,7 +346,7 @@ function LoginContent() {
         setAutoSendError(false);
         return { success: true };
       } else {
-        toast.error('Failed to send code', { description: response.error?.message || 'Failed to send verification code', duration: 5000 });
+        toast.error('Failed to send code', { description: (response && typeof response === 'object' && 'message' in response ? response.message as string : 'Failed to send verification code'), duration: 5000 });
         return {};
       }
     } catch (error: unknown) {
@@ -543,14 +551,22 @@ function LoginContent() {
                 )}
               </form>
               <button
+                type="button"
                 onClick={async () => {
                   setAutoSendingCode(true);
                   try {
-                    const res = await backendApi.post('/auth/send-otp', { email: expiredEmailState || resendEmail });
-                    if (res.success) { setOtpCode(''); toast.success('New code sent!'); }
-                    else toast.error('Failed to send code');
-                  } catch { toast.error('Failed to send code'); }
-                  finally { setAutoSendingCode(false); }
+                    const res = await sendOtpCodeForEmail(expiredEmailState || resendEmail);
+                    if (res && typeof res === 'object' && 'success' in res && res.success) {
+                      setOtpCode('');
+                      toast.success('New code sent!');
+                    } else {
+                      toast.error('Failed to send code');
+                    }
+                  } catch {
+                    toast.error('Failed to send code');
+                  } finally {
+                    setAutoSendingCode(false);
+                  }
                 }}
                 className="text-[12px] text-foreground/40 hover:text-foreground/60 transition-colors"
               >

@@ -263,6 +263,45 @@ export async function resendMagicLink(prevState: any, formData: FormData) {
   };
 }
 
+export async function sendOtpCode(prevState: any, formData: FormData) {
+  const email = formData.get('email') as string;
+  const returnUrl = formData.get('returnUrl') as string | undefined;
+  const origin = formData.get('origin') as string;
+  const isDesktopApp = formData.get('isDesktopApp') === 'true';
+
+  if (!email || !email.includes('@')) {
+    return { message: 'Please enter a valid email address' };
+  }
+
+  const supabase = await createClient();
+  const normalizedEmail = email.trim().toLowerCase();
+
+  let emailRedirectTo: string;
+  if (isDesktopApp && origin.startsWith('kortix://')) {
+    emailRedirectTo = 'kortix://auth/callback';
+  } else {
+    emailRedirectTo = `${origin}/auth/callback?returnUrl=${encodeURIComponent(returnUrl || '/instances')}&email=${encodeURIComponent(normalizedEmail)}`;
+  }
+
+  const { error } = await supabase.auth.signInWithOtp({
+    email: normalizedEmail,
+    options: {
+      emailRedirectTo,
+      shouldCreateUser: true,
+    },
+  });
+
+  if (error) {
+    return { message: error.message || 'Could not send verification code' };
+  }
+
+  return {
+    success: true,
+    message: 'Check your email for a 6-digit verification code',
+    email: normalizedEmail,
+  };
+}
+
 export async function signInWithPassword(prevState: any, formData: FormData) {
   const email = formData.get('email') as string;
   const password = formData.get('password') as string;
