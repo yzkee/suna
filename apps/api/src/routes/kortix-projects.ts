@@ -12,7 +12,7 @@ import { getSandboxBaseUrl } from '../sandbox-proxy/routes/local-preview';
 export async function kortixProxyHandler(c: Context): Promise<Response> {
   // /v1/kortix/projects/xxx → /kortix/projects/xxx (strip trailing slashes)
   const sandboxPath = c.req.path.replace(/^\/v1/, '').replace(/\/+$/, '') || '/kortix';
-  const sandboxBaseUrl = getSandboxBaseUrl('kortix-sandbox');
+  const sandboxBaseUrl = getSandboxBaseUrl(config.SANDBOX_CONTAINER_NAME);
   const targetUrl = `${sandboxBaseUrl}${sandboxPath}`;
 
   const headers = new Headers();

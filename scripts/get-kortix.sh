@@ -18,16 +18,51 @@
 
 set -euo pipefail
 
-# ─── Colors ──────────────────────────────────────────────────────────────────
-RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'
-BLUE=$'\033[0;34m'; CYAN=$'\033[0;36m'; BOLD=$'\033[1m'
-DIM=$'\033[2m'; NC=$'\033[0m'
+# ─── Color Palette ────────────────────────────────────────────────────────────
+RED='\033[0;31m'        # Error / fatal
+GREEN='\033[0;32m'      # Success / done
+YELLOW='\033[1;33m'     # Warning / attention
+CYAN='\033[0;36m'       # Brand accent
+WHITE='\033[1;37m'      # Emphasis
+BOLD='\033[1m'
+DIM='\033[2m'
+FADED='\033[2;37m'      # Muted text
+NC='\033[0m'            # Reset
 
-info()    { echo "  ${BLUE}[INFO]${NC} $*"; }
-success() { echo "  ${GREEN}[OK]${NC}   $*"; }
-warn()    { echo "  ${YELLOW}[WARN]${NC} $*"; }
-error()   { echo "  ${RED}[ERR]${NC}  $*" >&2; }
+# ─── Modern Output Functions ───────────────────────────────────────────────────
+# Using %b so embedded \033 escape codes in arguments render correctly.
+
+info()    { printf "    ${CYAN}▸${NC}  %b\n" "$*"; }
+success() { printf "    ${GREEN}✓${NC}  %b\n" "$*"; }
+warn()    { printf "    ${YELLOW}!${NC}  ${YELLOW}%b${NC}\n" "$*"; }
+error()   { printf "    ${RED}✗${NC}  ${RED}%b${NC}\n" "$*" >&2; }
 fatal()   { error "$*"; exit 1; }
+
+# Section header — bold line with title
+section() {
+  local title="$1"
+  printf "\n"
+  printf "  ${WHITE}${BOLD}%s${NC}\n" "$title"
+  printf "  ${FADED}%s${NC}\n" "────────────────────────────────────────────────"
+}
+
+# Subsection — lighter divider
+subsection() {
+  printf "\n  ${FADED}── %s ──${NC}\n" "$*"
+}
+
+# Horizontal rule
+hr() {
+  printf "  ${FADED}%s${NC}\n" "────────────────────────────────────────────────"
+}
+
+# Progress dots (non-blocking visual feedback)
+dots() {
+  local label="$1"
+  printf "    ${CYAN}▸${NC}  %s " "$label"
+}
+dots_done() { printf "${GREEN}done${NC}\n"; }
+dots_ok()   { printf "${GREEN}✓${NC}\n"; }
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 INSTALL_DIR="${KORTIX_HOME:-$HOME/.kortix}"
@@ -192,6 +227,12 @@ SUPABASE_GOTRUE_IMAGE="supabase/gotrue:v2.186.0"
 SUPABASE_KONG_IMAGE="kong:2.8.1"
 SUPABASE_REST_IMAGE="postgrest/postgrest:v14.5"
 
+# ─── Self-hosted sandbox isolation ────────────────────────────────────────────
+# Different name + port range from dev (kortix-sandbox / 14000) so both can
+# run simultaneously on the same Docker daemon.
+SANDBOX_CONTAINER_NAME="${SANDBOX_CONTAINER_NAME:-kortix-hosted-sandbox}"
+SANDBOX_PORT_BASE="${SANDBOX_PORT_BASE:-15000}"
+
 # Installer state
 DEPLOY_MODE=""          # "local" or "vps"
 DB_MODE=""              # "docker" or "external"
@@ -248,9 +289,10 @@ warm_local_sandbox() {
   local warm_url="${API_PUBLIC_URL}/v1/setup/local-sandbox/warm"
   local status_url="${API_PUBLIC_URL}/v1/setup/local-sandbox/warm/status"
 
-  info "Pre-warming local sandbox..."
+  dots "Pre-warming sandbox"
   curl -sf -X POST "$warm_url" >/dev/null || {
-    warn "Could not start sandbox warmup yet — onboarding will start it lazily."
+    printf "${YELLOW}skipped${NC}\n"
+    printf "    ${FADED}Onboarding will start the sandbox lazily.${NC}\n"
     return 0
   }
 
@@ -265,18 +307,19 @@ warm_local_sandbox() {
 
     case "$status" in
       ready)
-        success "Local sandbox is warm and healthy"
+        dots_done
         return 0
         ;;
       error)
-        warn "Local sandbox warmup reported an error: ${message:-unknown}"
+        printf "${YELLOW}error${NC}\n"
+        warn "Sandbox warmup: ${message:-unknown}"
         return 0
         ;;
       pulling|creating)
-        info "Sandbox warmup: ${message:-starting} ${progress:+(${progress}%)}"
+        printf "\r    ${CYAN}▸${NC}  Sandbox: ${message:-starting}${progress:+ (${progress}%%)}          "
         ;;
       *)
-        info "Sandbox warmup: waiting for sandbox bootstrap..."
+        printf "\r    ${CYAN}▸${NC}  Sandbox: bootstrapping...          "
         ;;
     esac
 
@@ -284,7 +327,8 @@ warm_local_sandbox() {
     attempts=$((attempts + 1))
   done
 
-  warn "Sandbox warmup timed out — the UI can still continue waiting for sandbox boot."
+  printf "\n"
+  warn "Sandbox warmup timed out — the UI will continue waiting."
 }
 
 verify_local_image() {
@@ -341,7 +385,7 @@ docker_manifest_exists() {
 resolve_release_images() {
   [ "$KORTIX_LOCAL_IMAGES" = "1" ] && return 0
 
-  info "Resolving release images for ${KORTIX_VERSION}..."
+  dots "Resolving images for v${KORTIX_VERSION}"
 
   if ! docker_manifest_exists "$FRONTEND_IMAGE"; then
     if [ "$FRONTEND_IMAGE_OVERRIDDEN" = "1" ]; then
@@ -382,7 +426,7 @@ resolve_release_images() {
     fi
   fi
 
-  success "Release images resolved"
+  dots_done
 }
 
 pull_images_parallel() {
@@ -452,48 +496,50 @@ generate_supabase_jwt() {
 
 # ─── Banner ──────────────────────────────────────────────────────────────────
 banner() {
-  echo ""
-  echo "${BOLD}${CYAN}"
+  printf "\n\n"
+  printf "${CYAN}"
   cat << 'EOF'
-   _  __         _   _
-  | |/ /___  _ _| |_(_)_ __
-  | ' </ _ \| '_|  _| \ \ /
-  |_|\_\___/|_|  \__|_/_\_\
+    ██╗  ██╗ ██████╗ ██████╗ ████████╗██╗██╗  ██╗
+    ██║ ██╔╝██╔═══██╗██╔══██╗╚══██╔══╝██║╚██╗██╔╝
+    █████╔╝ ██║   ██║██████╔╝   ██║   ██║ ╚███╔╝ 
+    ██╔═██╗ ██║   ██║██╔══██╗   ██║   ██║ ██╔██╗ 
+    ██║  ██╗╚██████╔╝██║  ██║   ██║   ██║██╔╝ ██╗
+    ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚═╝╚═╝  ╚═╝
 EOF
-  echo "${NC}"
-  echo "  ${DIM}One-Click Installer — run locally or on a VPS/server${NC}"
-  echo "  ${DIM}Cloud: kortix.com | VPS: hetzner.com, justavps.com${NC}"
-  echo ""
+  printf "${NC}\n"
+  printf "    ${WHITE}The Autonomous Company Operating System${NC}\n"
+  printf "\n"
+  printf "    ${FADED}v${KORTIX_VERSION}  ·  One-Click Installer  ·  Local or VPS${NC}\n"
+  printf "\n"
 }
 
 # ─── Preflight ───────────────────────────────────────────────────────────────
 preflight() {
-  info "Checking prerequisites..."
-  echo ""
+  section "Checking prerequisites"
 
-  command -v docker &>/dev/null || fatal "Docker is required. Get it at: https://docs.docker.com/get-docker/"
+  command -v docker &>/dev/null || fatal "Docker is required — https://docs.docker.com/get-docker/"
   success "Docker installed"
 
   docker info &>/dev/null 2>&1 || fatal "Docker is not running. Start Docker Desktop and try again."
-  success "Docker is running"
+  success "Docker daemon running"
 
-  docker compose version &>/dev/null 2>&1 || fatal "Docker Compose v2 is required. Included with Docker Desktop."
-  success "Docker Compose available"
+  docker compose version &>/dev/null 2>&1 || fatal "Docker Compose v2 required. Included with Docker Desktop."
+  success "Docker Compose v2"
 
   command -v openssl &>/dev/null || fatal "openssl is required (for JWT generation)."
   success "openssl available"
-
   echo ""
 }
 
 # ─── Mode Selection ──────────────────────────────────────────────────────────
 prompt_mode() {
-  echo "  ${BOLD}Where are you running Kortix?${NC}"
-  echo ""
-  echo "    ${CYAN}1${NC}) Local machine ${DIM}(laptop/desktop — binds to localhost)${NC}"
-  echo "    ${CYAN}2${NC}) VPS / Server  ${DIM}(cloud VM — binds to 0.0.0.0)${NC}"
-  echo ""
-  printf "  Choice [1]: "
+  section "Where are you running Kortix?"
+
+  printf "\n"
+  printf "    ${WHITE}1)${NC}  Local machine   ${FADED}laptop / desktop — binds to localhost${NC}\n"
+  printf "    ${WHITE}2)${NC}  VPS / Server     ${FADED}cloud VM — binds to 0.0.0.0${NC}\n"
+  printf "\n"
+  printf "    ${FADED}Select${NC} [${CYAN}1${NC}]: "
   prompt_read mode_choice
 
   case "${mode_choice:-1}" in
@@ -501,9 +547,9 @@ prompt_mode() {
       DEPLOY_MODE="vps"
       SERVER_IP=$(get_server_ip)
       if [ -n "$SERVER_IP" ]; then
-        info "Detected server IP: ${BOLD}${SERVER_IP}${NC}"
+        success "Detected server IP: ${WHITE}${SERVER_IP}${NC}"
       else
-        printf "  Enter server IP or hostname: "
+        printf "\n    Enter server IP or hostname: "
         prompt_read SERVER_IP
         [ -z "$SERVER_IP" ] && fatal "Server IP is required for VPS mode."
       fi
@@ -516,22 +562,21 @@ prompt_mode() {
 
 # ─── Database Setup ──────────────────────────────────────────────────────────
 prompt_database() {
-  echo "  ${BOLD}Database setup${NC}"
-  echo ""
-  echo "    ${CYAN}1${NC}) Docker ${DIM}(spin up Supabase locally via Docker)${NC}"
-  echo "    ${CYAN}2${NC}) External ${DIM}(provide Supabase project URL or database URL)${NC}"
-  echo ""
-  printf "  Choice [1]: "
+  section "Database"
+
+  printf "\n"
+  printf "    ${WHITE}1)${NC}  Docker ${FADED}(recommended)${NC}   ${FADED}auto-configure Supabase in Docker${NC}\n"
+  printf "    ${WHITE}2)${NC}  External             ${FADED}bring your own Supabase project${NC}\n"
+  printf "\n"
+  printf "    ${FADED}Select${NC} [${CYAN}1${NC}]: "
   prompt_read db_choice
 
   case "${db_choice:-1}" in
     2)
       DB_MODE="external"
-      echo ""
-      echo "  ${BOLD}Supabase credentials${NC}"
-      echo "  ${DIM}From your Supabase project: Settings → API${NC}"
-      echo ""
-      printf "    Supabase URL ${DIM}(e.g. https://xxx.supabase.co)${NC}: "
+      subsection "Supabase Credentials"
+      printf "    ${FADED}From your project: Settings → API${NC}\n\n"
+      printf "    Supabase URL ${FADED}(https://xxx.supabase.co)${NC}: "
       prompt_read SUPABASE_URL
       printf "    Anon Key: "
       prompt_read SUPABASE_ANON_KEY
@@ -539,9 +584,8 @@ prompt_database() {
       prompt_read SUPABASE_SERVICE_ROLE_KEY
       printf "    JWT Secret: "
       prompt_read SUPABASE_JWT_SECRET
-      echo ""
-      echo "  ${DIM}From: Settings → Database → Connection string (URI)${NC}"
-      printf "    Database URL ${DIM}(postgresql://...)${NC}: "
+      printf "\n    ${FADED}From: Settings → Database → Connection string${NC}\n"
+      printf "    Database URL ${FADED}(postgresql://...)${NC}: "
       prompt_read DATABASE_URL
       echo ""
 
@@ -553,7 +597,7 @@ prompt_database() {
       ;;
     *)
       DB_MODE="docker"
-      info "Supabase will run in Docker (auto-configured)"
+      success "Supabase will run in Docker (auto-configured)"
       ;;
   esac
 
@@ -583,8 +627,8 @@ compute_urls() {
 
 # ─── Generate Secrets ────────────────────────────────────────────────────────
 generate_secrets() {
-  info "Generating security credentials..."
-
+  dots "Generating secrets"
+  
   CRON_SECRET=$(generate_password)
   INTERNAL_SERVICE_KEY=$(generate_token)
   API_KEY_SECRET=$(generate_token)
@@ -599,12 +643,9 @@ generate_secrets() {
     # Internal Supabase URL (kong gateway inside Docker network)
     SUPABASE_URL="http://supabase-kong:8000"
     DATABASE_URL="postgresql://postgres:${POSTGRES_PASSWORD}@supabase-db:5432/postgres"
-
-    success "Supabase credentials generated"
   fi
 
-  success "All secrets generated"
-  echo ""
+  dots_done
 }
 
 
@@ -703,7 +744,7 @@ services:
             - anon
 KONGEOF
 
-  success "Saved Kong config"
+  dots "Writing Kong config"; dots_done
 }
 
 # ─── Write DB Init SQL ──────────────────────────────────────────────────────
@@ -793,12 +834,12 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authen
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO anon, authenticated, service_role;
 KORTIXEOF
 
-  success "Saved DB init scripts"
+  dots "Writing DB init scripts"; dots_done
 }
 
 # ─── Write docker-compose.yml ───────────────────────────────────────────────
 write_compose() {
-  info "Writing docker-compose.yml..."
+  dots "Writing docker-compose.yml"
 
   # Port bindings — local binds to 127.0.0.1, VPS binds to 0.0.0.0
   local bind_addr="127.0.0.1"
@@ -1019,7 +1060,7 @@ volumes:
 ${supabase_volumes}
 COMPOSE
 
-  success "Saved docker-compose.yml"
+  dots_done
 }
 
 # ─── Write .env ──────────────────────────────────────────────────────────────
@@ -1071,11 +1112,13 @@ SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET}
 KORTIX_VERSION=${KORTIX_VERSION}
 SANDBOX_IMAGE=${SANDBOX_IMAGE}
 SANDBOX_NETWORK=${SANDBOX_NETWORK}
+SANDBOX_CONTAINER_NAME=${SANDBOX_CONTAINER_NAME}
+SANDBOX_PORT_BASE=${SANDBOX_PORT_BASE}
 KORTIX_SANDBOX_VERSION=${KORTIX_VERSION}
 ENVEOF
 
   chmod 600 "$INSTALL_DIR/.env"
-  success "Saved .env"
+  dots "Writing .env"; dots_done
 }
 
 write_dev_env_files() {
@@ -1112,7 +1155,7 @@ NEXT_PUBLIC_BILLING_ENABLED=false
 ENVEOF
 
   chmod 600 "$INSTALL_DIR/.api-dev.env" "$INSTALL_DIR/.frontend-dev.env"
-  success "Saved dev env files"
+  dots "Writing dev env files"; dots_done
 }
 
 
@@ -1134,14 +1177,21 @@ write_cli() {
   cat > "$INSTALL_DIR/kortix" << 'CLIPATH'
 #!/usr/bin/env bash
 set -euo pipefail
+
 # Resolve symlinks so DIR points to the actual install directory
 SELF="$0"
 [ -L "$SELF" ] && SELF="$(readlink -f "$SELF" 2>/dev/null || readlink "$SELF")"
 DIR="$(cd "$(dirname "$SELF")" && pwd)"
 cd "$DIR"
 
+# ─── Colors ───────────────────────────────────────────────────────────────
 G=$'\033[0;32m'; R=$'\033[0;31m'; C=$'\033[0;36m'; Y=$'\033[1;33m'
-B=$'\033[1m'; D=$'\033[2m'; N=$'\033[0m'
+W=$'\033[1;37m'; B=$'\033[1m'; D=$'\033[2m'; F=$'\033[2;37m'; N=$'\033[0m'
+
+_info()    { printf "  ${C}▸${N}  %s\n" "$*"; }
+_ok()      { printf "  ${G}✓${N}  %s\n" "$*"; }
+_warn()    { printf "  ${Y}!${N}  ${Y}%s${N}\n" "$*"; }
+_err()     { printf "  ${R}✗${N}  ${R}%s${N}\n" "$*" >&2; }
 
 prompt_read() {
   local __var_name="$1"
@@ -1155,6 +1205,7 @@ prompt_read() {
 # Installed release metadata is persisted in .env so updates stay pinned.
 VERSION=$(grep -m1 '^KORTIX_VERSION=' "$DIR/.env" 2>/dev/null | cut -d= -f2- || echo "unknown")
 SANDBOX_IMAGE=$(grep -m1 '^SANDBOX_IMAGE=' "$DIR/.env" 2>/dev/null | cut -d= -f2- || echo "kortix/computer:${VERSION}")
+SANDBOX_NAME=$(grep -m1 '^SANDBOX_CONTAINER_NAME=' "$DIR/.env" 2>/dev/null | cut -d= -f2- || echo "kortix-hosted-sandbox")
 LOCAL_IMAGES=$(grep -m1 '^KORTIX_LOCAL_IMAGES=' "$DIR/.env" 2>/dev/null | cut -d= -f2- || echo "0")
 LOCAL_TAG=$(grep -m1 '^KORTIX_LOCAL_TAG=' "$DIR/.env" 2>/dev/null | cut -d= -f2- || echo "latest")
 LOCAL_REPO_ROOT=$(grep -m1 '^KORTIX_LOCAL_REPO_ROOT=' "$DIR/.env" 2>/dev/null | cut -d= -f2- || echo "")
@@ -1210,7 +1261,7 @@ _free_kortix_ports() {
     fi
   done
 
-  [ $freed -eq 1 ] && echo "  ${Y}Freed Kortix ports${N}" || true
+  [ $freed -eq 1 ] && _info "Freed Kortix ports" || true
 }
 
 _sync_supabase_passwords() {
@@ -1244,132 +1295,146 @@ _using_local_images() {
 }
 
 _rebuild_local_images() {
-  [ -n "$LOCAL_REPO_ROOT" ] || { echo "  ${R}KORTIX_LOCAL_REPO_ROOT is not set${N}"; exit 1; }
+  [ -n "$LOCAL_REPO_ROOT" ] || { _err "KORTIX_LOCAL_REPO_ROOT is not set"; exit 1; }
   local build_script="$LOCAL_REPO_ROOT/scripts/build-local-images.sh"
-  [ -f "$build_script" ] || { echo "  ${R}Build script not found: ${build_script}${N}"; exit 1; }
+  [ -f "$build_script" ] || { _err "Build script not found: ${build_script}"; exit 1; }
   bash "$build_script" --tag "$LOCAL_TAG"
 }
 
 _reset_stack() {
   local yes_flag="${1:-}"
   if [ "$yes_flag" != "--yes" ]; then
-    printf "  Reset local data and recreate the stack? [y/N]: "
+    printf "  ${Y}!${N}  Reset local data and recreate the stack? [y/N]: "
     prompt_read reset_confirm
     echo "$reset_confirm" | grep -qi '^y' || {
-      echo "  ${Y}Reset cancelled.${N}"
+      _warn "Reset cancelled."
       exit 0
     }
   fi
 
-  echo "  ${C}Stopping and removing stack...${N}"
+  _info "Stopping and removing stack..."
   docker compose down -v --remove-orphans 2>/dev/null || true
-  docker rm -f kortix-sandbox 2>/dev/null || true
-  docker volume rm kortix-sandbox-data 2>/dev/null || true
+  docker rm -f "$SANDBOX_NAME" 2>/dev/null || true
+  docker volume rm "${SANDBOX_NAME}-data" 2>/dev/null || true
   [ "$(_mode)" = "local" ] && _free_kortix_ports
 
-  echo "  ${C}Starting fresh stack...${N}"
+  _info "Starting fresh stack..."
   docker compose up -d || true
-  echo "  ${G}Reset complete.${N}"
+  _ok "Reset complete."
+}
+
+_banner() {
+  printf "\n"
+  printf "  ${C}${B}Kortix CLI${N}  ${F}v${VERSION}${N}\n"
+  printf "  ${F}────────────────────────────────────────${N}\n"
 }
 
 case "${1:-help}" in
   start)
-    # Free ports and clean up lingering containers before starting
+    _banner
     [ "$(_mode)" = "local" ] && _free_kortix_ports
     _sync_supabase_passwords
     docker compose up -d || true
     echo ""
-    echo "  ${G}Kortix is running!${N}"
-    echo "  Dashboard: ${B}$(_url)${N}"
-    echo ""
+    _ok "Kortix is running!"
+    printf "  ${W}Dashboard${N}:  ${C}$(_url)${N}\n\n"
     ;;
   stop)
+    _banner
     docker compose down
-    docker stop kortix-sandbox 2>/dev/null || true
-    echo "  ${G}Stopped.${N}"
+    docker stop "$SANDBOX_NAME" 2>/dev/null || true
+    _ok "All services stopped."
+    echo ""
     ;;
   restart)
+    _banner
     docker compose down 2>/dev/null || true
-    # Free ports and clean up lingering containers before restarting
     [ "$(_mode)" = "local" ] && _free_kortix_ports
     _sync_supabase_passwords
     docker compose up -d || true
-    echo "  ${G}Restarted.${N}"
+    _ok "Restarted."
+    printf "  ${W}Dashboard${N}:  ${C}$(_url)${N}\n\n"
     ;;
   logs)
     shift
     docker compose logs -f "$@"
     ;;
   status)
+    _banner
     docker compose ps
+    echo ""
     ;;
   setup)
-    echo "  ${C}Opening sign-in in browser...${N}"
+    _info "Opening sign-in in browser..."
     _open "$(_url)/auth"
-    echo "  ${D}If it didn't open: ${B}$(_url)/auth${N}"
+    printf "  ${F}If it didn't open: ${W}$(_url)/auth${N}\n\n"
     ;;
   update)
+    _banner
     shift
     if [ "${1:-}" = "--build-local" ]; then
       _rebuild_local_images
     fi
     if _using_local_images; then
-      echo "  ${C}Using local Docker images from compose config...${N}"
+      _info "Using local Docker images..."
     else
-      echo "  ${C}Pulling configured release images in parallel...${N}"
+      _info "Pulling latest release images..."
       docker compose config --images | python3 -c 'import sys; print("\n".join(sorted(set(line.strip() for line in sys.stdin if line.strip()))))' | xargs -r -n1 -P 4 docker pull
     fi
-    echo ""
-    echo "  ${C}Restarting services...${N}"
+    _info "Restarting services..."
     [ "$(_mode)" = "local" ] && _free_kortix_ports
     _sync_supabase_passwords
     docker compose down 2>/dev/null || true
     docker compose up -d || true
-    echo "  ${G}Updated.${N}"
+    _ok "Updated and running."
+    printf "  ${W}Dashboard${N}:  ${C}$(_url)${N}\n\n"
     ;;
   reset)
+    _banner
     shift
     _reset_stack "${1:-}"
     ;;
   uninstall)
-    echo "  ${C}Stopping services...${N}"
-    docker stop kortix-sandbox 2>/dev/null || true
-    docker rm -f kortix-sandbox 2>/dev/null || true
-    printf "  Delete all data (Docker volumes)? [y/N]: "
+    _banner
+    _info "Stopping services..."
+    docker stop "$SANDBOX_NAME" 2>/dev/null || true
+    docker rm -f "$SANDBOX_NAME" 2>/dev/null || true
+    printf "\n  ${Y}!${N}  Delete all data (Docker volumes)? [y/N]: "
     prompt_read del_volumes
     if echo "$del_volumes" | grep -qi '^y'; then
       docker compose down -v --remove-orphans 2>/dev/null || true
-      docker volume rm kortix-sandbox-data 2>/dev/null || true
+      docker volume rm "${SANDBOX_NAME}-data" 2>/dev/null || true
       docker volume rm kortix_supabase-db-data 2>/dev/null || true
       docker volume rm supabase_db_kortix-local 2>/dev/null || true
-      echo "  ${G}Volumes removed.${N}"
+      _ok "Volumes removed."
     else
       docker compose down 2>/dev/null || true
     fi
     [ -L "/usr/local/bin/kortix" ] && rm -f /usr/local/bin/kortix 2>/dev/null || true
     rm -rf "$DIR"
-    echo "  ${G}Uninstalled.${N}"
+    _ok "Kortix uninstalled."
+    echo ""
     ;;
   open)
     _open "$(_url)"
     ;;
   version)
-    echo "  kortix ${VERSION}"
+    echo "  kortix v${VERSION}"
     ;;
   *)
+    _banner
     echo ""
-    echo "  ${B}${C}Kortix CLI${N} ${D}v${VERSION}${N}"
-    echo ""
-    echo "  ${C}start${N}         Start all services"
-    echo "  ${C}stop${N}          Stop all services"
-    echo "  ${C}restart${N}       Restart all services"
-    echo "  ${C}logs${N}          Tail logs (kortix logs sandbox)"
-    echo "  ${C}status${N}        Show service status"
-    echo "  ${C}setup${N}         Open sign-in page"
-    echo "  ${C}update${N}        Update to the configured release"
-    echo "  ${C}reset${N}         Wipe local stack state and recreate it"
-    echo "  ${C}uninstall${N}     Remove Kortix completely"
-    echo "  ${C}version${N}       Show version"
+    printf "  ${C}start${N}       Start all services\n"
+    printf "  ${C}stop${N}        Stop all services\n"
+    printf "  ${C}restart${N}     Restart all services\n"
+    printf "  ${C}logs${N}        Tail logs ${F}(kortix logs kortix-api)${N}\n"
+    printf "  ${C}status${N}      Show running containers\n"
+    printf "  ${C}setup${N}       Open sign-in page\n"
+    printf "  ${C}update${N}      Pull latest images & restart\n"
+    printf "  ${C}reset${N}       Wipe data and recreate stack\n"
+    printf "  ${C}uninstall${N}   Remove Kortix completely\n"
+    printf "  ${C}open${N}        Open dashboard in browser\n"
+    printf "  ${C}version${N}     Show installed version\n"
     echo ""
     ;;
  esac
@@ -1406,88 +1471,94 @@ setup_path() {
 
 # ─── Pull & Start ───────────────────────────────────────────────────────────
 pull_and_start() {
-  echo ""
   cd "$INSTALL_DIR"
+
+  section "Docker Images"
 
   if [ "$KORTIX_LOCAL_IMAGES" = "1" ]; then
     if [ "$KORTIX_BUILD_LOCAL_IMAGES" = "1" ]; then
       rebuild_local_images
-      echo ""
     fi
-    info "Using local Docker images (skip registry pulls)..."
+    info "Using local images (skipping registry)"
     verify_local_image "$FRONTEND_IMAGE"
     verify_local_image "$API_IMAGE"
     verify_local_image "$SANDBOX_IMAGE"
-    success "Local installer images found"
+    success "All local images verified"
   else
-    info "Pulling Docker images in parallel..."
+    info "Pulling images in parallel..."
     echo ""
     local -a images_to_pull=("$FRONTEND_IMAGE" "$API_IMAGE" "$SANDBOX_IMAGE")
     if [ "$DB_MODE" = "docker" ]; then
       images_to_pull+=("$SUPABASE_POSTGRES_IMAGE" "$SUPABASE_GOTRUE_IMAGE" "$SUPABASE_REST_IMAGE" "$SUPABASE_KONG_IMAGE")
     fi
     pull_images_parallel "${images_to_pull[@]}"
-    success "Docker images ready"
+    echo ""
+    success "All images pulled"
   fi
 
-  echo ""
-  info "Starting Kortix..."
-  echo ""
+  section "Starting Services"
 
   # Free ports in local mode to avoid conflicts
   free_kortix_ports
 
   docker compose up -d || true
 
-  # Wait for frontend
+  # Wait for frontend with progress feedback
   local attempts=0 max_wait=30
-  info "Waiting for services..."
+  printf "    ${CYAN}▸${NC}  Waiting for services "
   while [ $attempts -lt $max_wait ]; do
-    curl -sf "${PUBLIC_URL}" >/dev/null 2>&1 && break
+    if curl -sf "${PUBLIC_URL}" >/dev/null 2>&1; then
+      printf " ${GREEN}✓${NC}\n"
+      break
+    fi
+    printf "${FADED}.${NC}"
     sleep 2
     attempts=$((attempts + 1))
   done
-
-  echo ""
-  echo "  ${BOLD}${GREEN}Kortix is running!${NC}"
-  echo ""
-  echo "  ${CYAN}Dashboard:${NC}  ${BOLD}${PUBLIC_URL}${NC}"
-  echo "  ${CYAN}API:${NC}        ${BOLD}${API_PUBLIC_URL}${NC}"
-  echo ""
+  [ $attempts -ge $max_wait ] && printf " ${YELLOW}timeout${NC}\n"
 
   if [ "$DEPLOY_MODE" = "local" ]; then
-    echo ""
     warm_local_sandbox
-    echo ""
+  fi
+
+  # ─── Final success output ────────────────────────────────────────────
+  printf "\n"
+  printf "  ${GREEN}${BOLD}╔══════════════════════════════════════════════════╗${NC}\n"
+  printf "  ${GREEN}${BOLD}║             Kortix is running!                  ║${NC}\n"
+  printf "  ${GREEN}${BOLD}╚══════════════════════════════════════════════════╝${NC}\n"
+  printf "\n"
+  printf "    ${WHITE}Dashboard${NC}   ${CYAN}${BOLD}${PUBLIC_URL}${NC}\n"
+  printf "    ${WHITE}API${NC}         ${CYAN}${BOLD}${API_PUBLIC_URL}${NC}\n"
+  printf "\n"
+
+  if [ "$DEPLOY_MODE" = "local" ]; then
     info "Opening sign-in page..."
     open_browser "${PUBLIC_URL}/auth"
   fi
 
   if [ "$DEPLOY_MODE" = "vps" ]; then
-    echo ""
-    echo "  ${DIM}Want HTTPS? Point a reverse proxy (Caddy, nginx, Cloudflare) at these ports:${NC}"
-    echo "    ${CYAN}Frontend:${NC}  ${BOLD}13737${NC}"
-    echo "    ${CYAN}API:${NC}       ${BOLD}13738${NC}"
-    echo "    ${CYAN}Supabase:${NC}  ${BOLD}13740${NC}"
+    subsection "Reverse Proxy Ports"
+    printf "    Frontend  ${WHITE}:13737${NC}    API  ${WHITE}:13738${NC}    Supabase  ${WHITE}:13740${NC}\n"
+    printf "    ${FADED}Point Caddy / nginx / Cloudflare at these for HTTPS${NC}\n"
   fi
 
   if [ "$DEPLOY_MODE" = "local" ]; then
-    echo ""
-    echo "  ${DIM}For 24/7 operation, we recommend a server/VPS:${NC}"
-    echo "    ${CYAN}Kortix Cloud:${NC}  ${BOLD}https://kortix.com/${NC}     ${DIM}(managed, zero setup)${NC}"
-    echo "    ${CYAN}Get a VPS:${NC}     ${BOLD}https://hetzner.com/${NC}    ${DIM}or${NC} ${BOLD}https://justavps.com/${NC}"
+    subsection "Want 24/7 uptime?"
+    printf "    ${WHITE}Kortix Cloud${NC}   ${CYAN}https://kortix.com${NC}     ${FADED}managed, zero setup${NC}\n"
+    printf "    ${WHITE}Self-host${NC}      ${CYAN}hetzner.com${NC} / ${CYAN}justavps.com${NC}\n"
   fi
 
-  echo ""
-  echo "  ${BOLD}Next:${NC} Open the dashboard and create your owner account."
-  echo ""
-  echo "  ${DIM}Commands:${NC}"
-  echo "    ${CYAN}kortix start${NC}    Start services"
-  echo "    ${CYAN}kortix stop${NC}     Stop services"
-  echo "    ${CYAN}kortix setup${NC}    Open sign-in page"
-  echo "    ${CYAN}kortix update${NC}   Update to the configured release"
-  echo "    ${CYAN}kortix logs${NC}     Tail logs"
-  echo ""
+  subsection "Next Steps"
+  printf "    Open the dashboard and create your owner account.\n"
+
+  subsection "CLI Reference"
+  printf "    ${CYAN}kortix start${NC}    Start services\n"
+  printf "    ${CYAN}kortix stop${NC}     Stop services\n"
+  printf "    ${CYAN}kortix setup${NC}    Open sign-in page\n"
+  printf "    ${CYAN}kortix update${NC}   Pull latest & restart\n"
+  printf "    ${CYAN}kortix logs${NC}     Tail service logs\n"
+  printf "    ${CYAN}kortix status${NC}   Show running containers\n"
+  printf "\n"
 }
 
 # ─── Main ────────────────────────────────────────────────────────────────────
@@ -1501,25 +1572,26 @@ main() {
   # causing supabase-auth to fail with SASL auth errors.
   if [ ! -f "$INSTALL_DIR/docker-compose.yml" ]; then
     docker volume rm kortix_supabase-db-data 2>/dev/null || true
-    docker rm -f kortix-sandbox 2>/dev/null || true
-    docker volume rm kortix-sandbox-data 2>/dev/null || true
+    docker rm -f "${SANDBOX_CONTAINER_NAME}" 2>/dev/null || true
+    docker volume rm "${SANDBOX_CONTAINER_NAME}-data" 2>/dev/null || true
   fi
 
   # Existing install?
   if [ -f "$INSTALL_DIR/docker-compose.yml" ]; then
-    warn "Existing installation found at $INSTALL_DIR"
-    printf "  Reinstall? [y/N]: "
+    section "Existing Installation"
+    warn "Found existing install at ${WHITE}$INSTALL_DIR${NC}"
+    printf "    ${FADED}Reinstalling will stop services and regenerate secrets.${NC}\n"
+    printf "\n    Reinstall? [${YELLOW}y${NC}/${FADED}N${NC}]: "
     prompt_read answer
     if [ -z "$answer" ] || ! echo "$answer" | grep -qi '^y'; then
       info "Starting existing installation..."
       cd "$INSTALL_DIR"
       docker compose up -d
-      echo ""
-      success "Kortix is running!"
       local existing_url
       existing_url=$(grep -m1 '^PUBLIC_URL=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2- || echo "http://localhost:13737")
-      echo "  Dashboard: ${BOLD}${existing_url}${NC}"
       echo ""
+      success "Kortix is running!"
+      printf "    ${WHITE}Dashboard${NC}:  ${CYAN}${existing_url}${NC}\n\n"
       exit 0
     fi
     info "Stopping old services..."
@@ -1529,10 +1601,13 @@ main() {
     # installer generates new ones, causing supabase-auth to fail with
     # "password authentication failed for user supabase_auth_admin".
     docker compose down -v 2>/dev/null || true
-    docker rm -f kortix-sandbox 2>/dev/null || true
+    docker rm -f "${SANDBOX_CONTAINER_NAME}" 2>/dev/null || true
     # Also remove any leftover named volumes from previous installs
     docker volume rm kortix_supabase-db-data 2>/dev/null || true
     docker volume rm supabase_db_kortix-local 2>/dev/null || true
+    docker volume rm "${SANDBOX_CONTAINER_NAME}-data" 2>/dev/null || true
+    # Clean up legacy name if migrating from older install
+    docker rm -f kortix-sandbox 2>/dev/null || true
     docker volume rm kortix-sandbox-data 2>/dev/null || true
     echo ""
   fi
@@ -1552,22 +1627,34 @@ main() {
     fi
   fi
 
-  echo "  ${BOLD}What gets installed:${NC}"
-  echo ""
+  section "Architecture"
+
+  printf "\n"
   if [ "$DB_MODE" = "docker" ]; then
-    echo "    ${CYAN}Frontend${NC}  -> ${CYAN}API${NC}  -> ${CYAN}Sandbox${NC}"
-    echo "    ${DIM}Dashboard    Router   AI Agent${NC}"
-    echo "                 ${DIM}|${NC}"
-    echo "            ${CYAN}Supabase${NC} ${DIM}(DB + Auth + REST)${NC}"
+    printf "    ${CYAN}┌──────────┐${NC}    ${CYAN}┌──────────┐${NC}    ${CYAN}┌──────────┐${NC}\n"
+    printf "    ${CYAN}│${NC} Frontend ${CYAN}│${NC} →  ${CYAN}│${NC}   API    ${CYAN}│${NC} →  ${CYAN}│${NC} Sandbox  ${CYAN}│${NC}\n"
+    printf "    ${CYAN}└──────────┘${NC}    ${CYAN}└────┬─────┘${NC}    ${CYAN}└──────────┘${NC}\n"
+    printf "                         ${CYAN}│${NC}\n"
+    printf "                  ${CYAN}┌──────┴──────┐${NC}\n"
+    printf "                  ${CYAN}│${NC}  Supabase   ${CYAN}│${NC}\n"
+    printf "                  ${CYAN}│${NC} ${FADED}DB+Auth+REST${NC} ${CYAN}│${NC}\n"
+    printf "                  ${CYAN}└─────────────┘${NC}\n"
   else
-    echo "    ${CYAN}Frontend${NC}  -> ${CYAN}API${NC}  -> ${CYAN}Sandbox${NC}"
-    echo "    ${DIM}Dashboard    Router   AI Agent${NC}"
-    echo "                 ${DIM}|${NC}"
-    echo "          ${CYAN}External DB${NC} ${DIM}(your Supabase)${NC}"
+    printf "    ${CYAN}┌──────────┐${NC}    ${CYAN}┌──────────┐${NC}    ${CYAN}┌──────────┐${NC}\n"
+    printf "    ${CYAN}│${NC} Frontend ${CYAN}│${NC} →  ${CYAN}│${NC}   API    ${CYAN}│${NC} →  ${CYAN}│${NC} Sandbox  ${CYAN}│${NC}\n"
+    printf "    ${CYAN}└──────────┘${NC}    ${CYAN}└────┬─────┘${NC}    ${CYAN}└──────────┘${NC}\n"
+    printf "                         ${CYAN}│${NC}\n"
+    printf "                  ${CYAN}┌──────┴──────┐${NC}\n"
+    printf "                  ${CYAN}│${NC} External DB ${CYAN}│${NC}\n"
+    printf "                  ${CYAN}│${NC}${FADED}your Supabase${NC} ${CYAN}│${NC}\n"
+    printf "                  ${CYAN}└─────────────┘${NC}\n"
   fi
-  echo ""
+  printf "\n"
 
   prompt_integrations
+
+  section "Configuring"
+
   generate_secrets
   resolve_release_images
 
@@ -1581,6 +1668,7 @@ main() {
   write_dev_env_files
   write_cli
   setup_path
+
   pull_and_start
 }
 

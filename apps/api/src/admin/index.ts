@@ -550,7 +550,7 @@ adminApp.get('/api/health', async (c) => {
   }
 
   try {
-    const out = execSync('docker inspect kortix-sandbox --format "{{.State.Status}}"', {
+    const out = execSync(`docker inspect ${config.SANDBOX_CONTAINER_NAME} --format "{{.State.Status}}"`, {
       stdio: 'pipe', timeout: 5000,
     }).toString().trim();
     checks.sandbox = { ok: out === 'running', error: out !== 'running' ? `Status: ${out}` : undefined };

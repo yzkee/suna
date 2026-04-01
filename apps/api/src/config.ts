@@ -140,6 +140,10 @@ const envSchema = z.object({
   DOCKER_HOST:                 optStr,
   SANDBOX_NETWORK:             optStr,
   SANDBOX_PORT_BASE:           optInt(14000),
+  // Container name for the local Docker sandbox — configurable so dev and
+  // self-hosted instances can coexist on the same Docker daemon.
+  // Empty string treated as unset so env_file with missing key is safe.
+  SANDBOX_CONTAINER_NAME:      z.string().optional().transform(v => v || undefined).default('kortix-sandbox'),
 
   // ── Internal Service Key (auto-generated if missing — never fails) ───────
   INTERNAL_SERVICE_KEY:        optStr,
@@ -422,6 +426,7 @@ export const config = {
   DOCKER_HOST: env.DOCKER_HOST,
   SANDBOX_NETWORK: env.SANDBOX_NETWORK,
   SANDBOX_PORT_BASE: env.SANDBOX_PORT_BASE,
+  SANDBOX_CONTAINER_NAME: env.SANDBOX_CONTAINER_NAME,
 
   /**
    * INTERNAL_SERVICE_KEY -- direction: kortix-api -> sandbox.

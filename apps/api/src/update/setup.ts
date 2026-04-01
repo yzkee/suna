@@ -1,6 +1,7 @@
 import type { ResolvedEndpoint } from '../platform/providers';
 import { execOnHost } from './exec';
 import { writeContainerConfig, buildDockerRunCommand, DEFAULT_PORTS, sanitizePorts, type ContainerConfig } from './container-config';
+import { config } from '../config';
 
 export interface SetupOpts {
   image: string;
@@ -15,7 +16,7 @@ export function buildContainerConfig(opts: SetupOpts): ContainerConfig {
   const ports = sanitizePorts(opts.ports || DEFAULT_PORTS);
   return {
     image: opts.image,
-    name: opts.containerName || 'kortix-sandbox',
+    name: opts.containerName || config.SANDBOX_CONTAINER_NAME,
     volumes: [`${volumeName}:/workspace`, `${volumeName}:/config`],
     ports,
     caps: ['SYS_ADMIN'],

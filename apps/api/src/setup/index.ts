@@ -150,7 +150,7 @@ async function getLocalSandboxWarmStatus() {
   const provider = new LocalDockerProvider();
   const existing = await provider.find();
   const sandboxHealthUrl = config.SANDBOX_NETWORK
-    ? 'http://kortix-sandbox:8000/kortix/health'
+    ? `http://${config.SANDBOX_CONTAINER_NAME}:8000/kortix/health`
     : `http://localhost:${config.SANDBOX_PORT_BASE || 14000}/kortix/health`;
 
   if (existing && existing.status === 'running') {
@@ -582,7 +582,7 @@ setupApp.post('/env', async (c) => {
     }
   }
   sandboxData.ENV_MODE = 'local';
-  sandboxData.SANDBOX_ID = 'kortix-sandbox';
+  sandboxData.SANDBOX_ID = config.SANDBOX_CONTAINER_NAME;
   sandboxData.PROJECT_ID = 'local';
   sandboxData.KORTIX_API_URL = 'http://kortix-api:8008';
   writeEnvFile(sandboxEnvPath, sandboxData);
@@ -635,7 +635,7 @@ setupApp.get('/health', async (c) => {
 
   // Check sandbox container
   try {
-    const out = execSync('docker inspect kortix-sandbox --format "{{.State.Status}}"', {
+    const out = execSync(`docker inspect ${config.SANDBOX_CONTAINER_NAME} --format "{{.State.Status}}"`, {
       stdio: 'pipe',
       timeout: 5000,
     }).toString().trim();

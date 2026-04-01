@@ -350,7 +350,7 @@ providersApp.put('/:id/connect', async (c) => {
       }
     }
     sandboxData.ENV_MODE = 'local';
-    sandboxData.SANDBOX_ID = 'kortix-sandbox';
+    sandboxData.SANDBOX_ID = config.SANDBOX_CONTAINER_NAME;
     sandboxData.PROJECT_ID = 'local';
     sandboxData.KORTIX_API_URL = 'http://kortix-api:8008';
     writeEnvFile(sandboxEnvPath, sandboxData);
@@ -445,7 +445,7 @@ providersApp.get('/health', async (c) => {
   }
 
   try {
-    const out = execSync('docker inspect kortix-sandbox --format "{{.State.Status}}"', {
+    const out = execSync(`docker inspect ${config.SANDBOX_CONTAINER_NAME} --format "{{.State.Status}}"`, {
       stdio: 'pipe',
       timeout: 5000,
     }).toString().trim();

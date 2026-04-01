@@ -16,7 +16,8 @@ import type {
   ProvisioningStatus,
 } from './index';
 
-const CONTAINER_NAME = 'kortix-sandbox';
+/** Container name — configurable so self-hosted and dev can coexist. */
+const CONTAINER_NAME = config.SANDBOX_CONTAINER_NAME;
 
 const PORT_BASE = config.SANDBOX_PORT_BASE;
 

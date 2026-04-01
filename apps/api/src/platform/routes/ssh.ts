@@ -257,7 +257,7 @@ async function setupJustavpsSSH(externalId: string) {
 
 sshRouter.post('/setup', async (c) => {
   try {
-    let containerName = 'kortix-sandbox';
+    let containerName = config.SANDBOX_CONTAINER_NAME;
     let provider: string | null = null;
     let externalId: string | null = null;
 
