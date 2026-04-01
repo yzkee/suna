@@ -1,6 +1,6 @@
 ---
 name: kortix-connectors
-description: "Kortix connectors: internal registry of what's connected where. Freeform YAML frontmatter per service. Covers connector_setup, Pipedream via API, CLI-maxxing, API keys."
+description: "Kortix connectors: internal registry of what's connected where. Freeform YAML frontmatter per service. Covers connector_setup, Pipedream proxyFetch, CLI-maxxing, API keys."
 ---
 
 # Connectors
@@ -17,10 +17,10 @@ No enforced schema. Just key-value pairs:
 
 ```yaml
 ---
-name: gmail-personal
-description: "personal gmail account"
+name: google-drive
+description: "Google Drive — company shared drive"
 source: pipedream
-pipedream_slug: gmail
+pipedream_slug: google_drive
 status: connected
 ---
 ```
@@ -37,25 +37,45 @@ status: connected
 
 ---
 
+## CRITICAL: Always verify actual connection status
+
+**Do NOT trust the `status` field in CONNECTOR.md files.** It's a cached hint, not a live source of truth.
+
+Before telling the user something is connected or disconnected, **always run `list`** to check actual Pipedream connection status:
+
+```bash
+SCRIPT=$(find /opt/opencode ~/.opencode /workspace /ephemeral -name "integration.ts" 2>/dev/null | head -1)
+bun run "$SCRIPT" list
+```
+
+This returns the actual connected apps from Pipedream. If `list` shows the app as connected, it IS connected — regardless of what the CONNECTOR.md file says.
+
+**When the user asks to use a Pipedream-connected service:**
+1. Run `list` to verify it's actually connected
+2. If connected → use it immediately via `request` or `exec`
+3. If not connected → run `connect` to get the OAuth URL
+
+**After verifying or connecting, update the CONNECTOR.md status** so it stays in sync.
+
+---
+
 ## Connecting Services
 
 ### Default: Pipedream for everything
 
-Pipedream is always configured. Use it by default for every service. Run `connect`, it returns an OAuth URL, user clicks it, done.
-
-The integration script is bundled with this skill at `connectors/integration.ts`:
+Pipedream is always configured. Use it by default. One-click OAuth for the user.
 
 ```bash
-SCRIPT=$(find "$OPENCODE_CONFIG_DIR" ~/.opencode /ephemeral -name "integration.ts" 2>/dev/null | head -1)
+SCRIPT=$(find /opt/opencode ~/.opencode /workspace /ephemeral -name "integration.ts" 2>/dev/null | head -1)
+
+# Check what's ACTUALLY connected right now
+bun run "$SCRIPT" list
 
 # Search for an app
 bun run "$SCRIPT" search '{"q":"stripe"}'
 
-# Connect — returns connectUrl for user to click
+# Connect — returns OAuth URL for user to click
 bun run "$SCRIPT" connect '{"app":"stripe"}'
-
-# List connected apps
-bun run "$SCRIPT" list
 ```
 
 Show the connect URL to the user:
@@ -63,47 +83,9 @@ Show the connect URL to the user:
 show({ type: "url", url: "<connectUrl>", title: "Connect Stripe — click to authorize" })
 ```
 
-**When presenting to the user:**
+**Pipedream is maximum convenience** — one-click OAuth, no key management. For dev-heavy services (GitHub, AWS, Vercel, Cloudflare), direct CLI/API is tighter long-term but takes more setup. Default to Pipedream, upgrade later if needed.
 
-> "I'll start with Pipedream because it's the easiest setup — one click and we're connected. It's great for getting everything online fast. For dev-heavy services like GitHub, AWS, Vercel, and Cloudflare, direct CLI or API integrations are tighter and usually better long-term, but they take more setup. We can absolutely configure those now if you want, or revisit them later once everything is connected."
-
-For each service:
-1. Search for it: `GET /api/pipedream/search-apps?q=name`
-2. If found → connect: `POST /api/pipedream/connect` → show link
-3. If not on Pipedream → CLI or API key
-
-### Upgrade path: direct connections
-
-For heavy usage, direct connections are stronger:
-
-- **CLI** (`gh`, `aws`, `vercel`, `wrangler`) — pagination, streaming, complex workflows. Load `cli-maxxing` skill.
-- **API key** — user pastes in chat, agent saves.
-
-> "Pipedream is maximum convenience. Direct connections are tighter integration. We'll use Pipedream by default to get moving quickly, and if you care about a service deeply, we can switch it to CLI/API now or later."
-
----
-
-## Using Pipedream-connected services
-
-After connecting, use `exec` with `proxyFetch` — authenticated `fetch()`:
-
-```bash
-# Programmatic API call
-bun run "$SCRIPT" exec '{"app":"stripe","code":"const r = await proxyFetch(\"https://api.stripe.com/v1/customers?limit=5\"); return await r.json();"}'
-
-# Authenticated HTTP request
-bun run "$SCRIPT" request '{"app":"stripe","method":"GET","url":"https://api.stripe.com/v1/customers?limit=5"}'
-
-# Discover pre-built actions
-bun run "$SCRIPT" actions '{"app":"stripe","q":"list"}'
-
-# Run a pre-built action
-bun run "$SCRIPT" run '{"app":"stripe","action_key":"stripe-list-customers","props":{"limit":10}}'
-```
-
----
-
-## CLI auth
+### CLI (when the CLI is significantly better)
 
 Load `cli-maxxing` skill:
 ```bash
@@ -112,9 +94,7 @@ aws configure
 vercel login
 ```
 
----
-
-## API keys
+### API keys (when not on Pipedream and no useful CLI)
 
 User pastes key in chat. Agent saves:
 ```bash
@@ -124,12 +104,26 @@ curl -s -X POST "http://localhost:8000/env/KEY_NAME" \
 
 ---
 
+## Using Pipedream-connected services
+
+After connecting, use `exec` with `proxyFetch` — authenticated `fetch()`:
+
+```bash
+# Programmatic API call
+bun run "$SCRIPT" exec '{"app":"google_drive","code":"const r = await proxyFetch(\"https://www.googleapis.com/drive/v3/files?pageSize=10\"); return await r.json();"}'
+
+# Simple authenticated HTTP request
+bun run "$SCRIPT" request '{"app":"google_drive","method":"GET","url":"https://www.googleapis.com/drive/v3/files?pageSize=10"}'
+```
+
+---
+
 ## Workflow
 
-1. User lists their tools
-2. Agent scaffolds all connectors via `connector_setup`
-3. For each: search on Pipedream → if found, `connect` → show OAuth link to user
-4. User clicks each link, authorizes
-5. Services not on Pipedream: CLI auth or API key
-6. Update connector status
-7. Offer to upgrade high-usage services to direct connections later
+1. User asks about or wants to use a service
+2. **Run `list` to check actual connection status**
+3. If connected → use it immediately
+4. If not connected → `search` → `connect` → show OAuth link
+5. After connecting, update the CONNECTOR.md status to `connected`
+6. For CLI services → CLI auth (load `cli-maxxing`)
+7. For API key services → user pastes in chat
