@@ -184,20 +184,20 @@ function TabContextMenu({ tab, position, onAction, onClose }: ContextMenuProps) 
     }
   }, [position]);
 
-  const item = (label: string, action: string, icon: React.ReactNode, shortcut?: string, destructive?: boolean) => (
+  const item = (label: string, action: string, icon: React.ReactNode, shortcut?: string, muted?: boolean) => (
     <button
       className={cn(
         'flex items-center gap-2 w-full px-2.5 py-1.5 text-xs rounded-md transition-colors text-left cursor-pointer',
-        destructive
-          ? 'text-destructive hover:bg-destructive/10'
-          : 'text-foreground hover:bg-accent'
+        muted
+          ? 'text-muted-foreground/70 hover:text-foreground hover:bg-accent/60'
+          : 'text-foreground/80 hover:text-foreground hover:bg-accent/60'
       )}
       onClick={() => { onAction(action, tab.id); onClose(); }}
     >
       {icon}
       <span className="flex-1">{label}</span>
       {shortcut && (
-        <span className="text-[10px] text-muted-foreground/60 ml-4">{shortcut}</span>
+        <span className="text-[10px] text-muted-foreground/40 ml-4">{shortcut}</span>
       )}
     </button>
   );
@@ -205,18 +205,18 @@ function TabContextMenu({ tab, position, onAction, onClose }: ContextMenuProps) 
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 min-w-[200px] rounded-lg border border-border/80 bg-popover/95 backdrop-blur-sm p-1.5 shadow-lg animate-in fade-in-0 zoom-in-95 slide-in-from-top-1 duration-150"
+      className="fixed z-[100] min-w-[180px] rounded-lg border border-border/60 bg-popover/98 backdrop-blur-sm shadow-xl shadow-black/10 py-1 animate-in fade-in-0 zoom-in-95 slide-in-from-top-1 duration-100"
       style={{ left: position.x, top: position.y }}
     >
       {tab.pinned
         ? item('Unpin tab', 'unpin', <PinOff className="h-3.5 w-3.5 text-muted-foreground" />)
         : item('Pin tab', 'pin', <Pin className="h-3.5 w-3.5 text-muted-foreground" />)
       }
-      <div className="my-1 h-px bg-border/60" />
+      <div className="mx-2 my-1 border-t border-border/40" />
       {!tab.pinned && item('Close', 'close', <X className="h-3.5 w-3.5 text-muted-foreground" />, 'Ctrl+W')}
       {item('Close others', 'closeOthers', <XCircle className="h-3.5 w-3.5 text-muted-foreground" />)}
       {item('Close to the right', 'closeRight', <ArrowRightToLine className="h-3.5 w-3.5 text-muted-foreground" />)}
-      <div className="my-1 h-px bg-border/60" />
+      <div className="mx-2 my-1 border-t border-border/40" />
       {item('Close all', 'closeAll', <XCircle className="h-3.5 w-3.5 text-muted-foreground" />, undefined, true)}
     </div>
   );
