@@ -26,7 +26,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -69,7 +69,7 @@ jobs:
             --tag "ghcr.io/kortix-ai/suna-api:latest" \
             .
           docker push "${{ steps.meta.outputs.image }}"
-          docker push "ghcr.io/kortix-ai/kortix-api:latest"
+          docker push "ghcr.io/kortix-ai/suna-api:latest"
 
   deploy:
     name: Deploy to ${{ inputs.target || 'dev' }}
@@ -80,9 +80,9 @@ jobs:
       - name: Zero-downtime deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
-          host: ${{ vars.DEPLOY_HOST || secrets.VPS_HOST || secrets.AWS_DEV_HOST }}
-          username: ${{ vars.DEPLOY_USER || secrets.VPS_USERNAME || secrets.AWS_DEV_USERNAME || 'ubuntu' }}
-          key: ${{ secrets.VPS_SSH_KEY || secrets.AWS_DEV_KEY || secrets.AWS_PRODUCTION_KEY }}
+          host: ${{ secrets.VPS_HOST || secrets.AWS_DEV_HOST }}
+          username: ${{ secrets.VPS_USERNAME || secrets.AWS_DEV_USERNAME || 'ubuntu' }}
+          key: ${{ secrets.VPS_SSH_KEY || secrets.AWS_DEV_KEY }}
           port: 22
           timeout: 600s
           script: |
@@ -90,22 +90,25 @@ jobs:
             # First-run: clone if ~/suna doesn't exist yet
             if [ ! -d ~/suna ]; then
               git clone https://github.com/kortix-ai/suna.git ~/suna
-              # Migrate env from old ~/computer if it exists
               [ -f ~/computer/apps/api/.env ] && cp ~/computer/apps/api/.env ~/suna/apps/api/.env && echo "Migrated API .env"
             fi
             cd ~/suna
-            BRANCH="${{ inputs.target == 'prod' && 'main' || 'dev' }}"
-            git -c fetch.recurseSubmodules=false fetch origin "$BRANCH"
-            git reset --hard "origin/$BRANCH"
+            # Always deploy from main — main IS the dev branch
+            git -c fetch.recurseSubmodules=false fetch origin main
+            git reset --hard origin/main
             git submodule sync --recursive
             git submodule update --init --recursive --remote
             PREBUILT_IMAGE="${{ needs.build.outputs.image }}" bash scripts/deploy-zero-downtime.sh
 
-      - name: Deploy prod frontend (Vercel)
+      - name: Promote frontend to production (Vercel)
         if: inputs.target == 'prod'
-        run: |
-          curl -s -X POST "${{ secrets.VERCEL_PROD_DEPLOY_HOOK }}" | head -1
-          echo "Triggered Vercel prod frontend deploy"
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: main
+      - name: Push main to production branch
+        if: inputs.target == 'prod'
+        run: git push origin main:production --force
 
       - name: Summary
         if: always()
