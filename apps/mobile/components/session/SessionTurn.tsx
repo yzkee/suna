@@ -79,6 +79,8 @@ import {
   formatTokens,
   getTurnCost,
   stripAnsi,
+  getRetryInfo,
+  getRetryMessage,
 } from '@/lib/opencode/turns';
 
 // Enable LayoutAnimation on Android
@@ -2360,6 +2362,20 @@ export function SessionTurn({
     [working, allParts],
   );
 
+  // Retry info (only for last turn)
+  const retryInfo = useMemo(
+    () => (isLast ? getRetryInfo(sessionStatus) : undefined),
+    [sessionStatus, isLast],
+  );
+  const retryMessage = useMemo(
+    () => (isLast ? getRetryMessage(sessionStatus) : undefined),
+    [sessionStatus, isLast],
+  );
+  const retrySecondsLeft = useMemo(() => {
+    if (!retryInfo?.next) return 0;
+    return Math.max(0, Math.ceil((retryInfo.next - Date.now()) / 1000));
+  }, [retryInfo]);
+
   // Duration
   const duration = useMemo(() => {
     if (turn.assistantMessages.length === 0) return undefined;
@@ -2541,11 +2557,38 @@ export function SessionTurn({
             return null;
           })}
 
+          {/* Retry banner (shown when retrying, before the working dot) */}
+          {working && retryInfo && retryMessage && (
+            <View
+              className="rounded-lg border mb-2 px-3 py-2"
+              style={{
+                backgroundColor: isDark ? 'rgba(248,248,248,0.03)' : 'rgba(18,18,21,0.02)',
+                borderColor: isDark ? 'rgba(248,248,248,0.06)' : 'rgba(18,18,21,0.06)',
+              }}
+            >
+              <View className="flex-row items-start">
+                <View className="mt-0.5 mr-2">
+                  <SpinningLoader size={14} color={isDark ? 'rgba(248,248,248,0.4)' : 'rgba(18,18,21,0.4)'} />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-xs text-muted-foreground" style={{ lineHeight: 16 }}>
+                    {retryMessage}
+                  </Text>
+                  <Text className="text-[11px] text-muted-foreground/60 mt-1">
+                    {retrySecondsLeft > 0
+                      ? `Retrying in ${retrySecondsLeft}s (#${retryInfo.attempt})`
+                      : `Retrying now (#${retryInfo.attempt})`}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+
           {/* Working indicator */}
           {working && visibleParts.length === 0 && (
             <View className="flex-row items-center py-1.5">
               <View className="h-2 w-2 rounded-full bg-foreground mr-2 animate-pulse" />
-              <ShimmerStatusText text={statusText || 'Thinking...'} size="sm" />
+              <ShimmerStatusText text={retryInfo ? 'Waiting to retry' : (statusText || 'Thinking...')} size="sm" />
             </View>
           )}
 
@@ -2553,7 +2596,7 @@ export function SessionTurn({
           {working && visibleParts.length > 0 && (
             <View className="flex-row items-center mt-0.5 mb-1">
               <View className="h-1.5 w-1.5 rounded-full bg-foreground mr-1.5" />
-              <ShimmerStatusText text={statusText || 'Working...'} size="xs" />
+              <ShimmerStatusText text={retryInfo ? 'Waiting to retry' : (statusText || 'Working...')} size="xs" />
             </View>
           )}
 
