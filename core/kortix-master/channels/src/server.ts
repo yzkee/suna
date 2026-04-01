@@ -81,18 +81,25 @@ export function createServer(
 
   app.post('/reload', async (c) => {
     if (!isChannelsService(input)) {
-      return c.json({ error: 'Reload requires a ChannelsService instance' }, 501);
+      return c.json({ error: 'Reload requires a ChannelsService instance (service not initialized)' }, 501);
     }
     try {
       const body = await c.req.json() as ReloadRequest;
       if (!body?.credentials) {
-        return c.json({ error: 'Missing credentials' }, 400);
+        return c.json({ error: 'Missing credentials in request body' }, 400);
       }
       const result = await input.reload(body.credentials);
       return c.json(result);
     } catch (err) {
-      console.error('[opencode-channels] Reload failed:', err);
-      return c.json({ error: 'Reload failed' }, 500);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const errStack = err instanceof Error ? err.stack : undefined;
+      console.error('[opencode-channels] Reload failed:', errMsg);
+      if (errStack) console.error(errStack);
+      return c.json({
+        error: 'Reload failed',
+        details: errMsg,
+        hint: 'The channels service could not reinitialize with the provided credentials. Check the bot token and adapter configuration.',
+      }, 500);
     }
   });
 
@@ -217,27 +224,25 @@ export function createServer(
     mod.registerRoutes?.(app, getBot);
   }
 
-  const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
-    console.log(`[opencode-channels] Server listening on ${host}:${info.port}`);
-  });
+  // Use Bun.serve when available (keeps event loop alive), fall back to @hono/node-server
+  let stopFn: () => void;
+  if (typeof Bun !== 'undefined' && Bun.serve) {
+    const bunServer = Bun.serve({ port, hostname: host, fetch: app.fetch });
+    console.log(`[opencode-channels] Server listening on ${host}:${bunServer.port}`);
+    stopFn = () => { bunServer.stop(true); console.log('[opencode-channels] Server stopped'); };
+  } else {
+    const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
+      console.log(`[opencode-channels] Server listening on ${host}:${info.port}`);
+    });
+    server.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`[opencode-channels] Port ${port} already in use`);
+        process.exit(1);
+      }
+      throw err;
+    });
+    stopFn = () => { server.close(); console.log('[opencode-channels] Server stopped'); };
+  }
 
-  server.on('error', (err: NodeJS.ErrnoException) => {
-    if (err.code === 'EADDRINUSE') {
-      console.error(
-        `[opencode-channels] Port ${port} is already in use.\n` +
-        `  Try: PORT=${port + 1} pnpm start  (or kill the process using port ${port})`
-      );
-      process.exit(1);
-    }
-    throw err;
-  });
-
-  return {
-    app,
-    server,
-    stop: () => {
-      server.close();
-      console.log('[opencode-channels] Server stopped');
-    },
-  };
+  return { app, stop: stopFn };
 }

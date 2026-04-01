@@ -38,11 +38,12 @@ export async function start(
   }, 5 * 60 * 1000);
   cleanupInterval.unref?.();
 
-  return { bot: service.bot, client: service.client, server, service };
+  return { bot: service.bot, client: service.client, ...server, service };
 }
 
 const entryFile = process.argv[1] ?? '';
-const isDirectRun = entryFile.includes('opencode-channels') && (entryFile.endsWith('index.ts') || entryFile.endsWith('index.js'));
+const isDirectRun = (entryFile.endsWith('index.ts') || entryFile.endsWith('index.js'))
+  && (entryFile.includes('channels') || entryFile.includes('opencode-channels'));
 if (isDirectRun) {
   start().catch((err) => {
     console.error('[opencode-channels] Fatal:', err);
