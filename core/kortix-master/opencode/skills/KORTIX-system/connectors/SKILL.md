@@ -7,66 +7,69 @@ description: "Kortix connectors: SQLite-backed registry of what's connected wher
 
 SQLite-backed registry in `.kortix/kortix.db`. Single source of truth.
 
-Pipedream connectors auto-create when OAuth completes. CLI/API-key connectors created after auth via `connector_setup`.
-
----
-
 ## RULES
 
-1. **NEVER tell the user to go somewhere to connect.** Run `connect`, show the link.
-2. **NEVER assume connection status.** Run Pipedream `list` to check.
-3. **Connected → use it immediately.**
-4. **Not connected → `connect` → show link → auto-creates in DB.**
-
----
+1. **NEVER tell the user to go somewhere.** Handle it, show the link.
+2. **NEVER assume status.** Run `list` first.
+3. **Connected → use immediately.**
+4. **Not connected → `connect` → show links → user clicks → auto-creates in DB.**
 
 ## Tools
 
 | Tool | Purpose |
 |---|---|
-| `connector_list` | List all connectors from DB |
-| `connector_get` | Get one connector's metadata |
-| `connector_setup` | Create/update connectors (CLI/API-key only, Pipedream auto-creates) |
+| `connector_list` | List connectors from DB |
+| `connector_get` | Get one connector |
+| `connector_setup` | Create connectors (CLI/API-key only) |
+| `connector_remove` | Delete connectors by name |
 
 ---
 
-## Using a service
+## Standard Protocol
+
+Every connector interaction follows this exact flow. No variation.
+
+### Step 1: Find the script (once per session, reuse the variable)
 
 ```bash
 SCRIPT=$(find /opt/opencode ~/.opencode /workspace /ephemeral -name "integration.ts" 2>/dev/null | head -1)
+```
+
+### Step 2: Check what's live
+
+```bash
 bun run "$SCRIPT" list
 ```
 
-Connected → use:
+### Step 3a: Use connected services
+
 ```bash
-bun run "$SCRIPT" request '{"app":"google_drive","method":"GET","url":"..."}'
-bun run "$SCRIPT" exec '{"app":"google_drive","code":"const r = await proxyFetch(\"...\"); return await r.json();"}'
+bun run "$SCRIPT" request '{"app":"APP","method":"GET","url":"..."}'
+bun run "$SCRIPT" exec '{"app":"APP","code":"const r = await proxyFetch(\"...\"); return await r.json();"}'
 ```
 
-Not connected → batch connect (one call, all URLs back):
+### Step 3b: Connect missing services (batch, one call)
+
 ```bash
 bun run "$SCRIPT" connect '{"apps":["gmail","slack","stripe","github"]}'
 ```
 
-Show all links to the user in one clean output:
+Then show ALL links in ONE output:
+
 ```
 show({
   type: "markdown",
-  title: "Connect your services",
-  content: "Click each link to authorize:\n\n| Service | Connect |\n|---|---|\n| Gmail | [Connect →](url1) |\n| Slack | [Connect →](url2) |\n| Stripe | [Connect →](url3) |"
+  title: "Connect your services — click each link to authorize",
+  content: "| Service | |\n|---|---|\n| Gmail | [Connect →](url) |\n| Slack | [Connect →](url) |\n| Stripe | [Connect →](url) |\n| GitHub | [Connect →](url) |"
 })
 ```
 
----
+### Step 4: For CLI/API-key services (after auth succeeds)
 
-## CLI/API-key
-
-After auth:
 ```
 connector_setup(connectors='[{"name":"github","description":"kortix-ai org","source":"cli"}]')
 ```
 
-After saving key:
-```
-connector_setup(connectors='[{"name":"stripe","description":"production","source":"api-key","env_keys":["STRIPE_SECRET_KEY"]}]')
-```
+---
+
+**Token efficiency:** One `SCRIPT=...` per session. One `list` call. One batch `connect`. One `show`. That's it — 4 tool calls max for any number of services.
