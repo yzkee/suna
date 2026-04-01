@@ -33,7 +33,7 @@ export default function ConnectCallbackPage() {
     }
 
     // Redirect back to integrations page
-    router.replace('/integrations');
+    router.replace('/connectors');
   }, [searchParams, router, queryClient]);
 
   return (

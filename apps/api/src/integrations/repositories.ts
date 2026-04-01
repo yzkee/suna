@@ -252,7 +252,7 @@ export async function verifySandboxOwnership(sandboxId: string, accountId: strin
 
 export async function listActiveSandboxesByAccount(accountId: string) {
   return db
-    .select({ sandboxId: sandboxes.sandboxId })
+    .select({ sandboxId: sandboxes.sandboxId, baseUrl: sandboxes.baseUrl })
     .from(sandboxes)
     .where(and(eq(sandboxes.accountId, accountId), eq(sandboxes.status, 'active')));
 }

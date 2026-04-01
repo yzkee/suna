@@ -142,7 +142,7 @@ const PAGE_COMPONENTS: Record<string, ComponentType> = {
 	// Extra pages not in original ROUTE_MAP but exist as routes
 	'/scheduled-tasks': TriggersPage,
 	'/channels': ChannelsPage,
-	'/integrations': IntegrationsPage,
+	'/connectors': IntegrationsPage,
 	'/files': FilesPage,
 	'/tunnel': TunnelOverviewPage,
 	...(DEPLOYMENTS_ENABLED ? { '/deployments': DeploymentsPage } : {}),

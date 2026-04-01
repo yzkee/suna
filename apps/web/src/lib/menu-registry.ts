@@ -424,14 +424,14 @@ export const menuRegistry: MenuItemDef[] = [
     href: '/tunnel',
   },
   {
-    id: 'integrations',
-    label: 'Integrations',
+    id: 'connectors',
+    label: 'Connectors',
     icon: Plug,
     group: 'navigation',
     subGroup: 'services',
     showIn: ['commandPalette', 'rightSidebar'],
     kind: 'navigate',
-    href: '/integrations',
+    href: '/connectors',
   },
   ...(DEPLOYMENTS_ENABLED
     ? [{

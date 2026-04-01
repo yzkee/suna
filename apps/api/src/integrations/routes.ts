@@ -31,6 +31,28 @@ type SandboxEnv = {
   };
 };
 
+/**
+ * Notify linked sandboxes to scaffold a CONNECTOR.md for a newly connected Pipedream app.
+ * Fire-and-forget — failures are logged but don't block the connection save.
+ */
+async function notifySandboxesConnectorSync(accountId: string, app: string, appName: string, sandboxIds: string[]) {
+  const allSandboxes = await listActiveSandboxesByAccount(accountId);
+  const targets = allSandboxes.filter(sb => sandboxIds.includes(sb.sandboxId) && sb.baseUrl);
+  for (const sb of targets) {
+    try {
+      await fetch(`${sb.baseUrl}/api/pipedream/connector-sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ app, app_name: appName }),
+        signal: AbortSignal.timeout(5_000),
+      });
+      console.log(`[CONNECTORS] Notified sandbox ${sb.sandboxId} to scaffold connector for ${app}`);
+    } catch (err) {
+      console.warn(`[CONNECTORS] Failed to notify sandbox ${sb.sandboxId}: ${err}`);
+    }
+  }
+}
+
 const connectTokenSchema = z.object({
   app: z.string().optional(),
   success_redirect_uri: z.string().optional(),
@@ -191,6 +213,12 @@ export function createIntegrationsRouter(): Hono<AppEnv> {
       }
 
       console.log(`[INTEGRATIONS] Saved: ${parsed.data.app} for account ${accountId}`);
+
+      // Fire-and-forget: notify linked sandboxes to scaffold a CONNECTOR.md
+      if (link.linkedSandboxIds.length > 0) {
+        notifySandboxesConnectorSync(accountId, parsed.data.app, parsed.data.app_name || parsed.data.app, link.linkedSandboxIds).catch(() => {});
+      }
+
       return c.json({ success: true, integration: row, link });
     } catch (err) {
       console.error('[INTEGRATIONS] Error saving connection:', err);

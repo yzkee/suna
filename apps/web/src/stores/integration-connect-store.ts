@@ -3,7 +3,7 @@ import { create } from 'zustand';
 /**
  * Global store for triggering the Pipedream OAuth connect flow from anywhere in the app.
  * The actual connect handler is registered by the IntegrationConnectProvider (mounted at root layout).
- * This avoids navigating to /integrations in a new tab — the OAuth popup opens inline.
+ * This avoids navigating to /connectors in a new tab — the OAuth popup opens inline.
  */
 
 type ConnectHandler = (appSlug: string, sandboxId?: string) => Promise<void>;

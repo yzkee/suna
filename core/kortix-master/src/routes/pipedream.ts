@@ -558,4 +558,36 @@ export async function pushPipedreamCredsToApi(): Promise<void> {
   }
 }
 
+// ─── Connector auto-scaffold ──────────────────────────────────────────────────
+// Called by the API when a new Pipedream OAuth connection is saved.
+// Scaffolds a CONNECTOR.md in the workspace so the agent knows about it.
+
+pipedreamRouter.post('/connector-sync', async (c) => {
+  try {
+    const { app, app_name } = await c.req.json() as { app: string; app_name?: string }
+    if (!app) return c.json({ error: 'app is required' }, 400)
+
+    const name = (app_name || app).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-|-$/g, '')
+    const workspaceRoot = process.env.KORTIX_WORKSPACE || '/workspace'
+    const dir = `${workspaceRoot}/.opencode/connectors/${name}`
+    const file = `${dir}/CONNECTOR.md`
+
+    const { mkdirSync, writeFileSync, existsSync } = await import('node:fs')
+    mkdirSync(dir, { recursive: true })
+
+    // Only write if the file doesn't exist — don't overwrite user edits
+    if (!existsSync(file)) {
+      writeFileSync(file, `---\nname: ${name}\ndescription: "${app_name || app} — connected via Pipedream"\nsource: pipedream\n---\n`, 'utf8')
+      console.log(`[Pipedream] Auto-scaffolded connector: ${name}`)
+    } else {
+      console.log(`[Pipedream] Connector already exists: ${name}`)
+    }
+
+    return c.json({ success: true, name, created: !existsSync(file) })
+  } catch (err) {
+    console.error('[Pipedream] Connector sync error:', err)
+    return c.json({ error: 'Failed to scaffold connector' }, 500)
+  }
+})
+
 export default pipedreamRouter

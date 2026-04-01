@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 /**
  * Mount this provider at the app root (e.g. in layout or providers wrapper).
  * It registers a global handler so any component can trigger the Pipedream OAuth popup
- * without navigating to /integrations in a new tab.
+ * without navigating to /connectors in a new tab.
  */
 export function IntegrationConnectProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();

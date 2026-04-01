@@ -31,14 +31,14 @@ import { enrichPreviewMetadata } from '@/lib/utils/session-context';
 import { useIntegrationConnectStore } from '@/stores/integration-connect-store';
 
 /**
- * Check if a URL is an integration connect URL (e.g. /integrations?connect=github&sandbox_id=xxx).
+ * Check if a URL is a connector connect URL (e.g. /connectors?connect=github&sandbox_id=xxx).
  * Returns { appSlug, sandboxId } if matched, null otherwise.
  */
 function parseIntegrationConnectUrl(href: string): { appSlug: string; sandboxId?: string } | null {
   try {
     const url = new URL(href);
     // Must be pointing to /integrations with a ?connect= param
-    if (url.pathname !== '/integrations') return null;
+    if (url.pathname !== '/connectors') return null;
     const connectApp = url.searchParams.get('connect');
     if (!connectApp) return null;
     return {
@@ -66,8 +66,8 @@ export function LocalhostLinkInterceptor() {
       const href = anchor.href; // resolved absolute URL
       if (!href) return;
 
-      // ── Case 0: Integration connect URL ──
-      // Intercept /integrations?connect=<app>&sandbox_id=<id> links and trigger
+      // ── Case 0: Connector connect URL ──
+      // Intercept /connectors?connect=<app>&sandbox_id=<id> links and trigger
       // the Pipedream OAuth popup inline instead of navigating to a new tab.
       const integrationConnect = parseIntegrationConnectUrl(href);
       if (integrationConnect) {

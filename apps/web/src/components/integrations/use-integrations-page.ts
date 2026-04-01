@@ -159,7 +159,7 @@ export function useIntegrationsPage(): any {
 
     // Clear query params from URL immediately to stop Next.js prefetch spam.
     // Use window.history directly to avoid React re-render cycles from router.replace.
-    window.history.replaceState(window.history.state, '', '/integrations');
+    window.history.replaceState(window.history.state, '', '/connectors');
 
     const app = apps.find((a) => a.slug === connectApp);
     if (app) {

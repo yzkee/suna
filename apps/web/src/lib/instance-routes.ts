@@ -16,7 +16,7 @@ export const INSTANCE_SCOPED_ROUTES = [
   '/terminal',
   '/files',
   '/channels',
-  '/integrations',
+  '/connectors',
   '/tunnel',
   '/scheduled-tasks',
   '/commands',

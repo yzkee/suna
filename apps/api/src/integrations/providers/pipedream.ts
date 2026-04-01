@@ -125,8 +125,8 @@ export class PipedreamProvider implements AuthProvider {
     const body: Record<string, unknown> = {
       external_user_id: accountId,
       allowed_origins: [origin],
-      success_redirect_uri: opts?.successRedirectUri || `${base}/integrations?connected=true`,
-      error_redirect_uri: opts?.errorRedirectUri || `${base}/integrations?error=true`,
+      success_redirect_uri: opts?.successRedirectUri || `${base}/connectors?connected=true`,
+      error_redirect_uri: opts?.errorRedirectUri || `${base}/connectors?error=true`,
     };
     if (app) {
       body.app_slug = app;

@@ -130,8 +130,8 @@ describe('isPreviewUrl', () => {
 // ── Unit tests for isAppRouteUrl ────────────────────────────────────────────
 
 describe('isAppRouteUrl', () => {
-  test('detects integrations route', () => {
-    expect(isAppRouteUrl('http://localhost:3000/integrations?connect=true')).toBe(true);
+  test('detects connectors route', () => {
+    expect(isAppRouteUrl('http://localhost:3000/connectors?connect=true')).toBe(true);
   });
 
   test('detects settings route', () => {
