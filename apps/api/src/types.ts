@@ -191,7 +191,6 @@ export interface AccountStateResponse {
     commitment: CommitmentInfo;
     can_purchase_credits: boolean;
   };
-  models: ModelInfo[];
   tier: {
     name: string;
     display_name: string;
@@ -236,6 +235,7 @@ export interface CommitmentInfo {
   commitment_end_date: string | null;
 }
 
+/** @deprecated Legacy model gating — models are now configured in-sandbox via LLM Providers. */
 export interface ModelInfo {
   id: string;
   name: string;

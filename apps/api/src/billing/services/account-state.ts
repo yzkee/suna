@@ -6,7 +6,6 @@ import {
 import {
   getTier,
   getDailyCreditConfig,
-  isModelAllowed,
   isPaidTier,
   isLegacyPaidTier,
   MINIMUM_CREDIT_FOR_RUN,
@@ -18,27 +17,7 @@ import type {
   AccountStateResponse,
   ScheduledChange,
   CommitmentInfo,
-  ModelInfo,
 } from '../../types';
-
-const ALL_MODELS: Omit<ModelInfo, 'allowed'>[] = [
-  { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', provider: 'anthropic', context_window: 200000, capabilities: ['vision', 'function_calling'], priority: 10 },
-  { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', provider: 'anthropic', context_window: 200000, capabilities: ['vision', 'function_calling'], priority: 8 },
-  { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', context_window: 128000, capabilities: ['vision', 'function_calling'], priority: 9 },
-  { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai', context_window: 128000, capabilities: ['vision', 'function_calling'], priority: 6 },
-  { id: 'o3-mini', name: 'o3-mini', provider: 'openai', context_window: 200000, capabilities: ['function_calling'], priority: 7 },
-  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', provider: 'google', context_window: 1048576, capabilities: ['vision', 'function_calling'], priority: 5 },
-  { id: 'grok-2', name: 'Grok 2', provider: 'xai', context_window: 131072, capabilities: ['vision', 'function_calling'], priority: 4 },
-  { id: 'deepseek-r1', name: 'DeepSeek R1', provider: 'deepseek', context_window: 65536, capabilities: ['function_calling'], priority: 3 },
-  { id: 'deepseek-v3', name: 'DeepSeek V3', provider: 'deepseek', context_window: 65536, capabilities: ['function_calling'], priority: 2 },
-];
-
-function getModelsForTier(tierName: string): ModelInfo[] {
-  return ALL_MODELS.map((m) => ({
-    ...m,
-    allowed: isModelAllowed(tierName, m.id),
-  }));
-}
 
 export async function buildMinimalAccountState(accountId: string): Promise<AccountStateResponse> {
   const credits = await getCreditSummary(accountId);
@@ -155,7 +134,6 @@ export async function buildMinimalAccountState(accountId: string): Promise<Accou
       commitment,
       can_purchase_credits: isAdmin ? true : tier.canPurchaseCredits,
     },
-    models: getModelsForTier(isAdmin ? 'ultra' : tierName),
     tier: {
       name: tier.name,
       display_name: isAdmin && tierName === 'none' ? 'Admin' : tier.displayName,
@@ -208,7 +186,6 @@ export function buildLocalAccountState(): AccountStateResponse {
       commitment: { has_commitment: false, can_cancel: true, commitment_type: null, months_remaining: null, commitment_end_date: null },
       can_purchase_credits: false,
     },
-    models: getModelsForTier('ultra'),
     tier: {
       name: 'free',
       display_name: 'Free',

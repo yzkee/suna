@@ -249,12 +249,6 @@ export function isLegacyPaidTier(tierName: string): boolean {
   return (LEGACY_PAID_TIERS as readonly string[]).includes(tierName);
 }
 
-export function isModelAllowed(tierName: string, model: string): boolean {
-  const tier = getTier(tierName);
-  if (tier.models.includes('all')) return true;
-  return tier.models.includes(model);
-}
-
 export function getDailyCreditConfig(tierName: string): DailyCreditConfig | null {
   return getTier(tierName).dailyCreditConfig;
 }

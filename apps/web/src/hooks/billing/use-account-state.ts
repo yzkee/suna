@@ -438,13 +438,6 @@ export const accountStateSelectors = {
   /** Check if subscription is cancelled */
   isCancelled: (state: AccountState | undefined) => state?.subscription?.is_cancelled ?? false,
   
-  /** Get allowed models */
-  allowedModels: (state: AccountState | undefined) => 
-    state?.models?.filter(m => m.allowed) ?? [],
-  
-  /** Check if a specific model is allowed */
-  isModelAllowed: (state: AccountState | undefined, modelId: string) =>
-    state?.models?.find(m => m.id === modelId)?.allowed ?? false,
   
   /** Get scheduled change info */
   scheduledChange: (state: AccountState | undefined) => state?.subscription?.scheduled_change,
