@@ -15,7 +15,7 @@ export async function getPlatformRole(accountId: string): Promise<PlatformRole> 
     .where(eq(platformUserRoles.accountId, accountId))
     .limit(1);
 
-  if (row?.role === 'admin' || row.role === 'super_admin') {
+  if (row?.role === 'admin' || row?.role === 'super_admin') {
     return row.role;
   }
 
