@@ -243,7 +243,7 @@ Task tool spawns child session with `parentID` → applies restrictions (todowri
 
 ### opencode.jsonc
 
-Main config file. In sandbox: `/opt/opencode/opencode.jsonc`
+Main config file. In sandbox: `$OPENCODE_CONFIG_DIR/opencode.jsonc`
 
 ```jsonc
 {
@@ -267,7 +267,7 @@ Main config file. In sandbox: `/opt/opencode/opencode.jsonc`
 ### Config Discovery (merged in order)
 
 1. `.opencode/` in CWD and parent directories
-2. `$OPENCODE_CONFIG_DIR` (e.g., `/opt/opencode/`)
+2. `$OPENCODE_CONFIG_DIR` (e.g., `/ephemeral/kortix-master/opencode/`)
 3. Global: `~/.config/opencode/`
 
 ### Environment Variable Interpolation

@@ -8,11 +8,8 @@ description: "Interact with the user's local machine via Agent Tunnel. Use when 
 All local-machine operations via a single self-contained CLI script. Run with bash — no tool primitive needed, no external dependencies.
 
 ```
-# In sandbox (production — shipped at /opt/opencode/skills/):
-TUNNEL=/opt/opencode/skills/KORTIX-system/agent-tunnel/tunnel.ts
-
-# Or via the config-dir skills path:
-TUNNEL=~/.opencode/skills/KORTIX-system/agent-tunnel/tunnel.ts
+# Uses $OPENCODE_CONFIG_DIR (always set in the sandbox):
+TUNNEL=$OPENCODE_CONFIG_DIR/skills/KORTIX-system/agent-tunnel/tunnel.ts
 ```
 
 ## Quick Start

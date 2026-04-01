@@ -58,7 +58,9 @@ const FALLBACK_API_URL = "http://localhost:8008";
 function getApiBase(): string {
   const raw = getEnv("TUNNEL_API_URL") || FALLBACK_API_URL;
   const url = raw.startsWith("http") ? raw : FALLBACK_API_URL;
-  return url.replace(/\/+$/, "");
+  // Strip /v1/router suffix — TUNNEL_API_URL sometimes includes the router path
+  // but the CLI appends its own /v1/tunnel path.
+  return url.replace(/\/+$/, "").replace(/\/v1\/router\/?$/, "");
 }
 
 const client = new TunnelClient({

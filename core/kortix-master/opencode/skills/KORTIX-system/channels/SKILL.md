@@ -90,8 +90,8 @@ curl -X POST http://localhost:3456/send \
 ### CLI Alternative
 
 ```bash
-bun run /opt/opencode-channels/src/cli.ts send telegram --to "CHAT_ID" --text "message"
-bun run /opt/opencode-channels/src/cli.ts send slack --to "#channel" --text "message"
+bun run /ephemeral/kortix-master/channels/src/cli.ts send telegram --to "CHAT_ID" --text "message"
+bun run /ephemeral/kortix-master/channels/src/cli.ts send slack --to "#channel" --text "message"
 ```
 
 ---
@@ -209,7 +209,7 @@ Auto-set when channel is configured via Kortix UI:
 ## Service Details
 
 - **Service:** `svc-opencode-channels` on port `3456`
-- **Entry:** `/opt/opencode-channels/src/index.ts` (Bun)
+- **Entry:** `/ephemeral/kortix-master/channels/src/index.ts` (Bun)
 - **Restarts:** Always (s6-rc.d, 1.5s delay)
 - **Health:** `GET http://localhost:3456/health`
 - **Reload:** `POST http://localhost:3456/reload` (after credential changes)
