@@ -1,5 +1,22 @@
 [
   {
+    "version": "0.8.24",
+    "date": "2026-04-01",
+    "title": "Suna repo migration, runtime env vars, deploy infrastructure",
+    "description": "Migrated to kortix-ai/suna as the canonical repo. Fixed Next.js runtime env var handling, deploy workflows, and CORS configuration for dev.kortix.com and kortix.com.",
+    "changes": [
+      { "type": "feature", "text": "Next.js connection() for runtime env vars — Docker images now read process.env at request time, not build time" },
+      { "type": "feature", "text": "API version in health endpoint read from release.json (baked into image)" },
+      { "type": "feature", "text": "pnpm dev:prod script for local debugging against production database" },
+      { "type": "fix", "text": "Self-hosted onboarding auto-skipped via API token sync" },
+      { "type": "fix", "text": "Account-state silent error logging instead of swallowing failures" },
+      { "type": "fix", "text": "Added tier_50_400 and tier_200_1000 to legacy paid tiers for claim flow" },
+      { "type": "fix", "text": "Removed legacy models array from account-state endpoint" },
+      { "type": "improvement", "text": "Zero-downtime deploy script updated for ~/suna path" },
+      { "type": "improvement", "text": "Deploy workflow supports fallback SSH secrets for dev/prod servers" }
+    ]
+  },
+  {
     "version": "0.8.23",
     "date": "2026-04-01",
     "title": "Configurable sandbox naming and installer UX overhaul",
