@@ -859,6 +859,11 @@ export function getRetryInfo(status: SessionStatus | undefined): RetryInfo | und
   };
 }
 
+export function getRetryMessage(status: SessionStatus | undefined): string | undefined {
+  if (!status || status.type !== 'retry') return undefined;
+  return unwrapError(status.message);
+}
+
 // ============================================================================
 // hasDiffs check
 // ============================================================================
@@ -947,4 +952,3 @@ export function allDescendantIds(
   }
   return result;
 }
-
