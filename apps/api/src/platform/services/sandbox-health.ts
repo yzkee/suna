@@ -74,27 +74,27 @@ async function checkSandboxHealth(): Promise<void> {
   state.lastCheck = Date.now();
 
   const baseUrl = config.SANDBOX_NETWORK
-    ? `http://kortix-sandbox:8000`
+    ? `http://${config.SANDBOX_CONTAINER_NAME}:8000`
     : `http://localhost:${config.SANDBOX_PORT_BASE}`;
 
   try {
     // 1. Check basic reachability (health endpoint bypasses auth)
-    // 503 means Kortix Master is running but OpenCode isn't ready yet —
+    // 503 means Kortix Master is running but the agent runtime isn't ready yet —
     // treat it as a soft failure (sandbox is reachable but not fully ready).
     const healthRes = await fetch(`${baseUrl}/kortix/health`, {
       signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
     });
 
     if (healthRes.status === 503) {
-      // Sandbox is reachable but OpenCode is still starting — not a hard failure.
-      // Mark as connected (infra is up) but log that OpenCode isn't ready.
+      // Sandbox is reachable but the runtime is still starting — not a hard failure.
+      // Mark as connected (infra is up) but log that the runtime isn't ready.
       const wasDisconnected = !state.connected;
       state.connected = true;
       state.lastCheck = Date.now();
       state.consecutiveFailures = 0;
-      state.lastError = 'OpenCode not ready (503 starting)';
+      state.lastError = 'Runtime not ready (503 starting)';
       if (wasDisconnected) {
-        console.log('[sandbox-health] Sandbox reachable but OpenCode still starting');
+        console.log('[sandbox-health] Sandbox reachable but runtime still starting');
       }
       return;
     }
@@ -244,13 +244,17 @@ async function attemptKeySyncFallback(keys: Record<string, string>): Promise<boo
     const writes = Object.entries(keys)
       .map(([key, val]) => `printf '%s' '${val}' > /run/s6/container_environment/${key}`)
       .join(' && ');
+    const needsRestart = ['KORTIX_TOKEN', 'KORTIX_API_URL'].some((key) => key in keys);
+    const restart = needsRestart
+      ? ` && (pkill -f '/usr/local/bin/opencode' || true; pkill -f 'opencode-linux-arm64-musl' || true; pkill -f 'channels/src/index.ts' || true)`
+      : '';
 
     execSync(
-      `docker exec kortix-sandbox bash -c "mkdir -p /run/s6/container_environment && ${writes}"`,
+      `docker exec ${config.SANDBOX_CONTAINER_NAME} bash -c "mkdir -p /run/s6/container_environment && ${writes}${restart}"`,
       { timeout: 15_000, stdio: 'pipe', env },
     );
 
-    console.log(`[sandbox-health] Core env sync successful via docker exec fallback`);
+    console.log(`[sandbox-health] Core env sync successful via docker exec fallback${needsRestart ? ' + restarted opencode/channels' : ''}`);
     return true;
   } catch (err: any) {
     console.error(`[sandbox-health] Docker exec fallback failed:`, err.message || err);

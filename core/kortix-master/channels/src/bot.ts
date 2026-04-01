@@ -23,7 +23,7 @@ export interface BotConfig {
   opencodeUrl?: string;
   botName?: string;
   agentName?: string;
-  systemPrompt?: string;
+  instructions?: string;
   model?: { providerID: string; modelID: string };
 }
 
@@ -33,7 +33,7 @@ export interface ChatInstanceDeps {
   sessions: SessionManager;
   getModel: () => { providerID: string; modelID: string } | undefined;
   setModel: (m: { providerID: string; modelID: string } | undefined) => void;
-  getSystemPrompt: () => string | undefined;
+  getChannelInstructions: () => string | undefined;
   botName: string;
   /** Telegram bot token for direct API calls (bypassing Chat SDK's broken parse_mode). */
   telegramConfig?: TelegramDirectConfig;
@@ -69,7 +69,7 @@ export async function createChatInstance(deps: ChatInstanceDeps): Promise<Chat |
     // logger: 'debug',  // Uncomment for verbose Chat SDK logging
   });
 
-  const { client, sessions, getModel, setModel, getSystemPrompt, telegramConfig } = deps;
+  const { client, sessions, getModel, setModel, getChannelInstructions, telegramConfig } = deps;
 
   // ── Telegram direct API detection ────────────────────────────────────
   // The Chat SDK's Telegram adapter sends parse_mode: undefined for all
@@ -291,7 +291,7 @@ export async function createChatInstance(deps: ChatInstanceDeps): Promise<Chat |
     try {
       sessionId = await sessions.resolve(thread.id, client);
     } catch (err) {
-      const errText = `Could not connect to OpenCode server. Is it running?\n\`\`\`\n${err instanceof Error ? err.message : String(err)}\n\`\`\``;
+      const errText = `Could not connect to the Kortix runtime.\n\`\`\`\n${err instanceof Error ? err.message : String(err)}\n\`\`\``;
       if (useTelegramDirect) {
         await sendMessageDirect(telegramConfig!, chatId, errText).catch(() => {});
       } else {
@@ -325,8 +325,8 @@ export async function createChatInstance(deps: ChatInstanceDeps): Promise<Chat |
     const isFirstMessage = !contextInjectedSessions.has(sessionId);
     if (isFirstMessage) {
       contextInjectedSessions.add(sessionId);
-      const sp = getSystemPrompt();
-      if (sp) parts.push(sp);
+      const instructions = getChannelInstructions();
+      if (instructions) parts.push(`[Channel instructions]\n${instructions}`);
       // Compact one-time context block — instruct the agent to reply normally.
       // The channel bot captures the agent's text output and delivers it to the
       // platform automatically. The agent must NOT call /send for replies — that
@@ -500,7 +500,10 @@ export async function createChatInstance(deps: ChatInstanceDeps): Promise<Chat |
 
     } catch (err) {
       console.error('[opencode-channels] handleMessage error:', err instanceof Error ? err.message : err);
-      const errorMsg = err instanceof Error ? err.message : String(err);
+      let errorMsg = err instanceof Error ? err.message : String(err);
+      if (/API key not found or invalid/i.test(errorMsg)) {
+        errorMsg = 'The selected model/provider is not configured correctly. Pick a working model in Channels settings or update your provider credentials.';
+      }
       const errorMarkdown = `Something went wrong:\n\`\`\`\n${errorMsg}\n\`\`\``;
       await postFinalMsg(errorMarkdown);
       return;
@@ -560,7 +563,7 @@ export async function createChatInstance(deps: ChatInstanceDeps): Promise<Chat |
   ): Promise<void> {
     const providers = await client.listProviders();
     if (providers.length === 0) {
-      await target.post('No providers available. Is OpenCode running?');
+      await target.post('No models available. Is the Kortix runtime running?');
       return;
     }
 
@@ -597,7 +600,7 @@ export async function createChatInstance(deps: ChatInstanceDeps): Promise<Chat |
         const thinking = await event.channel.post('_Fetching models..._');
         const providers = await client.listProviders();
         if (providers.length === 0) {
-          await thinking.edit('No providers configured. Is OpenCode running?');
+          await thinking.edit('No models configured. Is the Kortix runtime running?');
           return;
         }
         const lines = providers.flatMap(p =>
@@ -670,38 +673,6 @@ export async function createChatInstance(deps: ChatInstanceDeps): Promise<Chat |
         break;
       }
 
-      case 'diff': {
-        const thinking = await event.channel.post('_Fetching diff..._');
-        const lastId = sessions.lastSessionId();
-        if (!lastId) {
-          await thinking.edit('No active session to show diff for.');
-          return;
-        }
-        const diff = await client.getSessionDiff(lastId);
-        if (!diff) {
-          await thinking.edit('No changes found.');
-          return;
-        }
-        await thinking.edit({ markdown: `\`\`\`\n${diff.slice(0, 3500)}\n\`\`\`` });
-        break;
-      }
-
-      case 'link': {
-        const thinking = await event.channel.post('_Generating link..._');
-        const lastId = sessions.lastSessionId();
-        if (!lastId) {
-          await thinking.edit('No active session.');
-          return;
-        }
-        const shareUrl = await client.shareSession(lastId);
-        if (shareUrl) {
-          await thinking.edit(`Session link: ${shareUrl}`);
-        } else {
-          await thinking.edit('Session sharing not available.');
-        }
-        break;
-      }
-
       default:
         if (args) {
           const sessionId = await client.createSession(sessions.getAgent());
@@ -724,7 +695,7 @@ export async function createChatInstance(deps: ChatInstanceDeps): Promise<Chat |
 
   function formatHelp(): PostableMarkdown {
     return {
-      markdown: `**OpenCode Channels - Commands**
+      markdown: `**Kortix Channels - Commands**
 
 **Slash commands:**
 * \`/help\` - Show this help
@@ -735,8 +706,6 @@ export async function createChatInstance(deps: ChatInstanceDeps): Promise<Chat |
 * \`/status\` - Show connection status
 * \`/reset\` - Reset session
 * \`/new\` - Start a fresh session
-* \`/diff\` - Show recent changes
-* \`/link\` - Share session link
 
 Just send a message to start chatting with the agent.`,
     };
@@ -769,7 +738,7 @@ Just send a message to start chatting with the agent.`,
 
     switch (rawCmd) {
       case '/start': {
-        await reply('**Welcome to OpenCode!**\n\nJust send me a message and I\'ll respond using AI. Use /help to see all commands.');
+        await reply('**Welcome to Kortix!**\n\nJust send me a message and I\'ll respond using the configured Kortix agent. Use /help to see all commands.');
         return true;
       }
 
@@ -781,7 +750,7 @@ Just send a message to start chatting with the agent.`,
       case '/models': {
         const providers = await client.listProviders();
         if (providers.length === 0) {
-          await reply('No providers configured. Is OpenCode running?');
+          await reply('No models configured. Is the Kortix runtime running?');
           return true;
         }
         const lines = providers.flatMap(p =>
@@ -872,36 +841,6 @@ Just send a message to start chatting with the agent.`,
         return true;
       }
 
-      case '/diff': {
-        const lastId = sessions.lastSessionId();
-        if (!lastId) {
-          await reply('No active session to show diff for.');
-          return true;
-        }
-        const diff = await client.getSessionDiff(lastId);
-        if (!diff) {
-          await reply('No changes found.');
-          return true;
-        }
-        await reply(`\`\`\`\n${diff.slice(0, 3500)}\n\`\`\``);
-        return true;
-      }
-
-      case '/link': {
-        const lastId = sessions.lastSessionId();
-        if (!lastId) {
-          await reply('No active session.');
-          return true;
-        }
-        const shareUrl = await client.shareSession(lastId);
-        if (shareUrl) {
-          await reply(`Session link: ${shareUrl}`);
-        } else {
-          await reply('Session sharing not available.');
-        }
-        return true;
-      }
-
       default:
         // Unknown /command — not a command we handle, let it pass through
         // to the normal message flow (could be a typo or user intent)
@@ -984,11 +923,7 @@ Just send a message to start chatting with the agent.`,
     enqueueMessage(thread, text, message.attachments, message);
   });
 
-  bot.onSlashCommand('/oc', async (event) => {
-    await handleSlashCommand(event);
-  });
-
-  bot.onSlashCommand('/opencode', async (event) => {
+  bot.onSlashCommand('/kortix', async (event) => {
     await handleSlashCommand(event);
   });
 
@@ -1022,8 +957,6 @@ Just send a message to start chatting with the agent.`,
       { command: 'status', description: 'Show connection status' },
       { command: 'reset', description: 'Reset current session' },
       { command: 'new', description: 'Start a fresh session' },
-      { command: 'diff', description: 'Show recent code changes' },
-      { command: 'link', description: 'Share session link' },
     ]).then(() => {
       console.log('[opencode-channels] Telegram bot commands registered');
     }).catch(() => {});
@@ -1045,12 +978,12 @@ export function readAdaptersFromEnv(): AdapterCredentials {
 
 export function createBot(config: BotConfig = {}) {
   const opencodeUrl = config.opencodeUrl || process.env.OPENCODE_URL || 'http://localhost:1707';
-  const botName = config.botName || process.env.OPENCODE_BOT_NAME || 'opencode';
+  const botName = config.botName || process.env.OPENCODE_BOT_NAME || 'kortix';
 
   const client = new OpenCodeClient({ baseUrl: opencodeUrl });
-  const sessions = new SessionManager('per-thread', config.agentName);
+  const sessions = new SessionManager(config.agentName);
   let currentModel = config.model;
-  let systemPrompt = config.systemPrompt;
+  let instructions = config.instructions;
 
   // Extract Telegram config for direct API calls (bypassing Chat SDK's broken parse_mode)
   const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -1064,7 +997,7 @@ export function createBot(config: BotConfig = {}) {
     sessions,
     getModel: () => currentModel,
     setModel: (m) => { currentModel = m; },
-    getSystemPrompt: () => systemPrompt,
+    getChannelInstructions: () => instructions,
     botName,
     telegramConfig,
   });

@@ -11,17 +11,25 @@ Nothing ships by default. Scaffolded on demand via `connector_setup`.
 
 ---
 
-## Format
+## RULES — read these first
 
-No enforced schema. Just key-value pairs:
+1. **NEVER tell the user to go somewhere to connect a service.** Always run the connect command yourself and show them the OAuth link directly in chat.
+
+2. **NEVER trust connector files for connection status.** Always run the Pipedream `list` command to check what's actually connected.
+
+3. **If a service is connected on Pipedream, use it immediately** — even if no connector file exists.
+
+4. **If a service is NOT connected, connect it yourself** — run `connect`, get the OAuth URL, show it to the user with `show`. One click for them, done.
+
+---
+
+## Format
 
 ```yaml
 ---
-name: gmail-personal
-description: "personal gmail account"
+name: google-drive
+description: "Company shared drive"
 source: pipedream
-pipedream_slug: gmail
-status: connected
 ---
 ```
 
@@ -31,92 +39,73 @@ status: connected
 
 | Tool | Purpose |
 |---|---|
-| `connector_list` | List all connectors |
+| `connector_list` | List registered connectors |
 | `connector_get` | Get one connector's metadata |
 | `connector_setup` | Batch-scaffold from JSON array |
 
 ---
 
-## Connecting Services
+## When the user asks to use a service
 
-### Default: Pipedream for everything
-
-Pipedream is always configured. Use it by default for every service. Run `connect`, it returns an OAuth URL, user clicks it, done.
-
-The integration script is bundled with this skill at `connectors/integration.ts`:
+**Always follow this exact flow:**
 
 ```bash
-SCRIPT=$(find "$OPENCODE_CONFIG_DIR" ~/.opencode /ephemeral -name "integration.ts" 2>/dev/null | head -1)
+# Step 1: Find the integration script
+SCRIPT=$(find /opt/opencode ~/.opencode /workspace /ephemeral -name "integration.ts" 2>/dev/null | head -1)
 
-# Search for an app
-bun run "$SCRIPT" search '{"q":"stripe"}'
-
-# Connect — returns connectUrl for user to click
-bun run "$SCRIPT" connect '{"app":"stripe"}'
-
-# List connected apps
+# Step 2: Check what's ACTUALLY connected right now
 bun run "$SCRIPT" list
 ```
 
-Show the connect URL to the user:
-```
-show({ type: "url", url: "<connectUrl>", title: "Connect Stripe — click to authorize" })
-```
-
-**When presenting to the user:**
-
-> "I'll start with Pipedream because it's the easiest setup — one click and we're connected. It's great for getting everything online fast. For dev-heavy services like GitHub, AWS, Vercel, and Cloudflare, direct CLI or API integrations are tighter and usually better long-term, but they take more setup. We can absolutely configure those now if you want, or revisit them later once everything is connected."
-
-For each service:
-1. Search for it: `GET /api/pipedream/search-apps?q=name`
-2. If found → connect: `POST /api/pipedream/connect` → show link
-3. If not on Pipedream → CLI or API key
-
-### Upgrade path: direct connections
-
-For heavy usage, direct connections are stronger:
-
-- **CLI** (`gh`, `aws`, `vercel`, `wrangler`) — pagination, streaming, complex workflows. Load `cli-maxxing` skill.
-- **API key** — user pastes in chat, agent saves.
-
-> "Pipedream is maximum convenience. Direct connections are tighter integration. We'll use Pipedream by default to get moving quickly, and if you care about a service deeply, we can switch it to CLI/API now or later."
-
----
-
-## Using Pipedream-connected services
-
-After connecting, use `exec` with `proxyFetch` — authenticated `fetch()`:
+**If the service appears in the list → it's connected. Use it immediately.** Also ensure a connector file exists — if not, create one:
 
 ```bash
-# Programmatic API call
-bun run "$SCRIPT" exec '{"app":"stripe","code":"const r = await proxyFetch(\"https://api.stripe.com/v1/customers?limit=5\"); return await r.json();"}'
-
-# Authenticated HTTP request
-bun run "$SCRIPT" request '{"app":"stripe","method":"GET","url":"https://api.stripe.com/v1/customers?limit=5"}'
-
-# Discover pre-built actions
-bun run "$SCRIPT" actions '{"app":"stripe","q":"list"}'
-
-# Run a pre-built action
-bun run "$SCRIPT" run '{"app":"stripe","action_key":"stripe-list-customers","props":{"limit":10}}'
+bun run "$SCRIPT" request '{"app":"google_drive","method":"GET","url":"https://www.googleapis.com/drive/v3/files?pageSize=10"}'
 ```
 
----
+```
+# Create the connector file if it doesn't exist yet
+connector_setup(connectors='[{"name":"google-drive","description":"connected via Pipedream","source":"pipedream"}]')
+```
 
-## CLI auth
+**If the service is NOT in the list → connect it NOW and show the link:**
 
-Load `cli-maxxing` skill:
 ```bash
-gh auth login
-aws configure
-vercel login
+# Search for the app slug
+bun run "$SCRIPT" search '{"q":"google drive"}'
+
+# Connect — this returns a URL
+bun run "$SCRIPT" connect '{"app":"google_drive"}'
+
+# Show the URL to the user so they can click it directly
+# Use the show tool: show({ type: "url", url: "<connectUrl>", title: "Connect Google Drive — click to authorize" })
+```
+
+**NEVER say "go to settings" or "go to the integrations page."** The user should never leave the chat. You handle the connection flow, show them the link, they click, done.
+
+---
+
+## Using connected services
+
+```bash
+# Authenticated API call
+bun run "$SCRIPT" request '{"app":"google_drive","method":"GET","url":"https://www.googleapis.com/drive/v3/files?pageSize=10"}'
+
+# Programmatic code with proxyFetch
+bun run "$SCRIPT" exec '{"app":"google_drive","code":"const r = await proxyFetch(\"https://www.googleapis.com/drive/v3/files?pageSize=10\"); return await r.json();"}'
 ```
 
 ---
 
-## API keys
+## Connecting via CLI or API key
 
-User pastes key in chat. Agent saves:
+### CLI
+
+Load `cli-maxxing` skill. `gh`, `aws`, `vercel`, `wrangler`.
+
+### API keys
+
+User pastes in chat. Agent saves:
 ```bash
 curl -s -X POST "http://localhost:8000/env/KEY_NAME" \
   -H "Content-Type: application/json" -d '{"value":"...","restart":true}'
@@ -124,12 +113,10 @@ curl -s -X POST "http://localhost:8000/env/KEY_NAME" \
 
 ---
 
-## Workflow
+## Syncing
 
-1. User lists their tools
-2. Agent scaffolds all connectors via `connector_setup`
-3. For each: search on Pipedream → if found, `connect` → show OAuth link to user
-4. User clicks each link, authorizes
-5. Services not on Pipedream: CLI auth or API key
-6. Update connector status
-7. Offer to upgrade high-usage services to direct connections later
+When you discover a service is connected on Pipedream but has no connector file, scaffold one:
+
+```
+connector_setup(connectors='[{"name":"google-drive","description":"connected via Pipedream","source":"pipedream"}]')
+```

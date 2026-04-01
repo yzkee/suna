@@ -1,5 +1,5 @@
 import { eq, and, or, isNull, lte, ne, sql } from 'drizzle-orm';
-import { creditAccounts } from '../../shared/db-schema';
+import { creditAccounts } from '@kortix/db';
 import { db } from '../../shared/db';
 
 export async function getCreditAccount(accountId: string) {

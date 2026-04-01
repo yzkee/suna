@@ -385,17 +385,30 @@ app.notFound((c) => {
 
 // ─── Auto-register local Docker sandbox in DB ──────────────────────────────
 
+/**
+ * Ensure a valid KORTIX_TOKEN exists in the DB and is synced to the sandbox.
+ *
+ * Architecture:
+ *   Source of truth: kortix.api_keys table (hash) + sandboxes.config.serviceKey (plaintext)
+ *   Delivery:        POST to sandbox /env API → triple-write (s6 + bootstrap + SecretStore) + auto-restart
+ *   Fallback:        docker exec raw write when /env API is unreachable (sandbox still booting)
+ *
+ * This function is idempotent: if a valid key already exists in the DB AND the
+ * sandbox already has it, this is a no-op. It only re-issues when the key is
+ * actually missing or invalid.
+ */
 async function injectSandboxToken(sandboxId: string, accountId: string): Promise<void> {
   const { db } = await import('./shared/db');
   const { kortixApiKeys } = await import('@kortix/db');
   const { sandboxes } = await import('@kortix/db');
   const { eq, and } = await import('drizzle-orm');
-  const { execSync } = await import('child_process');
+  const { execSync: rawExecSync } = await import('child_process');
   const rawDockerHost = config.DOCKER_HOST || process.env.DOCKER_HOST || '';
   const dockerHost = rawDockerHost.startsWith('/') ? `unix://${rawDockerHost}` : rawDockerHost;
-  const dockerEnv = { ...process.env, DOCKER_HOST: dockerHost };
+  const dockerEnv = { ...process.env, DOCKER_HOST: dockerHost.startsWith('/') ? `unix://${dockerHost}` : dockerHost };
+  const sandboxBaseUrl = `http://localhost:${config.SANDBOX_PORT_BASE}`;
 
-  // Resolve how sandbox reaches kortix-api (same logic as local-docker.ts)
+  // Resolve how sandbox reaches kortix-api
   const rawUrl = (config.KORTIX_URL || '').replace(/\/v1\/router\/?$/, '');
   let kortixApiUrl = `http://host.docker.internal:${config.PORT}`;
   try {
@@ -408,79 +421,104 @@ async function injectSandboxToken(sandboxId: string, accountId: string): Promise
     }
   } catch { /* keep default */ }
 
-  const writeS6EnvVars = (token: string) => {
-    execSync(
-      `docker exec kortix-sandbox bash -c "printf '%s' '${token}' > /run/s6/container_environment/KORTIX_TOKEN && printf '%s' '${kortixApiUrl}' > /run/s6/container_environment/KORTIX_API_URL && printf '%s' '${token}' > /run/s6/container_environment/TUNNEL_TOKEN && printf '%s' '${kortixApiUrl}' > /run/s6/container_environment/TUNNEL_API_URL"`,
-      { stdio: 'pipe', env: dockerEnv },
-    );
-  };
+  const { createApiKey, validateSecretKey } = await import('./repositories/api-keys');
 
-  const { createApiKey } = await import('./repositories/api-keys');
-  const { validateSecretKey } = await import('./repositories/api-keys');
-
-  // ─── Try to reuse the existing key from sandbox config ─────────────────
-  // The sandbox row stores the plaintext serviceKey in config.serviceKey.
-  // If it's still valid (exists in API keys table), reuse it instead of
-  // re-issuing. This prevents changing KORTIX_TOKEN on every API restart,
-  // which would break SecretStore encryption (for v1) or require unnecessary
-  // service restarts (for v2).
-  const [sandbox] = await db.select().from(sandboxes)
-    .where(eq(sandboxes.sandboxId, sandboxId));
+  // ─── Resolve the token: reuse existing or create new ───────────────────
+  const [sandbox] = await db.select().from(sandboxes).where(eq(sandboxes.sandboxId, sandboxId));
   const existingServiceKey = (sandbox?.config as any)?.serviceKey as string | undefined;
+  let token: string;
 
   if (existingServiceKey) {
-    try {
-      const validation = await validateSecretKey(existingServiceKey);
-      if (validation.isValid) {
-        // Key is still valid — just re-sync to s6 env dir (in case sandbox restarted)
-        try {
-          writeS6EnvVars(existingServiceKey);
-          console.log('[startup] KORTIX_TOKEN synced to sandbox (existing key reused — no re-issue needed)');
-          return;
-        } catch (e: any) {
-          console.warn('[startup] Failed to sync existing key to sandbox, will re-issue:', e?.message);
-        }
-      }
-    } catch {
-      // Validation failed — fall through to re-issue
+    const validation = await validateSecretKey(existingServiceKey).catch(() => ({ isValid: false }));
+    if (validation.isValid) {
+      token = existingServiceKey;
+      console.log('[startup] Reusing existing valid KORTIX_TOKEN from sandbox config');
+    } else {
+      // Key exists in config but not valid in DB — re-issue
+      console.log('[startup] Existing KORTIX_TOKEN invalid in DB — re-issuing');
+      const [oldKey] = await db.select().from(kortixApiKeys)
+        .where(and(eq(kortixApiKeys.sandboxId, sandboxId), eq(kortixApiKeys.type, 'sandbox')));
+      if (oldKey) await db.delete(kortixApiKeys).where(eq(kortixApiKeys.keyId, oldKey.keyId));
+      const newKey = await createApiKey({ sandboxId, accountId, title: 'Sandbox Token', type: 'sandbox' });
+      token = newKey.secretKey;
+      await db.update(sandboxes)
+        .set({ config: { serviceKey: token }, updatedAt: new Date() })
+        .where(eq(sandboxes.sandboxId, sandboxId));
     }
+  } else {
+    // No key at all — first provision
+    console.log('[startup] No KORTIX_TOKEN in sandbox config — creating');
+    const newKey = await createApiKey({ sandboxId, accountId, title: 'Sandbox Token', type: 'sandbox' });
+    token = newKey.secretKey;
+    await db.update(sandboxes)
+      .set({ config: { serviceKey: token }, updatedAt: new Date() })
+      .where(eq(sandboxes.sandboxId, sandboxId));
   }
 
-  // ─── Existing key invalid or missing — re-issue ────────────────────────
-  console.log('[startup] Re-issuing sandbox token (existing key invalid or missing)');
+  // ─── Sync token to sandbox ─────────────────────────────────────────────
+  // Primary: POST to sandbox's /env API (handles triple-write + restart)
+  // Fallback: docker exec raw write (when /env API is not yet up)
+  const keysToSync: Record<string, string> = {
+    KORTIX_TOKEN: token,
+    KORTIX_API_URL: kortixApiUrl,
+    TUNNEL_TOKEN: token,
+    TUNNEL_API_URL: kortixApiUrl,
+  };
 
-  // Clean up old keys
-  const [key] = await db.select().from(kortixApiKeys)
-    .where(and(eq(kortixApiKeys.sandboxId, sandboxId), eq(kortixApiKeys.type, 'sandbox')));
-  if (key) await db.delete(kortixApiKeys).where(eq(kortixApiKeys.keyId, key.keyId));
-
-  const newKey = await createApiKey({ sandboxId, accountId, title: 'Sandbox Token', type: 'sandbox' });
-
-  // Persist the new key in sandbox config so we can reuse it next time
-  await db.update(sandboxes)
-    .set({ config: { serviceKey: newKey.secretKey }, updatedAt: new Date() })
-    .where(eq(sandboxes.sandboxId, sandboxId));
-
-  try {
-    writeS6EnvVars(newKey.secretKey);
-    // Restart opencode so it picks up the new token — retry until it's running
-    const killOpencode = () => {
-      try {
-        execSync(`docker exec kortix-sandbox pkill -f opencode-linux-arm64-musl`, { stdio: 'pipe', env: dockerEnv });
+  const syncViaEnvApi = async (): Promise<boolean> => {
+    try {
+      const res = await fetch(`${sandboxBaseUrl}/env`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${config.INTERNAL_SERVICE_KEY}`,
+        },
+        body: JSON.stringify({ keys: keysToSync }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (res.ok) {
+        console.log('[startup] KORTIX_TOKEN synced via /env API (triple-write + restart)');
         return true;
-      } catch { return false; }
-    };
-    if (!killOpencode()) {
-      // Opencode not running yet — wait and retry a few times
-      await new Promise(r => setTimeout(r, 3000));
-      if (!killOpencode()) {
-        await new Promise(r => setTimeout(r, 5000));
-        killOpencode();
       }
+      console.warn(`[startup] /env API returned ${res.status} — falling back to docker exec`);
+      return false;
+    } catch (e: any) {
+      console.warn(`[startup] /env API unreachable (${e?.message}) — falling back to docker exec`);
+      return false;
     }
-    console.log('[startup] KORTIX_TOKEN injected into sandbox (new key issued)');
-  } catch (e: any) {
-    console.error('[startup] Failed to inject KORTIX_TOKEN:', e?.message);
+  };
+
+  const syncViaDockerExec = (): boolean => {
+    try {
+      const writes = Object.entries(keysToSync)
+        .map(([k, v]) => `printf '%s' '${v}' > /run/s6/container_environment/${k}`)
+        .join(' && ');
+      rawExecSync(
+        `docker exec ${config.SANDBOX_CONTAINER_NAME} bash -c "mkdir -p /run/s6/container_environment && ${writes}"`,
+        { stdio: 'pipe', timeout: 15_000, env: dockerEnv },
+      );
+      // Also write to bootstrap file so token survives container restart
+      rawExecSync(
+        `docker exec ${config.SANDBOX_CONTAINER_NAME} bash -c 'mkdir -p /workspace/.secrets && cat /workspace/.secrets/.bootstrap-env.json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin) if sys.stdin.readable() else {}; d.update(${JSON.stringify(JSON.stringify({ KORTIX_TOKEN: token, KORTIX_API_URL: kortixApiUrl }))}); print(json.dumps(d))" > /workspace/.secrets/.bootstrap-env.json.tmp && mv /workspace/.secrets/.bootstrap-env.json.tmp /workspace/.secrets/.bootstrap-env.json'`,
+        { stdio: 'pipe', timeout: 15_000, env: dockerEnv },
+      ).toString();
+      // Restart OpenCode + channels so they pick up the new token
+      rawExecSync(
+        `docker exec ${config.SANDBOX_CONTAINER_NAME} bash -lc "pkill -f '/usr/local/bin/opencode' || true; pkill -f 'opencode-linux-arm64-musl' || true; pkill -f 'channels/src/index.ts' || true"`,
+        { stdio: 'pipe', timeout: 10_000, env: dockerEnv },
+      );
+      console.log('[startup] KORTIX_TOKEN synced via docker exec fallback + bootstrap file + restart');
+      return true;
+    } catch (e: any) {
+      console.error(`[startup] docker exec fallback failed: ${e?.message}`);
+      return false;
+    }
+  };
+
+  // Try /env API first, fall back to docker exec
+  const synced = await syncViaEnvApi() || syncViaDockerExec();
+  if (!synced) {
+    console.error('[startup] FATAL: Could not sync KORTIX_TOKEN to sandbox. LLM calls will fail with 401.');
   }
 }
 
@@ -492,7 +530,7 @@ async function ensureLocalSandboxRegistered() {
   // Use a well-known account ID for the self-hosted single-owner case.
   // When Supabase auth is active, the real user ID will be used via POST /init.
   // This bootstrap is for the case where we need a sandbox before any user logs in.
-  const CONTAINER_NAME = 'kortix-sandbox';
+  const CONTAINER_NAME = config.SANDBOX_CONTAINER_NAME;
   const portBase = config.SANDBOX_PORT_BASE;
   const baseUrl = `http://localhost:${portBase}`;
 
@@ -545,6 +583,31 @@ async function ensureLocalSandboxRegistered() {
   console.log(`[startup] Local sandbox auto-provisioned (${sandbox.sandboxId}), token injected`);
 }
 
+let localSandboxHealTimer: ReturnType<typeof setInterval> | null = null;
+let localSandboxHealRunning = false;
+
+function startLocalSandboxSelfHeal(): void {
+  if (localSandboxHealTimer || !config.isLocalDockerEnabled() || !config.DATABASE_URL) return;
+
+  const run = async () => {
+    if (localSandboxHealRunning) return;
+    localSandboxHealRunning = true;
+    try {
+      await ensureLocalSandboxRegistered();
+    } catch (err) {
+      console.error('[startup] Local sandbox self-heal failed:', err);
+    } finally {
+      localSandboxHealRunning = false;
+    }
+  };
+
+  localSandboxHealTimer = setInterval(() => {
+    void run();
+  }, 60_000);
+
+  console.log('[startup] Local sandbox self-heal started (interval: 60s)');
+}
+
 // === Start Server ===
 
 console.log(`
@@ -595,9 +658,14 @@ ensureSchema()
     startAutoReplenish();
 
     if (config.isLocalDockerEnabled() && config.DATABASE_URL) {
+      // Non-blocking: sandbox registration + token sync runs in background.
+      // Must NOT await — the /env API call can take seconds and would block
+      // all route handlers from being ready. The self-heal timer ensures
+      // convergence even if the first attempt fails.
       ensureLocalSandboxRegistered().catch((err) =>
         console.error('[startup] Failed to register local sandbox:', err),
       );
+      startLocalSandboxSelfHeal();
       startSandboxHealthMonitor();
     }
 
@@ -618,6 +686,7 @@ ensureSchema()
       ensureLocalSandboxRegistered().catch((e) =>
         console.error('[startup] Failed to register local sandbox:', e),
       );
+      startLocalSandboxSelfHeal();
       startSandboxHealthMonitor();
     }
 

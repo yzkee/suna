@@ -81,7 +81,12 @@ await secretStore.loadIntoProcessEnv()
   const CORE_VARS = ['KORTIX_TOKEN', 'KORTIX_API_URL', 'INTERNAL_SERVICE_KEY'] as const
   let synced = 0
   for (const key of CORE_VARS) {
-    const val = process.env[key]
+    // Use injected env var, but fall back to a sane default for KORTIX_API_URL
+    // so OpenCode's {env:KORTIX_API_URL} substitution always produces a valid URL.
+    let val: string | undefined = process.env[key]
+    if (!val && key === 'KORTIX_API_URL') {
+      val = 'http://localhost:8008'
+    }
     if (val) {
       try {
         if (!existsSync(S6_ENV_DIR)) mkdirSync(S6_ENV_DIR, { recursive: true })
@@ -201,7 +206,7 @@ app.use('*', async (c, next) => {
   return next()
 })
 
-// ─── OpenCode readiness tracking ─────────────────────────────────────────────
+// ─── Runtime readiness tracking ──────────────────────────────────────────────
 let openCodeReady = false
 let openCodeLastCheck = 0
 const OPENCODE_CHECK_INTERVAL = 5_000 // recheck every 5s when not ready
@@ -266,17 +271,17 @@ app.get('/docs',
 )
 
 // Health check — includes current sandbox version
-// Returns 200 when OpenCode is reachable, 503 when it's still starting up.
+// Returns 200 when the agent runtime is reachable, 503 when it's still starting up.
 // This ensures Docker/orchestrators treat the container as unhealthy until
 // the core API backend (OpenCode) is ready to serve requests.
 app.get('/kortix/health',
   describeRoute({
     tags: ['System'],
     summary: 'Health check',
-    description: 'Returns sandbox health status, current version, active WebSocket connections, and OpenCode readiness. Returns 200 when OpenCode is reachable, 503 when still starting.',
+    description: 'Returns sandbox health status, current version, active WebSocket connections, and runtime readiness. Returns 200 when the runtime is reachable, 503 when still starting.',
     responses: {
-      200: { description: 'Healthy — OpenCode is reachable', content: { 'application/json': { schema: resolver(HealthResponse) } } },
-      503: { description: 'Starting — OpenCode is not yet reachable', content: { 'application/json': { schema: resolver(HealthResponse) } } },
+      200: { description: 'Healthy — runtime is reachable', content: { 'application/json': { schema: resolver(HealthResponse) } } },
+      503: { description: 'Starting — runtime is not yet reachable', content: { 'application/json': { schema: resolver(HealthResponse) } } },
     },
   }),
   async (c) => {
@@ -293,7 +298,7 @@ app.get('/kortix/health',
     const changelog = await getChangelog(version)
     const status = openCodeReady ? 'ok' : 'starting'
     const httpStatus = openCodeReady ? 200 : 503
-    return c.json({ status, version, imageVersion, changelog, activeWs: activeConnections, opencode: openCodeReady }, httpStatus)
+    return c.json({ status, version, imageVersion, changelog, activeWs: activeConnections, runtimeReady: openCodeReady }, httpStatus)
   },
 )
 
@@ -399,17 +404,82 @@ app.route('/legacy', legacyMigrateRouter)
 app.all('/channels/*', async (c) => {
   const subPath = c.req.path.replace(/^\/channels/, '') || '/'
   const targetUrl = `http://localhost:3456${subPath}`
-  const res = await fetch(targetUrl, {
-    method: c.req.method,
-    headers: c.req.raw.headers,
-    body: c.req.method !== 'GET' ? c.req.raw.body : undefined,
-    // @ts-ignore — bun supports duplex
-    duplex: 'half',
-  })
-  return new Response(res.body, {
-    status: res.status,
-    headers: res.headers,
-  })
+
+  // Read body once (avoids double-consume issues with streams)
+  let body: ArrayBuffer | undefined
+  if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
+    try {
+      body = await c.req.raw.arrayBuffer()
+    } catch {
+      return c.json({ error: 'Failed to read request body' }, 400)
+    }
+  }
+
+  // Build clean headers (strip hop-by-hop headers that break proxying)
+  const headers = new Headers()
+  for (const [key, value] of c.req.raw.headers.entries()) {
+    const lower = key.toLowerCase()
+    if (lower === 'host' || lower === 'connection' || lower === 'keep-alive' || lower === 'te' || lower === 'upgrade') continue
+    headers.set(key, value)
+  }
+  headers.set('Host', 'localhost:3456')
+
+  // Retry loop with proper error handling (matches /proxy/:port/* resilience)
+  const MAX_RETRIES = 2
+  const RETRY_DELAY_MS = 300
+  let lastError = ''
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(targetUrl, {
+        method: c.req.method,
+        headers,
+        body,
+        signal: AbortSignal.timeout(30_000),
+      })
+      return new Response(res.body, {
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers,
+      })
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error)
+      lastError = errMsg
+
+      // Timeout — no point retrying
+      if (error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
+        console.error(`[channels-proxy] Timeout on ${c.req.method} ${subPath}`)
+        return c.json({ error: 'Channels service request timed out', hint: 'The channels service on port 3456 did not respond in time' }, 504)
+      }
+
+      // Connection refused — service is not running
+      if (errMsg.includes('ECONNREFUSED') || errMsg.includes('Unable to connect') || errMsg.includes('Connection refused')) {
+        console.error(`[channels-proxy] Port 3456 unreachable on ${c.req.method} ${subPath}: channels service is not running`)
+        return c.json({
+          error: 'Channels service is not running',
+          hint: 'Nothing listening on localhost:3456. The service may still be starting up — try again in a few seconds.',
+          details: errMsg,
+        }, 502)
+      }
+
+      // Transient error — retry
+      const isTransient = ['ECONNRESET', 'EPIPE', 'ECONNABORTED', 'socket hang up'].some(p => errMsg.includes(p))
+      if (isTransient && attempt < MAX_RETRIES) {
+        console.warn(`[channels-proxy] Transient error on attempt ${attempt + 1}/${MAX_RETRIES + 1}: ${errMsg}, retrying...`)
+        await Bun.sleep(RETRY_DELAY_MS * (attempt + 1))
+        continue
+      }
+
+      // Non-retryable or exhausted
+      console.error(`[channels-proxy] Error on ${c.req.method} ${subPath}: ${errMsg}`)
+    }
+  }
+
+  return c.json({
+    error: 'Failed to connect to channels service',
+    details: lastError,
+    hint: 'The channels service on port 3456 is unreachable after retries',
+  }, 502)
 })
 
 // Proxy all other requests to OpenCode

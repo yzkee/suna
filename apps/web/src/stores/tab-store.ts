@@ -226,10 +226,16 @@ export const useTabStore = create<TabState>()(
                 break;
               }
             }
-            // Fallback: if no history available, activate the nearest tab (prefer right neighbor, then left)
+            // Fallback: if no history available, activate the nearest tab (prefer left neighbor, then right)
             if (!nextActiveId && newOrder.length > 0) {
               const oldIndex = tabOrder.indexOf(tabId);
-              nextActiveId = newOrder[Math.min(oldIndex, newOrder.length - 1)];
+              // Prefer left neighbor — browser-like: close tab, focus shifts left
+              if (oldIndex > 0) {
+                nextActiveId = newOrder[oldIndex - 1];
+              } else {
+                // Already at left edge, fall back to right neighbor
+                nextActiveId = newOrder[Math.min(oldIndex, newOrder.length - 1)];
+              }
             }
           }
         } else {

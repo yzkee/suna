@@ -577,8 +577,8 @@ describe('Deployment — LocalDockerProvider (mocked)', () => {
     expect(providerSource).toContain('2 * 1024 * 1024 * 1024');
   });
 
-  it('uses fixed container name', () => {
-    expect(providerSource).toContain("CONTAINER_NAME = 'kortix-sandbox'");
+  it('uses configurable container name from config', () => {
+    expect(providerSource).toContain("CONTAINER_NAME = config.SANDBOX_CONTAINER_NAME");
   });
 });
 

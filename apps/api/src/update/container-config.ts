@@ -1,5 +1,6 @@
 import type { ResolvedEndpoint } from '../platform/providers';
 import { execOnHost } from './exec';
+import { config } from '../config';
 
 export interface ContainerConfig {
   image: string;
@@ -80,7 +81,7 @@ export async function writeContainerConfig(
 export async function buildFromInspect(
   endpoint: ResolvedEndpoint,
 ): Promise<ContainerConfig | null> {
-  const names = ['kortix-sandbox', 'justavps-workload'];
+  const names = [config.SANDBOX_CONTAINER_NAME, 'kortix-sandbox', 'justavps-workload'];
   for (const name of names) {
     const result = await execOnHost(
       endpoint,

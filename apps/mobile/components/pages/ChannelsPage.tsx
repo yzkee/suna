@@ -1,6 +1,6 @@
 /**
  * ChannelsPage — full-screen channels management with setup wizards.
- * Create, list, enable/disable, link/unlink, delete channels.
+ * Create, list, enable/disable, edit, and delete channels.
  * Includes Telegram (2-step) and Slack (3-step) setup wizards matching frontend.
  */
 
@@ -58,8 +58,6 @@ import {
   useUpdateChannel,
   useDeleteChannel,
   useToggleChannel,
-  useLinkChannel,
-  useUnlinkChannel,
   getChannelTypeLabel,
   type ChannelConfig,
   type ChannelType,
@@ -162,14 +160,12 @@ function ChannelsContent() {
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
   const theme = useThemeColors();
-  const { sandboxUrl, sandboxUuid, sandboxName } = useSandboxContext();
+  const { sandboxUrl, sandboxUuid } = useSandboxContext();
 
   const { data: channels, isLoading, error, refetch } = useChannels();
   const createChannel = useCreateChannel();
   const deleteChannelMut = useDeleteChannel();
   const toggleChannel = useToggleChannel();
-  const linkChannel = useLinkChannel();
-  const unlinkChannel = useUnlinkChannel();
   const updateChannel = useUpdateChannel();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -342,33 +338,12 @@ function ChannelsContent() {
         channel={selectedChannel}
         isDark={isDark}
         theme={theme}
-        sandboxUuid={sandboxUuid}
-        sandboxName={sandboxName}
         onToggle={async (channel, enabled) => {
           try {
             await toggleChannel.mutateAsync({ id: channel.channelConfigId, enabled });
             setSelectedChannel((prev) => prev ? { ...prev, enabled } : null);
           } catch {
             Alert.alert('Error', 'Failed to toggle channel');
-          }
-        }}
-        onLink={async (channel) => {
-          if (!sandboxUuid) return;
-          try {
-            await linkChannel.mutateAsync({ id: channel.channelConfigId, sandboxId: sandboxUuid });
-            setSelectedChannel((prev) => prev ? { ...prev, sandboxId: sandboxUuid, sandbox: { name: sandboxName || '', status: 'running' } } : null);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          } catch {
-            Alert.alert('Error', 'Failed to link channel');
-          }
-        }}
-        onUnlink={async (channel) => {
-          try {
-            await unlinkChannel.mutateAsync(channel.channelConfigId);
-            setSelectedChannel((prev) => prev ? { ...prev, sandboxId: null, sandbox: undefined } : null);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          } catch {
-            Alert.alert('Error', 'Failed to unlink channel');
           }
         }}
         onSave={async (channel, name) => {
@@ -437,7 +412,7 @@ function ChannelRow({ channel, isDark, onPress }: { channel: ChannelConfig; isDa
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
           <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: muted }}>{getChannelTypeLabel(channel.channelType)}</Text>
           <Text style={{ fontSize: 11, color: muted }}>·</Text>
-          <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: muted }}>{channel.sandbox?.name || 'Not linked'}</Text>
+          <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: muted }}>{channel.sandbox?.name || 'No instance'}</Text>
         </View>
       </View>
       <ChevronRight size={16} color={muted} />
@@ -458,18 +433,14 @@ function ChannelStatusDot({ enabled, isDark }: { enabled: boolean; isDark: boole
 // ─── Channel Detail Sheet ────────────────────────────────────────────────────
 
 function ChannelDetailSheet({
-  sheetRef, channel, isDark, theme, sandboxUuid, sandboxName,
-  onToggle, onLink, onUnlink, onSave, onDelete, onClose,
+  sheetRef, channel, isDark, theme,
+  onToggle, onSave, onDelete, onClose,
 }: {
   sheetRef: React.RefObject<BottomSheetModal>;
   channel: ChannelConfig | null;
   isDark: boolean;
   theme: ReturnType<typeof useThemeColors>;
-  sandboxUuid?: string;
-  sandboxName?: string;
   onToggle: (channel: ChannelConfig, enabled: boolean) => void;
-  onLink: (channel: ChannelConfig) => void;
-  onUnlink: (channel: ChannelConfig) => void;
   onSave: (channel: ChannelConfig, name: string) => void;
   onDelete: (channel: ChannelConfig) => void;
   onClose: () => void;
@@ -477,7 +448,6 @@ function ChannelDetailSheet({
   const insets = useSafeAreaInsets();
   const [editName, setEditName] = useState('');
   const [nameChanged, setNameChanged] = useState(false);
-  const [showInstancePicker, setShowInstancePicker] = useState(false);
 
   const fg = isDark ? '#f8f8f8' : '#121215';
   const muted = isDark ? 'rgba(248,248,248,0.5)' : 'rgba(18,18,21,0.5)';
@@ -489,7 +459,6 @@ function ChannelDetailSheet({
     if (channel) {
       setEditName(channel.name);
       setNameChanged(false);
-      setShowInstancePicker(false);
     }
   }, [channel]);
 
@@ -500,7 +469,6 @@ function ChannelDetailSheet({
 
   const createdDate = channel ? new Date(channel.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
   const updatedDate = channel ? new Date(channel.updatedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
-  const strategyLabel: Record<string, string> = { single: 'Single Session', 'per-thread': 'Per Thread', 'per-user': 'Per User', 'per-message': 'Per Message' };
 
   return (
     <BottomSheetModal
@@ -555,7 +523,7 @@ function ChannelDetailSheet({
           </Pressable>
         )}
 
-        {/* Linked Instance */}
+        {/* Instance */}
         <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: muted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>Linked Instance</Text>
         <View style={{ borderRadius: 14, backgroundColor: subtleBg, borderWidth: StyleSheet.hairlineWidth, borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', marginBottom: 16, overflow: 'hidden' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', padding: 14 }}>
@@ -563,48 +531,17 @@ function ChannelDetailSheet({
               <Ionicons name="cube-outline" size={16} color={muted} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: fg }}>{channel.sandbox?.name || 'Not linked'}</Text>
-              {!channel.sandboxId && (
-                <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: muted, marginTop: 2 }}>Link to receive messages</Text>
-              )}
+              <Text style={{ fontSize: 14, fontFamily: 'Roobert-Medium', color: fg }}>{channel.sandbox?.name || channel.sandboxId || 'No instance'}</Text>
+              <Text style={{ fontSize: 11, fontFamily: 'Roobert', color: muted, marginTop: 2 }}>Channels stay attached to the instance they were created for.</Text>
             </View>
-            {channel.sandboxId ? (
-              <View style={{ flexDirection: 'row', gap: 6 }}>
-                <Pressable onPress={() => setShowInstancePicker(!showInstancePicker)} style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1, borderColor }}>
-                  <Text style={{ fontSize: 11, fontFamily: 'Roobert-Medium', color: fg }}>Change</Text>
-                </Pressable>
-                <Pressable onPress={() => onUnlink(channel)} style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: isDark ? 'rgba(239,68,68,0.12)' : 'rgba(239,68,68,0.08)' }}>
-                  <Text style={{ fontSize: 11, fontFamily: 'Roobert-Medium', color: '#ef4444' }}>Unlink</Text>
-                </Pressable>
-              </View>
-            ) : sandboxUuid ? (
-              <Pressable onPress={() => onLink(channel)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: theme.primary }}>
-                <Ionicons name="link-outline" size={14} color={theme.primaryForeground} />
-                <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: theme.primaryForeground }}>Link</Text>
-              </Pressable>
-            ) : null}
           </View>
-          {showInstancePicker && sandboxUuid && (
-            <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}>
-              <Pressable
-                onPress={() => { onLink(channel); setShowInstancePicker(false); }}
-                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, backgroundColor: channel.sandboxId === sandboxUuid ? (isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)') : 'transparent' }}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Ionicons name="cube-outline" size={14} color={muted} />
-                  <Text style={{ fontSize: 13, fontFamily: 'Roobert-Medium', color: fg }}>{sandboxName || 'Current Sandbox'}</Text>
-                </View>
-                {channel.sandboxId === sandboxUuid && <Check size={14} color={theme.primary} />}
-              </Pressable>
-            </View>
-          )}
         </View>
 
-        {/* Session Strategy & Metadata */}
+        {/* Metadata */}
         <Text style={{ fontSize: 12, fontFamily: 'Roobert-Medium', color: muted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>Details</Text>
         <View style={{ borderRadius: 14, backgroundColor: subtleBg, borderWidth: StyleSheet.hairlineWidth, borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', marginBottom: 16, overflow: 'hidden' }}>
           <DetailRow label="Type" value={getChannelTypeLabel(channel.channelType)} isDark={isDark} fg={fg} muted={muted} />
-          <DetailRow label="Session Strategy" value={strategyLabel[channel.sessionStrategy] || channel.sessionStrategy} isDark={isDark} fg={fg} muted={muted} />
+          {channel.instructions && <DetailRow label="Instructions" value={channel.instructions} isDark={isDark} fg={fg} muted={muted} />}
           {channel.agentName && <DetailRow label="Agent" value={channel.agentName} isDark={isDark} fg={fg} muted={muted} />}
           <DetailRow label="Created" value={createdDate} isDark={isDark} fg={fg} muted={muted} />
           <DetailRow label="Updated" value={updatedDate} isDark={isDark} fg={fg} muted={muted} last />

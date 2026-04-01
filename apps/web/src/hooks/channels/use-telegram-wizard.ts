@@ -3,6 +3,7 @@ import { authenticatedFetch } from '@/lib/auth-token';
 import { getActiveOpenCodeUrl, useServerStore } from '@/stores/server-store';
 import { backendApi } from '@/lib/api-client';
 import { ensureSandbox } from '@/lib/platform-client';
+import { DEFAULT_CHANNEL_AGENT, buildDefaultChannelInstructions } from '@/components/channels/channel-defaults';
 
 export interface DetectUrlResult {
   url: string;
@@ -177,7 +178,9 @@ export function useTelegramConnect() {
             webhook_url: webhookUrl,
             bot_username: botUsername || null,
           },
-          session_strategy: 'per-thread',
+          agent_name: DEFAULT_CHANNEL_AGENT,
+          instructions: buildDefaultChannelInstructions('telegram', channelName),
+          metadata: {},
         });
       } catch (err) {
         // Channel may already exist for this sandbox — not fatal

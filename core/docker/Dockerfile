@@ -85,6 +85,30 @@ RUN apk update \
         bash-completion \
     && rm -rf /var/cache/apk/*
 
+# ── Skill system dependencies ────────────────────────────────────────────────
+# Tools referenced by skills in opencode/skills/GENERAL-KNOWLEDGE-WORKER/
+# and opencode/skills/KORTIX-system/. Installed here so they're baked into
+# the image rather than downloaded at runtime.
+# poppler-utils: pdftotext, pdftoppm, pdfimages (pdf skill)
+# qpdf: PDF merge/split/encrypt/repair (pdf skill)
+# pandoc: docx↔md conversion, track-changes (docx skill)
+# libreoffice: headless convert, recalc, render (docx/xlsx/pptx skills)
+# tesseract-ocr: OCR engine for pytesseract (pdf skill)
+# ffmpeg: media processing (remotion, media skills)
+# texlive: pdflatex + bibtex (paper-creator skill)
+# *-dev: build deps for Pillow, pdf2image (pptx, pdf, logo-creator)
+RUN apk update \
+    && apk add --no-cache \
+        poppler-utils poppler-dev \
+        qpdf \
+        pandoc \
+        libreoffice \
+        tesseract-ocr tesseract-ocr-data-eng \
+        ffmpeg \
+        texlive texmf-dist-latexrecommended texmf-dist-bibtexextra \
+        jpeg-dev zlib-dev freetype-dev openjpeg-dev tiff-dev \
+    && rm -rf /var/cache/apk/*
+
 # ── Bun runtime ───────────────────────────────────────────────────────────────
 ENV BUN_INSTALL=/opt/bun
 RUN for i in 1 2 3; do curl -fsSL https://bun.sh/install | bash && break || sleep 5; done \
@@ -103,6 +127,45 @@ ARG LSS_VERSION=0.5.5
 RUN /lsiopy/bin/pip install --no-cache-dir "local-semantic-search==${LSS_VERSION}" \
     && test -x /lsiopy/bin/lss \
     && /lsiopy/bin/lss --version
+
+# ── Skill Python packages ────────────────────────────────────────────────────
+# All pip packages referenced by skill scripts and SKILL.md documentation.
+# Installed into /lsiopy/ (base image virtualenv, in PATH) so they're
+# available to all Python invocations without user-install at runtime.
+#
+# Group 1: Document processing (pdf, docx, pptx, xlsx skills)
+# Group 2: Data science / visualization (visualization, xlsx skills)
+# Group 3: Media / AI (logo-creator, presentations, media skills)
+# PDF: pypdf pdfplumber reportlab pypdfium2 PyPDF2 pdf2image pytesseract PyMuPDF
+# Office: openpyxl python-pptx lxml Pillow pdf2docx docx2pdf markitdown[pptx]
+# Data science: numpy pandas matplotlib seaborn
+# Presentations/logo: playwright (uses system chromium via PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH)
+# YouTube: youtube-transcript-api
+RUN /lsiopy/bin/pip install --no-cache-dir \
+    pypdf pdfplumber reportlab pypdfium2 PyPDF2 pdf2image pytesseract \
+    openpyxl python-pptx lxml Pillow pdf2docx docx2pdf "markitdown[pptx]" \
+    numpy pandas matplotlib seaborn \
+    playwright youtube-transcript-api \
+    && echo "[docker] Skill Python packages installed." \
+    && /lsiopy/bin/pip install --no-cache-dir PyMuPDF 2>/dev/null \
+    && echo "[docker] PyMuPDF installed." \
+    || echo "[docker] WARN: PyMuPDF skipped (build fails on musl/aarch64). PDF skills use pypdf/pdfplumber instead."
+
+# Optional heavy packages — rembg + onnxruntime for logo background removal.
+# These may fail on Alpine musl; the skill falls back to Replicate API.
+RUN /lsiopy/bin/pip install --no-cache-dir rembg onnxruntime 2>/dev/null \
+    && echo "[docker] rembg + onnxruntime installed." \
+    || echo "[docker] WARN: rembg/onnxruntime skipped (musl-incompatible). Logo bg removal will use Replicate API."
+
+# ── Skill npm global packages ────────────────────────────────────────────────
+# Node packages used by pptx (deck creation), docx (Word creation), and
+# pptx icon rendering pipeline.
+RUN npm install -g --no-audit --no-fund \
+    pptxgenjs \
+    docx \
+    react react-dom react-icons \
+    sharp \
+    && echo "[docker] Skill npm packages installed."
 
 # ── bun-pty musl .so ──────────────────────────────────────────────────────────
 COPY --from=rust-pty-builder /build/librust_pty.so /opt/bun-pty-musl/librust_pty.so
@@ -164,7 +227,9 @@ ENV KORTIX_WORKSPACE=/workspace
 
 # ── Services (s6-rc.d longrun) ──────────────────────────────────────────────
 COPY core/s6-services/ /etc/s6-overlay/s6-rc.d/
-RUN for svc in svc-kortix-master; do \
+RUN for svc in svc-kortix-master svc-opencode-serve svc-opencode-web svc-opencode-channels \
+        svc-chromium-persistent svc-agent-browser-session svc-agent-browser-viewer \
+        svc-static-web svc-lss-sync svc-sshd svc-docker; do \
         touch "/etc/s6-overlay/s6-rc.d/user/contents.d/${svc}"; \
     done \
     && chmod +x /etc/s6-overlay/s6-rc.d/svc-*/run \
@@ -314,6 +379,10 @@ ENV AGENT_BROWSER_IDLE_TIMEOUT_MS=0
 ENV AGENT_BROWSER_STREAM_PORT=9223
 ENV OPENCODE_CONFIG_DIR=/ephemeral/kortix-master/opencode
 ENV SANDBOX_VERSION=${SANDBOX_VERSION}
+
+# ── Playwright — use system Chromium (no separate download needed) ───────────
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 # ── Desktop config — Selkies streaming ───────────────────────────────────────
 # Ports

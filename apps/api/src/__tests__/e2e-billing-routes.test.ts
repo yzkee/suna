@@ -44,8 +44,7 @@ mock.module('../middleware/auth', () => ({
     await next();
   },
   apiKeyAuth: async (c: any, next: any) => { await next(); },
-  dualAuth: async (c: any, next: any) => { await next(); },
-  supabaseAuthWithQueryParam: async (c: any, next: any) => { await next(); },
+  combinedAuth: async (c: any, next: any) => { await next(); },
 }));
 
 // Credits service mock

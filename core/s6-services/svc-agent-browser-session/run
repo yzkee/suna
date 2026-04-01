@@ -10,8 +10,6 @@
 # The agent's daemon is the primary one. It launches its own Playwright
 # browser and serves the stream on port 9223.
 
-source /ephemeral/services/service-manager-gate.sh
-service_manager_require_enabled "agent-browser-session" "agent-browser-session"
 
 echo "[agent-browser-session] Starting (monitor mode)"
 

@@ -48,7 +48,7 @@ mock.module('../middleware/auth', () => ({
     c.set('userEmail', 'test@kortix.dev');
     await next();
   },
-  previewProxyAuth: async (c: any, next: any) => {
+  combinedAuth: async (c: any, next: any) => {
     const authHeader = c.req.header('Authorization');
     const cookieHeader = c.req.header('Cookie') || '';
     const cookieMatch = cookieHeader.match(/(?:^|;\s*)__preview_session=([^;]+)/);
@@ -62,8 +62,6 @@ mock.module('../middleware/auth', () => ({
   },
   supabaseAuth: async (c: any, next: any) => { await next(); },
   apiKeyAuth: async (c: any, next: any) => { await next(); },
-  dualAuth: async (c: any, next: any) => { await next(); },
-  supabaseAuthWithQueryParam: async (c: any, next: any) => { await next(); },
 }));
 
 // DB mock — simulate sandbox + membership queries

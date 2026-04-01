@@ -2,8 +2,6 @@
 # Agent Browser Viewer — HTTP server on port 9224.
 # ONLY manages the viewer. The daemon is managed by svc-agent-browser-session.
 
-source /ephemeral/services/service-manager-gate.sh
-service_manager_require_enabled "agent-browser-viewer" "agent-browser-viewer"
 
 echo "[agent-browser-viewer] Starting on port 9224"
 

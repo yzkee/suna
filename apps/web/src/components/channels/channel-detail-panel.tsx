@@ -19,20 +19,20 @@ import {
   Mic,
   Mail,
   Radio,
-  Link,
-  Unlink,
   AlertTriangle,
 } from 'lucide-react';
 import {
   useUpdateChannel,
   useDeleteChannel,
-  useLinkChannel,
-  useUnlinkChannel,
   type ChannelConfig,
 } from '@/hooks/channels';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { listSandboxes, type SandboxInfo } from '@/lib/platform-client';
+import { useOpenCodeAgents, useOpenCodeProviders } from '@/hooks/opencode/use-opencode-sessions';
+import { AgentSelector, flattenModels } from '@/components/session/session-chat-input';
+import { ModelSelector } from '@/components/session/model-selector';
+import { authenticatedFetch } from '@/lib/auth-token';
+import { getActiveOpenCodeUrl } from '@/stores/server-store';
 import { SlackIcon } from '@/components/ui/icons/slack';
 import { TelegramIcon } from '@/components/ui/icons/telegram';
 import { DiscordIcon } from '@/components/ui/icons/discord';
@@ -69,28 +69,63 @@ interface ChannelEditDialogProps {
 
 export function ChannelEditDialog({ channel, open, onOpenChange }: ChannelEditDialogProps) {
   const [name, setName] = useState(channel.name);
+  const [agentName, setAgentName] = useState(channel.agentName || '');
+  const [instructions, setInstructions] = useState(channel.instructions || '');
+  const [modelKey, setModelKey] = useState(() => {
+    const providerID = typeof channel.metadata?.modelProviderID === 'string' ? channel.metadata.modelProviderID : '';
+    const modelID = typeof channel.metadata?.modelID === 'string' ? channel.metadata.modelID : '';
+    return providerID && modelID ? `${providerID}:${modelID}` : '';
+  });
   const [isDirty, setIsDirty] = useState(false);
-
-  const [instances, setInstances] = useState<SandboxInfo[]>([]);
-  const [showInstancePicker, setShowInstancePicker] = useState(false);
 
   const updateMutation = useUpdateChannel();
   const deleteMutation = useDeleteChannel();
-  const linkMutation = useLinkChannel();
-  const unlinkMutation = useUnlinkChannel();
+
+  const { data: agents = [] } = useOpenCodeAgents();
+  const { data: providers } = useOpenCodeProviders();
+  const models = React.useMemo(() => flattenModels(providers), [providers]);
 
   // Sync state when channel prop changes
   React.useEffect(() => {
     setName(channel.name);
+    setAgentName(channel.agentName || '');
+    setInstructions(channel.instructions || '');
+    const providerID = typeof channel.metadata?.modelProviderID === 'string' ? channel.metadata.modelProviderID : '';
+    const modelID = typeof channel.metadata?.modelID === 'string' ? channel.metadata.modelID : '';
+    setModelKey(providerID && modelID ? `${providerID}:${modelID}` : '');
     setIsDirty(false);
-  }, [channel.channelConfigId, channel.name]);
+  }, [channel.channelConfigId, channel.name, channel.agentName, channel.instructions, channel.metadata]);
 
   const handleSave = async () => {
     try {
       await updateMutation.mutateAsync({
         id: channel.channelConfigId,
-        data: { name },
+        data: {
+          name,
+          agent_name: agentName.trim() || null,
+          instructions: instructions.trim() || null,
+          metadata: {
+            ...channel.metadata,
+            ...(modelKey
+              ? {
+                  modelProviderID: modelKey.split(':')[0],
+                  modelID: modelKey.split(':').slice(1).join(':'),
+                }
+              : {
+                  modelProviderID: null,
+                  modelID: null,
+                }),
+          },
+        },
       });
+      const baseUrl = getActiveOpenCodeUrl();
+      if (baseUrl) {
+        await authenticatedFetch(`${baseUrl}/channels/reload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        }).catch(() => {});
+      }
       toast.success('Channel updated');
       setIsDirty(false);
     } catch (err) {
@@ -111,40 +146,11 @@ export function ChannelEditDialog({ channel, open, onOpenChange }: ChannelEditDi
     }
   };
 
-  const handleShowLinkPicker = async () => {
-    try {
-      const sandboxList = await listSandboxes();
-      setInstances(sandboxList);
-      setShowInstancePicker(true);
-    } catch {
-      toast.error('Failed to load instances');
-    }
-  };
-
-  const handleLink = async (sandboxId: string) => {
-    try {
-      await linkMutation.mutateAsync({ id: channel.channelConfigId, sandboxId });
-      toast.success('Instance linked');
-      setShowInstancePicker(false);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to link');
-    }
-  };
-
-  const handleUnlink = async () => {
-    try {
-      await unlinkMutation.mutateAsync(channel.channelConfigId);
-      toast.success('Instance unlinked');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to unlink');
-    }
-  };
-
   const Icon = getChannelIcon(channel.channelType);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg gap-0 p-0 overflow-hidden">
+      <DialogContent className="sm:max-w-lg gap-0 p-0 overflow-visible">
         <div className="bg-muted/30 border-b px-6 pt-6 pb-4">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
@@ -185,76 +191,54 @@ export function ChannelEditDialog({ channel, open, onOpenChange }: ChannelEditDi
               />
             </div>
 
-            {/* Linked Instance */}
-            <div className="rounded-xl border p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs">Linked Instance</Label>
-                {channel.sandboxId ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleUnlink}
-                    disabled={unlinkMutation.isPending}
-                    className="h-7 text-xs text-muted-foreground px-2"
-                  >
-                    <Unlink className="h-3 w-3 mr-1" />
-                    Unlink
-                  </Button>
-                ) : null}
+            <div className="space-y-1.5">
+              <Label className="text-xs">Agent</Label>
+              <div className="rounded-xl border bg-card px-2 py-1">
+                <AgentSelector
+                  agents={agents}
+                  selectedAgent={agentName || null}
+                  onSelect={(next) => { setAgentName(next || ''); setIsDirty(true); }}
+                />
               </div>
-              {channel.sandboxId ? (
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 text-sm font-medium truncate">
-                    {channel.sandbox?.name || channel.sandboxId.slice(0, 8)}
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleShowLinkPicker}
-                    className="h-7 text-xs rounded-lg"
-                  >
-                    Change
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground flex-1">Not linked</span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleShowLinkPicker}
-                    disabled={linkMutation.isPending}
-                    className="h-7 text-xs rounded-lg"
-                  >
-                    <Link className="h-3 w-3 mr-1" />
-                    Link
-                  </Button>
-                </div>
-              )}
-              {showInstancePicker && (
-                <div className="border rounded-xl mt-2 max-h-48 overflow-y-auto">
-                  {instances.length === 0 ? (
-                    <div className="p-3 text-sm text-muted-foreground text-center">
-                      No instances found
-                    </div>
-                  ) : (
-                    instances.map((inst) => (
-                      <button
-                        key={inst.sandbox_id}
-                        onClick={() => handleLink(inst.sandbox_id)}
-                        disabled={linkMutation.isPending}
-                        className={cn(
-                          "w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-muted transition-colors text-left first:rounded-t-xl last:rounded-b-xl",
-                          inst.sandbox_id === channel.sandboxId && "bg-muted"
-                        )}
-                      >
-                        <span className="font-medium">{inst.name}</span>
-                        <Badge variant="secondary" className="text-xs">{inst.status}</Badge>
-                      </button>
-                    ))
-                  )}
-                </div>
-              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Model</Label>
+              <div className="rounded-xl border bg-card px-2 py-1">
+                <ModelSelector
+                  models={models}
+                  selectedModel={modelKey ? {
+                    providerID: modelKey.split(':')[0],
+                    modelID: modelKey.split(':').slice(1).join(':'),
+                  } : null}
+                  onSelect={(next) => {
+                    setModelKey(next ? `${next.providerID}:${next.modelID}` : '');
+                    setIsDirty(true);
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-instructions" className="text-xs">Instructions</Label>
+              <textarea
+                id="edit-instructions"
+                value={instructions}
+                onChange={(e) => { setInstructions(e.target.value); setIsDirty(true); }}
+                rows={5}
+                className="flex w-full rounded-xl border bg-card px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/50"
+                placeholder="Optional bot instructions for this channel"
+              />
+            </div>
+
+            <div className="rounded-xl border p-4 space-y-2">
+              <Label className="text-xs">Instance</Label>
+              <div className="text-sm font-medium truncate">
+                {channel.sandbox?.name || channel.sandboxId || 'No instance'}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Channels are bound to the instance they were created for.
+              </p>
             </div>
 
             {/* Danger Zone */}

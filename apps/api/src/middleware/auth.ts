@@ -54,6 +54,7 @@ export async function apiKeyAuth(c: Context, next: Next) {
   const result = await validateSecretKey(token);
 
   if (!result.isValid) {
+    console.warn(`[apiKeyAuth] Token validation failed: ${result.error} | tokenPrefix="${token.slice(0, 20)}..." | path=${c.req.path} | ip=${c.req.header('x-forwarded-for') || c.req.header('x-real-ip') || 'unknown'}`);
     throw new HTTPException(401, {
       message: result.error || 'Invalid API key',
     });
@@ -255,21 +256,6 @@ export async function combinedAuth(c: Context, next: Next) {
     throw new HTTPException(401, { message: 'Authentication failed' });
   }
 }
-
-// ─── Aliases for backward compatibility ──────────────────────────────────────
-// These are the same as combinedAuth but exported under their old names so
-// existing imports continue to work without changing every route file.
-
-/** @deprecated Use `combinedAuth` directly. Alias kept for import compatibility. */
-export const previewProxyAuth = combinedAuth;
-
-/** @deprecated Stub — proxy routes handle auth internally. */
-export async function dualAuth(c: Context, next: Next) {
-  await next();
-}
-
-/** @deprecated Use `combinedAuth` directly. Alias kept for test mock compatibility. */
-export const supabaseAuthWithQueryParam = combinedAuth;
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
 

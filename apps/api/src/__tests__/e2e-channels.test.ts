@@ -13,9 +13,11 @@
  * Requires DATABASE_URL to be set.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import { sql } from 'drizzle-orm';
 import {
   createTestApp,
   cleanupTestData,
+  getTestDb,
   jsonGet,
   jsonPost,
   jsonPatch,
@@ -28,6 +30,10 @@ const app = createTestApp({ mountChannels: true });
 const otherApp = createTestApp({ mountChannels: true, userId: OTHER_USER_ID });
 
 beforeAll(async () => {
+  const db = getTestDb();
+  await db.execute(sql`ALTER TABLE kortix.channel_configs DROP COLUMN IF EXISTS session_strategy`);
+  await db.execute(sql`ALTER TABLE kortix.channel_configs RENAME COLUMN system_prompt TO instructions`)
+    .catch(() => {});
   await cleanupTestData();
 });
 
@@ -44,8 +50,7 @@ describe('Channels CRUD', () => {
     const res = await jsonPost(app, '/v1/channels', {
       channel_type: 'slack',
       name: 'Test Slack Channel',
-      session_strategy: 'per-thread',
-      system_prompt: 'You are a helpful bot.',
+      instructions: 'You are a helpful bot.',
       metadata: { test: true },
     });
     expect(res.status).toBe(201);
@@ -55,8 +60,7 @@ describe('Channels CRUD', () => {
     expect(body.data.channelType).toBe('slack');
     expect(body.data.name).toBe('Test Slack Channel');
     expect(body.data.enabled).toBe(true);
-    expect(body.data.sessionStrategy).toBe('per-thread');
-    expect(body.data.systemPrompt).toBe('You are a helpful bot.');
+    expect(body.data.instructions).toBe('You are a helpful bot.');
     expect(body.data.metadata.test).toBe(true);
     expect(body.data.channelConfigId).toBeDefined();
 
@@ -75,7 +79,7 @@ describe('Channels CRUD', () => {
     expect(body.data.channelType).toBe('telegram');
     expect(body.data.name).toBe('Test Telegram Channel');
     expect(body.data.enabled).toBe(true);
-    expect(body.data.sessionStrategy).toBe('per-thread');
+    expect(body.data.instructions).toBeNull();
   });
 
   it('POST /v1/channels rejects missing channel_type', async () => {
@@ -152,17 +156,15 @@ describe('Channels CRUD', () => {
     expect(body.data.name).toBe('Updated Slack Channel');
   });
 
-  it('PATCH /v1/channels/:id updates system prompt', async () => {
+  it('PATCH /v1/channels/:id updates instructions', async () => {
     const res = await jsonPatch(app, `/v1/channels/${channelId}`, {
-      system_prompt: 'New prompt',
-      session_strategy: 'per-message',
+      instructions: 'New prompt',
     });
     expect(res.status).toBe(200);
 
     const body = await res.json();
     expect(body.success).toBe(true);
-    expect(body.data.systemPrompt).toBe('New prompt');
-    expect(body.data.sessionStrategy).toBe('per-message');
+    expect(body.data.instructions).toBe('New prompt');
   });
 
   it('PATCH /v1/channels/:id returns 404 for other user', async () => {

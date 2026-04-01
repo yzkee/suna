@@ -9,8 +9,6 @@
 #
 # We handle cgroup setup ourselves (one-shot, no infinite loop) and skip the /tmp wipe.
 
-source /ephemeral/services/service-manager-gate.sh
-service_manager_require_enabled "docker" "docker"
 
 # Only start if privileged AND explicitly requested
 if [ ! -e /dev/cpu_dma_latency ]; then

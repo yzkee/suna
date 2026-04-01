@@ -1,21 +1,10 @@
-import type { Chat } from 'chat';
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 
-import { readAdaptersFromEnv } from './bot.js';
 import type { ChannelsService } from './service.js';
 import type { ReloadRequest } from './types.js';
 import { adapterModules } from './adapters/registry.js';
 import { sendMessageDirect, type TelegramDirectConfig } from './telegram-api.js';
-
-type ServerInput = ChannelsService | Chat | Promise<Chat | null> | null;
-
-function isChannelsService(input: ServerInput): input is ChannelsService {
-  return !!input && typeof input === 'object'
-    && 'reload' in input
-    && 'sessions' in input
-    && 'activeAdapters' in input;
-}
 
 export interface ServerConfig {
   port?: number;
@@ -23,40 +12,22 @@ export interface ServerConfig {
 }
 
 export function createServer(
-  input: ServerInput,
+  input: ChannelsService,
   config: ServerConfig = {},
 ) {
   const port = config.port ?? (process.env.PORT ? Number(process.env.PORT) : 3456);
   const host = config.host ?? '0.0.0.0';
 
   const app = new Hono();
-  let legacyBotCache: Chat | null = null;
-
-  if (!isChannelsService(input) && input) {
-    Promise.resolve(input).then((bot) => {
-      legacyBotCache = bot;
-    }).catch((err) => {
-      console.error('[opencode-channels] Bot initialization failed:', err);
-    });
-  }
-
-  const getBot = () => (isChannelsService(input) ? input.bot : legacyBotCache);
-  const getAdapterNames = () => (isChannelsService(input)
-    ? input.activeAdapters
-    : Object.keys(readAdaptersFromEnv()));
-  const getActiveSessions = () => (isChannelsService(input) ? input.sessions.size : 0);
-  const getCredentials = () => (isChannelsService(input) ? input.credentials : readAdaptersFromEnv());
-  const resolveBot = async () => {
-    if (isChannelsService(input)) return input.bot;
-    if (legacyBotCache) return legacyBotCache;
-    legacyBotCache = await Promise.resolve(input);
-    return legacyBotCache;
-  };
+  const getBot = () => input.bot;
+  const getAdapterNames = () => input.activeAdapters;
+  const getActiveSessions = () => input.sessions.size;
+  const getCredentials = () => input.credentials;
 
   app.get('/health', (c) =>
     c.json({
       ok: true,
-      service: 'opencode-channels',
+      service: 'kortix-channels',
       adapters: getAdapterNames(),
       activeSessions: getActiveSessions(),
     }),
@@ -80,19 +51,20 @@ export function createServer(
   });
 
   app.post('/reload', async (c) => {
-    if (!isChannelsService(input)) {
-      return c.json({ error: 'Reload requires a ChannelsService instance' }, 501);
-    }
     try {
       const body = await c.req.json() as ReloadRequest;
-      if (!body?.credentials) {
-        return c.json({ error: 'Missing credentials' }, 400);
-      }
       const result = await input.reload(body.credentials);
       return c.json(result);
     } catch (err) {
-      console.error('[opencode-channels] Reload failed:', err);
-      return c.json({ error: 'Reload failed' }, 500);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const errStack = err instanceof Error ? err.stack : undefined;
+      console.error('[kortix-channels] Reload failed:', errMsg);
+      if (errStack) console.error(errStack);
+      return c.json({
+        error: 'Reload failed',
+        details: errMsg,
+        hint: 'The channels service could not reinitialize with the provided credentials. Check the bot token and adapter configuration.',
+      }, 500);
     }
   });
 
@@ -184,14 +156,14 @@ export function createServer(
   const waitUntilOpts = {
     waitUntil: (task: Promise<unknown>) => {
       task.catch((err: unknown) => {
-        console.error('[opencode-channels] Background task failed:', err);
+        console.error('[kortix-channels] Background task failed:', err);
       });
     },
   };
 
   for (const mod of adapterModules) {
     app.post(`/api/webhooks/${mod.name}`, async (c) => {
-      const bot = await resolveBot();
+      const bot = input.bot;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const handler = (bot as any)?.webhooks?.[mod.name];
       if (!handler) {
@@ -204,7 +176,7 @@ export function createServer(
     // Telegram needs a GET handler for webhook verification
     if (mod.name === 'telegram') {
       app.get(`/api/webhooks/${mod.name}`, async (c) => {
-        const bot = await resolveBot();
+        const bot = input.bot;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const adapter = (bot as any)?.adapters?.[mod.name];
         if (!adapter?.handleWebhook) {
@@ -217,27 +189,26 @@ export function createServer(
     mod.registerRoutes?.(app, getBot);
   }
 
-  const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
-    console.log(`[opencode-channels] Server listening on ${host}:${info.port}`);
-  });
+  // Use Bun.serve when available (keeps event loop alive), fall back to @hono/node-server
+  let stopFn: () => void;
+  const BunRef = (globalThis as { Bun?: { serve?: (opts: { port: number; hostname: string; fetch: typeof app.fetch }) => { port: number; stop: (close?: boolean) => void } } }).Bun;
+  if (BunRef?.serve) {
+    const bunServer = BunRef.serve({ port, hostname: host, fetch: app.fetch });
+    console.log(`[kortix-channels] Server listening on ${host}:${bunServer.port}`);
+    stopFn = () => { bunServer.stop(true); console.log('[kortix-channels] Server stopped'); };
+  } else {
+    const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
+      console.log(`[kortix-channels] Server listening on ${host}:${info.port}`);
+    });
+    server.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`[kortix-channels] Port ${port} already in use`);
+        process.exit(1);
+      }
+      throw err;
+    });
+    stopFn = () => { server.close(); console.log('[kortix-channels] Server stopped'); };
+  }
 
-  server.on('error', (err: NodeJS.ErrnoException) => {
-    if (err.code === 'EADDRINUSE') {
-      console.error(
-        `[opencode-channels] Port ${port} is already in use.\n` +
-        `  Try: PORT=${port + 1} pnpm start  (or kill the process using port ${port})`
-      );
-      process.exit(1);
-    }
-    throw err;
-  });
-
-  return {
-    app,
-    server,
-    stop: () => {
-      server.close();
-      console.log('[opencode-channels] Server stopped');
-    },
-  };
+  return { app, stop: stopFn };
 }

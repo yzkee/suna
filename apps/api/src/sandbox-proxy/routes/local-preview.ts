@@ -45,7 +45,7 @@ function trySyncServiceKey(): boolean {
 
     console.log(`[LOCAL-PREVIEW] Syncing INTERNAL_SERVICE_KEY to sandbox container (attempt ${_syncAttempts}/${MAX_SYNC_ATTEMPTS})...`);
     execSync(
-      `docker exec kortix-sandbox bash -c "mkdir -p /run/s6/container_environment && ` +
+      `docker exec ${config.SANDBOX_CONTAINER_NAME} bash -c "mkdir -p /run/s6/container_environment && ` +
       `printf '%s' '${ourKey}' > /run/s6/container_environment/INTERNAL_SERVICE_KEY && ` +
       `sudo s6-svc -r /run/service/svc-kortix-master"`,
       { timeout: 15_000, stdio: 'pipe', env },

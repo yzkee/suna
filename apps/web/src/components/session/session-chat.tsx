@@ -37,7 +37,7 @@ import {
 	type TrackedMention,
 } from "@/components/session/session-chat-input";
 import { SessionContextModal } from "@/components/session/session-context-modal";
-import { TurnErrorDisplay } from "@/components/session/session-error-banner";
+import { SessionRetryDisplay, TurnErrorDisplay } from "@/components/session/session-error-banner";
 import { SessionSiteHeader } from "@/components/session/session-site-header";
 import { QuestionPrompt, type QuestionPromptHandle, type QuestionAction } from "@/components/session/question-prompt";
 import { SessionWelcome } from "@/components/session/session-welcome";
@@ -117,6 +117,7 @@ import {
 	getHiddenToolParts,
 	getPermissionForTool,
 	getRetryInfo,
+	getRetryMessage,
 	getShellModePart,
 	getTurnCost,
 	getTurnError,
@@ -2055,6 +2056,10 @@ function SessionTurn({
 		() => (isLast ? getRetryInfo(sessionStatus) : undefined),
 		[sessionStatus, isLast],
 	);
+	const retryMessage = useMemo(
+		() => (isLast ? getRetryMessage(sessionStatus) : undefined),
+		[sessionStatus, isLast],
+	);
 
 	// Cost info (only when not working)
 	const costInfo = useMemo(
@@ -2756,33 +2761,35 @@ function SessionTurn({
 
 		{/* ── Working status indicator (always at the end while working) ── */}
 			{working && (
-				<div
-					className={cn(
-						"flex items-center gap-2 text-xs transition-colors py-1",
-						"text-muted-foreground",
+				<div className="space-y-2">
+					{retryInfo && retryMessage && (
+						<SessionRetryDisplay
+							message={retryMessage}
+							attempt={retryInfo.attempt}
+							secondsLeft={retrySecondsLeft}
+						/>
 					)}
-				>
-					<span className="relative flex size-3">
-						<span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-muted-foreground/30" />
+					<div
+						className={cn(
+							"flex items-center gap-2 text-xs transition-colors py-1",
+							"text-muted-foreground",
+						)}
+					>
+						<span className="relative flex size-3">
+							<span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-muted-foreground/30" />
 						<span className="relative inline-flex rounded-full size-3 bg-muted-foreground/50" />
-					</span>
-					<AnimatedThinkingText
-						statusText={throttledStatus || undefined}
-						className="text-xs"
-					/>
-					{retryInfo && (
-						<>
-							<span className="text-muted-foreground/50">·</span>
-							<span className="text-amber-500">
-								Retrying{retrySecondsLeft > 0 ? ` in ${retrySecondsLeft}s` : ""}
-							</span>
-							<span className="text-muted-foreground/50">
-								(#{retryInfo.attempt})
-							</span>
-						</>
-					)}
-					<span className="text-muted-foreground/50">·</span>
-					<span className="text-muted-foreground/70">{duration}</span>
+						</span>
+						{retryInfo ? (
+							<span className="text-muted-foreground/70">Waiting to retry</span>
+						) : (
+							<AnimatedThinkingText
+								statusText={throttledStatus || undefined}
+								className="text-xs"
+							/>
+						)}
+						<span className="text-muted-foreground/50">·</span>
+						<span className="text-muted-foreground/70">{duration}</span>
+					</div>
 				</div>
 			)}
 
@@ -4383,7 +4390,11 @@ export function SessionChat({
 
 	const handleStop = useCallback(() => {
 		// Guard against rapid clicks — ignore if an abort is already in flight
-		if (abortSession.isPending) return;
+		if (abortSession.isPending) {
+			console.log(`[handleStop] Ignoring - abort already in flight for session ${sessionId}`);
+			return;
+		}
+		console.log(`[handleStop] Stopping session ${sessionId}`);
 		// Optimistically mark the session idle so the UI updates immediately
 		// (stop button hides, input re-enables) without waiting for the SSE
 		// round-trip. Also clear the busy debounce timer to bypass the 2s delay.

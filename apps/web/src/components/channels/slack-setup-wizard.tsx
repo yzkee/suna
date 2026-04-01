@@ -27,6 +27,7 @@ import { getActiveOpenCodeUrl, useServerStore } from '@/stores/server-store';
 import { backendApi } from '@/lib/api-client';
 import { ensureSandbox } from '@/lib/platform-client';
 import { useQueryClient } from '@tanstack/react-query';
+import { DEFAULT_CHANNEL_AGENT, buildDefaultChannelInstructions } from './channel-defaults';
 
 interface SlackSetupWizardProps {
   onCreated: () => void;
@@ -217,7 +218,9 @@ export function SlackSetupWizard({ onCreated, onBack }: SlackSetupWizardProps) {
             webhook_url: `${publicUrl.replace(/\/$/, '')}/webhooks/slack/events`,
             bot_name: botName.trim() || 'Kortix Agent',
           },
-          session_strategy: 'per-thread',
+          agent_name: DEFAULT_CHANNEL_AGENT,
+          instructions: buildDefaultChannelInstructions('slack', botName.trim() || 'Slack Bot'),
+          metadata: {},
         });
       } catch (err) {
         console.warn('[slack-wizard] Failed to create channel config (may already exist):', err);

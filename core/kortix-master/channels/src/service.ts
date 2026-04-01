@@ -7,6 +7,7 @@ import { adapterModules } from './adapters/registry.js';
 import type { AdapterCredentials } from './adapters/types.js';
 import type { TelegramDirectConfig } from './telegram-api.js';
 import type { ReloadResult } from './types.js';
+import { getEnv } from '../../opencode/tools/lib/get-env.js';
 
 /** Build TelegramDirectConfig from env (or credentials) if available. */
 function buildTelegramConfig(credentials: AdapterCredentials): TelegramDirectConfig | undefined {
@@ -17,10 +18,14 @@ function buildTelegramConfig(credentials: AdapterCredentials): TelegramDirectCon
 }
 
 /** Build persistence config from environment, if available. */
-function buildPersistConfig(channelConfigId?: string): ChannelSessionPersistConfig | undefined {
-  const kortixApiUrl = process.env.KORTIX_API_URL;
-  const kortixToken = process.env.KORTIX_TOKEN;
-  const configId = channelConfigId ?? process.env.CHANNEL_CONFIG_ID;
+function buildPersistConfig(opts: {
+  channelConfigId?: string;
+  kortixApiUrl?: string;
+  kortixToken?: string;
+} = {}): ChannelSessionPersistConfig | undefined {
+  const kortixApiUrl = opts.kortixApiUrl ?? getEnv('KORTIX_API_URL');
+  const kortixToken = opts.kortixToken ?? getEnv('KORTIX_TOKEN');
+  const configId = opts.channelConfigId ?? getEnv('CHANNEL_CONFIG_ID');
   if (!kortixApiUrl || !kortixToken || !configId) return undefined;
   return { kortixApiUrl, kortixToken, channelConfigId: configId };
 }
@@ -29,8 +34,10 @@ export interface ChannelsServiceConfig {
   opencodeUrl?: string;
   botName?: string;
   agentName?: string;
-  systemPrompt?: string;
+  instructions?: string;
   model?: { providerID: string; modelID: string };
+  kortixApiUrl?: string;
+  kortixToken?: string;
   credentials?: AdapterCredentials;
   /** If provided, sessions will be persisted to kortix-api with this channel config ID. */
   channelConfigId?: string;
@@ -48,40 +55,50 @@ export class ChannelsService {
   readonly botName: string;
 
   private _currentModel: { providerID: string; modelID: string } | undefined;
-  private _systemPrompt: string | undefined;
+  private _instructions: string | undefined;
   private _credentials: AdapterCredentials;
   private _channelContext: ChannelsServiceConfig['channelContext'];
   private _channelConfigId: string | undefined;
+  private _kortixApiUrl: string | undefined;
+  private _kortixToken: string | undefined;
 
   private _bot: Chat | null = null;
 
   constructor(config: ChannelsServiceConfig = {}) {
     const opencodeUrl = config.opencodeUrl || process.env.OPENCODE_URL || 'http://localhost:1707';
-    this.botName = config.botName || process.env.OPENCODE_BOT_NAME || 'opencode';
+    this.botName = config.botName || process.env.OPENCODE_BOT_NAME || 'kortix';
 
-    this._channelConfigId = config.channelConfigId ?? process.env.CHANNEL_CONFIG_ID;
+    this._channelConfigId = config.channelConfigId ?? getEnv('CHANNEL_CONFIG_ID');
     this._channelContext = config.channelContext;
+    this._kortixApiUrl = config.kortixApiUrl;
+    this._kortixToken = config.kortixToken;
 
     this.client = new OpenCodeClient({ baseUrl: opencodeUrl });
     this.sessions = new SessionManager(
-      'per-thread',
       config.agentName,
-      buildPersistConfig(this._channelConfigId),
+      () => buildPersistConfig({
+        channelConfigId: this._channelConfigId,
+        kortixApiUrl: this._kortixApiUrl,
+        kortixToken: this._kortixToken,
+      }),
     );
     this._currentModel = config.model;
-    this._systemPrompt = config.systemPrompt;
+    this._instructions = config.instructions;
     this._credentials = config.credentials ?? readAdaptersFromEnv();
   }
 
   /** Initialize the bot (must be called after constructor). */
   async init(): Promise<void> {
+    await this.loadRemoteConfig().catch((err) => {
+      console.warn('[kortix-channels] Failed to load remote channel config:', err instanceof Error ? err.message : err);
+    });
     this._bot = await createChatInstance({
       credentials: this._credentials,
       client: this.client,
       sessions: this.sessions,
       getModel: () => this._currentModel,
       setModel: (m) => { this._currentModel = m; },
-      getSystemPrompt: () => this._buildSystemPrompt(),
+      getChannelInstructions: () => this._buildChannelInstructions(),
       botName: this.botName,
       telegramConfig: buildTelegramConfig(this._credentials),
     });
@@ -104,8 +121,8 @@ export class ChannelsService {
     this._currentModel = m;
   }
 
-  setSystemPrompt(prompt: string | undefined): void {
-    this._systemPrompt = prompt;
+  setInstructions(prompt: string | undefined): void {
+    this._instructions = prompt;
   }
 
   /**
@@ -113,12 +130,12 @@ export class ChannelsService {
    * (platform, chatId, send instructions) is injected once by bot.ts on the
    * first message of each session, not here.
    */
-  private _buildSystemPrompt(): string | undefined {
+  private _buildChannelInstructions(): string | undefined {
     const parts: string[] = [];
 
     // User-configured custom system prompt (from channel config)
-    if (this._systemPrompt) {
-      parts.push(this._systemPrompt);
+    if (this._instructions) {
+      parts.push(this._instructions);
     }
 
     // Minimal channel identity — just enough for the agent to know it's in a channel
@@ -142,8 +159,11 @@ export class ChannelsService {
     return 'unknown';
   }
 
-  async reload(credentials: AdapterCredentials): Promise<ReloadResult> {
-    if (credentialsEqual(this._credentials, credentials)) {
+  async reload(credentials?: AdapterCredentials): Promise<ReloadResult> {
+    const nextCredentials = credentials ?? this._credentials;
+
+    if (credentials && credentialsEqual(this._credentials, nextCredentials)) {
+      await this.loadRemoteConfig().catch(() => {});
       return {
         ok: true,
         adapters: this.activeAdapters,
@@ -151,27 +171,65 @@ export class ChannelsService {
       };
     }
 
-    console.log('[opencode-channels] Reloading with new credentials...');
-    this._credentials = credentials;
+    console.log('[kortix-channels] Reloading with new credentials...');
+    this._credentials = nextCredentials;
 
     this._bot = await createChatInstance({
-      credentials,
+      credentials: nextCredentials,
       client: this.client,
       sessions: this.sessions,
       getModel: () => this._currentModel,
       setModel: (m) => { this._currentModel = m; },
-      getSystemPrompt: () => this._buildSystemPrompt(),
+      getChannelInstructions: () => this._buildChannelInstructions(),
       botName: this.botName,
-      telegramConfig: buildTelegramConfig(credentials),
+      telegramConfig: buildTelegramConfig(nextCredentials),
     });
 
-    console.log(`[opencode-channels] Reload complete. Active adapters: ${this.activeAdapters.join(', ') || 'none'}`);
+    await this.loadRemoteConfig().catch(() => {});
+
+    console.log(`[kortix-channels] Reload complete. Active adapters: ${this.activeAdapters.join(', ') || 'none'}`);
 
     return {
       ok: true,
       adapters: this.activeAdapters,
       reloaded: true,
     };
+  }
+
+  private async loadRemoteConfig(): Promise<void> {
+    const cfg = buildPersistConfig({
+      channelConfigId: this._channelConfigId,
+      kortixApiUrl: this._kortixApiUrl,
+      kortixToken: this._kortixToken,
+    });
+    if (!cfg) return;
+
+    const res = await fetch(`${cfg.kortixApiUrl}/v1/channels/internal/config/${cfg.channelConfigId}`, {
+      headers: {
+        Authorization: `Bearer ${cfg.kortixToken}`,
+      },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json() as {
+      success: boolean;
+      data?: {
+        instructions?: string | null;
+        agentName?: string | null;
+        metadata?: Record<string, unknown>;
+      };
+    };
+    const data = json.data;
+    if (!data) return;
+
+    this._instructions = data.instructions ?? this._instructions;
+    this.sessions.setAgent(data.agentName ?? this.sessions.getAgent());
+
+    const modelProviderID = typeof data.metadata?.modelProviderID === 'string' ? data.metadata.modelProviderID : undefined;
+    const modelID = typeof data.metadata?.modelID === 'string' ? data.metadata.modelID : undefined;
+    if (modelProviderID && modelID) {
+      this._currentModel = { providerID: modelProviderID, modelID };
+    }
   }
 }
 

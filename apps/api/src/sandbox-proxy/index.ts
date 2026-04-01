@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { eq, and, ne } from 'drizzle-orm';
 import { sandboxes } from '@kortix/db';
 import { config } from '../config';
-import { previewProxyAuth } from '../middleware/auth';
+import { combinedAuth } from '../middleware/auth';
 import { preview, proxyToDaytona } from './routes/preview';
 import { proxyToSandbox } from './routes/local-preview';
 import { getAuthToken } from './routes/auth';
@@ -16,8 +16,8 @@ sandboxProxyApp.route('/auth', getAuthToken);
 
 // ── Path-based proxy ────────────────────────────────────────────────────────
 // Auth middleware for both modes (Supabase JWT, kortix_ tokens, cookies).
-sandboxProxyApp.use('/:sandboxId/:port/*', previewProxyAuth);
-sandboxProxyApp.use('/:sandboxId/:port', previewProxyAuth);
+sandboxProxyApp.use('/:sandboxId/:port/*', combinedAuth);
+sandboxProxyApp.use('/:sandboxId/:port', combinedAuth);
 
 // ── Provider cache ──────────────────────────────────────────────────────────
 // Cache sandbox provider lookups to avoid a DB query on every request.

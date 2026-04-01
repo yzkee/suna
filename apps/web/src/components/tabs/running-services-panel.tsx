@@ -7,7 +7,6 @@ import {
   Loader2,
   Play,
   Plus,
-  RefreshCw,
   RotateCcw,
   Search,
   Server,
@@ -20,6 +19,15 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   Dialog,
   DialogContent,
@@ -34,13 +42,11 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SpotlightCard } from '@/components/ui/spotlight-card';
 import { Ripple } from '@/components/ui/ripple';
-import { Textarea } from '@/components/ui/textarea';
 import { useSandboxProxy } from '@/hooks/use-sandbox-proxy';
 import {
   useRegisterSandboxService,
   useSandboxServiceAction,
   useSandboxServiceLogs,
-  useSandboxServiceReconcile,
   useSandboxRuntimeReload,
   useSandboxServiceTemplates,
   useSandboxServices,
@@ -290,7 +296,6 @@ export function RunningServicesPanel() {
   const { data: services = [], isLoading, error } = useSandboxServices({ includeAll: true });
   const { data: templates = [] } = useSandboxServiceTemplates();
   const actionMutation = useSandboxServiceAction();
-  const reconcileMutation = useSandboxServiceReconcile();
   const runtimeReloadMutation = useSandboxRuntimeReload();
   const registerMutation = useRegisterSandboxService();
 
@@ -301,6 +306,7 @@ export function RunningServicesPanel() {
   const [form, setForm] = useState<RegisterFormState>(DEFAULT_FORM);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [pendingGlobal, setPendingGlobal] = useState<string | null>(null);
+  const [restartDialogOpen, setRestartDialogOpen] = useState(false);
 
   const selectedLogService = useMemo(() => services.find((s) => s.id === logsServiceId) ?? null, [logsServiceId, services]);
   const { data: logLines = [], isLoading: logsLoading } = useSandboxServiceLogs(logsServiceId, { enabled: !!logsServiceId });
@@ -369,17 +375,14 @@ export function RunningServicesPanel() {
     }
   }, [actionMutation, logsServiceId]);
 
-  const handleReconcile = useCallback(async (reload: boolean) => {
-    setPendingGlobal(reload ? 'reload' : 'reconcile');
-    try { await reconcileMutation.mutateAsync({ reload }); } catch (e) {
-      toast.warning(e instanceof Error ? e.message : 'Reconcile failed');
-    } finally { setPendingGlobal(null); }
-  }, [reconcileMutation]);
-
-  const handleFullReload = useCallback(async () => {
-    setPendingGlobal('full-reload');
-    try { await runtimeReloadMutation.mutateAsync({ mode: 'full' }); } catch (e) {
-      toast.warning(e instanceof Error ? e.message : 'Reload failed');
+  const handleRestart = useCallback(async (mode: 'full' | 'dispose-only') => {
+    setRestartDialogOpen(false);
+    setPendingGlobal(mode);
+    try {
+      await runtimeReloadMutation.mutateAsync({ mode });
+      toast.success(mode === 'full' ? 'Restarting — all managed services will come back up' : 'Config rescanned');
+    } catch (e) {
+      toast.warning(e instanceof Error ? e.message : 'Restart failed');
     } finally { setPendingGlobal(null); }
   }, [runtimeReloadMutation]);
 
@@ -484,22 +487,13 @@ export function RunningServicesPanel() {
           {/* Actions */}
           <div className="flex items-center gap-1.5">
             <Button
-              variant="ghost" size="sm"
-              className="h-9 px-2.5 text-xs"
+              variant="outline" size="sm"
+              className="h-9 px-3 rounded-xl gap-1.5 text-sm"
               disabled={pendingGlobal !== null}
-              onClick={() => void handleReconcile(false)}
-              title="Reconcile services"
+              onClick={() => setRestartDialogOpen(true)}
             >
-              {pendingGlobal === 'reconcile' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            </Button>
-            <Button
-              variant="ghost" size="sm"
-              className="h-9 px-2.5 text-xs"
-              disabled={pendingGlobal !== null}
-              onClick={() => void handleFullReload()}
-              title="Full runtime reload"
-            >
-              {pendingGlobal === 'full-reload' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+              {pendingGlobal ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+              <span className="hidden xs:inline">Restart</span>
             </Button>
             <Button
               variant="default" size="sm"
@@ -620,6 +614,27 @@ export function RunningServicesPanel() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Restart Instance dialog */}
+      <AlertDialog open={restartDialogOpen} onOpenChange={setRestartDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restart Instance</AlertDialogTitle>
+            <AlertDialogDescription>
+              All managed services will be stopped and restarted. Active sessions will be interrupted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button variant="outline" onClick={() => void handleRestart('dispose-only')} disabled={!!pendingGlobal}>
+              Config Only
+            </Button>
+            <Button variant="destructive" onClick={() => void handleRestart('full')} disabled={!!pendingGlobal}>
+              {pendingGlobal ? 'Restarting\u2026' : 'Full Restart'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

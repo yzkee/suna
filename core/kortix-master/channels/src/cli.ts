@@ -19,6 +19,7 @@
  */
 
 import { markdownToTelegramV2 } from './telegram-api.js';
+import { getEnv } from '../../opencode/tools/lib/get-env.js';
 
 // ── Argument parsing ──────────────────────────────────────────────────────────
 
@@ -70,7 +71,7 @@ function fail(error: string, platform?: string): never {
 
 function printHelp(): void {
   console.log(`
-channels-send — Outbound messaging CLI for Kortix Channels
+kortix-channels-send — Outbound messaging CLI for Kortix Channels
 
 USAGE:
   bun run cli.ts <command> [options]
@@ -229,15 +230,15 @@ async function checkHealth(): Promise<void> {
   try {
     const res = await fetch(`${channelsUrl}/health`, { signal: AbortSignal.timeout(5_000) });
     const data = await res.json() as { ok: boolean; adapters?: string[] };
-    success({ service: 'opencode-channels', url: channelsUrl, ...data });
+    success({ service: 'kortix-channels', url: channelsUrl, ...data });
   } catch (err) {
     fail(`channels service unreachable at ${channelsUrl}: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
 async function listChannels(): Promise<void> {
-  const kortixApiUrl = process.env.KORTIX_API_URL || 'http://localhost:8008';
-  const kortixToken = process.env.KORTIX_TOKEN;
+  const kortixApiUrl = getEnv('KORTIX_API_URL') || 'http://localhost:8008';
+  const kortixToken = getEnv('KORTIX_TOKEN');
 
   if (!kortixToken) {
     // Fall back to local health check if no token

@@ -9,7 +9,6 @@ import { API_URL, getAuthToken } from '@/api/config';
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export type ChannelType = 'telegram' | 'slack' | 'discord' | 'whatsapp' | 'teams' | 'voice' | 'email' | 'sms';
-export type SessionStrategy = 'single' | 'per-thread' | 'per-user' | 'per-message';
 
 export interface ChannelConfig {
   channelConfigId: string;
@@ -19,8 +18,7 @@ export interface ChannelConfig {
   name: string;
   enabled: boolean;
   platformConfig: Record<string, unknown>;
-  sessionStrategy: SessionStrategy;
-  systemPrompt: string | null;
+  instructions: string | null;
   agentName: string | null;
   metadata: Record<string, unknown>;
   createdAt: string;
@@ -32,17 +30,17 @@ export interface CreateChannelData {
   name: string;
   channel_type: ChannelType;
   platform_config?: Record<string, unknown>;
-  session_strategy?: SessionStrategy;
-  system_prompt?: string;
+  instructions?: string;
   agent_name?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface UpdateChannelData {
   name?: string;
   platform_config?: Record<string, unknown>;
-  session_strategy?: SessionStrategy;
-  system_prompt?: string;
+  instructions?: string;
   agent_name?: string;
+  metadata?: Record<string, unknown>;
 }
 
 // ─── API Helpers ─────────────────────────────────────────────────────────────
@@ -117,22 +115,6 @@ async function disableChannel(id: string): Promise<ChannelConfig> {
   return envelope.data;
 }
 
-async function linkChannel(id: string, sandboxId: string): Promise<ChannelConfig> {
-  const envelope = await authFetch<{ success: boolean; data: ChannelConfig }>(
-    `/channels/${id}/link`,
-    { method: 'POST', body: JSON.stringify({ sandbox_id: sandboxId }) },
-  );
-  return envelope.data;
-}
-
-async function unlinkChannel(id: string): Promise<ChannelConfig> {
-  const envelope = await authFetch<{ success: boolean; data: ChannelConfig }>(
-    `/channels/${id}/unlink`,
-    { method: 'POST', body: JSON.stringify({}) },
-  );
-  return envelope.data;
-}
-
 // ─── Query Keys ──────────────────────────────────────────────────────────────
 
 export const channelKeys = {
@@ -195,26 +177,6 @@ export function useToggleChannel() {
   return useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
       enabled ? enableChannel(id) : disableChannel(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: channelKeys.all });
-    },
-  });
-}
-
-export function useLinkChannel() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, sandboxId }: { id: string; sandboxId: string }) => linkChannel(id, sandboxId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: channelKeys.all });
-    },
-  });
-}
-
-export function useUnlinkChannel() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => unlinkChannel(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: channelKeys.all });
     },

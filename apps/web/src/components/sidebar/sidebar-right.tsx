@@ -36,18 +36,7 @@ import { useProviderModalStore } from '@/stores/provider-modal-store';
 import { useSSHDialogStore } from '@/stores/ssh-dialog-store';
 import { useOnboardingModeStore } from '@/stores/onboarding-mode-store';
 import { toast } from '@/lib/toast';
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { Button } from '@/components/ui/button';
-import { authenticatedFetch } from '@/lib/auth-token';
-import { useServerStore } from '@/stores/server-store';
+
 
 // ============================================================================
 // Main Right Sidebar — Quick actions (no file explorer — that's /files now)
@@ -86,44 +75,7 @@ export function SidebarRight() {
     }
   }, [createPty]);
 
-  // Reload instance — full restart or quick config rescan
-  const [isReloading, setIsReloading] = useState(false);
-  const [reloadDialogOpen, setReloadDialogOpen] = useState(false);
-  const [isFullReload, setIsFullReload] = useState(true);
 
-  const handleReloadInstance = useCallback(() => {
-    setReloadDialogOpen(true);
-  }, []);
-
-  const confirmReloadInstance = useCallback(async () => {
-    if (isReloading) return;
-    setReloadDialogOpen(false);
-    setIsReloading(true);
-
-    const baseUrl = useServerStore.getState().getActiveServerUrl();
-
-    try {
-      const res = await authenticatedFetch(`${baseUrl}/kortix/services/system/reload`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: isFullReload ? 'full' : 'dispose-only' }),
-      });
-      if (res.ok) {
-        toast.success(
-          isFullReload
-            ? 'Restarting — all managed services will come back up'
-            : 'Config rescanned — skills, agents & tools reloaded',
-        );
-      } else {
-        throw new Error(`HTTP ${res.status}`);
-      }
-    } catch (e) {
-      console.error('[SidebarRight] Reload failed:', e);
-      toast.error('Failed to restart instance');
-    } finally {
-      setIsReloading(false);
-    }
-  }, [isReloading, isFullReload]);
 
   /**
    * Open a well-known sandbox service as a preview tab.
@@ -185,12 +137,10 @@ export function SidebarRight() {
           setSSHDialogOpen(true);
         } else if (item.actionId === 'openProviderModal') {
           useProviderModalStore.getState().openProviderModal('connected');
-        } else if (item.actionId === 'reloadInstance') {
-          handleReloadInstance();
         }
         break;
     }
-  }, [router, openSandboxServiceTab, handleNewTerminal, handleReloadInstance]);
+  }, [router, openSandboxServiceTab, handleNewTerminal]);
 
   // Get registry items for the right sidebar
   const quickActionClusters = getNavItemsClustered('rightSidebar', 'quickActions');
@@ -287,8 +237,7 @@ export function SidebarRight() {
                     {cluster.map((item) => {
                       const Icon = item.icon;
                       const isTerminal = item.actionId === 'newTerminal';
-                      const isReload = item.actionId === 'reloadInstance';
-                      const isDisabled = (isTerminal && createPty.isPending) || (isReload && isReloading);
+                      const isDisabled = isTerminal && createPty.isPending;
                       return (
                         <Tooltip key={item.id}>
                           <TooltipTrigger asChild>
@@ -299,14 +248,13 @@ export function SidebarRight() {
                                 'flex items-center justify-center w-full py-2 rounded-lg cursor-pointer',
                                 'text-sidebar-foreground hover:bg-sidebar-accent transition-colors duration-150',
                                 'disabled:opacity-50 disabled:cursor-not-allowed',
-                                isReload && isReloading && 'animate-spin',
                               )}
                             >
                               <Icon className="h-4 w-4" />
                             </button>
                           </TooltipTrigger>
                           <TooltipContent side="left" sideOffset={12} className="text-xs">
-                            {isReload && isReloading ? 'Reloading...' : item.label}
+                            {item.label}
                           </TooltipContent>
                         </Tooltip>
                       );
@@ -374,13 +322,8 @@ export function SidebarRight() {
                         {cluster.map((item) => {
                           const Icon = item.icon;
                           const isTerminal = item.actionId === 'newTerminal';
-                          const isReload = item.actionId === 'reloadInstance';
-                          const isDisabled = (isTerminal && createPty.isPending) || (isReload && isReloading);
-                          const label = isTerminal && createPty.isPending
-                            ? 'Creating...'
-                            : isReload && isReloading
-                              ? 'Reloading...'
-                              : item.label;
+                          const isDisabled = isTerminal && createPty.isPending;
+                          const label = isTerminal && createPty.isPending ? 'Creating...' : item.label;
                           return (
                             <button
                               key={item.id}
@@ -392,7 +335,7 @@ export function SidebarRight() {
                                 'disabled:opacity-50 disabled:cursor-not-allowed',
                               )}
                             >
-                              <Icon className={cn("h-4 w-4 flex-shrink-0", isReload && isReloading && 'animate-spin')} />
+                              <Icon className="h-4 w-4 flex-shrink-0" />
                               <span>{label}</span>
                             </button>
                           );
@@ -448,33 +391,6 @@ export function SidebarRight() {
 
       <SSHKeyDialog open={sshDialogOpen} onOpenChange={setSSHDialogOpen} />
 
-      <AlertDialog open={reloadDialogOpen} onOpenChange={setReloadDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Restart Instance</AlertDialogTitle>
-            <AlertDialogDescription>
-              All managed services will be stopped and restarted. Active sessions will be interrupted.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <Button
-              variant="outline"
-              onClick={() => { setIsFullReload(false); void confirmReloadInstance(); }}
-              disabled={isReloading}
-            >
-              Config Only
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => { setIsFullReload(true); void confirmReloadInstance(); }}
-              disabled={isReloading}
-            >
-              {isReloading ? 'Restarting…' : 'Full Restart'}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }
