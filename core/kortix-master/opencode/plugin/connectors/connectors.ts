@@ -2,8 +2,11 @@
  * Kortix Connectors Plugin
  *
  * Internal registry of what's connected where. A connector is just YAML
- * frontmatter in a CONNECTOR.md — name, description, source, status,
- * and whatever else is relevant. No enforced schema beyond a name.
+ * frontmatter in a CONNECTOR.md — name, description, source, and whatever
+ * else is relevant. No enforced schema beyond a name.
+ *
+ * Connection status is NOT stored in the file — it's checked live via
+ * the Pipedream integration script or CLI auth commands.
  *
  * Nothing ships by default. Scaffolded on demand via connector_setup.
  *
@@ -32,7 +35,7 @@ function resolveWorkspaceRoot(): string {
 
 interface Connector {
 	name: string
-	fields: Record<string, string>  // all frontmatter key-values
+	fields: Record<string, string>
 	location: string
 	content: string
 }
@@ -97,7 +100,7 @@ const ConnectorsPlugin: Plugin = async () => {
 			connector_list: tool({
 				description: "List all connectors — shows what's connected, how, and where.",
 				args: {
-					filter: tool.schema.string().describe('"" for all, or any keyword to filter by.'),
+					filter: tool.schema.string().describe('"" for all. Or filter by type/status/name.'),
 				},
 				async execute(args: { filter: string }): Promise<string> {
 					let connectors = list()
@@ -109,10 +112,9 @@ const ConnectorsPlugin: Plugin = async () => {
 					const rows = connectors.map(c => {
 						const desc = c.fields.description || ""
 						const source = c.fields.source || "—"
-						const status = c.fields.status || "—"
-						return `| ${c.name} | ${desc} | ${source} | ${status} |`
+						return `| ${c.name} | ${desc} | ${source} |`
 					})
-					return `| Name | Description | Source | Status |\n|---|---|---|---|\n${rows.join("\n")}`
+					return `| Name | Description | Source |\n|---|---|---|\n${rows.join("\n")}`
 				},
 			}),
 
@@ -130,9 +132,9 @@ const ConnectorsPlugin: Plugin = async () => {
 			}),
 
 			connector_setup: tool({
-				description: `Batch-scaffold connectors. Pass a JSON array of objects. Only "name" is required — everything else is optional freeform fields (description, source, status, pipedream_slug, env, account, url, whatever is relevant). Overwrites existing.`,
+				description: `Batch-scaffold connectors. Pass a JSON array of objects. Only "name" is required — everything else is optional freeform fields (description, source, pipedream_slug, env, account, url, whatever is relevant). Overwrites existing.`,
 				args: {
-					connectors: tool.schema.string().describe('JSON array. E.g. [{"name":"gmail-marko","description":"markokraemer@gmail.com","source":"pipedream","pipedream_slug":"gmail","status":"connected"},{"name":"github","description":"kortix-ai org","source":"cli","status":"connected"}]'),
+					connectors: tool.schema.string().describe('JSON array. E.g. [{"name":"gmail-marko","description":"personal gmail","source":"pipedream","pipedream_slug":"gmail"},{"name":"github","description":"kortix-ai org","source":"cli"}]'),
 				},
 				async execute(args: { connectors: string }): Promise<string> {
 					let items: Array<Record<string, string>>
@@ -145,7 +147,6 @@ const ConnectorsPlugin: Plugin = async () => {
 						const name = item.name?.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-|-$/g, "")
 						if (!name) continue
 
-						// Build frontmatter from all fields
 						let fm = "---\n"
 						for (const [k, v] of Object.entries(item)) {
 							if (v !== undefined && v !== null && v !== "") {
