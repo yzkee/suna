@@ -24,7 +24,16 @@ const CORE_VARS = ['KORTIX_TOKEN', 'KORTIX_API_URL', 'INTERNAL_SERVICE_KEY'] as 
 
 /**
  * Load bootstrap env vars into process.env.
- * Only sets vars that are missing from process.env — never overwrites existing values.
+ *
+ * IMPORTANT: The bootstrap file is the source of truth for core identity vars.
+ * Docker env vars are frozen at container creation time and become stale when
+ * the API rotates or re-issues KORTIX_TOKEN. The /env API and injectSandboxToken
+ * both update the bootstrap file via updateBootstrapKey(). So on container restart,
+ * the bootstrap file has the LATEST token, while Docker env has the ORIGINAL.
+ *
+ * Therefore: bootstrap file values ALWAYS win over Docker env (process.env).
+ * If there's no bootstrap file yet (first boot), Docker env is used as-is.
+ *
  * Call this BEFORE SecretStore.loadIntoProcessEnv().
  */
 export function loadBootstrapEnv(): number {
@@ -33,9 +42,13 @@ export function loadBootstrapEnv(): number {
     if (!existsSync(BOOTSTRAP_PATH)) return 0
     const data = JSON.parse(readFileSync(BOOTSTRAP_PATH, 'utf-8'))
     for (const key of CORE_VARS) {
-      if (!process.env[key] && data[key]) {
-        process.env[key] = data[key]
-        restored++
+      if (data[key]) {
+        // Always prefer bootstrap file — it's updated by the /env API and
+        // injectSandboxToken, while process.env has the stale Docker creation env.
+        if (process.env[key] !== data[key]) {
+          process.env[key] = data[key]
+          restored++
+        }
       }
     }
     if (restored > 0) {
