@@ -98,7 +98,18 @@ if (config.INTERNAL_KORTIX_ENV === 'dev') {
 
 // === Top-Level Health Check (no auth) ===
 
-const API_VERSION = process.env.SANDBOX_VERSION || process.env.KORTIX_VERSION || 'dev';
+// Read version from release.json (baked into Docker image by Dockerfile).
+// Falls back to 'dev' for local development where the file path differs.
+const API_VERSION = (() => {
+  try {
+    // Docker image path
+    const fs = require('fs');
+    for (const p of ['/app/release.json', require('path').resolve(__dirname, '../../../core/release.json')]) {
+      if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf8')).version;
+    }
+  } catch {}
+  return 'dev';
+})();
 
 app.get('/health', (c) => {
   return c.json({
