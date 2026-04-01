@@ -529,13 +529,14 @@ export default function WorkspacePage() {
   ];
 
   const kindTabs = [
-    { value: 'all'     as KindFilter, label: 'All' },
-    { value: 'project' as KindFilter, label: 'Projects' },
-    { value: 'agent'   as KindFilter, label: 'Agents' },
-    { value: 'skill'   as KindFilter, label: 'Skills' },
-    { value: 'command' as KindFilter, label: 'Commands' },
-    { value: 'tool'    as KindFilter, label: 'Tools' },
-    { value: 'mcp'     as KindFilter, label: 'MCP' },
+    { value: 'all'       as KindFilter, label: 'All' },
+    { value: 'project'   as KindFilter, label: 'Projects' },
+    { value: 'agent'     as KindFilter, label: 'Agents' },
+    { value: 'skill'     as KindFilter, label: 'Skills' },
+    { value: 'command'   as KindFilter, label: 'Commands' },
+    { value: 'tool'      as KindFilter, label: 'Tools' },
+    { value: 'mcp'       as KindFilter, label: 'MCP' },
+    { value: 'connector' as KindFilter, label: 'Connectors' },
   ] as const;
 
   return (
