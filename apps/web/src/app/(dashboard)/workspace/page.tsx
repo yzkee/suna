@@ -187,11 +187,24 @@ function DetailSheet({
       rows.push({ label: 'Error', value: (m.status as { error: string }).error });
     }
   }
+  if (item?.kind === 'connector' && item.raw) {
+    const c = item.raw as KortixConnector;
+    if (c.source) rows.push({ label: 'Source', value: c.source });
+    if (c._path) rows.push({ label: 'File', value: c._path, mono: true });
+    // Show all extra fields
+    for (const [k, v] of Object.entries(c)) {
+      if (k.startsWith('_') || ['name', 'description', 'source'].includes(k) || !v) continue;
+      rows.push({ label: k, value: String(v), mono: true });
+    }
+    if (c._notes) content = c._notes;
+    if (c._modified) rows.push({ label: 'Modified', value: new Date(c._modified).toLocaleString() });
+  }
 
   const contentLabel =
-    item?.kind === 'skill'   ? 'SKILL.md' :
-    item?.kind === 'command' ? 'template' :
-    item?.kind === 'agent'   ? 'system prompt' :
+    item?.kind === 'skill'     ? 'SKILL.md' :
+    item?.kind === 'command'   ? 'template' :
+    item?.kind === 'agent'     ? 'system prompt' :
+    item?.kind === 'connector' ? 'notes' :
     'content';
 
   return (
@@ -414,7 +427,8 @@ export default function WorkspacePage() {
   const { data: commands,  isLoading: lCommands  } = useOpenCodeCommands();
   const { data: toolIds,   isLoading: lTools     } = useOpenCodeToolIds();
   const { data: mcpStatus, isLoading: lMcp       } = useOpenCodeMcpStatus();
-  const { data: connectors, isLoading: lConnectors } = useKortixConnectors();
+  const { data: connectorsData, isLoading: lConnectors } = useKortixConnectors();
+  const connectors = connectorsData?.connectors;
 
   const isLoading = lProjects || lAgents || lSkills || lCommands || lTools || lMcp || lConnectors;
 

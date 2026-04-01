@@ -362,23 +362,36 @@ app.get('/kortix/connectors', async (c) => {
   const { join } = await import('node:path')
   const root = process.env.KORTIX_WORKSPACE || '/workspace'
   const base = join(root, '.opencode', 'connectors')
-  if (!existsSync(base)) return c.json({ connectors: [] })
-  const connectors: Array<Record<string, string>> = []
+  if (!existsSync(base)) return c.json({ connectors: [], basePath: base })
+  const connectors: Array<Record<string, any>> = []
   for (const entry of readdirSync(base)) {
-    const file = join(base, entry, 'CONNECTOR.md')
+    const dir = join(base, entry)
+    const file = join(dir, 'CONNECTOR.md')
     if (!existsSync(file)) continue
-    const raw = readFileSync(file, 'utf8').trimStart()
-    if (!raw.startsWith('---')) continue
-    const end = raw.indexOf('---', 3)
+    const raw = readFileSync(file, 'utf8')
+    const trimmed = raw.trimStart()
+    if (!trimmed.startsWith('---')) continue
+    const end = trimmed.indexOf('---', 3)
     if (end === -1) continue
-    const fields: Record<string, string> = { _dir: entry }
-    for (const line of raw.slice(3, end).trim().split('\n')) {
+    const fields: Record<string, any> = { _dir: entry }
+    for (const line of trimmed.slice(3, end).trim().split('\n')) {
       const m = line.match(/^(\w[\w_-]*)\s*:\s*(.*)$/)
       if (m) fields[m[1]!] = m[2]!.trim().replace(/^["']|["']$/g, '')
     }
+    // Add body content (after frontmatter)
+    const body = trimmed.slice(end + 3).trim()
+    if (body) fields._notes = body
+    // Add file paths
+    fields._path = file
+    fields._dirPath = dir
+    // Add file modified time
+    try {
+      const st = statSync(file)
+      fields._modified = st.mtime.toISOString()
+    } catch {}
     connectors.push(fields)
   }
-  return c.json({ connectors })
+  return c.json({ connectors, basePath: base })
 })
 
 // Pipedream integration proxy — forwards to kortix-api

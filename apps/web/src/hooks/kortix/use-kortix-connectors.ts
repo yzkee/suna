@@ -6,6 +6,10 @@ import { getEnv } from '@/lib/env-config';
 
 export interface KortixConnector {
   _dir: string;
+  _path: string;
+  _dirPath: string;
+  _modified?: string;
+  _notes?: string;
   name: string;
   description?: string;
   source?: string;
@@ -19,12 +23,12 @@ function getBackendUrl(): string {
 export function useKortixConnectors() {
   return useQuery({
     queryKey: ['kortix', 'connectors'],
-    queryFn: async (): Promise<KortixConnector[]> => {
+    queryFn: async (): Promise<{ connectors: KortixConnector[]; basePath: string }> => {
       const url = `${getBackendUrl()}/kortix/connectors`;
       const res = await authenticatedFetch(url);
       if (!res.ok) throw new Error(`Failed to fetch connectors: ${res.status}`);
       const data = await res.json();
-      return data.connectors ?? [];
+      return { connectors: data.connectors ?? [], basePath: data.basePath ?? '' };
     },
     staleTime: 30_000,
   });
