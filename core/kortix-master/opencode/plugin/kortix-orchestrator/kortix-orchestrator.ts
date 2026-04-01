@@ -111,6 +111,18 @@ function initDb(dbPath: string): Database {
 			project_id TEXT NOT NULL REFERENCES projects(id),
 			set_at TEXT NOT NULL
 		);
+		CREATE TABLE IF NOT EXISTS connectors (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			description TEXT,
+			source TEXT,
+			pipedream_slug TEXT,
+			env_keys TEXT,
+			notes TEXT,
+			auto_generated INTEGER DEFAULT 0,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);
 	`)
 	// Migration: add opencode_id column if missing (existing DBs)
 	try { db.exec("ALTER TABLE projects ADD COLUMN opencode_id TEXT") } catch {}

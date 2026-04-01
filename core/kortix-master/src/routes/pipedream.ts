@@ -558,9 +558,9 @@ export async function pushPipedreamCredsToApi(): Promise<void> {
   }
 }
 
-// ─── Connector auto-scaffold ──────────────────────────────────────────────────
+// ─── Connector auto-create ────────────────────────────────────────────────────
 // Called by the API when a new Pipedream OAuth connection is saved.
-// Scaffolds a CONNECTOR.md in the workspace so the agent knows about it.
+// Inserts into the connectors SQLite table.
 
 pipedreamRouter.post('/connector-sync', async (c) => {
   try {
@@ -568,42 +568,35 @@ pipedreamRouter.post('/connector-sync', async (c) => {
     if (!app) return c.json({ error: 'app is required' }, 400)
 
     const name = (app_name || app).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-|-$/g, '')
-    const workspaceRoot = process.env.KORTIX_WORKSPACE || '/workspace'
-    const dir = `${workspaceRoot}/.opencode/connectors/${name}`
-    const file = `${dir}/CONNECTOR.md`
+    const { Database } = await import('bun:sqlite')
+    const { mkdirSync } = await import('node:fs')
+    const { randomUUID } = await import('node:crypto')
 
-    const { mkdirSync, writeFileSync, existsSync } = await import('node:fs')
-    mkdirSync(dir, { recursive: true })
+    const root = process.env.KORTIX_WORKSPACE || '/workspace'
+    mkdirSync(`${root}/.kortix`, { recursive: true })
+    const db = new Database(`${root}/.kortix/kortix.db`)
+    db.exec("PRAGMA journal_mode=DELETE; PRAGMA busy_timeout=5000")
+    db.exec(`CREATE TABLE IF NOT EXISTS connectors (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT, source TEXT,
+      pipedream_slug TEXT, env_keys TEXT, notes TEXT, auto_generated INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )`)
 
-    // Only write if the file doesn't exist — don't overwrite user edits
-    if (!existsSync(file)) {
-      const content = [
-        '---',
-        `name: ${name}`,
-        `description: "${app_name || app}"`,
-        `source: pipedream`,
-        `pipedream_slug: ${app}`,
-        `auto_generated: true`,
-        '---',
-        `Connected via Pipedream OAuth. Use proxyFetch or the integration script to interact:`,
-        '',
-        '```bash',
-        `SCRIPT=$(find /opt/opencode ~/.opencode /workspace /ephemeral -name "integration.ts" 2>/dev/null | head -1)`,
-        `bun run "$SCRIPT" request '{"app":"${app}","method":"GET","url":"..."}'`,
-        `bun run "$SCRIPT" exec '{"app":"${app}","code":"const r = await proxyFetch(\\"...\\"); return await r.json();"}'`,
-        '```',
-        '',
-      ].join('\n')
-      writeFileSync(file, content, 'utf8')
-      console.log(`[Pipedream] Auto-scaffolded connector: ${name}`)
-    } else {
-      console.log(`[Pipedream] Connector already exists: ${name}`)
-    }
+    const now = new Date().toISOString()
+    db.prepare(`
+      INSERT INTO connectors (id, name, description, source, pipedream_slug, notes, auto_generated, created_at, updated_at)
+      VALUES (?, ?, ?, 'pipedream', ?, ?, 1, ?, ?)
+      ON CONFLICT(name) DO UPDATE SET
+        source = 'pipedream', pipedream_slug = excluded.pipedream_slug,
+        auto_generated = 1, updated_at = excluded.updated_at
+    `).run(randomUUID(), name, app_name || app, app, `Connected via Pipedream OAuth`, now, now)
+    db.close()
 
-    return c.json({ success: true, name, created: !existsSync(file) })
+    console.log(`[Pipedream] Auto-created connector: ${name}`)
+    return c.json({ success: true, name })
   } catch (err) {
     console.error('[Pipedream] Connector sync error:', err)
-    return c.json({ error: 'Failed to scaffold connector' }, 500)
+    return c.json({ error: 'Failed to create connector' }, 500)
   }
 })
 

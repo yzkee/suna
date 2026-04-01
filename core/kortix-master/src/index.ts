@@ -24,6 +24,7 @@ import { updateRoutes as updateRouter } from './routes/update'
 import deployRouter from './routes/deploy'
 import servicesRouter from './routes/services'
 import pipedreamRouter, { pushPipedreamCredsToApi } from './routes/pipedream'
+import connectorsRouter from './routes/connectors'
 import suggestionsRouter from './routes/suggestions'
 import coreRouter from './routes/core'
 import reloadRouter from './routes/reload'
@@ -356,43 +357,8 @@ app.route('/kortix/marketplace', marketplaceRouter)
 app.route('/kortix/projects', projectsRouter)
 app.route('/kortix/projects/', projectsRouter)
 
-// Connectors REST endpoint — reads .opencode/connectors/ filesystem
-app.get('/kortix/connectors', async (c) => {
-  const { existsSync, readdirSync, readFileSync, statSync } = await import('node:fs')
-  const { join } = await import('node:path')
-  const root = process.env.KORTIX_WORKSPACE || '/workspace'
-  const base = join(root, '.opencode', 'connectors')
-  if (!existsSync(base)) return c.json({ connectors: [], basePath: base })
-  const connectors: Array<Record<string, any>> = []
-  for (const entry of readdirSync(base)) {
-    const dir = join(base, entry)
-    const file = join(dir, 'CONNECTOR.md')
-    if (!existsSync(file)) continue
-    const raw = readFileSync(file, 'utf8')
-    const trimmed = raw.trimStart()
-    if (!trimmed.startsWith('---')) continue
-    const end = trimmed.indexOf('---', 3)
-    if (end === -1) continue
-    const fields: Record<string, any> = { _dir: entry }
-    for (const line of trimmed.slice(3, end).trim().split('\n')) {
-      const m = line.match(/^(\w[\w_-]*)\s*:\s*(.*)$/)
-      if (m) fields[m[1]!] = m[2]!.trim().replace(/^["']|["']$/g, '')
-    }
-    // Add body content (after frontmatter)
-    const body = trimmed.slice(end + 3).trim()
-    if (body) fields._notes = body
-    // Add file paths
-    fields._path = file
-    fields._dirPath = dir
-    // Add file modified time
-    try {
-      const st = statSync(file)
-      fields._modified = st.mtime.toISOString()
-    } catch {}
-    connectors.push(fields)
-  }
-  return c.json({ connectors, basePath: base })
-})
+// Connectors — SQLite-backed CRUD
+app.route('/kortix/connectors', connectorsRouter)
 
 // Pipedream integration proxy — forwards to kortix-api
 app.route('/api/pipedream', pipedreamRouter)

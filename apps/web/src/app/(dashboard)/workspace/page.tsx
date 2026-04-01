@@ -190,14 +190,11 @@ function DetailSheet({
   if (item?.kind === 'connector' && item.raw) {
     const c = item.raw as KortixConnector;
     if (c.source) rows.push({ label: 'Source', value: c.source });
-    if (c._path) rows.push({ label: 'File', value: c._path, mono: true });
-    // Show all extra fields
-    for (const [k, v] of Object.entries(c)) {
-      if (k.startsWith('_') || ['name', 'description', 'source'].includes(k) || !v) continue;
-      rows.push({ label: k, value: String(v), mono: true });
-    }
-    if (c._notes) content = c._notes;
-    if (c._modified) rows.push({ label: 'Modified', value: new Date(c._modified).toLocaleString() });
+    if (c.pipedream_slug) rows.push({ label: 'Pipedream', value: c.pipedream_slug, mono: true });
+    if (c.env_keys?.length) rows.push({ label: 'Env', value: c.env_keys.join(', '), mono: true });
+    if (c.auto_generated) rows.push({ label: 'Auto', value: 'Created by Pipedream OAuth' });
+    rows.push({ label: 'Updated', value: new Date(c.updated_at).toLocaleString() });
+    if (c.notes) content = c.notes;
   }
 
   const contentLabel =
@@ -246,6 +243,7 @@ function DetailSheet({
               {item.description && (
                 <p className="text-xs text-muted-foreground leading-relaxed mt-3">{item.description}</p>
               )}
+
             </SheetHeader>
 
             {/* Scrollable body */}
@@ -427,8 +425,7 @@ export default function WorkspacePage() {
   const { data: commands,  isLoading: lCommands  } = useOpenCodeCommands();
   const { data: toolIds,   isLoading: lTools     } = useOpenCodeToolIds();
   const { data: mcpStatus, isLoading: lMcp       } = useOpenCodeMcpStatus();
-  const { data: connectorsData, isLoading: lConnectors } = useKortixConnectors();
-  const connectors = connectorsData?.connectors;
+  const { data: connectors, isLoading: lConnectors } = useKortixConnectors();
 
   const isLoading = lProjects || lAgents || lSkills || lCommands || lTools || lMcp || lConnectors;
 
@@ -484,9 +481,9 @@ export default function WorkspacePage() {
     if (connectors && Array.isArray(connectors)) {
       for (const c of connectors) {
         items.push({
-          id: `connector:${c._dir}`,
-          name: c.name || c._dir,
-          description: c.description,
+          id: `connector:${c.id}`,
+          name: c.name,
+          description: c.description || undefined,
           kind: 'connector',
           scope: 'project',
           meta: c.source || 'custom',

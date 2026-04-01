@@ -1,120 +1,70 @@
 /**
- * Kortix Connectors Plugin
- *
- * Internal registry of what's connected where. A connector is just YAML
- * frontmatter in a CONNECTOR.md — name, description, source, and whatever
- * else is relevant. No enforced schema beyond a name.
- *
- * Connection status is NOT stored in the file — it's checked live via
- * the Pipedream integration script or CLI auth commands.
- *
- * Nothing ships by default. Scaffolded on demand via connector_setup.
+ * Kortix Connectors Plugin — SQLite-backed.
+ * Single source of truth in .kortix/kortix.db connectors table.
  *
  * Tools: connector_list, connector_get, connector_setup
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs"
-import { homedir } from "node:os"
+import { Database } from "bun:sqlite"
+import { mkdirSync } from "node:fs"
 import * as path from "node:path"
 import { type Plugin, tool } from "@opencode-ai/plugin"
 
-// ── Workspace root ───────────────────────────────────────────────────────────
-
-function resolveWorkspaceRoot(): string {
-	const explicit = process.env.KORTIX_WORKSPACE?.trim()
-	if (explicit) return explicit
-	const configDir = process.env.OPENCODE_CONFIG_DIR?.trim()
-	if (configDir) {
-		const normalized = path.resolve(configDir)
-		if (normalized.endsWith(".opencode") || normalized.endsWith("opencode")) return path.dirname(normalized)
-	}
-	return process.cwd()
+function resolveDbPath(): string {
+	const root = process.env.KORTIX_WORKSPACE?.trim()
+		|| (process.env.OPENCODE_CONFIG_DIR?.trim()
+			? path.dirname(path.resolve(process.env.OPENCODE_CONFIG_DIR))
+			: process.cwd())
+	const dbDir = path.join(root, ".kortix")
+	mkdirSync(dbDir, { recursive: true })
+	return path.join(dbDir, "kortix.db")
 }
 
-// ── Types ────────────────────────────────────────────────────────────────────
+let _db: Database | null = null
 
-interface Connector {
-	name: string
-	fields: Record<string, string>
-	location: string
-	content: string
+function db(): Database {
+	if (_db) return _db
+	_db = new Database(resolveDbPath())
+	_db.exec("PRAGMA journal_mode=DELETE; PRAGMA busy_timeout=5000")
+	_db.exec(`
+		CREATE TABLE IF NOT EXISTS connectors (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			description TEXT,
+			source TEXT,
+			pipedream_slug TEXT,
+			env_keys TEXT,
+			notes TEXT,
+			auto_generated INTEGER DEFAULT 0,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);
+	`)
+	return _db
 }
 
-// ── Frontmatter parse ────────────────────────────────────────────────────────
-
-function parse(raw: string): { fields: Record<string, string>; content: string } {
-	const t = raw.trimStart()
-	if (!t.startsWith("---")) return { fields: {}, content: raw }
-	const end = t.indexOf("---", 3)
-	if (end === -1) return { fields: {}, content: raw }
-	const yaml = t.slice(3, end).trim()
-	const content = t.slice(end + 3).trim()
-	const fields: Record<string, string> = {}
-	for (const line of yaml.split("\n")) {
-		const match = line.match(/^(\w[\w_-]*)\s*:\s*(.*)$/)
-		if (match) fields[match[1]!] = match[2]!.trim().replace(/^["']|["']$/g, "")
-	}
-	return { fields, content }
+interface Row {
+	name: string; description: string | null; source: string | null
+	pipedream_slug: string | null; env_keys: string | null; notes: string | null
 }
-
-// ── Discovery ────────────────────────────────────────────────────────────────
-
-let _logged = false
-
-function discover(root: string): Connector[] {
-	const dirs = [
-		path.join(root, ".opencode", "connectors"),
-		path.join(homedir(), ".config", "opencode", "connectors"),
-	]
-	if (!_logged) {
-		_logged = true
-		console.log(`[connectors] root=${root}, scanning: ${dirs.join(", ")}`)
-	}
-	const out: Connector[] = []
-	const seen = new Set<string>()
-	for (const base of dirs) {
-		if (!existsSync(base) || !statSync(base).isDirectory()) continue
-		for (const entry of readdirSync(base)) {
-			const dir = path.join(base, entry)
-			const file = path.join(dir, "CONNECTOR.md")
-			if (!existsSync(file)) continue
-			const { fields, content } = parse(readFileSync(file, "utf8"))
-			const name = fields.name || entry
-			if (seen.has(name)) continue
-			seen.add(name)
-			out.push({ name, fields, location: file, content })
-		}
-	}
-	return out.sort((a, b) => a.name.localeCompare(b.name))
-}
-
-// ── Plugin ───────────────────────────────────────────────────────────────────
 
 const ConnectorsPlugin: Plugin = async () => {
-	const root = resolveWorkspaceRoot()
-	const baseDir = path.join(root, ".opencode", "connectors")
-	const list = () => discover(root)
-
 	return {
 		tool: {
 			connector_list: tool({
-				description: "List all connectors — shows what's connected, how, and where.",
+				description: "List all connectors — what's connected, how, and where.",
 				args: {
-					filter: tool.schema.string().describe('"" for all. Or filter by type/status/name.'),
+					filter: tool.schema.string().describe('"" for all, or filter by source/name.'),
 				},
 				async execute(args: { filter: string }): Promise<string> {
-					let connectors = list()
+					let rows = db().query("SELECT * FROM connectors ORDER BY name").all() as Row[]
 					const f = args.filter?.toLowerCase().trim()
-					if (f) connectors = connectors.filter(c =>
-						c.name.includes(f) || Object.values(c.fields).some(v => v.toLowerCase().includes(f))
+					if (f) rows = rows.filter(r =>
+						r.name.includes(f) || r.source?.includes(f) || r.description?.toLowerCase().includes(f)
 					)
-					if (!connectors.length) return "No connectors found."
-					const rows = connectors.map(c => {
-						const desc = c.fields.description || ""
-						const source = c.fields.source || "—"
-						return `| ${c.name} | ${desc} | ${source} |`
-					})
-					return `| Name | Description | Source |\n|---|---|---|\n${rows.join("\n")}`
+					if (!rows.length) return "No connectors found."
+					const lines = rows.map(r => `| ${r.name} | ${r.description || ""} | ${r.source || "—"} |`)
+					return `| Name | Description | Source |\n|---|---|---|\n${lines.join("\n")}`
 				},
 			}),
 
@@ -122,46 +72,60 @@ const ConnectorsPlugin: Plugin = async () => {
 				description: "Get a connector's full metadata.",
 				args: { name: tool.schema.string().describe("Connector name.") },
 				async execute(args: { name: string }): Promise<string> {
-					const connectors = list()
-					const c = connectors.find(x => x.name === args.name) || connectors.find(x => x.name.includes(args.name))
-					if (!c) return `Not found: "${args.name}". Available: ${connectors.map(x => x.name).join(", ") || "none"}`
-					const lines = Object.entries(c.fields).map(([k, v]) => `${k}: ${v}`)
-					if (c.content.trim()) lines.push("", c.content.trim())
-					return lines.join("\n")
+					const row = db().query("SELECT * FROM connectors WHERE name = ? OR name LIKE ?").get(args.name, `%${args.name}%`) as Row | null
+					if (!row) {
+						const all = (db().query("SELECT name FROM connectors ORDER BY name").all() as { name: string }[]).map(r => r.name)
+						return `Not found: "${args.name}". Available: ${all.join(", ") || "none"}`
+					}
+					const parts = [`name: ${row.name}`]
+					if (row.description) parts.push(`description: ${row.description}`)
+					if (row.source) parts.push(`source: ${row.source}`)
+					if (row.pipedream_slug) parts.push(`pipedream: ${row.pipedream_slug}`)
+					if (row.env_keys) parts.push(`env: ${row.env_keys}`)
+					if (row.notes) parts.push(`notes: ${row.notes}`)
+					return parts.join("\n")
 				},
 			}),
 
 			connector_setup: tool({
-				description: `Batch-scaffold connectors. Pass a JSON array of objects. Only "name" is required — everything else is optional freeform fields (description, source, env, account, url, whatever is relevant). Overwrites existing.`,
+				description: `Create or update connectors. Pass a JSON array. Only "name" is required. Fields: name, description, source (pipedream/cli/api-key/mcp/custom), pipedream_slug, env_keys (array), notes.`,
 				args: {
-					connectors: tool.schema.string().describe('JSON array. E.g. [{"name":"google-drive","description":"company shared drive","source":"pipedream"},{"name":"github","description":"kortix-ai org","source":"cli"}]'),
+					connectors: tool.schema.string().describe('JSON array. E.g. [{"name":"github","description":"kortix-ai org","source":"cli"}]'),
 				},
 				async execute(args: { connectors: string }): Promise<string> {
-					let items: Array<Record<string, string>>
+					let items: Array<Record<string, any>>
 					try { items = JSON.parse(args.connectors) } catch { return "Invalid JSON." }
-					if (!Array.isArray(items) || items.length === 0) return "Pass a non-empty array."
+					if (!Array.isArray(items) || !items.length) return "Pass a non-empty array."
 
+					const d = db()
+					const stmt = d.prepare(`
+						INSERT INTO connectors (id, name, description, source, pipedream_slug, env_keys, notes, auto_generated, created_at, updated_at)
+						VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+						ON CONFLICT(name) DO UPDATE SET
+							description = COALESCE(excluded.description, connectors.description),
+							source = COALESCE(excluded.source, connectors.source),
+							pipedream_slug = COALESCE(excluded.pipedream_slug, connectors.pipedream_slug),
+							env_keys = COALESCE(excluded.env_keys, connectors.env_keys),
+							notes = COALESCE(excluded.notes, connectors.notes),
+							updated_at = excluded.updated_at
+					`)
+
+					const { randomUUID } = await import("node:crypto")
+					const now = new Date().toISOString()
 					const results: string[] = []
-
 					for (const item of items) {
-						const name = item.name?.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-|-$/g, "")
-						if (!name) continue
-
-						let fm = "---\n"
-						for (const [k, v] of Object.entries(item)) {
-							if (v !== undefined && v !== null && v !== "") {
-								fm += `${k}: ${typeof v === "string" && v.includes(" ") ? `"${v}"` : v}\n`
-							}
-						}
-						fm += "---\n"
-
-						const dir = path.join(baseDir, name)
-						mkdirSync(dir, { recursive: true })
-						writeFileSync(path.join(dir, "CONNECTOR.md"), fm, "utf8")
+						if (!item.name) continue
+						const name = item.name.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-|-$/g, "")
+						stmt.run(
+							randomUUID(), name,
+							item.description || null, item.source || null,
+							item.pipedream_slug || null,
+							item.env_keys ? JSON.stringify(item.env_keys) : null,
+							item.notes || null, 0, now, now,
+						)
 						results.push(`${name} (${item.source || "custom"})`)
 					}
-
-					return `Scaffolded ${results.length} connectors:\n${results.join("\n")}`
+					return `Created/updated ${results.length} connectors:\n${results.join("\n")}`
 				},
 			}),
 		},

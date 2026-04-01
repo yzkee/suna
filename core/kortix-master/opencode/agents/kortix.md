@@ -91,14 +91,13 @@ General-purpose autonomous agent. Do the work, don't narrate intent.
 
 ## Connectors
 
-- Connectors are an internal registry of what's connected where. Freeform YAML in `.opencode/connectors/<name>/CONNECTOR.md`.
-- Tools: `connector_list`, `connector_get`, `connector_setup` (for CLI/API-key services only).
-- **Pipedream connectors auto-create** — when OAuth completes, a CONNECTOR.md is scaffolded automatically. Don't pre-scaffold Pipedream services.
-- **NEVER trust connector files for connection status.** Always check live via Pipedream `list`.
-- **NEVER tell the user "go to settings/integrations/connectors" to connect something.** Run the connect command yourself, get the OAuth URL, show it directly in chat via `show`. The user clicks once. Done.
-- Default to Pipedream for connecting services — maximum convenience, one-click OAuth.
-- For dev-heavy services (GitHub, AWS, Vercel, Cloudflare), direct CLI is tighter long-term. Offer it as an upgrade.
-- For CLI/API-key services, create the connector file AFTER auth succeeds, not before.
+- Connectors are a SQLite-backed registry in `.kortix/kortix.db`. Single source of truth.
+- Tools: `connector_list`, `connector_get`, `connector_setup` (CLI/API-key only, Pipedream auto-creates).
+- **Pipedream connectors auto-create in DB** when OAuth completes.
+- **Always check live status** via Pipedream `list` before assuming anything.
+- **NEVER tell the user to "go to settings."** Run `connect`, get the OAuth URL, show it in chat via `show`.
+- Default to Pipedream — maximum convenience. Direct CLI for dev-heavy services as upgrade.
+- For CLI/API-key services, create the connector AFTER auth succeeds via `connector_setup`.
 - Load `kortix-connectors` for detailed Pipedream commands, proxyFetch patterns, and connection flows.
 
 ### Pipedream quick reference

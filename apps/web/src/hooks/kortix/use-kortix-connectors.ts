@@ -5,15 +5,16 @@ import { authenticatedFetch } from '@/lib/auth-token';
 import { getEnv } from '@/lib/env-config';
 
 export interface KortixConnector {
-  _dir: string;
-  _path: string;
-  _dirPath: string;
-  _modified?: string;
-  _notes?: string;
+  id: string;
   name: string;
-  description?: string;
-  source?: string;
-  [key: string]: string | undefined;
+  description: string | null;
+  source: string | null;
+  pipedream_slug: string | null;
+  env_keys: string[] | null;
+  notes: string | null;
+  auto_generated: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 function getBackendUrl(): string {
@@ -23,12 +24,12 @@ function getBackendUrl(): string {
 export function useKortixConnectors() {
   return useQuery({
     queryKey: ['kortix', 'connectors'],
-    queryFn: async (): Promise<{ connectors: KortixConnector[]; basePath: string }> => {
+    queryFn: async (): Promise<KortixConnector[]> => {
       const url = `${getBackendUrl()}/kortix/connectors`;
       const res = await authenticatedFetch(url);
       if (!res.ok) throw new Error(`Failed to fetch connectors: ${res.status}`);
       const data = await res.json();
-      return { connectors: data.connectors ?? [], basePath: data.basePath ?? '' };
+      return data.connectors ?? [];
     },
     staleTime: 30_000,
   });
