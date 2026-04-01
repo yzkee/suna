@@ -21,6 +21,9 @@ interface LocalConfigState {
   agentModels: Record<string, { providerID: string; modelID: string }>;
   /** Per-model variant selections: "providerID/modelID" -> variantName */
   modelVariants: Record<string, string>;
+  /** Global default model set during setup wizard — highest priority until user
+   *  explicitly changes model in a session */
+  globalDefault: { providerID: string; modelID: string } | null;
 
   setAgent: (name: string | null) => void;
   setModelForAgent: (
@@ -28,6 +31,9 @@ interface LocalConfigState {
     model: { providerID: string; modelID: string },
   ) => void;
   setVariant: (modelKey: string, variant: string | null) => void;
+  /** Set the global default model — clears all per-agent selections so it
+   *  takes effect everywhere immediately */
+  setGlobalDefault: (model: { providerID: string; modelID: string } | null) => void;
 }
 
 export const useLocalConfigStore = create<LocalConfigState>()(
@@ -36,6 +42,7 @@ export const useLocalConfigStore = create<LocalConfigState>()(
       selectedAgent: null,
       agentModels: {},
       modelVariants: {},
+      globalDefault: null,
 
       setAgent: (name) => set({ selectedAgent: name }),
 
@@ -53,6 +60,15 @@ export const useLocalConfigStore = create<LocalConfigState>()(
             newVariants[modelKey] = variant;
           }
           return { modelVariants: newVariants };
+        }),
+
+      setGlobalDefault: (model) =>
+        set({
+          globalDefault: model,
+          // Clear all per-agent selections so the global default takes effect
+          // everywhere immediately. Without this, stale per-agent data from
+          // previous interactions would override the user's setup choice.
+          agentModels: {},
         }),
     }),
     {
@@ -72,7 +88,9 @@ export interface ResolvedConfig {
   variant: string | null;
   variants: string[];
   setAgent: (name: string) => void;
-  setModel: (providerID: string, modelID: string) => void;
+  setModel: (providerID: string, modelID: string, options?: { autoSeed?: boolean; explicit?: boolean }) => void;
+  /** Set a global default model (from setup wizard). Clears per-agent selections. */
+  setGlobalDefault: (model: { providerID: string; modelID: string } | null) => void;
   cycleVariant: () => void;
   setVariant: (variant: string | null) => void;
 }
@@ -94,19 +112,31 @@ export function useResolvedConfig(
 
   // ── Resolve model (fallback chain) ──
   const agentName = agent?.name || '_default';
-
-  // 1. Persisted per-agent selection
-  const persisted = store.agentModels[agentName];
   let model: FlatModel | null = null;
 
-  if (persisted) {
+  // 1. User's global default (set during onboarding setup wizard — wins until
+  //    user explicitly changes model in a session, which clears globalDefault)
+  if (store.globalDefault) {
     model =
       models.find(
-        (m) => m.providerID === persisted.providerID && m.modelID === persisted.modelID,
+        (m) =>
+          m.providerID === store.globalDefault!.providerID &&
+          m.modelID === store.globalDefault!.modelID,
       ) || null;
   }
 
-  // 2. Agent's configured model
+  // 2. Persisted per-agent selection
+  if (!model) {
+    const persisted = store.agentModels[agentName];
+    if (persisted) {
+      model =
+        models.find(
+          (m) => m.providerID === persisted.providerID && m.modelID === persisted.modelID,
+        ) || null;
+    }
+  }
+
+  // 3. Agent's configured model
   if (!model && agent?.model) {
     model =
       models.find(
@@ -116,14 +146,14 @@ export function useResolvedConfig(
       ) || null;
   }
 
-  // 3. Config model ("provider/modelId")
+  // 4. Config model ("provider/modelId")
   if (!model && config?.model) {
     const [pid, ...rest] = config.model.split('/');
     const mid = rest.join('/');
     model = models.find((m) => m.providerID === pid && m.modelID === mid) || null;
   }
 
-  // 4. Provider defaults
+  // 5. Provider defaults
   if (!model) {
     for (const [pid, mid] of Object.entries(defaults)) {
       model = models.find((m) => m.providerID === pid && m.modelID === mid) || null;
@@ -131,7 +161,7 @@ export function useResolvedConfig(
     }
   }
 
-  // 5. First available
+  // 6. First available
   if (!model && models.length > 0) {
     model = models[0];
   }
@@ -146,8 +176,27 @@ export function useResolvedConfig(
     store.setAgent(name);
   };
 
-  const setModel = (providerID: string, modelID: string) => {
+  const setModel = (
+    providerID: string,
+    modelID: string,
+    options?: { autoSeed?: boolean; explicit?: boolean },
+  ) => {
+    // When auto-seeding from a message and globalDefault is set, skip —
+    // the user's setup wizard choice takes precedence over message-seeded models.
+    if (options?.autoSeed && store.globalDefault) {
+      const gd = store.globalDefault;
+      if (models.find((m) => m.providerID === gd.providerID && m.modelID === gd.modelID)) {
+        return;
+      }
+    }
+
     store.setModelForAgent(agentName, { providerID, modelID });
+
+    // User explicitly changed model — clear globalDefault so their
+    // per-agent choice takes over going forward.
+    if (options?.explicit && store.globalDefault) {
+      store.setGlobalDefault(null);
+    }
   };
 
   const cycleVariant = () => {
@@ -176,6 +225,7 @@ export function useResolvedConfig(
     variants,
     setAgent,
     setModel,
+    setGlobalDefault: store.setGlobalDefault,
     cycleVariant,
     setVariant: setVariantDirect,
   };

@@ -829,7 +829,7 @@ export function SessionPage({ sessionId, onBack, onOpenDrawer, onOpenRightDrawer
             variant={resolved.variant}
             variants={resolved.variants}
             onAgentChange={resolved.setAgent}
-            onModelChange={resolved.setModel}
+            onModelChange={(pid, mid) => resolved.setModel(pid, mid, { explicit: true })}
             onVariantCycle={resolved.cycleVariant}
             onVariantSet={resolved.setVariant}
             sessions={allSessions}
