@@ -1167,7 +1167,7 @@ export function InstanceManagerDialog({
                 </button>
               )}
 
-              {!isBillingEnabled() && hasLocalDocker && (
+              {hasLocalDocker && (
                 <button
                   type="button"
                   onClick={() => handleCreateSandbox('local_docker')}
@@ -1186,7 +1186,9 @@ export function InstanceManagerDialog({
                     <p className="text-xs text-muted-foreground/70 mt-0.5">
                       {isCreatingSandbox && creatingProvider === 'local_docker' && sandboxProgress
                         ? sandboxProgress.message
-                        : 'Runs on your machine via Docker'}
+                        : isBillingEnabled()
+                          ? 'Runs on your machine via Docker alongside cloud instances'
+                          : 'Runs on your machine via Docker'}
                     </p>
                   </div>
                 </button>
