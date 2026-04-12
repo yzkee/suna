@@ -39,6 +39,9 @@ importers:
       '@kortix/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@kortix/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@logtail/node':
         specifier: ^0.5.8
         version: 0.5.8

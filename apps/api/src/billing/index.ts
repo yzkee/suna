@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { AUTO_TOPUP_DEFAULT_AMOUNT, AUTO_TOPUP_DEFAULT_THRESHOLD } from '@kortix/shared';
 import { supabaseAuth } from '../middleware/auth';
 import { config } from '../config';
 
@@ -92,8 +93,8 @@ billingApp.post('/setup/initialize', async (c: any) => {
       balance: '0',
       dailyCreditsBalance: '0',
       autoTopupEnabled: false,
-      autoTopupThreshold: '5',
-      autoTopupAmount: '20',
+      autoTopupThreshold: String(AUTO_TOPUP_DEFAULT_THRESHOLD),
+      autoTopupAmount: String(AUTO_TOPUP_DEFAULT_AMOUNT),
     });
   }
 

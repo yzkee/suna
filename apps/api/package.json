@@ -19,6 +19,7 @@
     "@ai-sdk/xai": "^3.0.48",
     "@daytonaio/sdk": "^0.143.0",
     "@kortix/db": "workspace:*",
+    "@kortix/shared": "workspace:*",
     "@logtail/node": "^0.5.8",
     "@sentry/bun": "^10.47.0",
     "@supabase/supabase-js": "^2.95.3",
